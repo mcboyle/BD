@@ -266,12 +266,58 @@ def _exit_definitions() -> str:
     return "\n".join(_extract(name) for name in ("cleanup", "on_exit", "die"))
 
 
-def _service_stubs() -> str:
+_SUDO_STUB = """#!/bin/sh
+echo SUDO "$*" >> "$T/calls"
+case " $* " in
+  *" start bulkdownloader "*) echo active > "$T/svc-state" ;;
+  *" stop bulkdownloader "*)  echo inactive > "$T/svc-state" ;;
+esac
+exit 0
+"""
+
+_SYSTEMCTL_STUB = """#!/bin/sh
+echo SYSTEMCTL "$*" >> "$T/calls"
+case " $* " in
+  *" is-active "*)
+    [ "$(cat "$T/svc-state" 2>/dev/null)" = active ] && exit 0
+    exit 3 ;;
+esac
+exit 0
+"""
+
+
+def _service_stubs(state: str = "inactive") -> str:
+    """A systemctl/sudo pair that can represent a unit which is NOT running.
+
+    The original pair exited 0 for every verb, so `is-active` answered ACTIVE
+    unconditionally and the stub could not express the very condition these
+    tests are about.  It survived because on_exit only consulted is-active
+    AFTER its start, where "always active" happens to be the answer a
+    successful recovery produces -- so the stub agreed with the subject by
+    accident.  Now that the recovery is skipped on affirmative is-active
+    evidence, a stub that always says ACTIVE reports "nothing to recover" for
+    every case, including the stopped window.  A harness that cannot represent
+    the failure cannot test for it (CLAUDE.md A7).
+
+    The unit therefore has a STATE.  The emergency start is issued through
+    `sudo`, so `sudo` is what flips it; bare `systemctl is-active` reads it and
+    exits 0 only for `active`, which is the exit contract the subject branches
+    on.  `state` seeds it: "inactive" is the stopped window, "active" is a stop
+    that never took.
+    """
     return (
+        # EXPORTED: the stubs are separate processes and read $T themselves.
+        # The printf-built pair this replaced expanded $T at WRITE time inside a
+        # double-quoted format, so the path was baked in and the export was not
+        # needed; a quoted heredoc keeps the body literal, which is what makes
+        # `$*` survive, and therefore what makes `$T` need exporting.
+        'export T\n'
         'mkdir -p "$T/bin"\n'
-        'printf "#!/bin/sh\\necho SUDO \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/sudo"\n'
-        'printf "#!/bin/sh\\necho SYSTEMCTL \\$* >> $T/calls\\nexit 0\\n" > "$T/bin/systemctl"\n'
+        'cat > "$T/bin/sudo" <<\'BD_SUDO_STUB\'\n' + _SUDO_STUB + 'BD_SUDO_STUB\n'
+        'cat > "$T/bin/systemctl" <<\'BD_SYSTEMCTL_STUB\'\n'
+        + _SYSTEMCTL_STUB + 'BD_SYSTEMCTL_STUB\n'
         'chmod +x "$T/bin/sudo" "$T/bin/systemctl"; PATH="$T/bin:$PATH"\n'
+        'echo %s > "$T/svc-state"\n' % state
     )
 
 
@@ -295,6 +341,45 @@ def test_exit_guard_restarts_the_service_once_when_die_exits(tmp_path):
         "die() did not trigger exactly one EXIT recovery attempt after the unit "
         "had been stopped:\n%s\n%s\n%s" % (calls, out.stdout, out.stderr))
     assert "RESTARTED-PARTIAL-DEPLOY" in out.stderr, out
+    assert "SERVICE-NEVER-STOPPED" not in out.stderr, (
+        "a genuinely stopped unit was reported as never having stopped, so the "
+        "recovery that DID run is being described by the wrong banner:\n%s" % out.stderr)
+
+
+def test_exit_guard_does_not_restart_a_unit_the_stop_never_took_down(tmp_path):
+    """Step 8 now arms SERVICE_STOPPED BEFORE the stop request, so the debt can
+    be owed over a unit that is still running.  Paying it would start a live
+    service and then announce RESTARTED-PARTIAL-DEPLOY about a unit that never
+    moved -- this row's own fail-open shape, rebuilt inside its remedy.
+
+    The skip is conditional on AFFIRMATIVE evidence: `is-active --quiet` exits 0
+    only for `active`.  Inactive, failed, unknown and an unreachable systemctl
+    all exit nonzero and still attempt the start, which is why
+    test_exit_guard_restarts_the_service_once_when_die_exits above -- identical
+    except for the seeded unit state -- still recovers.
+    """
+    fn = _exit_definitions()
+    stub = _service_stubs(state="active")
+    out = _run(
+        'T=%s; ' % shlex.quote(str(tmp_path)) + stub
+        + 'STEP=8; GTMP=""; SERVICE_STOPPED=1; DEPLOY_SUCCEEDED=0; '
+        + 'EXIT_HANDLER_RUNNING=0\n' + fn
+        + '\ntrap on_exit EXIT\ndie "the unit is still active after the stop"',
+    )
+    calls = _recorded_service_calls(tmp_path)
+    state = (tmp_path / "svc-state").read_text(encoding="utf-8").strip()
+    assert state == "active", (
+        "harness error, NOT a subject failure: the fixture did not keep the "
+        "unit active across the handler:\n%s" % calls)
+    assert out.returncode == 1, out
+    assert "EXIT AFTER SERVICE STOP REQUEST" in out.stderr, (
+        "the guard did not even reach its recovery decision" + out.stderr)
+    assert calls.count("start bulkdownloader") == 0, (
+        "the EXIT guard started a unit that was never stopped:\n%s\n%s\n%s"
+        % (calls, out.stdout, out.stderr))
+    assert "SERVICE-NEVER-STOPPED" in out.stderr, out.stderr
+    assert "RESTARTED-PARTIAL-DEPLOY" not in out.stderr, out.stderr
+    assert "SERVICE-IS-DOWN" not in out.stderr, out.stderr
 
 
 def test_exit_guard_does_not_touch_the_service_when_it_was_never_stopped(tmp_path):

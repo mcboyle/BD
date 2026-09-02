@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1439 - the recovery debt opens before the stop
+
+Row 285, recovered from a commit that existed only on one capacity host and was
+never pushed. The defect was live on main and every host ran the script.
+
+- THE FAIL-OPEN. deploy.sh stopped the service and armed SERVICE_STOPPED on the
+  NEXT line. The EXIT guard's emergency restart is conditional on that variable,
+  so a stop that FAILED WHILE NONETHELESS STOPPING THE SERVICE took the die
+  before the debt was armed: the deploy exited with production down and no
+  recovery attempted. The debt now opens immediately BEFORE the stop, so there
+  is no window in which the service can be down and unowed.
+- A SECOND READING WAS COLLAPSING. The confirmation probe used a form that
+  discards the exit status, so an UNKNOWN unit state read as "stopped" and
+  entered the unsafe window. It is now a four-way classification and only an
+  affirmative reading proceeds.
+- AND THE MIRROR DEFECT, FOUND WHILE FIXING THE FIRST. The recovery would start
+  a unit that had never stopped. It now skips the start ONLY on affirmative
+  evidence that the service is already active; every other reading, UNKNOWN
+  included, still recovers. Refusing to act on an unmeasurable state would be
+  the same mistake pointed the other way.
+
+The archived commit's content applied verbatim: all five files it touches are
+byte-identical between its base and main, so "three hundred commits behind" was
+a commit count and not a content difference. An earlier report that this row was
+already fixed was WRONG, and is corrected here -- that fix is an ancestor of
+this commit's own base.
+
+A harness artifact had to be repaired first: the deploy test's service stubs
+exited zero for every verb, so they could not represent a stopped unit and the
+test could not have seen this defect. Every deploy exercised here ran in a
+sandboxed clone with the privileged commands shimmed; no host was contacted.
+
 ## v3.66.1438 - an unverifiable answer is not an answer
 
 Rows 444, 446, 448 and the interface half of row 553. All four are the same

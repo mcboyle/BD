@@ -110,8 +110,10 @@ EXIT_HANDLER_RUNNING=0
 # there parks the box with the service off -- measured at v3.66.1035, when an
 # orphaned pytest on the target wrote .pyc files while step 9 removed them and
 # test4 sat down until someone looked. Aborting was right; aborting silently was
-# not. SERVICE_STOPPED is what makes the recovery conditional: a precondition
-# refusal must never start a unit the operator had deliberately left down.
+# not. SERVICE_STOPPED is the recovery debt opened immediately before the stop
+# request: even a failing systemctl call may have stopped the unit before it
+# returned. A precondition refusal still never reaches that assignment and
+# therefore never starts a unit the operator had deliberately left down.
 #
 # Recovery belongs to the EXIT guard below rather than to the die function.
 # Errexit can terminate the shell without calling die, and an ERR trap misses
@@ -320,16 +322,32 @@ on_exit() {
   set +e
   if [ "${SERVICE_STOPPED:-0}" = 1 ] \
      && [ "${DEPLOY_SUCCEEDED:-0}" != 1 ]; then
-    printf 'deploy.sh: *** EXIT WITH SERVICE STOPPED [step %s, status %s] ***\n' \
+    printf 'deploy.sh: *** EXIT AFTER SERVICE STOP REQUEST [step %s, status %s] ***\n' \
       "$STEP" "$exit_status" >&2
-    printf 'deploy.sh: attempting emergency start of bulkdownloader\n' >&2
-    sudo systemctl start bulkdownloader >/dev/null 2>&1
+    # THE DEBT IS OPENED BEFORE THE STOP, SO IT CAN BE OWED OVER A LIVE UNIT.
+    # Step 8 arms SERVICE_STOPPED before issuing the request, which is what lets
+    # a failing-but-effective stop be recovered -- and the same widening means a
+    # stop that never took (unit still active) also reaches here. Starting a
+    # running service and announcing RESTARTED-PARTIAL-DEPLOY would reproduce
+    # this row's own fail-open shape inside its remedy: a comforting banner
+    # about a recovery that never happened. Skip the start ONLY on affirmative
+    # evidence the unit is active; `is-active --quiet` exits 0 for exactly that
+    # and nonzero for inactive, failed, unknown, and an unreachable systemctl,
+    # so every unmeasured reading still attempts the recovery and FAILS CLOSED.
     if systemctl is-active --quiet bulkdownloader; then
-      printf 'deploy.sh: *** RESTARTED-PARTIAL-DEPLOY ***\n' >&2
-      printf 'deploy.sh: the tree moved and later steps did not finish. Re-run me.\n' >&2
+      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\n' >&2
+      printf 'deploy.sh: the unit is still active, so no emergency start was issued.\n' >&2
+      printf 'deploy.sh: the tree may have moved and later steps did not finish. Re-run me.\n' >&2
     else
-      printf 'deploy.sh: *** SERVICE-IS-DOWN ***\n' >&2
-      printf 'deploy.sh: emergency start failed; restore the unit before leaving.\n' >&2
+      printf 'deploy.sh: attempting emergency start of bulkdownloader\n' >&2
+      sudo systemctl start bulkdownloader >/dev/null 2>&1
+      if systemctl is-active --quiet bulkdownloader; then
+        printf 'deploy.sh: *** RESTARTED-PARTIAL-DEPLOY ***\n' >&2
+        printf 'deploy.sh: the tree moved and later steps did not finish. Re-run me.\n' >&2
+      else
+        printf 'deploy.sh: *** SERVICE-IS-DOWN ***\n' >&2
+        printf 'deploy.sh: emergency start failed; restore the unit before leaving.\n' >&2
+      fi
     fi
     # An exit before the recorded success point is never a successful deploy,
     # even if the command that left the stopped window happened to return zero.
@@ -691,15 +709,34 @@ fi
 # ── [8] stop the service ────────────────────────────────────────────
 # `systemctl stop` returning 0 is a request that was accepted, not a unit that
 # is down. Steps 9 and 10 are unsafe against a live service, so the stop is
-# CONFIRMED before either runs.
+# CONFIRMED before either runs. The recovery debt is recorded BEFORE the request
+# because systemctl can stop the unit and still return nonzero; every exit after
+# this point therefore makes one best-effort start unless step 11 clears it.
 STEP=8
-sudo systemctl stop bulkdownloader || die "sudo systemctl stop bulkdownloader failed"
-SERVICE_STOPPED=1        # the EXIT guard owes a restart until step 11 clears it
-if systemctl is-active bulkdownloader >/dev/null 2>&1; then
-  die "systemctl stop bulkdownloader returned success but the unit is STILL
-  ACTIVE. The bytecode sweep and the parity regen that follow are unsafe against
-  a live service, so this deploy stops here rather than running them anyway."
-fi
+SERVICE_STOPPED=1
+stop_exit=0
+sudo systemctl stop bulkdownloader || stop_exit=$?
+state_exit=0
+service_state="$(systemctl is-active bulkdownloader 2>&1)" || state_exit=$?
+case "$service_state" in
+  inactive|failed)
+    [ "$stop_exit" -eq 0 ] || die "sudo systemctl stop bulkdownloader failed
+  (stop exit=$stop_exit) after the unit became $service_state (is-active
+  exit=$state_exit).
+  The unsafe stopped window was not entered; emergency recovery is required."
+    ;;
+  active|activating|deactivating|reloading)
+    die "bulkdownloader is still $service_state after the stop request
+  (stop exit=$stop_exit, is-active exit=$state_exit). The bytecode sweep and
+  parity regen that follow are unsafe unless the unit is confirmed inactive."
+    ;;
+  *)
+    die "unit state is UNKNOWN after the bulkdownloader stop request
+  (state=${service_state:-<no output>}, is-active exit=$state_exit, stop
+  exit=$stop_exit). The unsafe stopped window was not entered; emergency
+  recovery is required."
+    ;;
+esac
 note "service stopped and confirmed inactive"
 
 # ── [9] bytecode sweep, in the stopped window ───────────────────────
