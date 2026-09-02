@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
@@ -84,7 +84,7 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
           GITLEAKS_BASELINE_PATH: .gitleaks-baseline.json
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
@@ -277,7 +277,7 @@ jobs:
         # Its exit code cannot distinguish "499 tests passed" from "nothing was
         # collected", which is the whole reason the next step exists.
         run: npx vitest run --reporter=json --outputFile=/tmp/vitest.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
@@ -721,7 +721,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
