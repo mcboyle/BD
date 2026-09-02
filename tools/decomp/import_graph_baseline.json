@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4268,
+  "edge_count": 4273,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3805,6 +3805,12 @@
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/secrets_store.py"
     ],
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/vpn_runtime.py"
+    ],
     "tests/test_row440_443_ffmpeg_probe_boundary.py": [
       "bulk_downloader/dedup.py",
       "bulk_downloader/enrichment.py",
@@ -6343,7 +6349,8 @@
     "tests/test_v3_66_695_plugin_extractor_hls.py": [
       "bulk_downloader/hls_downloader.py",
       "bulk_downloader/plugins.py",
-      "bulk_downloader/runner_extractors.py"
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_v3_66_696_jd_coverage_button.py": [
       "tools/gui_parity_inventory.py"

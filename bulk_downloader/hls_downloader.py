@@ -229,6 +229,69 @@ def _parse_ffmpeg_progress(line: str) -> Optional[dict]:
 # ─── Command builder ────────────────────────────────────────────────
 
 
+# ─── Egress control (row 439) ────────────────────────────────────────
+#
+# THE CONTRACT: this module drives ffmpeg, a SUBPROCESS, over the network.
+# Every sibling transfer path in BD (yt-dlp, gallery-dl, direct-HTTP, the
+# media probe) resolves a fail-closed proxy before it builds a client, so a
+# ``vpn_required`` site whose tunnel is down never egresses on the clear
+# interface. Segmented (HLS/DASH) transfers did not, so ffmpeg fetched every
+# segment outside that control.
+#
+# ffmpeg has NO SOCKS CLIENT. ``-http_proxy`` and the ``http_proxy`` env var
+# take an HTTP proxy only, and BD's VPN tunnels publish ``socks5://`` URLs
+# (vpn.get_socks_url). So a resolved proxy is either carriable or it is not,
+# and CLAUDE.md A2 decides the second case: a control that cannot enforce its
+# condition REFUSES. Degrading open here would be the very defect this fixes.
+
+#: Proxy URL schemes ffmpeg's http/https protocols can actually honor.
+CARRIABLE_PROXY_SCHEMES = ("http://", "https://")
+
+#: Ambient variables that silently reroute ffmpeg's segment fetches. They are
+#: stripped from every spawn env; when an HTTP proxy IS in effect the two
+#: request vars are re-set to that exact resolved URL (belt and braces with the
+#: ``-http_proxy`` argv flag, whose forwarding into the hls demuxer's nested
+#: segment requests is build-dependent).
+_PROXY_ENV_VARS = (
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "FTP_PROXY",
+)
+
+
+def proxy_is_carriable(proxy_url: Optional[str]) -> bool:
+    """True when ffmpeg can actually route through ``proxy_url``.
+
+    Empty/None is carriable -- it means "no proxy in effect", which is a
+    decision the CALLER has already made (degrade open) and not something this
+    module can second-guess. A ``socks5://``/``socks5h://`` URL is NOT
+    carriable: ffmpeg would ignore it and fetch on the clear interface.
+    """
+    p = (proxy_url or "").strip()
+    if not p:
+        return True
+    return p.lower().startswith(CARRIABLE_PROXY_SCHEMES)
+
+
+def scrubbed_env(proxy_url: Optional[str] = None,
+                 base: Optional[dict] = None) -> dict:
+    """A spawn environment with the ambient proxy variables REMOVED.
+
+    ``env=None`` on Popen means "inherit everything", which is how an
+    ``http_proxy`` set in the service environment silently rerouted ffmpeg's
+    segment fetches. This builds the env explicitly instead: copy, strip every
+    proxy var, then -- only when a carriable proxy is in effect -- set
+    ``http_proxy``/``https_proxy`` to that exact URL.
+    """
+    env = dict(os.environ if base is None else base)
+    for var in _PROXY_ENV_VARS:
+        env.pop(var, None)
+    p = (proxy_url or "").strip()
+    if p and proxy_is_carriable(p):
+        env["http_proxy"] = p
+        env["https_proxy"] = p
+    return env
+
+
 def _build_ffmpeg_cmd(
     ffmpeg_path: str,
     input_url: str,
@@ -238,6 +301,7 @@ def _build_ffmpeg_cmd(
     extra_headers: Optional[dict[str, str]] = None,
     threads: int = 1,
     extra_args: Optional[list[str]] = None,
+    proxy_url: Optional[str] = None,
 ) -> list[str]:
     """Construct an ffmpeg argv that downloads `input_url` (HLS or DASH)
     into `output_path`. Designed to be robust on flaky CDNs:
@@ -251,6 +315,12 @@ def _build_ffmpeg_cmd(
       - Output container inferred from extension
 
     Caller MUST validate input_url has http(s) scheme already.
+
+    ``proxy_url`` (row 439) is emitted as ``-http_proxy`` among the INPUT
+    options, i.e. before ``-i`` -- ffmpeg applies protocol options to the
+    input that follows them, so a flag placed after ``-i`` would be silently
+    inert. Only a carriable (http/https) URL may be passed; the caller refuses
+    anything else rather than building an argv ffmpeg would ignore.
     """
     cmd = [ffmpeg_path, "-hide_banner", "-loglevel", "info",
            "-y",  # overwrite output without prompting
@@ -268,6 +338,16 @@ def _build_ffmpeg_cmd(
         cmd += ["-user_agent", user_agent]
     if referer:
         cmd += ["-referer", referer]
+    _proxy = (proxy_url or "").strip()
+    if _proxy:
+        # Guarded rather than assumed: an uncarriable scheme reaching here
+        # would produce an argv ffmpeg ignores, which is a silent clear-net
+        # fetch. download() refuses first; this is the second gate.
+        if not proxy_is_carriable(_proxy):
+            raise ValueError(
+                f"hls: refusing to build an ffmpeg argv for an uncarriable "
+                f"proxy scheme: {_proxy!r} (ffmpeg has no SOCKS client)")
+        cmd += ["-http_proxy", _proxy]
     if extra_headers:
         # ffmpeg wants headers as a single \r\n-joined blob via -headers
         hdr_blob = "\r\n".join(f"{k}: {v}" for k, v in extra_headers.items()) + "\r\n"
@@ -302,6 +382,8 @@ def download(
     cancel_check: Optional[Callable[[], bool]] = None,
     max_runtime_s: Optional[int] = None,
     extra_ffmpeg_args: Optional[list[str]] = None,
+    proxy_url: Optional[str] = None,
+    env: Optional[dict] = None,
 ) -> DownloadResult:
     """Download an HLS/DASH stream at `manifest_url` to `output_path`.
 
@@ -315,6 +397,18 @@ def download(
 
     `max_runtime_s` overrides the hls_max_runtime_s default for this call.
 
+    `proxy_url` (row 439) is the egress proxy the CALLER resolved fail-closed.
+    An http/https URL is carried into both the argv (``-http_proxy``) and the
+    spawn env. A ``socks5://`` URL -- what BD's VPN tunnels publish -- is
+    REFUSED with ``error='proxy_scheme_unsupported'``, because ffmpeg has no
+    SOCKS client and would fetch on the clear interface instead. None/empty
+    means no proxy is in effect and the transfer proceeds unproxied.
+
+    `env` is the spawn environment. The default is NOT inheritance: when None,
+    a scrubbed copy of ``os.environ`` is built with every ambient proxy
+    variable removed, so an ``http_proxy`` in the service environment can no
+    longer silently reroute segment fetches.
+
     Returns a DownloadResult. Never raises.
     """
     ff = _find_ffmpeg()
@@ -327,6 +421,21 @@ def download(
     if not output_path:
         return DownloadResult(ok=False, error="bad_output_path",
                               error_detail="output_path is empty")
+    # Row 439: UNKNOWN IS NOT PERMISSION. The caller resolved an egress proxy
+    # this transfer is required to use; if ffmpeg cannot route through it, the
+    # only honest outcome is to refuse BEFORE a subprocess exists. A distinct
+    # error code, not a generic one -- an operator can act on this (configure
+    # an explicit http proxy for the site, which wins over the tunnel) and
+    # cannot act on "segmented download failed".
+    if not proxy_is_carriable(proxy_url):
+        return DownloadResult(
+            ok=False, error="proxy_scheme_unsupported",
+            error_detail=(
+                f"refusing to fetch segments outside the required egress "
+                f"proxy: ffmpeg has no SOCKS client and cannot route through "
+                f"{str(proxy_url).strip()!r}. Configure an explicit http:// "
+                f"proxy for this site (an explicit proxy wins over the VPN "
+                f"tunnel) or disable segmented transfers for it."))
     # Make sure the output dir exists.
     try:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -344,7 +453,7 @@ def download(
         ff, manifest_url, output_path,
         user_agent=user_agent, referer=referer,
         extra_headers=extra_headers, threads=threads,
-        extra_args=extra_ffmpeg_args,
+        extra_args=extra_ffmpeg_args, proxy_url=proxy_url,
     )
 
     # Launch in its own process group so we can kill the whole tree on
@@ -355,6 +464,10 @@ def download(
         "stdin": subprocess.DEVNULL,
         "text": True,
         "bufsize": 1,           # line-buffered
+        # Row 439: ALWAYS explicit, never inherited. env=None on Popen means
+        # "hand the child everything", which is how an ambient http_proxy
+        # rerouted segment fetches with nothing naming it.
+        "env": scrubbed_env(proxy_url) if env is None else dict(env),
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

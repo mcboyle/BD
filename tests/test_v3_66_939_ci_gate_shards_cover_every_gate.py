@@ -267,6 +267,13 @@ _DECLARED = {
     "tests/test_source_windows_do_not_shift.py",
     "tests/test_generated_artifacts_are_not_tracked.py",
     "tests/test_settings_center_slice4.py",
+    # Row 439. Segmented (HLS/DASH) transfers bypassed the fail-closed VPN
+    # egress gate every sibling transfer path passes, so ffmpeg fetched every
+    # segment on the clear interface for a vpn_required site whose tunnel was
+    # down. The fix routes all six arms through one gate; the tree-wide half of
+    # this module holds the denominator that keeps a SEVENTH arm from quietly
+    # reopening it, which only works if it runs on every PR.
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py",
     "tests/test_versync_gate.py",
     "tests/test_release_hygiene_gates.py",
     # Row 335. Both release verifiers previously passed over absent evidence.
