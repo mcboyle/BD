@@ -204,7 +204,15 @@ export function Integrations() {
           loading={integrationsHealth.isLoading}
         />
         <h3 className="section-head mt-4">Secret usage · references only</h3>
-        <SecretsUsageList data={secretsUsage.data} loading={secretsUsage.isLoading} />
+        {/* Rows 553/488: the refusal MUST be handed on. apiGet throws ApiError
+            on the endpoint's 409, so passing only data/isLoading left the panel
+            with `data === undefined` and it printed "No stored secrets." over a
+            vault nothing had read. */}
+        <SecretsUsageList
+          data={secretsUsage.data}
+          loading={secretsUsage.isLoading}
+          error={secretsUsage.error}
+        />
       </Card>
 
       {/* v3.66.731: the webhooks CONTROL cluster. The blueprint has existed since
