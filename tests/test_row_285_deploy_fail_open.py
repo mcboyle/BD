@@ -150,6 +150,49 @@ def test_f03_unknown_stop_state_fails_closed_and_attempts_recovery(
     assert "DEPLOY OK" not in _combined(result)
 
 
+def test_f03_still_active_unit_is_not_restarted_by_the_recovery() -> None:
+    """The debt is opened before the stop, so it can be opened over a unit the
+    stop never took down.  Paying a debt that was never owed would issue a start
+    against a live service and then report RESTARTED-PARTIAL-DEPLOY about a unit
+    that never went anywhere -- the fail-open shape this row exists to close,
+    reproduced inside its own remedy.  Recovery is skipped ONLY on affirmative
+    evidence that the unit is active; every other reading, UNKNOWN included,
+    still attempts the start (see the unknown-state test above, where is-active
+    exits 4 and the recovery fires).
+    """
+    fx = deploy_support._setup(STOP_STICKY="1")
+    deploy_support._bundle_current(fx)
+    stale = deploy_support._write(
+        Path(fx.clone) / "bulk_downloader" / "__pycache__" / "sticky-stop.pyc",
+        "fixture-only stale bytecode\n",
+    )
+
+    result = deploy_support._deploy(fx)
+
+    service_calls = deploy_support._lines(fx.logs["systemctl"])
+    out = _combined(result)
+    assert deploy_support._read(fx.env["SVC_STATE"]).strip() == "active", (
+        "fixture did not keep the unit ACTIVE across the stop request"
+    )
+    assert service_calls.count("stop bulkdownloader") == 1, service_calls
+    assert service_calls.count("is-active bulkdownloader") == 1, service_calls
+    assert stale.is_file(), "a still-active unit entered the unsafe stopped window"
+    assert deploy_support._lines(fx.logs["inv"]) == []
+    assert result.returncode != 0, out
+    # The whole point: the EXIT guard owes nothing here and must issue nothing.
+    assert service_calls.count("start bulkdownloader") == 0, (
+        "the recovery restarted a unit that never stopped\n"
+        + "\n".join(service_calls)
+        + "\n"
+        + out
+    )
+    assert "SERVICE-NEVER-STOPPED" in out, out
+    assert "RESTARTED-PARTIAL-DEPLOY" not in out, out
+    assert "still active" in out, out
+    assert "SERVICE-IS-DOWN" not in out, out
+    assert "DEPLOY OK" not in out
+
+
 def test_f04_reset_hands_off_to_the_new_script_body_exactly_once() -> None:
     fx = deploy_support._setup()
     installed = Path(fx.clone) / "scripts" / "deploy.sh"
