@@ -715,6 +715,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
         tmp_path, "partial-terminal")
     checked_wait_log = tmp_path / "checked-wait-entered"
     deadline_probe = tmp_path / "handoff-deadlines"
+    deadline_complete = tmp_path / "handoff-deadlines.complete"
     gate_program = _w1_adversarial_gate_program(
         terminal_bytes=b"EX", terminal_suffix=b"EC\n",
         terminal_suffix_entered=entered, terminal_suffix_release=_release,
@@ -726,6 +727,7 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
         gate_program=gate_program,
         checked_wait_probe=checked_wait_log,
         handoff_deadline_probe=deadline_probe,
+        handoff_deadline_complete=deadline_complete,
     )
     env = dict(os.environ)
     env["HOME"] = str(_w1_fake_home(
@@ -738,6 +740,9 @@ def test_partial_handoff_frame_does_not_restart_the_protocol_budget(tmp_path):
         gate_pid, _ = _w1_wait_for_gate(rundir)
         assert _w1_await_fifo(entered_fd, site="partial_handoff_frame_does_not_restart_the_protocol_budget/fifo") == (
             "partial-terminal-written\n")
+        assert _w1_wait_for_path(
+            deadline_complete,
+            content="text") == "handoff-deadlines-complete\n"
         deadline_rows = deadline_probe.read_text(encoding="ascii").splitlines()
         assert len(deadline_rows) == 2, deadline_rows
         pre_deadline = int(deadline_rows[0].removeprefix("pre="))
@@ -830,8 +835,10 @@ def test_cancellation_during_terminal_reader_reconciles_exact_id_once(tmp_path):
             "terminal-reader-entered\n")
         assert registrar.exists() and not marker.exists()
         assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            # Hold the exact release peer open before cancellation can tear
+            # the terminal reader down; otherwise this open can block forever.
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert not marker.exists()
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_reader_reconciles_exact_id_once/wait"))
@@ -875,8 +882,8 @@ def test_cancellation_during_terminal_relay_wait_reconciles_once(tmp_path):
         assert _w1_await_fifo(entered_fd, site="cancellation_during_terminal_relay_wait_reconciles_once/fifo") == (
             "terminal-relay-wait-entered\n")
         assert registrar.exists() and not marker.exists()
-        os.kill(proc.pid, signal.SIGINT)
         with release.open("w", encoding="utf-8") as stream:
+            os.kill(proc.pid, signal.SIGINT)
             stream.write("continue\n")
         assert not marker.exists()
         rc = proc.wait(timeout=_w1_budget_s("cancellation_during_terminal_relay_wait_reconciles_once/wait"))

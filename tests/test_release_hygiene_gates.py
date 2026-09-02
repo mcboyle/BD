@@ -7,6 +7,7 @@ Synthetic zips/trees only — no real artifacts. Each tool's pass AND fail
 Zero-arg test functions; repo root from __file__ (run_tests.py convention).
 """
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,19 @@ def _mktree(rel_files: dict) -> str:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(data, encoding="utf-8")
     return root
+
+
+def _tracked_synthetic_corpus_wacz() -> set[str]:
+    result = subprocess.run(
+        ["git", "-C", str(_REPO), "ls-files", "-z", "--",
+         "tests/capture_corpus_synthetic"],
+        capture_output=True,
+        check=True,
+    )
+    return {
+        path for path in result.stdout.decode("utf-8").split("\0")
+        if path.endswith(".wacz")
+    }
 
 
 def _run_synthetic_with_custom_runner(tmp_path: Path, source: str):
@@ -172,26 +186,76 @@ def test_diff_flags_forbidden_artifacts():
 
 
 def test_diff_allows_only_declared_synthetic_capture_corpus_wacz():
-    names = [
-        "tests/capture_corpus_synthetic/site.wacz",
-        "tests/capture_corpus_synthetic/nested/site.wacz",
+    tracked = _tracked_synthetic_corpus_wacz()
+    assert len(tracked) == 20, tracked
+    assert DRZ.forbidden_artifacts(sorted(tracked)) == []
+    bad = set(DRZ.forbidden_artifacts([
         "tests/fixtures/site.redacted.wacz",
         "tests/capture_corpus_syntheticish/site.wacz",
         "tests/capture_corpus/site.wacz",
         "tests/fixtures/site.wacz",
         "captures/site.wacz",
-    ]
-    bad = set(DRZ.forbidden_artifacts(names))
-
-    assert "tests/capture_corpus_synthetic/site.wacz" not in bad
-    assert "tests/capture_corpus_synthetic/nested/site.wacz" not in bad
-    assert "tests/fixtures/site.redacted.wacz" not in bad
+    ]))
     assert bad == {
         "tests/capture_corpus_syntheticish/site.wacz",
         "tests/capture_corpus/site.wacz",
         "tests/fixtures/site.wacz",
         "captures/site.wacz",
     }
+
+
+def test_undeclared_capture_corpus_wacz_is_not_exempt_by_its_directory():
+    """A prefix is not per-member release-hygiene evidence."""
+    planted = "tests/capture_corpus_synthetic/members_real_session.wacz"
+    tracked = _tracked_synthetic_corpus_wacz()
+    assert len(tracked) == 20, tracked
+    assert planted.startswith("tests/capture_corpus_synthetic/")
+    assert planted.endswith(".wacz")
+    assert ".redacted." not in planted
+    assert planted not in tracked
+    findings = DRZ.forbidden_artifacts([planted])
+    assert findings == [planted], (
+        "an undeclared capture corpus member was exempted by its directory prefix; "
+        f"the production forbidden-artifact seam returned {findings!r}"
+    )
+
+
+def test_capture_corpus_declaration_matches_the_tracked_wacz_denominator():
+    manifest = json.loads(
+        (_REPO / "tests/capture_corpus_synthetic/datapackage.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    resources = manifest.get("resources")
+    assert isinstance(resources, list), resources
+    declared = {resource.get("path") for resource in resources if isinstance(resource, dict)}
+    tracked = _tracked_synthetic_corpus_wacz()
+    assert len(tracked) == 20, tracked
+    assert declared == tracked, (
+        "the declaration must name every tracked synthetic capture member exactly; "
+        f"undeclared={sorted(tracked - declared)!r}; stale={sorted(declared - tracked)!r}"
+    )
+
+
+def test_unavailable_capture_corpus_declaration_fails_closed(tmp_path, monkeypatch):
+    member = "tests/capture_corpus_synthetic/cap.wacz"
+    tracked = _tracked_synthetic_corpus_wacz()
+    assert len(tracked) == 20, tracked
+    assert member in tracked
+    assert DRZ.forbidden_artifacts([member]) == []
+
+    controls_fired = 0
+    for label, contents in (("missing", None), ("malformed", "{not json")):
+        manifest = tmp_path / f"{label}.json"
+        if contents is not None:
+            manifest.write_text(contents, encoding="utf-8")
+        monkeypatch.setattr(DRZ, "_SYNTHETIC_CAPTURE_MANIFEST", manifest)
+        findings = DRZ.forbidden_artifacts([member])
+        controls_fired += 1
+        assert findings == [member], (
+            f"the {label} capture-corpus declaration failed open: {findings!r}"
+        )
+    assert controls_fired == 2
 
 
 def test_diff_flags_frontend_drop():
