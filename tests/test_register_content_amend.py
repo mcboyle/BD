@@ -19,6 +19,8 @@ from types import ModuleType
 
 import pytest
 
+from tests._child_guard import guarded_popen
+
 
 # This exercises a single register-mutation tool, but is pinned explicitly in
 # CI because that tool is a release-register safety boundary.
@@ -116,7 +118,7 @@ def _load_tool_module() -> ModuleType:
 def _start(
     repo: Path, request: Path, *, env: dict[str, str]
 ) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return guarded_popen(
         [sys.executable, str(TOOL), "--repo", str(repo), "--request", str(request)],
         cwd=ROOT,
         env=env,

@@ -15,6 +15,8 @@ import time
 
 import pytest
 
+from tests._child_guard import guarded_popen
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "bd_candidate_replay.py"
@@ -920,7 +922,7 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         str(repo_case.output),
         "--json",
     ]
-    first = subprocess.Popen(
+    first = guarded_popen(
         command,
         cwd=ROOT,
         env=env,
@@ -929,7 +931,7 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         stderr=subprocess.PIPE,
     )
     assert _wait_until(lambda: bool(list(markers.glob("add-*"))))
-    second = subprocess.Popen(
+    second = guarded_popen(
         command,
         cwd=ROOT,
         env=env,

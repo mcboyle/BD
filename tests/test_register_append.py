@@ -19,6 +19,8 @@ from types import ModuleType
 
 import pytest
 
+from tests._child_guard import guarded_popen
+
 
 # The register append/close/amend paths serialize one canonical release
 # authority across independent processes; that safety contract is tree-wide.
@@ -106,7 +108,7 @@ def _load_tool_module() -> ModuleType:
 
 
 def _start(repo: Path, request: Path, env: dict[str, str]) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return guarded_popen(
         [sys.executable, str(TOOL), "--repo", str(repo), "--request", str(request)],
         cwd=ROOT,
         env=env,
@@ -119,7 +121,7 @@ def _start(repo: Path, request: Path, env: dict[str, str]) -> subprocess.Popen[s
 def _start_close(
     repo: Path, version: str = "3.66.4321", env: dict[str, str] | None = None
 ) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return guarded_popen(
         [
             sys.executable,
             str(CLOSE_TOOL),
@@ -139,7 +141,7 @@ def _start_close(
 
 
 def _start_amend(repo: Path, request: Path) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return guarded_popen(
         [sys.executable, str(AMEND_TOOL), "--repo", str(repo), "--request", str(request)],
         cwd=ROOT,
         text=True,
@@ -191,18 +193,28 @@ def _install_lock_barrier(repo: Path) -> None:
         handle.write(
             "\nimport os as _append_os\nimport sys as _append_sys\nfrom pathlib import Path as _AppendPath\nimport time as _append_time\n"
             "_append_real_derive = derive_backlog\n_append_entered = False\n"
+            # A release that never comes must not park the child forever: the
+            # budget is generous for a live test and short for the one that proves it.
+            "def _append_wait(gate):\n"
+            "    budget = float(_append_os.environ.get('BD_REGISTER_APPEND_TEST_BARRIER_BUDGET', '60'))\n"
+            "    deadline = _append_time.monotonic() + budget\n"
+            "    while not (gate / 'release').exists():\n"
+            "        if _append_time.monotonic() >= deadline:\n"
+            "            _append_sys.stderr.write('barrier release never arrived within %gs; exiting rather than outliving the test\\n' % budget)\n"
+            "            _append_sys.exit(97)\n"
+            "        _append_time.sleep(0.005)\n"
             "def derive_backlog(text):\n"
             "    global _append_entered\n"
             "    barrier = _append_os.environ.get('BD_REGISTER_APPEND_TEST_BARRIER')\n"
             "    if barrier and 'bd-register-append' in _append_os.path.basename(_append_sys.argv[0]) and not _append_entered:\n"
             "        _append_entered = True\n        gate = _AppendPath(barrier)\n"
             "        (gate / f'arrived-{_append_os.getpid()}').touch()\n"
-            "        while not (gate / 'release').exists(): _append_time.sleep(0.005)\n"
+            "        _append_wait(gate)\n"
             "    close_barrier = _append_os.environ.get('BD_REGISTER_CLOSE_TEST_BARRIER')\n"
             "    if close_barrier and 'bd-register-close' in _append_os.path.basename(_append_sys.argv[0]):\n"
             "        close_gate = _AppendPath(close_barrier)\n"
             "        (close_gate / f'arrived-{_append_os.getpid()}').touch()\n"
-            "        while not (close_gate / 'release').exists(): _append_time.sleep(0.005)\n"
+            "        _append_wait(close_gate)\n"
             "    return _append_real_derive(text)\n"
         )
 
