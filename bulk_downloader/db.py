@@ -1667,29 +1667,116 @@ def db_search_cursor(site_id=None, status=None, query=None,
 
 # ─── v3.66.221 (F1.5): pre-download exact-URL history match ───────────
 def db_find_url_in_history(url, *, exclude_site=None):
-    """F1.5: exact-URL pre-download dedup. Returns the most recent
-    successfully-downloaded ('done') history row for this exact URL, or
-    None. Caller uses it to skip a re-download (status skipped_duplicate)
-    and link the prior row. Read-only; fail-soft to None on any error so a
-    lookup failure never blocks a legitimate download.
+    """F1.5: exact-URL pre-download dedup. Returns the most recent history row
+    for this exact URL that PRODUCED A FILE WHICH IS STILL ON DISK, or None.
+    Caller uses it to skip a re-download (status skipped_duplicate) and link
+    the prior row. Read-only; fail-soft to None on any error so a lookup
+    failure never blocks a legitimate download.
 
     Distinct from db_find_filename_duplicate (fuzzy basename+size match):
     this is an exact URL string equality on the indexed `url` column and is
     the default-ON dedup path; the fuzzy filename match is the opt-in path.
+
+    ROW 429. A 'done' ROW IS NOT A DOWNLOAD. The filter used to be `url=? AND
+    status='done'`, which asks whether a row exists and then answers "this URL
+    was already successfully downloaded". db_log's own ``bytes_fetched``
+    contract above says a 'done' row can be a NO-TRANSFER record, and row 544
+    made ``_dedup_preflight`` require a measured transfer -- which closed the
+    no-download-dir click arm (bytes_fetched=0) and did NOT close the other
+    producer. GCW probe mode (runner_transport ``_do_probe_fetch``) reads at
+    most 256 KB of the media URL, aborts the stream and SAVES NOTHING --
+    ``dl_dir`` is None on that path -- then logs 'done' with a suggested
+    filename AND ``bytes_fetched=recv``, because those bytes really did cross
+    the wire. That row satisfies row 544's predicate exactly as a real
+    download does, so every later queue of a probed URL was answered
+    "Duplicate of history #N" permanently, unless the operator found
+    ``force_download``. The call site's own comment says a consumer wanting
+    "a file was produced" must also require one; this is that consumer.
+
+    NO COLUMN OF ``history`` ALONE CAN SEPARATE THEM, measured rather than
+    assumed: parsing all 17 ``db_log(..., 'done', ...)`` call sites in the
+    tree, the probe row carries a nonempty ``filename``, a positive
+    ``file_size`` and a positive ``bytes_fetched``. ``transfer_mode`` is not
+    the discriminator either -- four file-PRODUCING writers omit it
+    (runner_extractors' dl8 arm, both runner_integrations backend arms, both
+    runner_challenge fallbacks), and on the deploy host's live history 8 of 8
+    real pre-v9 downloads carry a NULL ``transfer_mode`` while 0 rows are
+    probe-shaped, so gating on it would have refused 8 genuine downloads.
+
+    THE EVIDENCE IS THE FILE. db_log's done path calls ``library.library_record``
+    only for an ABSOLUTE path and deliberately records nothing for "a caller
+    that ... produced no file at all, like the GCW probe"; library_record
+    backfills ``history.library_id`` on its UPDATE and INSERT paths alike. So a
+    prior download counts as prior only when this row's ``library_id`` resolves
+    to a library row with a nonempty ``file_path``, that path is a file on disk
+    NOW, and ``library.file_size`` still describes the bytes at it.
+
+    THE SIZE CLAUSE IS THE SHIPPED ROW 503 RULE, at the second seam so the two
+    cannot disagree. ``db_skip_identity`` already refuses "same" when the
+    recorded size no longer matches ``os.path.getsize``; preflight decided the
+    same question from existence alone and ran FIRST, so a file replaced out of
+    band was skipped here and the identity seam never got to refuse.
+
+    NOT ``LIMIT 1``, DELIBERATELY. Rows are walked id DESC and the newest one
+    whose file still qualifies wins. A probe recorded AFTER a genuine download
+    is the newest row for that URL, so a LIMIT 1 over the unfiltered set would
+    answer None for a URL that really is downloaded. Every non-qualifying row
+    is simply not proof, and an older row that still qualifies still is.
+
+    A ROW WHOSE FILE IS GONE IS NOT PROOF, deliberately: a row alone says
+    nothing about what is on disk, a needless re-download costs bandwidth and
+    is reversible, and a permanent silent skip of content the operator no
+    longer has is not. Every refusal direction here -- absent ``library_id``
+    column, absent ``library`` table, unattributed row, empty ``file_path``,
+    vanished file, failed stat, non-integer or negative recorded size, size
+    mismatch, and the outer fail-soft except -- returns None, and None means
+    "proceed with the download". Nothing in this predicate can fail toward a
+    skip (CLAUDE.md A2, A7).
+
+    THE CALLER'S ROW 544 SCAN STAYS, and the two are conjoined rather than
+    redundant. This function asks "did a file get produced and is it still
+    there"; the caller asks "does any 'done' row of this URL record a measured
+    transfer". Neither implies the other: the "Already have" skip arm and the
+    Stash dedup arm both hand db_log an absolute path for a file that IS on
+    disk, so attribution alone would let a no-transfer row manufacture its own
+    ownership -- row 544's exact shape -- and a legacy pre-v8 NULL byte count
+    stays UNKNOWN even when its file is present.
     """
     if not url:
         return None
     try:
         with db_conn() as cx:
-            sql = ("SELECT id, site_id, site_name, url, filename, file_size, ts "
-                   "FROM history WHERE url=? AND status='done'")
+            sql = ("SELECT h.id AS id, h.site_id AS site_id, "
+                   "h.site_name AS site_name, h.url AS url, "
+                   "h.filename AS filename, h.file_size AS file_size, "
+                   "h.ts AS ts, l.file_path AS _fp, l.file_size AS _fsz "
+                   "FROM history h JOIN library l ON l.id = h.library_id "
+                   "WHERE h.url=? AND h.status='done' "
+                   "AND COALESCE(l.file_path,'') <> ''")
             params = [url]
             if exclude_site:
-                sql += " AND site_id != ?"
+                sql += " AND h.site_id != ?"
                 params.append(exclude_site)
-            sql += " ORDER BY id DESC LIMIT 1"
-            row = cx.execute(sql, params).fetchone()
-            return dict(row) if row else None
+            sql += " ORDER BY h.id DESC"
+            for row in cx.execute(sql, params).fetchall():
+                path = row["_fp"]
+                if not _os.path.isfile(path):
+                    continue
+                try:
+                    observed = _os.path.getsize(path)
+                except OSError:
+                    continue
+                recorded = row["_fsz"]
+                if (not isinstance(recorded, int)
+                        or isinstance(recorded, bool)
+                        or recorded < 0
+                        or observed != recorded):
+                    continue
+                hit = dict(row)
+                hit.pop("_fp", None)
+                hit.pop("_fsz", None)
+                return hit
+            return None
     except Exception:
         return None
 

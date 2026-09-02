@@ -66,6 +66,22 @@ exists and cannot be read or does not parse -- this module raises
 ``StagingUnavailable`` and the caller refuses the download. It never falls
 through to an unreserved staging path, because an unreserved staging path is
 precisely the defect.
+
+AND UNKNOWN IS NOT PERMANENT EITHER. Refusing is the right answer to a state
+this module cannot measure; refusing FOR EVER is not, and one shape had that
+property. A killed publish on the no-hardlink fallback leaves the claim
+pathname taken by a zero-byte file, which names no owner, guards no ``.part``,
+and is therefore invisible to the orphan scan that globs ``*.part`` -- so it
+refused every job whose template rendered that name, at the in-flight deadline
+per attempt, with nothing anywhere that could clear it. A claim publishes only
+what it has made true, and a publish that made nothing true must not outlive
+the attempt that abandoned it: ``_adopt_abandoned_claim`` recovers that
+pathname where the filesystem PROVES no live publisher can be standing in that
+state, and the recovered claim is republished unproven so the bytes beneath it
+are measured exactly as a fresh mint measures them. Every other UNKNOWN -- an
+unreadable record, an unparseable one, a blank one where the window is real --
+still refuses, because those states may be somebody's ownership and this one
+cannot be.
 """
 from __future__ import annotations
 
@@ -115,8 +131,32 @@ _IDENTITY_HEX_LEN = 64  # sha256
 # for the writer to finish before calling ownership UNKNOWN. Every other
 # unparseable shape is UNKNOWN immediately. On the primary path the claim is
 # published complete by a single link(), so this window does not exist.
+#
+# ROW 528. Outliving this wait used to be the END of the story, and that turned
+# a transient failure into a permanent one: a single zero-byte claim refuses
+# every job whose template renders that name, at this cost per attempt, for
+# ever. `crash_recovery.scan_for_orphans` globs `*.part` and such a claim has
+# none, so nothing enumerated it and nothing could reap it. `_settle_claim` now
+# RECOVERS the pathname instead -- but only where the filesystem PROVES no live
+# publisher can be standing in that state, which is `_adopt_abandoned_claim`'s
+# hardlink probe. The wait itself is unchanged and load-bearing: a publisher
+# that finishes inside it is still honoured, and a recovery that fired on
+# elapsed time alone would rob it.
 _INFLIGHT_CLAIM_DEADLINE_S = 2.0
 _INFLIGHT_POLL_S = 0.005
+
+# `_adopt_abandoned_claim` publishes through a private temporary name, exactly
+# as `_create_owner` and `_prove_owner` do. It is named here because the
+# recovery is the one step whose interruption must leave the claim exactly as
+# it was found, and a test that interrupts it has to be able to name it.
+_ADOPT_TMP_SUFFIX = ".adopt"
+
+# A settle may republish the record it is about to act on, and the lock it
+# holds is then a lock on a detached inode -- so it re-acquires and re-reads
+# rather than acting on what it just wrote. Bounded for the same reason
+# `_CLAIM_LOCK_INODE_ATTEMPTS` is: an unbounded retry over a record somebody
+# else is rewriting in a loop is a livelock wearing a safety hat.
+_SETTLE_ATTEMPTS = 3
 
 # THE SETTLE LOCK. `claim()` decides whether to RENAME whatever is at the
 # staging path, and it takes that decision from a claim record. Without
@@ -149,6 +189,32 @@ class StagingUnavailable(RuntimeError):
     cannot be created for any reason other than already existing, or when an
     existing owner file cannot be read or does not parse. The caller must
     refuse the transfer; it must NOT proceed against an unreserved path.
+    """
+
+
+class EmptyStagingClaim(StagingUnavailable):
+    """A claim file exists, is EMPTY, and stayed empty past the in-flight wait.
+
+    A SUBCLASS on purpose, so every caller that refuses on
+    ``StagingUnavailable`` -- and that is all of them -- keeps refusing exactly
+    as it did before this name existed. It is a separate name for one reader
+    only: ``_settle_claim`` has to tell this state apart from the other
+    UNKNOWNs, because an empty file names NOBODY. An unreadable or unparseable
+    record may still be somebody's ownership, so it is never overwritten; an
+    empty one asserts nothing about anybody, and where the filesystem proves no
+    live publisher could be inside a create-then-write window it is recoverable
+    rather than permanent (row 528).
+    """
+
+
+class _ClaimRecovered(Exception):
+    """Internal control signal: an abandoned blank claim was republished.
+
+    Not a failure, and never visible outside this module. It says the record
+    the current hold was taken on is no longer the record on disk, so
+    ``_settle_claim`` must take the lock again and read what is actually there
+    rather than act on what it has just written. See that function for why
+    continuing instead would be the stale read this module exists to prevent.
     """
 
 
@@ -202,6 +268,14 @@ def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
     deadline, so that losing a race does not present as an unreadable claim --
     which would be the self-inflicted version of the very defect this module
     exists to fix. Every other unparseable shape is UNKNOWN at once.
+
+    Outliving that wait raises ``EmptyStagingClaim``, which IS a
+    ``StagingUnavailable`` and refuses here exactly as every other UNKNOWN
+    does. The distinct name exists so ``_settle_claim`` can recover the
+    pathname where the filesystem proves no publisher could still be inside
+    that window (row 528); this function never recovers anything itself,
+    because ``release`` and ``crash_recovery`` read through it too and neither
+    may rewrite a record it was merely inspecting.
     """
     deadline = time.monotonic() + _INFLIGHT_CLAIM_DEADLINE_S
     while True:
@@ -221,7 +295,7 @@ def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
         if raw != "":
             break
         if time.monotonic() >= deadline:
-            raise StagingUnavailable(
+            raise EmptyStagingClaim(
                 f"staging claim {owner_path} is still empty after "
                 f"{_INFLIGHT_CLAIM_DEADLINE_S}s; ownership is UNKNOWN. "
                 "Remove that file if it is stale.")
@@ -434,6 +508,110 @@ def _prove_owner(owner_path: Path, identity: str) -> None:
             "rather than write under a claim that proves nothing") from exc
 
 
+def _adopt_abandoned_claim(owner_path: Path, identity: str) -> None:
+    """Republish an ABANDONED empty claim as this job's complete UNPROVEN one.
+
+    ROW 528. A zero-byte claim is what a killed no-hardlink publish leaves, and
+    it names nobody: ``_create_owner``'s fallback creates the file with
+    ``O_CREAT|O_EXCL`` and only then writes and fsyncs it, so a SIGKILL, a
+    power loss, or a CIFS disconnect between those syscalls leaves the
+    pathname taken and the record blank. Reading that as UNKNOWN for ever --
+    which is what this module did -- refuses every job whose template renders
+    that name, permanently, because ``reserve`` walks past a claim held by
+    another job and NOT past an UNKNOWN, and ``crash_recovery`` globs ``*.part``
+    and this state has none. A transient failure became a permanent one with no
+    surface that could clear it.
+
+    THE PROOF, AND WHY IT IS NOT A TIMEOUT. Elapsed time cannot decide this: a
+    publisher inside its window is exactly what the in-flight wait exists to
+    honour, and stealing its pathname would be this module inflicting its own
+    defect on itself. What decides it is the FILESYSTEM. An empty claim can
+    only be published by the fallback, and the fallback only runs where
+    ``os.link`` does not. So this asks that question directly, here, at the
+    moment of the decision: link the record we are about to publish to a second
+    private name. If that works, hardlink publication is available in this
+    directory, therefore ``_create_owner`` published by ``link`` and NOTHING
+    can be standing in a create-then-write window at this path, therefore the
+    empty file is abandoned residue. If it does not work, the window is real
+    and the refusal stands -- UNKNOWN is not permission (A2).
+
+    REPLACE, NEVER UNLINK. ``os.replace`` leaves the pathname occupied for
+    every instant of the transition, so a worker waiting on the claim lock
+    never sees the file absent -- which would raise its own distinct UNKNOWN
+    and turn one worker's recovery into another's refusal. It also means the
+    claim this call publishes is a claim, not a hole: a second recoverer
+    serialised behind the lock reads a complete record naming somebody and
+    diverts, rather than racing to mint over the same name.
+
+    PUBLISHED UNPROVEN, because that is all this call has made true. It has
+    established a name; it has measured nothing at the staging path. The
+    caller's next act is the unproven branch of ``_settle_claim`` -- set the
+    unaccounted-for bytes aside, then prove -- which is the same accounting a
+    fresh mint does, for the same reason: bytes under a claim that nobody
+    completed were accounted for by nobody.
+
+    CALLED WITH THE CLAIM LOCK HELD, by ``_settle_claim_once`` and nothing
+    else. The blank read and this republish are one hold precisely because a
+    second worker that had also read blank could otherwise land here after the
+    first had already proved its claim and started streaming.
+
+    An interruption anywhere in here leaves the claim exactly as it was found
+    -- still empty, no residue -- or, past the ``replace``, a complete record
+    this job may reclaim and any other job diverts around. Neither wedges the
+    name, which is the whole point of the row.
+    """
+    payload = json.dumps(
+        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: False},
+        sort_keys=True).encode("utf-8")
+    unique = f"{os.getpid()}.{uuid.uuid4().hex}"
+    tmp = owner_path.parent / f"{owner_path.name}.{unique}{_ADOPT_TMP_SUFFIX}"
+    probe = owner_path.parent / f"{owner_path.name}.{unique}.probe"
+    try:
+        try:
+            _write_complete(tmp, payload)
+        except OSError as exc:
+            raise StagingUnavailable(
+                f"the abandoned staging claim {owner_path} cannot be "
+                f"recovered: its replacement record cannot be staged "
+                f"({type(exc).__name__}: {exc}); ownership stays UNKNOWN"
+            ) from exc
+        try:
+            os.link(str(tmp), str(probe))
+        except FileExistsError:
+            # The probe name collided, which still reached the target check and
+            # so still proves link() is implemented here. Nothing to clean up
+            # that is ours, and nothing to conclude against the recovery.
+            pass
+        except OSError as exc:
+            raise EmptyStagingClaim(
+                f"staging claim {owner_path} is still empty after "
+                f"{_INFLIGHT_CLAIM_DEADLINE_S}s; ownership is UNKNOWN. "
+                "Remove that file if it is stale. It cannot be recovered "
+                "automatically because this filesystem does not publish claims "
+                f"atomically ({type(exc).__name__}: {exc}), so a live worker "
+                "may still be filling it."
+            ) from exc
+        else:
+            try:
+                os.unlink(str(probe))
+            except OSError:
+                pass
+        try:
+            os.replace(str(tmp), str(owner_path))
+        except OSError as exc:
+            raise StagingUnavailable(
+                f"the abandoned staging claim {owner_path} cannot be replaced "
+                f"with a complete record ({type(exc).__name__}: {exc}); "
+                "ownership stays UNKNOWN and the claim is left exactly as it "
+                "was found") from exc
+        _fsync_dir(owner_path.parent)
+    finally:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+
+
 def _set_aside_unowned_bytes(staging: Path) -> None:
     """Move pre-existing staging bytes out of a freshly claimed path.
 
@@ -579,7 +757,52 @@ def _acquire_claim_lock(owner_path: Path):
 
 def _settle_claim(staging: Path, owner: Path, identity: str, *,
                   minted: bool) -> Path:
+    """Settle the claim, RECOVERING an abandoned empty one first (row 528).
+
+    ``_settle_claim_once`` does the whole settle under one lock. The only state
+    it cannot settle is a claim file that is present and blank: it names no
+    owner, so there is nothing to compare an identity against and nothing to
+    prove, and reading it as UNKNOWN for ever is what made one killed publish
+    refuse a filename permanently. It recovers that state IN PLACE, under the
+    lock it already holds, and raises ``_ClaimRecovered`` to say the record it
+    settled is no longer the record on disk.
+
+    RE-RUN, not continue, and that is the load-bearing word. The recovery
+    replaces the claim's inode, so the lock held across it is a lock on a
+    detached inode the instant it lands: continuing to act under that lock --
+    setting bytes aside, proving -- would be the stale-read defect
+    ``_settle_claim_once`` exists to prevent, reintroduced by its own recovery
+    (A7). The next attempt takes the lock on the record that is actually there
+    and reads it again, so a rival that recovered the same claim first is seen
+    as what it now is: a different owner, and it diverts.
+
+    The recovery happening UNDER the lock is what makes one attempt enough.
+    Were the blank read and the republish split across a release, two workers
+    could each read blank, each wait the deadline out, and each republish --
+    and the second would land on top of the first's already PROVEN record while
+    its transport was streaming, then set those live bytes aside. That is the
+    corruption this module exists to stop, so the read and the act on it are
+    one hold, exactly as they are for the unproven branch.
+    """
+    for _ in range(_SETTLE_ATTEMPTS):
+        try:
+            return _settle_claim_once(staging, owner, identity, minted=minted)
+        except _ClaimRecovered:
+            continue
+    raise StagingUnavailable(
+        f"the staging claim {owner} was still blank after "
+        f"{_SETTLE_ATTEMPTS} attempts to recover it, so whether this path is "
+        "safe to stage into is UNKNOWN. Remove that file if it is stale.")
+
+
+def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
+                       minted: bool) -> Path:
     """Finish the claim at ``owner`` and return the staging path it guards.
+
+    Raises ``_ClaimRecovered`` when it recovered an abandoned blank claim
+    instead of settling one; the record on disk is then no longer the one this
+    hold was taken on, and ``_settle_claim`` re-runs. See that function for why
+    the recovery is inside this hold rather than around it.
 
     ONE routine for both arms of ``claim()``, and the read that decides what to
     do happens HERE, inside the lock, rather than in the caller.
@@ -618,8 +841,50 @@ def _settle_claim(staging: Path, owner: Path, identity: str, *,
     which touches nothing.
     """
     lock_fd = _acquire_claim_lock(owner)
+    # `_acquire_claim_lock` returns a descriptor or raises; the one case it
+    # returns nothing for is an interpreter with no `fcntl` at all. Name that
+    # here, because two branches below turn on it and "we hold the lock" is
+    # what they are actually asking.
+    exclusive = lock_fd is not None
     try:
-        holder, proven = _read_owner_record(owner)
+        try:
+            holder, proven = _read_owner_record(owner)
+        except EmptyStagingClaim as blank:
+            # ROW 528. The claim pathname is taken by a file that names nobody,
+            # which is what a killed no-hardlink publish leaves. Recover it
+            # here, holding this lock, and hand the caller back a `None` that
+            # says the record it must act on is a different one now.
+            #
+            # Each refusal below carries its own reason on top of the blank
+            # claim's message. Three distinct conditions decline to recover
+            # this state and they lead to three different operator actions --
+            # look for what truncated the record, install a working `fcntl`,
+            # move the download directory off a filesystem without hardlinks --
+            # so collapsing them into one diagnostic would cost exactly the
+            # investigation A7 says it costs.
+            if minted:
+                # A MINT NEVER RECOVERS. `_create_owner` publishes a complete
+                # record, so a blank one under a claim THIS call minted is a
+                # file something else truncated: corruption, not residue.
+                raise EmptyStagingClaim(
+                    f"{blank} It is not recovered automatically because this "
+                    "call published that claim complete moments ago, so a "
+                    "blank record there was truncated by something else "
+                    "rather than abandoned by a killed publish."
+                ) from blank
+            if not exclusive:
+                # NO LOCK, NO RECOVERY, for the same reason the unproven branch
+                # below refuses without one: two unexclusive recoverers could
+                # each read blank and each republish, and the second would land
+                # on the first's proven record and set its live bytes aside.
+                raise EmptyStagingClaim(
+                    f"{blank} It is not recovered automatically because this "
+                    "interpreter cannot take a lock on it (no fcntl), so two "
+                    "workers recovering the same claim could not be kept "
+                    "apart."
+                ) from blank
+            _adopt_abandoned_claim(owner, identity)
+            raise _ClaimRecovered()
         if holder != identity:
             raise StagingClaimedByAnotherJob(
                 f"staging path {staging} is claimed by a different download; "
@@ -636,7 +901,7 @@ def _settle_claim(staging: Path, owner: Path, identity: str, *,
             # transport may already be streaming. Returning here without
             # touching anything is the whole fix for that arm.
             return staging
-        if lock_fd is None and not minted:
+        if not exclusive and not minted:
             # No `fcntl` in this interpreter, so exclusion cannot be
             # established -- and UNKNOWN is not permission to rename bytes that
             # may belong to a live writer (A2). Fail CLOSED here rather than

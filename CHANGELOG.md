@@ -4,6 +4,36 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1436 - a claim publishes only proven state, and a skip proves its file
+
+Rows 429 and 528. Batched because both are the same contract on two surfaces:
+a record that asserts something must be backed by the thing it asserts.
+
+- 528. A ZERO-BYTE STAGING CLAIM WEDGED EVERY CANDIDATE NAME IN ITS FAMILY,
+  PERMANENTLY, from a transient failure. Reproduced on current main rather than
+  read: three reserve calls over one empty owner file each refused after two
+  seconds, zero suffixed owners created, the orphan scan returned nothing, and
+  the delete answered "already absent" while the owner survived -- so nothing
+  could ever clear it. The recovery republishes the blank claim as this job's own
+  complete unproven record and re-settles it. THE GATE IS A PROOF, NOT A
+  TIMEOUT: a blank claim can only arise from the no-hardlink fallback, so the
+  recovery links its replacement to a second private name and refuses if that
+  fails.
+- 429. A done row that produced NO FILE still deduplicated every future download
+  of that content -- silent data loss, because the user is told their file is
+  already there. One arm was closed by row 544; the live arm logged a completed
+  transfer with a positive byte count and saved nothing. The history lookup now
+  requires an attributed library row with a nonempty path, present on disk NOW,
+  whose size still matches what was recorded -- row 503's rule applied at the
+  second seam -- and it walks candidates newest-first rather than taking one.
+  A transfer-mode column was MEASURED as a discriminator and rejected: four
+  file-producing writers omit it and every pre-v9 download carries null.
+
+Rows 534 and 558 needed no code and are closed against the cuts that already
+carried them. Row 574 is a duplicate of row 501 on a different surface. Row 503
+was already fixed and cites its own row by name in the source. Half of row 485
+is stale and its other half is a different surface that will get its own row.
+
 ## v3.66.1435 - a fixture does not write into the real tree
 
 Two failures the canonical full suite found on the shipped tree. Both were real,
