@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1434 - the verified binary is the executed binary
+
+Rows 440, 441 and 442 were ALREADY FIXED and are closed with proof rather than
+re-fixed. What this cut carries is the tenth site their fix missed, found by
+deriving the denominator mechanically instead of trusting the rows' prose.
+
+- The contract is that the binary a caller VERIFIES must be the binary it RUNS.
+  A check against a pinned path followed by an exec resolved through PATH is not
+  a check, it is a decoration, and the pin exists so a wrong or substituted
+  ffmpeg cannot be used in place of the vetted one.
+- CLOSURE PROOF for 440, 441 and 442: replaying the new gate's rules over the
+  blobs of the commit that fixed them reproduces EXACTLY the sites each row
+  named -- five, three and one, nine in total -- and zero on the current blobs.
+- THE TENTH SITE. An AST census over 576 tracked application modules, with the
+  file list cross-checked against git rather than a filesystem walk, found one
+  more: the live recorder resolved ffmpeg through the pin and then built an argv
+  whose first element was the bare name, which the child re-resolved from its
+  own PATH. That is a live HLS-over-HTTPS recording, which is precisely the case
+  the pin exists for. argv[0] is now the path the resolver returned, and an
+  unresolvable backend REFUSES with its own named reason rather than emitting an
+  unlaunchable command.
+- The RED test puts a decoy earlier on PATH than the pin and observes which one
+  runs, so substitution is measured rather than argued. The negative control
+  proves that with no pin configured the PATH build is still selected and the
+  rest of the argv is byte-identical.
+
 ## v3.66.1433 - a shuffle lane finds order dependencies
 
 A new advisory lane, and the measurement that justifies it.

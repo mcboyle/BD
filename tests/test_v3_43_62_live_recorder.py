@@ -347,11 +347,32 @@ class TestBuildCmdDefense:
         assert cmd[0] == "streamlink"
         assert "https://chaturbate.com/goodroom/" in cmd
 
-    def test_clean_inputs_build_ffmpeg_cmd(self):
+    def test_clean_inputs_build_ffmpeg_cmd(self, tmp_path, monkeypatch):
+        """Cut 1459: argv0 is the RESOLVED ffmpeg, not the bare name.
+
+        This used to assert ``cmd[0] == "ffmpeg"``, which pinned the defect:
+        a bare name is re-resolved by execvp from the child's PATH, so the
+        ffmpeg_path pin gated on one build while the recording ran another.
+        The stub also removes this case's silent dependence on the host having
+        an ffmpeg at all."""
+        from bulk_downloader import ffmpeg_bin, live_recorder
         from bulk_downloader.live_recorder import _build_cmd
-        cmd = _build_cmd("ffmpeg", self._make_rec())
-        assert cmd is not None
-        assert cmd[0] == "ffmpeg"
+        pin_dir = tmp_path / "pinned"
+        pin_dir.mkdir()
+        stub = pin_dir / "ffmpeg"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        monkeypatch.setattr(ffmpeg_bin, "_pinned_dir", lambda: str(pin_dir))
+        ffmpeg_bin.reset()
+        live_recorder._reset_backend_cache_for_tests()
+        try:
+            cmd = _build_cmd("ffmpeg", self._make_rec())
+            assert cmd is not None
+            assert cmd[0] == str(stub)
+            assert Path(cmd[0]).name == "ffmpeg"
+        finally:
+            ffmpeg_bin.reset()
+            live_recorder._reset_backend_cache_for_tests()
 
     def test_unknown_backend_returns_none(self):
         from bulk_downloader.live_recorder import _build_cmd

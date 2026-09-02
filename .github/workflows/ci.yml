@@ -628,6 +628,7 @@ jobs:
               tests/test_playwright_engines_single_source.py
               tests/test_row308_visual_audit_identity.py
               tests/test_row343_fresh_host_bringup.py
+              tests/test_row1459_the_verified_binary_is_the_executed_binary.py
           - name: tree-gates-4
             suites: >-
               tests/test_sandbox_home_stays_retired.py
