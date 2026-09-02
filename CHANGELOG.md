@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1440 - SECURITY.md is removed at the operator's direction
+
+Operator ruling 2026-09-02: remove SECURITY.md from the repository entirely.
+
+The file held a repository-visibility policy and a disclosure note about
+tests/fixtures/recon_corpus/. The concern it recorded was raised before removal
+and the operator confirmed the decision, so it is carried out in full: the file
+is deleted and the README paragraph that linked to it is removed with it, since
+a dangling link would fail the doc-anchor freshness gate and leave a reference
+to something the operator asked to be gone.
+
+The fixture directory itself is untouched. Nothing about the tests, the corpus,
+or repository visibility changes here -- only the document.
+
 ## v3.66.1438 - an unverifiable answer is not an answer
 
 Rows 444, 446, 448 and the interface half of row 553. All four are the same
