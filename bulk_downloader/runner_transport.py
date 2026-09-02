@@ -300,6 +300,97 @@ class TransportMixin:
             sys.stderr.write(
                 f"  vpn download-proxy resolution raised (continuing unproxied): {e}\n")
             return explicit or None
+    # ── Row 439: the one gated seam for every segmented transfer ────────
+    #
+    # Six arms in this codebase move payload bytes with ffmpeg over an HLS/DASH
+    # manifest -- jsonapi, vixen, aylo, plugin and library in runner_extractors,
+    # plus the scrape-and-click arm in _do_download below. Every one of them
+    # called hls_downloader.download() directly, so none passed the fail-closed
+    # proxy resolution its siblings do, and ffmpeg fetched every segment on
+    # whatever interface the host had. THIS is that gate, and it is the only
+    # sanctioned way into hls_downloader.download from application code -- a
+    # tree gate asserts the direct-call count outside it stays zero, so a
+    # seventh arm cannot quietly reopen the hole.
+
+    def _hls_download_guarded(self, _hls, manifest_url, output_path, **kwargs):
+        """Resolve egress fail-closed, then run the segmented transfer.
+
+        Returns whatever ``_hls.download`` returns, or a DownloadResult-shaped
+        refusal built by ``_hls`` itself when this gate declines. The caller
+        handles a non-ok result exactly as it already handles a failed
+        transfer -- ``.ok``, ``.error`` and ``.error_detail`` are the contract.
+
+        REFUSES (no subprocess is ever built) when:
+
+          * ``_download_proxy_url()`` raises ``VPNRequiredError`` -- a
+            ``vpn_required`` site whose tunnel is down or kill-switched;
+          * resolution fails for ANY other reason on a ``vpn_required`` site.
+            The shared resolver's own ``except`` continues unproxied there,
+            which is the fail-open shape this row exists to close; a control
+            that cannot evaluate its condition refuses (CLAUDE.md A2);
+          * the site is ``vpn_required`` but resolution yielded no proxy at
+            all -- ``get_socks_url_for_site`` returns None rather than raising
+            when no tunnel is mapped to the site, and an unproxied transfer for
+            a required site is precisely what must not happen;
+          * the resolved proxy is one ffmpeg cannot carry (``socks5://``) --
+            refused inside ``_hls.download`` with its own distinct code.
+
+        PROCEEDS, with a scrubbed env and zero proxy arguments, when no proxy
+        is in effect and the site is not ``vpn_required``. That is the
+        operator's declared degrade-open posture and must keep working;
+        refusing it would be the mirror defect.
+        """
+        required = False
+        if _VPN_RUNTIME_AVAILABLE:
+            try:
+                required = bool(vpn_runtime.is_vpn_required_for_site(self.site_id))
+            except Exception as e:
+                # Cannot even ask whether the site is required. UNKNOWN.
+                return _hls.DownloadResult(
+                    ok=False, error="vpn_state_unknown",
+                    error_detail=(
+                        f"could not determine whether {self.site_id!r} requires "
+                        f"a VPN, so the segmented transfer is refused rather "
+                        f"than run outside the control: {type(e).__name__}: {e}"))
+        try:
+            proxy_url = self._download_proxy_url()
+        except Exception as e:
+            if _VPN_RUNTIME_AVAILABLE and isinstance(e, vpn_runtime.VPNRequiredError):
+                return _hls.DownloadResult(
+                    ok=False, error="vpn_required",
+                    error_detail=(
+                        f"VPN required for {self.site_id}, tunnel unavailable "
+                        f"-- failing closed, no ffmpeg spawned: {e}"))
+            # Refuse rather than raise, for BOTH postures. Four of the six arms
+            # do not wrap this call, and hls_downloader.download's documented
+            # contract is "never raises" -- propagating here would turn an
+            # unresolved proxy into a worker error that skips the arm's own
+            # needs_review handling. A refusal keeps the transfer unattempted
+            # AND keeps the arm's reporting path intact. The vpn_required case
+            # is named separately because the two are not the same finding.
+            if required:
+                return _hls.DownloadResult(
+                    ok=False, error="vpn_proxy_unresolved",
+                    error_detail=(
+                        f"{self.site_id!r} is vpn_required and its egress proxy "
+                        f"could not be resolved, so the segmented transfer is "
+                        f"refused: {type(e).__name__}: {e}"))
+            return _hls.DownloadResult(
+                ok=False, error="proxy_unresolved",
+                error_detail=(
+                    f"egress proxy resolution failed for {self.site_id!r}, so "
+                    f"the segmented transfer is refused rather than run outside "
+                    f"the control: {type(e).__name__}: {e}"))
+        if required and not (proxy_url or "").strip():
+            return _hls.DownloadResult(
+                ok=False, error="vpn_proxy_missing",
+                error_detail=(
+                    f"{self.site_id!r} is vpn_required but resolution produced "
+                    f"no egress proxy (no tunnel mapped to the site?) -- "
+                    f"refusing to fetch segments on the clear interface."))
+        return _hls.download(manifest_url, output_path,
+                             proxy_url=proxy_url or None, **kwargs)
+
     def _do_direct_http_download(
         self, page_url: str, file_url: str, output_path: str, referer: str = "",
     ) -> bool:
@@ -1389,8 +1480,8 @@ class TransportMixin:
                        bytes_fetched=0)
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                 return
-            res = _hls.download(
-                direct_url, str(final_path), referer=page_url,
+            res = self._hls_download_guarded(
+                _hls, direct_url, str(final_path), referer=page_url,
                 cancel_check=lambda: self._stop.is_set())
             if not res.ok:
                 # ffmpeg_not_installed is a DISTINCT code and gets a distinct

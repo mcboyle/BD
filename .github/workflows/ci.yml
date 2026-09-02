@@ -449,6 +449,7 @@ jobs:
           - name: application-safety
             suites: >-
               tests/test_app_measurements_fail_closed.py
+              tests/test_row439_segmented_transfers_honor_the_egress_gate.py
               tests/test_v3_66_284_integrity.py
               tests/test_ffmpeg_capability_health.py
               tests/test_row363_affordance_learning.py

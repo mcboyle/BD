@@ -399,12 +399,28 @@ def _innermost(funcs, lineno):
     return best
 
 
+#: The single fail-closed egress gate every segmented arm now goes through
+#: (row 439). It is the shared HELPER, not an arm: it performs no transfer of
+#: its own and writes no history row, so it is excluded from the arm
+#: denominator below -- counting it would add a seventh "path" that has no
+#: db_log and silently change what _UNRECORDABLE means.
+_EGRESS_GATE = "_hls_download_guarded"
+
+
 def _hls_download_functions():
     """Every function that performs a segmented transfer, by AST.
 
-    The predicate is a Call whose func is `<name containing 'hls'>.download`.
-    AST fixes the denominator; naming the attribute `download` rather than
-    matching the string 'hls' anywhere fixes the subject -- CLAUDE.md section 1.
+    The predicate is a Call whose func is `<name containing 'hls'>.download`
+    OR a call to the row-439 egress gate `_hls_download_guarded(...)`, which is
+    now the only sanctioned way an arm reaches hls_downloader.download. Both
+    spellings are counted because the SUBJECT is unchanged -- the same six arms
+    perform the same segmented transfers; row 439 only interposed a fail-closed
+    proxy resolution between them and ffmpeg. Counting only the direct call
+    would silently drop this scan's denominator from six to one, which is
+    exactly the vacuous-certification failure the test below guards against.
+
+    AST fixes the denominator; naming the attribute rather than matching the
+    string 'hls' anywhere fixes the subject -- CLAUDE.md section 1.
     """
     found = {}
     for fname, tree in _module_trees().items():
@@ -412,14 +428,20 @@ def _hls_download_functions():
             continue
         funcs = _functions(tree)
         for n in ast.walk(tree):
-            if (isinstance(n, ast.Call)
-                    and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "download"
-                    and isinstance(n.func.value, ast.Name)
-                    and "hls" in n.func.value.id):
-                owner = _innermost(funcs, n.lineno)
-                if owner is not None:
-                    found.setdefault((fname, owner.name), owner)
+            if not isinstance(n, ast.Call):
+                continue
+            f = n.func
+            is_direct = (isinstance(f, ast.Attribute)
+                         and f.attr == "download"
+                         and isinstance(f.value, ast.Name)
+                         and "hls" in f.value.id)
+            is_gated = (isinstance(f, ast.Attribute) and f.attr == _EGRESS_GATE)
+            if not (is_direct or is_gated):
+                continue
+            owner = _innermost(funcs, n.lineno)
+            if owner is None or owner.name == _EGRESS_GATE:
+                continue
+            found.setdefault((fname, owner.name), owner)
     return found
 
 
@@ -584,10 +606,25 @@ def test_nothing_claims_segmented_without_a_segmented_transfer():
 
 
 def _hls_calls_in(node):
-    return [n for n in ast.walk(node)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "download" and isinstance(n.func.value, ast.Name)
-            and "hls" in n.func.value.id]
+    """Segmented-transfer calls inside `node`.
+
+    Row 439 interposed the `_hls_download_guarded` egress gate between every
+    arm and hls_downloader.download, so an arm's branch now spells the transfer
+    with the gate's name. Both spellings count: the branch still performs the
+    same segmented transfer, and recognising only the direct call would make
+    this per-branch assertion report the arms as falsely labelled.
+    """
+    out = []
+    for n in ast.walk(node):
+        if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)):
+            continue
+        f = n.func
+        if f.attr == _EGRESS_GATE:
+            out.append(n)
+        elif (f.attr == "download" and isinstance(f.value, ast.Name)
+                and "hls" in f.value.id):
+            out.append(n)
+    return out
 
 
 def _innermost_branch(fn, target):
@@ -651,7 +688,7 @@ def test_a_literal_segmented_label_sits_in_the_branch_that_segments():
             offenders.append(
                 f"{fname}::{owner.name}:{call.lineno} claims 'segmented' but "
                 f"nothing in its branch (from line {block[0].lineno}) calls "
-                f"hls_downloader.download")
+                f"hls_downloader.download or {_EGRESS_GATE}")
     assert not offenders, "\n  ".join(["falsely-labelled done rows:"] + offenders)
 
 

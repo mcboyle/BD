@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1437 - segmented transfers honor the egress gate
+
+Row 439, and it was real. READ THE BEHAVIOUR CHANGE AT THE END OF THIS ENTRY.
+
+- 439. Every segmented transfer left the machine WITHOUT passing the gate that
+  exists to guarantee traffic does not go out around the tunnel. The denominator
+  was derived by recursive search plus AST rather than from the row's prose:
+  exactly six transfer call sites, and ALL SIX bypassed it -- so the row did not
+  undercount. The RED measurement is the plain statement of the defect: a site
+  marked as requiring the tunnel, with that tunnel DOWN, spawned the transfer
+  once and THE TRANSFER SUCCEEDED. The spawn carried no scrubbed environment and
+  the argument list carried no proxy at all, despite one being configured.
+  Every site now goes through one gated seam. The transport learned to carry a
+  proxy and a scrubbed environment, and it emits the proxy argument before the
+  input rather than after it, where it would have been ignored. It refuses on
+  five distinct conditions -- the tunnel is required and down, the proxy cannot
+  be resolved, the site requires the tunnel and no proxy exists, the tunnel
+  state is unknown, and the scheme cannot be carried -- each with its own code,
+  so no two can be confused.
+
+THE BEHAVIOUR CHANGE, STATED PLAINLY. The transfer tool has no SOCKS client, and
+this product's tunnels publish only SOCKS. So a segmented transfer on a site with
+a live tunnel now REFUSES rather than proceeding. Before this cut those transfers
+did not refuse -- they LEAKED, which is why this is still the right trade. The
+refusal names its own remedy: an explicitly configured HTTP proxy takes
+precedence over the tunnel. The other download paths are unaffected and continue
+to work over SOCKS on the same sites; only segmented transfers are refused.
+A follow-on row is filed for a SOCKS carrier that would turn this refusal back
+into a working tunnel.
+
+Row 443 needed no code: it was already fixed, proven by replaying the row's own
+condition at the real decode seam against the fixing commit's parent, where it
+escaped, and against this tree, where it does not.
+
 ## v3.66.1436 - a claim publishes only proven state, and a skip proves its file
 
 Rows 429 and 528. Batched because both are the same contract on two surfaces:
