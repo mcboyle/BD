@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1428 - three gates measure what they claim
+
+Rows 504, 512, 630 and fourteen new filings.
+
+- 504/512. The hygiene gates exempted files by an allowance nobody proved. The
+  source-window denominator is now AST-scanned independently over tracked tests
+  and required nonzero, corpus membership is measured with `git ls-files` and
+  must exactly equal the manifest, and malformed or unavailable evidence exempts
+  nothing rather than passing quietly.
+- 630. The sanctioned `-n 24` suite did not pass on an idle 48-core host: 13
+  tests failed under load and passed serially. The cause was TEST-HARNESS
+  fragility, not a product defect -- exit 91 is the legitimate
+  definite-registration-refusal path, and several tests signalled the runner
+  before acquiring their fixture FIFO's writer peer, so under starvation the
+  reader closed before the handshake existed. Production never creates those
+  FIFOs. Fixed by acquiring FIFO peers before signalling, isolating the intended
+  census with an exact call ledger, arming the hostile owner before publishing
+  acquisition, and asserting signal dispositions rather than inheriting them.
+- Rows 616-629 file fourteen confirmed-runtime findings from an adversarial
+  review triage, each with the measurement that established it and an acceptance
+  criterion, plus four honest UNKNOWNs recorded as UNKNOWN rather than guessed.
+
 ## v3.66.1426 - a CI gate claim is derived, not asserted
 
 Rows 509 and 518. The CI shard-coverage gate carried claims about which shards
