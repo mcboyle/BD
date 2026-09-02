@@ -90,13 +90,23 @@ def _python() -> str:
     raise AssertionError("no usable interpreter; the measurement is UNKNOWN")
 
 
-def _run(argv, cwd=None, timeout=900):
+# EVERY BUDGET HERE IS SUBORDINATE TO THE 240s BOUND that governs a test under
+# the canonical suite command (@1222's ratchet). A budget at or above that bound
+# can never fire, so its error path is dead code and a hang kills the worker
+# instead of naming the test. MEASURED on test5: this whole module runs in ~47s
+# and its slowest single subprocess -- the module fixture's classify, which pays
+# a disposable worktree and a regeneration -- is under 10s.
+_BUDGET_S = 180
+_GIT_BUDGET_S = 60
+
+
+def _run(argv, cwd=None, timeout=_BUDGET_S):
     return subprocess.run(argv, cwd=str(cwd or REPO), capture_output=True,
                           text=True, check=False, timeout=timeout)
 
 
 def _git(cwd, *args, check=True):
-    result = _run(["git", "-C", str(cwd), *args], cwd=REPO, timeout=300)
+    result = _run(["git", "-C", str(cwd), *args], cwd=REPO, timeout=_GIT_BUDGET_S)
     if check:
         assert result.returncode == 0, "git %s failed: %s" % (" ".join(args), result.stderr)
     return result.stdout
@@ -376,8 +386,8 @@ def test_a_crash_exits_UNKNOWN_and_never_the_refused_code(tmp_path):
     assert not (tmp_path / "bdtools_sec.py").exists(), "the fixture must be an ORPHAN copy"
     result = subprocess.run(
         [_python(), str(orphan), "census", "--repo", str(REPO)],
-        capture_output=True, text=True, check=False, timeout=300,
-        cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": ""})
+        capture_output=True, text=True, check=False, timeout=_BUDGET_S,
+        cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": "", "LC_ALL": "C"})
     assert result.returncode == UNKNOWN, (
         "an orphaned copy exited %d; 1 would be indistinguishable from a clean "
         "refusal:\n%s" % (result.returncode, (result.stderr or result.stdout)[-1500:]))
@@ -390,7 +400,7 @@ def test_a_crash_exits_UNKNOWN_and_never_the_refused_code(tmp_path):
     # case above failed for the missing module and not for the arguments.
     control = subprocess.run(
         [_python(), str(TOOL), "census", "--repo", str(REPO)],
-        capture_output=True, text=True, check=False, timeout=300)
+        capture_output=True, text=True, check=False, timeout=_BUDGET_S)
     assert control.returncode == DOCS_ONLY, control.stderr[-1000:]
 
 
