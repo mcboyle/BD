@@ -1,9 +1,12 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 285 deploy fail-open battery. Every anchor is unique in the candidate. F03 removes the pre-existing EXIT recovery; F04 turns exec into an ordinary child call so the old inode resumes; F05 skips the health observation; F06 classifies every stop state as safely inactive; F07 ignores a failed DSN write; F08 converts a failed storage-readiness verdict back to success. The separate transform-control spec applies the identical F07 transform to a test that only sources the definitions and must ESCAPE.",
+  "_comment": "Row 285 deploy fail-open battery. Every anchor is unique in the candidate. F03 removes the pre-existing EXIT recovery, arms it too late for a failed stop that already took effect, classifies an unknown post-stop state as safely inactive, and pays the widened recovery debt over a unit the stop never took down; F04 turns exec into an ordinary child call so the old inode resumes; F05 skips the health observation; F06 classifies every capture stop state as safely inactive; F07 ignores a failed DSN write; F08 converts a failed storage-readiness verdict back to success. The separate transform-control spec applies the same transforms to tests that do not judge their effects and must ESCAPE.",
   "subject": "row 285 - deployment and its readiness helpers fail closed on stopped, stale, or unavailable state",
   "band": [
     "tests/test_row_285_deploy_fail_open.py::test_f03_bare_failure_after_stop_attempts_exactly_one_recovery",
+    "tests/test_row_285_deploy_fail_open.py::test_f03_failed_stop_that_took_effect_attempts_exactly_one_recovery",
+    "tests/test_row_285_deploy_fail_open.py::test_f03_unknown_stop_state_fails_closed_and_attempts_recovery",
+    "tests/test_row_285_deploy_fail_open.py::test_f03_still_active_unit_is_not_restarted_by_the_recovery",
     "tests/test_row_285_deploy_fail_open.py::test_f04_reset_hands_off_to_the_new_script_body_exactly_once",
     "tests/test_row_285_deploy_fail_open.py::test_f04_bootstrap_delivery_fails_loudly_then_new_inode_succeeds",
     "tests/test_row_285_deploy_fail_open.py::test_f05_start_requires_active_and_health_evidence",
@@ -21,6 +24,30 @@
       "new": ": # row285 mutant removes EXIT recovery",
       "direction": "regression",
       "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_bare_failure_after_stop_attempts_exactly_one_recovery"
+    },
+    {
+      "label": "F03 arm recovery only after a successful stop command even though a failing command can stop the unit",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?=^state_exit=[0-9]+$)",
+      "new": "if [ \"$stop_exit\" -ne 0 ]; then SERVICE_STOPPED=0; fi\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_failed_stop_that_took_effect_attempts_exactly_one_recovery"
+    },
+    {
+      "label": "F03 classify an unknown deploy-unit state as safely stopped",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?=^  inactive\\|failed\\)$)",
+      "new": "  *)\n    ;;\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_unknown_stop_state_fails_closed_and_attempts_recovery"
+    },
+    {
+      "label": "F03 issue the emergency start even when the unit is still active",
+      "file": "scripts/deploy.sh",
+      "old": "    if systemctl is-active --quiet bulkdownloader; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
+      "new": "    if false; then\n      printf 'deploy.sh: *** SERVICE-NEVER-STOPPED ***\\n' >&2",
+      "direction": "regression",
+      "catcher": "tests/test_row_285_deploy_fail_open.py::test_f03_still_active_unit_is_not_restarted_by_the_recovery"
     },
     {
       "label": "F04 call the post-reset body as a child then resume the old inode",
