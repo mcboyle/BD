@@ -754,9 +754,12 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
             sys.stderr.write(f"[live-recorder] disk check failed: {e}\n")
     cmd = _build_cmd(backend, rec)
     if cmd is None:
+        # Resolved BEFORE taking _lock: _refusal_reason consults the backend
+        # cache behind its own lock, and nothing needs the two held together.
+        reason = _refusal_reason(backend)
         with _lock:
             rec.state = "failed"
-            rec.last_error = _refusal_reason(backend)
+            rec.last_error = reason
         _save_state()
         return
     try:
