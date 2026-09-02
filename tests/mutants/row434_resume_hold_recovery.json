@@ -1,0 +1,47 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 434. The complete recovery-state population is paused, low_disk, and paused_no_button, represented after refusal by either download_held or download_hold_unknown. The behavioral band drives HELD, CLEAR, and UNKNOWN reads; repeated refusal; a concurrent start; and a start-refused runner with no workers. Every old_regex is an exact-once zero-width structural anchor so row 357 does not freeze a source value. The separate transform-control spec applies the byte-identical M1 regression to an import-only node and must ESCAPE.",
+  "subject": "a hold-refused resume retains bounded provenance and can recover only its existing paused worker pool",
+  "band": [
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 stop recognizing public hold tokens during resume recovery",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?=^        resumable_states = \\()",
+      "new": "        if self._state in _DOWNLOAD_HOLD_STATE_TOKENS:\n            return\n",
+      "direction": "regression",
+      "catcher": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_a_hold_refused_resume_recovers_once_the_hold_is_lifted"
+    },
+    {
+      "label": "M2 discard resumable provenance when the hold refusal is published",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?=^        token = _download_hold\\.runner_state_token\\(hold_state\\)$)",
+      "new": "        self._hold_refused_resume_state = None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_a_hold_refused_resume_recovers_once_the_hold_is_lifted"
+    },
+    {
+      "label": "M3 erase resume provenance when start interleaves with a standing hold",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?=^        if \\(self\\._state in _DOWNLOAD_HOLD_STATE_TOKENS$)",
+      "new": "        refused_resume_state = None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_start_during_a_resume_refusal_preserves_the_paused_pool"
+    },
+    {
+      "label": "M4 infer paused provenance from every public hold token",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?=^        if resumable_state in resumable_states:$)",
+      "new": "        if resumable_state is None:\n            resumable_state = \"paused\"\n",
+      "direction": "overcorrection",
+      "control": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_a_start_refused_runner_is_not_resumed_into_workerless_running",
+      "preserves": [
+        "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_a_hold_refused_resume_recovers_once_the_hold_is_lifted",
+        "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_repeated_resume_still_measures_and_refuses_a_standing_hold",
+        "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py::test_an_unmeasurable_hold_refuses_and_stays_recoverable"
+      ]
+    }
+  ]
+}

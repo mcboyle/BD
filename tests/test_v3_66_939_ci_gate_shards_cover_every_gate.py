@@ -127,6 +127,13 @@ _DECLARED = {
     # is pinned into the safety shard claimed below on every PR.
     # CI-SHARD-CLAIM row-267 application-safety tests/test_app_measurements_fail_closed.py
     "tests/test_app_measurements_fail_closed.py",
+    # Row 434. A held resume replaces the paused state with a public refusal
+    # token; this runtime gate proves a later clear measurement can recover
+    # only the paused worker pool that created that token. Keep it in the
+    # direct application safety lane because no diff-derived route can substitute
+    # for the held, clear, and UNKNOWN lifecycle transitions it executes.
+    # CI-SHARD-CLAIM row-434 application-safety tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",
     # The download-integrity promotion seam is module-scoped, but a hardened
     # staging-claim API left four of its six tests red on main while no CI job
     # executed the file. Keep the real promote/abort contract in the same
@@ -930,6 +937,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
     "tests/test_row363_affordance_learning.py",  # module
+    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",  # module
     "tests/test_row_282_bd_opv_isolates_every_store.py",  # module
     "tests/test_scan_version_pins_fixture.py",  # legacy-baseline
     "tests/test_settings_center_slice4.py",  # legacy-baseline

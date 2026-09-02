@@ -459,6 +459,7 @@ jobs:
               tests/test_row311_app_config_writers_are_serialized.py
               tests/test_v3_66_261_contended_lifecycle_lock.py
               tests/test_v3_57_phase9.py
+              tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

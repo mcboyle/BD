@@ -181,7 +181,9 @@ class IntegrityMixin:
             return None
         try:
             if self.config.get("dedup_exact_url", True):
-                from .db import db_conn, db_find_url_in_history
+                from .db import (
+                    db_conn, db_find_url_in_history, _transfer_proof_sql,
+                )
                 # Row 544. THE STATUS STRING IS NOT THE OWNERSHIP ANSWER.
                 # db_find_url_in_history's whole test is `status='done'`, and
                 # runner_transport's "Already have" arm WRITES exactly such a
@@ -195,10 +197,10 @@ class IntegrityMixin:
                 # re-run: the "unproven" needs_review row lives in _do_download,
                 # and this function returns before _do_download is ever called.
                 #
-                # db_log's own contract names bytes_fetched as the ONLY column
-                # that can answer whether BD moved bytes -- >0 a real transfer,
-                # 0 certainly nothing, NULL a pre-v8 row that is UNKNOWN and
-                # "never proof of a download".
+                # _transfer_proof_sql is the one schema-aware answer. On a
+                # migrated database it also recognises an explicit zero-byte
+                # completion from a named transport (HTTP 416 resume-complete);
+                # before migration 9 it retains row 544's bytes_fetched>0 rule.
                 #
                 # SOME row, deliberately, not the NEWEST one. db_skip_identity
                 # states the healthy steady state: one real transfer followed by
@@ -213,9 +215,10 @@ class IntegrityMixin:
                 # download, which is the safe direction for an UNKNOWN.
                 with db_conn() as cx:
                     proven = cx.execute(
-                        "SELECT 1 FROM history WHERE url=? AND status='done' "
-                        "AND bytes_fetched IS NOT NULL AND bytes_fetched > 0 "
-                        "LIMIT 1", (url,)).fetchone()
+                        "SELECT 1 FROM history h WHERE url=? AND status='done' "
+                        "AND " + _transfer_proof_sql(cx) + " LIMIT 1",
+                        (url,),
+                    ).fetchone()
                 if proven is not None:
                     hit = db_find_url_in_history(url)
                     if hit:

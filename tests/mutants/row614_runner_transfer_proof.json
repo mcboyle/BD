@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 614. Removing the shared schema-aware proof import leaves _dedup_preflight unable to prove the migrated zero-byte HTTP completion, while db_skip_identity still proves the identical row. Re-run from a detached scratch copy with toolchain/bin/bd-mutate --spec tests/mutants/row614_runner_transfer_proof.json --work DETACHED_SCRATCH.",
+  "subject": "dedup preflight consumes the single schema-aware transfer-proof predicate",
+  "band": [
+    "tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py::test_a_zero_byte_416_transfer_has_one_ownership_answer",
+    "tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py::test_both_readers_share_the_degraded_pre_v9_rule"
+  ],
+  "mutants": [
+    {
+      "label": "M1 runner loses the shared transfer-proof predicate import",
+      "file": "bulk_downloader/runner_integrity.py",
+      "old": "                from .db import (\n                    db_conn, db_find_url_in_history, _transfer_proof_sql,\n                )",
+      "new": "                from .db import db_conn, db_find_url_in_history",
+      "direction": "regression",
+      "catcher": "tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py::test_a_zero_byte_416_transfer_has_one_ownership_answer"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 614. The same valid mutation is aimed at a test that imports runner_integrity and exercises an unrelated method without asserting dedup proof behavior. It must ESCAPE, proving the real battery's CAUGHT is the row 614 assertion rather than an import or parse failure.",
+  "subject": "transform-only control for the shared transfer-proof mutation",
+  "band": [
+    "tests/test_app_measurements_fail_closed.py::test_f37_matching_digest_still_passes"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL runner loses the shared transfer-proof predicate import",
+      "file": "bulk_downloader/runner_integrity.py",
+      "old": "                from .db import (\n                    db_conn, db_find_url_in_history, _transfer_proof_sql,\n                )",
+      "new": "                from .db import db_conn, db_find_url_in_history",
+      "direction": "regression",
+      "catcher": "tests/test_app_measurements_fail_closed.py::test_f37_matching_digest_still_passes"
+    }
+  ]
+}

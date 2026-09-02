@@ -5,6 +5,35 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1447 - resume cannot leave the hold state it set, and seventeen rows close
+
+Train 1 of the stacked-train workflow (bd-persist/WORKFLOW_STRUCTURE_PLAN.md):
+one reviewed worker patch plus the register closures a triage sweep proved.
+
+- ROW 434 IS FIXED. resume() acted only from ("paused","low_disk",
+  "paused_no_button") while its own hold-refusal branch set _state to
+  "download_held" or "download_hold_unknown", so a hold-refused resume could
+  never be resumed. The fix, recovered from cut/1420 (row 650) and carried onto
+  current runner.py, retains the interrupted resumable state and re-measures
+  HELD/UNKNOWN on every retry. RED on the base: 5 failed / 1 passed in the new
+  test file; GREEN: 119 passed over the band; 11/11 mutants caught. Reviewed
+  refute-first by an independent Opus session: BOARD.
+- SEVENTEEN ROWS CLOSE ON EVIDENCE, NOT PROSE. Three Sonnet sweepers re-derived
+  every OPEN row's premise against 2063e242; each CLOSE below cites the commit
+  that fixed it and the version it shipped in, verified by ancestry and by the
+  __version__ at that commit: 440/441/442 @1420, 475/495/514/520 @1409,
+  493/497 @1408, 519 @1423, 541 @1394, 610 @1407, 627 @1414, 636 @1432; rows
+  474 and 609 (operator harness scripts outside the repository) close @1447 on
+  the sweep's live verification; rows 434 and 650 close @1447 with this train.
+  Row 573 (MOOT, duplicate of OPEN row 501) is left for a register cut.
+- ROWS 614 AND 466 ARE FIXED (second boarded patch). runner_integrity's
+  _dedup_preflight now consumes db._transfer_proof_sql() instead of a hand-
+  written copy of the transfer-proof predicate, and the mutation-anchor gate
+  gains the audited _STABLE_VALUE_EXCEPTIONS mechanism row 466 asked for,
+  each entry resolving to an evidence test. Reviewed refute-first: BOARD.
+- The remaining triage verdicts (46 STILL-OPEN with one line of evidence each,
+  3 UNKNOWN fleet-state rows) are in bd-persist/triage/.
+
 ## v3.66.1446 - the register records the cut-1205 line
 
 A register-only cut with no runtime path. Row 656 is filed OPEN.
