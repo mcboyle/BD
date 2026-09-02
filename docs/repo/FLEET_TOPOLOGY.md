@@ -38,9 +38,24 @@ never touch the host checkout, so a runner can lend cores while it serves.
 ## How each host gets code, and the trap in it
 
     github origin   ALL TWELVE, as of 2026-08-31
-    local mirror    none are configured to fetch from one any more, though a
-                    bare mirror still exists on disk at ~/bd.git on bd, bd1,
-                    bd2, bd3 and bd4. It is inert; nothing points at it.
+    local mirror    NO host fetches its checkout from one any more -- MEASURED
+                    2026-09-02 across all twelve: 396 clones enumerated, ZERO
+                    with any remote pointing at a bare mirror. But the mirrors
+                    are NOT inert and MUST NOT BE DELETED. ~/bd.git exists on
+                    EIGHT hosts -- bd, bd1, bd2, bd3, bd4, test2, test3, test6 --
+                    and on six of them it is the LIVE BAND TRANSPORT:
+                    bd-band-remote.sh pushes refs/heads/bd-band/<SHA> into it.
+                    test2 alone held 85 band refs when this was measured.
+                    `rm -rf ~/bd.git` on those six BREAKS BAND DISPATCH.
+                    The only residue is a vestigial refs/heads/main on the five
+                    hosts bd-freshhost-50.sh and bd-vm-bringup.sh created; a ref
+                    delete is safe, a repo delete is not.
+
+                    THIS ENTRY PREVIOUSLY SAID "five hosts ... inert; nothing
+                    points at it", and both halves were wrong. A reader who
+                    trusted it and tidied an "inert" mirror would have broken
+                    six hosts. Re-measure before acting on any claim that
+                    something is unused (CLAUDE.md A1).
 
 A FETCH FROM A MIRROR EXITING 0 IS NOT DELIVERY. deploy.sh refuses on this in
 two distinct shapes, and both fire in practice:
