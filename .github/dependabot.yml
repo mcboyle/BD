@@ -1,0 +1,33 @@
+# Dependabot configuration.
+#
+# WHY THIS FILE EXISTS. Until 2026-09-02 there was no config here at all, so
+# dependabot ran on repository defaults. That was fine until it raised a MAJOR
+# upgrade that cannot be taken as a dependency bump: react-router 6 -> 7 closes
+# two medium advisories, but v7 merges react-router-dom INTO react-router and 82
+# tracked files import it. That is a migration, and a migration needs a cut with
+# tests -- not an auto-generated lockfile PR that will be reopened weekly until
+# somebody merges it unexamined.
+#
+# So this ignores exactly ONE thing: react-router MAJOR updates. Patch and minor
+# updates for react-router, and every update for every other package, still flow
+# normally -- including the security bumps this same cut takes for browserslist
+# and postcss-selector-parser.
+#
+# DELETE THE IGNORE BLOCK WHEN THE MIGRATION ROW LANDS. It is scoped to survive
+# only as long as the row it points at; leaving it in place after the migration
+# would silently suppress the next genuine major.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # See register row 648. Remove this entry together with that row.
+      - dependency-name: "react-router"
+        update-types:
+          - "version-update:semver-major"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
