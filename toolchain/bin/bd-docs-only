@@ -133,6 +133,7 @@ REASONS = (
     "RELEASE-TRIO-BEYOND-VERSION-SUBSTITUTION",
     "OUTSIDE-DOC-CORPUS",
     "UNSUPPORTED-ENTRY-MODE",
+    "ENTRY-MODE-CHANGED",
 )
 
 # The four correctness families a docs-only cut still owes, each keyed to the
@@ -146,11 +147,16 @@ GATE_FAMILY_ANCHORS = {
     "gate-shard": "ci_gate_shards_cover_every_gate",
 }
 
-# A regular blob. Git's other modes are a symlink (120000) or a submodule
-# gitlink (160000); neither can be proven inert by reading Markdown, and an
-# executable-bit flip on a document is a permission change this tool does not
-# adjudicate.
-_REGULAR = {"100644"}
+# The two REGULAR blob modes. Git's others are a symlink (120000) and a
+# submodule gitlink (160000): a symlink's bytes are a path, and a gitlink's are
+# another repository, so neither can be proven inert by reading Markdown.
+#
+# 100755 belongs here and its absence was a MEASURED collapsed diagnostic. With
+# only 100644 regular, an edit to scripts/deploy.sh and an edit to this very
+# file both refused as UNSUPPORTED-ENTRY-MODE -- the right verdict wearing the
+# wrong reason, sending a reader to look at file permissions instead of at the
+# deploy path or the classifier. A7: name the step that failed.
+_REGULAR = {"100644", "100755"}
 
 _VERSION_AUTHORITY = re.compile(rb'(?m)^__version__ = "[^"]+"$')
 _TEMPLATE_FOLDER = re.compile(r'template_folder\s*=\s*"([A-Za-z0-9_.-]+)"')
@@ -163,10 +169,11 @@ class Unmeasurable(RuntimeError):
 class Refused(RuntimeError):
     """The candidate is runtime-affecting for a named reason."""
 
-    def __init__(self, reason, detail):
+    def __init__(self, reason, detail, paths=()):
         super().__init__("%s: %s" % (reason, detail))
         self.reason = reason
         self.detail = detail
+        self.paths = tuple(paths)
 
 
 # --------------------------------------------------------------------- git ---
@@ -201,6 +208,35 @@ def _listing(repo, commit):
 
 def _blob(repo, commit, path):
     return _git(repo, "show", "%s:%s" % (commit, path), binary=True)
+
+
+def _grep_paths(repo, commit, pattern, pathspec, fixed=True):
+    """Tracked paths at `commit` whose content matches, WITHOUT reading 1554 blobs.
+
+    The first draft asked git for every candidate blob and matched in Python:
+    correct, and 95 seconds on the real tree, which is a gate nobody runs before
+    a lane. git grep does the same search in the object store in one process.
+    A grep that finds nothing is not an error here -- the CALLER decides whether
+    an empty result is a zero denominator, because only the caller knows.
+    """
+    argv = ["grep", "-l", "-z", "-I"]
+    if fixed:
+        argv.append("-F")
+    argv += ["-e", pattern, commit, "--", *pathspec]
+    result = subprocess.run(["git", "-C", str(repo), *argv],
+                            capture_output=True, check=False, timeout=300)
+    if result.returncode not in (0, 1):
+        raise Unmeasurable("git grep failed: %s"
+                           % result.stderr.decode("utf-8", "replace").strip())
+    prefix = (commit + ":").encode("ascii")
+    paths = []
+    for item in result.stdout.split(b"\0"):
+        if not item:
+            continue
+        if not item.startswith(prefix):
+            raise Unmeasurable("git grep returned an unqualified path: %r" % item[:80])
+        paths.append(os.fsdecode(item[len(prefix):]))
+    return paths
 
 
 def _raw_delta(repo, base, head):
@@ -319,9 +355,8 @@ def derive_populations(repo, commit, listing, chain):
     tracked = set(listing)
 
     version_authority = _sole(
-        [p for p in listing
-         if p.endswith("__init__.py")
-         and _VERSION_AUTHORITY.search(_blob(repo, commit, p))],
+        [p for p in _grep_paths(repo, commit, '__version__ = "', ("*__init__.py",))
+         if p in tracked and _VERSION_AUTHORITY.search(_blob(repo, commit, p))],
         "__version__")
     package_root = _one_top_level([version_authority], "the package root")
 
@@ -470,10 +505,16 @@ def _prove_generated_fixpoint(repo, head, chain, generated):
             dirty = _git(checkout, "status", "--porcelain=v1", "--untracked-files=no")
             drifted = sorted(line[3:] for line in dirty.splitlines() if line.strip())
             if drifted:
+                # Name the artifact that FAILED, never every artifact examined.
+                # Measured on the real tree: a hand-edited PIN_INDEX.json was
+                # reported alongside an innocent STATIC_KB_MANIFEST.json purely
+                # because both were in the run, which is the same collapsed
+                # diagnostic in a different coat.
                 raise Refused(
                     "EVIDENCE-GENERATED-NOT-AT-FIXPOINT",
-                    "re-running %s did not reproduce the candidate's bytes for: %s"
-                    % (", ".join(labels), ", ".join(drifted)))
+                    "re-running %s did not reproduce the candidate's bytes"
+                    % ", ".join(labels),
+                    paths=drifted)
             for path in sorted(generated):
                 proved[path] = chain["outputs"][path]
         finally:
@@ -512,10 +553,11 @@ def required_gates(repo, commit, listing, test_root):
              and p.endswith(".py")]
     if not tests:
         raise Unmeasurable("the tracked test population collapsed to zero")
+    known = set(tests)
     families = {}
     for family, anchor in GATE_FAMILY_ANCHORS.items():
-        needle = anchor.encode("utf-8")
-        members = sorted(p for p in tests if needle in _blob(repo, commit, p))
+        members = sorted(set(_grep_paths(repo, commit, anchor,
+                                         ("%s/test*.py" % test_root,))) & known)
         if not members:
             raise Unmeasurable(
                 "gate family %r has a ZERO denominator: nothing in the %d tracked "
@@ -567,6 +609,15 @@ def classify(repo, base_ref, head_ref, prove_fixpoint=True):
                                        "tracked blob" % (entry["old_mode"],
                                                          entry["new_mode"],
                                                          entry["status"])})
+        elif len(modes) > 1:
+            # Both regular, but the executable bit moved. That is a permission
+            # change, not a document edit, and it gets its own name rather than
+            # borrowing the non-regular one.
+            refusals.append({"path": entry["path"],
+                             "reason": "ENTRY-MODE-CHANGED",
+                             "detail": "the tracked mode changed %s -> %s; a permission "
+                                       "change is not a document edit"
+                                       % (entry["old_mode"], entry["new_mode"])})
 
     refused_paths = {r["path"] for r in refusals}
 
@@ -618,7 +669,7 @@ def classify(repo, base_ref, head_ref, prove_fixpoint=True):
             try:
                 fixpoint = _prove_generated_fixpoint(repo, head, chain, generated)
             except Refused as exc:
-                refusals.append({"path": ", ".join(sorted(generated)),
+                refusals.append({"path": ", ".join(exc.paths or sorted(generated)),
                                  "reason": exc.reason, "detail": exc.detail})
             else:
                 for path in sorted(generated):
