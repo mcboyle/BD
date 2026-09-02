@@ -5,6 +5,25 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1443 - the headroom check reads a run that finished
+
+The CI shard-headroom check asked GitHub for the newest workflow run of ANY
+status. When the runners are backed up that run is QUEUED, it has no job
+durations to read, and the check returned UNKNOWN -- which the verification lane
+escalates into NOT SHIPPABLE. So a candidate whose own band was clean over
+seventy files was refused because somebody else's queue was deep.
+
+MEASURED at the moment of the fix, against the live queue: the newest run was
+queued with zero successful jobs, while the newest SUCCESSFUL run -- seconds
+older, in the same listing -- had thirty-five. The check now asks for a run that
+finished. It is measurable whenever any run has ever succeeded, and it still
+returns UNKNOWN honestly when none has.
+
+Queue depth is not evidence about a candidate. The check's own comment says it
+is advisory and never blocks, and that remains the intent; a separate row
+records that the lane nonetheless escalates its UNKNOWN, because changing a
+merge gate is not something to fold into a one-line query fix.
+
 ## v3.66.1442 - two transitive advisories closed, and the major one gets a row
 
 Dependency hygiene, and a decision recorded rather than deferred.
