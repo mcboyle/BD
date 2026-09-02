@@ -75,7 +75,7 @@ jobs:
           fetch-depth: 0
 
       - name: Secret scan (fails on anything not baselined)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           # gitleaks-action@v2 requires a token to scan PRs (breaking change,
           # 2025); the auto-provided GITHUB_TOKEN is sufficient for a public/
