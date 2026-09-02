@@ -1059,7 +1059,12 @@ def _emit(payload, as_json):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="bd-docs-only")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # The house convention is a --selftest FLAG, and bd-tool-lint enforces it.
+    # It is kept alongside the `selftest` subcommand rather than replacing it so
+    # neither spelling becomes the one a future caller guesses wrong.
+    parser.add_argument("--selftest", action="store_true",
+                        help="run the built-in battery and exit")
+    sub = parser.add_subparsers(dest="command")
     c = sub.add_parser("classify")
     c.add_argument("--repo", required=True)
     c.add_argument("--base", required=True)
@@ -1072,8 +1077,10 @@ def main(argv=None):
     sub.add_parser("selftest")
     args = parser.parse_args(argv)
 
-    if args.command == "selftest":
+    if args.selftest or args.command == "selftest":
         return selftest()
+    if not args.command:
+        parser.error("a subcommand is required: classify, census or selftest")
     try:
         if args.command == "classify":
             rc, payload = classify(args.repo, args.base, args.head)
