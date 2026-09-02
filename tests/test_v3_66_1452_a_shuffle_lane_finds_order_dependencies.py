@@ -40,8 +40,11 @@ WHAT THIS FILE DELIBERATELY DOES NOT ASSERT. It does not run the shuffled suite
 and it does not require pytest-randomly to be present: a gate that failed on a
 host which had never provisioned the lane would be failing for an environmental
 reason, the over-sensitive direction CLAUDE.md A7 counts as equal to a false
-clean. The two assertions that genuinely need the plugin SKIP with a named
-reason and say what to run. Everything else -- including a real subprocess proof
+clean. The assertions that genuinely need the plugin SKIP with a named
+reason and say what to run -- two through the @_NEEDS_PLUGIN marker, and
+one (the ambient-PYTHONPATH probe) at runtime, because what IT needs is a
+provisioned directory to contaminate the path WITH, which is a precondition
+rather than a dependency. Everything else -- including a real subprocess proof
 that an absent plugin returns UNKNOWN rather than OK, and a real subprocess
 proof that the control pair is order-dependent -- runs everywhere, CI included.
 """
