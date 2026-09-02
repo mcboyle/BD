@@ -836,7 +836,8 @@ def _build_cmd(backend: str, rec: Recording) -> Optional[list[str]]:
         # Fallback ffmpeg-only mode treats the URL as an HLS playlist
         # which works only if rec.url itself points to a .m3u8.
         #
-        # Row 1459 (MOD-4): argv0 is the path _detect_backends RESOLVED, not the
+        # Cut 1459 (MOD-4; the shape rows 440/441/442 fixed elsewhere): argv0 is
+        # the path _detect_backends RESOLVED, not the
         # bare name. A bare "ffmpeg" is resolved again by execvp from the child's
         # PATH, so an ffmpeg_path pin would gate on one build and record with
         # another -- and what is recorded here is HLS over HTTPS, the exact case

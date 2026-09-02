@@ -348,7 +348,7 @@ class TestBuildCmdDefense:
         assert "https://chaturbate.com/goodroom/" in cmd
 
     def test_clean_inputs_build_ffmpeg_cmd(self, tmp_path, monkeypatch):
-        """Row 1459: argv0 is the RESOLVED ffmpeg, not the bare name.
+        """Cut 1459: argv0 is the RESOLVED ffmpeg, not the bare name.
 
         This used to assert ``cmd[0] == "ffmpeg"``, which pinned the defect:
         a bare name is re-resolved by execvp from the child's PATH, so the

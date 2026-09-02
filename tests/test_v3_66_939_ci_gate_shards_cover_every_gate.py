@@ -820,7 +820,8 @@ _DECLARED = {
     "tests/test_v3_66_795_mod3_seam.py",
     # Toolchain verifier partition.
     "tests/test_desandbox_tool_verifiers.py",
-    # Row 1459. The ffmpeg_path pin is only worth what its WEAKEST exec site is
+    # Cut 1459 (the shape of rows 440/441/442, whose own fix left this site).
+    # The ffmpeg_path pin is only worth what its WEAKEST exec site is
     # worth, and its subject is therefore every shipped module rather than any
     # changed path: rows 440/441/442 fixed four modules and left live_recorder
     # handing a bare "ffmpeg" to a live HLS-over-HTTPS recording, the exact case

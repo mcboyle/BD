@@ -1,4 +1,7 @@
-"""Row 1459: the ffmpeg binary BD VERIFIES is the ffmpeg binary BD RUNS.
+"""Cut 1459: the ffmpeg binary BD VERIFIES is the ffmpeg binary BD RUNS.
+
+1459 is this cut's slug, not a register row: rows 440/441/442 named the three
+modules their own fix corrected, and no row covers the site that fix missed.
 
 ``ffmpeg_bin`` exists because a check against a pinned build is worthless when
 the exec that follows it resolves a *different* build through ``PATH``.  The
@@ -74,6 +77,41 @@ def _bare_argv0_sequences(source: str, label: str) -> list[tuple[int, str]]:
     return found
 
 
+_EXEC_FUNCS = ("run", "call", "check_call", "check_output", "Popen")
+
+
+def _bare_argv0_exec_calls(source: str, label: str) -> list[tuple[int, str]]:
+    """The SECOND rule, and it exists because of the first one's escape hatch.
+
+    ``_bare_argv0_sequences`` needs a flag inside the SAME literal, so
+    ``subprocess.run(["ffmpeg"])`` -- or a one-element list extended afterwards
+    -- would slip past it. This rule reads the exec call instead: whatever a
+    ``subprocess`` launcher is handed, its argv[0] may not be a bare pinned
+    name, flag or no flag.
+    """
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source, filename=label)):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            name = func.attr
+            receiver = ast.unparse(func.value)
+        elif isinstance(func, ast.Name):
+            name = func.id
+            receiver = "subprocess"
+        else:
+            continue
+        if name not in _EXEC_FUNCS or "subprocess" not in receiver:
+            continue
+        arg = node.args[0]
+        if isinstance(arg, (ast.List, ast.Tuple)) and arg.elts:
+            arg = arg.elts[0]
+        if isinstance(arg, ast.Constant) and arg.value in PINNED_NAMES:
+            found.append((node.lineno, arg.value))
+    return found
+
+
 def test_the_rule_itself_fires_and_discriminates():
     """Mutation catcher for the gate below: prove the predicate is LIVE against
     a synthetic argv and SILENT against a synthetic tool-name listing, so a
@@ -93,6 +131,19 @@ def test_the_rule_itself_fires_and_discriminates():
     assert _bare_argv0_sequences(
         'for tool in ("ffmpeg", "ffprobe"):\n    pass\n', "<listing>") == []
 
+    # The exec-call rule closes the flagless escape hatch the first rule has.
+    assert _bare_argv0_sequences(
+        'subprocess.run(["ffmpeg"])\n', "<flagless>") == []
+    assert [n for _l, n in _bare_argv0_exec_calls(
+        'subprocess.run(["ffmpeg"])\n', "<flagless>")] == ["ffmpeg"]
+    assert [n for _l, n in _bare_argv0_exec_calls(
+        'subprocess.Popen("ffprobe", shell=False)\n', "<str>")] == ["ffprobe"]
+    assert _bare_argv0_exec_calls(
+        'subprocess.run([resolved, "-i", url])\n', "<resolved>") == []
+    # Not every call named run is a launcher.
+    assert _bare_argv0_exec_calls(
+        'scheduler.run(["ffmpeg", "-i"])\n', "<unrelated>") == []
+
 
 def test_no_shipped_module_hands_a_bare_pinned_name_to_a_process():
     """THE TREE-WIDE GATE. Its subject is every shipped module, so no changed
@@ -104,6 +155,20 @@ def test_no_shipped_module_hands_a_bare_pinned_name_to_a_process():
     assert len(modules) > 50, (
         f"denominator collapsed: only {len(modules)} modules under {PKG}")
 
+    # An INDEPENDENT enumeration of the same population: the git index, not the
+    # filesystem walk. A module the walk cannot see (a missed subpackage, an
+    # ignored path) would otherwise shrink the denominator silently.
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", "bulk_downloader"],
+        capture_output=True, text=True, timeout=60, check=True)
+    tracked_py = {ROOT / line for line in tracked.stdout.split()
+                  if line.endswith(".py")}
+    assert tracked_py, "git listed no python module: denominator unmeasurable"
+    assert tracked_py == set(modules), (
+        "the walked and the tracked populations disagree: "
+        f"walk-only={sorted(str(p) for p in set(modules) - tracked_py)} "
+        f"index-only={sorted(str(p) for p in tracked_py - set(modules))}")
+
     parsed = 0
     offenders: list[str] = []
     for path in modules:
@@ -112,6 +177,10 @@ def test_no_shipped_module_hands_a_bare_pinned_name_to_a_process():
         for line, name in _bare_argv0_sequences(source, str(path)):
             offenders.append(
                 f"{path.relative_to(ROOT)}:{line} execs a bare {name!r} -- "
+                f"the ffmpeg_path pin cannot reach it")
+        for line, name in _bare_argv0_exec_calls(source, str(path)):
+            offenders.append(
+                f"{path.relative_to(ROOT)}:{line} launches a bare {name!r} -- "
                 f"the ffmpeg_path pin cannot reach it")
     assert parsed == len(modules), "a module was skipped without failing"
     assert offenders == [], (
