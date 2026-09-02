@@ -216,11 +216,19 @@ export function useIntegrationsHealth() {
 }
 
 // Cut 7 (Track A): secret USAGE map — references by name only, never values.
+//
+// Rows 553/488: /api/secrets/usage answers 409 with ok:false, a named `state`
+// (unreadable | integrity_error | unknown) and NULL inventory fields when the
+// vault could not be read. apiGet throws on that status so `data` is normally
+// undefined, but the nullable shape is declared here so no consumer can spell
+// `stored_keys` as a plain array and read an unmeasured inventory as empty.
 export interface SecretsUsage {
   ok: boolean;
-  stored_keys: string[];
-  usage: Record<string, string[]>;
-  unreferenced: string[];
+  state?: string | null;
+  error?: string | null;
+  stored_keys: string[] | null;
+  usage: Record<string, string[]> | null;
+  unreferenced: string[] | null;
 }
 export function useSecretsUsage() {
   return useQuery<SecretsUsage, Error>({

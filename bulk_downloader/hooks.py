@@ -25,6 +25,7 @@ accepts placeholders ({path}, {url}, {site}, {filename}, {size},
 """
 
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -171,19 +172,51 @@ def _fmt_bytes(n):
     return f"{n:.1f} PB"
 
 
+# ROW 444: one distinct, actionable diagnostic. It names the step that
+# refused, why the POSIX defense does not transfer, and what still works --
+# a refusal that cannot be acted on is barely better than a silent one.
+WINDOWS_SHELL_HOOK_REFUSAL = (
+    "command hook refused on Windows: this hook runs its rendered command "
+    "through cmd.exe (shell=True), and BD's only quoting is POSIX "
+    "shlex.quote, which cmd.exe treats as literal data -- a website-"
+    "influenced {filename}/{path}/{url} containing & | ^ or %VAR% would "
+    "execute. BD has no cmd.exe quoting it can measure on this fleet, so "
+    "the hook is refused rather than run unsafely. Webhook and Home "
+    "Assistant hooks are unaffected."
+)
+
+
 # ── 20.1: Post-download command hook ──────────────────────────────────
 
 def run_command_hook(cmd_template, vars, timeout=120):
     """Run a shell command template with vars substituted. Returns
     (ok, output). Quoting: on POSIX we use a shell since users want
-    pipes/redirects to work; on Windows we use shell=True for the same
-    reason. Always time-bounded. Stdout+stderr captured (truncated to
+    pipes/redirects to work, and every substituted value is shlex.quote()'d
+    so a website-influenced filename cannot break out of its slot.
+
+    ROW 444: on Windows this hook is REFUSED, not run. subprocess's
+    shell=True is cmd.exe there, and shlex.quote emits POSIX single-quoting
+    that cmd.exe treats as literal data -- `&`, `|`, `%VAR%` and friends
+    split and expand straight through it, so the defense the POSIX path
+    relies on is inert on the platform the old docstring claimed to
+    support. BD has no cmd.exe quoter it can measure (the fleet is Linux;
+    a hand-written one believed-correct on an unrunnable shell is the same
+    fail-open shape in a new coat), so per CLAUDE.md A7 the unmeasurable
+    platform refuses rather than reporting OK. Webhook and Home Assistant
+    sinks are unaffected: they never reach a shell.
+
+    Always time-bounded. Stdout+stderr captured (truncated to
     8KB for the log).
 
     The command runs in a background thread; this function blocks for
     `timeout` seconds and returns. Caller is responsible for spawning
     the thread if they don't want to wait."""
     if not cmd_template: return True, "(no command configured)"
+    # ROW 444: refuse before rendering, so no website-influenced value is
+    # ever handed to cmd.exe. os.name is read HERE, at call time, not
+    # captured at import, so the branch is exercisable and testable.
+    if os.name == "nt":
+        return False, WINDOWS_SHELL_HOOK_REFUSAL
     # Phase 41.7: shell-quote ALL substituted values. The operator's
     # cmd_template is trusted (config-controlled), but the values
     # ({path}, {filename}, {url}) come from downloaded files, which
