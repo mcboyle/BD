@@ -49,8 +49,15 @@ const USAGE = "/api/secrets/usage";
 const INTEGRITY_WORDS = "row553-synthetic-ciphertexts-container-is-malformed";
 const UNREADABLE_WORDS = "row553-synthetic-vault-file-could-not-be-parsed";
 const TRANSPORT_WORDS = "row553-synthetic-transport-failure";
-const KEY_A = "row553-synthetic-key-a";
-const KEY_B = "row553-synthetic-key-b";
+// ZERO-ENTROPY FIXTURE NAMES, per CLAUDE.md A4. These are the NAMES of
+// stored entries as the API reports them -- they are never secret VALUES,
+// and nothing here is a credential. The previous spelling used a "KEY_"
+// identifier with a hyphenated random-looking suffix, which gitleaks
+// correctly matched as generic-api-key on shape alone. Renamed to say what
+// they are, and reduced to repeated characters so there is no entropy to
+// match. The scanner was right; the fixture was misnamed.
+const STORED_NAME_A = "row553-aaaa";
+const STORED_NAME_B = "row553-bbbb";
 
 // The exact 409 bodies bulk_downloader/app_secrets.py::api_secrets_usage emits.
 function refusalBody(state: string, words: string) {
@@ -209,17 +216,17 @@ describe("Integrations · secret usage panel · an unverifiable answer is not an
     installUsageOutcome({
       resolve: {
         ok: true,
-        stored_keys: [KEY_A, KEY_B],
-        usage: { [KEY_A]: ["siteRow553"], [KEY_B]: [] },
-        unreferenced: [KEY_B],
+        stored_keys: [STORED_NAME_A, STORED_NAME_B],
+        usage: { [STORED_NAME_A]: ["siteRow553"], [STORED_NAME_B]: [] },
+        unreferenced: [STORED_NAME_B],
         rotation: {},
       },
     });
     renderWired(<Integrations />);
     const panel = await usagePanel();
-    await waitFor(() => expect(panel.textContent || "").toContain(KEY_A));
+    await waitFor(() => expect(panel.textContent || "").toContain(STORED_NAME_A));
     const text = panel.textContent || "";
-    expect(text).toContain(KEY_B);
+    expect(text).toContain(STORED_NAME_B);
     expect(text).toContain("siteRow553");
     expect(text).toContain("unreferenced");
     // The guard must not fire over a vault that answered.
@@ -254,9 +261,9 @@ describe("Integrations · secret usage panel · an unverifiable answer is not an
 describe("describeUnmeasuredUsage · every outcome is reachable and distinct", () => {
   const measured: SecretsUsage = {
     ok: true,
-    stored_keys: [KEY_A],
-    usage: { [KEY_A]: [] },
-    unreferenced: [KEY_A],
+    stored_keys: [STORED_NAME_A],
+    usage: { [STORED_NAME_A]: [] },
+    unreferenced: [STORED_NAME_A],
   };
 
   const cases: Array<[string, unknown, SecretsUsage | undefined]> = [
