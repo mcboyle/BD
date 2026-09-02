@@ -5,6 +5,22 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1446 - the register records the cut-1205 line
+
+A register-only cut with no runtime path. Row 656 is filed OPEN.
+
+- THE WORKTREE CENSUS MEASURED THE WHOLE POPULATION. The audit that reported
+  "all 83 blob-checked" had enumerated one directory; `git worktree list`
+  registers 405. Re-measuring every registered worktree by authored blob, then
+  against the main commit carrying each group's own version, left one line of
+  work whose files never reached main at all: the cut-1205 "persistent-quality"
+  validator policy (bd_cut_quality.py, test_cut_quality_permits.py), four
+  heads dated 2026-08-21 across seven worktrees. The heads are tagged on origin
+  and the dirty diffs archived; row 656 asks the operator whether the design
+  is wanted, and names the two outcomes.
+- Everything else the census found was either shipped by blob, kept in place
+  as validation evidence at the operator's direction, or older than main.
+
 ## v3.66.1445 - a barrier child dies with its test
 
 A test-harness fix with no runtime path. Measured 2026-09-02 on test5: a
