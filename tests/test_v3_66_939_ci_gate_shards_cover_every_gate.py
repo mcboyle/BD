@@ -820,6 +820,12 @@ _DECLARED = {
     "tests/test_v3_66_795_mod3_seam.py",
     # Toolchain verifier partition.
     "tests/test_desandbox_tool_verifiers.py",
+    # Row 1459. The ffmpeg_path pin is only worth what its WEAKEST exec site is
+    # worth, and its subject is therefore every shipped module rather than any
+    # changed path: rows 440/441/442 fixed four modules and left live_recorder
+    # handing a bare "ffmpeg" to a live HLS-over-HTTPS recording, the exact case
+    # the pin exists for. No diff can select a tree-wide denominator.
+    "tests/test_row1459_the_verified_binary_is_the_executed_binary.py",
 }
 
 # A PARTITION, NOT A COUNT (rows 569/570, superseding the row-531 floor).
