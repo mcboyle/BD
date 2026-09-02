@@ -1062,3 +1062,200 @@ operator harness and are **never gates**.
   concurrent `git worktree add` against the live repo, which is worse than slow.
 * **Overrides** `BD_HARNESS_DIR` (default `/home/mboyle/bd-persist/harness`) and
   `BD_HARNESS_PYTHON` (default the repository venv).
+
+---
+
+# Shell hazards none of these tools can protect you from
+
+Two of them are measured here, in a scratch directory, because both cost real
+work before they were written down.
+
+## Never pipe a MUTATING command into `head`
+
+`head` exits after N lines and closes the pipe; the writer's next `write()` gets
+SIGPIPE and dies where it stands. A tool that mutates then restores never reaches
+its restore step, and the pipeline reports 141.
+
+Measured 2026-09-02, with a stand-in that writes a marker, prints 5000 lines,
+then restores:
+
+```
+$ bash mut.sh state | head -3
+line 1
+line 2
+line 3
+pipeline rc=141
+state after: MUTATED
+```
+
+The restore never ran. This applies to `bd-mutate`, to anything driving it, to
+the register writers, to `bd-regen-order`, and to any harness script that
+prints progress while holding a partially applied change. Redirect to a file
+and read a slice of the file -- A8's "CAPTURE WHOLE TO DISK, READ A SLICE" is
+the same rule for the same reason.
+
+## `git add` with a pathspec that no longer exists stages NOTHING
+
+Not "stages the rest"; nothing. Measured 2026-09-02:
+
+```
+$ git add a.txt missing.txt b.txt
+fatal: pathspec 'missing.txt' did not match any files
+add rc=128
+$ git diff --cached --name-only     # empty
+$ git diff --name-only
+a.txt
+b.txt
+```
+
+Both real files remained unstaged. A4 already forbids `git add -A` and broad
+globs while another writer can touch the tree, so exact-path staging is the rule
+-- and the corollary is that **you must check the exit status of `git add`**. A
+`git add ... ; git commit` chain after a renamed or regenerated-away path commits
+the previous state silently. Use `&&`, and re-read `git status`, the staged
+names and the staged diff immediately before every commit.
+
+---
+
+# The other five hundred and something
+
+This index covers the lane. The rest of the denominator is enumerated
+mechanically, never from memory, and never from this document.
+
+**Repository populations** (run from a work-tree root):
+
+```bash
+git ls-files toolchain/bin                 # operational tools, extensionless
+git ls-files 'tools/*.py'                  # build and analysis code
+ls scripts/                                # install / deploy / service
+git ls-files 'project-knowledge/*'         # generated and current knowledge
+```
+
+**One line per tool, with its own header line** -- the same shape as the harness
+map, and the fastest way to find whether something already exists:
+
+```bash
+for f in $(git ls-files toolchain/bin); do
+  printf '%-30s %s\n' "$(basename "$f")" \
+    "$(sed -n '2,8p' "$f" | grep -m1 -E '^(#[^!]|""")' \
+       | sed -E 's/^(#|""")[[:space:]]*//; s/"""$//' | cut -c1-70)"
+done
+```
+
+**The operator harness** -- outside the repository, and equally load-bearing:
+
+```bash
+find /home/mboyle -maxdepth 1 -name 'bd-*' -type f | sort
+for f in /home/mboyle/bd-*; do [ -f "$f" ] || continue
+  printf '%-30s %s\n' "$(basename "$f")" \
+    "$(sed -n '2,8p' "$f" | grep -m1 -E '^(#[^!]|""")' \
+       | sed -E 's/^(#|""")[[:space:]]*//; s/"""$//' | cut -c1-70)"
+done
+```
+
+A prebuilt map with inbound-reference counts already exists at
+`/home/mboyle/bd-persist/workers/1457/HARNESS_MAP.txt` (derived 2026-09-02).
+Re-derive rather than trusting its counts; files are added daily.
+
+**Before creating any new tool**, A8 binds: prove that exact name is unused in
+BOTH populations, and if it exists, read its existing CALLER to learn the real
+interface. Writing new logic under an existing tool's name once changed that
+tool's argument contract silently, and every integrate refused until the
+original was reconstructed from its caller.
+
+# Unclassified, not dead: the 61 unreferenced harness files
+
+`HARNESS_MAP.txt` records 61 live files under `/home/mboyle/bd-*` that **nothing
+else names**. That is a statement about inbound references, not about value. An
+unreferenced script is very often a hand-invoked instrument, and the moment it
+matters is exactly the moment nobody has time to rewrite it: the fleet
+provisioning fan-out, the WAN saturation measurement, the matched-control
+experiments for a specific incident, the full-suite-on-a-remote-host runner.
+Several are also genuine one-shots whose subject has passed, and a few are
+tarballs and logs. **Do not treat this list as a deletion queue.**
+
+The list, exactly as derived:
+
+```
+bd-HOLD-PARKED.txt              bd-NAMED-TEST-evidence.log      bd-RESUME-2026-08-14-late.md
+bd-actions-watch.sh             bd-arm-batching.sh              bd-arm-risky-batch.sh
+bd-board.sh                     bd-capture-driver.log           bd-capture-on-50.sh
+bd-checkpoint30.sh              bd-codex-batch.sh               bd-codex-cut.sh.bak-195319
+bd-codex-repair.sh              bd-exit-tracer-sitecustomize.py bd-fanout-lane.sh
+bd-finish.sh                    bd-freshhost-50.sh              bd-fullsuite-remote.sh
+bd-handoff-2026-08-12.tar.gz    bd-handoff-2026-08-12.txt       bd-handoff-2026-08-13.txt
+bd-hunt-snapshot                bd-install-overlap.sh           bd-knowledge-20260901b.tar.gz
+bd-knowledge-20260901c.tar.gz   bd-lane-experiment.sh           bd-make-patch.sh
+bd-netprobe.sh                  bd-next-agent.txt               bd-ollama-50.sh
+bd-pipe-lane.sh                 bd-poll5.sh                     bd-provision-fan.sh
+bd-publish.sh                   bd-qa-watch.sh                  bd-queue-final.sh
+bd-queue-last.sh                bd-queue2.sh                    bd-queue3.sh
+bd-remote-suite.sh              bd-repair-brief.py              bd-resolve-stash-conflict.py
+bd-resume-codex.sh              bd-resume-now.sh                bd-resume-queue-batch1.sh
+bd-revert-scaffold.sh           bd-revert-scan.sh               bd-run-tail.sh
+bd-t6-capture-control.sh        bd-t6-capture-main.sh           bd-t6-matched.sh
+bd-trio-resume.sh               bd-trio-resume2.sh              bd-wansat.sh
+bd-watch-merge.sh               bd-watch-stalls.sh              bd-wedge-FULL-20260814T120613Z.tar.gz
+bd-wedge-evidence-20260814T120558Z.tar.gz                       bd-wedge-evidence-20260814T145128Z.tar.gz
+bd-width-restore.sh             bd-worker-dashboard.sh
+```
+
+Three further files are recorded as RESIDUE -- backup or superseded copies that
+are deliberately kept: `bd-fleet-deploy.sh.bak`, `bd-row-chain.sh.preoverlap` and
+`bd-ship.sh.preoverlap`. Two of those exist because `bd-edit.py`'s empty-stdin
+fail-open once emptied a live script, and the backups were the only recovery.
+
+## The bd-row212-* directories
+
+`/home/mboyle` holds about twenty directories matching `bd-row212-*` -- runner,
+work, target, preflight, mutation and clone trees, several of them named for a
+specific SHA and a shard (`-s06`), plus two randomly suffixed clone/detached
+trees. They have the shape of scaffolding left by a single row's experiment
+runs.
+
+**This document does not recommend deleting them, and the recommendation is
+withheld deliberately.** A stale queue is a deletion list: pending entries for
+finished rows once nearly removed two worktrees a live lane still needed, and a
+glob censused against a path that did not exist read as "no work" and nearly
+destroyed thousands of lines. Anything under `/home/mboyle` matching a worktree
+shape may still be registered with git. Before touching any of them, prove
+ownership: `git -C /home/mboyle/BulkDownloader worktree list` names every tree
+git still tracks, and `/home/mboyle/bd-worktree-archive.sh` is the
+operator-approved archive-then-delete path. Archive first; the archive is what
+makes the deletion reversible.
+
+# Findings from writing this index
+
+Recorded here rather than acted on, because each is a separate cut.
+
+1. **`bd-shoot.py` has the executable bit and no shebang.** Its first byte is the
+   opening quote of its docstring, so `./bd-shoot.py` gets ENOEXEC and falls back
+   to `/bin/sh`. Its own usage line implies direct invocation. It must be run as
+   `venv/bin/python /home/mboyle/bd-shoot.py ...`, which it must be anyway --
+   it imports `bulk_downloader.cloak` and Playwright. Either add the shebang or
+   correct the usage line; the executable bit currently promises something the
+   file cannot deliver. This is the one finding here that deserves a register row.
+2. **`bd-versync`'s entire docstring is `bd-versync fixed.`** It is a member of
+   the `bd-denom-preflight` pinned lane and gates the release trio against the
+   pin index, and its own documentation says nothing about its subject, its
+   exit contract, or its arguments. Read the source.
+3. **`bd-doc-truth` used to advertise checks it had never implemented.** The
+   current docstring says so in its own words -- version-claim, tool-count and
+   route-count checks were advertised and never written. It is worth reading as
+   the canonical example of the shape: a tool's own docstring is a document and
+   goes stale like any other, and claiming coverage that does not exist is how a
+   narrow detector gets read as a broad one.
+4. **`bd-vault-unlock.sh`'s A7 defect is fixed and A7 still reads as present
+   tense.** The collapsing `except Exception` that printed "pairing fallback
+   failed" has been replaced by a `STEP` variable naming the failing request and
+   a handler that carries the server's own error text. The contract's account is
+   correct as history; a reader looking for the defect in the source will not
+   find it.
+5. **`ls toolchain/bin` and `git ls-files toolchain/bin` disagree by one** in the
+   integrator's checkout, because `__pycache__` is present and untracked. Neither
+   count is wrong; they answer different questions. Say which one you used.
+
+Nothing in the documented set was found deprecated with a missing replacement.
+The one file carrying an explicit retirement note, `bd-autorebase.sh`, is marked
+NEUTERED in its own header with the reason (it hard-reset queued worktrees and
+dropped their work) and its live successor is `bd-rebase` above.
