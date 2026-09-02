@@ -202,7 +202,14 @@ def plugin_state(plugin_dir: str, python: str) -> dict:
         return {"available": False, "why": "plugin directory does not exist",
                 "dir": plugin_dir, "version": None}
     env = dict(os.environ)
-    env["PYTHONPATH"] = plugin_dir + os.pathsep + env.get("PYTHONPATH", "")
+    # EXACTLY the named directory, never prepended to an inherited PYTHONPATH.
+    # This probe attributes a plugin to a DIRECTORY, and an ambient
+    # pytest_randomly on the inherited path would be credited to a directory
+    # that does not contain it -- measured on this tree at seed 3597074822,
+    # where an EMPTY directory reported `available: True, version: 5.0.0`.
+    # CLAUDE.md A7: remove inherited values rather than merely declining to set
+    # them.
+    env["PYTHONPATH"] = plugin_dir
     try:
         done = subprocess.run(
             [python, "-c",
@@ -276,7 +283,10 @@ def _run_pytest(python: str, cwd: str, args: list, plugin_dir: str,
         env.pop(name, None)
     env["BD_DISABLE_KEEPALIVE"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONPATH"] = plugin_dir + os.pathsep + env.get("PYTHONPATH", "")
+    # EXACTLY the plugin directory, for the reason given in plugin_state: an
+    # inherited PYTHONPATH would make the lane a different experiment from the
+    # one its evidence record names, and the record would not say so.
+    env["PYTHONPATH"] = plugin_dir
     if extra_env:
         env.update(extra_env)
     cmd = [python, "-m", "pytest", *args]

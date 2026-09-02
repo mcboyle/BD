@@ -185,7 +185,7 @@ def _plugin_available() -> bool:
     if not os.path.isdir(probe):
         return False
     env = dict(os.environ)
-    env["PYTHONPATH"] = probe + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = probe          # exactly the directory, never inherited
     done = subprocess.run([sys.executable, "-c", "import pytest_randomly"],
                           capture_output=True, text=True, timeout=120, env=env)
     return done.returncode == 0
@@ -400,6 +400,53 @@ def test_an_absent_plugin_is_unknown_with_a_named_remedy_not_ok():
     assert "UNKNOWN" in out and "--install" in out, (
         "the refusal does not name the remedy, so a reader cannot act on it:\n%s"
         % out[-1500:])
+
+
+def test_the_plugin_probe_is_not_satisfied_by_an_ambient_pythonpath(tmp_path):
+    """FOUND BY THIS CUT'S OWN LANE, at seed 3597074822.
+
+    The shuffled full-suite run failed `--selftest` and the reason was the tool
+    itself, not the tree: `plugin_state` built the child's PYTHONPATH by
+    PREPENDING the named plugin directory to whatever it inherited, so a
+    pytest_randomly reachable from the ambient environment was attributed to a
+    directory that did not contain it. An EMPTY plugin directory then reported
+    `available: True, version: 5.0.0` -- a false clean about the one fact the
+    lane's every other verdict rests on.
+
+    That is the defect this cut exists to prevent, reproduced inside the fix
+    (CLAUDE.md A7: every fix tends to reproduce the defect's shape) and inside
+    the fail-open class specifically. The correction is A7's other rule applied
+    literally: an environment-changing probe REMOVES inherited values rather
+    than merely declining to set them, so PYTHONPATH is now set to exactly the
+    named directory.
+
+    RED on the parent: this test fails with `available` True and a real version
+    string. It is not synthetic -- the ambient state it plants is precisely what
+    the lane itself exports into every child it starts.
+    """
+    empty = tmp_path / "empty-plugin-dir"
+    empty.mkdir()
+    contaminated = os.environ.get("BD_SHUFFLE_PLUGIN_DIR")
+    if not contaminated or not os.path.isdir(contaminated):
+        pytest.skip("no provisioned plugin directory to contaminate PYTHONPATH "
+                    "with, so this test cannot plant its precondition; run "
+                    "`bd-shuffle-lane --install` to make it run")
+    done = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, runpy;"
+         "sys.argv = ['bd-shuffle-lane'];"
+         "m = runpy.run_path(%r);"
+         "print(m['plugin_state'](sys.argv[0] and %r, sys.executable))"
+         % (str(_TOOL), str(empty))],
+        cwd=str(_REPO), capture_output=True, text=True, timeout=_INNER_BUDGET,
+        env={**os.environ, "PYTHONPATH": contaminated})
+    assert done.returncode == 0, (done.stdout + done.stderr)[-1500:]
+    assert "'available': False" in done.stdout, (
+        "an EMPTY plugin directory reported AVAILABLE because pytest_randomly "
+        "was reachable on the inherited PYTHONPATH. Every verdict this lane "
+        "prints rests on that probe, so a plugin attributed to the wrong "
+        "directory makes a shuffled PASS unattributable. Saw: %r"
+        % done.stdout.strip()[-600:])
 
 
 def test_the_control_pair_cannot_pollute_the_real_suite():
