@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 528. The blank-claim recovery in bulk_downloader/staging_claim.py must be PROOF-gated (this filesystem publishes claims atomically), EXCLUSIVE (a claim lock is held across the blank read and the republish), bounded to ABANDONED residue (never a record this call itself minted), and RE-RUN rather than continued under the lock the republish detached. Every anchor here is structural: no numeric, boolean, quoted or assigned token, so the row 357 audit classes them without a producer record.",
+  "subject": "row 528: the blank-claim recovery is proof-gated, exclusive, and re-run rather than continued",
+  "band": [
+    "tests/test_row528_an_empty_claim_never_wedges_the_name.py",
+    "tests/test_part_staging_collision.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 recover without proving this filesystem publishes claims atomically",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "            os.link(str(tmp), str(probe))",
+      "new": "            pass",
+      "direction": "regression",
+      "catcher": "tests/test_row528_an_empty_claim_never_wedges_the_name.py::test_an_empty_claim_is_not_adopted_where_publication_is_not_atomic"
+    },
+    {
+      "label": "M2 recover with no exclusion, so two recoverers cannot be kept apart",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "            if not exclusive:",
+      "new": "            if not minted and not exclusive and staging.is_dir():",
+      "direction": "regression",
+      "catcher": "tests/test_row528_an_empty_claim_never_wedges_the_name.py::test_a_blank_claim_is_not_recovered_without_a_lock"
+    },
+    {
+      "label": "M3 recover a blank record under a claim THIS call minted, which is a truncation",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "            if minted:\n                # A MINT NEVER RECOVERS.",
+      "new": "            if minted and staging.is_dir():\n                # A MINT NEVER RECOVERS.",
+      "direction": "regression",
+      "catcher": "tests/test_row528_an_empty_claim_never_wedges_the_name.py::test_a_claim_this_call_minted_is_never_recovered_when_blank"
+    },
+    {
+      "label": "M4 continue under the lock the republish detached instead of re-running the settle",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "            raise _ClaimRecovered()",
+      "new": "            return staging",
+      "direction": "regression",
+      "catcher": "tests/test_row528_an_empty_claim_never_wedges_the_name.py::test_a_zero_byte_claim_does_not_wedge_its_own_name"
+    },
+    {
+      "label": "M5 collapse the in-flight wait so the recovery decides on elapsed time alone",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "        time.sleep(_INFLIGHT_POLL_S)",
+      "new": "        deadline = time.monotonic()",
+      "direction": "regression",
+      "catcher": "tests/test_row528_an_empty_claim_never_wedges_the_name.py::test_a_rival_filling_its_claim_inside_the_wait_is_honoured"
+    }
+  ]
+}
