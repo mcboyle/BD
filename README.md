@@ -3,11 +3,6 @@
 Self-hosted batch video downloader: **Flask + Playwright** backend, **React/TypeScript** SPA frontend.
 Single-operator deployment to a headless host.
 
-> **This repository is private by intent.** `tests/fixtures/recon_corpus/` contains
-> real captures from authenticated member sites. The embedded JWTs are expired and
-> cannot be replayed, but their payloads still carry account identifiers. See
-> [SECURITY.md](SECURITY.md) before changing repository visibility.
-
 ## Layout
 
 | Path | Contents |

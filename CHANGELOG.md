@@ -5,6 +5,38 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1444 - SECURITY.md is removed, and the register records the audit
+
+Two documentation changes with no runtime path, batched because their authored
+paths are disjoint and neither is a candidate for reversion.
+
+- SECURITY.md IS REMOVED at the operator's direction. The concern it recorded
+  was raised before removal and the decision confirmed, so it is carried out in
+  full: the file is deleted and the README paragraph that linked to it goes with
+  it, since a dangling link would fail the doc-anchor gate and would keep
+  pointing at something the operator asked to be gone. The fixture directory it
+  described is untouched -- only the document is removed.
+- ROW 285 IS CLOSED @1439, proven by blob equality over the recovered cut's
+  authored paths rather than by ancestry.
+- SEVEN ROWS ARE FILED, 649 through 655, and every one was found by measuring
+  rather than by reading a document. Eight commits that existed on a single
+  capacity host and are absent from main. Two worktrees an audit called safe to
+  delete that carry unique work, one of them holding a test named for a row that
+  is still open. A codex app-server running as root on one host from a login
+  systemd reports as abandoned since a minute after that host booted, with the
+  other eleven hosts checked and clean. A relay listening on every interface
+  rather than loopback, recorded rather than changed because the fleet dials it.
+  Nine tracked test files named for row ids that do not exist -- the mirror of
+  the gap the contiguity gate now catches, and outside its denominator by
+  construction. And four tools whose documentation disagrees with their source,
+  including a tree-wide gate that forbids the tracked documents from naming
+  three LIVE harness scripts, which is why the most-invoked script in the cut
+  lane is documented anonymously rather than by weakening the gate.
+
+The register rises from 591 rows to 598 and from 83 open to 89. That is the
+correct direction: these are findings that previously existed only inside an
+agent's report.
+
 ## v3.66.1443 - the headroom check reads a run that finished
 
 The CI shard-headroom check asked GitHub for the newest workflow run of ANY
