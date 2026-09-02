@@ -23,6 +23,13 @@ def _app_runners():
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app_state"), "runners")
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
 def _app_s_cfg():
     """The live shared s_cfg from app.py (fetched fresh per call, by reference)."""
     import importlib
@@ -70,7 +77,7 @@ def api_route_preview():
     cfg_snapshot = list(s_cfg.items())
     # Pre-compute existing queue membership for quick lookup
     in_queue = set()
-    for runner in runners.values():
+    for _sid, runner in _runners_generation(runners):
         try:
             with runner._lock:
                 for u in runner.jobs:

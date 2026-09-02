@@ -23,6 +23,7 @@ from .app_sites import (
     _app_CFG_FIELDS,
     _app_DEFAULTS,
     _app_runners,
+    _app__watch_registry_lock,
     _app_s_cfg,
     _app_s_meta,
     _apply_login_template_by_id,
@@ -195,9 +196,14 @@ def api_sites_import():
     cfg["fingerprint"] = make_fingerprint()
     s_cfg[sid] = cfg
     s_meta[sid] = _build_meta(cfg)
-    runners[sid] = SiteRunner(sid, cfg)
+    _new_runner = SiteRunner(sid, cfg)
+    # Publish under the SAME lock delete pops with, so an enumerating reader
+    # sees this site either wholly present or wholly absent.  The runner is
+    # CONSTRUCTED first: nothing slow runs inside the lock.
+    with _app__watch_registry_lock():
+        runners[sid] = _new_runner
     if cfg.get("cookie_file") and Path(cfg["cookie_file"]).exists():
-        runners[sid].set_cookies_from_file(cfg["cookie_file"])
+        _new_runner.set_cookies_from_file(cfg["cookie_file"])
     _save_sites_config()
     # Audit the import (same pattern as api_add)
     try:

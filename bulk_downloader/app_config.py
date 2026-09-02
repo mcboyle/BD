@@ -530,10 +530,16 @@ def api_config_import():
         for site_id, cfg, _old_cfg, _runner in update_plan:
             s_cfg[site_id] = cfg
             s_meta[site_id] = _build_meta(cfg)
+        # Publish the whole staged generation under the SAME lock delete pops
+        # with, so an enumerating reader never sees a half-applied replace.
+        # Every runner is already CONSTRUCTED: nothing slow runs inside.
         for site_id, cfg, runner in staged:
             s_cfg[site_id] = cfg
             s_meta[site_id] = _build_meta(cfg)
-            runners[site_id] = runner
+        from . import app_sites_id_core as _site_core_pub
+        with _site_core_pub._app__watch_registry_lock():
+            for site_id, _cfg, runner in staged:
+                runners[site_id] = runner
 
         try:
             persisted = _save_sites_config()

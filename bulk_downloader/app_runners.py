@@ -21,15 +21,27 @@ def _app_runners():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "runners")
 
 
+def _runners_snapshot():
+    """One stable generation of (sid, runner), captured under the registry lock.
+
+    Both views below act on every runner they enumerate, so they must walk a
+    snapshot: a site created or deleted mid-walk otherwise raises RuntimeError at
+    the `for` statement -- after stop()/start() has already been applied to a
+    prefix -- and the count the operator relies on never arrives.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_snapshot")()
+
+
 @runners_bp.route("/api/runners/pause_all", methods=["POST"])
 def api_runners_pause_all():
     """Pause every site's runner (stops dequeueing new URLs; in-flight
     jobs are NOT cancelled, they run to completion). Returns the count
     of sites paused."""
-    runners = _app_runners()
     paused = 0
     failures = []
-    for sid, runner in runners.items():
+    for sid, runner in _runners_snapshot():
         try:
             runner.stop()
             paused += 1
@@ -49,10 +61,9 @@ def api_runners_pause_all():
 def api_runners_resume_all():
     """Inverse of pause_all — restart all paused runners. Idempotent
     (already-running runners are skipped)."""
-    runners = _app_runners()
     resumed = 0
     failures = []
-    for sid, runner in runners.items():
+    for sid, runner in _runners_snapshot():
         try:
             if getattr(runner, "_state", "") != "running":
                 runner.start()

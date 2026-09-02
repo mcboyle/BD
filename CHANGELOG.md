@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1430 - live state is read under its lock
+
+Rows 449 and 450.
+
+- 449. Eight sites walked the live runners dict without holding its lock. A site
+  created mid-walk raised `RuntimeError: dictionary changed size during
+  iteration` and returned HTTP 500 -- and worse, `stop()` had applied to only 1
+  of 3 sites, leaving a HALF-PAUSED FLEET. Reads now take a snapshot UNDER the
+  lock rather than holding it across the loop: `stop()`/`start()` join worker
+  threads and a watch finalizer takes the same lock on its way out, so holding
+  it would trade an iteration bug for a deadlock. An uncountable job map now
+  reports `bd_jobs_active_unknown` instead of vanishing.
+- 450. The watch folder imported a file whose writer was still appending:
+  measured as `ok=True, urls_imported=3` where the third "URL" was the truncated
+  `https://example.inval`, the file was moved to `.processed/`, and 2 of the 4
+  URLs in the audit copy were never queued. A file must now be quiescent by
+  mtime age before it is read, and a stat failure fails CLOSED.
+
 ## v3.66.1429 - the transport and the harness prove what they abandon
 
 Rows 428, 430, 431, 445, 468 and 525. Two surfaces, one contract: a number
