@@ -508,10 +508,18 @@ invocation. `scripts/deploy.sh` has the same boundary and A6 documents it there.
   `/home/mboyle/.config/bd/roles`. `deploy` hosts are excluded: they are
   user-facing.
 
-## bd-ship.sh -- push a frozen candidate and merge only the reviewed head
+## The push-and-merge step -- name withheld, see finding 5
 
-* **Location** `/home/mboyle/bd-ship.sh` (425 lines). Status: live.
-* **Invoke** `bash /home/mboyle/bd-ship.sh <branch> <title> <pr-body-file>`.
+**This tool cannot be named in this document.** Its filename shares a stem with
+one of the twelve tool names a tree-wide gate has physically retired, and that
+gate scans the whole tracked Markdown corpus for those tokens. Naming it here
+turns a green tree red. Finding 5 below gives the one-line command that derives
+the name; it is the harness's push-and-merge script, 425 lines, and it sits
+between a frozen candidate and `bd-land`.
+
+* **Location** the operator harness, `/home/mboyle/`. Status: live, 27 inbound
+  references -- one of the most-called scripts in the lane.
+* **Invoke** `bash <that script> <branch> <title> <pr-body-file>`.
 * **Exit codes** 1 no PR body, or the integrator repo is not reachable; 2 no such
   branch; 3 a phase failure -- no open PR, the detached push copy could not be
   built or could not reach the candidate SHA, or its origin is not the expected
@@ -1202,8 +1210,9 @@ bd-width-restore.sh             bd-worker-dashboard.sh
 
 Three further files are recorded as RESIDUE -- backup or superseded copies that
 are deliberately kept: `bd-fleet-deploy.sh.bak`, `bd-row-chain.sh.preoverlap` and
-`bd-ship.sh.preoverlap`. Two of those exist because `bd-edit.py`'s empty-stdin
-fail-open once emptied a live script, and the backups were the only recovery.
+one more `.preoverlap` copy whose stem finding 5 forbids this document to spell.
+Two of those exist because `bd-edit.py`'s empty-stdin fail-open once emptied a
+live script, and the backups were the only recovery.
 
 ## The bd-row212-* directories
 
@@ -1234,7 +1243,8 @@ Recorded here rather than acted on, because each is a separate cut.
    `venv/bin/python /home/mboyle/bd-shoot.py ...`, which it must be anyway --
    it imports `bulk_downloader.cloak` and Playwright. Either add the shebang or
    correct the usage line; the executable bit currently promises something the
-   file cannot deliver. This is the one finding here that deserves a register row.
+   file cannot deliver. This finding and finding 5 are the two that deserve
+   register rows.
 2. **`bd-versync`'s entire docstring is `bd-versync fixed.`** It is a member of
    the `bd-denom-preflight` pinned lane and gates the release trio against the
    pin index, and its own documentation says nothing about its subject, its
@@ -1251,7 +1261,34 @@ Recorded here rather than acted on, because each is a separate cut.
    a handler that carries the server's own error text. The contract's account is
    correct as history; a reader looking for the defect in the source will not
    find it.
-5. **`ls toolchain/bin` and `git ls-files toolchain/bin` disagree by one** in the
+5. **A tree-wide gate forbids the tracked Markdown corpus from naming three
+   LIVE operator-harness scripts.** `tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py`
+   holds a set of twelve physically retired in-repo tool names and asserts that
+   no current tracked Markdown document contains any of them as a whole token.
+   Three live harness scripts under `/home/mboyle/` -- plus one `.preoverlap`
+   residue copy -- share a stem with one of those retired names, and the token
+   regex's lookahead stops at `-` but not at `.`, so `<retired-stem>.sh` matches.
+   One of the three is the push-and-merge step above, with 27 inbound references.
+   The gate is right about its own subject and wrong about this one: a retired
+   `toolchain/bin` tool and a live `/home/mboyle` script are different files in
+   different populations, and the token set cannot tell them apart. **This
+   document is materially poorer for it** -- the most-called script in the lane is
+   documented anonymously. Derive the exact names with:
+
+   ```bash
+   venv/bin/python - <<'PY'
+   import re, pathlib
+   src = pathlib.Path("tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py").read_text()
+   retired = sorted(set(re.findall(r'"([^"]+)"', src.split("RETIRED = {", 1)[1].split("}", 1)[0])))
+   tok = re.compile(r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, retired)) + r")(?![A-Za-z0-9_-])")
+   print([p.name for p in sorted(pathlib.Path("/home/mboyle").glob("bd-*")) if p.is_file() and tok.search(p.name)])
+   PY
+   ```
+
+   The fix is a scoped one -- have the gate exclude a `<stem>.sh` form, or have it
+   judge repo-relative paths rather than bare tokens -- and it is a register row,
+   not a docs cut.
+6. **`ls toolchain/bin` and `git ls-files toolchain/bin` disagree by one** in the
    integrator's checkout, because `__pycache__` is present and untracked. Neither
    count is wrong; they answer different questions. Say which one you used.
 
