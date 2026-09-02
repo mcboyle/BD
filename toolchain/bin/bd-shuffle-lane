@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+"""bd-shuffle-lane -- an ADVISORY, SEED-RECORDED shuffle lane that finds order
+dependencies between test files. It is a SECOND lane; it never replaces or
+edits the CLAUDE.md A5 canonical full-suite command.
+
+    venv/bin/python toolchain/bin/bd-shuffle-lane --install     # once per host
+    venv/bin/python toolchain/bin/bd-shuffle-lane               # run the lane
+    venv/bin/python toolchain/bin/bd-shuffle-lane --seed 4126   # replay a finding
+    venv/bin/python toolchain/bin/bd-shuffle-lane --control     # positive control
+    venv/bin/python toolchain/bin/bd-shuffle-lane --selftest    # toolchain convention
+
+WHY THIS EXISTS. `--dist loadfile` hands one FILE to whichever worker is free,
+so the neighbour set of any given file differs from run to run and a
+cross-file leak surfaces only by luck. Three such leaks are already filed --
+backlog rows 491, 516 and 610 -- and row 610's own note records the giveaway
+shape: the file "passes in isolation" and fails beside a particular neighbour.
+Nothing in this tree deliberately varies test ORDER, so nothing looks for that
+class on purpose. This lane does.
+
+WHY `-p no:randomly` IN THE A5 COMMAND IS NOT A CONTRADICTION, and why it must
+stay. MEASURED at v3.66.1451: pytest-randomly was not installed at all, so that
+token guarded a plugin that did not exist and had never done anything. It is
+kept, byte for byte, because the canonical lane's value is that it is
+DETERMINISTIC -- A5 says a different plugin is a different experiment and
+cannot authorize merge. Now that the plugin can exist on a host, that token is
+what keeps the canonical lane the same experiment it has always been. This tool
+does not read, edit or reformat CLAUDE.md; a tracked gate
+(tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py) pins the
+canonical line's exact bytes so that no future change to this lane can drift
+it.
+
+## THE CONTAINMENT PROBLEM, AND WHY THE PLUGIN LIVES IN A PRIVATE DIRECTORY
+
+pytest auto-loads a plugin from its setuptools entry point. Installing
+pytest-randomly into the repository venv would therefore turn shuffling ON for
+EVERY pytest invocation that does not pass `-p no:randomly` -- which includes
+the affected-band lane, `bd-precut --gate`, every ci.yml gate-suite shard, and
+most of the sub-pytest children the tracked tests spawn. In a tree with live
+order dependencies that converts merge evidence into noise. So the plugin is
+declared in `requirements-shuffle.txt`, which NO default installer converges
+(deploy.sh, cloud-setup.sh, provision_test_host.sh and ci.yml all name their
+manifests explicitly; none globs `requirements*.txt`), and `--install` puts it
+in a private directory that only this tool places on PYTHONPATH.
+
+`--install` passes `--no-deps` deliberately. Without it a `pip install --target`
+re-resolves pytest ITSELF into the target directory and PYTHONPATH then shadows
+the venv's interpreter-blessed pytest with a second copy -- a second changed
+variable in an experiment whose whole point is to change exactly one. The
+install verifies afterwards that the target holds nothing but pytest_randomly,
+and refuses if it does not.
+
+## ADVISORY -- AND HOW A MAINTAINER PROMOTES IT TO BLOCKING
+
+"Advisory" here is STRUCTURAL, not a softened exit code. A FINDINGS verdict
+exits 3 and an unmeasurable one exits 4, because a refusal that reports instead
+of refusing is the failure this repository has hit repeatedly. What makes the
+lane advisory is that NOTHING ON THE MERGE PATH INVOKES IT: it is absent from
+`toolchain/bin/bd-precut`, from `toolchain/bin/bd-band-derive`, from
+`.github/workflows/ci.yml` and from `scripts/deploy.sh`, and the tracked gate
+asserts that absence mechanically. A finding is therefore information for
+triage, and cannot fail anybody's PR until a human decides it should.
+
+TO PROMOTE IT TO BLOCKING, once its findings are triaged and the tree is clean
+under shuffle, a maintainer does exactly three things:
+
+  1. provision the plugin wherever the blocking lane will run -- for CI that is
+     an `--install` step on the chosen shard, next to the existing conditional
+     install steps in ci.yml;
+  2. invoke this tool from that lane, e.g. add a shard that runs
+     `venv/bin/python toolchain/bin/bd-shuffle-lane --seed <pinned>` (pin the
+     seed, or the gate's subject changes every run and a red is unreproducible);
+  3. DELETE `test_the_lane_is_not_wired_into_any_merge_gate` from
+     tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py, which
+     exists precisely so that promotion is a deliberate, reviewed edit rather
+     than something that happens by accident.
+
+Do not promote it by making findings exit 0. That is the fail-open shape.
+
+## VERDICTS AND EXIT CODES
+
+    0  PASS      the shuffled run was green over a nonzero collected denominator
+    3  FINDINGS  the shuffled run failed; the seed and a replay command are printed
+    4  UNKNOWN   the lane could not measure (plugin absent, zero collected,
+                 the seed was not echoed back, no JUnit record). A2: UNKNOWN is
+                 a failing third state, never permission.
+    2  usage / internal error
+
+A ZERO COLLECTED DENOMINATOR IS UNKNOWN, NOT OK. A shuffle lane that collects
+nothing has judged nothing, and reporting that as a clean run is the exact
+"gate that cannot see its subject" defect CLAUDE.md A7 forbids. The lane takes
+its expected denominator from pytest's own `collected N items` line and its
+executed denominator from the JUnit record, keeps both, and refuses when either
+is absent or zero.
+
+## THE SEED IS ALWAYS CHOSEN BY THIS TOOL, NEVER BY THE PLUGIN
+
+The wrapper picks the seed (or takes `--seed`), passes it explicitly as
+`--randomly-seed=N`, then PARSES pytest's own `Using --randomly-seed=N` header
+and asserts it matches. That is the seam proof: it distinguishes "the plugin
+loaded and honoured the seed" from "the plugin was silently absent and the run
+was in file order" -- two states with the same exit code when the run happens
+to pass. Under `-n 24` it doubles as evidence the seed reached the workers
+rather than each worker choosing its own, which is what makes a finding
+replayable at all.
+
+`--randomly-dont-reset-seed` is passed deliberately. pytest-randomly otherwise
+also reseeds `random.seed()` before every test, which is a SECOND variable; the
+subject of this lane is ORDER, and a finding that cannot be attributed to order
+is not a finding about order.
+
+## KNOWN LIMITATION, STATED RATHER THAN SOLVED
+
+PYTHONPATH is inherited by child processes, so the ~26 tracked test files that
+spawn their own sub-pytest DO gain the plugin in that child. The ones that pass
+`-p no:randomly` (which is most of them, and which was until now a no-op) stay
+deterministic -- that is the token finally doing its job. An unguarded inner run
+will shuffle with its own self-chosen seed, which this tool does not record. So
+a finding whose failing test spawns a sub-pytest must be replayed as a PAIR at
+the recorded outer seed before causation is claimed.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import pathlib
+import random
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+EXIT_PASS = 0
+EXIT_USAGE = 2
+EXIT_FINDINGS = 3
+EXIT_UNKNOWN = 4
+
+MANIFEST = "requirements-shuffle.txt"
+CONTROL_DIR = os.path.join("tests", "fixtures", "shuffle_control")
+CONTROL_ALPHA = "order_probe_alpha.py"
+CONTROL_BETA = "order_probe_beta.py"
+CONTROL_MARKER = "BD-SHUFFLE-CONTROL: order dependency observed"
+EXPECT_VAR = "BD_SHUFFLE_CONTROL_EXPECT"
+TOKEN_VAR = "BD_SHUFFLE_CONTROL_TOKEN"
+
+_SEED_ECHO = re.compile(r"^Using --randomly-seed=(\d+)\s*$", re.M)
+_COLLECTED = re.compile(r"^collected (\d+) items?", re.M)
+_XDIST_COLLECTED = re.compile(r"^\d+ workers \[(\d+) items?\]", re.M)
+
+
+def _utc() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+
+
+def _repo_root(explicit: "str | None") -> str:
+    """The repository this lane judges. Never guessed from cwd alone."""
+    if explicit:
+        return os.path.abspath(explicit)
+    here = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.realpath(__file__))))
+    return here
+
+
+def default_plugin_dir() -> str:
+    """Outside the repository, on purpose.
+
+    A plugin directory inside the tree would show up as untracked state in
+    every `git status` the lifecycle inspects, and could be swept by a cleanup
+    that does not know it is load-bearing. The XDG state path is the same
+    convention `toolchain/bin/bd-sbcap` already uses.
+    """
+    env = os.environ.get("BD_SHUFFLE_PLUGIN_DIR")
+    if env:
+        return os.path.abspath(env)
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".local", "state")
+    return os.path.join(state, "bulkdownloader", "shuffle-lane", "plugins")
+
+
+def _git(root: str, *args: str) -> str:
+    try:
+        done = subprocess.run(["git", "-C", root, *args],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def plugin_state(plugin_dir: str, python: str) -> dict:
+    """RUNTIME evidence that the plugin is importable from `plugin_dir`.
+
+    Deliberately an import in a real child process rather than a directory
+    listing: CLAUDE.md A7 says source reading is not runtime evidence, and a
+    half-extracted `--target` install lists a directory that does not import.
+    """
+    if not os.path.isdir(plugin_dir):
+        return {"available": False, "why": "plugin directory does not exist",
+                "dir": plugin_dir, "version": None}
+    env = dict(os.environ)
+    # EXACTLY the named directory, never prepended to an inherited PYTHONPATH.
+    # This probe attributes a plugin to a DIRECTORY, and an ambient
+    # pytest_randomly on the inherited path would be credited to a directory
+    # that does not contain it -- measured on this tree at seed 3597074822,
+    # where an EMPTY directory reported `available: True, version: 5.0.0`.
+    # CLAUDE.md A7: remove inherited values rather than merely declining to set
+    # them.
+    env["PYTHONPATH"] = plugin_dir
+    try:
+        done = subprocess.run(
+            [python, "-c",
+             "import pytest_randomly, sys;"
+             "from importlib.metadata import version, PackageNotFoundError;"
+             "\ntry: v = version('pytest-randomly')"
+             "\nexcept PackageNotFoundError: v = 'installed-without-metadata'"
+             "\nsys.stdout.write(v)"],
+            capture_output=True, text=True, timeout=120, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"available": False, "why": "import probe could not run: %s" % exc,
+                "dir": plugin_dir, "version": None}
+    if done.returncode != 0:
+        return {"available": False,
+                "why": "pytest_randomly is not importable from the plugin "
+                       "directory: %s" % (done.stderr.strip()[-300:] or "no stderr"),
+                "dir": plugin_dir, "version": None}
+    return {"available": True, "why": "", "dir": plugin_dir,
+            "version": done.stdout.strip()}
+
+
+def install(root: str, plugin_dir: str, python: str) -> int:
+    """Provision the private plugin directory from requirements-shuffle.txt."""
+    manifest = os.path.join(root, MANIFEST)
+    if not os.path.isfile(manifest):
+        print("UNKNOWN  %s is missing -- nothing declares what to install"
+              % MANIFEST)
+        return EXIT_UNKNOWN
+    os.makedirs(plugin_dir, exist_ok=True)
+    cmd = [python, "-m", "pip", "install", "--target", plugin_dir,
+           "--no-deps", "--upgrade", "-r", manifest]
+    print("installing: %s" % " ".join(cmd))
+    try:
+        done = subprocess.run(cmd, timeout=900)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("UNKNOWN  pip could not run: %s" % exc)
+        return EXIT_UNKNOWN
+    if done.returncode != 0:
+        print("UNKNOWN  pip exited %d -- the plugin directory is not provisioned"
+              % done.returncode)
+        return EXIT_UNKNOWN
+
+    # THE --no-deps PROOF. A target install that dragged pytest in would make
+    # PYTHONPATH shadow the venv's pytest, and the lane would then be running a
+    # different interpreter's test framework while claiming to differ from the
+    # canonical command by one plugin.
+    stray = sorted(n for n in os.listdir(plugin_dir)
+                   if not n.startswith("pytest_randomly")
+                   and not n.startswith("__pycache__")
+                   and not n.endswith(".pth"))
+    if stray:
+        print("UNKNOWN  the plugin directory holds more than pytest_randomly, "
+              "so PYTHONPATH would shadow the venv: %s" % ", ".join(stray))
+        return EXIT_UNKNOWN
+    state = plugin_state(plugin_dir, python)
+    if not state["available"]:
+        print("UNKNOWN  installed, but %s" % state["why"])
+        return EXIT_UNKNOWN
+    print("OK  pytest-randomly %s in %s" % (state["version"], plugin_dir))
+    return EXIT_PASS
+
+
+def _run_pytest(python: str, cwd: str, args: list, plugin_dir: str,
+                extra_env: "dict | None" = None,
+                pop_env: "tuple | None" = None,
+                timeout: int = 7200) -> dict:
+    """One real pytest run with the plugin on PYTHONPATH. Returns raw evidence."""
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)          # A5: pop, never merely omit.
+    for name in (pop_env or ()):             # same discipline, caller's names.
+        env.pop(name, None)
+    env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    # EXACTLY the plugin directory, for the reason given in plugin_state: an
+    # inherited PYTHONPATH would make the lane a different experiment from the
+    # one its evidence record names, and the record would not say so.
+    env["PYTHONPATH"] = plugin_dir
+    if extra_env:
+        env.update(extra_env)
+    cmd = [python, "-m", "pytest", *args]
+    started = _utc()
+    try:
+        done = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout, env=env)
+        out, rc, timed_out = done.stdout + done.stderr, done.returncode, False
+    except subprocess.TimeoutExpired as exc:
+        out = (exc.stdout or "") + (exc.stderr or "")
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "replace")
+        rc, timed_out = None, True
+    return {"cmd": cmd, "cmd_digest": hashlib.sha256(
+                (" ".join(cmd)).encode("utf-8")).hexdigest(),
+            "rc": rc, "timed_out": timed_out, "output": out,
+            "started": started, "ended": _utc()}
+
+
+def _echoed_seed(output: str) -> "int | None":
+    m = _SEED_ECHO.search(output)
+    return int(m.group(1)) if m else None
+
+
+def _collected(output: str) -> "int | None":
+    m = _COLLECTED.search(output)
+    if m:
+        return int(m.group(1))
+    m = _XDIST_COLLECTED.search(output)
+    return int(m.group(1)) if m else None
+
+
+def _junit_counts(path: str) -> "dict | None":
+    """Executed denominator, independent of the terminal summary text."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return None
+    suites = [root] if root.tag == "testsuite" else list(root)
+    total = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+    for s in suites:
+        for k in total:
+            try:
+                total[k] += int(s.get(k, "0"))
+            except (TypeError, ValueError):
+                return None
+    return total
+
+
+def _write_evidence(path: str, record: dict) -> None:
+    """temp + os.replace: a reader must never catch a fragment (row 222)."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(record, fh, indent=2, sort_keys=True)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+
+
+def _prove_writable(directory: str) -> "str | None":
+    """A7: an action with a side effect proves its evidence record is writable
+    BEFORE acting, not after the run it was supposed to record."""
+    try:
+        os.makedirs(directory, exist_ok=True)
+        probe = os.path.join(directory, ".bd-shuffle-lane-writable")
+        with open(probe, "w", encoding="utf-8") as fh:
+            fh.write(_utc())
+        os.unlink(probe)
+    except OSError as exc:
+        return "evidence directory %s is not writable: %s" % (directory, exc)
+    return None
+
+
+def lane(root: str, plugin_dir: str, python: str, targets: list, seed: "int|None",
+         workers: int, evidence_dir: str, timeout: int, per_test_timeout: int) -> int:
+    """The lane itself: the canonical shape, shuffled, with a recorded seed."""
+    state = plugin_state(plugin_dir, python)
+    if not state["available"]:
+        print("UNKNOWN  %s" % state["why"])
+        print("REMEDY   venv/bin/python toolchain/bin/bd-shuffle-lane --install"
+              "  (declares from %s into %s)" % (MANIFEST, plugin_dir))
+        return EXIT_UNKNOWN
+
+    problem = _prove_writable(evidence_dir)
+    if problem:
+        print("UNKNOWN  %s" % problem)
+        return EXIT_UNKNOWN
+
+    if seed is None:
+        seed = random.SystemRandom().randrange(0, 2 ** 32)
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    junit = os.path.join(evidence_dir, "shuffle-%s-seed%d.xml" % (stamp, seed))
+    logpath = os.path.join(evidence_dir, "shuffle-%s-seed%d.log" % (stamp, seed))
+    record_path = os.path.join(evidence_dir, "shuffle-%s-seed%d.json" % (stamp, seed))
+
+    # THE CANONICAL SHAPE, differing from CLAUDE.md A5 in exactly one token:
+    # `-p no:randomly` becomes `-p randomly` plus this lane's own seed control.
+    args = [*targets, "-n", str(workers), "--dist", "loadfile",
+            "--timeout=%d" % per_test_timeout, "--timeout-method=signal",
+            "--max-worker-restart=0",
+            "-p", "randomly", "--randomly-seed=%d" % seed,
+            "--randomly-dont-reset-seed",
+            "--junitxml=%s" % junit]
+
+    replay = ("venv/bin/python toolchain/bin/bd-shuffle-lane --seed %d "
+              "-n %d %s" % (seed, workers, " ".join(targets)))
+    print("seed     %d" % seed)
+    print("replay   %s" % replay)
+    print("evidence %s" % record_path)
+
+    run = _run_pytest(python, root, args, plugin_dir, timeout=timeout)
+    try:
+        with open(logpath, "w", encoding="utf-8") as fh:
+            fh.write(run["output"])
+    except OSError as exc:
+        print("UNKNOWN  the run happened but its log could not be written: %s" % exc)
+        return EXIT_UNKNOWN
+
+    echoed = _echoed_seed(run["output"])
+    expected = _collected(run["output"])
+    executed = _junit_counts(junit)
+
+    record = {
+        "tool": "bd-shuffle-lane", "verdict": None, "seed": seed,
+        "seed_echoed_by_pytest": echoed, "replay_command": replay,
+        "host": os.uname().nodename, "repo": root,
+        "git_head": _git(root, "rev-parse", "HEAD"),
+        "git_tree": _git(root, "rev-parse", "HEAD^{tree}"),
+        "git_branch": _git(root, "rev-parse", "--abbrev-ref", "HEAD"),
+        "git_dirty": _git(root, "status", "--porcelain"),
+        "python": python, "plugin_dir": plugin_dir,
+        "plugin_version": state["version"],
+        "targets": targets, "workers": workers,
+        "command": run["cmd"], "command_digest": run["cmd_digest"],
+        "raw_returncode": run["rc"], "timed_out": run["timed_out"],
+        "expected_collected": expected, "junit_counts": executed,
+        "junit_path": junit, "log_path": logpath,
+        "started_utc": run["started"], "ended_utc": run["ended"],
+        "log_sha256": hashlib.sha256(run["output"].encode("utf-8")).hexdigest(),
+        "advisory": True,
+        "advisory_note": "nothing on the merge path invokes this tool; see the "
+                         "module docstring for the promotion recipe",
+    }
+
+    def finish(verdict: str, code: int, why: str) -> int:
+        record["verdict"] = verdict
+        record["why"] = why
+        _write_evidence(record_path, record)
+        # An ATOMIC COMPLETION MARKER, written last and only on a finished run.
+        _write_evidence(record_path + ".complete",
+                        {"verdict": verdict, "seed": seed, "at": _utc()})
+        print("%-8s %s" % (verdict, why))
+        if verdict == "FINDINGS":
+            print("REPLAY THIS FINDING:  %s" % replay)
+        return code
+
+    if run["timed_out"]:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "the run exceeded --lane-timeout=%ds; a truncated run has "
+                      "no denominator" % timeout)
+    if echoed is None:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "pytest never printed 'Using --randomly-seed=' -- the "
+                      "plugin did not load, so this run was NOT shuffled and a "
+                      "green result would mean nothing")
+    if echoed != seed:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "asked for seed %d, pytest reports %d -- the finding "
+                      "would not be replayable" % (seed, echoed))
+    if not expected:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "pytest reported no collected denominator; a lane that "
+                      "collected nothing has judged nothing")
+    if executed is None:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "no readable JUnit record at %s, so the executed "
+                      "denominator is unknown" % junit)
+    if executed["tests"] == 0:
+        return finish("UNKNOWN", EXIT_UNKNOWN,
+                      "collected %d but executed 0 -- nothing ran" % expected)
+    if run["rc"] != 0:
+        return finish("FINDINGS", EXIT_FINDINGS,
+                      "shuffled run rc=%s over %d collected / %d executed: "
+                      "%d failure(s), %d error(s)"
+                      % (run["rc"], expected, executed["tests"],
+                         executed["failures"], executed["errors"]))
+    return finish("PASS", EXIT_PASS,
+                  "shuffled green at seed %d over %d collected / %d executed"
+                  % (seed, expected, executed["tests"]))
+
+
+def materialize_control(root: str, dest: str) -> "list | None":
+    """Copy the tracked control pair into `dest` under collectable names.
+
+    The tracked files are NOT named test_*.py so the real suite never collects
+    them; a directory-level shuffled run needs names the collector accepts, and
+    copying is what keeps both facts true at once.
+    """
+    src = os.path.join(root, CONTROL_DIR)
+    pairs = [(CONTROL_ALPHA, "test_probe_alpha.py"),
+             (CONTROL_BETA, "test_probe_beta.py")]
+    out = []
+    for name, target in pairs:
+        origin = os.path.join(src, name)
+        if not os.path.isfile(origin):
+            return None
+        shutil.copy2(origin, os.path.join(dest, target))
+        out.append(target)
+    return out
+
+
+def control(root: str, plugin_dir: str, python: str, lo: int, hi: int) -> int:
+    """THE POSITIVE CONTROL. A lane that cannot fail is not a lane.
+
+    Plants a known order dependency, shuffles it across a searched seed range,
+    and requires BOTH classes to be non-empty over a nonzero denominator:
+
+      * at least one seed where the pair FAILS -- proof the lane can fail, and
+        proof it fails for the INTENDED reason (the control's own distinctive
+        diagnostic must appear, not a collection error or an import failure);
+      * at least one seed where the pair PASSES -- the negative control. Without
+        it, a lane broken so that everything fails would look like a lane that
+        works.
+
+    It does NOT pin a seed-to-order mapping. That mapping is pytest-randomly's
+    private business and may change with the plugin; what must hold is that the
+    lane REACHES both orders, which is a property of shuffling rather than of a
+    particular implementation.
+
+    Finally it REPLAYS the failing seed and requires the identical verdict. A
+    finding nobody can reproduce is not a finding.
+    """
+    state = plugin_state(plugin_dir, python)
+    if not state["available"]:
+        print("UNKNOWN  %s" % state["why"])
+        print("REMEDY   venv/bin/python toolchain/bin/bd-shuffle-lane --install")
+        return EXIT_UNKNOWN
+    if hi <= lo:
+        print("UNKNOWN  empty seed range %d..%d -- nothing would be searched"
+              % (lo, hi))
+        return EXIT_UNKNOWN
+
+    token = "bd-shuffle-control-%s" % os.urandom(8).hex()
+    with tempfile.TemporaryDirectory(prefix="bd-shuffle-control-") as work:
+        if materialize_control(root, work) is None:
+            print("UNKNOWN  the tracked control pair is missing under %s"
+                  % CONTROL_DIR)
+            return EXIT_UNKNOWN
+
+        # A FRESH token per invocation, and TOKEN_VAR popped from the CHILD's
+        # environment -- which is where it matters, and which merely declining
+        # to set it does not achieve (CLAUDE.md A7). An inherited token would
+        # let the consumer probe pass in either order, and the control would
+        # then certify a lane that cannot fail.
+        extra = {EXPECT_VAR: token}
+
+        failing, passing, broken = [], [], []
+        for seed in range(lo, hi):
+            args = [work, "-p", "randomly", "--randomly-seed=%d" % seed,
+                    "--randomly-dont-reset-seed", "-p", "no:cacheprovider",
+                    "--timeout=60", "--timeout-method=signal"]
+            run = _run_pytest(python, work, args, plugin_dir,
+                              extra_env=dict(extra), pop_env=(TOKEN_VAR,),
+                              timeout=300)
+            if _echoed_seed(run["output"]) != seed:
+                broken.append((seed, "seed not echoed"))
+                continue
+            if _collected(run["output"]) != 2:
+                broken.append((seed, "collected %r, expected exactly the two "
+                                     "control probes" % _collected(run["output"])))
+                continue
+            if run["rc"] == 0:
+                passing.append(seed)
+            elif CONTROL_MARKER in run["output"]:
+                failing.append(seed)
+            else:
+                broken.append((seed, "rc=%s without the control's own "
+                                     "diagnostic" % run["rc"]))
+
+        searched = hi - lo
+        print("searched %d seed(s) in [%d,%d)" % (searched, lo, hi))
+        print("failing  %s" % (failing[:8] or "NONE"))
+        print("passing  %s" % (passing[:8] or "NONE"))
+        if broken:
+            print("broken   %s" % broken[:8])
+            print("UNKNOWN  %d of %d searched seeds produced neither a clean "
+                  "pass nor the control's own failure -- the control cannot "
+                  "grade the lane" % (len(broken), searched))
+            return EXIT_UNKNOWN
+        if not failing:
+            print("UNKNOWN  no seed in [%d,%d) put the consumer probe first, so "
+                  "this run does not show the lane CAN fail. Widen the range."
+                  % (lo, hi))
+            return EXIT_UNKNOWN
+        if not passing:
+            print("UNKNOWN  every searched seed failed, so the control cannot "
+                  "distinguish an order-sensitive lane from a broken one")
+            return EXIT_UNKNOWN
+
+        # REPLAY: the same seed must reproduce the same verdict, or a recorded
+        # seed buys nothing.
+        seed = failing[0]
+        args = [work, "-p", "randomly", "--randomly-seed=%d" % seed,
+                "--randomly-dont-reset-seed", "-p", "no:cacheprovider",
+                "--timeout=60", "--timeout-method=signal"]
+        again = _run_pytest(python, work, args, plugin_dir,
+                            extra_env=dict(extra), pop_env=(TOKEN_VAR,),
+                            timeout=300)
+        if again["rc"] == 0 or CONTROL_MARKER not in again["output"]:
+            print("UNKNOWN  replaying seed %d did not reproduce the finding, so "
+                  "the recorded seed is not a replay handle" % seed)
+            return EXIT_UNKNOWN
+
+    print("PASS     the lane FAILS on a planted order dependency (seed %d, "
+          "replayed), PASSES on the benign order (seed %d), over %d searched "
+          "seeds" % (seed, passing[0], searched))
+    return EXIT_PASS
+
+
+def selftest() -> int:
+    """Toolchain-convention selftest. Deliberately DOES NOT need the plugin.
+
+    `bd-tool-lint --gate` runs this on hosts that have never provisioned the
+    lane, so a selftest that required pytest-randomly would report FAIL for an
+    environmental reason -- the over-sensitive direction CLAUDE.md A7 counts as
+    equal to a false clean. What it proves instead is the part that must hold
+    everywhere: the refusal paths refuse, and they refuse DISTINCTLY.
+    """
+    root = _repo_root(None)
+    checks = []
+
+    def check(name: str, ok: bool, detail: str = "") -> None:
+        checks.append((name, ok, detail))
+        print("%s  %s%s" % ("PASS" if ok else "FAIL", name,
+                            ("  -- " + detail) if detail and not ok else ""))
+
+    check("control pair is tracked and is NOT named test_*.py",
+          all(os.path.isfile(os.path.join(root, CONTROL_DIR, n))
+              for n in (CONTROL_ALPHA, CONTROL_BETA))
+          and not any(n.startswith("test") for n in (CONTROL_ALPHA, CONTROL_BETA)),
+          "the control pair must exist and must not pollute `pytest tests/`")
+
+    check("the shuffle manifest exists",
+          os.path.isfile(os.path.join(root, MANIFEST)), MANIFEST)
+
+    # THE REFUSAL PATH, exercised for real rather than read: an empty plugin
+    # directory must return UNKNOWN and name the remedy, not report OK.
+    with tempfile.TemporaryDirectory(prefix="bd-shuffle-selftest-") as empty:
+        state = plugin_state(empty, sys.executable)
+        check("an empty plugin directory is UNAVAILABLE, not silently fine",
+              state["available"] is False and bool(state["why"]),
+              "state=%r" % state)
+
+    check("a missing plugin directory is UNAVAILABLE",
+          plugin_state(os.path.join(root, "no-such-plugin-dir-%s"
+                                    % os.urandom(4).hex()),
+                       sys.executable)["available"] is False)
+
+    # The denominator readers must be honest about absence: this is the
+    # zero-denominator refusal the lane is built on.
+    check("a run with no collected line yields no denominator",
+          _collected("nothing at all here") is None)
+    check("a collected line is read exactly",
+          _collected("collected 41 items\n") == 41)
+    check("an xdist collected line is read exactly",
+          _collected("24 workers [1234 items]\n") == 1234)
+    check("a missing seed echo is None, never 0",
+          _echoed_seed("no header here") is None)
+    check("the seed echo is read exactly",
+          _echoed_seed("Using --randomly-seed=99\n") == 99)
+    check("a missing JUnit file yields None, not a zero count",
+          _junit_counts(os.path.join(root, "no-such-junit-%s.xml"
+                                     % os.urandom(4).hex())) is None)
+
+    ok = all(c[1] for c in checks)
+    print("SELFTEST PASS" if ok else "SELFTEST FAIL")
+    return EXIT_PASS if ok else 1
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="bd-shuffle-lane",
+        description="ADVISORY shuffle lane -- finds order dependencies between "
+                    "test files. Never edits or replaces the CLAUDE.md A5 "
+                    "canonical full-suite command.")
+    ap.add_argument("targets", nargs="*", default=None,
+                    help="pytest targets (default: tests/)")
+    ap.add_argument("--work", default=None, help="repository root")
+    ap.add_argument("--plugin-dir", default=None,
+                    help="private pytest-randomly directory (default: "
+                         "$BD_SHUFFLE_PLUGIN_DIR or the XDG state path)")
+    ap.add_argument("--python", default=sys.executable,
+                    help="interpreter (default: the one running this tool)")
+    ap.add_argument("--install", action="store_true",
+                    help="provision the private plugin directory and exit")
+    ap.add_argument("--control", action="store_true",
+                    help="run the positive control and exit")
+    ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="replay an exact seed instead of choosing one")
+    ap.add_argument("--seed-range", default="0:24",
+                    help="LO:HI seed range searched by --control")
+    ap.add_argument("-n", "--workers", type=int, default=24,
+                    help="xdist workers (default 24, the canonical shape)")
+    ap.add_argument("--evidence-dir", default=None,
+                    help="where the JSON/JUnit/log record is written")
+    ap.add_argument("--lane-timeout", type=int, default=7200,
+                    help="whole-run wall-clock cap in seconds")
+    ap.add_argument("--per-test-timeout", type=int, default=240,
+                    help="pytest-timeout per item (default 240, canonical)")
+    a = ap.parse_args(argv)
+
+    if a.selftest:
+        return selftest()
+
+    root = _repo_root(a.work)
+    if not os.path.isdir(os.path.join(root, "tests")):
+        print("UNKNOWN  %s does not look like the repository (no tests/)" % root)
+        return EXIT_UNKNOWN
+    plugin_dir = os.path.abspath(a.plugin_dir) if a.plugin_dir else default_plugin_dir()
+
+    if a.install:
+        return install(root, plugin_dir, a.python)
+
+    if a.control:
+        try:
+            lo_s, hi_s = a.seed_range.split(":", 1)
+            lo, hi = int(lo_s), int(hi_s)
+        except ValueError:
+            print("usage: --seed-range LO:HI")
+            return EXIT_USAGE
+        return control(root, plugin_dir, a.python, lo, hi)
+
+    targets = a.targets or ["tests/"]
+    evidence = a.evidence_dir or os.path.join(
+        pathlib.Path.home(), ".local", "state", "bulkdownloader",
+        "shuffle-lane", "runs")
+    return lane(root, plugin_dir, a.python, targets, a.seed, a.workers,
+                evidence, a.lane_timeout, a.per_test_timeout)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

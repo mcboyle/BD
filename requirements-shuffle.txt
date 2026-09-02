@@ -1,0 +1,50 @@
+# Bulk Downloader - the SHUFFLE LANE's private dependency.
+# Install: NOT by any default path. See the paragraph below.
+#
+# WHY THIS FILE EXISTS, SEPARATELY FROM requirements-test.txt.
+# The same reasoning that split requirements-test.txt out of
+# requirements-dev.txt applies one level further out: two different questions,
+# two manifests. requirements-test.txt is a DEPLOY-PATH manifest -- deploy.sh
+# step [5] converges it on the box and .github/workflows/ci.yml installs it in
+# every shard -- so anything written there is installed into the interpreter
+# that runs the SANCTIONED lanes.
+#
+# pytest-randomly must NOT be installed into that interpreter, and the reason is
+# mechanical rather than stylistic. pytest auto-loads a plugin from its
+# setuptools entry point, so merely INSTALLING pytest-randomly turns shuffling
+# ON for every pytest invocation that does not pass `-p no:randomly`. MEASURED
+# on this tree at v3.66.1451: the CLAUDE.md A5 canonical full-suite command
+# carries `-p no:randomly` and is therefore safe, but the affected-band lane,
+# `bd-precut --gate`, every `.github/workflows/ci.yml` gate-suite shard and the
+# majority of the ~1500 tracked test files' own sub-pytest children do not.
+# CLAUDE.md A5 says a different plugin is a different experiment and cannot
+# authorize merge; installing this into the shared venv would silently make
+# every merge-evidence lane a different experiment, in a repository with LIVE
+# order dependencies already filed as backlog rows 491, 516 and 610.
+#
+# So the plugin is DECLARED here and installed only into the shuffle lane's own
+# private plugin directory, which nothing else puts on sys.path:
+#
+#     venv/bin/python toolchain/bin/bd-shuffle-lane --install
+#
+# `--install` runs `pip install --target <plugin-dir> --no-deps` against THIS
+# manifest. `--no-deps` is load-bearing: a --target install without it
+# re-resolves pytest ITSELF into the target directory, and PYTHONPATH would then
+# shadow the venv's pytest with a second copy -- a second changed variable in an
+# experiment whose whole point is to change exactly one.
+#
+# CONSEQUENCE, RECORDED SO NOBODY "FIXES" IT: `tools/dep_freshness.py` lists
+# every declared-but-absent package under `missing`, so pytest-randomly appears
+# there on any host that has not provisioned the lane. That is BY DESIGN and it
+# is not a drift failure -- dep_freshness `--check` exits non-zero on `drifted`
+# only. Do not resolve that report by adding this line to requirements.txt,
+# requirements-test.txt or requirements-dev.txt; doing so re-opens exactly the
+# defect described above. tests/test_v3_66_1452_a_shuffle_lane_finds_order_
+# dependencies.py refuses that migration mechanically.
+#
+# pytest-randomly is pinned to a MAJOR RANGE for the same reason every other
+# instrument here is: the lane's seed->order mapping is the plugin's private
+# business, and a major bump may change it. The lane never assumes a particular
+# mapping -- it searches for one -- so a minor bump is safe and a major one is
+# an operator decision.
+pytest-randomly>=5.0,<6.0

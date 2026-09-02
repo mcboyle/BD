@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "v3.66.1452. Re-run from a detached clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1452_shuffle_lane_containment.json --work DETACHED_CLONE. EVERY ANCHOR HERE IS STRUCTURAL ON PURPOSE -- no numeric literal, no quoted string, no True/False/None and no `=` -- because row357 refuses a new value-bearing anchor that no producer re-derives, and it was right to refuse the first draft of this battery: an anchor like `pytest-timeout>=2.0,<3.0` freezes a pin whose value a later cut may legitimately change, and the battery would then fail for a reason that has nothing to do with its subject. The replacement text carries the value; the anchor carries only shape. M6 is the one worth reading twice. It makes an EARLY refusal fail-open, and a LATER refusal inside the same tool still returns exit 4 -- so a catcher that asserted only the exit code would report CAUGHT while the defect shipped. It is caught because the assertion also requires that refusal's own distinctive remedy text (CLAUDE.md A5: when several refusals share an exit code, assert the distinctive diagnostic; A7's bd-vault-unlock note is the same lesson).",
+  "subject": "the shuffle lane stays a SECOND lane: the A5 canonical command still blocks pytest-randomly, the plugin is declared only in the manifest no installer converges, nothing on the merge path invokes the lane, the planted control pair really is order-dependent, the manifest reader really can see a declaration, and an absent plugin refuses with its own named remedy",
+  "band": [
+    "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the A5 canonical command stops blocking pytest-randomly",
+      "file": "CLAUDE.md",
+      "old": " -p no:randomly",
+      "new": " -p randomly",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_canonical_command_still_blocks_the_plugin_this_cut_installs"
+    },
+    {
+      "label": "M2 pytest-randomly migrates into a manifest CI and deploy install",
+      "file": "requirements-test.txt",
+      "old": "psycopg[binary]",
+      "new": "pytest-randomly\npsycopg[binary]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_shuffle_plugin_is_declared_in_no_other_manifest"
+    },
+    {
+      "label": "M3 the merge path starts invoking the advisory lane",
+      "file": "toolchain/bin/bd-precut",
+      "old": "import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile\n",
+      "new": "import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile\n_SHUFFLE_LANE_GATE = [sys.executable, \"toolchain/bin/bd-shuffle-lane\"]\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_lane_is_not_wired_into_any_merge_gate"
+    },
+    {
+      "label": "M4 the control's consumer probe stops requiring the token",
+      "file": "tests/fixtures/shuffle_control/order_probe_beta.py",
+      "old": "def test_beta_requires_the_token():\n",
+      "new": "def test_beta_requires_the_token():\n    return\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_control_pair_is_genuinely_order_dependent"
+    },
+    {
+      "label": "M5 the manifest reader stops seeing any declaration",
+      "file": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py",
+      "old": "        if name in declared:\n",
+      "new": "        if name in declared and not declared:\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_manifest_reader_can_actually_see_a_declaration"
+    },
+    {
+      "label": "M6 an absent plugin directory reports AVAILABLE (fail-open refusal)",
+      "file": "toolchain/bin/bd-shuffle-lane",
+      "old": "def plugin_state(plugin_dir: str, python: str) -> dict:\n",
+      "new": "def plugin_state(plugin_dir, python):\n    return {\"available\": True, \"why\": \"\", \"dir\": plugin_dir,\n            \"version\": \"mutant\"}\n\n\ndef _plugin_state_unreached(plugin_dir: str, python: str) -> dict:\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_an_absent_plugin_is_unknown_with_a_named_remedy_not_ok"
+    }
+  ]
+}

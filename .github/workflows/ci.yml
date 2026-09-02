@@ -579,6 +579,7 @@ jobs:
               tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
               tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py
+              tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
           - name: regen-idempotence-isolation
             suites: >-
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
