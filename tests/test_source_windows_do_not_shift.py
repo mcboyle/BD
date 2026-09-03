@@ -61,9 +61,13 @@ sys.path.insert(0, str(ROOT))
 # Measured 2026-07-29 at 118; re-measured 2026-07-30 at 115 after the
 # done_today_count cut converted the three windows in test_v3_43_23_quick_wins;
 # re-measured 2026-09-01 at 105 after the part-staging-collision cut converted
-# eight resume checks. Lower it whenever a cut converts some; never raise it.
-# Raising it is the switch-it-off move this gate exists to prevent.
-_MAX_WINDOWS = 105
+# eight resume checks; re-measured 2026-09-03 at 104 after
+# test_runner_acquires_slot_in_http_download stopped scanning source at all --
+# its src[fn_pos:fn_pos + 10000] window is gone because the gate now RUNS the
+# transfer and counts rate_limit.acquire. Lower it whenever a cut converts
+# some; never raise it. Raising it is the switch-it-off move this gate exists
+# to prevent.
+_MAX_WINDOWS = 104
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming
@@ -73,6 +77,11 @@ _MAX_WINDOWS = 105
 _CONVERTED = {
     ("tests/test_v3_43_39_captcha_resolver.py",
      "test_handle_captcha_check_tracks_type"),
+    # Now BEHAVIOURAL rather than AST-derived: it drives the real transfer and
+    # counts slot releases (v3.66.1453 w2-staginge). It stays named here
+    # because this gate's question -- "did this test regress to a fixed-width
+    # window?" -- is still the right question to keep asking of it, and a
+    # behavioural body answers it with zero windows.
     ("tests/test_v3_43_31_rate_limit.py",
      "test_runner_releases_slot_in_finally"),
     # done_today_count cut: adding ten lines to _update_job_current pushed the

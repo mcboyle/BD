@@ -258,7 +258,30 @@ def test_worker_loop_stamps_heartbeat():
 
 
 def test_streaming_progress_paths_report_advancing_file_size():
-    """Every byte-streaming path must feed the central liveness seam."""
+    """The two chunked byte-streaming paths must feed the central liveness seam.
+
+    THE SEQUENTIAL LEG IS RETIRED HERE, not weakened -- it was measured
+    blind on 2026-09-03 and the behavioural gate that replaced it is
+    stronger. It read `def _http_download(`, sliced to the next `    def `,
+    and asserted the literal `file_size=downloaded` sat inside. A staging cut
+    then split that function into a thin wrapper holding a `_report_progress`
+    closure and an `_http_download_claimed` body that calls it. The literal
+    stayed in the wrapper -- inside this gate's slice -- while the one live
+    call moved out of it, so removing the progress report from the executed
+    path would not have failed this assertion.
+
+    tests/test_live_telemetry.py::test_sequential_resume_progress_reports_absolute_file_size
+    RUNS the sequential transfer against a scripted response and asserts the
+    reported sizes are exactly [6, 8]: absolute, ordered, and nonzero. That
+    watched the report happen, so it fails when the call is removed no matter
+    which function the literal ends up in. Mutant M3 in
+    tests/mutants/v3_66_1453_w2_staginge_rate_limit_seam.json holds that line.
+
+    The two legs below keep their source-text form deliberately: neither
+    `_do_direct_http_download` nor `_try_multi_conn_download` was split, so
+    neither has the closure/body seam that made the third leg unsound, and
+    converting them is a different cut with a different subject.
+    """
     src = _RUNNER_PY.read_text(encoding="utf-8")
 
     direct_start = src.find("def _do_direct_http_download(")
@@ -270,11 +293,6 @@ def test_streaming_progress_paths_report_advancing_file_size():
     multi_end = src.find("\n    def ", multi_start + 4)
     multi_body = src[multi_start:multi_end]
     assert "file_size=got" in multi_body
-
-    sequential_start = src.find("def _http_download(")
-    sequential_end = src.find("\n    def ", sequential_start + 4)
-    sequential_body = src[sequential_start:sequential_end]
-    assert "file_size=downloaded" in sequential_body
 
 
 def test_watchdog_loop_method_exists():

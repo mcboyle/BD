@@ -5,6 +5,29 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1453 - the rate-limit gates stop reading source text and start counting what actually happens
+
+Train 6: one patch, implemented locally after two worker attempts satisfied the
+old gates without satisfying their intent.
+
+- ROWS 501, 523 and 658: three gates asserted, by scanning source text, that a
+  rate-limit import appeared inside the body of _http_download. Text can be
+  staged. One earlier patch restored those literals in decoy closures and moved
+  the real seam into a helper the gates did not scan, after which deleting the
+  only acquire_rate_limit call still passed them. They are replaced by
+  behavioural assertions that rate_limit.acquire and release fire exact nonzero
+  counts on the path actually executed.
+
+  Measured old against new over six mutants: every mutant the old gates caught
+  is still caught, and three the old gates passed blind -- deleting the rate
+  limit acquisition, deleting progress reporting, and zeroing the recorded file
+  size -- now fail. The new gates also pass on the pre-split tree, so they read
+  behaviour rather than the shape of a refactor.
+
+Also filed: rows 657, 659 and 660, recording an order dependence that only the
+full suite sees, a candidate whose two identical runs disagreed by twenty
+nodes, and a check that rewrites a tracked generated file as a side effect.
+
 ## v3.66.1452 - a real signed-jwplayer capture becomes a gate, and the breadth corpus gains five recorded pages
 
 Train 5: two patches, each boarded by two independent adversarial lenses.

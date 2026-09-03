@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "resolved": 105,
+  "resolved": 104,
   "schema_version": 1,
   "unresolved": [],
   "windows": [
@@ -133,11 +133,6 @@
       "bytes": 3007,
       "key": "tests/test_v3_43_31_rate_limit.py::test_app_config_handler_validates_rate_limit_fields::src[pos:pos + 3000]::1",
       "sha256": "413df57e402ec3a2a7ed63440cfb39102ab1394ab875b20dc828b088ea468a97"
-    },
-    {
-      "bytes": 10020,
-      "key": "tests/test_v3_43_31_rate_limit.py::test_runner_acquires_slot_in_http_download::src[fn_pos:fn_pos + 10000]::1",
-      "sha256": "014319a520d5e66965069c715d47bf1cfc5de9004161b43912eb752078768b34"
     },
     {
       "bytes": 2502,

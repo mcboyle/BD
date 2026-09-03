@@ -1,0 +1,79 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 523 and 501. Every anchor is structural: M3 matches only the boolean connective, M4-M6 match call names, M8 matches only the transferred identifier, and the remaining literal anchors contain no value-bearing source. The separate transform control applies M1 and M8 to an import-only node and both must ESCAPE.",
+  "subject": "rows 523 and 501: every post-reservation exit is ownership-scoped and every RAM-written staging path carries a durable identity claim",
+  "band": [
+    "tests/test_part_staging_collision.py",
+    "tests/test_history_records_whether_bytes_were_fetched.py::test_the_transferred_count_travels_by_return_not_by_self"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the post-reservation ownership unwind",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "new": "            pass\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_every_post_reservation_return_is_inside_one_ownership_scope"
+    },
+    {
+      "label": "M2 make the scope guard blind-unlink another identity",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "new": "            staging_claim.release(_staging_path, force=True)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_do_download_scope_will_not_delete_a_different_jobs_claim"
+    },
+    {
+      "label": "M3 over-correct the unwind by deleting every surviving part",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?m)^                        and(?= _staging_path\\.stat\\(\\)\\.st_size == 0\\):$)",
+      "new": "                        or",
+      "direction": "overcorrection",
+      "control": "tests/test_part_staging_collision.py::test_interrupted_do_download_keeps_its_part_claimed_for_resume",
+      "preserves": [
+        "tests/test_part_staging_collision.py::test_do_download_staging_unavailable_exit_drops_its_empty_owned_claim",
+        "tests/test_part_staging_collision.py::test_do_download_http_then_timeout_exit_drops_its_empty_owned_claim"
+      ]
+    },
+    {
+      "label": "M4 restore the RAM basename check-then-act with no durable claim",
+      "file": "bulk_downloader/ramdisk_stage.py",
+      "old_regex": "(?<=    _candidate_final, candidate = )claim_reserver(?=\\()",
+      "new": "(lambda *args: (stage_dir / final.name, stage_dir / (final.name + \".part\")))",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_ramdisk_cross_process_collision_gets_two_claimed_paths"
+    },
+    {
+      "label": "M5 stop forwarding RAM ownership inputs",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "_rd.reserve_staging_path",
+      "new": "(lambda *args, **kwargs: _rd.reserve_staging_path(*args))",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_ramdisk_writer_path_has_its_own_claim_during_transfer"
+    },
+    {
+      "label": "M6 retain an empty RAM-written path claim on scoped exit",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "                    staging_claim.release(claimed_path, identity)",
+      "new": "                    pass",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_ramdisk_http_failure_releases_its_empty_written_path_claim"
+    },
+    {
+      "label": "M7 treat UNKNOWN RAM ownership as permission to continue",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "            except staging_claim.StagingUnavailable as e:\n                raise _StagingUnavailable(str(e))\n",
+      "new": "            except staging_claim.StagingUnavailable as e:\n                pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_unmeasurable_ramdisk_ownership_refuses_before_any_write"
+    },
+    {
+      "label": "M8 hand the sequential transferred count through shared runner state",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=max\\(0, )transferred(?=\\))",
+      "new": "self._last_transferred",
+      "direction": "regression",
+      "catcher": "tests/test_history_records_whether_bytes_were_fetched.py::test_the_transferred_count_travels_by_return_not_by_self"
+    }
+  ]
+}
