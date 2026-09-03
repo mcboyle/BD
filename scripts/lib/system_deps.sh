@@ -273,6 +273,18 @@ bd_system_pkgs() {
     # names from _detect_backends by AST, so a third backend joins that gate's
     # denominator automatically rather than needing this comment updated.
     local media=(ffmpeg streamlink)
+    # STAGED 2026-09-03 (cut w6-reqconsolidate): tool/font/db/vpn groups the fleet
+    # carries but no installer declared -- measured absent on a fresh install_linux
+    # box (10.0.70.149). See bd-codex-briefs/w6-reqconsolidate.md.
+    # fonts: the headed browser (Playwright/CloakBrowser) renders pages+screenshots;
+    # without these a fresh box drops CJK/emoji/latin glyphs. Measured: 0 present on 149.
+    local fonts=(fonts-liberation fonts-noto-color-emoji fonts-wqy-zenhei fonts-ipafont-gothic)
+    # tools: ripgrep(rg) is used across toolchain/bin; sqlite3 is the history-DB CLI.
+    local tools=(ripgrep sqlite3)
+    # db: mod3 Postgres cutover tests need a local server (test4/bd2/bd3 already carry it).
+    local db=(postgresql)
+    # vpn: runner_auth/live capture shell out to openvpn and wg-quick for the tunnel path.
+    local vpn=(openvpn wireguard-tools)
 
     # "${arr[*]}" joins on the FIRST character of IFS, so pin IFS locally: the
     # contract is a space-separated list regardless of what the caller left set.
@@ -280,7 +292,7 @@ bd_system_pkgs() {
     local IFS=' '
 
     if [ "$#" -eq 0 ]; then
-        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk lint media all)\n' >&2
+        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk lint media fonts tools db vpn all)\n' >&2
         return 1
     fi
 
@@ -290,9 +302,13 @@ bd_system_pkgs() {
         gtk)  printf '%s\n' "${gtk[*]}" ;;
         lint) printf '%s\n' "${lint[*]}" ;;
         media) printf '%s\n' "${media[*]}" ;;
-        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" "${lint[@]}" "${media[@]}" ;;
+        fonts) printf '%s\n' "${fonts[*]}" ;;
+        tools) printf '%s\n' "${tools[*]}" ;;
+        db)   printf '%s\n' "${db[*]}" ;;
+        vpn)  printf '%s\n' "${vpn[*]}" ;;
+        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" "${lint[@]}" "${media[@]}" "${fonts[@]}" "${tools[@]}" "${db[@]}" "${vpn[@]}" ;;
         *)
-            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk lint media all)\n' \
+            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk lint media fonts tools db vpn all)\n' \
                 "'$1'" >&2
             return 1
             ;;

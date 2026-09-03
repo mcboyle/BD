@@ -325,3 +325,29 @@ videohash>=2.1,<3.0
 # fail-open everywhere — missing library reports `not_available`
 # and BD's existing teach path runs unchanged.
 scrapling[fetchers]>=0.2,<1.0
+
+# ---------------------------------------------------------------------------
+# STAGED 2026-09-03 (cut w6-reqconsolidate, operator-directed): consolidate the
+# TEST manifest into requirements.txt and declare the extractor/tool set the app
+# imports or shells out to but never declared. requirements-cloak.txt,
+# requirements-dev.txt and requirements-shuffle.txt STAY separate on purpose
+# (cloak = skippable/heavy/deploy-waiver + own browser install; dev = build
+# chain deploy must not install; shuffle = pytest-randomly must not auto-activate
+# in the main venv). See the brief: bd-codex-briefs/w6-reqconsolidate.md.
+# ---------------------------------------------------------------------------
+
+# --- former requirements-test.txt uniques (pytest + pillow already declared above) ---
+pyyaml>=6.0,<7.0            # shard-coverage + config gates import yaml
+pyflakes>=3.0,<4.0         # bd-tool-smoke/lint fail CLOSED without it
+pytest-timeout>=2.0,<3.0  # the canonical suite's --timeout plugin (F2: absent on a fresh install_linux box)
+psycopg[binary]>=3.1,<4   # mod3 Postgres cutover tests
+httpcore>=1.0,<2.0        # pinned transitive floor used directly by the http client tests
+
+# --- extractor / downloader tools the app imports or subprocess-calls, previously UNDECLARED ---
+# yt-dlp: imported directly (bulk_downloader/app.py, app_ytdlp_archive.py) AND subprocess-called;
+# present only transitively today. Date-versioned; site extractors need to stay current, so a
+# FLOOR only (no upper bound) -- reviewer: confirm the no-upper-bound exception vs the house style.
+yt-dlp>=2025.1
+# gallery-dl + youtube-dl: subprocess-called extractor fallbacks (fail-open; absent fleet-wide today).
+gallery-dl>=1.26
+youtube-dl>=2021.12.17
