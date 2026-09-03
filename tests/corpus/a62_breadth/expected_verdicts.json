@@ -1,0 +1,79 @@
+{
+  "archiveorg_item": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "progressive",
+    "recommended_path": "auto_template",
+    "rendition_count": 4,
+    "requires_runtime_capture": false,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": false
+  },
+  "dailymotion": {
+    "anti_bot": [],
+    "caption_count": 0,
+    "downloadable": false,
+    "drm": false,
+    "player_family": "unknown",
+    "primary_protocol": null,
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "iframe_embed",
+    "ssai": true
+  },
+  "nbcnews_video_akamai_jw": {
+    "anti_bot": [
+      "akamai",
+      "cloudflare"
+    ],
+    "caption_count": 1,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": true
+  },
+  "ted_talks": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "hlsjs",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "hls_manifest",
+    "ssai": false
+  },
+  "twitch_hlsjs": {
+    "anti_bot": [
+      "kasada"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "unknown",
+    "primary_protocol": "progressive",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 2,
+    "requires_runtime_capture": true,
+    "signing_schemes": [],
+    "site_type": "direct_progressive",
+    "ssai": true
+  }
+}

@@ -717,5 +717,23 @@
     "signing_schemes": [],
     "site_type": "hls_manifest",
     "ssai": true
+  },
+  "yupptv": {
+    "anti_bot": [
+      "cloudflare"
+    ],
+    "caption_count": 0,
+    "downloadable": true,
+    "drm": false,
+    "player_family": "jwplayer",
+    "primary_protocol": "hls",
+    "recommended_path": "pick_test_promote",
+    "rendition_count": 0,
+    "requires_runtime_capture": true,
+    "signing_schemes": [
+      "akamai_token"
+    ],
+    "site_type": "signed_akamai_token",
+    "ssai": true
   }
 }

@@ -1,0 +1,134 @@
+{
+  "_note_first_seen_host": "Only the HOST of each anti-bot vendor's first-seen URL is retained. The full URLs carried query values (a 16-hex siteId, a paywall account id) that no test needs and that a generic secret-scanning rule would flag in a newly tracked file.",
+  "captured_by": "operator harness bd-capture-url.py (public page, no login, redact=True)",
+  "captures": {
+    "archiveorg_item": {
+      "anti_bot_vendors": [],
+      "bytes": 140772,
+      "capture_version": 1,
+      "captured_at": "2026-08-29T18:57:24.710697+00:00",
+      "cookie_count": 0,
+      "distill_reduced_fields": [],
+      "dom_log_len": 0,
+      "fingerprinting_detected": false,
+      "fixture_sha256": "61986aaaa523848d87c9956ae2e3467908ce5a5db51c7c0f147ef16f5f0a0a47",
+      "host": "archive.org",
+      "network_log_count": 51,
+      "redaction_schema": "v3.66.171",
+      "sha256": "630c39378f5831a11d57ddc1bef73da7b651a5935edf84fdc5717136b0c39ef6",
+      "source_file": "archiveorg_item.wacz",
+      "url": "https://archive.org/details/BigBuckBunny_124"
+    },
+    "dailymotion": {
+      "anti_bot_vendors": [],
+      "bytes": 273158,
+      "capture_version": 1,
+      "captured_at": "2026-08-29T18:58:03.943622+00:00",
+      "cookie_count": 0,
+      "distill_reduced_fields": [],
+      "dom_log_len": 0,
+      "fingerprinting_detected": false,
+      "fixture_sha256": "d9ff1af6b871ec2e5963717a8836ff0747d1b7388bef114df88e67c09b5b5182",
+      "host": "www.dailymotion.com",
+      "network_log_count": 149,
+      "redaction_schema": "v3.66.171",
+      "sha256": "b8d952eb1407e754e0570a0eb99819a73638487860fc6a2019c5eaee6217d5b2",
+      "source_file": "dailymotion.wacz",
+      "url": "https://www.dailymotion.com/"
+    },
+    "nbcnews_video_akamai_jw": {
+      "anti_bot_vendors": [
+        {
+          "first_seen_host": "www.nbcnews.com",
+          "tells": [
+            "header:x-akamai-transformed",
+            "header:akamai-grn"
+          ],
+          "vendor": "akamai"
+        },
+        {
+          "first_seen_host": "experience.tinypass.com",
+          "tells": [
+            "header:cf-ray",
+            "header:cf-cache-status",
+            "server:cloudflare"
+          ],
+          "vendor": "cloudflare"
+        }
+      ],
+      "bytes": 842559,
+      "capture_version": 1,
+      "captured_at": "2026-08-29T18:54:01.024805+00:00",
+      "cookie_count": 0,
+      "distill_reduced_fields": [],
+      "dom_log_len": 0,
+      "fingerprinting_detected": true,
+      "fixture_sha256": "85253e77ec46ea75e2d3c4963d5deb3e172b156380ba64d260c760955c857561",
+      "host": "www.nbcnews.com",
+      "network_log_count": 397,
+      "redaction_schema": "v3.66.171",
+      "sha256": "d3bb8e7ca9a58fb4758b997d81438d71f3e39c777c16fcf5b1754515ed598d94",
+      "source_file": "nbcnews_video_akamai_jw.wacz",
+      "url": "https://www.nbcnews.com/video"
+    },
+    "ted_talks": {
+      "anti_bot_vendors": [
+        {
+          "first_seen_host": "api.idsequoia.ai",
+          "tells": [
+            "header:cf-ray",
+            "server:cloudflare",
+            "header:cf-cache-status"
+          ],
+          "vendor": "cloudflare"
+        }
+      ],
+      "bytes": 747567,
+      "capture_version": 1,
+      "captured_at": "2026-08-29T18:58:24.143660+00:00",
+      "cookie_count": 0,
+      "distill_reduced_fields": [],
+      "dom_log_len": 0,
+      "fingerprinting_detected": true,
+      "fixture_sha256": "2575d43f03f2871eb6b6896c72ddb5ed4b0279205f8f7bbd76ce7e6d7c092faa",
+      "host": "www.ted.com",
+      "network_log_count": 372,
+      "redaction_schema": "v3.66.171",
+      "sha256": "694dbc6dfac516169f3cd583798744dc9ea0cf08666ed49a785e6ba5e4ced3c5",
+      "source_file": "ted_talks.wacz",
+      "url": "https://www.ted.com/talks"
+    },
+    "twitch_hlsjs": {
+      "anti_bot_vendors": [
+        {
+          "first_seen_host": "gql.twitch.tv",
+          "tells": [
+            "header:x-kpsdk-ct"
+          ],
+          "vendor": "kasada"
+        }
+      ],
+      "bytes": 824438,
+      "capture_version": 1,
+      "captured_at": "2026-08-29T18:57:42.522371+00:00",
+      "cookie_count": 0,
+      "distill_reduced_fields": [],
+      "dom_log_len": 0,
+      "fingerprinting_detected": true,
+      "fixture_sha256": "28d40e63aff3ac495c1a8f6ce4e77e26c8265812975314071854316b4944b765",
+      "host": "www.twitch.tv",
+      "network_log_count": 385,
+      "redaction_schema": "v3.66.171",
+      "sha256": "7278981c1dde945ca83ba79ab1578de74a13b4833986995651e584ddaea701e5",
+      "source_file": "twitch_hlsjs.wacz",
+      "url": "https://www.twitch.tv/"
+    }
+  },
+  "derived_by": "tools/build_recognizer_corpus.py --src <symlinked .redacted.wacz> --out tests/corpus/a62_breadth --only <the five stems>",
+  "dom": "ABSENT -- dom_log_len is 0 in all five; every DOM-keyed recognizer criterion is UNDECIDABLE by this corpus and reads UNKNOWN",
+  "guided": "UNKNOWN -- all five carry 0 cookies and are public landing/item pages; real and unauthenticated, so row 452's 'guided' half is not asserted",
+  "predecessor_row": 124,
+  "row": 452,
+  "source_corpus": "/home/mboyle/bd-persist/corpus-new",
+  "subject": "FR-A6.2 builder enrichment slice 2 -- non-Cloudflare, non-video.js breadth"
+}

@@ -56,6 +56,12 @@ DEFAULT_CORPUS = [
     # bang = videojs/direct_progressive; kelly = videojs/signed_generic_token over
     # progressive; wowza = 2nd flowplayer host; erome = unsigned videojs HLS manifest.
     "mxchrome", "hlsjs", "bang", "kelly", "wowza", "erome",
+    # Row 453 (row 120's successor): the corpus' first capture in the true
+    # signed x jwplayer x akamai intersection -- a public www.yupptv.com
+    # session whose HLS master carries an Akamai token-auth `hdnts=` query and
+    # whose player is JWPlayer 8.33.2 served from an akamaized.net host. Row
+    # 120 was parked as corpus-bound on exactly this gap.
+    "yupptv",
 ]
 
 # Corpus fixture name -> exact source filename in the canonical redacted set.
@@ -82,6 +88,12 @@ CORPUS_SRC = {
     "hlsjs":    "w.wacz",
     "bang":     "bang.com.redacted.wacz",
     "erome":    "t_0f67ad4fbee24a83_erome.redacted.wacz",
+    # Row 453: the redacted twin ONLY. Its full twin `last6.wacz` embeds the
+    # operator's public IPv4 in the Akamai `acl=` parameter 8 times and must
+    # never be archived or distilled; the redacted file carries 0 and yields
+    # the byte-identical recognizer verdict. The source stem is the capture's
+    # original uninformative filename, which is why this entry is required.
+    "yupptv":   "last6.redacted.wacz",
 }
 
 _MANIFEST_EXT = (".m3u8", ".mpd", ".ism")

@@ -681,7 +681,7 @@ def test_recognizer_corpus_partition_has_five_parallel_loadfile_units() -> None:
     `--dist loadfile` gives one FILE to one worker, so splitting the corpus buys
     nothing unless each shard is in the parallel allowlist -- four shards left in
     the serial lane would be the same critical path wearing new names. The
-    behavioural denominator stays 46; this asserts only where the work RUNS.
+    behavioural denominator stays 47; this asserts only where the work RUNS.
     """
     lanes = _load_lanes_module()
     allowlist = lanes.parallel_allowlist()

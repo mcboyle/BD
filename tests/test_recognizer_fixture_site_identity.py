@@ -70,6 +70,7 @@ _DECLARED_FIXTURE_HOSTS = {
     "wow": "auth.wowgirls.com",
     "wowza": "www.wowza.com",
     "xnxx": "www.xnxx.com",
+    "yupptv": "www.yupptv.com",
 }
 
 
@@ -108,7 +109,7 @@ def test_every_recognizer_fixture_declares_the_host_its_payload_records():
     pins = json.loads((_CORPUS / "expected_verdicts.json").read_text("utf-8"))
     expected = set(_DECLARED_FIXTURE_HOSTS)
 
-    assert len(expected) == 46, (
+    assert len(expected) == 47, (
         "the independent recognizer-fixture denominator changed; classify the "
         f"new or removed fixture explicitly, got {len(expected)} declarations"
     )
@@ -147,7 +148,7 @@ def test_every_recognizer_fixture_declares_the_host_its_payload_records():
                 )
         fired += 1
 
-    assert fired == 46, f"site control fired {fired} times, expected exactly 46"
+    assert fired == 47, f"site control fired {fired} times, expected exactly 47"
     assert not shape_errors, "invalid recognizer fixture preconditions:\n  " + "\n  ".join(shape_errors)
     mismatches = _site_mismatches(payloads, _DECLARED_FIXTURE_HOSTS)
     assert not mismatches, "recognizer fixture site/host mismatch:\n  " + "\n  ".join(mismatches)

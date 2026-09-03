@@ -24,3 +24,8 @@ def test_media(): _check_one("media")
 def test_clappr(): _check_one("clappr")
 def test_brightcove(): _check_one("brightcove")
 def test_vimeo(): _check_one("vimeo")
+# Row 453 (row 120's successor): the corpus' only capture in the true
+# signed x jwplayer x akamai intersection. Its pin is the guard that the
+# akamai_token signing recognizer keeps classifying a real signed JWPlayer
+# site as signed_akamai_token / pick_test_promote rather than auto_template.
+def test_yupptv(): _check_one("yupptv")

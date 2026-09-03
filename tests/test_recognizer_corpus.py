@@ -41,6 +41,8 @@ _EXPECTED_SHARDS = {
     "test_recognizer_corpus_shard_a.py": {
         "scroller", "tiny", "theo", "kelly", "xnxx", "embed", "media",
         "clappr", "brightcove", "vimeo",
+        # Row 453: the corpus' first signed x jwplayer x akamai capture.
+        "yupptv",
     },
     "test_recognizer_corpus_shard_b.py": {
         "erome", "adult", "news", "banb", "vdash", "wowza", "mxchrome",
@@ -115,13 +117,13 @@ def test_corpus_covers_the_class_matrix():
     assert max(v["caption_count"] for v in _PINS.values()) >= 5
 
 
-def test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards():
+def test_all_47_corpus_cases_are_partitioned_across_four_loadfile_shards():
     """The complete corpus must be split, never narrowed or duplicated."""
     expected = set().union(*_EXPECTED_SHARDS.values())
     fixtures = {path.name.removesuffix(".cap.json")
                 for path in _CORPUS.glob("*.cap.json")}
     assert len(_EXPECTED_SHARDS) == 4, "recognizer shard denominator changed"
-    assert len(expected) == len(fixtures) == len(_PINS) == 46, (
+    assert len(expected) == len(fixtures) == len(_PINS) == 47, (
         "recognizer corpus denominator changed: expected=%d fixtures=%d pins=%d"
         % (len(expected), len(fixtures), len(_PINS)))
     assert expected == fixtures == set(_PINS), (
@@ -129,7 +131,7 @@ def test_all_46_corpus_cases_are_partitioned_across_four_loadfile_shards():
         f"expected-only={sorted(expected - fixtures)}, "
         f"fixture-only={sorted(fixtures - expected)}, "
         f"pin-only={sorted(set(_PINS) - expected)}")
-    assert sum(len(cases) for cases in _EXPECTED_SHARDS.values()) == 46, (
+    assert sum(len(cases) for cases in _EXPECTED_SHARDS.values()) == 47, (
         "a recognizer case appears in more than one scheduling shard")
 
     observed = {}
@@ -178,6 +180,6 @@ def _check_one(name):
     assert scan_artifact_secrets(draft) == [], f"{name}: secret leak in draft"
 
 
-# The 46 zero-argument fixture cases live in four physical shard files.  Keep
+# The 47 zero-argument fixture cases live in four physical shard files.  Keep
 # the helpers and the corpus-wide assertions here; the independent map above
 # proves that the move changed scheduling only, not membership.

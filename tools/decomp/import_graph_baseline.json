@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4295,
+  "edge_count": 4298,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3841,6 +3841,11 @@
     ],
     "tests/test_row450_watch_folder_defers_a_file_still_being_written.py": [
       "bulk_downloader/watch_folder.py"
+    ],
+    "tests/test_row452_a62_breadth_real_captures.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "tools/build_recognizer_corpus.py",
+      "tools/build_template_from_wacz.py"
     ],
     "tests/test_row475_offline_vault_password_check.py": [
       "bulk_downloader/auth_throttle.py",

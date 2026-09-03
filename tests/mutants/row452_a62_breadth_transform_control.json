@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for M1 of tests/mutants/row452_a62_breadth.json. This spec MUST ESCAPE. It applies the identical source transform -- never registering the player brand pack -- but its catcher only imports the builder and asserts build_template is callable, never exercising the family claim. An ESCAPE therefore proves the M1 CAUGHT verdict is an assertion failure about a real capture's player family, not the mutant failing to parse or import.",
+  "subject": "transform-only control for the unregistered player brand pack",
+  "band": [
+    "tests/test_row452_a62_breadth_real_captures.py::test_brand_pack_transform_control_only_imports_the_builder"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 never register the brand pack while an import-only control stays green",
+      "file": "tools/player_families.py",
+      "new": "def ensure_registered():\n    return\n\n\ndef _ensure_registered_unreached(",
+      "direction": "regression",
+      "catcher": "tests/test_row452_a62_breadth_real_captures.py::test_brand_pack_transform_control_only_imports_the_builder",
+      "old": "def ensure_registered("
+    }
+  ]
+}
