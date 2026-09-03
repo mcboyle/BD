@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for rows 522/526. This must ESCAPE: it applies the byte-identical dirty-as-clean transform while the only node imports the verdict module without evaluating identity behavior.",
+  "subject": "valid transform-only control for integration verdict identity",
+  "band": [
+    "tests/test_row407_integration_verdict.py::test_transform_control_imports_verdict_without_judging_identity"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 dirty working trees are laundered on an unexercised path",
+      "file": "scripts/bd_integration_verdict.py",
+      "old": "        cleanliness = \"dirty\" if status.stdout else \"clean\"",
+      "new": "        cleanliness = \"clean\"",
+      "direction": "regression",
+      "catcher": "tests/test_row407_integration_verdict.py::test_transform_control_imports_verdict_without_judging_identity"
+    }
+  ]
+}

@@ -16,6 +16,21 @@ import re as _cfg_re
 import os as _dl_os
 import re as _dl_re
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 def _dev_mode() -> bool:
     try:
         from bulk_downloader import dev_tools as _dt
@@ -217,7 +232,7 @@ def _resolve_all_site_configs(runners):
     if runners:
         try:
             out = {sid: dict(getattr(rn, "config", {}) or {})
-                   for sid, rn in runners.items()}
+                   for sid, rn in _runners_generation(runners)}
             if out:
                 return out, "live runners"
         except Exception:

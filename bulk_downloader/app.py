@@ -385,7 +385,7 @@ from .app_kernel import (
     CFG_FIELDS, DEFAULTS, _app_cfg, _APP_CFG_DEFAULTS,
 )
 from .app_state import (
-    runners, s_cfg, s_meta,
+    runners, runners_generation, s_cfg, s_meta,
     _watch_threads, _watch_stops, _watch_registry_lock,
     _sites_config_save_lock,
     _pairing_tokens, _pairing_lock,
@@ -1894,7 +1894,7 @@ def _heartbeat_to_disk_loop():
                 "version": "3.43.24",
                 "sites": len(runners),
                 "running_workers": sum(
-                    len(r._worker_threads) for r in runners.values()
+                    len(r._worker_threads) for _sid, r in runners_generation(runners)
                     if hasattr(r, "_worker_threads")
                 ),
             }
@@ -4668,7 +4668,7 @@ def _status_snapshot(light=True):
     if not hasattr(api_status, "_disk_cache"):
         api_status._disk_cache = {}
     now_t = _t.time()
-    for sid, runner in runners.items():
+    for sid, runner in runners_generation(runners):
         try:
             st = runner.get_status(light=light)
         except Exception:
@@ -4704,7 +4704,7 @@ def _dashboard_snapshot():
     rate_limited_sites = []
     low_disk_sites = []
     disk_aggregate = []
-    for sid, runner in runners.items():
+    for sid, runner in runners_generation(runners):
         if not runner: continue
         cfg = s_cfg.get(sid, {}) or {}
         st_state = runner.state()
@@ -4755,7 +4755,7 @@ def _dashboard_snapshot():
     pending_total = totals["pending"] + totals["running"]
     eta_seconds = None
     recent_per_min = 0.0
-    for runner in runners.values():
+    for _sid, runner in runners_generation(runners):
         try: recent_per_min += float(getattr(runner, "_recent_per_min", 0) or 0)
         except Exception: pass
     if pending_total > 0 and recent_per_min > 0:

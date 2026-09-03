@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: both valid source edits must escape a test that only checks the tool exists.",
+  "subject": "row 473 register-containment transform control",
+  "band": [
+    "tests/test_row473_register_tree_containment.py::test_bd_shipped_exists_as_the_mechanical_containment_gate"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ignoring disagreement parses and loads outside the verdict path",
+      "file": "toolchain/bin/bd-shipped",
+      "old_regex": "(?m)^    if disagreements:\\n",
+      "new": "    if disagreements and False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row473_register_tree_containment.py::test_bd_shipped_exists_as_the_mechanical_containment_gate"
+    },
+    {
+      "label": "TC2 denominator bypass remains importable",
+      "file": "toolchain/bin/bd-shipped",
+      "old": "    for match in _reconciled_register_rows(text):\n",
+      "new": "    for match in _register_row_matches(text):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row473_register_tree_containment.py::test_bd_shipped_exists_as_the_mechanical_containment_gate"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "bd-register-candidate-blobs/v1",
+  "candidates": [
+    {
+      "candidate": "56a8768ba0a7aaa7b5947c7ee132ae7e81f055c7",
+      "changed_paths": [
+        {
+          "path": "FUNCTION_INDEX.md",
+          "blob": "c1a28806c5d1c3eb9baba04254600fcc8b76f56e",
+          "disposition": "generated"
+        },
+        {
+          "path": "INV_TAGS.md",
+          "blob": "caecde91001e8101aba6840ae41e089eb9b81446",
+          "disposition": "generated"
+        },
+        {
+          "path": "PIN_INDEX.json",
+          "blob": "cb17d1d13a4b1cd25e077ef4273b801078eb5def",
+          "disposition": "generated"
+        },
+        {
+          "path": "bulk_downloader/runner.py",
+          "blob": "ce35910a336b910a258d97dde85c4edcd85c368e",
+          "disposition": "authored"
+        },
+        {
+          "path": "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",
+          "blob": "7f028f633fb36971d17169c69ab1269ceb02c503",
+          "disposition": "authored"
+        },
+        {
+          "path": "tools/decomp/import_graph_baseline.json",
+          "blob": "be8524b502a0f00fcdf3e8aa12e1ae7459689f5b",
+          "disposition": "authored"
+        }
+      ]
+    }
+  ]
+}

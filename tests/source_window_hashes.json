@@ -47,7 +47,7 @@
     {
       "bytes": 2002,
       "key": "tests/test_v3_43_24_reliability.py::test_heartbeat_to_disk_function_exists::src[hb_start:hb_start + 2000]::1",
-      "sha256": "1d3855ead639642092b8ea4132b6a208c8cffbc394aa5e9f315bceb64d73ff8d"
+      "sha256": "1df734ac943f8007c2000eec2e4ed640b91c4881aad9616c21a3ff3a2dde91a4"
     },
     {
       "bytes": 700,
@@ -242,7 +242,7 @@
     {
       "bytes": 4002,
       "key": "tests/test_v3_43_38_dashboard_widgets.py::test_dashboard_snapshot_uses_widgets::src[pos:pos + 4000]::1",
-      "sha256": "3c11f3e995870090297deeb611abf218fbcba7f1726b083e8e12b83d448925b7"
+      "sha256": "639fed802038259ce84d7016d3b2d85b5a14f96a3e976f816798fba7f3f9013d"
     },
     {
       "bytes": 3202,

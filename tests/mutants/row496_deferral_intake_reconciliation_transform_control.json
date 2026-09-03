@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 496 transform control. The same valid reconciliation-suppression transform runs only the import-only test and must ESCAPE, proving the CAUGHT verdict is behavioral rather than a parse, import, or collection failure.",
+  "subject": "transform control for deferred-row reconciliation",
+  "band": [
+    "tests/test_row496_deferral_intake_reconciles_backlog.py::test_transform_control_only_imports_the_gate"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL suppress deferred-row reconciliation under import only",
+      "file": "tests/test_row496_deferral_intake_reconciles_backlog.py",
+      "old": "    return errors\n\n\ndef _reconciliation_errors(\n",
+      "new": "    return list()\n\n\ndef _reconciliation_errors(\n",
+      "direction": "regression",
+      "catcher": "tests/test_row496_deferral_intake_reconciles_backlog.py::test_transform_control_only_imports_the_gate"
+    }
+  ]
+}

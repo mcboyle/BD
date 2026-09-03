@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 645 transform control. The identical valid M1 CI-removal transform is pointed at a node that only imports the meta-gate module. It must ESCAPE, proving M1 is caught by the membership assertion rather than collection or syntax failure.",
+  "subject": "a valid guard-file CI removal does not fail merely because the meta-gate imports",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row645_membership"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 guard CI removal escapes import-only control",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_v3_62_2_guards.py\n",
+      "new": "              # mutant: omit the row-645 guard file\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row645_membership"
+    }
+  ]
+}

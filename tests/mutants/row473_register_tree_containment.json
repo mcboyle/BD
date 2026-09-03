@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The register gate must make a fully landed OPEN candidate blocking.",
+  "subject": "row 473 register-versus-tree containment verdict",
+  "band": [
+    "tests/test_row473_register_tree_containment.py::test_register_gate_refuses_an_open_row_whose_candidate_blobs_all_landed",
+    "tests/test_row473_register_tree_containment.py::test_register_row_count_mismatch_is_unknown_not_a_verdict"
+  ],
+  "mutants": [
+    {
+      "label": "M1 ignore a detected register disagreement",
+      "file": "toolchain/bin/bd-shipped",
+      "old_regex": "(?m)^    if disagreements:\\n",
+      "new": "    if disagreements and False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row473_register_tree_containment.py::test_register_gate_refuses_an_open_row_whose_candidate_blobs_all_landed"
+    },
+    {
+      "label": "M2 bypass canonical register denominator reconciliation",
+      "file": "toolchain/bin/bd-shipped",
+      "old": "    for match in _reconciled_register_rows(text):\n",
+      "new": "    for match in _register_row_matches(text):\n",
+      "direction": "regression",
+      "catcher": "tests/test_row473_register_tree_containment.py::test_register_row_count_mismatch_is_unknown_not_a_verdict"
+    }
+  ]
+}

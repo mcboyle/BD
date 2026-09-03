@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-02T21:52:10+00:00",
- "version_context": "v3.66.1449",
- "file_count": 92,
+ "generated": "2026-09-03T00:06:20+00:00",
+ "version_context": "v3.66.1450",
+ "file_count": 93,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -136,6 +136,10 @@
    "sha256": "8b642266d133de8028e85b25b232b917e318f4f0a353efc4f8798d8aa16b77a7",
    "bytes": 3860
   },
+  "DEFERRAL_INTAKE.json": {
+   "sha256": "5bd756f5d9104697a43308a196494c05149bea14b508ecee1f3151ededf6f3a5",
+   "bytes": 16172
+  },
   "DRM_EME_DETECTION_DECISION.md": {
    "sha256": "171ac87785e7f21b1e3b5dee76ec00d00528e4161a5951c32148658ed662da9d",
    "bytes": 8111
@@ -153,8 +157,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "ac8bb8c2481d83c254926e7d4c7f71af2cad3bc27b77e040e26bcb317eeed3b8",
-   "bytes": 967961
+   "sha256": "633e779cade13f04b0d42f5bd6d74dfc44fa5323a004b9cfbf2a8cbdee430501",
+   "bytes": 968025
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",

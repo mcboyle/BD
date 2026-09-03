@@ -35,6 +35,21 @@ from typing import Optional
 from . import db as _db
 from . import staging_claim as _staging_claim
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 try:
     import fcntl as _fcntl
 except ImportError:  # pragma: no cover - non-POSIX platforms fail closed below
@@ -101,7 +116,7 @@ def _active_job_state(runners: dict) -> tuple[set, set, bool]:
     active_identities = set()
     if not isinstance(runners, dict):
         return active_urls, active_identities, False
-    for sid, runner in runners.items():
+    for sid, runner in _runners_generation(runners):
         try:
             jobs = getattr(runner, "jobs")
             if jobs is None:

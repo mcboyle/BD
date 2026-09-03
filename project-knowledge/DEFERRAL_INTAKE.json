@@ -1,0 +1,419 @@
+{
+  "schema": "bd-deferral-intake/v1",
+  "register": "project-knowledge/IMPROVEMENT_BACKLOG.md",
+  "entries": [
+    {
+      "id": "operator-deferral-2026-09-01-runner-resume-recovery",
+      "disposition": "deferred",
+      "register_row": 633,
+      "register_title": "CUT-1414-RUNNER-RESUME-RECOVERY-IS-DEFERRED-BY-OPERATOR-RULING",
+      "evidence": "operator ruling 2026-09-01 deferred candidate 56a8768ba0a7aaa7b5947c7ee132ae7e81f055c7 because its affected band contains 412 tests; dependency is operator lane-time ruling"
+    },
+    {
+      "id": "audit-completion-batch:FE-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-04",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-04; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-05",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-05; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-06",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-06; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-07",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-07; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-08",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-08; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-09",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-09; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:FE-10",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch FE-10; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CAP-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CAP-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:REC-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch REC-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:REC-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch REC-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:REC-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch REC-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:REC-04",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch REC-04; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:RUN-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch RUN-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:RUN-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch RUN-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:RUN-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch RUN-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:AUTH-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch AUTH-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:AUTH-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch AUTH-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-04",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-04; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-05",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-05; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:APP-06",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch APP-06; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-04",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-04; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-05",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-05; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-06",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-06; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-07",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-07; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-08",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-08; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-09",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-09; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-10",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-10; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-11",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-11; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-12",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-12; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-13",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-13; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-14",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-14; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-15",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-15; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-16",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-16; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-17",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-17; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-18",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-18; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:CORE_BD-19",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch CORE_BD-19; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:COCKPIT-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch COCKPIT-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:COCKPIT-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch COCKPIT-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:COCKPIT-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch COCKPIT-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_BUILD-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_BUILD-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_BUILD-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_BUILD-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-01",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-01; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-02",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-02; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-03",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-03; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-04",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-04; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-05",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-05; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-06",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-06; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-07",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-07; disposed by backlog row 140 CLOSED @1171"
+    },
+    {
+      "id": "audit-completion-batch:TOOLS_OTHER-08",
+      "disposition": "already-represented",
+      "register_row": null,
+      "register_title": null,
+      "evidence": "AUDIT_COMPLETION_LEDGER.json batch TOOLS_OTHER-08; disposed by backlog row 140 CLOSED @1171"
+    }
+  ]
+}
