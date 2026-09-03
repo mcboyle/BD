@@ -22,6 +22,7 @@ from .runner import (
     StartOutcome,
     _ts,
     captcha_egress_disclosure_error,
+    prepare_site_http_egress,
 )
 
 # v3.43.24: self-test at startup. Catches environment problems
@@ -6474,7 +6475,9 @@ try:
         _live_disk = _disk_free_gb
     except Exception:
         _live_disk = None
-    _live_recorder.init(_live_state_dir, push_notifier=_live_push, disk_check=_live_disk)
+    _live_recorder.init(
+        _live_state_dir, push_notifier=_live_push, disk_check=_live_disk,
+        egress_prepare=prepare_site_http_egress)
     # Don't start the scheduler if keep-alive is disabled (test harness).
     if os.environ.get("BD_DISABLE_KEEPALIVE", "").lower() not in ("1", "true", "yes"):
         _live_recorder.start_scheduler()

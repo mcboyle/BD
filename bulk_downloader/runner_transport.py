@@ -33,7 +33,9 @@ from .constants import (
     _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
 )
 from . import staging_claim
-from .download_egress import effective_download_proxy
+from .download_egress import (
+    EgressCarrierError, effective_download_proxy, prepare_http_proxy,
+)
 from . import proxy_pool
 
 # httpx soft import (moved verbatim from runner.py; flat sibling).
@@ -344,8 +346,8 @@ class TransportMixin:
             all -- ``get_socks_url_for_site`` returns None rather than raising
             when no tunnel is mapped to the site, and an unproxied transfer for
             a required site is precisely what must not happen;
-          * the resolved proxy is one ffmpeg cannot carry (``socks5://``) --
-            refused inside ``_hls.download`` with its own distinct code.
+          * a resolved SOCKS proxy cannot start its loopback HTTP carrier --
+            refused with the explicit-HTTP-proxy interim remedy.
 
         PROCEEDS, with a scrubbed env and zero proxy arguments, when no proxy
         is in effect and the site is not ``vpn_required``. That is the
@@ -400,8 +402,17 @@ class TransportMixin:
                     f"{self.site_id!r} is vpn_required but resolution produced "
                     f"no egress proxy (no tunnel mapped to the site?) -- "
                     f"refusing to fetch segments on the clear interface."))
-        return _hls.download(manifest_url, output_path,
-                             proxy_url=proxy_url or None, **kwargs)
+        try:
+            prepared = prepare_http_proxy(proxy_url or None)
+        except EgressCarrierError as e:
+            return _hls.DownloadResult(
+                ok=False, error="proxy_carrier_unavailable",
+                error_detail=str(e))
+        try:
+            return _hls.download(manifest_url, output_path,
+                                 proxy_url=prepared.proxy_url, **kwargs)
+        finally:
+            prepared.close()
 
     def _do_direct_http_download(
         self, page_url: str, file_url: str, output_path: str, referer: str = "",

@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 120,
+    "total": 126,
     "version": 1,
-    "count_dict": 119,
+    "count_dict": 125,
     "test_files_scanned": 1596,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -39,12 +39,14 @@
       "tests/test_row346_plugin_sandbox_is_truthful.py": 1,
       "tests/test_row360_turnstile_bypass_is_installed.py": 2,
       "tests/test_row363_affordance_learning.py": 1,
+      "tests/test_row439_segmented_transfers_honor_the_egress_gate.py": 1,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
       "tests/test_toolchain_534.py": 1,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_42_storage_tier.py": 2,
+      "tests/test_v3_43_62_live_recorder.py": 5,
       "tests/test_v3_43_67_vixen.py": 2,
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
@@ -424,6 +426,16 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py",
+      "line": 462,
+      "value": {
+        "required": 1,
+        "resolve": 1
+      },
+      "gates_what": "test_row647_shared_egress_refuses_required_site_without_a_proxy — The real shared resolver refuses a required site whose proxy is absent."
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
       "line": 808,
       "value": {
@@ -481,7 +493,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1453",
+      "value": "3.66.1454",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -588,6 +600,59 @@
         "forced_cross_device_errors": 0
       },
       "gates_what": "test_migrate_file_claim_probe_detects_a_dropped_claim — Negative control: one forced claim drop exposes exactly one lost writer."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_62_live_recorder.py",
+      "line": 473,
+      "value": {
+        "run": 0,
+        "popen": 0
+      },
+      "gates_what": "test_row647_required_tunnel_down_spawns_no_probe_or_recorder — The policy gate precedes both network subprocess boundaries."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_62_live_recorder.py",
+      "line": 480,
+      "value": {
+        "prepare": 1,
+        "required": 1,
+        "resolve": 1
+      },
+      "gates_what": "test_row647_required_tunnel_down_spawns_no_probe_or_recorder — The policy gate precedes both network subprocess boundaries."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_62_live_recorder.py",
+      "line": 516,
+      "value": {
+        "run": 1,
+        "popen": 1
+      },
+      "gates_what": "test_row647_unrestricted_site_still_probes_and_records — Negative control: no required tunnel preserves one probe and spawn."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_62_live_recorder.py",
+      "line": 517,
+      "value": {
+        "prepare": 1,
+        "required": 1,
+        "resolve": 1
+      },
+      "gates_what": "test_row647_unrestricted_site_still_probes_and_records — Negative control: no required tunnel preserves one probe and spawn."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_43_62_live_recorder.py",
+      "line": 552,
+      "value": {
+        "prepare": 1,
+        "required": 1,
+        "resolve": 1
+      },
+      "gates_what": "test_row647_live_socks_tunnel_uses_the_shared_http_carrier — A healthy required tunnel reaches both recorder subprocess stages."
     },
     {
       "form": "count_dict",

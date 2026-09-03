@@ -71,7 +71,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-
 # ─── Tunables ───────────────────────────────────────────────────────
 
 # Tunables read at CALL TIME (store key > env seed > default) so a Settings
@@ -292,6 +291,7 @@ class Recording:
 
 _recordings: dict[str, Recording] = {}
 _subprocesses: dict[str, subprocess.Popen] = {}  # recording_id -> Popen
+_egress_carriers: dict[str, Any] = {}
 _lock = threading.RLock()
 
 # Set to True once the scheduler thread has started.
@@ -308,14 +308,19 @@ _push_notifier: Optional[Callable[[str, str], None]] = None
 # Hook for disk-pressure check (set by app.py at startup).
 _disk_check: Optional[Callable[[str], Optional[float]]] = None
 
+# Injected by app.py from runner's existing VPN-aware egress seam. Keeping the
+# policy outside this standalone runtime avoids a second resolver copy.
+_egress_prepare: Optional[Callable[[str], Any]] = None
+
 
 # ─── Public init / hooks ────────────────────────────────────────────
 
 def init(state_dir: str, push_notifier: Optional[Callable] = None,
-         disk_check: Optional[Callable] = None) -> None:
+         disk_check: Optional[Callable] = None,
+         egress_prepare: Optional[Callable[[str], Any]] = None) -> None:
     """Wire up persistence directory and optional hooks. Idempotent --
     safe to call multiple times. Must be called before start_scheduler()."""
-    global _state_dir, _push_notifier, _disk_check
+    global _state_dir, _push_notifier, _disk_check, _egress_prepare
     p = Path(state_dir)
     p.mkdir(parents=True, exist_ok=True)
     _state_dir = p
@@ -323,6 +328,8 @@ def init(state_dir: str, push_notifier: Optional[Callable] = None,
         _push_notifier = push_notifier
     if disk_check is not None:
         _disk_check = disk_check
+    if egress_prepare is not None:
+        _egress_prepare = egress_prepare
     _load_state()
 
 
@@ -528,8 +535,11 @@ def unwatch(recording_id: str) -> dict:
             return {"ok": True, "already": rec.state}
         rec.state = "cancelled"
         proc = _subprocesses.pop(recording_id, None)
+        carrier = _egress_carriers.pop(recording_id, None)
     if proc is not None:
         _terminate_subprocess(proc)
+    if carrier is not None:
+        carrier.close()
     _save_state()
     return {"ok": True}
 
@@ -584,9 +594,12 @@ def stop_scheduler(timeout: float = 5.0) -> None:
     for rid in rids:
         with _lock:
             proc = _subprocesses.pop(rid, None)
+            carrier = _egress_carriers.pop(rid, None)
             rec = _recordings.get(rid)
         if proc is not None:
             _terminate_subprocess(proc)
+        if carrier is not None:
+            carrier.close()
         if rec is not None and rec.state == "recording":
             with _lock:
                 rec.state = "finished"
@@ -631,8 +644,25 @@ def _process_recording(rid: str, rec: Recording) -> None:
         _check_recording_health(rid, rec)
         return
     # state == "pending" -- check if room is live; if so, spawn.
-    if _is_room_live(rec.site, rec.room, rec.url):
-        _spawn_recording(rid, rec)
+    try:
+        prepared = _prepare_recording_egress(rec.site)
+    except Exception as exc:
+        with _lock:
+            rec.state = "failed"
+            rec.last_error = f"egress_refused: {exc}"
+        _save_state()
+        return
+    if _is_room_live(rec.site, rec.room, rec.url, prepared_egress=prepared):
+        _spawn_recording(rid, rec, prepared_egress=prepared)
+    else:
+        prepared.close()
+
+
+def _prepare_recording_egress(site: str):
+    """Use the application-injected copy of the runner's egress gate."""
+    if _egress_prepare is None:
+        raise RuntimeError("live-recorder egress gate is not initialized")
+    return _egress_prepare(site)
 
 
 def _check_recording_health(rid: str, rec: Recording) -> None:
@@ -644,6 +674,9 @@ def _check_recording_health(rid: str, rec: Recording) -> None:
         with _lock:
             rec.state = "failed"
             rec.last_error = "subprocess vanished"
+            carrier = _egress_carriers.pop(rid, None)
+        if carrier is not None:
+            carrier.close()
         _save_state()
         return
     ret = proc.poll()
@@ -654,12 +687,15 @@ def _check_recording_health(rid: str, rec: Recording) -> None:
         # 0 and 1 as clean and others as failure.
         with _lock:
             _subprocesses.pop(rid, None)
+            carrier = _egress_carriers.pop(rid, None)
             rec.bytes_written = _safe_file_size(rec.output_path)
             if ret in (0, 1):
                 rec.state = "finished"
             else:
                 rec.state = "failed"
                 rec.last_error = f"exit code {ret}"
+        if carrier is not None:
+            carrier.close()
         _save_state()
         return
     # Still running -- update bytes_written for UI display, check
@@ -682,13 +718,17 @@ def _check_recording_health(rid: str, rec: Recording) -> None:
             )
             with _lock:
                 proc2 = _subprocesses.pop(rid, None)
+                carrier = _egress_carriers.pop(rid, None)
                 rec.state = "finished"
             if proc2 is not None:
                 _terminate_subprocess(proc2)
+            if carrier is not None:
+                carrier.close()
             _save_state()
 
 
-def _is_room_live(site: str, room: str, url: str) -> bool:
+def _is_room_live(site: str, room: str, url: str,
+                  prepared_egress=None) -> bool:
     """Probe whether a cam room is currently live.
 
     For chaturbate/stripchat/bongacams we'd ideally hit a JSON endpoint,
@@ -708,11 +748,18 @@ def _is_room_live(site: str, room: str, url: str) -> bool:
         # exit quickly if the room is offline.
         return True
     try:
+        proxy_url = prepared_egress.proxy_url if prepared_egress is not None else None
+        cmd = ["streamlink"]
+        if proxy_url:
+            cmd += ["--http-proxy", proxy_url]
+        cmd += ["--json", url]
         result = subprocess.run(
-            ["streamlink", "--json", url],
+            cmd,
             capture_output=True,
             timeout=20,
             check=False,
+            env=(prepared_egress.subprocess_env() if prepared_egress is not None
+                 else dict(os.environ)),
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
@@ -721,11 +768,14 @@ def _is_room_live(site: str, room: str, url: str) -> bool:
         return False
 
 
-def _spawn_recording(rid: str, rec: Recording) -> None:
+def _spawn_recording(rid: str, rec: Recording,
+                     prepared_egress=None) -> None:
     """Launch the recording subprocess for `rec`. Updates state to
     'recording' on success or 'failed' on launch error."""
     backend = preferred_backend()
     if backend is None:
+        if prepared_egress is not None:
+            prepared_egress.close()
         with _lock:
             rec.state = "failed"
             rec.last_error = "no backend"
@@ -752,7 +802,17 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
                 return
         except Exception as e:
             sys.stderr.write(f"[live-recorder] disk check failed: {e}\n")
-    cmd = _build_cmd(backend, rec)
+    prepared = prepared_egress
+    if prepared is None:
+        try:
+            prepared = _prepare_recording_egress(rec.site)
+        except Exception as exc:
+            with _lock:
+                rec.state = "failed"
+                rec.last_error = f"egress_refused: {exc}"
+            _save_state()
+            return
+    cmd = _build_cmd(backend, rec, proxy_url=prepared.proxy_url)
     if cmd is None:
         # Resolved BEFORE taking _lock: _refusal_reason consults the backend
         # cache behind its own lock, and nothing needs the two held together.
@@ -760,6 +820,7 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
         with _lock:
             rec.state = "failed"
             rec.last_error = reason
+        prepared.close()
         _save_state()
         return
     try:
@@ -767,6 +828,7 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
+            env=prepared.subprocess_env(),
         )
         if sys.platform.startswith("win"):
             # CREATE_NEW_PROCESS_GROUP so we can send CTRL_BREAK on stop.
@@ -778,16 +840,19 @@ def _spawn_recording(rid: str, rec: Recording) -> None:
         with _lock:
             rec.state = "failed"
             rec.last_error = f"backend not found: {e}"
+        prepared.close()
         _save_state()
         return
     except Exception as e:
         with _lock:
             rec.state = "failed"
             rec.last_error = f"spawn failed: {e}"
+        prepared.close()
         _save_state()
         return
     with _lock:
         _subprocesses[rid] = proc
+        _egress_carriers[rid] = prepared
         rec.backend = backend
         rec.pid = proc.pid
         rec.state = "recording"
@@ -809,7 +874,8 @@ def _refusal_reason(backend: str) -> str:
     return "unable to build command"
 
 
-def _build_cmd(backend: str, rec: Recording) -> Optional[list[str]]:
+def _build_cmd(backend: str, rec: Recording,
+               proxy_url: Optional[str] = None) -> Optional[list[str]]:
     """Construct the subprocess command line. Returns None on bad input.
 
     Defense: rec.url is validated by parse_live_url; rec.output_path is
@@ -824,15 +890,20 @@ def _build_cmd(backend: str, rec: Recording) -> Optional[list[str]]:
     if not re.match(r"^https?://[A-Za-z0-9.\-/_?=&%:]+$", rec.url):
         return None
     if backend == "streamlink":
-        return [
+        cmd = [
             "streamlink",
             "--retry-streams", "5",
             "--retry-max", "3",
             "--hls-live-restart",
+        ]
+        if proxy_url:
+            cmd += ["--http-proxy", proxy_url]
+        cmd += [
             "-o", rec.output_path,
             rec.url,
             "best",
         ]
+        return cmd
     if backend == "ffmpeg":
         # Direct ffmpeg recording assumes we have an HLS URL.
         # For cam sites we don't -- need streamlink to resolve.
@@ -852,15 +923,20 @@ def _build_cmd(backend: str, rec: Recording) -> Optional[list[str]]:
         ffmpeg_path = _detect_backends().get("ffmpeg")
         if not ffmpeg_path:
             return None
-        return [
+        cmd = [
             ffmpeg_path,
             "-hide_banner",
             "-loglevel", "warning",
+        ]
+        if proxy_url:
+            cmd += ["-http_proxy", proxy_url]
+        cmd += [
             "-i", rec.url,
             "-c", "copy",
             "-bsf:a", "aac_adtstoasc",
             rec.output_path,
         ]
+        return cmd
     return None
 
 
@@ -916,7 +992,7 @@ def _maybe_push(title: str, body: str) -> None:
 
 def _reset_for_tests() -> None:
     """Wipe in-memory state. Tests only."""
-    global _scheduler_started
+    global _scheduler_started, _egress_prepare
     _scheduler_stop.set()
     with _lock:
         for proc in _subprocesses.values():
@@ -925,8 +1001,13 @@ def _reset_for_tests() -> None:
             except Exception:
                 pass
         _subprocesses.clear()
+        carriers = list(_egress_carriers.values())
+        _egress_carriers.clear()
         _recordings.clear()
         _scheduler_started = False
+        _egress_prepare = None
+    for carrier in carriers:
+        carrier.close()
     _scheduler_stop.clear()
 
 
