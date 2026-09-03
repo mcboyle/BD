@@ -5,6 +5,27 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1455 - every finding from the download campaign and the capture runs becomes a row
+
+A register cut. No runtime change: it files what a night of measurement found,
+so that none of it survives only in a log.
+
+- Nineteen rows filed (662-680): the eight campaign findings D1-D8, including
+  two HIGH ones -- a redaction that misses path-embedded signatures and so
+  leaks the operator's own IP into operator-visible evidence, and a login API
+  that returns HTTP 200 ok:true on a host with no display where every launch
+  path failed; the seven gaps the row-455 capture run found in the repository's
+  own template tooling; two toolchain-auditor findings raised by a reviewer as
+  non-blocking; and rows for the two remaining campaign fixes so they exist
+  whether or not their patches land today.
+
+- The row-454 detector finding is deliberately NOT refiled. Both capture
+  reports say to cite row 454 rather than file a third copy of it, and citing
+  is what a corroboration deserves.
+
+- The defect hunt was called off before it began and produced no rows, which is
+  recorded here rather than left as an absence someone has to interpret later.
+
 ## v3.66.1454 - a recording never starts outside the egress tunnel it was required to use
 
 Train 7: one patch, boarded by two independent adversarial lenses.
