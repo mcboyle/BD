@@ -5,6 +5,22 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1452 - a real signed-jwplayer capture becomes a gate, and the breadth corpus gains five recorded pages
+
+Train 5: two patches, each boarded by two independent adversarial lenses.
+
+- ROW 453: a signed jwplayer stream behind an Akamai token is now pinned by a
+  gate built from a REAL capture rather than a hand-written fixture. The corpus
+  entry re-derives byte-identically from the archived .wacz it cites, the pin
+  count moves 46 -> 47, and the gate declares repo-wide scope and sits in a CI
+  shard, so CI actually runs it. Its acceptance wording is corrected in the
+  closure: "auto-template" is unsatisfiable by classify()'s own contract, and
+  saying so is the honest close rather than a quiet reinterpretation.
+
+- ROW 452: five recorded pages join the a62 breadth corpus with their
+  provenance, so the breadth verdicts are measured against captures instead of
+  against expectations written beside them.
+
 ## v3.66.1451 - bulk delete removes every part file it made, and a latched sites-file pin stops looking like a first run
 
 Train 4b2: two refute-first-reviewed worker patches, stacked on v3.66.1450.

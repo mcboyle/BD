@@ -190,6 +190,11 @@ _DECLARED = {
     # result is correct for the wrong site's bytes, so this gate independently
     # declares every recognizer fixture's page host and checks the payload.
     "tests/test_recognizer_fixture_site_identity.py",
+    # Row 453. Per-fixture verdict pins cannot see the corpus as a POPULATION:
+    # deleting the yupptv fixture and its pin together leaves the 47-case
+    # battery green over 46 cases and silently reopens row 120's gap. This gate
+    # holds the population claim and the classify() auto_template refusal.
+    "tests/test_row453_signed_jwplayer_behind_akamai.py",
     # Row 121. Two distinct real-capture slices drive derive_login_flow and a
     # fake browser independently; the gate catches role-collapsed input clicks,
     # missing-selector fallback and post-login media origins posing as steps.
@@ -489,6 +494,7 @@ _DECLARED = {
     "tests/test_recognizer_corpus_shard_b.py",
     "tests/test_recognizer_corpus_shard_c.py",
     "tests/test_recognizer_corpus_shard_d.py",
+    "tests/test_row452_a62_breadth_real_captures.py",
     # Row 332. The four-way split of test_v3_66_1046: each shard declares
     # repo-wide scope because its subject is still the whole tool-state
     # population, and each must reach a shard in its own right or the

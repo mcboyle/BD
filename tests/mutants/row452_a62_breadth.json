@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 452 (successor of parked row 124, FR-A6.2). Re-run from a detached clone: toolchain/bin/bd-mutate --spec tests/mutants/row452_a62_breadth.json --work DETACHED_CLONE. EVERY ANCHOR IS A BARE def PREFIX -- no numeric literal, no quoted string, no True/False/None, no `=` -- because row357 refuses a new value-bearing anchor that no producer re-derives, and it was right to refuse this battery's first draft: the M1 anchor then matched the script_srcs list comprehension, whose matched source text carries `\"url\"`, `\".js\"` and `+=`. The replacement text carries the shape; the anchor carries only a name. M1 is the one worth reading twice. All five captures carry dom_log_len 0, so the brand pack registered through ensure_registered is the ONLY reason a player family is claimed at all -- archiveorg_item reads jwplayer and ted_talks reads hlsjs purely from network-derived script srcs. Never registering it makes every family read unknown, which is precisely the silent rot this row exists to make impossible, and the sibling transform-control spec proves that catch is an assertion failure and not an import break.",
+  "subject": "the A6.2 breadth claim rests on real captures: the evidence population is the five 2026-08-29 captures and cannot silently shrink, the genuineness predicate really does reject a synthetic fixture, and each pinned recognizer verdict is reproduced from the real capture rather than assumed",
+  "band": [
+    "tests/test_row452_a62_breadth_real_captures.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the brand pack is never registered, so a DOM-less real capture claims no player family at all",
+      "file": "tools/player_families.py",
+      "new": "def ensure_registered():\n    return\n\n\ndef _ensure_registered_unreached(",
+      "direction": "regression",
+      "catcher": "tests/test_row452_a62_breadth_real_captures.py::test_real_capture_verdict_reproduces_its_pin[ted_talks]",
+      "old": "def ensure_registered("
+    },
+    {
+      "label": "M2 the genuineness predicate fails open, so a synthetic fixture passes as a real capture",
+      "file": "tests/test_row452_a62_breadth_real_captures.py",
+      "old": "def genuineness(cap: dict) -> dict:\n",
+      "new": "def genuineness(cap: dict) -> dict:\n    return {}\n\n\ndef _genuineness_unreached(cap: dict) -> dict:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row452_a62_breadth_real_captures.py::test_the_genuineness_predicate_rejects_the_tracked_synthetic_fixture"
+    },
+    {
+      "label": "M3 the evidence population reads empty, so a deleted or never-landed corpus passes as complete",
+      "file": "tests/test_row452_a62_breadth_real_captures.py",
+      "old": "def _fixtures():\n",
+      "new": "def _fixtures():\n    return []\n\n\ndef _fixtures_unreached():\n",
+      "direction": "regression",
+      "catcher": "tests/test_row452_a62_breadth_real_captures.py::test_the_a62_real_capture_evidence_population_is_exactly_the_five_captures"
+    },
+    {
+      "label": "M4 verdict_pin returns nothing, so no recognizer verdict is actually compared to its real-capture pin",
+      "file": "tools/build_recognizer_corpus.py",
+      "old": "def verdict_pin(draft: dict) -> dict:\n",
+      "new": "def verdict_pin(draft: dict) -> dict:\n    return {}\n\n\ndef _verdict_pin_unreached(draft: dict) -> dict:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row452_a62_breadth_real_captures.py::test_real_capture_verdict_reproduces_its_pin[archiveorg_item]"
+    }
+  ]
+}
