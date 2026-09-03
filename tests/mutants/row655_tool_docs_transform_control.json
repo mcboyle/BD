@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 655. The same valid suffix-boundary regression must ESCAPE when the selected test merely imports the gate module and does not judge token behavior. A CAUGHT or INVALID result would mean import or transformation failure was masquerading as behavioral evidence. The anchor covers only structural text and contains no value-bearing token under row 357.",
+  "subject": "transform control for the valid retired-token filename-boundary regression",
+  "band": [
+    "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_row655_transform_control_imports_without_judging_boundary_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 suffix-boundary regression remains importable when behavior is not judged",
+      "file": "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
+      "old": "|\\.",
+      "new": "|x",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_row655_transform_control_imports_without_judging_boundary_behavior"
+    }
+  ]
+}

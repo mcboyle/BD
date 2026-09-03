@@ -394,8 +394,8 @@ as shipped when its version number never reached main. Pick the test that can
 answer the question asked, and say which one you used.
 
 A DIAGNOSTIC THAT COLLAPSES DISTINCT FAILURES COSTS THE INVESTIGATION, not just
-the message. `bd-vault-unlock` wrapped a four-request flow in one
-`except Exception` printing "pairing fallback failed", so an unlock returning
+the message. `bd-vault-unlock` once wrapped a four-request flow in one
+`except Exception` that printed "pairing fallback failed", so an unlock returning
 401 incorrect password was indistinguishable from a broken pairing endpoint.
 Those two diagnoses lead to opposite actions -- repair the service, or find the
 right password -- and the wrong one was pursued first. Name the step that

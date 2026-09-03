@@ -319,16 +319,16 @@ from the scan without removing it from the history.
 
 ## bd-versync -- do the version claims agree?
 
-* **Location** `toolchain/bin/bd-versync` (134 lines). Status: live.
+* **Location** `toolchain/bin/bd-versync` (144 lines). Status: live.
 * **Answers** "does `__version__` agree with the newest `CHANGELOG.md` header and
   with the pin index?"
 * **Invoke** `venv/bin/python toolchain/bin/bd-versync --tree "$PWD"`; `--selftest`.
 * **Exit codes** 0 in sync; 1 findings; 2 CANNOT EVALUATE -- for example when
   `tools/build_pin_index.py` is absent, so there is no pin index to gate against.
   The three codes come from the shared contract in `toolchain/bin/bdtools_sec.py`.
-* **Finding** its entire docstring is `bd-versync fixed.` A gate in the
-  `bd-denom-preflight` pinned lane documents nothing about its own subject; read
-  the source, not the docstring.
+* **Own documentation** its module docstring names the four release-trio checks
+  and the shared 0/1/2 exit contract, so callers can learn the preflight without
+  reconstructing it from source.
 
 ## import_graph_gate.py -- did this cut add an import edge?
 
@@ -515,18 +515,13 @@ invocation. `scripts/deploy.sh` has the same boundary and A6 documents it there.
   `/home/mboyle/.config/bd/roles`. `deploy` hosts are excluded: they are
   user-facing.
 
-## The push-and-merge step -- name withheld, see finding 5
+## bd-ship.sh -- push and merge a frozen candidate
 
-**This tool cannot be named in this document.** Its filename shares a stem with
-one of the twelve tool names a tree-wide gate has physically retired, and that
-gate scans the whole tracked Markdown corpus for those tokens. Naming it here
-turns a green tree red. Finding 5 below gives the one-line command that derives
-the name; it is the harness's push-and-merge script, 425 lines, and it sits
-between a frozen candidate and `bd-land`.
+This 425-line harness script sits between a frozen candidate and `bd-land`.
 
-* **Location** the operator harness, `/home/mboyle/`. Status: live, 27 inbound
+* **Location** `/home/mboyle/bd-ship.sh`. Status: live, 27 inbound
   references -- one of the most-called scripts in the lane.
-* **Invoke** `bash <that script> <branch> <title> <pr-body-file>`.
+* **Invoke** `bash /home/mboyle/bd-ship.sh <branch> <title> <pr-body-file>`.
 * **Exit codes** 1 no PR body, or the integrator repo is not reachable; 2 no such
   branch; 3 a phase failure -- no open PR, the detached push copy could not be
   built or could not reach the candidate SHA, or its origin is not the expected
@@ -1001,7 +996,7 @@ operator harness and are **never gates**.
 
 ## bd-shoot.py -- what does the BROWSER actually see?
 
-* **Location** `/home/mboyle/bd-shoot.py` (85 lines). Status: live. Harness, never
+* **Location** `/home/mboyle/bd-shoot.py`. Status: live. Harness, never
   a gate: it drives a real browser against an authenticated site.
 * **Answers** A7's rule -- **a rendered page is evidence; a candidate list is a
   claim about it.** BD once chose a download link, saved 5,102,802,950 bytes and
@@ -1019,12 +1014,8 @@ operator harness and are **never gates**.
   a full-page screenshot.
 * **Read-only** it loads cookies; it never queues, downloads, or writes to the
   app's state.
-* **FINDING -- it has the executable bit but NO shebang line.** Byte 0 of the file
-  is `"`, the start of its docstring. Running it as `./bd-shoot.py` gets ENOEXEC
-  and falls back to `/bin/sh`, which will fail on the docstring; its own usage
-  line reads `bd-shoot.py <site_id> <url> <out.png>` and implies otherwise. It
-  also imports `bulk_downloader.cloak` and Playwright, so it must run under the
-  repository venv interpreter regardless.
+* **Interpreter** invoke it through the repository venv as shown above; it imports
+  `bulk_downloader.cloak` and Playwright from that environment.
 * **Capture BEFORE theorising**, whenever a result looks wrong, or looks right for
   a reason you cannot name.
 
@@ -1248,59 +1239,26 @@ makes the deletion reversible.
 
 # Findings from writing this index
 
-Recorded here rather than acted on, because each is a separate cut.
+Recorded here with each finding's current disposition.
 
-1. **`bd-shoot.py` has the executable bit and no shebang.** Its first byte is the
-   opening quote of its docstring, so `./bd-shoot.py` gets ENOEXEC and falls back
-   to `/bin/sh`. Its own usage line implies direct invocation. It must be run as
-   `venv/bin/python /home/mboyle/bd-shoot.py ...`, which it must be anyway --
-   it imports `bulk_downloader.cloak` and Playwright. Either add the shebang or
-   correct the usage line; the executable bit currently promises something the
-   file cannot deliver. This finding and finding 5 are the two that deserve
-   register rows.
-2. **`bd-versync`'s entire docstring is `bd-versync fixed.`** It is a member of
-   the `bd-denom-preflight` pinned lane and gates the release trio against the
-   pin index, and its own documentation says nothing about its subject, its
-   exit contract, or its arguments. Read the source.
+1. **`bd-shoot.py` needs the repository interpreter.** Its harness-side
+   executable repair is outside this repository; the invocation above remains
+   explicit because it imports `bulk_downloader.cloak` and Playwright.
+2. **`bd-versync` documents its contract.** Its docstring now describes the four
+   release-trio checks and the 0/1/2 exit meanings shared through `bdtools_sec`.
 3. **`bd-doc-truth` used to advertise checks it had never implemented.** The
    current docstring says so in its own words -- version-claim, tool-count and
    route-count checks were advertised and never written. It is worth reading as
    the canonical example of the shape: a tool's own docstring is a document and
    goes stale like any other, and claiming coverage that does not exist is how a
    narrow detector gets read as a broad one.
-4. **`bd-vault-unlock.sh`'s A7 defect is fixed and A7 still reads as present
-   tense.** The collapsing `except Exception` that printed "pairing fallback
-   failed" has been replaced by a `STEP` variable naming the failing request and
-   a handler that carries the server's own error text. The contract's account is
-   correct as history; a reader looking for the defect in the source will not
-   find it.
-5. **A tree-wide gate forbids the tracked Markdown corpus from naming three
-   LIVE operator-harness scripts.** `tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py`
-   holds a set of twelve physically retired in-repo tool names and asserts that
-   no current tracked Markdown document contains any of them as a whole token.
-   Three live harness scripts under `/home/mboyle/` -- plus one `.preoverlap`
-   residue copy -- share a stem with one of those retired names, and the token
-   regex's lookahead stops at `-` but not at `.`, so `<retired-stem>.sh` matches.
-   One of the three is the push-and-merge step above, with 27 inbound references.
-   The gate is right about its own subject and wrong about this one: a retired
-   `toolchain/bin` tool and a live `/home/mboyle` script are different files in
-   different populations, and the token set cannot tell them apart. **This
-   document is materially poorer for it** -- the most-called script in the lane is
-   documented anonymously. Derive the exact names with:
-
-   ```bash
-   venv/bin/python - <<'PY'
-   import re, pathlib
-   src = pathlib.Path("tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py").read_text()
-   retired = sorted(set(re.findall(r'"([^"]+)"', src.split("RETIRED = {", 1)[1].split("}", 1)[0])))
-   tok = re.compile(r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, retired)) + r")(?![A-Za-z0-9_-])")
-   print([p.name for p in sorted(pathlib.Path("/home/mboyle").glob("bd-*")) if p.is_file() and tok.search(p.name)])
-   PY
-   ```
-
-   The fix is a scoped one -- have the gate exclude a `<stem>.sh` form, or have it
-   judge repo-relative paths rather than bare tokens -- and it is a register row,
-   not a docs cut.
+4. **`bd-vault-unlock.sh`'s collapsing diagnostic is historical.** Its `STEP`
+   variable names the failing request and its handler carries the server's own
+   error text; A7 now describes the old failure in the past tense.
+5. **The retirement gate distinguishes harness filenames from retired names.**
+   A suffix such as `.sh` or `.py` followed by a filename character keeps a live
+   harness script outside the retired bare-token match, while a retired in-repo
+   tool name remains forbidden. That permits `bd-ship.sh` to be documented above.
 6. **`ls toolchain/bin` and `git ls-files toolchain/bin` disagree by one** in the
    integrator's checkout, because `__pycache__` is present and untracked. Neither
    count is wrong; they answer different questions. Say which one you used.

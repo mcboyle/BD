@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 655. M1 restores the filename-boundary defect while leaving the gate importable; M2 degrades the release-preflight docstring while leaving bd-versync parseable. Both anchors cover only structural text and contain no value-bearing token under row 357.",
+  "subject": "retired-tool token boundaries and bd-versync release-preflight documentation",
+  "band": [
+    "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_retired_token_distinguishes_a_live_script_suffix_from_a_retired_name",
+    "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_bd_versync_docstring_documents_its_release_preflight_contract"
+  ],
+  "mutants": [
+    {
+      "label": "M1 live harness suffix is mistaken for a retired bare tool",
+      "file": "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
+      "old": "|\\.",
+      "new": "|x",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_retired_token_distinguishes_a_live_script_suffix_from_a_retired_name"
+    },
+    {
+      "label": "M2 bd-versync stops naming the release-trio preflight",
+      "file": "toolchain/bin/bd-versync",
+      "old": "release-trio preflight",
+      "new": "version preflight",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py::test_bd_versync_docstring_documents_its_release_preflight_contract"
+    }
+  ]
+}

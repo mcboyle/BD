@@ -40,6 +40,11 @@ RETIRED = {
     "bd-since",
 }
 
+_RETIRED_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, sorted(RETIRED)))
+    + r")(?![A-Za-z0-9_-]|\.[A-Za-z0-9])"
+)
+
 MIGRATED_AUDIT_LABELS = {
     "FRONTEND-SECRET-REGEN": "CLOSED @1179",
     "TEMPLATE-SNAPSHOT-COVERAGE": "CLOSED @1176",
@@ -84,8 +89,6 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
         ["git", "ls-files", "-z", "toolchain", "scripts", "tools", ".github"],
         cwd=root,
     ).decode().split("\0")
-    names = "|".join(map(re.escape, sorted(RETIRED)))
-    token = re.compile(rf"(?<![A-Za-z0-9_-])(?:{names})(?![A-Za-z0-9_-])")
     offenders = []
     denominator = 0
     for rel in tracked:
@@ -114,14 +117,15 @@ def _retired_code_invocations(root: Path) -> tuple[int, list[str]]:
                 }
                 for child in ast.walk(tree):
                     if (isinstance(child, ast.Constant) and isinstance(child.value, str)
-                            and id(child) not in docstrings and token.search(child.value)):
+                            and id(child) not in docstrings
+                            and _RETIRED_TOKEN.search(child.value)):
                         offenders.append(
                             f"{rel}:{getattr(child, 'lineno', 0)}:{child.value}"
                         )
         for line_no, line in enumerate(lines, 1):
             if line.lstrip().startswith("#"):
                 continue
-            if not is_python and token.search(line):
+            if not is_python and _RETIRED_TOKEN.search(line):
                 offenders.append(f"{rel}:{line_no}:{line.strip()}")
     return denominator, offenders
 
@@ -271,10 +275,6 @@ def test_all_twelve_reconstructed_legacy_tools_are_physically_retired():
 
 
 def test_retired_tools_have_no_live_operator_or_executable_consumers():
-    token = re.compile(
-        r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, sorted(RETIRED)))
-        + r")(?![A-Za-z0-9_-])"
-    )
     sec = _load("bdtools_sec_retired_consumers_v1172", BIN / "bdtools_sec.py")
     current_docs, _historical = sec.tracked_markdown_corpus(REPO)
     current_docs = tuple(
@@ -289,7 +289,9 @@ def test_retired_tools_have_no_live_operator_or_executable_consumers():
         f"the scanned document population fell to {len(current_docs)}, below "
         f"the floor {_CURRENT_MARKDOWN_FLOOR - 1}")
     for rel in current_docs:
-        matches = sorted(set(token.findall((REPO / rel).read_text(encoding="utf-8"))))
+        matches = sorted(set(
+            _RETIRED_TOKEN.findall((REPO / rel).read_text(encoding="utf-8"))
+        ))
         if matches:
             offenders[rel] = matches
     assert not offenders, offenders
@@ -323,6 +325,42 @@ def test_retired_executable_consumer_scan_has_a_positive_control(tmp_path: Path)
     assert denominator == 2
     assert len(offenders) == 2
     assert all("bd-pack" in offender for offender in offenders)
+
+
+def test_retired_token_distinguishes_a_live_script_suffix_from_a_retired_name():
+    assert "bd-ship" in RETIRED
+    live_mentions = "Use bd-ship.sh or bd-ship.py from the operator harness."
+    retired_mention = "The retired in-repo command was bd-ship."
+    assert live_mentions.count("bd-ship") == 2
+    assert retired_mention.count("bd-ship") == 1
+    assert _RETIRED_TOKEN.findall(live_mentions) == []
+    assert _RETIRED_TOKEN.findall(retired_mention) == ["bd-ship"]
+
+
+def test_row655_transform_control_imports_without_judging_boundary_behavior():
+    module = _load("row655_transform_control", Path(__file__))
+    assert module.RETIRED == RETIRED
+
+
+def test_bd_versync_docstring_documents_its_release_preflight_contract():
+    path = BIN / "bd-versync"
+    assert path.is_file(), "bd-versync must exist before its documentation can be checked"
+    docstring = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8")))
+    assert docstring, "bd-versync must have a module docstring"
+    numbered_checks = re.findall(r"(?m)^[1-4]\. ", docstring)
+    assert len(numbered_checks) == 4, docstring
+    for required in (
+        "release-trio preflight",
+        "bulk_downloader/__init__.py",
+        "CHANGELOG.md",
+        "tools/build_pin_index.py",
+        "settings_center_slice4",
+        "Exit 0",
+        "Exit 1",
+        "Exit 2",
+        "bdtools_sec",
+    ):
+        assert required in docstring, (required, docstring)
 
 
 def test_coretest_refuses_to_certify_a_missing_tool(tmp_path: Path):

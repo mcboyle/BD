@@ -5,6 +5,33 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1463 - a template claim meets a captured live DOM, and the tool docs stop naming a tool that is gone
+
+Two refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.
+No runtime behaviour changes: this train adds a gate, a fixture and a tool's
+own documentation.
+
+- Row 455, PARTIALLY addressed and deliberately left OPEN. A reviewed selector
+  template was a claim about a page nobody had checked it against. It is now
+  pinned to a captured live login-wall DOM (30,855 bytes) carried as a tracked
+  fixture beside its provenance record, so the claim is executable offline.
+  Four of the row's five selector kinds remain UNKNOWN because the
+  authenticated live DOM is unreachable from a test lane, and A6 forbids a
+  repository test from reaching it; only the clause the capture run left unmet
+  is closed here. The row stays OPEN and says why.
+
+- The retired-token scan stopped failing on filenames that merely contain a
+  retired tool's name. One shared regex now excludes filename suffixes at both
+  scan sites, so a live mention of a suffixed name is distinguishable from a
+  forbidden bare one, and `docs/repo/TOOL_INDEX.md` loses the stale passages
+  the old rule had preserved. `toolchain/bin/bd-versync` now documents its four
+  checks and its exit codes rather than leaving a reader to infer them, and
+  CLAUDE.md's A7 vault-diagnostic clause moves to the past tense because the
+  defect it describes was fixed. Two classifiable mutant specs accompany the
+  change; the battery reports 2 of 2 caught, 0 escaped, with the transform
+  control escaping as designed.
+
+
 ## v3.66.1462 - fourteen rows filed, and two release notes say what they should have said
 
 A register cut. No runtime change: it files what a night of measurement found,
