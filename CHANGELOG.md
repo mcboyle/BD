@@ -28,6 +28,11 @@ and it repairs a release note that shipped as its own placeholder.
   existed, and the row exists so the measurement and the cloakbrowser waiver
   survive outside a merge subject.
 
+- The v3.66.1461 entry cited the wrong register row. It credited row 360, an
+  unrelated Turnstile row closed at 1338; the manifest merge is row 685, filed
+  in this cut. Corrected forward in place, with the correction stated in the
+  entry rather than made silently.
+
 - The v3.66.1457 entry is corrected. It was published carrying the generator's
   own placeholder -- "DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE
   BULLETS BEFORE COMMITTING)" -- as its title. The merged commit's subject is
@@ -39,7 +44,14 @@ and it repairs a release note that shipped as its own placeholder.
 
 ## v3.66.1461 - one requirements file instead of two
 
-Register row 360, on the operator's directive to merge them.
+Register row 685, on the operator's directive to merge them.
+
+CORRECTED FORWARD in v3.66.1462: this entry originally cited "Register row
+360", which is TURNSTILE-BYPASS-IS-INSTALLED-NOT-JUST-DECLARED, closed at
+v3.66.1338 and unrelated to this work -- the same unrelated row this pipeline
+mis-stamped once before. The manifest merge is row 685, filed and closed at
+1461 in the following release. The merged commit is not rewritten; only this
+citation is.
 
 - requirements-optional.txt is folded into requirements.txt and deleted. Two
   dependency lists meant the installers, the doctor, the security audit and the
