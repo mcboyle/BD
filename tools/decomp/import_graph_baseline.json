@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4290,
+  "edge_count": 4295,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -797,7 +797,8 @@
       "bulk_downloader/queue_templates.py",
       "bulk_downloader/resume.py",
       "bulk_downloader/runner.py",
-      "bulk_downloader/sse_broker.py"
+      "bulk_downloader/sse_broker.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "bulk_downloader/app_sites_teach.py": [
       "bulk_downloader/app_sites.py",
@@ -3861,7 +3862,11 @@
       "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row492_a_release_proves_what_it_frees.py": [
+      "bulk_downloader/app_sites_queue.py",
       "bulk_downloader/cleanup_helpers.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/resume.py",
+      "bulk_downloader/sse_broker.py",
       "bulk_downloader/staging_claim.py"
     ],
     "tests/test_row494_498_crash_recovery_live_state.py": [

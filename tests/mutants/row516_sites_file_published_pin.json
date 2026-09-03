@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 516. The mutation discards the publication-time proof that a sites file was absent. A genuine fresh boot must remain a silent healthy first run rather than collapse into UNKNOWN.",
+  "subject": "publication records whether the sites file existed before boot",
+  "band": [
+    "tests/test_sites_config_honours_the_install_dir.py::test_a_fresh_install_is_healthy_after_the_real_boot_publication_order[False]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 runtime publication forgets that the sites file was absent",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^            )_SITES_FILE_EXISTED_AT_PUBLICATION(?= = False$)",
+      "new": "_SITES_FILE_EXISTENCE_WAS_IGNORED_AT_PUBLICATION",
+      "direction": "regression",
+      "catcher": "tests/test_sites_config_honours_the_install_dir.py::test_a_fresh_install_is_healthy_after_the_real_boot_publication_order[False]"
+    }
+  ]
+}

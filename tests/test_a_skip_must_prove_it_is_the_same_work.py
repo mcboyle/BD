@@ -425,6 +425,102 @@ def test_the_unknown_arm_does_not_accrete_a_copy_on_every_rerun(scene_runner):
         assert row["filename"] == "Example Site - 1080p_1.mp4", row
 
 
+# ── Row 485: losing attribution is not permission to transfer ──────────────
+
+def test_a_dangling_library_link_refuses_a_silent_redownload(scene_runner):
+    """Deleting history must not turn one proven file into a second copy."""
+    from bulk_downloader.db import db_conn, db_skip_identity
+
+    runner, transport, download_dir, payloads = scene_runner
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history, library = _rows()
+    owned = download_dir / _COLLIDING_NAME
+    assert len(transport.calls) == 1, transport.calls
+    assert _media(download_dir) == [_COLLIDING_NAME]
+    assert owned.is_file() and owned.read_bytes() == payloads[_URL_A]
+    assert len(library) == 1 and library[0]["file_path"] == str(owned), library
+    assert len(history) == 1 and history[0]["status"] == "done", history
+    dangling_id = library[0]["history_id"]
+    assert dangling_id == history[0]["id"]
+    assert db_skip_identity(_URL_A, str(owned)) == ("same", str(owned))
+
+    # Delete only the attribution row. The library row and file survive, but
+    # the current owner can no longer be measured through the join.
+    with db_conn() as cx:
+        removed = cx.execute("DELETE FROM history").rowcount
+        cx.commit()
+    assert removed == 1
+    history, library_after_delete = _rows()
+    assert history == []
+    assert len(library_after_delete) == 1
+    assert library_after_delete[0]["file_path"] == str(owned)
+    assert library_after_delete[0]["history_id"] == dangling_id
+    with db_conn() as cx:
+        live_links = cx.execute(
+            "SELECT COUNT(*) FROM history WHERE id = ?", (dangling_id,)
+        ).fetchone()[0]
+    assert live_links == 0
+
+    _run(runner, download_dir, _URL_A, _TITLE_A)
+
+    history_after, library_after = _rows()
+    assert len(transport.calls) == 1, (
+        "the dangling attribution became permission for one full-size "
+        f"re-download: calls={transport.calls}, media={_media(download_dir)}")
+    assert _media(download_dir) == [_COLLIDING_NAME]
+    assert owned.read_bytes() == payloads[_URL_A]
+    assert len(library_after) == 1 and library_after[0]["file_path"] == str(owned)
+    assert len(history_after) == 1, history_after
+    assert history_after[0]["status"] == "needs_review"
+    assert "attribution" in (history_after[0]["message"] or "").lower()
+
+
+def test_a_relative_download_dir_refuses_unbounded_duplicate_transfers(
+    clean_workdir,
+):
+    relative_download_dir = Path("relative-downloads")
+    assert not relative_download_dir.is_absolute()
+    relative_download_dir.mkdir()
+    runner = _runner(clean_workdir, relative_download_dir)
+    transport = _Transport()
+    payload = b"relative directory scene bytes"
+    transport.install(runner, lambda _url: payload)
+
+    try:
+        _run(runner, relative_download_dir, _URL_A, _TITLE_A)
+        history, library = _rows()
+        assert len(transport.calls) == 1, transport.calls
+        assert _media(relative_download_dir) == [_COLLIDING_NAME]
+        assert (relative_download_dir / _COLLIDING_NAME).read_bytes() == payload
+        assert len(history) == 1 and history[0]["status"] == "done", history
+        assert history[0]["library_id"] is None
+        assert library == [], (
+            "a relative path unexpectedly entered library, so this fixture "
+            "does not reach the unmeasurable-attribution arm")
+
+        for _ in range(3):
+            _run(runner, relative_download_dir, _URL_A, _TITLE_A)
+
+        history, library = _rows()
+        media = _media(relative_download_dir)
+        assert len(history) == 4, history
+        assert library == []
+        assert all(row["library_id"] is None for row in history), history
+        assert len(transport.calls) == 1, (
+            "four runs under a relative download_dir performed more than the "
+            f"one measurable transfer: calls={transport.calls}, media={media}")
+        assert media == [_COLLIDING_NAME]
+        assert len([row for row in history if row["status"] == "done"]) == 1
+        review_rows = [row for row in history
+                       if row["status"] == "needs_review"]
+        assert len(review_rows) == 3, history
+        assert all("attribution" in (row["message"] or "").lower()
+                   for row in review_rows)
+    finally:
+        _stop(runner)
+
+
 def test_the_three_arms_are_each_reached_exactly_once(scene_runner):
     """One run of the three shapes, counted at the branch itself.
 

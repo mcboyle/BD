@@ -5,6 +5,23 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1451 - bulk delete removes every part file it made, and a latched sites-file pin stops looking like a first run
+
+Train 4b2: two refute-first-reviewed worker patches, stacked on v3.66.1450.
+
+- ROWS 507 and 485: bulk delete now resolves basenames inside the site download
+  directory and removes the .part, .part.meta, .part.bdseg.json and .part.owner
+  files it created, counting only unlinks that actually happened.
+
+- ROW 516: a latched sites-file pin that cannot be reached is no longer
+  indistinguishable from a first run. Publication and load through boot_once()
+  and the /api/health route stay unconditional, and the unreachable case is
+  reported rather than silently retried as if nothing had ever been pinned.
+
+A third patch, w2-claimb (rows 483, 575), was attributed as the cause of a
+band regression by per-patch bisect and returned to its worker; those rows
+stay open.
+
 ## v3.66.1450 - the health guard is real, the live registry is snapshotted, and five gates land
 
 Train 4a: seven refute-first-reviewed worker patches (one by a local Claude
