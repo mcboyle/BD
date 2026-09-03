@@ -5,6 +5,24 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1459 - best quality stops choosing 240p while a 4K rendition is on the page
+
+Register row 679, from the download campaign's HIGH findings.
+
+- With "best" requested the picker chose a 240p rendition while a 4K one was
+  visible on the same page. A page's own script-served tier could score as
+  unrelated work, which dropped the ordering back to the pre-row-388 behaviour
+  where a foreign .mp4 can outrank the scene's own file. That is the same class
+  as the incident where BD saved five gigabytes of a different scene under the
+  requested title, so it is a correctness fix rather than a preference one.
+
+Reviewed by two independent adversarial lenses, both BOARD after a re-verify.
+The shape lens's first round refuted an earlier revision for exactly that gap:
+the document veto read only the last path segment, so a signed CDN URL of the
+form dl.php?file=<slug>_3840x2160.mp4 was vetoed and scored zero, and the test
+pinned that false side while the fixture's URLs carried no page extension, so
+the band could not see the objection.
+
 ## v3.66.1457 - DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE BULLETS BEFORE COMMITTING)
 
 Train: 1 refute-first-reviewed worker patches.

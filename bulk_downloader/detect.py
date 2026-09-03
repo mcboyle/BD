@@ -508,6 +508,62 @@ _SELECTOR_POSITIVE_PSEUDOS = {
 }
 
 
+_MEDIA_EXT_ANYWHERE_RE = re.compile(
+    r"\.(?:mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|m3u8|mpd)(?=$|[?#&/;])", re.I)
+
+
+def _candidate_url_is_a_document(value):
+    """True when *value* names an HTML DOCUMENT rather than a media resource.
+
+    A page link that carries the page's own slug proves it names the same
+    PAGE, never that it is a DOWNLOAD of the work -- and the work stamp is the
+    LEADING key of the candidate sort, so believing it puts a navigation
+    control ahead of every real tier.  Measured on test6 2026-09-03: the
+    teenmegaworld scene `Winning-and-fucking-on-the-floor_vids.html` carries a
+    205-photo button to `..._highres.html` on its own slug, while all five real
+    tiers live on royalcontentstore under `Creampie-Angels_Tiny_Teen_WxH.mp4`
+    and can derive no identity at all.  With `quality_preference=best` and
+    `min_resolution=720` the photo button won at score 240 and BD refused a 4K
+    scene as "Best is 240p" while printing the 3.24 GB 4K tier in the same
+    message.
+
+    Only the DOCUMENT value is disqualified, not the element: an element whose
+    href is a page and whose data-href is the media file still stamps the work
+    from the media attribute.  A disqualified value reads 0 -- UNKNOWN, the
+    old (score, size) ordering -- and is never a refusal, so a download
+    interstitial page keeps competing on its score exactly as before.
+    """
+    try:
+        from urllib.parse import urlparse, unquote, parse_qsl
+        parsed = urlparse(value)
+        path = unquote(parsed.path or "")
+    except Exception:
+        return False
+    segments = [seg for seg in path.split("/") if seg]
+    if not segments:
+        return False
+    if not _PAGE_EXT_RE.search(segments[-1]):
+        return False
+    # A page extension in the last segment is a document ONLY when nothing
+    # else in the URL names media. A script-served download --
+    # `dl.php?file=<slug>_3840x2160.mp4` -- ends in .php and IS the work; the
+    # shape lens showed vetoing it leaves the scene's own tier at work=0,
+    # where a foreign .mp4 silently wins (the wrong-scene class). Media
+    # evidence = a media extension anywhere in the URL, or a signed-download
+    # query key (the same vocabulary the ghost check reads).
+    try:
+        query = parsed.query or ""
+        if _MEDIA_EXT_ANYWHERE_RE.search(unquote(query)) or \
+                _MEDIA_EXT_ANYWHERE_RE.search(path):
+            return False
+        for key, _val in parse_qsl(query, keep_blank_values=True):
+            if _SIGNED_DOWNLOAD_QUERY_KEY_RE.search(key or ""):
+                return False
+    except Exception:
+        return False
+    return True
+
+
 def _candidate_work_affinity(el, page_url):
     """Return work affinity from URL-bearing attributes, or 0 if unknown."""
     if not page_url:
@@ -518,6 +574,8 @@ def _candidate_work_affinity(el, page_url):
         except Exception:
             continue
         try:
+            if value and _candidate_url_is_a_document(value):
+                continue
             if value and work_affinity(page_url, value):
                 return 1
         except Exception:

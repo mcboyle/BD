@@ -1,0 +1,46 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "BEST-QUALITY-PICKED-240P-OVER-VISIBLE-4K. Re-run from a detached standalone scratch tree: toolchain/bin/bd-mutate --spec tests/mutants/best_quality_page_link_work_stamp.json --work SCRATCH --timeout 900. M1 and M2 restore the pre-fix stamp two different ways (disable the guard; anchor the document-extension regex at the start so it can never match a suffix). M3 is the OVERCORRECTION in the other direction -- disqualify every candidate URL, not just documents -- which must break row 388's subject while leaving the 4K pick standing. The companion transform control applies M1's byte-identical transform to a node that imports detect.py without asserting the stamp, and must ESCAPE.",
+  "subject": "a same-slug HTML document link is not stamped as the work, so quality_preference=best reaches the page's visible 4K tier",
+  "band": [
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_document_url_is_not_evidence_that_a_candidate_is_the_work",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_media_url_on_the_page_slug_still_stamps_the_work",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_media_attribute_beside_a_document_href_still_stamps_the_work",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_best_selects_the_visible_4k_tier_over_the_same_slug_page_link",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_the_unpreferred_winner_is_also_the_4k_tier",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_genuinely_240p_page_is_still_refused_with_the_same_message",
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_the_recorded_labels_outscore_the_document_link",
+    "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py::test_the_winner_belongs_to_the_scene_on_the_page",
+    "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py::test_every_same_work_candidate_outranks_every_other_work_candidate"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the document guard is skipped, restoring the pre-fix stamp",
+      "file": "bulk_downloader/detect.py",
+      "old": "            if value and _candidate_url_is_a_document(value):\n                continue\n            if value and work_affinity(page_url, value):",
+      "new": "            if value and _candidate_url_is_a_document(value) and False:  # mutant: restore the pre-fix stamp\n                continue\n            if value and work_affinity(page_url, value):",
+      "direction": "regression",
+      "catcher": "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_document_url_is_not_evidence_that_a_candidate_is_the_work"
+    },
+    {
+      "label": "M2 the document guard never fires: every value reads as non-document",
+      "file": "bulk_downloader/detect.py",
+      "old": "    if not segments:",
+      "new": "    if True:  # mutant: the guard returns before testing the extension, so nothing is a document",
+      "direction": "regression",
+      "catcher": "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_best_selects_the_visible_4k_tier_over_the_same_slug_page_link"
+    },
+    {
+      "label": "M3 every candidate URL is disqualified, not only a document",
+      "file": "bulk_downloader/detect.py",
+      "old": "def _candidate_url_is_a_document(value):",
+      "new": "def _candidate_url_is_a_document(value):\n    return True  # mutant: every candidate URL is disqualified, not only a document",
+      "direction": "overcorrection",
+      "control": "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py::test_the_winner_belongs_to_the_scene_on_the_page",
+      "preserves": [
+        "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_best_selects_the_visible_4k_tier_over_the_same_slug_page_link",
+        "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_genuinely_240p_page_is_still_refused_with_the_same_message"
+      ]
+    }
+  ]
+}
