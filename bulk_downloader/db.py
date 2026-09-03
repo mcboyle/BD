@@ -2089,6 +2089,35 @@ def db_skip_identity(page_url, final_path):
     return ("unknown", None)
 
 
+def db_skip_attribution_state(final_path):
+    """Measure whether a library path has lost its current history owner.
+
+    This is deliberately separate from ``db_skip_identity``. That function's
+    established contract reports dangling links as ``("unknown", None)``:
+    absence of a live owner is not identity. The transport still needs to know
+    whether that UNKNOWN can self-heal through one collision-safe transfer or
+    whether a library row proves the path was attributed and subsequently lost
+    its owner. Return ``"dangling"``, ``"clear"``, or ``"unknown"`` so a failed
+    measurement cannot be mistaken for permission.
+    """
+    final_path = str(final_path or "")
+    if not final_path:
+        return "unknown"
+    try:
+        with db_conn() as cx:
+            row = cx.execute(
+                "SELECT h.id AS history_id FROM library l "
+                "LEFT JOIN history h ON h.id = l.history_id "
+                "WHERE l.file_path = ? LIMIT 1",
+                (final_path,),
+            ).fetchone()
+    except Exception:
+        return "unknown"
+    if row is None:
+        return "clear"
+    return "dangling" if row["history_id"] is None else "clear"
+
+
 def db_stats(site_id=None):
     """Aggregate history counts and total downloaded bytes for the
     dashboard. Returns `{"counts": {status: n, ...}, "bytes": total_done_bytes}`.

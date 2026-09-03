@@ -1,0 +1,84 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 485 and 507. The bulk-delete cleanup route must resolve display basenames inside the site download directory, remove all four staging artifacts, and count only effects. The transport must refuse unmeasurable attribution when a dangling library link or relative download directory cannot self-heal, while a provably different absolute-path work still transfers. Every old anchor is executable structural code and occurs exactly once.",
+  "subject": "rows 485 and 507: bulk deletion reports cleanup effects and cannot authorize unmeasurable duplicate transfers",
+  "band": [
+    "tests/test_row492_a_release_proves_what_it_frees.py::test_force_cleanup_removes_all_partial_artifacts_and_counts_each_effect",
+    "tests/test_row492_a_release_proves_what_it_frees.py::test_bulk_delete_without_force_cleanup_has_no_cleanup_verdict",
+    "tests/test_row492_a_release_proves_what_it_frees.py::test_absent_partial_artifacts_report_zero_cleanups",
+    "tests/test_row492_a_release_proves_what_it_frees.py::test_an_unmeasurable_part_is_not_counted_or_left_ownerless",
+    "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_dangling_library_link_refuses_a_silent_redownload",
+    "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_relative_download_dir_refuses_unbounded_duplicate_transfers",
+    "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_the_different_work_arm_downloads_instead_of_skipping"
+  ],
+  "mutants": [
+    {
+      "label": "M1 disable partial cleanup entirely",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "def _cleanup_job_partials(runner, filename) -> int:\n",
+      "new": "def _cleanup_job_partials(runner, filename) -> int:\n    return 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_force_cleanup_removes_all_partial_artifacts_and_counts_each_effect"
+    },
+    {
+      "label": "M2 count an absent cleanup as one effect",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "        return removed\n    return removed\n",
+      "new": "        return removed\n    return max(1, removed)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_absent_partial_artifacts_report_zero_cleanups"
+    },
+    {
+      "label": "M3 leave the staging owner claim orphaned",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "        try:\n            owner.lstat()\n",
+      "new": "        try:\n            raise OSError(\"mutant leaves owner\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_force_cleanup_removes_all_partial_artifacts_and_counts_each_effect"
+    },
+    {
+      "label": "M4 report a cleanup count when cleanup was not requested",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "    return jsonify(result)\n",
+      "new": "    result[\"cleanup_count\"] = cleanup_count\n    return jsonify(result)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_bulk_delete_without_force_cleanup_has_no_cleanup_verdict"
+    },
+    {
+      "label": "M5 treat an unmeasurable part as absent and orphan its claim",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "    try:\n        part.lstat()\n    except FileNotFoundError:\n",
+      "new": "    try:\n        part.lstat()\n    except OSError:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_an_unmeasurable_part_is_not_counted_or_left_ownerless"
+    },
+    {
+      "label": "M6 permit an unmeasurable identity to transfer again",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "    return unmeasurable\n",
+      "new": "    return False\n",
+      "direction": "regression",
+      "catcher": "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_relative_download_dir_refuses_unbounded_duplicate_transfers"
+    },
+    {
+      "label": "M7 refuse a provably different work as though it were unmeasurable",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "    return unmeasurable\n",
+      "new": "    return identity != \"same\"\n",
+      "direction": "overcorrection",
+      "control": "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_the_different_work_arm_downloads_instead_of_skipping",
+      "preserves": [
+        "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_dangling_library_link_refuses_a_silent_redownload",
+        "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_relative_download_dir_refuses_unbounded_duplicate_transfers"
+      ]
+    },
+    {
+      "label": "M8 erase the separate dangling-attribution measurement",
+      "file": "bulk_downloader/db.py",
+      "old": "def db_skip_attribution_state(final_path):\n",
+      "new": "def db_skip_attribution_state(final_path):\n    return \"clear\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_a_skip_must_prove_it_is_the_same_work.py::test_a_dangling_library_link_refuses_a_silent_redownload"
+    }
+  ]
+}

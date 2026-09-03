@@ -617,13 +617,77 @@ def api_jobs_bulk_mark(sid):
                     "requested": len(urls)})
 
 
+def _cleanup_job_partials(runner, filename) -> int:
+    """Remove this job's known partial artifacts and return effects counted."""
+    if not isinstance(filename, str) or not filename:
+        return 0
+    if (Path(filename).is_absolute() or Path(filename).name != filename
+            or "/" in filename or "\\" in filename):
+        return 0
+    download_dir = str((getattr(runner, "config", {}) or {}).get(
+        "download_dir", "") or "").strip()
+    if not download_dir:
+        return 0
+    try:
+        root = Path(download_dir).resolve()
+        final_path = root / filename
+        if final_path.parent != root:
+            return 0
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return 0
+
+    from . import resume as _resume
+    from . import staging_claim as _staging_claim
+
+    part = _resume.part_path(final_path)
+    metadata = part.with_suffix(part.suffix + ".meta")
+    sidecar = _resume.sidecar_path(final_path)
+
+    def _unlink_effect(path):
+        try:
+            path.lstat()
+        except OSError:
+            return 0
+        try:
+            path.unlink()
+        except OSError:
+            return 0
+        return 1
+
+    removed = _unlink_effect(metadata) + _unlink_effect(sidecar)
+    removed += _unlink_effect(part)
+    try:
+        part.lstat()
+    except FileNotFoundError:
+        owner = _staging_claim.owner_path_for(part)
+        try:
+            owner.lstat()
+        except FileNotFoundError:
+            owner_existed = False
+        except OSError:
+            return removed
+        else:
+            owner_existed = True
+        if owner_existed and _staging_claim.release(part, force=True):
+            try:
+                owner.lstat()
+            except FileNotFoundError:
+                removed += 1
+    except OSError:
+        # The part may still hold bytes. UNKNOWN is not permission to drop its
+        # claim and turn those bytes into ownerless resume input.
+        return removed
+    return removed
+
+
 @sites_bp.route("/api/sites/<sid>/jobs/bulk_delete", methods=["POST"])
 def api_jobs_bulk_delete(sid):
     """Delete N URLs from the queue. Body: {urls: [...]}.
 
     Does NOT delete already-downloaded files — only removes the queue
-    entries. Use force_cleanup=true to also call the file-cleanup hook
-    for partial downloads (.bdseg.json + .part files)."""
+    entries. Use force_cleanup=true to remove the partial download's .part,
+    .part.meta, .part.bdseg.json and .part.owner files from this site's
+    download directory."""
     runners = _app_runners()
     if sid not in runners:
         return jsonify({"error": "Not found"}), 404
@@ -641,17 +705,13 @@ def api_jobs_bulk_delete(sid):
         for u in urls:
             if u in runner.jobs:
                 if force_cleanup:
-                    # Attempt to remove the partial-download sidecar +
-                    # .part file. Best-effort — file may not exist if
-                    # the download never started, which is fine.
+                    # A job stores a display basename, not a filesystem path.
+                    # Resolve it only inside THIS site's download directory;
+                    # an absolute/injected name is UNKNOWN and is not cleanup
+                    # permission. Count each filesystem effect, never the
+                    # attempt, so an absent or unremovable artifact reports 0.
                     fn = runner.jobs[u].get("filename", "")
-                    if fn:
-                        try:
-                            from . import resume as _resume
-                            _resume.cleanup(fn)
-                            cleanup_count += 1
-                        except Exception:
-                            pass
+                    cleanup_count += _cleanup_job_partials(runner, fn)
                 del runner.jobs[u]
                 affected += 1
     # DB-side bulk delete
@@ -672,9 +732,10 @@ def api_jobs_bulk_delete(sid):
         })
     except Exception:
         pass
-    return jsonify({"ok": True, "affected": affected,
-                    "cleanup_count": cleanup_count,
-                    "requested": len(urls)})
+    result = {"ok": True, "affected": affected, "requested": len(urls)}
+    if force_cleanup:
+        result["cleanup_count"] = cleanup_count
+    return jsonify(result)
 
 
 @sites_bp.route("/api/sites/<sid>/jobs/bulk_priority", methods=["POST"])

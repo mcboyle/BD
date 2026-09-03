@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 516 transform control. The byte-identical publication-evidence mutation is aimed at a test that imports the loader without asserting its behavior. It must ESCAPE, proving the primary CAUGHT is behavioral rather than a parse or import failure.",
+  "subject": "importing the sites loader does not constrain first-run publication evidence",
+  "band": [
+    "tests/test_sites_config_honours_the_install_dir.py::test_row516_transform_control_only_imports_the_sites_loader"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL runtime publication forgets that the sites file was absent",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^            )_SITES_FILE_EXISTED_AT_PUBLICATION(?= = False$)",
+      "new": "_SITES_FILE_EXISTENCE_WAS_IGNORED_AT_PUBLICATION",
+      "direction": "regression",
+      "catcher": "tests/test_sites_config_honours_the_install_dir.py::test_row516_transform_control_only_imports_the_sites_loader"
+    }
+  ]
+}

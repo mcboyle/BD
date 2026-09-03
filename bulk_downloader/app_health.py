@@ -58,6 +58,14 @@ def _app__app_boot_time():
     return getattr(importlib.import_module("bulk_downloader.app"), "_app_boot_time")
 
 
+def _app_sites_config_reachability():
+    """The last sites-config path measurement from app.py."""
+    import importlib
+    app_module = importlib.import_module("bulk_downloader.app")
+    state = app_module._SITES_CONFIG_REACHABILITY
+    return None if state is None else dict(state)
+
+
 _BUILD_IDENTITY_CACHE: dict[str, dict] = {}
 
 
@@ -369,6 +377,17 @@ def _attach_download_hold(payload: dict) -> None:
         payload.setdefault("degraded", "download_hold_unknown")
 
 
+def _attach_sites_config_health(payload: dict) -> None:
+    """Expose an unavailable published config path as UNKNOWN, never empty OK."""
+    state = _app_sites_config_reachability()
+    if state is None:
+        return
+    payload["sites_config"] = state
+    if state.get("ok") is not True:
+        payload["ok"] = False
+        payload.setdefault("degraded", "sites_config_unknown")
+
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
@@ -415,6 +434,7 @@ def api_health():
         payload["degraded"] = f"db_error: {type(e).__name__}"
     _attach_credential_health(payload, s_cfg)
     _attach_download_hold(payload)
+    _attach_sites_config_health(payload)
     # B1.3 (post-365): build identity. Read build_info.json from the install
     # dir so the Dashboard can compare the FE-loaded VITE_BUILD_STAMP against
     # the backend build sha. Absent file -> no `build` key (graceful: dev tree
@@ -485,6 +505,7 @@ def api_health_v2():
         payload["db_journal_mode"] = "unknown"
     _attach_credential_health(payload, s_cfg)
     _attach_download_hold(payload)
+    _attach_sites_config_health(payload)
     # Disk free per download dir — first 5 only (mockup shows
     # aggregate, not per-dir; this is for the Settings → Health pane).
     disks = []

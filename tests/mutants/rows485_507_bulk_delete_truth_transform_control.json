@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for rows 485 and 507. This deliberately points the same valid early-return mutation at a test that only imports the route module and asserts no cleanup behavior. It must ESCAPE, proving the primary battery's CAUGHT verdicts come from behavioral assertions rather than a parse, import, or collection break.",
+  "subject": "transform control for rows 485 and 507 bulk-delete truthfulness",
+  "band": [
+    "tests/test_row492_a_release_proves_what_it_frees.py::test_row507_transform_control_only_imports_the_route"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL disable partial cleanup under an import-only test",
+      "file": "bulk_downloader/app_sites_queue.py",
+      "old": "def _cleanup_job_partials(runner, filename) -> int:\n",
+      "new": "def _cleanup_job_partials(runner, filename) -> int:\n    return 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_row492_a_release_proves_what_it_frees.py::test_row507_transform_control_only_imports_the_route"
+    }
+  ]
+}
