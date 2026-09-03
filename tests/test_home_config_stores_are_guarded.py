@@ -249,6 +249,12 @@ _CLASSIFIED = {
     "app.py": "NOT-A-STORE",
     "db_tools.py": "NOT-A-STORE",
     "release_lint.py": "NOT-A-STORE",
+    # VAULT-RESOLVES-AGAINST-CWD (2026-09-03): secrets_store.py now expands
+    # the operator-DECLARED BD_INSTALL_DIR (the same variable app.py uses for
+    # sites_config.json) -- a caller-supplied path, never a $HOME default; with
+    # the variable unset the vault stays the historical relative pair. The
+    # vault files themselves are guarded by the capture-vault two-key rule.
+    "secrets_store.py": "NOT-A-STORE",
 }
 
 # macros is covered CONDITIONALLY, and the condition is the whole point. On this

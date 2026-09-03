@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4310,
+  "edge_count": 4311,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6888,6 +6888,9 @@
     "tests/test_validators.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/templates.py"
+    ],
+    "tests/test_vault_resolves_against_the_install_dir.py": [
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_vector_index.py": [
       "bulk_downloader/vector_index.py"
