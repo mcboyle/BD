@@ -5,9 +5,63 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1462 - fourteen rows filed, and two release notes say what they should have said
+
+A register cut. No runtime change: it files what a night of measurement found,
+and it repairs two release notes -- one that shipped as its own placeholder and
+one that credited the wrong row.
+
+- Fourteen rows filed (681-694). Four candidates that looked unfiled are
+  deliberately absent: rows 657, 659, 660 and 661 already carry those
+  mechanisms and row 658 closed at 1453, so filing them again would have been a
+  duplicate rather than a record. The staging note they came from had gone
+  stale, which is the ordinary fate of a document beside a tracked register.
+
+- 682 and 683 are SPLIT ON PURPOSE. Both are order-dependence pairs reproduced
+  serially on a base with no cut applied, and they are different mechanisms: one
+  is a published SITES_FILE path that outlives the temporary directory it points
+  into, the other a vault backend binding the secrets family leaves behind. One
+  fix will not retire both, and a single row would have implied it could.
+
+- 685 is filed CLOSED at 1461. The requirements-optional manifest was measured
+  missing on six of twelve hosts and complete on six, because deploy converged
+  two manifests and never that one; it shipped merged before this cut
+  existed, and the row exists so the measurement and the cloakbrowser waiver
+  survive outside a merge subject.
+
+- 694 is the one row this cut did not set out to file. An Xvfb :99 server
+  outlives the test that started it -- measured on two band hosts, one of them
+  for a full day -- and install_remote_teach.sh then fails "Server is already
+  active for display 99" on every retry. A leaked test fixture refusing a real
+  install. The launcher is named by measurement rather than left as an exercise,
+  and the row carries the negative control that matters more than the fix: a
+  pre-existing display the test did not start must survive, because the obvious
+  repair is the defect row 300 closed at 1297.
+
+- The v3.66.1461 entry cited the wrong register row. It credited row 360, an
+  unrelated Turnstile row closed at 1338; the manifest merge is row 685, filed
+  in this cut. Corrected forward in place, with the correction stated in the
+  entry rather than made silently.
+
+- The v3.66.1457 entry is corrected. It was published carrying the generator's
+  own placeholder -- "DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE
+  BULLETS BEFORE COMMITTING)" -- as its title. The merged commit's subject is
+  permanent and is NOT rewritten; A4 forbids amending a merged commit and that
+  rule is not relaxed to tidy a release note. The entry now carries the real
+  description and says why it was wrong. Rows 681 and 684 file the two refusals
+  that would have caught it: a tree gate over the newest entry, and a refusal in
+  the tool that writes the placeholder. Neither substitutes for the other.
+
 ## v3.66.1461 - one requirements file instead of two
 
-Register row 360, on the operator's directive to merge them.
+Register row 685, on the operator's directive to merge them.
+
+CORRECTED FORWARD in v3.66.1462: this entry originally cited "Register row
+360", which is TURNSTILE-BYPASS-IS-INSTALLED-NOT-JUST-DECLARED, closed at
+v3.66.1338 and unrelated to this work -- the same unrelated row this pipeline
+mis-stamped once before. The manifest merge is row 685, filed and closed at
+1461 in the following release. The merged commit is not rewritten; only this
+citation is.
 
 - requirements-optional.txt is folded into requirements.txt and deleted. Two
   dependency lists meant the installers, the doctor, the security audit and the
@@ -69,11 +123,31 @@ form dl.php?file=<slug>_3840x2160.mp4 was vetoed and scored zero, and the test
 pinned that false side while the fixture's URLs carried no page extension, so
 the band could not see the objection.
 
-## v3.66.1457 - DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE BULLETS BEFORE COMMITTING)
+## v3.66.1457 - a login session now carries into the scene context
 
-Train: 1 refute-first-reviewed worker patches.
+Register row 680, from the download campaign's HIGH findings.
 
-- W4-LOGINSESSION: ## MECHANISM (measured on a local fixture host through BD's real carry chain) brazzers logs in on `site-ma.brazzers.com`; the scene lives on `www.brazzers.com` -- SIBLING subdomains. A session cookie the login host issues host-only (no Domain attribute) is never sent to a sibling host: RFC 6265 5.1.
+- A session established by login was not present in the context used for the
+  scene page, so authenticated work proceeded UNAUTHENTICATED. The failure mode
+  was silent success: it produced plausible-looking wrong results rather than an
+  error, which is the same class as the incident where BD saved five gigabytes
+  of a different scene under the requested title with a sane candidate list and
+  a correct-looking history row.
+
+Reviewed by two independent adversarial lenses, both BOARD after a re-verify.
+The shape lens's first round refuted an earlier revision on two counts, both
+fixed before it boarded: a subdomain-widening escape where host == domain also
+accepting host.endswith("." + domain) still passed, and a wrong oracle --
+context.cookies([url]) returned the cookie while a real navigation to that same
+URL sent Cookie: None, so the gate agreed with the mutant and would have
+certified it. The gate now asserts the Cookie header of a real navigation.
+
+NOTE: this entry was published in v3.66.1457 with a placeholder title and an
+unedited bullet, because the integrator committed the generated draft instead of
+editing it. The release itself was correct and fully reviewed; only this text
+was wrong, and it is corrected here rather than left to mislead a reader. The
+merged commit's subject is permanent and is deliberately NOT rewritten; A4
+forbids amending a merged commit, so the correction is made forward, here.
 
 ## v3.66.1455 - every finding from the download campaign and the capture runs becomes a row
 
