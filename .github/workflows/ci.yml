@@ -475,6 +475,7 @@ jobs:
             suites: >-
               tests/test_row362_templates_are_resolvable.py
               tests/test_row377_installed_template_selftest_states.py
+              tests/test_login_session_does_not_cover_the_scene_host.py
           # Row 386. The download chain end to end -- page DOM, candidate
           # discovery, ranking, direct-URL resolution, filename, a real
           # loopback transfer, and the history/library rows a completion

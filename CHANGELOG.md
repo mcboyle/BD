@@ -5,6 +5,12 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1457 - DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE BULLETS BEFORE COMMITTING)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- W4-LOGINSESSION: ## MECHANISM (measured on a local fixture host through BD's real carry chain) brazzers logs in on `site-ma.brazzers.com`; the scene lives on `www.brazzers.com` -- SIBLING subdomains. A session cookie the login host issues host-only (no Domain attribute) is never sent to a sibling host: RFC 6265 5.1.
+
 ## v3.66.1455 - every finding from the download campaign and the capture runs becomes a row
 
 A register cut. No runtime change: it files what a night of measurement found,

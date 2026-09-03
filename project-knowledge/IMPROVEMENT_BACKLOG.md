@@ -2,7 +2,7 @@
 
 ASCII-only.
 
-<!-- canonical-task-register schema=1 rows=623 open=63 ids-sha256=aeed69d26d1104d7ad576539c3b3d642c8d7025bf8b0e4550845c000e0a2e882 -->
+<!-- canonical-task-register schema=1 rows=623 open=62 ids-sha256=aeed69d26d1104d7ad576539c3b3d642c8d7025bf8b0e4550845c000e0a2e882 -->
 
 ## Why this file exists
 
@@ -704,4 +704,4 @@ proving nothing was lost. Nothing was lost here that any commit ever held.
 | 677 | OPEN | bd-bandcheck-EXITS-1-WHERE-IT-SHOULD-REPORT-UNKNOWN -- raised by the w3-auditorsc lens-1 review as a non-blocking finding. Exit 1 means RED and exit 2 means UNMEASURABLE across this toolchain's shared contract; collapsing an unmeasurable case into RED costs the caller the distinction between a real finding and a check that could not run. ACCEPTANCE: the unmeasurable path exits 2 with a diagnostic naming what could not be measured, and a test asserts both codes on their own inputs. |
 | 678 | OPEN | THE-STATIC-EXCLUSION-TABLE-IS-UNGATED -- raised by the w3-auditorsc lens-1 review as a non-blocking finding. A hand-maintained exclusion table with no gate drifts silently, and every entry it wrongly retains shrinks an auditor's denominator without anyone noticing. ACCEPTANCE: a gate asserts every exclusion entry still resolves to a real path and still needs excluding, returning UNKNOWN rather than OK when it cannot decide. |
 | 679 | OPEN | BEST-QUALITY-PICKED-240p-OVER-A-VISIBLE-4K-RENDITION -- campaign HIGH finding behind the w4-qualitypick fix. With best requested, the picker chose a 240p rendition while a 4K rendition was visible on the same page. ACCEPTANCE: a test over a recorded page carrying both renditions asserts best selects the 4K one, failing on the current tree; the fix must not depend on label text alone, since a label is a claim about a rendition and not a measurement of it. |
-| 680 | OPEN | A-LOGIN-SESSION-DOES-NOT-CARRY-TO-THE-SCENE-CONTEXT -- campaign HIGH finding behind the w4-loginsession fix. A session established by login is not present in the context used for the scene page, so authenticated work proceeds unauthenticated. ACCEPTANCE: a test asserting the scene context carries the same session identity the login established, failing on the current tree, with a negative control that a logged-out run is still refused rather than silently proceeding. |
+| 680 | CLOSED @1457 | A-LOGIN-SESSION-DOES-NOT-CARRY-TO-THE-SCENE-CONTEXT -- campaign HIGH finding behind the w4-loginsession fix. A session established by login is not present in the context used for the scene page, so authenticated work proceeds unauthenticated. ACCEPTANCE: a test asserting the scene context carries the same session identity the login established, failing on the current tree, with a negative control that a logged-out run is still refused rather than silently proceeding. |

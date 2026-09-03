@@ -152,6 +152,8 @@ _DECLARED = {
     # gate provides no safety on a PR.
     # CI-SHARD-CLAIM row-507 application-safety tests/test_row492_a_release_proves_what_it_frees.py
     "tests/test_row492_a_release_proves_what_it_frees.py",
+    # CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
+    "tests/test_login_session_does_not_cover_the_scene_host.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
     # and command-failed artifacts are distinct from the two healthy paths, so
