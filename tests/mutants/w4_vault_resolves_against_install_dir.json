@@ -1,0 +1,38 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "VAULT-RESOLVES-AGAINST-CWD -- the credential vault was a bare relative path resolved against the process cwd, so a process importing BD from another directory silently created a NEW EMPTY vault. Anchors are structural (def lines and a bare call line); the transform control is tests/test_vault_resolves_against_the_install_dir.py::test_transform_control_imports_without_exercising_vault_resolution, an import-only test every mutant must escape: no digit, no quoted value, no '=' character on the anchor text the row357 gate classifies.",
+  "subject": "with BD_INSTALL_DIR declared the vault lives in the install dir (resolved at call time), an unresolvable install dir REFUSES and creates nothing, and the historical relative default is untouched when nothing is declared",
+  "band": [
+    "tests/test_vault_resolves_against_the_install_dir.py::test_a_declared_install_dir_owns_the_vault_not_the_process_cwd",
+    "tests/test_vault_resolves_against_the_install_dir.py::test_the_resolver_points_at_the_declared_install_dir",
+    "tests/test_vault_resolves_against_the_install_dir.py::test_resolution_is_call_time_not_import_time",
+    "tests/test_vault_resolves_against_the_install_dir.py::test_an_unresolvable_state_dir_refuses_and_creates_nothing",
+    "tests/test_vault_resolves_against_the_install_dir.py::test_with_no_install_dir_the_vault_is_where_it_has_always_been"
+  ],
+  "mutants": [
+    {
+      "label": "VCWD-M1 the declared install dir is ignored: the resolver always returns the relative default",
+      "file": "bulk_downloader/secrets_store.py",
+      "old": "def _state_dir_paths(default: tuple[Path, Path]) -> tuple[Path, Path]:",
+      "new": "def _state_dir_paths(default: tuple[Path, Path]) -> tuple[Path, Path]:\n    return default  # mutant: BD_INSTALL_DIR never owns the vault",
+      "direction": "regression",
+      "catcher": "tests/test_vault_resolves_against_the_install_dir.py::test_the_resolver_points_at_the_declared_install_dir"
+    },
+    {
+      "label": "VCWD-M2 the backend no longer re-resolves at call time (import-time value stands)",
+      "file": "bulk_downloader/secrets_store.py",
+      "old": "            refresh_vault_paths()",
+      "new": "            pass  # mutant: configure_backend skips the call-time refresh",
+      "direction": "regression",
+      "catcher": "tests/test_vault_resolves_against_the_install_dir.py::test_resolution_is_call_time_not_import_time"
+    },
+    {
+      "label": "VCWD-M3 an unresolvable install dir is treated as an empty vault instead of refusing",
+      "file": "bulk_downloader/secrets_store.py",
+      "old": "    def _state_dir_is_unresolved(self) -> bool:",
+      "new": "    def _state_dir_is_unresolved(self) -> bool:\n        return False  # mutant: the missing-state-dir guard is disabled",
+      "direction": "regression",
+      "catcher": "tests/test_vault_resolves_against_the_install_dir.py::test_an_unresolvable_state_dir_refuses_and_creates_nothing"
+    }
+  ]
+}

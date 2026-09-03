@@ -87,6 +87,57 @@ def _path_entry_exists(path: Path) -> bool:
     return True
 
 
+# Name of the variable that declares BD's install/state directory. Held as a
+# constant so the resolver and the refusal that names it to the operator cannot
+# drift apart -- a refusal naming a variable the code no longer reads is worse
+# than none.
+_STATE_DIR_ENV = "BD_INSTALL_DIR"
+
+
+def _state_dir_paths(default: tuple[Path, Path]) -> tuple[Path, Path]:
+    """Place the vault pair in the declared state dir, or keep ``default``.
+
+    The declared dir is BD_INSTALL_DIR, the same variable app.py consults for
+    sites_config.json. When it is unset the historical relative pair stands, so
+    the deployed service -- whose systemd unit sets WorkingDirectory and no
+    install dir -- is byte-identical and no operator config moves.
+
+    The directory is NOT validated here. This function runs at module import
+    and a raise would turn a configuration error into an unimportable package;
+    the check belongs at the first I/O, where MasterPasswordBackend already
+    owns a refusal vocabulary that fails closed.
+    """
+    declared = os.environ.get(_STATE_DIR_ENV, "").strip()
+    if not declared:
+        return default
+    root = Path(declared).expanduser().resolve()
+    return root / _DEFAULT_SECRETS_NAME, root / _DEFAULT_META_NAME
+
+
+def _unresolved_state_dir() -> str | None:
+    """Say why the vault's directory cannot be used, or None if it can.
+
+    Returns a sentence, not a bool, so the refusal that carries it names the
+    step that failed rather than a generic condition. Only a DECLARED state dir
+    is judged: with the variable unset the pair is the historical relative one,
+    whose parent is the cwd and always exists, so this returns None and no
+    existing deployment or chdir-isolated test changes behaviour.
+    """
+    declared = os.environ.get(_STATE_DIR_ENV, "").strip()
+    if not declared:
+        return None
+    root = Path(declared).expanduser()
+    try:
+        is_dir = root.is_dir()
+    except OSError as e:
+        return (f"{_STATE_DIR_ENV} names {root}, whose state could not be "
+                f"measured ({type(e).__name__}: {e}).")
+    if not is_dir:
+        return (f"{_STATE_DIR_ENV} names {root}, which is not an existing "
+                f"directory, so the credential vault has no home.")
+    return None
+
+
 def _resolve_vault_paths() -> tuple[Path, Path]:
     """Return (secrets_file, meta_file), honouring the capture-vault override.
 
@@ -108,19 +159,32 @@ def _resolve_vault_paths() -> tuple[Path, Path]:
     The password itself is never read here and never defaulted anywhere in the
     tree: capture.sh supplies it at runtime via /api/secrets/unlock. A constant
     would ship every install a known unlock.
+
+    VAULT-RESOLVES-AGAINST-CWD. Below the capture override, the declared
+    install dir owns the vault. The old default was a bare relative pair, which
+    resolves against the process cwd at USE time -- so a process importing BD
+    from another directory found no vault, committed a fresh password to a new
+    empty one, and reported success. That is the silent-empty-store outcome the
+    two-key design above exists to prevent, reachable with no variable at all;
+    the 2026-09-03 campaign measured a 475-byte vault written beside the
+    operator's real 4773-byte one. The ladder is app.py::_resolve_sites_file's,
+    because the vault is documented as living next to sites_config.json and a
+    second invented authority would let the two state files diverge. Keyed off
+    the env var rather than constants.INSTALL_DIR, which is frozen at import
+    and falls back to Path.cwd() -- the same trap in a different frame.
     """
     default = (Path(_DEFAULT_SECRETS_NAME), Path(_DEFAULT_META_NAME))
     override = os.environ.get("BD_SECRETS_FILE", "").strip()
     opted_in = os.environ.get("BD_CAPTURE_VAULT", "") == "1"
     if not override:
-        return default
+        return _state_dir_paths(default)
     if not opted_in:
         # Loud, because the alternative is a silent near-miss: the operator
         # believes the capture is isolated and it is running on the real vault.
         sys.stderr.write(
             "  secrets: BD_SECRETS_FILE is set but BD_CAPTURE_VAULT is not '1' "
             "-- ignoring the override and using the operator vault\n")
-        return default
+        return _state_dir_paths(default)
     target = Path(override)
     if target == Path(_DEFAULT_SECRETS_NAME):
         # Aliasing the real vault would unlock the operator's credentials with
@@ -128,7 +192,7 @@ def _resolve_vault_paths() -> tuple[Path, Path]:
         sys.stderr.write(
             "  secrets: BD_SECRETS_FILE names the operator vault; refusing to "
             "treat it as a capture vault\n")
-        return default
+        return _state_dir_paths(default)
     sys.stderr.write(
         f"  secrets: CAPTURE VAULT active -> {target} "
         f"(the operator vault is not opened)\n")
@@ -141,6 +205,41 @@ def _resolve_vault_paths() -> tuple[Path, Path]:
 # getter: seven test files monkeypatch ss.SECRETS_FILE, and a getter would leave
 # every one of those patches silently inert.
 SECRETS_FILE, SECRETS_META_FILE = _resolve_vault_paths()
+# Every value this module has PUBLISHED itself, so an explicit assignment can
+# be told from an auto-resolved one. app.py keeps a single last-object for
+# SITES_FILE; a SET is needed here because a monkeypatch RESTORE in a
+# neighbouring test puts back an OLDER auto-published object, and a
+# last-object test then reads it as "set by someone else" and the call-time
+# refresh goes inert for the rest of that worker (measured under the full
+# suite, -n 8 loadfile: three tests green alone, red in the suite). Seven test
+# files monkeypatch SECRETS_FILE to paths this module never published, and
+# those are still never overwritten.
+_AUTO_PUBLISHED_SECRETS = {SECRETS_FILE}
+_AUTO_PUBLISHED_META = {SECRETS_META_FILE}
+
+
+def refresh_vault_paths() -> tuple[Path, Path]:
+    """Re-resolve the vault pair from the environment, preserving patches.
+
+    Import time is the wrong and only moment the old code looked. A process
+    that imports BD once and configures its environment afterwards -- or that
+    imports it from a directory that is not the install root -- could never
+    reach the right vault, because a relative path silently followed the cwd
+    instead. Resolution is therefore call-time, and the result is REPUBLISHED
+    to the module attributes rather than returned from a getter.
+
+    An attribute holding a value this module never published was set by
+    someone else. It wins, and this call leaves it alone.
+    """
+    global SECRETS_FILE, SECRETS_META_FILE
+    secrets, meta = _resolve_vault_paths()
+    if SECRETS_FILE in _AUTO_PUBLISHED_SECRETS:
+        SECRETS_FILE = secrets
+        _AUTO_PUBLISHED_SECRETS.add(secrets)
+    if SECRETS_META_FILE in _AUTO_PUBLISHED_META:
+        SECRETS_META_FILE = meta
+        _AUTO_PUBLISHED_META.add(meta)
+    return SECRETS_FILE, SECRETS_META_FILE
 
 # Prefix that marks an encrypted-reference in sites_config.json.
 CRED_PREFIX = "@cred:"
@@ -544,6 +643,31 @@ class MasterPasswordBackend(_BackendBase):
         self._data: dict[str, Any] = self._load_or_init()
         self._loaded_identity = self._vault_identity()
 
+    def _state_dir_is_unresolved(self) -> bool:
+        """Refuse, loudly, when the declared install dir cannot hold a vault.
+
+        VAULT-RESOLVES-AGAINST-CWD. A declared state dir that is not a
+        directory is an unavailable measurement, not an empty vault. The one
+        thing it may never do is quietly become the cwd -- that IS the defect
+        this guard exists to close -- and it may never be treated as
+        "uninitialized", because that is a licence to commit a new password
+        to a new empty store while the operator's vault sits untouched
+        somewhere else (CLAUDE.md A2: UNKNOWN is a failing third state).
+        Returns True after recording the refusal; False when the dir is fine.
+        """
+        unresolved = _unresolved_state_dir()
+        if unresolved is None:
+            return False
+        self._load_error = unresolved
+        self._load_error_kind = "unresolved-state-dir"
+        sys.stderr.write(
+            f"  secrets: {unresolved} The vault is UNRESOLVED, not "
+            f"uninitialized: every unlock, set, delete and password change "
+            f"is refused and nothing is created. Point "
+            f"{_STATE_DIR_ENV} at the real install directory, then RESTART "
+            f"the service.\n")
+        return True
+
     def _load_or_init(self) -> dict[str, Any]:
         # Row 487: the exists() probe used to sit OUTSIDE this try. CPython's
         # pathlib swallows only ENOENT/ENOTDIR/EBADF/ELOOP, so EACCES from a
@@ -553,6 +677,15 @@ class MasterPasswordBackend(_BackendBase):
         # backend. An unreadable encrypted vault presented as a confident empty
         # plaintext store, and the next set() would have written secrets in
         # clear beside the vault it could not read.
+        # VAULT-RESOLVES-AGAINST-CWD. A declared state dir that is not a
+        # directory is an unavailable measurement, not an empty vault. The one
+        # thing it may never do is quietly become the cwd -- that IS the defect
+        # this guard exists to close -- and it may never be treated as
+        # "uninitialized", because that is a licence to commit a new password
+        # to a new empty store while the operator's vault sits untouched
+        # somewhere else (CLAUDE.md A2: UNKNOWN is a failing third state).
+        if self._state_dir_is_unresolved():
+            return {}
         try:
             present = _path_entry_exists(SECRETS_FILE)
         except OSError as e:
@@ -929,6 +1062,22 @@ class MasterPasswordBackend(_BackendBase):
         no password may be committed against it."""
         if self._load_error is None:
             return
+        if self._load_error_kind == "unresolved-state-dir":
+            # A distinct diagnosis with a distinct remedy. Collapsing it into
+            # either branch below sends the operator to chmod a directory that
+            # does not exist, or to restore a file that was never there
+            # (CLAUDE.md A7). Name the declared variable and the path it named.
+            raise SecretsUnreadableError(
+                f"{operation} refused: {self._load_error} Nothing was written "
+                f"and no vault was created. The credential vault was NOT "
+                f"resolved against the current working directory, because a "
+                f"process standing outside the install root would then commit "
+                f"a new password to a new empty store while the operator's "
+                f"vault stayed untouched. Point {_STATE_DIR_ENV} at the real "
+                f"install directory, then RESTART the service -- the store is "
+                f"read once at backend construction and get_backend() caches "
+                f"that instance."
+            )
         if self._load_error_kind == "unmeasured":
             # Row 555. Existence is what could not be measured, so this
             # refusal may not assert a file is there, and "repair or restore
@@ -1862,6 +2011,11 @@ def configure_backend(name: str) -> bool:
         try:
             if name not in ("windows_credential", "master_password", "plaintext"):
                 return False
+            # VAULT-RESOLVES-AGAINST-CWD: the backend about to be constructed
+            # reads SECRETS_FILE, so the environment has to be consulted HERE
+            # rather than at import. get_backend() reaches this on first use,
+            # which is the seam every caller goes through.
+            refresh_vault_paths()
             # Row 438: re-selecting the ALREADY-ACTIVE backend is a no-op.
             # Constructing a second instance of it forked the vault into two
             # writers: the new instance snapshots secrets.json into its own

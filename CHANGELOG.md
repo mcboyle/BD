@@ -5,6 +5,12 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1458 - DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE BULLETS BEFORE COMMITTING)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- W4-VAULTCWD: ## MECHANISM secrets_store.py bound `Path("secrets.json")` / `Path("secrets_meta.json")` RELATIVE at import, so every read/write resolved against the process cwd at USE time. The campaign harness imported BD from ~/campaign, found no vault there, committed a fresh password to a new empty one and rep
+
 ## v3.66.1455 - every finding from the download campaign and the capture runs becomes a row
 
 A register cut. No runtime change: it files what a night of measurement found,
