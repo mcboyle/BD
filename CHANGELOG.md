@@ -69,11 +69,31 @@ form dl.php?file=<slug>_3840x2160.mp4 was vetoed and scored zero, and the test
 pinned that false side while the fixture's URLs carried no page extension, so
 the band could not see the objection.
 
-## v3.66.1457 - DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE BULLETS BEFORE COMMITTING)
+## v3.66.1457 - a login session now carries into the scene context
 
-Train: 1 refute-first-reviewed worker patches.
+Register row 680, from the download campaign's HIGH findings.
 
-- W4-LOGINSESSION: ## MECHANISM (measured on a local fixture host through BD's real carry chain) brazzers logs in on `site-ma.brazzers.com`; the scene lives on `www.brazzers.com` -- SIBLING subdomains. A session cookie the login host issues host-only (no Domain attribute) is never sent to a sibling host: RFC 6265 5.1.
+- A session established by login was not present in the context used for the
+  scene page, so authenticated work proceeded UNAUTHENTICATED. The failure mode
+  was silent success: it produced plausible-looking wrong results rather than an
+  error, which is the same class as the incident where BD saved five gigabytes
+  of a different scene under the requested title with a sane candidate list and
+  a correct-looking history row.
+
+Reviewed by two independent adversarial lenses, both BOARD after a re-verify.
+The shape lens's first round refuted an earlier revision on two counts, both
+fixed before it boarded: a subdomain-widening escape where host == domain also
+accepting host.endswith("." + domain) still passed, and a wrong oracle --
+context.cookies([url]) returned the cookie while a real navigation to that same
+URL sent Cookie: None, so the gate agreed with the mutant and would have
+certified it. The gate now asserts the Cookie header of a real navigation.
+
+NOTE: this entry was published in v3.66.1457 with a placeholder title and an
+unedited bullet, because the integrator committed the generated draft instead of
+editing it. The release itself was correct and fully reviewed; only this text
+was wrong, and it is corrected here rather than left to mislead a reader. The
+merged commit's subject is permanent and is deliberately NOT rewritten; A4
+forbids amending a merged commit, so the correction is made forward, here.
 
 ## v3.66.1455 - every finding from the download campaign and the capture runs becomes a row
 
