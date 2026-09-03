@@ -5,6 +5,32 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1460 - the credential vault stops resolving its files against the current directory
+
+Register row 668, from the download campaign's HIGH findings.
+
+- secrets_store.py bound Path("secrets.json") and Path("secrets_meta.json")
+  RELATIVE at import, so every read and write resolved against whatever
+  directory the process happened to start in. The same service found different
+  credentials depending on how it was launched, and one started from the wrong
+  directory would quietly use, or create, the wrong vault. Both are now resolved
+  against the install root, and the test changes directory explicitly so it
+  cannot pass merely because pytest started in the repository root.
+
+Reviewed by two independent adversarial lenses, both BOARD after a re-verify.
+The shape lens's first round refuted an earlier revision by reproducing this
+row's own defect through the seam the fix added: refresh_vault_paths republished
+the module path while the CACHED backend was still returned, so a mid-process
+install-directory change silently redirected the store and a write SUCCEEDED
+into a new vault holding the old data while the original file was untouched.
+A test now reconfigures twice with a changed directory.
+
+Its first lane reported six vault-routing tests and one rotation test as broken.
+They are not this cut's: both sets reduce to two-file pairs that fail on the
+base with no vault change applied, where a test boots the app inside a temporary
+directory, the app publishes a path under it, and the directory is then deleted.
+Those pairs are filed separately rather than charged to this fix.
+
 ## v3.66.1459 - best quality stops choosing 240p while a 4K rendition is on the page
 
 Register row 679, from the download campaign's HIGH findings.

@@ -59,9 +59,15 @@ def _resolve(monkeypatch, **env):
     Both keys are cleared first so a value inherited from the ambient
     environment cannot decide the outcome -- the denominator is what this test
     sets, not what the host happens to carry.
+
+    BD_INSTALL_DIR joins them for VAULT-RESOLVES-AGAINST-CWD, which made the
+    declared state dir a third input to this resolver. Clearing it changes no
+    assertion below; it keeps them from being decided by an ambient value, the
+    way CLAUDE.md A7 requires of an environment-changing test.
     """
     monkeypatch.delenv("BD_SECRETS_FILE", raising=False)
     monkeypatch.delenv("BD_CAPTURE_VAULT", raising=False)
+    monkeypatch.delenv("BD_INSTALL_DIR", raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     return ss._resolve_vault_paths()
