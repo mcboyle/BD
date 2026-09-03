@@ -5,6 +5,38 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1462 - thirteen rows filed, and the 1457 entry says what it should have said
+
+A register cut. No runtime change: it files what a night of measurement found,
+and it repairs a release note that shipped as its own placeholder.
+
+- Thirteen rows filed (681-693). Four candidates that looked unfiled are
+  deliberately absent: rows 657, 659, 660 and 661 already carry those
+  mechanisms and row 658 closed at 1453, so filing them again would have been a
+  duplicate rather than a record. The staging note they came from had gone
+  stale, which is the ordinary fate of a document beside a tracked register.
+
+- 682 and 683 are SPLIT ON PURPOSE. Both are order-dependence pairs reproduced
+  serially on a base with no cut applied, and they are different mechanisms: one
+  is a published SITES_FILE path that outlives the temporary directory it points
+  into, the other a vault backend binding the secrets family leaves behind. One
+  fix will not retire both, and a single row would have implied it could.
+
+- 685 is filed CLOSED at 1461. The requirements-optional manifest was measured
+  missing on five of twelve hosts and complete on seven, because deploy
+  converged two manifests and never that one; it shipped merged before this cut
+  existed, and the row exists so the measurement and the cloakbrowser waiver
+  survive outside a merge subject.
+
+- The v3.66.1457 entry is corrected. It was published carrying the generator's
+  own placeholder -- "DRAFT: 1 reviewed patches (EDIT THIS TITLE AND THESE
+  BULLETS BEFORE COMMITTING)" -- as its title. The merged commit's subject is
+  permanent and is NOT rewritten; A4 forbids amending a merged commit and that
+  rule is not relaxed to tidy a release note. The entry now carries the real
+  description and says why it was wrong. Rows 681 and 684 file the two refusals
+  that would have caught it: a tree gate over the newest entry, and a refusal in
+  the tool that writes the placeholder. Neither substitutes for the other.
+
 ## v3.66.1461 - one requirements file instead of two
 
 Register row 360, on the operator's directive to merge them.
