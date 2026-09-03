@@ -1,0 +1,57 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TEMPLATE-LOGIN-WALL-SESSION-DOES-NOT-CARRY -- a login on one subdomain minted host-only cookies that a sibling scene host is never offered, and BD had no way to SAY so. Anchors are structural: two def lines, one bare call line and one bare if-line; no digit, quote, '=' or True/False/None on any anchor.",
+  "subject": "the runner names a jar that covers nothing on the page host (RFC 6265 domain- and path-match), once per host, without refusing, and never breaks the download path",
+  "band": [
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_jar_scoped_to_the_login_subdomain_names_the_uncovered_scene_host",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_parent_domain_jar_is_never_reported_as_uncovered",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_path_scoped_cookie_does_not_cover_a_sibling_path",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_the_diagnostic_is_emitted_once_per_host_not_once_per_url",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_the_check_never_breaks_the_download_path",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_without_a_known_login_host_the_whole_jar_is_the_subject",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_one_unrelated_applicable_cookie_does_not_silence_the_login_hosts_scope",
+    "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_host_only_cookie_on_the_apex_does_not_cover_a_subdomain"
+  ],
+  "mutants": [
+    {
+      "label": "LS-M1 the runner never consults the scope diagnostic",
+      "file": "bulk_downloader/runner_auth.py",
+      "old": "        self._report_uncovered_session_scope(url)",
+      "new": "        pass  # mutant: the scope seam is not wired into the cookie check",
+      "direction": "regression",
+      "catcher": "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_jar_scoped_to_the_login_subdomain_names_the_uncovered_scene_host"
+    },
+    {
+      "label": "LS-M2 a host-only cookie is treated as covering every subdomain",
+      "file": "bulk_downloader/session_scope.py",
+      "old": "def domain_matches(cookie_domain: str, host: str) -> bool:",
+      "new": "def domain_matches(cookie_domain: str, host: str) -> bool:\n    return True  # mutant: the leading-dot distinction is erased",
+      "direction": "regression",
+      "catcher": "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_jar_scoped_to_the_login_subdomain_names_the_uncovered_scene_host"
+    },
+    {
+      "label": "LS-M3 path scoping is ignored",
+      "file": "bulk_downloader/session_scope.py",
+      "old": "def path_matches(cookie_path: str, request_path: str) -> bool:",
+      "new": "def path_matches(cookie_path: str, request_path: str) -> bool:\n    return True  # mutant: every cookie path covers every request path",
+      "direction": "regression",
+      "catcher": "tests/test_login_session_does_not_cover_the_scene_host.py::test_a_path_scoped_cookie_does_not_cover_a_sibling_path"
+    },
+    {
+      "label": "LS-M4 the diagnostic goes silent even when nothing applies",
+      "file": "bulk_downloader/session_scope.py",
+      "old": "    elif applicable_cookies(jar, url):",
+      "new": "    elif True or applicable_cookies(jar, url):  # mutant: always silent when no login host is known",
+      "direction": "regression",
+      "catcher": "tests/test_login_session_does_not_cover_the_scene_host.py::test_without_a_known_login_host_the_whole_jar_is_the_subject"
+    },
+    {
+      "label": "LS-M5 the login-host branch goes silent even when none of the login host's cookies apply",
+      "file": "bulk_downloader/session_scope.py",
+      "old": "        if applicable_cookies(login_jar, url):",
+      "new": "        if True or applicable_cookies(login_jar, url):  # mutant: the login-host judgement is disabled",
+      "direction": "regression",
+      "catcher": "tests/test_login_session_does_not_cover_the_scene_host.py::test_one_unrelated_applicable_cookie_does_not_silence_the_login_hosts_scope"
+    }
+  ]
+}

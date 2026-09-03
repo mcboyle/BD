@@ -1158,6 +1158,61 @@ class AuthMixin:
             self.log_event("preemptive_relogin", f"Failed to start re-login: {e}")
             return False
         return True
+    def _report_uncovered_session_scope(self, url):
+        """Name the case where the jar covers NOTHING on the page's host.
+
+        The campaign lane's `TEMPLATE-LOGIN-WALL-SESSION-DOES-NOT-CARRY`
+        (2026-09-03, HIGH): brazzers logs in on `site-ma.brazzers.com`, the
+        scene lives on `www.brazzers.com`, and a host-only session cookie is
+        never offered across sibling subdomains. `_check_cookies_or_relogin`'s
+        expiry predicate has no host in it, so a jar of 19 live cookies that
+        covers none of the requested URL passed silently and the operator was
+        handed a login wall with no cause attached.
+
+        REPORT, DO NOT REFUSE. Zero applicable cookies is not proof of a
+        logged-out session: the site may authenticate from localStorage or a
+        bearer token, and the worker's persistent profile can hold cookies
+        that were never written to the flat jar (the same lane measured 38
+        persistent-profile hits on a site whose jar looked thin). Refusing
+        here would convert a HIGH diagnostic gap into a false refusal on
+        every such site, so this only speaks.
+
+        Emitted once per (site, host): the wall recurs on every URL of that
+        host and a per-URL line would bury it. Never raises -- a diagnostic
+        that can break the download path is worse than the silence it
+        replaces.
+        """
+        try:
+            from .session_scope import host_of, uncovered_host_diagnostic
+            host = host_of(url)
+            if not host:
+                return ""
+            seen = getattr(self, "_session_scope_reported", None)
+            if seen is None:
+                seen = set()
+                self._session_scope_reported = seen
+            if host in seen:
+                return ""
+            detail = uncovered_host_diagnostic(
+                self.cookies, url,
+                login_host=host_of(self.config.get("login_url", "") or ""))
+            if not detail:
+                return ""
+            seen.add(host)
+            # log_event mirrors to stderr itself; writing it here as well
+            # printed the line twice per host. Fall back to stderr only when
+            # the telemetry seam is missing or refuses.
+            try:
+                self.log_event("session_scope", detail, url=url)
+            except Exception:
+                sys.stderr.write(f"[{self.site_id}] {detail}\n")
+            return detail
+        except Exception as e:
+            sys.stderr.write(
+                f"[{getattr(self, 'site_id', '?')}] session scope check "
+                f"raised (proceeding): {type(e).__name__}: {e}\n")
+            return ""
+
     def _check_cookies_or_relogin(self, url):
         """If all stored cookies are expired and there are no session cookies,
         kick off an automated re-login. Blocks up to 60 s waiting for the
@@ -1168,6 +1223,7 @@ class AuthMixin:
         to the inline block extracted from _process_one in v3.43.18."""
         if not self.cookies:
             return True
+        self._report_uncovered_session_scope(url)
         ei = cookies_expiry_info(self.cookies)
         if ei["expired"] <= 0 or ei["session"] != 0:
             return True

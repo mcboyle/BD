@@ -2366,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1703,
+    "edge_count": 1704,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4490,6 +4490,9 @@
         "bulk_downloader/runner_auth.py",
         "bulk_downloader/scene_crawler.py",
         "tools/cockpit_console.py"
+      ],
+      "bulk_downloader/session_scope.py": [
+        "bulk_downloader/runner_auth.py"
       ],
       "bulk_downloader/shares.py": [
         "bulk_downloader/app.py",
@@ -6954,6 +6957,7 @@
         "bulk_downloader/profile_sync.py",
         "bulk_downloader/relogin_predict.py",
         "bulk_downloader/session_keeper.py",
+        "bulk_downloader/session_scope.py",
         "bulk_downloader/takeover.py",
         "bulk_downloader/takeover_vnc.py"
       ],

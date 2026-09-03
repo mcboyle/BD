@@ -504,7 +504,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (29 entries)
+## `bulk_downloader/runner_auth.py` (30 entries)
 
 ```
 - L0016 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -535,7 +535,8 @@ Schema version: 2
   - L1009 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
   - L1088 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
   - L1096 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1161 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L1161 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1216 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -796,4 +797,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 620 across 22 files._
+_Total entries: 621 across 22 files._

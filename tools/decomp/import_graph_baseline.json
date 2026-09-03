@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4303,
+  "edge_count": 4308,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1773,6 +1773,7 @@
       "bulk_downloader/profile_sync.py",
       "bulk_downloader/relogin_predict.py",
       "bulk_downloader/session_keeper.py",
+      "bulk_downloader/session_scope.py",
       "bulk_downloader/takeover.py",
       "bulk_downloader/takeover_vnc.py"
     ],
@@ -3170,6 +3171,12 @@
     ],
     "tests/test_login_classify_submit_shape.py": [
       "bulk_downloader/learn.py"
+    ],
+    "tests/test_login_session_does_not_cover_the_scene_host.py": [
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_scope.py"
     ],
     "tests/test_login_submit_robustness.py": [
       "bulk_downloader/login.py"
