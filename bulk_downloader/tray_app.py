@@ -61,7 +61,8 @@ def _record_unavailable(dep: str, exc: BaseException) -> None:
 #
 # Measured 2026-09-01 on 10.0.70.54 (pystray 0.19.5, DISPLAY unset): a bare
 # `import pystray` raises, with no test runner involved. pystray sits in
-# requirements-optional.txt and is installed on 6 of the 12 fleet hosts, so
+# requirements.txt since 2026-09-03 (before that in the optional manifest,
+# which only 6 of the 12 fleet hosts had installed), so
 # `tests/test_v3_43_80_modules.py::TestImports::test_all_modules_import`
 # failed on exactly those hosts and passed on the others -- which read as
 # flakiness. tools/verify_release.py has carried "Bad display name" and

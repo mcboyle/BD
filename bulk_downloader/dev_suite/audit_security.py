@@ -621,8 +621,7 @@ def _import_preflight_impl(path=None, text=None, xlsx_bytes=None,
 #   • sast_summary (D-78) — surface tools/sast_results/SUMMARY.txt.
 
 
-_REQ_FILES = ["requirements.txt", "requirements-dev.txt",
-              "requirements-optional.txt"]
+_REQ_FILES = ["requirements.txt", "requirements-dev.txt"]
 
 
 # Secret-shape patterns. Deliberately conservative — these match the

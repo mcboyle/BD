@@ -326,7 +326,7 @@ _UNDECLARED_OUTSIDE_BY_DESIGN = {
 # These two must be in requirements.txt SPECIFICALLY, not merely somewhere.
 # scripts/deploy.sh step [5] resolves tools/check_requirements.py against
 # requirements.txt only (DEFAULT_REQUIREMENTS at check_requirements.py:56), so
-# a pin that migrates to requirements-optional.txt silently stops being
+# a pin that migrates to a manifest deploy does not converge silently stops being
 # installed on the box. lxml and cssselect back the same selector/ARIA surface
 # and both fail open, so their absence is invisible at runtime.
 _CORE_MANIFEST_REQUIRED = {"lxml", "cssselect"}
@@ -518,8 +518,8 @@ def _read_manifest(path: Path, out: set[str], seen: set[Path]) -> None:
 def _declared_names() -> dict[str, list[str]]:
     """canonical distribution name -> the requirements manifests declaring it.
 
-    All four requirements*.txt are read, not just the core one: a name declared
-    in requirements-optional.txt IS declared, and calling it undeclared would
+    Every requirements*.txt is read, not just the core one: a name declared
+    in requirements-test.txt IS declared, and calling it undeclared would
     be a false failure. Which manifest matters is a separate question, asked by
     _CORE_MANIFEST_REQUIRED and _DEV_MANIFEST below.
 
@@ -968,7 +968,7 @@ def test_shadow_report_fires_on_a_synthetic_shadow():
 def test_lxml_and_cssselect_are_declared_in_the_core_manifest():
     """v3.66.848's actual subject, pinned by name.
 
-    The gate above would still pass if lxml moved to requirements-optional.txt,
+    The gate above would still pass if lxml moved to requirements-test.txt,
     and the box would then stop installing it -- so this asks the narrower
     question directly. Both are imported from bulk_downloader/ and both fail
     open, which is exactly why nothing else notices their absence.

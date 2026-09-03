@@ -190,7 +190,8 @@ class TestOptionalTrayImportIsHeadlessSafe:
     an ImportError, so it escaped and `import bulk_downloader.tray_app` died.
 
     That is what row 611 recorded as "schedule sensitivity". It was not.
-    Measured 2026-09-01: `pystray` is in requirements-OPTIONAL.txt and is
+    Measured 2026-09-01: `pystray` was in requirements-OPTIONAL.txt (merged into
+    requirements.txt 2026-09-03) and is
     installed on 6 of the 12 fleet hosts and absent on the rest. The failing
     band ran on 10.0.70.54 (pystray 0.19.5, DISPLAY unset) where a bare
     `import pystray` raises with no pytest, no xdist and no neighbouring test
@@ -361,7 +362,7 @@ class TestImports:
             "If a failure above names a display (e.g. Bad display name, "
             "Can't connect to display, Namespace Gtk not available) it is "
             "about THIS HOST's environment and its optional packages -- see "
-            "requirements-optional.txt and tools/verify_release.py's "
+            "requirements.txt and tools/verify_release.py's "
             "_HARNESS_SIGNATURES -- and NOT about a neighbouring test file.")
 
 

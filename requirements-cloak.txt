@@ -19,7 +19,8 @@
 # Verify:                           python -m cloakbrowser info
 #                                   python -c "import cloakbrowser; print(cloakbrowser.__file__)"
 #
-# Why this is a separate file (not requirements.txt / -optional.txt):
+# Why this is a separate file (not requirements.txt, which since 2026-09-03 also
+# carries the former optional pins):
 #   * cloakbrowser is the stealth browser backend selected by
 #     bulk_downloader/cloak.py (resolve_backend() -> cloakbrowser when it is
 #     importable, else the Playwright fallback). Keeping it in its own file

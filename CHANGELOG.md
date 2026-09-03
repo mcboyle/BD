@@ -5,6 +5,26 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1461 - one requirements file instead of two
+
+Register row 360, on the operator's directive to merge them.
+
+- requirements-optional.txt is folded into requirements.txt and deleted. Two
+  dependency lists meant the installers, the doctor, the security audit and the
+  preflight each had to know which file to consult, and a dependency added to
+  the wrong one was installed on some paths and not others. There is now one
+  list, and every consumer reads it.
+
+- The consumers updated with it: the three installer scripts, preflight.py,
+  bulk_downloader/doctor.py, the dev-suite security audit and the tray app,
+  along with SETUP.md so the documented instruction matches what the scripts
+  actually do.
+
+Reviewed by two independent adversarial lenses, both BOARD on the third round.
+Their earlier rounds found and had fixed: prose left describing the removed
+file, a glob narrower than the comment above it claimed, and a doctor check
+still naming a dependency that no longer resolves.
+
 ## v3.66.1460 - the credential vault stops resolving its files against the current directory
 
 Register row 668, from the download campaign's HIGH findings.

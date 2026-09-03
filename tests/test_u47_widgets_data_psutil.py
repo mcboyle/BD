@@ -22,7 +22,7 @@ v3.63.6 unit #4 fixes (2) and (3):
 These tests pin both:
 
   • psutil with the correct version pin range is in
-    requirements.txt (not requirements-optional.txt or
+    requirements.txt (not requirements-test.txt or
     requirements-dev.txt — those are not installed by the runtime
     `pip install -r requirements.txt` path).
   • The cpu_ram render function uses a null-guard. Source-grep the

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w5-optreqs: requirements-optional.txt merged into requirements.txt (operator decision 2026-09-03). The gate that was missing is tests/test_v3_66_880::test_every_imported_dependency_is_declared_where_deploy_converges_it -- every third-party name the app imports (AST + extractors' importlib table) that is declared anywhere must be declared in a manifest scripts/deploy.sh step [5] names in a converge_reqs call. Anchors are structural (no digits, quotes or '=' -- row 357). WHICH ASSERTION EACH MUTANT REACHES: OR-M1 is caught by the gate's denominator floor (converged manifests declare < 15 names) -- structural after the merge, since requirements.txt carries the names; the stranded verdict itself is proven reachable by the synthetic negative control test_the_reader_names_a_package_stranded_in_an_unconverged_manifest. OR-M2 is caught by test_deploy_script::test_test_requirements_converge_too.",
+  "subject": "scripts/deploy.sh",
+  "band": [
+    "tests/test_v3_66_880_capability_manifest_is_stated.py",
+    "tests/test_deploy_script.py"
+  ],
+  "mutants": [
+    {
+      "label": "OR-M1 deploy converges the cloak manifest instead of the core one",
+      "file": "scripts/deploy.sh",
+      "old": "converge_reqs requirements.txt\n",
+      "new": "converge_reqs requirements-cloak.txt\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_880_capability_manifest_is_stated.py::test_every_imported_dependency_is_declared_where_deploy_converges_it"
+    },
+    {
+      "label": "OR-M2 deploy stops converging the suite manifest",
+      "file": "scripts/deploy.sh",
+      "old": "converge_reqs requirements-test.txt\n",
+      "new": ": converge_reqs requirements-test.txt\n",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_test_requirements_converge_too"
+    }
+  ]
+}

@@ -19,9 +19,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 
-# Optional extras (web push, QR codes, TLS impersonation, etc.)
-pip install -r requirements-optional.txt
-
 # Configure (copy the example, edit to taste)
 cp sites_config.example.json sites_config.json
 
@@ -46,7 +43,7 @@ install_dev.bat
 ```
 
 Installs to `%USERPROFILE%\BulkDownloader-dev`. Pulls in **every**
-dependency — base + optional + dev — plus PyInstaller and pytest.
+dependency — base + dev (the former optional pins are part of base since 2026-09-03) — plus PyInstaller and pytest.
 Always builds the standalone `.exe` (no prompt). Creates three
 shortcuts: `launch.bat`, `run_tests.bat`, `preflight.bat`.
 
@@ -73,8 +70,8 @@ cd bulk-downloader
 install_windows.bat
 ```
 
-Installs to `%USERPROFILE%\BulkDownloader`. Pulls only base +
-optional deps. Prompts before building the `.exe`. Friendlier
+Installs to `%USERPROFILE%\BulkDownloader`. Pulls only base deps
+(which now carry every former optional pin). Prompts before building the `.exe`. Friendlier
 output, more skip paths. This is the path the public-style README
 documents.
 
@@ -287,7 +284,6 @@ To stand up an air-gapped box:
 ```bash
 # On a networked machine, pre-download wheels + the browser:
 pip download -r requirements.txt -d ./offline_wheels
-pip download -r requirements-optional.txt -d ./offline_wheels   # optional extras
 # (CloakBrowser is optional; if you want it offline, vendor its wheel too —
 #  otherwise the app runs on Playwright.)
 

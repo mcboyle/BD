@@ -216,8 +216,8 @@ def test_verify_replay_applies_stealth_library():
 # ── Optional dep declared ────────────────────────────────────────
 
 
-def test_playwright_stealth_in_requirements_optional():
-    """Library is declared in requirements-optional.txt so users
-    can install it via pip install -r."""
-    src = (_REPO_ROOT / "requirements-optional.txt").read_text(encoding="utf-8")
+def test_playwright_stealth_in_requirements():
+    """Library is declared in requirements.txt (merged from the optional
+    manifest 2026-09-03) so users install it via pip install -r."""
+    src = (_REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
     assert "playwright-stealth" in src or "playwright_stealth" in src

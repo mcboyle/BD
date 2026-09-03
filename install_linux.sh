@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # install_linux.sh - set up BulkDownloader on Linux.
 # Linux counterpart of install_windows.bat: creates a venv, installs
-# requirements.txt (+ requirements-optional.txt if present, one pin per
-# line so a dead optional package degrades gracefully), and installs
+# requirements.txt (one manifest since 2026-09-03; the former optional pins
+# live in it and are converged by scripts/deploy.sh on every deploy), and installs
 # the Playwright Chromium browser. Run from the project folder:
 #     chmod +x install_linux.sh && ./install_linux.sh
 #
@@ -201,45 +201,6 @@ else
     }
 fi
 
-# optional requirements — one pin per line so a dead package (e.g. a
-# PyPI extractor that 404s) degrades gracefully instead of aborting all.
-# Tolerates Windows CRLF endings, inline `# comment` suffixes, and
-# leading/trailing whitespace — all of which pip rejects with a cryptic
-# "Invalid requirement" if passed through raw.
-#
-# Comment-stripping matches pip's rule (PEP 508 + pip docs): `#` only
-# starts a comment when it is at the start of the line OR preceded by
-# whitespace. A naive `${line%%#*}` would mangle PEP 508 URL specs like
-# `mypkg @ https://x.com/y.tar.gz#sha256=...` by truncating the
-# integrity hash.
-#
-# Not supported here: pip option lines (--index-url, -r nested.txt,
-# --find-links, etc). Those belong in requirements.txt where the whole
-# file is fed to one `pip install -r` invocation. Putting them in
-# requirements-optional.txt will produce "ERROR: Invalid requirement"
-# per line — annoying but not catastrophic.
-if [ -f "$INSTALL_DIR/requirements-optional.txt" ]; then
-    echo "  Installing optional requirements (failures are non-fatal) ..."
-    while IFS= read -r line || [ -n "$line" ]; do
-        # strip CR (Windows line endings)
-        line="${line%$'\r'}"
-        # Strip inline comments per pip's rule (PEP 508 + pip docs):
-        # `#` starts a comment only when it is at the start of the
-        # line OR preceded by whitespace. AND -- crucially -- the
-        # FIRST such `#` wins, not the last. Bash regex with [[ =~ ]]
-        # is greedy and matches the *last* `#`, which is wrong for
-        # lines like `pkg # first # second` (should strip to `pkg`,
-        # not `pkg # first`). sed handles this correctly with one
-        # external fork per non-empty line, which is fine.
-        line="$(printf '%s\n' "$line" | sed -E 's/(^|[[:space:]])#.*$//')"
-        # trim leading/trailing whitespace
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [ -z "$line" ] && continue
-        "$VPYTHON" -m pip install "$line" \
-            || echo "  (skipped optional: $line)"
-    done < "$INSTALL_DIR/requirements-optional.txt"
-fi
 
 # ── Playwright browsers ─────────────────────────────────────────────────────
 #

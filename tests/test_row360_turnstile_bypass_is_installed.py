@@ -91,9 +91,9 @@ def test_declared_but_incomplete_scrapling_is_not_available(monkeypatch):
     assert scrapling_adapter.is_available() is False
 
 
-def test_optional_manifest_installs_the_turnstile_fetcher_extra():
-    manifest = _REPO / "requirements-optional.txt"
-    assert manifest.is_file(), "precondition: the optional capability manifest exists"
+def test_the_core_manifest_installs_the_turnstile_fetcher_extra():
+    manifest = _REPO / "requirements.txt"
+    assert manifest.is_file(), "precondition: the core manifest exists"
     requirements = [
         Requirement(line)
         for raw in manifest.read_text(encoding="utf-8").splitlines()

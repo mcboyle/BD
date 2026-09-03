@@ -55,7 +55,6 @@ def _cloud_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "requirements.txt",
         "requirements-test.txt",
         "requirements-cloak.txt",
-        "requirements-optional.txt",
     ):
         (repo / manifest).write_text("", encoding="utf-8")
     shutil.copy2(
