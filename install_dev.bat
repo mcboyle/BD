@@ -3,8 +3,8 @@ REM ====================================================================
 REM  install_dev.bat  -  Bulk Downloader DEV / FULL install
 REM ====================================================================
 REM  DEV-ONLY installer. Installs EVERY dependency across
-REM  requirements.txt, requirements-optional.txt, and
-REM  requirements-dev.txt. Also installs Playwright Chromium and
+REM  requirements.txt and requirements-dev.txt (the optional manifest was
+REM  merged into requirements.txt on 2026-09-03). Also installs Playwright Chromium and
 REM  builds the standalone .exe.
 REM
 REM  NOT FOR PUBLIC RELEASE. This script intentionally:
@@ -46,15 +46,15 @@ echo.
 echo  ================================================================
 echo   Bulk Downloader v!BD_VER! DEV / FULL Installer
 echo  ================================================================
-echo   This installs EVERY dependency (base + optional + dev).
+echo   This installs EVERY dependency (base + dev).
 echo   Install dir: %INSTALL_DIR%
 echo  ================================================================
 echo.
 
-REM -- [1/8] Source-file sanity -----------------------------------------
-echo [1/8] Checking source files...
+REM -- [1/7] Source-file sanity -----------------------------------------
+echo [1/7] Checking source files...
 set "MISSING="
-for %%F in (downloader_ui.py requirements.txt requirements-optional.txt requirements-dev.txt downloader.spec) do (
+for %%F in (downloader_ui.py requirements.txt requirements-dev.txt downloader.spec) do (
     if not exist "%SCRIPT_DIR%%%F" (
         echo       MISSING: %SCRIPT_DIR%%%F
         set "MISSING=1"
@@ -71,8 +71,8 @@ if defined MISSING (
 )
 echo.
 
-REM -- [2/8] Python detection -------------------------------------------
-echo [2/8] Checking for Python 3.9+...
+REM -- [2/7] Python detection -------------------------------------------
+echo [2/7] Checking for Python 3.9+...
 where python >nul 2>nul
 if errorlevel 1 (
     echo       ERROR: 'python' not on PATH.
@@ -84,8 +84,8 @@ if errorlevel 1 (
 for /f "tokens=*" %%V in ('python --version') do echo       Found: %%V
 echo.
 
-REM -- [3/8] Install dir + venv -----------------------------------------
-echo [3/8] Setting up install directory and virtual environment...
+REM -- [3/7] Install dir + venv -----------------------------------------
+echo [3/7] Setting up install directory and virtual environment...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 REM v3.47.6: %SCRIPT_DIR% from %~dp0 always ends with \, which breaks
@@ -138,8 +138,8 @@ if not exist "%VENV_DIR%" (
 )
 echo.
 
-REM -- [4/8] Upgrade pip ------------------------------------------------
-echo [4/8] Upgrading pip...
+REM -- [4/7] Upgrade pip ------------------------------------------------
+echo [4/7] Upgrading pip...
 REM v3.47.6: invoke pip via `python -m pip` instead of `pip.exe` directly.
 REM Windows can't replace a running .exe, so `pip install --upgrade pip`
 REM fails with "ERROR: To modify pip, please run..." when called as
@@ -151,10 +151,10 @@ if errorlevel 1 (
 )
 echo.
 
-REM -- [5/8] Install requirements-dev.txt -------------------------------
+REM -- [5/7] Install requirements-dev.txt -------------------------------
 REM This file has '-r requirements.txt' at the top, so it brings in
-REM the base deps automatically. Then we layer in optional separately.
-echo [5/8] Installing base + dev dependencies...
+REM the base deps automatically (the former optional pins live there too).
+echo [5/7] Installing base + dev dependencies...
 echo       (requirements-dev.txt includes requirements.txt via -r)
 "%PYTHON_EXE%" -m pip install -r "%INSTALL_DIR%\requirements-dev.txt"
 if errorlevel 1 (
@@ -165,51 +165,8 @@ if errorlevel 1 (
 echo       Base + dev dependencies installed.
 echo.
 
-REM -- [6/8] Install optional deps (one at a time, best-effort) ---------
-REM Some library-extractor packages get pulled from PyPI without
-REM warning. Installing one at a time means a single dead package
-REM doesn't drop every later line on the floor.
-echo [6/8] Installing optional dependencies (one-at-a-time, best-effort)...
-echo       Some lines may fail; each failure is logged but doesn't stop
-echo       the rest. Final summary at the end.
-echo.
-REM v3.47.6: dropped the OPT_FAIL_LIST + summary for-loop because pip
-REM version pins contain >= and <, which cmd.exe interprets as
-REM redirection operators when the variable is re-parsed inside the
-REM final 'for %%P in (!OPT_FAIL_LIST!)' loop. The literal text
-REM 'beeg_api>=1.3' becomes 'beeg_api' redirected to a file named
-REM '=1.3', triggering ": was unexpected at this time" and exiting
-REM the script silently. Failed package names are now echoed inline
-REM during install, which is good enough - the summary just shows
-REM counts.
-set "OPT_OK=0"
-set "OPT_FAIL=0"
-for /f "usebackq tokens=* eol=#" %%L in ("%INSTALL_DIR%\requirements-optional.txt") do (
-    set "LINE=%%L"
-    REM Trim surrounding whitespace
-    for /f "tokens=* delims= " %%T in ("!LINE!") do set "LINE=%%T"
-    if not "!LINE!"=="" (
-        if not "!LINE:~0,1!"=="#" (
-            echo       Installing: !LINE!
-            "%PYTHON_EXE%" -m pip install "!LINE!" >nul 2>&1
-            if errorlevel 1 (
-                echo         ^^^! failed: !LINE!
-                set /a OPT_FAIL+=1
-            ) else (
-                set /a OPT_OK+=1
-            )
-        )
-    )
-)
-echo.
-echo       Optional summary: !OPT_OK! installed, !OPT_FAIL! failed.
-echo       Any failures are listed above with '! failed:' prefix.
-echo       The app runs fine without optional packages; sites that
-echo       depended on them fall back to the generic teach path.
-echo.
-
-REM -- [7/8] Playwright Chromium ----------------------------------------
-echo [7/8] Installing Playwright Chromium...
+REM -- [6/7] Playwright Chromium ----------------------------------------
+echo [6/7] Installing Playwright Chromium...
 echo       ^(downloads ~300 MB on first install, please wait^)
 "%PYTHON_EXE%" -m playwright install chromium
 if errorlevel 1 (
@@ -220,8 +177,8 @@ if errorlevel 1 (
 )
 echo.
 
-REM -- [8/8] Build standalone .exe --------------------------------------
-echo [8/8] Building standalone .exe with PyInstaller...
+REM -- [7/7] Build standalone .exe --------------------------------------
+echo [7/7] Building standalone .exe with PyInstaller...
 echo       ^(no prompt; dev install always builds. Skip with Ctrl+C if not wanted.^)
 echo.
 

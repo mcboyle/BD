@@ -16,7 +16,6 @@ _REPO = Path(__file__).resolve().parent.parent
 _INSTALL_SH = _REPO / "install_linux.sh"
 _REQ_CLOAK = _REPO / "requirements-cloak.txt"
 _REQ_CORE = _REPO / "requirements.txt"
-_REQ_OPT = _REPO / "requirements-optional.txt"
 _REQ_DEV = _REPO / "requirements-dev.txt"
 _VENDOR_MD = _REPO / "bulk_downloader" / "vendor" / "VENDOR.md"
 _RRWEB = _REPO / "bulk_downloader" / "vendor" / "rrweb" / "rrweb.min.js"
@@ -107,7 +106,7 @@ def test_installer_references_vendor_asset_paths():
 
 
 def test_cloakbrowser_isolated_to_cloak_requirements():
-    for f in (_REQ_CORE, _REQ_OPT, _REQ_DEV):
+    for f in (_REQ_CORE, _REQ_DEV):
         active = _active_lines(_read(f))
         assert not any("cloakbrowser" in l.lower() for l in active), f"cloakbrowser leaked into {f.name}"
 

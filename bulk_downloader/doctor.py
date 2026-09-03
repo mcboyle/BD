@@ -124,7 +124,6 @@ _OPTIONAL_DEPS = [
     ("pywebpush",   "pywebpush",   "browser push notifications"),
     ("qrcode",      "qrcode",      "QR codes for share links"),
     ("apprise",     "apprise",     "notifications (80+ services)"),
-    ("m3u8",        "m3u8",        "HLS playlist parsing"),
     ("videohash",   "videohash",   "perceptual video dedup"),
     ("scrapling",   "scrapling",
      "adaptive scraping recovery and Turnstile bypass"),

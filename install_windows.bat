@@ -191,20 +191,6 @@ if not "!PIP_RC!"=="0" (
 )
 echo       Dependencies installed successfully.
 
-if exist "%INSTALL_DIR%\requirements-optional.txt" (
-    echo.
-    echo       Installing optional dependencies ^(curl_cffi, pywebpush^)...
-    "%VPYTHON%" -m pip install -r "%INSTALL_DIR%\requirements-optional.txt"
-    set "OPT_RC=!ERRORLEVEL!"
-    if not "!OPT_RC!"=="0" (
-        echo       NOTE: one or more optional dependencies failed to install.
-        echo       The app will run fine without them. To retry later:
-        echo         "%VPYTHON%" -m pip install -r "%INSTALL_DIR%\requirements-optional.txt"
-    ) else (
-        echo       Optional dependencies installed.
-    )
-)
-
 REM -- STEP 5: Install Playwright's Chromium browser ------------------
 echo.
 echo [5/8] Installing Playwright Chromium browser...

@@ -787,6 +787,24 @@ if [ "$HAVE_REPO" = 1 ]; then
     else
       row "requirements ($REQ_FILE)" "OK" "every $REQ_FILE entry resolves in the venv"
       echo "[ ok ] requirements satisfied ($REQ_FILE)"
+      if [ "$REQ_FILE" = "requirements.txt" ]; then
+        # Scrapling's Turnstile fetcher is declared in requirements.txt since
+        # 2026-09-03 (the optional manifest was merged into it). Its RUNTIME
+        # availability is still reported, never gated: the row is WARN at worst.
+        SCRAPLING_PROBE=""
+        SCRAPLING_RC=0
+        SCRAPLING_PROBE="$(probe_scrapling_turnstile)" || SCRAPLING_RC=$?
+        if [ "$SCRAPLING_RC" -eq 0 ]; then
+          row "capability (turnstile)" "OK" "Scrapling Turnstile bypass AVAILABLE ($SCRAPLING_PROBE)"
+          echo "[ ok ] Scrapling Turnstile bypass available"
+        elif [ "$SCRAPLING_RC" -eq 1 ]; then
+          row "capability (turnstile)" "WARN" "Scrapling Turnstile bypass UNAVAILABLE: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
+          echo "[warn] Scrapling Turnstile bypass unavailable: $SCRAPLING_PROBE"
+        else
+          row "capability (turnstile)" "WARN" "Scrapling Turnstile bypass UNKNOWN: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
+          echo "[warn] Scrapling Turnstile bypass unknown: $SCRAPLING_PROBE"
+        fi
+      fi
     fi
   done
 
@@ -806,41 +824,23 @@ if [ "$HAVE_REPO" = 1 ]; then
   # absent capability; an absent capability that is NAMED is a different object
   # from one nobody measured.
   #
-  # requirements-optional.txt is INSTALLED here, by operator decision 2026-08-05.
-  # Its 21 entries are the site extractors and the notifier stack (phub,
-  # xvideos_api, m3u8, scrapling, apprise, ...) -- capability this application
-  # exists to have, not decoration. An earlier draft of this block argued for
-  # leaving it absent because 19 of 21 were missing in this container; that
-  # described the container as it happened to be rather than as it is meant to
-  # be. Measured before wiring: `pip install -r` exits 0, all 21 resolve, 0
-  # specifier drift, and the app still imports.
-  for CAP_FILE in requirements-cloak.txt requirements-optional.txt; do
+  # requirements-optional.txt was installed here from 2026-08-05 (operator
+  # decision) until 2026-09-03, when it was MERGED into requirements.txt: the
+  # extractor and notifier stack is now core, converged by the loop above and by
+  # scripts/deploy.sh step [5], and a missing pin fails the provision instead of
+  # degrading a host in silence. Only the cloak manifest keeps the stated,
+  # never-gated posture.
+  for CAP_FILE in requirements-cloak.txt; do
     [ -f "$CAP_FILE" ] || continue
-    # `optional` so a yanked release on any of 21 third-party indexes degrades
-    # to a recorded WARN instead of failing the provision.
+    # `optional` so a yanked cloakbrowser release degrades to a recorded WARN
+    # instead of failing the provision.
     step "install ($CAP_FILE)" optional ./venv/bin/pip install -q -r "$CAP_FILE"
     CAP_MISSING=""
     CAP_RC=0
     CAP_MISSING="$(./venv/bin/python tools/check_requirements.py "$CAP_FILE" 2>/dev/null)" || CAP_RC=$?
     if [ "$CAP_RC" -eq 0 ]; then
-      if [ "$CAP_FILE" = "requirements-optional.txt" ]; then
-        SCRAPLING_PROBE=""
-        SCRAPLING_RC=0
-        SCRAPLING_PROBE="$(probe_scrapling_turnstile)" || SCRAPLING_RC=$?
-        if [ "$SCRAPLING_RC" -eq 0 ]; then
-          row "capability ($CAP_FILE)" "OK" "every entry resolves; Scrapling Turnstile bypass AVAILABLE ($SCRAPLING_PROBE)"
-          echo "[ ok ] capability resolves and Turnstile bypass is available ($CAP_FILE)"
-        elif [ "$SCRAPLING_RC" -eq 1 ]; then
-          row "capability ($CAP_FILE)" "WARN" "Scrapling Turnstile bypass UNAVAILABLE: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
-          echo "[warn] Scrapling Turnstile bypass unavailable ($CAP_FILE): $SCRAPLING_PROBE"
-        else
-          row "capability ($CAP_FILE)" "WARN" "Scrapling Turnstile bypass UNKNOWN: $(echo "$SCRAPLING_PROBE" | cut -c1-70)"
-          echo "[warn] Scrapling Turnstile bypass unknown ($CAP_FILE): $SCRAPLING_PROBE"
-        fi
-      else
-        row "capability ($CAP_FILE)" "OK" "every entry resolves in the venv"
-        echo "[ ok ] capability resolves ($CAP_FILE)"
-      fi
+      row "capability ($CAP_FILE)" "OK" "every entry resolves in the venv"
+      echo "[ ok ] capability resolves ($CAP_FILE)"
     elif [ "$CAP_RC" -eq 2 ]; then
       row "capability ($CAP_FILE)" "WARN" "could not evaluate -- capability state UNKNOWN, which is not the same as absent"
       echo "[warn] capability unevaluable ($CAP_FILE)"

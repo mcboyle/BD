@@ -226,7 +226,7 @@ def test_preflight_templates_module_present():
 # ── Config files ────────────────────────────────────────────────────────
 
 def test_preflight_requirements_files_present():
-    for fn in ("requirements.txt", "requirements-optional.txt"):
+    for fn in ("requirements.txt", "requirements-test.txt"):
         assert os.path.exists(os.path.join(_REPO, fn)), f"{fn} missing"
 
 

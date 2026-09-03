@@ -139,7 +139,7 @@ def static_checks():
     # and is type-checked + bundled by tsc/vite at build time, not here.
 
     # 1f. Dependency requirements parse
-    for req_file in ("requirements.txt", "requirements-dev.txt", "requirements-optional.txt"):
+    for req_file in ("requirements.txt", "requirements-dev.txt", "requirements-test.txt"):
         p = ROOT / req_file
         if not p.exists():
             warn("STATIC", f"{req_file} missing")

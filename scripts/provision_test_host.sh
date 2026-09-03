@@ -458,7 +458,7 @@ install_group 03f_pkgs_media "system packages (media)" media optional || true
 # ------------------------------------------------------ [4/9] repo install
 echo
 echo "=== [4/9] repo install (install_linux.sh) ==="
-echo "  venv, requirements (pytest + pytest-xdist), optional reqs, playwright"
+echo "  venv, requirements (pytest + pytest-xdist), playwright"
 echo "  chromium, cloakbrowser, vendored rrweb/snapdom, SPA build. Minutes, not"
 echo "  seconds. Then requirements-test.txt -- the capture-gate deps."
 if [ ! -f "$REPO/install_linux.sh" ]; then
@@ -472,7 +472,7 @@ fi
 # ------------------------------------------- [4c/9] the TEST manifest
 #
 # install_linux.sh deliberately installs only the operator manifests
-# (requirements.txt + optional): it also serves plain release installs, where
+# (requirements.txt, which carries the former optional pins): it also serves plain release installs, where
 # the analysis chain is dead weight. A TEST host is different -- the capture's
 # own gates hard-require requirements-test.txt: bd-tool-smoke REFUSES to grade
 # over an absent pyflakes (test_toolchain_534 goes red on the refusal, which
