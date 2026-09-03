@@ -6,6 +6,7 @@ so per-class setup uses `setup_method` and creates its own tmpdir.
 """
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import shutil
@@ -392,6 +393,176 @@ class TestBuildCmdDefense:
         from bulk_downloader.live_recorder import _build_cmd
         rec = self._make_rec(url="https://chaturbate.com/foo bar")
         assert _build_cmd("streamlink", rec) is None
+
+
+class TestRecorderEgressGate:
+    def setup_method(self):
+        _reset_module()
+
+    def teardown_method(self):
+        _reset_module()
+
+    @staticmethod
+    def _recording(tmp_path):
+        from bulk_downloader.live_recorder import Recording
+        return Recording(
+            recording_id="egress-test",
+            site="chaturbate",
+            room="goodroom",
+            url="https://chaturbate.com/goodroom/",
+            output_path=str(tmp_path / "out.ts"),
+            started_at=time.time(),
+        )
+
+    @staticmethod
+    def _install_real_egress(monkeypatch, live_recorder, runner, *,
+                             required, socks_url):
+        calls = {"prepare": 0, "required": 0, "resolve": 0}
+        monkeypatch.setattr(runner, "_VPN_RUNTIME_AVAILABLE", True)
+
+        def is_required(site):
+            calls["required"] += 1
+            assert site == "chaturbate"
+            return required
+
+        def resolve(site):
+            calls["resolve"] += 1
+            assert site == "chaturbate"
+            return socks_url
+
+        def prepare(site):
+            calls["prepare"] += 1
+            # Resolve lazily: on the defective parent the recorder ignores
+            # this injected seam and reaches Popen, which is the behavioural
+            # RED. The fixed path invokes the real shared policy function.
+            return getattr(runner, "prepare_site_http_egress")(site)
+
+        monkeypatch.setattr(
+            runner.vpn_runtime, "is_vpn_required_for_site", is_required)
+        monkeypatch.setattr(
+            runner.vpn_runtime, "get_socks_url_for_site", resolve)
+        monkeypatch.setattr(
+            live_recorder, "_egress_prepare", prepare, raising=False)
+        return calls
+
+    def test_row647_required_tunnel_down_spawns_no_probe_or_recorder(
+            self, tmp_path, monkeypatch):
+        """The policy gate precedes both network subprocess boundaries."""
+        import subprocess
+        from bulk_downloader import live_recorder
+        runner = importlib.import_module("bulk_downloader.runner")
+
+        seen = {"run": 0, "popen": 0}
+        egress = self._install_real_egress(
+            monkeypatch, live_recorder, runner,
+            required=True, socks_url=None)
+
+        def run(argv, **kwargs):
+            seen["run"] += 1
+            return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+        def popen(*args, **kwargs):
+            seen["popen"] += 1
+            return type("Process", (), {"pid": 4241})()
+
+        monkeypatch.setattr(live_recorder, "preferred_backend", lambda: "streamlink")
+        monkeypatch.setattr(live_recorder.subprocess, "run", run)
+        monkeypatch.setattr(live_recorder.subprocess, "Popen", popen)
+        rec = self._recording(tmp_path)
+        assert rec.site == "chaturbate", "precondition: required site was not built"
+        assert seen == {"run": 0, "popen": 0}
+
+        live_recorder._process_recording(rec.recording_id, rec)
+
+        assert seen["popen"] == 0, (
+            f"required tunnel-down recorder spawned {seen['popen']} process")
+        assert seen["run"] == 0, "the live probe spawned outside the egress gate"
+        assert egress == {"prepare": 1, "required": 1, "resolve": 1}
+        assert rec.state == "failed"
+        assert rec.last_error == (
+            "egress_refused: VPN egress for required site 'chaturbate' "
+            "resolved no proxy; subprocess refused")
+
+    def test_row647_unrestricted_site_still_probes_and_records(
+            self, tmp_path, monkeypatch):
+        """Negative control: no required tunnel preserves one probe and spawn."""
+        import subprocess
+        from bulk_downloader import live_recorder
+        runner = importlib.import_module("bulk_downloader.runner")
+
+        seen = {"run": 0, "popen": 0}
+        egress = self._install_real_egress(
+            monkeypatch, live_recorder, runner,
+            required=False, socks_url=None)
+
+        def run(argv, **kwargs):
+            seen["run"] += 1
+            return subprocess.CompletedProcess(argv, 0, b"{}", b"")
+
+        class Process:
+            pid = 4242
+
+        def popen(*args, **kwargs):
+            seen["popen"] += 1
+            return Process()
+
+        monkeypatch.setattr(live_recorder, "preferred_backend", lambda: "streamlink")
+        monkeypatch.setattr(live_recorder.subprocess, "run", run)
+        monkeypatch.setattr(live_recorder.subprocess, "Popen", popen)
+        rec = self._recording(tmp_path)
+
+        live_recorder._process_recording(rec.recording_id, rec)
+
+        assert seen == {"run": 1, "popen": 1}
+        assert egress == {"prepare": 1, "required": 1, "resolve": 1}
+        assert rec.state == "recording"
+        assert rec.pid == 4242
+
+    def test_row647_live_socks_tunnel_uses_the_shared_http_carrier(
+            self, tmp_path, monkeypatch):
+        """A healthy required tunnel reaches both recorder subprocess stages."""
+        import subprocess
+        from urllib.parse import urlsplit
+        from bulk_downloader import live_recorder
+        runner = importlib.import_module("bulk_downloader.runner")
+
+        calls = {"run": [], "popen": []}
+        egress = self._install_real_egress(
+            monkeypatch, live_recorder, runner,
+            required=True, socks_url="socks5://127.0.0.1:11080")
+
+        def run(argv, **kwargs):
+            calls["run"].append((list(argv), dict(kwargs)))
+            return subprocess.CompletedProcess(argv, 0, b"{}", b"")
+
+        class Process:
+            pid = 4243
+
+        def popen(argv, **kwargs):
+            calls["popen"].append((list(argv), dict(kwargs)))
+            return Process()
+
+        monkeypatch.setattr(live_recorder, "preferred_backend", lambda: "streamlink")
+        monkeypatch.setattr(live_recorder.subprocess, "run", run)
+        monkeypatch.setattr(live_recorder.subprocess, "Popen", popen)
+        rec = self._recording(tmp_path)
+
+        live_recorder._process_recording(rec.recording_id, rec)
+
+        assert egress == {"prepare": 1, "required": 1, "resolve": 1}
+        assert len(calls["run"]) == 1, "expected one live-status probe"
+        assert len(calls["popen"]) == 1, "expected one recorder spawn"
+        probe_argv, probe_kwargs = calls["run"][0]
+        record_argv, record_kwargs = calls["popen"][0]
+        probe_proxy = probe_argv[probe_argv.index("--http-proxy") + 1]
+        record_proxy = record_argv[record_argv.index("--http-proxy") + 1]
+        assert probe_proxy == record_proxy
+        parsed = urlsplit(probe_proxy)
+        assert parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
+        assert parsed.port is not None and parsed.port > 0
+        assert probe_kwargs["env"]["http_proxy"] == probe_proxy
+        assert record_kwargs["env"]["http_proxy"] == record_proxy
+        assert rec.state == "recording"
 
 
 # ─── Scheduler gate ─────────────────────────────────────────────────

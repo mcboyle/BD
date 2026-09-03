@@ -1,0 +1,73 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 646/647: structural exact-once anchors only. M1/M2 prove the segmented transfer reaches SOCKS rather than merely receiving a proxy-looking argv; M3 proves carrier startup cannot degrade open; M4 proves the live recorder consults the shared egress path before either subprocess boundary; M6 pins the required-site no-proxy refusal. The transform control applies M4 to a build-only test that imports the module without exercising egress, and must ESCAPE.",
+  "subject": "SOCKS carriage for segmented transfers and fail-closed live-recorder egress",
+  "band": [
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_segmented_transfer_completes_through_the_tunnel",
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_missing_socks_carrier_keeps_the_existing_refusal",
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row647_prepared_carrier_owns_the_recorder_proxy_environment",
+    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row647_shared_egress_refuses_required_site_without_a_proxy",
+    "tests/test_v3_43_62_live_recorder.py::TestRecorderEgressGate::test_row647_required_tunnel_down_spawns_no_probe_or_recorder",
+    "tests/test_v3_43_62_live_recorder.py::TestRecorderEgressGate::test_row647_unrestricted_site_still_probes_and_records",
+    "tests/test_v3_43_62_live_recorder.py::TestRecorderEgressGate::test_row647_live_socks_tunnel_uses_the_shared_http_carrier",
+    "tests/test_v3_43_62_live_recorder.py::TestBuildCmdDefense::test_clean_inputs_build_streamlink_cmd"
+  ],
+  "mutants": [
+    {
+      "label": "M1 SOCKS proxy is handed straight to the HTTP-only transfer backend",
+      "file": "bulk_downloader/download_egress.py",
+      "old": "def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:\n",
+      "new": "def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:\n    return PreparedHttpProxy(proxy_url)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_segmented_transfer_completes_through_the_tunnel"
+    },
+    {
+      "label": "M2 HTTP carrier connects directly instead of entering SOCKS",
+      "file": "bulk_downloader/download_egress.py",
+      "old": "    def _socks_connect(self, host: str, port: int) -> socket.socket:\n",
+      "new": "    def _socks_connect(self, host: str, port: int) -> socket.socket:\n        return socket.create_connection((host, port))\n",
+      "direction": "regression",
+      "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_segmented_transfer_completes_through_the_tunnel"
+    },
+    {
+      "label": "M3 carrier startup failure degrades to an unproxied transfer",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "        except EgressCarrierError as e:\n",
+      "new": "        except EgressCarrierError as e:\n            return _hls.download(manifest_url, output_path, proxy_url=None, **kwargs)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_missing_socks_carrier_keeps_the_existing_refusal"
+    },
+    {
+      "label": "M4 live recorder bypasses site egress resolution",
+      "file": "bulk_downloader/live_recorder.py",
+      "old": "def _prepare_recording_egress(site: str):\n",
+      "new": "def _prepare_recording_egress(site: str):\n    return _egress_prepare(\"\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_62_live_recorder.py::TestRecorderEgressGate::test_row647_required_tunnel_down_spawns_no_probe_or_recorder"
+    },
+    {
+      "label": "M5 live recorder drops the prepared proxy environment",
+      "file": "bulk_downloader/download_egress.py",
+      "old": "    def subprocess_env(self) -> dict:\n",
+      "new": "    def subprocess_env(self) -> dict:\n        return {}\n",
+      "direction": "regression",
+      "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row647_prepared_carrier_owns_the_recorder_proxy_environment"
+    },
+    {
+      "label": "M6 required site with no resolved proxy degrades open",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?<=    if )required(?= and not \\(proxy_url)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row647_shared_egress_refuses_required_site_without_a_proxy"
+    },
+    {
+      "label": "TRANSFORM CONTROL live-recorder egress bypass escapes a build-only test",
+      "file": "bulk_downloader/live_recorder.py",
+      "old": "def _prepare_recording_egress(site: str):\n",
+      "new": "def _prepare_recording_egress(site: str):\n    return _egress_prepare(\"\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_62_live_recorder.py::TestBuildCmdDefense::test_clean_inputs_build_streamlink_cmd"
+    }
+  ]
+}

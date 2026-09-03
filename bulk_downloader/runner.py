@@ -170,7 +170,9 @@ except Exception as _e:
 
 # v3.66.390 (Track-K): fail-closed proxy selection for in-process payload
 # downloads. Pure decision; reuses the per-site VPN resolver the browser uses.
-from .download_egress import effective_download_proxy
+from .download_egress import (
+    EgressCarrierError, effective_download_proxy, prepare_http_proxy,
+)
 from .deep_detect.providers import (
     PLAYER_LIBRARIES as _DEEP_DETECT_PLAYER_LIBRARIES,
 )
@@ -189,6 +191,35 @@ _PAGE_MEDIA_PLAYER_MARKERS = tuple(sorted({
 }))
 _PAGE_MEDIA_PLAYER_MARKERS_JSON = json.dumps(
     _PAGE_MEDIA_PLAYER_MARKERS, separators=(",", ":"))
+
+
+def prepare_site_http_egress(site_id: str):
+    """Resolve one site's VPN posture and return an HTTP-capable carrier."""
+    if not _VPN_RUNTIME_AVAILABLE:
+        raise EgressCarrierError(
+            "VPN posture is unavailable; network subprocess refused")
+    try:
+        required = bool(vpn_runtime.is_vpn_required_for_site(site_id))
+    except Exception as exc:
+        raise EgressCarrierError(
+            f"VPN posture for {site_id!r} is unknown; subprocess refused "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+    try:
+        proxy_url = effective_download_proxy(
+            None, site_id, vpn_runtime.get_socks_url_for_site)
+    except Exception as exc:
+        posture = "required" if required else "optional"
+        raise EgressCarrierError(
+            f"VPN egress for {site_id!r} ({posture}) is unavailable; "
+            f"subprocess refused ({type(exc).__name__}: {exc})"
+        ) from exc
+    if required and not (proxy_url or "").strip():
+        raise EgressCarrierError(
+            f"VPN egress for required site {site_id!r} resolved no proxy; "
+            "subprocess refused"
+        )
+    return prepare_http_proxy(proxy_url)
 _PAGE_MEDIA_SNAPSHOT_JS = r"""() => {
   const knownPlayerMarkers = __BD_PLAYER_MARKERS__;
   const affordances = new Set(document.querySelectorAll(

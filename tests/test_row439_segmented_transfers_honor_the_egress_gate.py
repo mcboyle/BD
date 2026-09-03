@@ -24,9 +24,13 @@ tunnel resolver is injected, exactly as ``bulk_downloader/selftest.py``
 (L557-580) does for the sibling paths.
 """
 import ast
+import http.server
 import os
+import select
+import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -175,6 +179,203 @@ def _drive_plugin_arm(runner, manifest_url, tmp_path, monkeypatch, hls):
 MANIFEST = "https://cdn.example/scene/master.m3u8"
 
 
+class _LocalOrigin(http.server.BaseHTTPRequestHandler):
+    requests = 0
+    payload = b"SEGMENTED-THROUGH-SOCKS"
+
+    def do_GET(self):
+        type(self).requests += 1
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(self.payload)))
+        self.end_headers()
+        self.wfile.write(self.payload)
+
+    def log_message(self, _format, *args):
+        pass
+
+
+class _LocalSocks:
+    """One loopback-only SOCKS5 endpoint standing in for the live tunnel."""
+
+    def __init__(self):
+        self.listener = socket.socket()
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen(4)
+        self.listener.settimeout(0.2)
+        self.port = self.listener.getsockname()[1]
+        self.stop_event = threading.Event()
+        self.connections = 0
+        self.failures = []
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        self.listener.close()
+        self.thread.join(timeout=2)
+
+    def is_alive(self):
+        return self.thread.is_alive()
+
+    def url(self):
+        return f"socks5://127.0.0.1:{self.port}"
+
+    @staticmethod
+    def _exact(sock, size):
+        data = bytearray()
+        while len(data) < size:
+            data.extend(sock.recv(size - len(data)))
+        return bytes(data)
+
+    def _serve(self):
+        while not self.stop_event.is_set():
+            try:
+                client, _ = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            self.connections += 1
+            try:
+                self._handle(client)
+            except Exception as exc:
+                self.failures.append(str(exc))
+            finally:
+                client.close()
+
+    def _handle(self, client):
+        assert self._exact(client, 3) == b"\x05\x01\x00"
+        client.sendall(b"\x05\x00")
+        head = self._exact(client, 4)
+        assert head[:3] == b"\x05\x01\x00"
+        if head[3] == 1:
+            host = socket.inet_ntoa(self._exact(client, 4))
+        elif head[3] == 3:
+            host = self._exact(client, self._exact(client, 1)[0]).decode("ascii")
+        else:
+            raise AssertionError(f"unsupported address type {head[3]}")
+        port = int.from_bytes(self._exact(client, 2), "big")
+        with socket.create_connection((host, port), timeout=5) as upstream:
+            client.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+            peers = (client, upstream)
+            while True:
+                readable, _, _ = select.select(peers, (), (), 1)
+                if not readable:
+                    continue
+                for source in readable:
+                    data = source.recv(65536)
+                    if not data:
+                        return
+                    (upstream if source is client else client).sendall(data)
+
+
+def _connect_client_ffmpeg(path):
+    path.write_text(
+        f"#!{sys.executable}\n"
+        "import http.client, sys\n"
+        "from urllib.parse import urlsplit\n"
+        "args = sys.argv[1:]\n"
+        "proxy = urlsplit(args[args.index('-http_proxy') + 1])\n"
+        "target = urlsplit(args[args.index('-i') + 1])\n"
+        "cx = http.client.HTTPConnection(proxy.hostname, proxy.port, timeout=5)\n"
+        "cx.set_tunnel(target.hostname, target.port)\n"
+        "cx.request('GET', target.path)\n"
+        "response = cx.getresponse()\n"
+        "body = response.read()\n"
+        "cx.close()\n"
+        "assert response.status == 200, response.status\n"
+        "open(args[-1], 'wb').write(body)\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def test_row646_segmented_transfer_completes_through_the_tunnel(
+        hls_boundary, tmp_path, monkeypatch):
+    """A local CONNECT carrier must make ffmpeg's HTTP proxy traverse SOCKS."""
+    hls, spawns, _ = hls_boundary
+    origin = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _LocalOrigin)
+    origin_thread = threading.Thread(target=origin.serve_forever, daemon=True)
+    origin_thread.start()
+    socks = _LocalSocks()
+    socks.start()
+    fake_ffmpeg = tmp_path / "connect-client-ffmpeg"
+    _connect_client_ffmpeg(fake_ffmpeg)
+    monkeypatch.setattr(hls, "_find_ffmpeg", lambda: str(fake_ffmpeg))
+    seen = _arm_tunnel(monkeypatch, required=True, socks_url=socks.url())
+    _LocalOrigin.requests = 0
+    output = tmp_path / "through-tunnel.ts"
+    r = _runner(site_id="demo")
+    manifest = f"https://127.0.0.1:{origin.server_port}/master.m3u8"
+
+    try:
+        assert socks.is_alive(), "precondition: local tunnel endpoint is not live"
+        assert origin_thread.is_alive(), "precondition: local origin is not live"
+        result = r._hls_download_guarded(hls, manifest, str(output),
+                                         max_runtime_s=10)
+    finally:
+        socks.stop()
+        origin.shutdown()
+        origin.server_close()
+        origin_thread.join(timeout=2)
+
+    assert seen["resolve"] == 1, "the armed tunnel was not resolved exactly once"
+    assert spawns.count == 1, f"expected one segmented process, got {spawns.calls}"
+    assert socks.connections == 1, "the transfer never entered the SOCKS tunnel"
+    assert socks.failures == [], f"local SOCKS fixture failed: {socks.failures}"
+    assert _LocalOrigin.requests == 1, "the tunnel never reached the local origin"
+    assert result.ok is True, (result.error, result.error_detail)
+    assert output.read_bytes() == _LocalOrigin.payload
+    carried = spawns.argv()[spawns.argv().index("-http_proxy") + 1]
+    assert carried.startswith("http://127.0.0.1:"), carried
+
+
+def test_row646_missing_socks_carrier_keeps_the_existing_refusal(
+        hls_boundary, tmp_path, monkeypatch):
+    """Carrier startup UNKNOWN refuses and names the explicit HTTP remedy."""
+    class BrokenCarrier:
+        def __init__(self, _proxy_url):
+            pass
+
+        def start(self):
+            raise OSError("local bind denied")
+
+    hls, spawns, _ = hls_boundary
+    _arm_tunnel(monkeypatch, required=True,
+                socks_url="socks5://127.0.0.1:11080")
+    egress_module = sys.modules["bulk_downloader.download_egress"]
+    monkeypatch.setattr(egress_module, "SocksHttpConnectBridge",
+                        BrokenCarrier, raising=False)
+    r = _runner(site_id="demo")
+
+    result = r._hls_download_guarded(hls, MANIFEST, str(tmp_path / "o.mp4"))
+
+    assert result.ok is False
+    assert result.error == "proxy_carrier_unavailable", result.error
+    assert "explicit http:// proxy" in result.error_detail
+    assert "local bind denied" in result.error_detail
+    assert spawns.count == 0
+
+
+def test_row647_prepared_carrier_owns_the_recorder_proxy_environment(
+        monkeypatch):
+    """The injected carrier scrubs ambient proxies and installs its own URL."""
+    monkeypatch.setenv("ALL_PROXY", "socks5://ambient.invalid:1080")
+    egress_module = sys.modules.get("bulk_downloader.download_egress")
+    if egress_module is None:
+        _runner()
+        egress_module = sys.modules["bulk_downloader.download_egress"]
+    prepared = egress_module.prepare_http_proxy("http://127.0.0.1:1647")
+
+    env = prepared.subprocess_env()
+
+    assert env["http_proxy"] == "http://127.0.0.1:1647"
+    assert env["https_proxy"] == "http://127.0.0.1:1647"
+    assert "ALL_PROXY" not in env
+
+
 def test_row439_vpn_required_tunnel_down_spawns_no_ffmpeg(
         hls_boundary, tmp_path, monkeypatch):
     """THE ROW. vpn_required + tunnel down -> zero ffmpeg, distinctive refusal.
@@ -243,23 +444,22 @@ def test_row439_vpn_required_but_no_tunnel_mapped_still_refuses(
     assert spawns.count == 0
 
 
-def test_row439_a_socks_tunnel_is_refused_not_silently_ignored(
-        hls_boundary, tmp_path, monkeypatch):
-    """ffmpeg has NO SOCKS CLIENT. Handing it a socks5:// proxy and spawning
-    anyway would fetch on the clear interface with the control believing it
-    had been honored -- the row's defect wearing a proxy argument."""
-    hls, spawns, _ = hls_boundary
-    _arm_tunnel(monkeypatch, required=True,
-                socks_url="socks5://127.0.0.1:11080")
-    r = _runner(site_id="demo")
+def test_row647_shared_egress_refuses_required_site_without_a_proxy(
+        monkeypatch):
+    """The real shared resolver refuses a required site whose proxy is absent."""
+    from bulk_downloader import runner as runner_mod
 
-    res = r._hls_download_guarded(hls, MANIFEST, str(tmp_path / "o.mp4"))
+    seen = _arm_tunnel(monkeypatch, required=True, socks_url=None)
+    monkeypatch.setattr(runner_mod, "_VPN_RUNTIME_AVAILABLE", True)
+    prepare = getattr(runner_mod, "prepare_site_http_egress", None)
+    assert callable(prepare), "shared site egress preparer is missing"
 
-    assert res.ok is False
-    assert res.error == "proxy_scheme_unsupported", res.error
-    assert "SOCKS" in res.error_detail
-    assert "explicit http:// proxy" in res.error_detail  # names the remedy
-    assert spawns.count == 0
+    with pytest.raises(
+            runner_mod.EgressCarrierError,
+            match="required site 'demo' resolved no proxy"):
+        prepare("demo")
+
+    assert seen == {"required": 1, "resolve": 1}
 
 
 def test_row439_an_unresolvable_proxy_refuses_without_raising(

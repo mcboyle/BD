@@ -5,6 +5,25 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1454 - a recording never starts outside the egress tunnel it was required to use
+
+Train 7: one patch, boarded by two independent adversarial lenses.
+
+- ROWS 646 and 647: the egress gate is now enforced before a recorder or a
+  segmented transfer can spawn, rather than alongside it. On a site that
+  requires a tunnel that is down, the recorder used to spawn anyway; it now
+  refuses, and the segmented path refuses with proxy_scheme_unsupported instead
+  of proceeding unprotected.
+
+  Both lenses replayed that RED behaviourally on a clean export of the base
+  rather than trusting the worker's account, and one of them ran a five-mutant
+  battery against the new gate -- dropping the proxy argv, dropping the proxy
+  environment, and reordering the probe ahead of the gate -- each of which the
+  gate caught.
+
+Also filed: row 661, a carrier leaked on the low-disk return path in the
+recorder, found independently by both reviewers while neither refused on it.
+
 ## v3.66.1453 - the rate-limit gates stop reading source text and start counting what actually happens
 
 Train 6: one patch, implemented locally after two worker attempts satisfied the
