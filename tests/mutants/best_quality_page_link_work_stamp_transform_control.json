@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for BEST-QUALITY-PICKED-240P-OVER-VISIBLE-4K. This spec must report exactly one valid ESCAPED mutant: it applies M1's byte-identical guard-disabling transform while its only band node imports bulk_downloader.detect and asserts the LABEL VOCABULARY, never the work stamp. The escape proves the primary CAUGHT results are assertion failures rather than a SyntaxError, an import failure, a collection failure, or a transform that never applied.",
+  "subject": "transform control for the candidate document-URL work-stamp guard",
+  "band": [
+    "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_the_recorded_labels_outscore_the_document_link"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the document guard is skipped under a node that never reads the stamp",
+      "file": "bulk_downloader/detect.py",
+      "old": "            if value and _candidate_url_is_a_document(value):\n                continue\n            if value and work_affinity(page_url, value):",
+      "new": "            if value and _candidate_url_is_a_document(value) and False:  # mutant: restore the pre-fix stamp\n                continue\n            if value and work_affinity(page_url, value):",
+      "direction": "regression",
+      "catcher": "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_the_recorded_labels_outscore_the_document_link"
+    }
+  ]
+}
