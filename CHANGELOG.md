@@ -5,12 +5,13 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
-## v3.66.1462 - thirteen rows filed, and the 1457 entry says what it should have said
+## v3.66.1462 - fourteen rows filed, and two release notes say what they should have said
 
 A register cut. No runtime change: it files what a night of measurement found,
-and it repairs a release note that shipped as its own placeholder.
+and it repairs two release notes -- one that shipped as its own placeholder and
+one that credited the wrong row.
 
-- Thirteen rows filed (681-693). Four candidates that looked unfiled are
+- Fourteen rows filed (681-694). Four candidates that looked unfiled are
   deliberately absent: rows 657, 659, 660 and 661 already carry those
   mechanisms and row 658 closed at 1453, so filing them again would have been a
   duplicate rather than a record. The staging note they came from had gone
@@ -23,10 +24,19 @@ and it repairs a release note that shipped as its own placeholder.
   fix will not retire both, and a single row would have implied it could.
 
 - 685 is filed CLOSED at 1461. The requirements-optional manifest was measured
-  missing on five of twelve hosts and complete on seven, because deploy
-  converged two manifests and never that one; it shipped merged before this cut
+  missing on six of twelve hosts and complete on six, because deploy converged
+  two manifests and never that one; it shipped merged before this cut
   existed, and the row exists so the measurement and the cloakbrowser waiver
   survive outside a merge subject.
+
+- 694 is the one row this cut did not set out to file. An Xvfb :99 server
+  outlives the test that started it -- measured on two band hosts, one of them
+  for a full day -- and install_remote_teach.sh then fails "Server is already
+  active for display 99" on every retry. A leaked test fixture refusing a real
+  install. The launcher is named by measurement rather than left as an exercise,
+  and the row carries the negative control that matters more than the fix: a
+  pre-existing display the test did not start must survive, because the obvious
+  repair is the defect row 300 closed at 1297.
 
 - The v3.66.1461 entry cited the wrong register row. It credited row 360, an
   unrelated Turnstile row closed at 1338; the manifest merge is row 685, filed
