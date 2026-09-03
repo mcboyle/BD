@@ -11,6 +11,21 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
+
+def _runners_generation(mapping):
+    """A stable (sid, runner) list; locked when `mapping` is the live registry.
+
+    Row 634: walking ``app_state.runners`` bare raises ``RuntimeError:
+    dictionary changed size during iteration`` the instant a site create or
+    delete lands mid-walk, AFTER the loop body has already acted on a prefix of
+    the fleet.  Imported lazily (importlib, per call) for the same reason the
+    other shared-state accessors here are: no new static import edge.
+    """
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app_state"),
+                   "runners_generation")(mapping)
+
+
 queue_bp = Blueprint("queue", __name__)
 
 def _check_csrf(*_a, **_k):
@@ -118,7 +133,7 @@ def api_queue_preflight():
     # runners (sum failed across runners)
     failed = needs_review = 0
     try:
-        for rn in runners.values():
+        for _sid, rn in _runners_generation(runners):
             st = rn.get_status(light=True) or {}
             c = st.get("counts", {}) if isinstance(st, dict) else {}
             failed += int(c.get("failed", 0) or 0)
@@ -150,7 +165,7 @@ def api_queue_preflight():
     dupes = 0
     try:
         from . import db as _db
-        for rn in runners.values():
+        for _sid, rn in _runners_generation(runners):
             st = rn.get_status(light=False) or {}
             jobs = st.get("jobs", {}) if isinstance(st, dict) else {}
             for u, j in jobs.items():
@@ -185,7 +200,7 @@ def api_queue_v2():
         waiting = []
         per_site_acc = []
         done_today = 0
-        for sid, runner in runners.items():
+        for sid, runner in _runners_generation(runners):
             if not runner:
                 continue
             cfg = s_cfg.get(sid, {}) or {}

@@ -234,8 +234,106 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_41_pwmgr_audit_followups.py",
             r"(?m)^                A\.SITES_FILE = original_sites_file$",
         ),
+    # ported from row645c (worker base predates this registry)
+    "87fef0b7485a4f374fe35d3000115d3199a88a043f006bd0c982ea9d1530d2e8":
+        StableValueException(
+            "credential_vault_locked is the audited degraded reason for an initialized vault whose in-memory key is locked",
+            "tests/test_v3_62_2_guards.py",
+            r"(?m)^def test_locked_master_password_vault_is_a_named_structured_503\($",
+        ),
+    # ported from row645c (worker base predates this registry)
+    "970a240fa5336a84712844b86b488664931977aa040a567241f1f0b57165f6ff":
+        StableValueException(
+            "HTTP 503 is the audited readiness status for a locked credential vault",
+            "tests/test_v3_62_2_guards.py",
+            r"(?m)^def test_locked_master_password_vault_is_a_named_structured_503\($",
+        ),
+    # ported from row645c (worker base predates this registry)
+    "675208397dc7f3cb21ee30326f802ab8f82b0ec0cba257c6aeb1630e0de7295c":
+        StableValueException(
+            "HTTP 200 is the audited readiness status after real API vault initialization and unlock",
+            "tests/test_v3_62_2_guards.py",
+            r"(?m)^def test_status_endpoints_are_get_and_json\(initialized_unlocked_vault\):$",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "ccb6742517163fd91814e78ace42dc80ccb9e0dd5fa84a2c7cb96602e11ca6de":
+        StableValueException(
+            "2a/9 is a fixed capture phase identity in the complete phase population",
+            "tests/test_capture_shell_runtime.py",
+            r"(?m)^def test_capture_source_arms_all_phase_banners_once\(\) -> None:$",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "35c5824afe5e2bd80f11c933329e24924348f1e3af93a9ed26f9caa9feaf541f":
+        StableValueException(
+            "UNKNOWN is the fixed marker replaced when a measured phase completes",
+            "tests/test_capture_shell_runtime.py",
+            r"(?m)^def test_capture_runtime_records_every_reached_phase_duration\(tmp_path\) -> None:$",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "918377d80d2a9aca0ac3e5f583446ce2db163a0f8c9b230e2c667d0ed2716df9":
+        StableValueException(
+            "repository_path is a required field of the transferable verdict identity",
+            "tests/test_row407_integration_verdict.py",
+            r"(?m)^def test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt\($",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "51d6e4cc1788fd413ee397c846c03c5d3ade9cf73403f40c502bf55db1b28981":
+        StableValueException(
+            "clean and dirty are the fixed measured working-tree states",
+            "tests/test_row407_integration_verdict.py",
+            r"(?m)^def test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt\($",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "2737feb6e36f52e7a714dde4a1a10e993da760c5cf427eac05018e0e878fc2b8":
+        StableValueException(
+            "candidate_tree_sha is a required field of the transferable verdict identity",
+            "tests/test_row407_integration_verdict.py",
+            r"(?m)^def test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt\($",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "599946ac1a608dc3fd5e2169b706c50b41ddd4c0eed9dc70a745f684ef8fe5e3":
+        StableValueException(
+            "host is a required key on the human-readable verdict surface",
+            "tests/test_row407_integration_verdict.py",
+            r"(?m)^def test_text_verdict_names_host_and_repository\(verdict_repo: VerdictRepo\) -> None:$",
+        ),
+    # ported from roww2-evidenceb (worker base predates this registry)
+    "0221c2b630be6368243256c5343be6efba4b20c104d9eb7651dc424d8150038e":
+        StableValueException(
+            "the transform control intentionally shares the audited clean/dirty boundary",
+            "tests/test_row407_integration_verdict.py",
+            r"(?m)^def test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt\($",
+        ),
+    # ported from roww3-rotation-leak2 (worker base predates this registry)
+    "f29edcbaa2b0371aa37ed786b600b63f14eaa30ba6f74697a5eb852938eb9e2a":
+        StableValueException(
+            "the fixture test must reinstall the exact inherited backend object",
+            "tests/test_v3_66_729_body_contract_fixtures.py",
+            r"(?m)^def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it\(\):$",
+        ),
+    # ported from roww3-rotation-leak2 (worker base predates this registry)
+    "c41beaf32ce52defd60b389de8489285bed99160771324eb3734f470faf30aa1":
+        StableValueException(
+            "the transform repeats the same fixed backend-restoration contract",
+            "tests/test_v3_66_729_body_contract_fixtures.py",
+            r"(?m)^def test_the_fixture_world_owns_an_open_vault_and_ensure_reopens_it\(\):$",
+        ),
+    # ported from roww3-rotation-leak2 (worker base predates this registry)
+    "b88e01a81a2d7b24cc3b18ae92e5d29e59f804970bd9ef3b51b1cc900602045b":
+        StableValueException(
+            "the module fixture registers the inherited backend pair for exact restoration",
+            "tests/test_v3_66_729_body_contract_fixtures.py",
+            r"(?m)^def _secrets_store_state_is_test_owned\(monkeypatch\):$",
+        ),
+    # ported from roww3-rotation-leak2 (worker base predates this registry)
+    "469e3801a38840d8f97d42206a4eec9e130ee5267266abb47c72dae23f2a384b":
+        StableValueException(
+            "the transform repeats the module fixture's fixed restoration contract",
+            "tests/test_v3_66_729_body_contract_fixtures.py",
+            r"(?m)^def _secrets_store_state_is_test_owned\(monkeypatch\):$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 12
+_STABLE_VALUE_EXCEPTION_MAX = 26
 
 
 def _family(

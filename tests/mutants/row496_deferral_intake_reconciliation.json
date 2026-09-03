@@ -1,0 +1,36 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 496. Structural anchors suppress deferred-row reconciliation, the independent deferred denominator, or the historical audit census while leaving parsing and collection valid. The omitted-row fixture is driven from the tracked intake entry. The companion import-only transform control must ESCAPE.",
+  "subject": "every deferred intake decision resolves to its exact canonical backlog row",
+  "band": [
+    "tests/test_row496_deferral_intake_reconciles_backlog.py::test_deleted_row_is_the_one_failure_the_existing_four_predicates_miss",
+    "tests/test_row496_deferral_intake_reconciles_backlog.py::test_one_missing_audit_batch_is_one_named_failure",
+    "tests/test_row496_deferral_intake_reconciles_backlog.py::test_nondeferrals_cannot_mask_a_zero_deferral_denominator"
+  ],
+  "mutants": [
+    {
+      "label": "M1 suppress deferred-row reconciliation",
+      "file": "tests/test_row496_deferral_intake_reconciles_backlog.py",
+      "old": "    return errors\n\n\ndef _reconciliation_errors(\n",
+      "new": "    return list()\n\n\ndef _reconciliation_errors(\n",
+      "direction": "regression",
+      "catcher": "tests/test_row496_deferral_intake_reconciles_backlog.py::test_deleted_row_is_the_one_failure_the_existing_four_predicates_miss"
+    },
+    {
+      "label": "M2 suppress audit-batch census reconciliation",
+      "file": "tests/test_row496_deferral_intake_reconciles_backlog.py",
+      "old": "    return errors\n\n\ndef _load_module",
+      "new": "    return list()\n\n\ndef _load_module",
+      "direction": "regression",
+      "catcher": "tests/test_row496_deferral_intake_reconciles_backlog.py::test_one_missing_audit_batch_is_one_named_failure"
+    },
+    {
+      "label": "M3 let non-deferrals mask an empty deferred population",
+      "file": "tests/test_row496_deferral_intake_reconciles_backlog.py",
+      "old": "    if not deferred:\n        raise DeferralIntakeUnknown(",
+      "new": "    if deferred and not deferred:\n        raise DeferralIntakeUnknown(",
+      "direction": "regression",
+      "catcher": "tests/test_row496_deferral_intake_reconciles_backlog.py::test_nondeferrals_cannot_mask_a_zero_deferral_denominator"
+    }
+  ]
+}

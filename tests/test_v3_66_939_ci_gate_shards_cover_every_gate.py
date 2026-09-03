@@ -140,6 +140,12 @@ _DECLARED = {
     # safety shard as the other integrity boundaries.
     # CI-SHARD-CLAIM row-284 application-safety tests/test_v3_66_284_integrity.py
     "tests/test_v3_66_284_integrity.py",
+    # Row 645. This legacy-baselined guard exercises /api/health through a real
+    # initialized/unlocked master-password vault and distinguishes the exact
+    # locked-vault 503. A local application diff does not reliably select it,
+    # so bind it to the application-safety lane explicitly.
+    # CI-SHARD-CLAIM row-645 application-safety tests/test_v3_62_2_guards.py
+    "tests/test_v3_62_2_guards.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
     # and command-failed artifacts are distinct from the two healthy paths, so
@@ -194,6 +200,10 @@ _DECLARED = {
     # allow set has quietly grown a new top-level directory is precisely the
     # failure it exists to prevent, and it would look like nothing at all.
     "tests/test_row530_docs_only_lane_fails_closed.py",
+    # Row 529. This gate derives review scope from a real Git diff and proves
+    # omitted and search-only changed files cannot disappear from a clean
+    # review verdict. Its denominator is the diff, not one changed module.
+    "tests/test_row529_review_coverage_reconciliation.py",
     # @1378, the same tool, the other half of the same question. 1239 pins that
     # bd-precut RUNS the gates a diff cannot select; this one pins that its
     # version/pin/surface check can be MEASURED AT ALL. It judges the tool and
@@ -424,6 +434,7 @@ _DECLARED = {
     "tests/test_v3_66_1161_context_census_is_retired.py",
     "tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py",
     "tests/test_v3_66_1164_one_task_authority.py",
+    "tests/test_row496_deferral_intake_reconciles_backlog.py",
     # Row 263. The register's evidence tags and the changelog's release
     # headings are both tree-wide authorities. A worker can edit any row, so a
     # diff-derived module band cannot provide this reconciliation.
@@ -458,6 +469,12 @@ _DECLARED = {
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
     "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
+    # Row 634. The census of every live-registry iteration under
+    # bulk_downloader/. Its subject is a tree-wide population -- any module can
+    # add a bare walk -- so a diff-derived band would run it only when the
+    # census file or app_state.py changed, which is precisely the case where a
+    # new bare walk elsewhere goes unseen.
+    "tests/test_row634_live_registry_iteration_is_snapshotted.py",
     # Row 333. The recognizer corpus split four ways. Each shard declares
     # repo-wide scope because its subject is the whole corpus population,
     # and a repo-wide gate must reach a shard in its own right or the
@@ -513,6 +530,9 @@ _DECLARED = {
     # subject path can make a diff router select the gate that audits every
     # tracked mutation spec and its independently recorded producer evidence.
     "tests/test_row357_mutant_anchors_are_not_fragile.py",
+    # Row 473. Candidate shipment is a relation between the whole register and
+    # the target tree, so no one candidate's changed paths can select it.
+    "tests/test_row473_register_tree_containment.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
     "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
     "tests/test_v3_66_1188_bd_mutate_review_controls.py",
@@ -958,6 +978,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_toolchain_534.py",  # legacy-baseline
     "tests/test_u45_capture_sh_shipped.py",  # legacy-baseline
     "tests/test_v3_57_phase9.py",  # module
+    "tests/test_v3_62_2_guards.py",  # legacy-baseline
     "tests/test_v3_66_1031_socket_recorder_stages.py",  # legacy-baseline
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",  # legacy-baseline
     "tests/test_v3_66_1040_remote_job_registry.py",  # legacy-baseline
@@ -1651,6 +1672,11 @@ def test_the_census_partition_actually_compares(monkeypatch):
 
 def test_transform_control_imports_ci_gate_without_judging_row348_reachability():
     """Mutation transform control: collection/import alone judges no gate."""
+    assert _CI.is_file()
+
+
+def test_transform_control_imports_ci_gate_without_judging_row645_membership():
+    """Mutation control: import alone does not judge guard-file scheduling."""
     assert _CI.is_file()
 
 

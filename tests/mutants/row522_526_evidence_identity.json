@@ -1,0 +1,59 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 522 and 526. The shell mutants remove one phase row or prevent completed rows from receiving end/status values. The verdict mutants restore omitted repository identity, launder a dirty tree as clean, erase commit tree identity, or drop host/repository from the text surface. The companion transform control applies the identical cleanliness mutant to an import-only node and must ESCAPE.",
+  "subject": "capture phase timing and integration verdict identity remain transferable evidence",
+  "band": [
+    "tests/test_capture_shell_runtime.py",
+    "tests/test_row407_integration_verdict.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 one capture banner has no timing row",
+      "file": "capture.sh",
+      "old": "phase_begin \"2a/9\" \"GUI-parity inventory regen\"",
+      "new": ": # mutant omits phase 2a timing",
+      "direction": "regression",
+      "catcher": "tests/test_capture_shell_runtime.py::test_capture_source_arms_all_phase_banners_once"
+    },
+    {
+      "label": "M2 completed phases retain UNKNOWN end and status",
+      "file": "capture.sh",
+      "old": "$1 == phase && $4 == \"UNKNOWN\" { $4 = ended; $5 = status; found++ }",
+      "new": "$1 == phase && $4 == \"UNKNOWN\" { found++ }",
+      "direction": "regression",
+      "catcher": "tests/test_capture_shell_runtime.py::test_capture_runtime_records_every_reached_phase_duration"
+    },
+    {
+      "label": "M3 repository path is omitted from verdict JSON",
+      "file": "scripts/bd_integration_verdict.py",
+      "old": "        \"repository_path\": repository_path,",
+      "new": "        # mutant omits repository_path",
+      "direction": "regression",
+      "catcher": "tests/test_row407_integration_verdict.py::test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt"
+    },
+    {
+      "label": "M4 dirty working trees are laundered as clean",
+      "file": "scripts/bd_integration_verdict.py",
+      "old": "        cleanliness = \"dirty\" if status.stdout else \"clean\"",
+      "new": "        cleanliness = \"clean\"",
+      "direction": "regression",
+      "catcher": "tests/test_row407_integration_verdict.py::test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt"
+    },
+    {
+      "label": "M5 candidate tree identity is replaced by UNKNOWN",
+      "file": "scripts/bd_integration_verdict.py",
+      "old": "        \"candidate_tree_sha\": _optional_git_text(\n            resolved_repo, \"rev-parse\", \"--verify\", f\"{candidate}^{{tree}}\"\n        ),",
+      "new": "        \"candidate_tree_sha\": \"UNKNOWN\",",
+      "direction": "regression",
+      "catcher": "tests/test_row407_integration_verdict.py::test_verdict_records_checkout_and_tree_identity_without_gating_on_dirt"
+    },
+    {
+      "label": "M6 text verdict replaces measured host identity with UNKNOWN",
+      "file": "scripts/bd_integration_verdict.py",
+      "old": "        f\"host={payload.get('hostname', 'UNKNOWN')} \"",
+      "new": "        f\"host=UNKNOWN \"",
+      "direction": "regression",
+      "catcher": "tests/test_row407_integration_verdict.py::test_text_verdict_names_host_and_repository"
+    }
+  ]
+}

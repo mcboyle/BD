@@ -5,6 +5,40 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1450 - the health guard is real, the live registry is snapshotted, and five gates land
+
+Train 4a: seven refute-first-reviewed worker patches (one by a local Claude
+implementer), stacked on v3.66.1449. The staging-claim patch that boarded with
+them broke three source-text gates over _http_download in the lane and was
+returned to its worker (rows 523/501 stay OPEN).
+
+- ROW 645 (third dispatch, operator ruling): tests/test_v3_62_2_guards.py now
+  initializes and API-unlocks a master-password fixture vault with a documented
+  zero-entropy password and asserts /api/health == 200 ok:true; a locked vault
+  is the named structured 503 negative control; the file joins the
+  application-safety CI shard exactly once; scripts/deploy.sh is untouched.
+  This retires the last standing failure of the shipped-tree suite.
+- ROWS 634 AND 639: twenty bare live-registry iterations across twelve modules
+  go through runners_snapshot()/runners_generation() behind a repo-wide AST
+  census gate with exact per-module counts; runner._lock gains the same
+  after-fork reinit that _watch_registry_lock already had.
+- THE SECOND TEST-STATE LEAK: tests/test_v3_66_729_body_contract_fixtures.py
+  leaked secrets_store state from two tests and poisoned
+  tests/test_secret_rotation_age.py under loadfile; a module-autouse
+  restoration fixture returns that state exactly.
+- ROW 496: the deferral-intake gate judges the deferral population, recorded
+  independently of the register. ROW 473: toolchain/bin/bd-shipped, a
+  blob-equality containment gate whose register mode derives rows from the
+  register's own parser and refuses a rows=N mismatch. ROW 529:
+  bd-review-reconcile measures the review denominator with its zero-denominator
+  guard pinned. ROWS 522 AND 526: capture.sh records per-phase timing and the
+  integration verdict carries structured identity fields.
+- Integrator steps: fourteen anchor exceptions ported into the current registry
+  (12 -> 26); one additive CI-shard conflict kept both sides; import-graph
+  baseline re-frozen. Tool-index note: toolchain/bin/bd-shipped shares its name
+  with the operator harness tool /home/mboyle/bd-shipped (A8); the harness copy
+  is the older caller.
+
 ## v3.66.1449 - a neighbour stops poisoning the vault-routing tests, eight recovered commits land, the hunt family stops failing under load, and four more rows close
 
 Train 3: six refute-first-reviewed worker patches, stacked on v3.66.1448.

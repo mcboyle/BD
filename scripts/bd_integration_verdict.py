@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import socket
 import subprocess
 import sys
 from typing import NoReturn
@@ -52,6 +53,60 @@ def _resolve_commit(repo: Path, revision: str, reason_code: str) -> str:
     if result.returncode != 0:
         raise UnknownEvidence(reason_code, f"cannot resolve commit {revision!r}")
     return result.stdout.decode("ascii", "strict").strip()
+
+
+def _optional_git_text(repo: Path, *args: str) -> str:
+    result = _git(repo, *args)
+    if result.returncode != 0:
+        return "UNKNOWN"
+    try:
+        value = result.stdout.decode("utf-8", "strict").strip()
+    except UnicodeDecodeError:
+        return "UNKNOWN"
+    return value or "UNKNOWN"
+
+
+def _recorded_identity(
+    repo: Path,
+    candidate: str = "UNKNOWN",
+    main_ref: str = "UNKNOWN",
+) -> dict[str, str]:
+    try:
+        hostname = socket.gethostname() or "UNKNOWN"
+    except OSError:
+        hostname = "UNKNOWN"
+    try:
+        resolved_repo = repo.resolve(strict=True)
+        repository_path = str(resolved_repo)
+    except OSError:
+        return {
+            "hostname": hostname,
+            "repository_path": "UNKNOWN",
+            "origin_url": "UNKNOWN",
+            "candidate_tree_sha": "UNKNOWN",
+            "main_tree_sha": "UNKNOWN",
+            "working_tree_cleanliness": "UNKNOWN",
+        }
+
+    status = _git(resolved_repo, "status", "--porcelain=v2", "--untracked-files=all")
+    if status.returncode == 0:
+        cleanliness = "dirty" if status.stdout else "clean"
+    else:
+        cleanliness = "UNKNOWN"
+    return {
+        "hostname": hostname,
+        "repository_path": repository_path,
+        "origin_url": _optional_git_text(
+            resolved_repo, "remote", "get-url", "origin"
+        ),
+        "candidate_tree_sha": _optional_git_text(
+            resolved_repo, "rev-parse", "--verify", f"{candidate}^{{tree}}"
+        ),
+        "main_tree_sha": _optional_git_text(
+            resolved_repo, "rev-parse", "--verify", f"{main_ref}^{{tree}}"
+        ),
+        "working_tree_cleanliness": cleanliness,
+    }
 
 
 def _show(repo: Path, commit: str, path: str, reason_code: str) -> str:
@@ -217,6 +272,7 @@ def evaluate(
         "required_paths": paths,
         "required_path_denominator": len(required_paths),
         "evidence": evidence,
+        **_recorded_identity(repo, candidate_sha, main_sha),
     }
 
 
@@ -225,10 +281,15 @@ def _emit(payload: dict[str, object], *, as_json: bool) -> None:
         print(json.dumps(payload, sort_keys=True))
         return
     verdict = payload["verdict"]
+    identity = (
+        f"host={payload.get('hostname', 'UNKNOWN')} "
+        f"repo={payload.get('repository_path', 'UNKNOWN')}"
+    )
     if verdict == "INTEGRATED":
         print(
             f"INTEGRATED candidate={payload['candidate_sha']} "
             f"main={payload['main_sha']} version={payload['expected_version']} "
+            f"{identity} "
             f"row_denominator={payload['row_denominator']} "
             f"required_path_denominator={payload['required_path_denominator']}"
         )
@@ -238,6 +299,7 @@ def _emit(payload: dict[str, object], *, as_json: bool) -> None:
         ]
         print(
             f"NOT_INTEGRATED failed={','.join(failed)} "
+            f"{identity} "
             f"row_denominator={payload['row_denominator']} "
             f"required_path_denominator={payload['required_path_denominator']}"
         )
@@ -248,12 +310,18 @@ def _emit(payload: dict[str, object], *, as_json: bool) -> None:
         )
 
 
-def _unknown(error: UnknownEvidence, *, as_json: bool) -> NoReturn:
+def _unknown(
+    error: UnknownEvidence,
+    *,
+    identity: dict[str, str],
+    as_json: bool,
+) -> NoReturn:
     _emit(
         {
             "verdict": "UNKNOWN",
             "reason_code": error.reason_code,
             "message": error.message,
+            **identity,
         },
         as_json=as_json,
     )
@@ -280,9 +348,17 @@ def main() -> int:
             required_paths=args.require_path,
         )
     except (OSError, UnicodeError) as error:
-        _unknown(UnknownEvidence("LOCAL_IO_FAILED", str(error)), as_json=args.json)
+        _unknown(
+            UnknownEvidence("LOCAL_IO_FAILED", str(error)),
+            identity=_recorded_identity(args.repo, args.candidate, args.main_ref),
+            as_json=args.json,
+        )
     except UnknownEvidence as error:
-        _unknown(error, as_json=args.json)
+        _unknown(
+            error,
+            identity=_recorded_identity(args.repo, args.candidate, args.main_ref),
+            as_json=args.json,
+        )
     _emit(payload, as_json=args.json)
     return 0 if payload["verdict"] == "INTEGRATED" else 1
 
