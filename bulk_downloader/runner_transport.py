@@ -1481,9 +1481,10 @@ class TransportMixin:
         # appending a different scene onto them. Reserving the name takes it,
         # atomically, keyed to this job's identity, so only one worker can be
         # told yes and a restart of THIS job still reclaims its own `.part`.
+        _staging_identity = staging_claim.job_identity(page_url)
         try:
             final_path, _staging_path = staging_claim.reserve(
-                final_path, staging_claim.job_identity(page_url))
+                final_path, _staging_identity)
         except staging_claim.StagingUnavailable as e:
             # UNKNOWN is not permission. Refuse rather than stage into a path
             # whose ownership we cannot prove.
@@ -1497,404 +1498,475 @@ class TransportMixin:
             except Exception: pass
             return
 
-        # ── Download path selection ──────────────────────────────────────
-        use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE
-        # bytes_fetched initialised alongside downloaded_size so it is bound on
-        # every path that reaches the db_log below, including the ones that
-        # never call a download helper at all. 0 is the truthful default: no
-        # helper ran, so nothing was transferred.
-        downloaded_size=0; bytes_fetched=0; filename=final_path.name
-        # transfer_mode is bound here for the same reason bytes_fetched is: the
-        # db_log at the end of this function is reached by paths that never run
-        # a transfer at all. None is the truthful default -- no arm ran, so
-        # there is no transport to name, and NULL means unrecorded rather than
-        # "not segmented" (db.db_log's docstring states that contract).
-        transfer_mode=None
-        if is_stream:
-            transfer_mode="segmented"
-            # THE SEGMENTED TRANSFER. hls_downloader drives ffmpeg over the
-            # manifest and never raises; bytes_written is what actually crossed
-            # the wire, which is the number #63's bytes_fetched contract wants --
-            # not the manifest's ~204 bytes, and not the muxed file's size.
-            try:
-                from . import hls_downloader as _hls
-            except Exception as e:
-                note = f"hls_downloader unavailable ({e}); cannot fetch a stream"
-                self._update_job(page_url, "needs_review", note,
-                                 filename=final_path.name, file_size=0)
-                db_log(self.site_id, self.config.get("name", "?"), page_url,
-                       "needs_review", final_path.name, 0, note,
-                       bytes_fetched=0)
-                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
-                return
-            res = self._hls_download_guarded(
-                _hls, direct_url, str(final_path), referer=page_url,
-                cancel_check=lambda: self._stop.is_set())
-            if not res.ok:
-                # ffmpeg_not_installed is a DISTINCT code and gets a distinct
-                # verdict: a missing dependency is not a broken stream, and an
-                # operator cannot act on the two the same way. ffmpeg IS present
-                # on the deploy host, so this is the honest-unknown branch rather
-                # than the expected one.
-                if res.error == "ffmpeg_not_installed":
-                    note = ("ffmpeg is not installed, so the segmented "
-                            "(HLS/DASH) download path cannot run on this host — "
-                            "this is a missing dependency, not a failed stream")
-                else:
-                    note = (f"segmented download failed: {res.error} — "
-                            f"{str(res.error_detail)[:160]}")
+        try:
+
+            # ── Download path selection ──────────────────────────────────────
+            use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE
+            # bytes_fetched initialised alongside downloaded_size so it is bound on
+            # every path that reaches the db_log below, including the ones that
+            # never call a download helper at all. 0 is the truthful default: no
+            # helper ran, so nothing was transferred.
+            downloaded_size=0; bytes_fetched=0; filename=final_path.name
+            # transfer_mode is bound here for the same reason bytes_fetched is: the
+            # db_log at the end of this function is reached by paths that never run
+            # a transfer at all. None is the truthful default -- no arm ran, so
+            # there is no transport to name, and NULL means unrecorded rather than
+            # "not segmented" (db.db_log's docstring states that contract).
+            transfer_mode=None
+            if is_stream:
+                transfer_mode="segmented"
+                # THE SEGMENTED TRANSFER. hls_downloader drives ffmpeg over the
+                # manifest and never raises; bytes_written is what actually crossed
+                # the wire, which is the number #63's bytes_fetched contract wants --
+                # not the manifest's ~204 bytes, and not the muxed file's size.
                 try:
-                    if final_path.exists():
-                        final_path.unlink()
-                except Exception:
-                    pass
-                self._update_job(page_url, "needs_review", note,
-                                 filename=final_path.name, file_size=0)
-                db_log(self.site_id, self.config.get("name", "?"), page_url,
-                       "needs_review", final_path.name, 0, note,
-                       bytes_fetched=max(0, int(res.bytes_written or 0)))
-                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
-                return
-            try:
-                downloaded_size = final_path.stat().st_size
-            except Exception:
-                downloaded_size = int(res.bytes_written or 0)
-            bytes_fetched = max(0, int(res.bytes_written or 0))
-            # part-staging-collision: the segmented path muxes straight to
-            # the reserved final name and never stages a `.part`, so the
-            # reservation has done its job and is released here rather than
-            # left beside the finished file.
-            staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
-        # elif, NOT a second `if`. v3.66.819 shipped these as two independent
-        # ifs with `use_http = False` in the stream branch, and that did not skip
-        # the transfer selection -- it SELECTED THE ELSE. Measured on the deploy
-        # host: the route fired, ffmpeg transferred the bytes, and then
-        #   worker error: '_DLStub' object has no attribute 'save_as'
-        # because the else calls _pw_save(dl, ...) and the stream path's `dl` is
-        # the _DLStub stand-in (url + suggested_filename + cancel only). Exactly
-        # one of these three paths may run, so they are one chain.
-        elif use_http:
-            transfer_mode="http"
-            try:
-                file_url=dl.url
-                # Cancel Playwright's own download — we'll fetch directly.
-                try: dl.cancel()
-                except Exception: pass
-                # v3.43.65: speculatively probe higher-tier variants of
-                # the file URL. When the site embeds the resolution as
-                # a path segment (Vixen's `/mp4_480/`, VIP4K's
-                # `/1080p.mp4`, etc.) and `tier_probe_enabled` is True,
-                # this swaps in the highest 200-OK variant. Fail-open:
-                # the probe returns the original URL unchanged on any
-                # failure, so download proceeds either way.
-                file_url = self._probe_for_higher_tier(file_url, referer=page_url)
-                # Phase 17.16: build mirror URL list. Original first, then
-                # alternates synthesized by swapping subdomains. We cap the
-                # attempts so a misconfigured list can't loop forever.
-                attempt_urls = [file_url] + self._build_mirror_urls(file_url)
-                last_err = None
-                downloaded_size = 0
-                for attempt_url in attempt_urls[:6]:
-                    try:
-                        if attempt_url != file_url:
-                            self._update_job(page_url, "running",
-                                f"Trying mirror: {self._extract_host(attempt_url)}")
-                            self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
-                        downloaded_size, bytes_fetched = self._http_download(
-                            page_url, page, ctx, attempt_url, final_path)
-                        break  # success
-                    except _HTTPDownloadFailed as e:
-                        last_err = e
-                        # Don't retry on stop signal or rate-limit
-                        s = str(e).lower()
-                        if "stopped" in s or "rate" in s: raise
-                        continue
-                if downloaded_size == 0 and last_err is not None:
-                    raise last_err
-            except _StagingUnavailable as e:
-                # part-staging-collision: another live download owns the .part
-                # this transfer would have staged into, or ownership could not
-                # be measured. Deliberately NOT the Playwright fallback: the
-                # browser would write its bytes to the very destination this
-                # refusal is protecting. needs_review, so the operator sees it.
-                note = f"staging unavailable: {e}"
-                self._update_job(page_url, "needs_review", note,
-                                 filename=final_path.name, file_size=0)
-                db_log(self.site_id, self.config.get("name","?"), page_url,
-                       "needs_review", final_path.name, 0, note,
-                       bytes_fetched=0)
-                return
-            except _DownloadTruncated as e:
-                # BP-INT (v3.66.284): the transfer ended short of the
-                # advertised Content-Length. The .part was already removed and
-                # no final file exists, so this is NOT a `done`. Route to
-                # needs_review (not failed, not the Playwright fallback) so the
-                # operator can force a fresh re-download (BP-VH3).
-                self._update_job(page_url, "needs_review", f"Truncated download — {e}",
-                                 file_size=0)
-                db_log(self.site_id, self.config.get("name","?"), page_url,
-                       "needs_review", "", 0, f"integrity: {e}")
-                return
-            except _HTTPDownloadFailed as e:
-                # Fall back to Playwright save_as. We need a fresh download
-                # event; click again. Some sites won't let us do this twice
-                # in quick succession, so this fallback is best-effort.
-                self._update_job(page_url,"running",f"HTTP failed ({e}) — retrying via browser...")
-                try:
-                    with page.expect_download(timeout=60000) as dli2: best["locator"].click()
-                    dl=dli2.value
-                except PWTimeout:
-                    self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
+                    from . import hls_downloader as _hls
+                except Exception as e:
+                    note = f"hls_downloader unavailable ({e}); cannot fetch a stream"
+                    self._update_job(page_url, "needs_review", note,
+                                     filename=final_path.name, file_size=0)
+                    db_log(self.site_id, self.config.get("name", "?"), page_url,
+                           "needs_review", final_path.name, 0, note,
+                           bytes_fetched=0)
+                    staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                     return
-                # The httpx attempt failed and the browser moved the bytes, so
-                # the row must say 'browser'. Leaving the 'http' set at the top
-                # of this arm would record the transport that was ATTEMPTED --
-                # a row that names a transfer which did not happen is the same
-                # failure as the message prose this column replaces.
+                res = self._hls_download_guarded(
+                    _hls, direct_url, str(final_path), referer=page_url,
+                    cancel_check=lambda: self._stop.is_set())
+                if not res.ok:
+                    # ffmpeg_not_installed is a DISTINCT code and gets a distinct
+                    # verdict: a missing dependency is not a broken stream, and an
+                    # operator cannot act on the two the same way. ffmpeg IS present
+                    # on the deploy host, so this is the honest-unknown branch rather
+                    # than the expected one.
+                    if res.error == "ffmpeg_not_installed":
+                        note = ("ffmpeg is not installed, so the segmented "
+                                "(HLS/DASH) download path cannot run on this host — "
+                                "this is a missing dependency, not a failed stream")
+                    else:
+                        note = (f"segmented download failed: {res.error} — "
+                                f"{str(res.error_detail)[:160]}")
+                    try:
+                        if final_path.exists():
+                            final_path.unlink()
+                    except Exception:
+                        pass
+                    self._update_job(page_url, "needs_review", note,
+                                     filename=final_path.name, file_size=0)
+                    db_log(self.site_id, self.config.get("name", "?"), page_url,
+                           "needs_review", final_path.name, 0, note,
+                           bytes_fetched=max(0, int(res.bytes_written or 0)))
+                    staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+                    return
+                try:
+                    downloaded_size = final_path.stat().st_size
+                except Exception:
+                    downloaded_size = int(res.bytes_written or 0)
+                bytes_fetched = max(0, int(res.bytes_written or 0))
+                # part-staging-collision: the segmented path muxes straight to
+                # the reserved final name and never stages a `.part`, so the
+                # reservation has done its job and is released here rather than
+                # left beside the finished file.
+                staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+            # elif, NOT a second `if`. v3.66.819 shipped these as two independent
+            # ifs with `use_http = False` in the stream branch, and that did not skip
+            # the transfer selection -- it SELECTED THE ELSE. Measured on the deploy
+            # host: the route fired, ffmpeg transferred the bytes, and then
+            #   worker error: '_DLStub' object has no attribute 'save_as'
+            # because the else calls _pw_save(dl, ...) and the stream path's `dl` is
+            # the _DLStub stand-in (url + suggested_filename + cancel only). Exactly
+            # one of these three paths may run, so they are one chain.
+            elif use_http:
+                transfer_mode="http"
+                try:
+                    file_url=dl.url
+                    # Cancel Playwright's own download — we'll fetch directly.
+                    try: dl.cancel()
+                    except Exception: pass
+                    # v3.43.65: speculatively probe higher-tier variants of
+                    # the file URL. When the site embeds the resolution as
+                    # a path segment (Vixen's `/mp4_480/`, VIP4K's
+                    # `/1080p.mp4`, etc.) and `tier_probe_enabled` is True,
+                    # this swaps in the highest 200-OK variant. Fail-open:
+                    # the probe returns the original URL unchanged on any
+                    # failure, so download proceeds either way.
+                    file_url = self._probe_for_higher_tier(file_url, referer=page_url)
+                    # Phase 17.16: build mirror URL list. Original first, then
+                    # alternates synthesized by swapping subdomains. We cap the
+                    # attempts so a misconfigured list can't loop forever.
+                    attempt_urls = [file_url] + self._build_mirror_urls(file_url)
+                    last_err = None
+                    downloaded_size = 0
+                    for attempt_url in attempt_urls[:6]:
+                        try:
+                            if attempt_url != file_url:
+                                self._update_job(page_url, "running",
+                                    f"Trying mirror: {self._extract_host(attempt_url)}")
+                                self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
+                            downloaded_size, bytes_fetched = self._http_download(
+                                page_url, page, ctx, attempt_url, final_path)
+                            break  # success
+                        except _HTTPDownloadFailed as e:
+                            last_err = e
+                            # Don't retry on stop signal or rate-limit
+                            s = str(e).lower()
+                            if "stopped" in s or "rate" in s: raise
+                            continue
+                    if downloaded_size == 0 and last_err is not None:
+                        raise last_err
+                except _StagingUnavailable as e:
+                    # part-staging-collision: another live download owns the .part
+                    # this transfer would have staged into, or ownership could not
+                    # be measured. Deliberately NOT the Playwright fallback: the
+                    # browser would write its bytes to the very destination this
+                    # refusal is protecting. needs_review, so the operator sees it.
+                    note = f"staging unavailable: {e}"
+                    self._update_job(page_url, "needs_review", note,
+                                     filename=final_path.name, file_size=0)
+                    db_log(self.site_id, self.config.get("name","?"), page_url,
+                           "needs_review", final_path.name, 0, note,
+                           bytes_fetched=0)
+                    return
+                except _DownloadTruncated as e:
+                    # BP-INT (v3.66.284): the transfer ended short of the
+                    # advertised Content-Length. The .part was already removed and
+                    # no final file exists, so this is NOT a `done`. Route to
+                    # needs_review (not failed, not the Playwright fallback) so the
+                    # operator can force a fresh re-download (BP-VH3).
+                    self._update_job(page_url, "needs_review", f"Truncated download — {e}",
+                                     file_size=0)
+                    db_log(self.site_id, self.config.get("name","?"), page_url,
+                           "needs_review", "", 0, f"integrity: {e}")
+                    return
+                except _HTTPDownloadFailed as e:
+                    # Fall back to Playwright save_as. We need a fresh download
+                    # event; click again. Some sites won't let us do this twice
+                    # in quick succession, so this fallback is best-effort.
+                    self._update_job(page_url,"running",f"HTTP failed ({e}) — retrying via browser...")
+                    try:
+                        with page.expect_download(timeout=60000) as dli2: best["locator"].click()
+                        dl=dli2.value
+                    except PWTimeout:
+                        self._handle_failure(page_url,f"HTTP failed and no fallback download event: {e}")
+                        return
+                    # The httpx attempt failed and the browser moved the bytes, so
+                    # the row must say 'browser'. Leaving the 'http' set at the top
+                    # of this arm would record the transport that was ATTEMPTED --
+                    # a row that names a transfer which did not happen is the same
+                    # failure as the message prose this column replaces.
+                    transfer_mode="browser"
+                    downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
+                    # part-staging-collision: the browser wrote straight to
+                    # the reserved final name, so the reservation has done
+                    # its job and is released.
+                    staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+            else:
                 transfer_mode="browser"
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
-                # part-staging-collision: the browser wrote straight to
-                # the reserved final name, so the reservation has done
-                # its job and is released.
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
-        else:
-            transfer_mode="browser"
-            downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
-            staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
 
-        # ── Phase 17.20: Size sanity check ───────────────────────────────
-        # If the page advertised a file size and we got back something
-        # wildly smaller (under min_size_pct % of expected, default 5%),
-        # what we downloaded is almost certainly an error page, login wall,
-        # or geo-block redirect — NOT the file. Reject it before the
-        # integrity check (which would catch most but not all cases) and
-        # before counting it as 'done'.
-        expected = int(best.get("size") or 0)
-        min_pct = _finite_config_float(self.config.get("min_size_pct", 5.0) or 5.0, 5.0)
-        if expected > 1024*1024 and downloaded_size > 0:  # >1MB advertised
-            ratio = (downloaded_size / expected) * 100
-            if ratio < min_pct:
-                # Quarantine and fail
-                quarantine = final_path.parent / "_failed"
-                quarantine.mkdir(exist_ok=True)
-                try: shutil.move(str(final_path), str(quarantine/final_path.name))
-                except Exception: pass
-                msg = (f"Downloaded {fmt_bytes(downloaded_size)} but expected ~"
-                       f"{fmt_bytes(expected)} ({ratio:.1f}% — likely an error page); "
-                       f"moved to _failed/")
-                self._update_job(page_url, "failed", msg,
-                                 filename=filename, file_size=downloaded_size)
-                db_log(self.site_id, self.config.get("name","?"), page_url,
-                       "failed", filename, downloaded_size,
-                       f"size sanity: got {downloaded_size}, expected {expected}")
-                return
+            # ── Phase 17.20: Size sanity check ───────────────────────────────
+            # If the page advertised a file size and we got back something
+            # wildly smaller (under min_size_pct % of expected, default 5%),
+            # what we downloaded is almost certainly an error page, login wall,
+            # or geo-block redirect — NOT the file. Reject it before the
+            # integrity check (which would catch most but not all cases) and
+            # before counting it as 'done'.
+            expected = int(best.get("size") or 0)
+            min_pct = _finite_config_float(self.config.get("min_size_pct", 5.0) or 5.0, 5.0)
+            if expected > 1024*1024 and downloaded_size > 0:  # >1MB advertised
+                ratio = (downloaded_size / expected) * 100
+                if ratio < min_pct:
+                    # Quarantine and fail
+                    quarantine = final_path.parent / "_failed"
+                    quarantine.mkdir(exist_ok=True)
+                    try: shutil.move(str(final_path), str(quarantine/final_path.name))
+                    except Exception: pass
+                    msg = (f"Downloaded {fmt_bytes(downloaded_size)} but expected ~"
+                           f"{fmt_bytes(expected)} ({ratio:.1f}% — likely an error page); "
+                           f"moved to _failed/")
+                    self._update_job(page_url, "failed", msg,
+                                     filename=filename, file_size=downloaded_size)
+                    db_log(self.site_id, self.config.get("name","?"), page_url,
+                           "failed", filename, downloaded_size,
+                           f"size sanity: got {downloaded_size}, expected {expected}")
+                    return
 
-        # ── Phase 17.17: Hash verification ───────────────────────────────
-        # If the page advertised a hash for this file, verify after download.
-        # A mismatch means we got the wrong file (CDN serving a different
-        # asset, error page that happens to pass size check, etc.). Quarantine
-        # and fail; a retry might fetch a fresh copy from a different CDN node.
-        expected_algo = best.get("expected_hash_algo")
-        expected_hash = best.get("expected_hash_value")
-        if (self.config.get("verify_hash", True) and expected_algo and
-                expected_hash and final_path.exists() and downloaded_size > 0):
-            if not self._verify_hash_or_quarantine(
-                    page_url, expected_algo, expected_hash,
-                    final_path, filename, downloaded_size):
-                return  # handled inside helper (job marked failed, file quarantined)
+            # ── Phase 17.17: Hash verification ───────────────────────────────
+            # If the page advertised a hash for this file, verify after download.
+            # A mismatch means we got the wrong file (CDN serving a different
+            # asset, error page that happens to pass size check, etc.). Quarantine
+            # and fail; a retry might fetch a fresh copy from a different CDN node.
+            expected_algo = best.get("expected_hash_algo")
+            expected_hash = best.get("expected_hash_value")
+            if (self.config.get("verify_hash", True) and expected_algo and
+                    expected_hash and final_path.exists() and downloaded_size > 0):
+                if not self._verify_hash_or_quarantine(
+                        page_url, expected_algo, expected_hash,
+                        final_path, filename, downloaded_size):
+                    return  # handled inside helper (job marked failed, file quarantined)
 
-        # ── ffprobe integrity verification ───────────────────────────────
-        verify_msg=""
-        if self.config.get("verify_integrity",True) and final_path.exists() and downloaded_size>0:
-            ok, retry, reason = self._verify_integrity_or_quarantine(
-                page_url, final_path, filename, downloaded_size)
-            if retry:
-                return  # job re-queued by helper
-            if not ok:
-                return  # quarantined
-            # The checkmark is EARNED, not automatic. An empty reason means
-            # ffprobe ran and was satisfied. A non-empty reason on the ok path
-            # means the check failed open (e.g. "ffprobe not installed"), so
-            # say that instead of claiming a verification that never happened.
-            verify_msg=" ✓" if not reason else f" (unverified: {reason})"
-        # Clear the force_download flag on success so a future retry
-        # doesn't keep bypassing the threshold silently.
-        with self._lock:
-            if page_url in self.jobs:
-                self.jobs[page_url].pop("force_download",None)
-                # Phase 72: clear the corruption retry counter on success
-                self.jobs[page_url].pop("corruption_retries", None)
-        # v3.43.64: embed MP4 metadata for teach-path downloads too.
-        # We don't have extractor metadata (no library involved) so we
-        # pass only the fields we can derive cheaply: page title, source
-        # URL, site name. Resolution comes from the heuristic scorer's
-        # res_label which is what `quality` would be on this path.
-        # Fail-open — never blocks the "Saved" state transition below.
-        try:
-            self._embed_metadata_if_mp4(
-                str(final_path),
-                title=title,
-                performer="",  # teach path has no performer info
-                site_name=self.config.get("name", ""),
-                upload_date="",
-                source_url=page_url,
-                thumbnail_url="",  # teach path doesn't capture a thumb URL
-                quality=res_label(best["score"]) if isinstance(best, dict) else "",
-                duration_sec=0,
-                extractor_name="",  # not via library extractor
-            )
-        except Exception as e:
-            sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
-        file_size_on_disk = self._size_on_disk_after_tagging(
-            str(final_path), downloaded_size)
-        self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
-                         filename=filename,file_size=file_size_on_disk)
-        db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
-               honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
-               bytes_fetched=bytes_fetched,
-               transfer_mode=transfer_mode,  # which arm of the chain above ran
-               file_path=str(final_path),
-               **history_title_kwargs(self, page_url))
-        # Phase 66 (v3.41.0): cross-site filename duplicate detection.
-        # Look back through history for a successful download with the
-        # same filename + similar size. If found, log + emit event so
-        # the operator can decide whether to keep both. Opt-in via
-        # cross_site_dedup config flag (default off).
-        if self.config.get("cross_site_dedup", False):
+            # ── ffprobe integrity verification ───────────────────────────────
+            verify_msg=""
+            if self.config.get("verify_integrity",True) and final_path.exists() and downloaded_size>0:
+                ok, retry, reason = self._verify_integrity_or_quarantine(
+                    page_url, final_path, filename, downloaded_size)
+                if retry:
+                    return  # job re-queued by helper
+                if not ok:
+                    return  # quarantined
+                # The checkmark is EARNED, not automatic. An empty reason means
+                # ffprobe ran and was satisfied. A non-empty reason on the ok path
+                # means the check failed open (e.g. "ffprobe not installed"), so
+                # say that instead of claiming a verification that never happened.
+                verify_msg=" ✓" if not reason else f" (unverified: {reason})"
+            # Clear the force_download flag on success so a future retry
+            # doesn't keep bypassing the threshold silently.
+            with self._lock:
+                if page_url in self.jobs:
+                    self.jobs[page_url].pop("force_download",None)
+                    # Phase 72: clear the corruption retry counter on success
+                    self.jobs[page_url].pop("corruption_retries", None)
+            # v3.43.64: embed MP4 metadata for teach-path downloads too.
+            # We don't have extractor metadata (no library involved) so we
+            # pass only the fields we can derive cheaply: page title, source
+            # URL, site name. Resolution comes from the heuristic scorer's
+            # res_label which is what `quality` would be on this path.
+            # Fail-open — never blocks the "Saved" state transition below.
             try:
-                from .db import db_find_filename_duplicate
-                dup = db_find_filename_duplicate(
-                    filename, file_size=downloaded_size,
-                    exclude_site=self.site_id,
+                self._embed_metadata_if_mp4(
+                    str(final_path),
+                    title=title,
+                    performer="",  # teach path has no performer info
+                    site_name=self.config.get("name", ""),
+                    upload_date="",
+                    source_url=page_url,
+                    thumbnail_url="",  # teach path doesn't capture a thumb URL
+                    quality=res_label(best["score"]) if isinstance(best, dict) else "",
+                    duration_sec=0,
+                    extractor_name="",  # not via library extractor
                 )
-                if dup:
-                    self.log_event("cross_site_dupe",
-                        f"Likely duplicate of {dup['site_name']} URL from "
-                        f"{dup['ts']}: {dup['filename']}",
-                        url=page_url)
             except Exception as e:
-                self.log.warning("cross_site_dedup check failed: %s", e)
-        # Phase 21.1: track completion for dashboard ETA. Slide window
-        # to drop entries older than 5 minutes; recompute per-minute rate
-        # using the surviving entries' time span (avoids the spike where
-        # the FIRST few completions look like infinite throughput).
-        try:
-            import time as _tt
-            now = _tt.time()
-            self._recent_completions.append(now)
-            while self._recent_completions and (now - self._recent_completions[0]) > 300:
-                self._recent_completions.popleft()
-            if len(self._recent_completions) >= 2:
-                span = max(1.0, self._recent_completions[-1] - self._recent_completions[0])
-                self._recent_per_min = (len(self._recent_completions) - 1) * 60.0 / span
-            else:
-                self._recent_per_min = 0.0
-        except Exception: pass
-        # Phase 31: round-robin account rotation on success. Spreads load
-        # across configured accounts to avoid hammering any single one.
-        # Only kicks in when mode = "round_robin" and there are 2+ accounts;
-        # otherwise falls through silently (failover mode rotates only on
-        # auth failures, which is handled elsewhere).
-        try:
-            if self.config.get("accounts_mode") == "round_robin":
-                accounts = self.config.get("accounts") or []
-                if len(accounts) >= 2:
-                    self._rr_completion_count = getattr(self, "_rr_completion_count", 0) + 1
-                    every = max(1, int(self.config.get("accounts_rotate_every", 50) or 50))
-                    if self._rr_completion_count >= every:
-                        self._rr_completion_count = 0
-                        # Round-robin to NEXT non-cooled-down account.
-                        # Don't apply a 24h cooldown to the current one
-                        # (it's healthy — we're just spreading load).
-                        cur = getattr(self, "_active_account_idx", 0)
-                        now = time.time()
-                        for offset in range(1, len(accounts) + 1):
-                            cand = (cur + offset) % len(accounts)
-                            cd = float(accounts[cand].get("cooldown_until", 0) or 0)
-                            if cd <= now:
-                                self._active_account_idx = cand
-                                self.config["username"] = accounts[cand].get("username","")
-                                self.config["password"] = accounts[cand].get("password","")
-                                self.config["cookie_file"] = accounts[cand].get("cookie_file","")
-                                self.log_event("account_rotate",
-                                    f"Round-robin: switched to account {cand+1}/{len(accounts)} "
-                                    f"({accounts[cand].get('label','') or accounts[cand].get('username','?')})")
-                                cf = self.config.get("cookie_file","")
-                                if cf and Path(cf).exists():
-                                    try:
-                                        from .cookies import load_cookies_from_file
-                                        self.set_cookies(load_cookies_from_file(cf))
-                                    except Exception: pass
-                                else:
-                                    self.set_cookies([])
-                                break
-        except Exception as e:
-            self.log.exception("round_robin rotation failed: %s", e)
-        # Phase 20: fire integration hooks (post-download command,
-        # webhooks, Stash scan, Plex refresh, etc.). Fire-and-forget;
-        # hooks run in background threads and never block the worker.
-        try:
-            from .hooks import fire_event
-            fire_event("completed", self.config, job={
-                "url": page_url, "filename": filename, "path": str(final_path),
-                "file_size": downloaded_size,
-                "resolution": (best.get("text", "") or "")[:40],
-                "hash": expected_hash or "",
-                "message": f"Saved: {filename}{verify_msg}",
-            })
-        except Exception as e:
-            sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
-        # v3.43.28: deep Stash enrichment. Runs after the basic scan
-        # trigger (above, in fire_event) has had time to start. The
-        # enrichment method polls Stash for ~10s waiting for the scene
-        # to appear, then pushes BulkDownloader-known metadata (studio,
-        # tags, URL) onto the new scene. Best-effort — failures don't
-        # propagate. Runs on a background thread so a slow Stash
-        # response doesn't block the worker picking up the next URL.
-        try:
-            from . import stash_deep as _sd
-            if _sd.deep_enabled(self.config):
-                import threading as _t
-                _t.Thread(
-                    target=self._stash_enrich_after_scan,
-                    args=(page_url, str(final_path)),
-                    daemon=True,
-                    name=f"stash-enrich-{self.site_id}",
-                ).start()
-        except Exception as e:
-            sys.stderr.write(f"  stash_enrich spawn failed: {e}\n")
-        # v3.43.29: deep Plex enrichment — analogous to Stash. Runs
-        # after the basic refresh trigger (above, in fire_event).
-        # Path-scoped refresh + match confirmation + recently-added
-        # boost + collection routing all happen in the background.
-        try:
-            from . import plex_deep as _pd
-            if _pd.deep_enabled(self.config):
-                import threading as _t
-                _t.Thread(
-                    target=self._plex_enrich_after_scan,
-                    args=(page_url, str(final_path)),
-                    daemon=True,
-                    name=f"plex-enrich-{self.site_id}",
-                ).start()
-        except Exception as e:
-            sys.stderr.write(f"  plex_enrich spawn failed: {e}\n")
-        # v3.43.37: deep Jellyfin enrichment — mirrors Plex. Per-item
-        # refresh + match confirmation + collection routing in
-        # background.
-        try:
-            from . import jellyfin_deep as _jd
-            if _jd.deep_enabled(self.config):
-                import threading as _t
-                _t.Thread(
-                    target=self._jellyfin_enrich_after_scan,
-                    args=(page_url, str(final_path)),
-                    daemon=True,
-                    name=f"jellyfin-enrich-{self.site_id}",
-                ).start()
-        except Exception as e:
-            sys.stderr.write(f"  jellyfin_enrich spawn failed: {e}\n")
+                sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
+            file_size_on_disk = self._size_on_disk_after_tagging(
+                str(final_path), downloaded_size)
+            self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
+                             filename=filename,file_size=file_size_on_disk)
+            db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
+                   honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
+                   bytes_fetched=bytes_fetched,
+                   transfer_mode=transfer_mode,  # which arm of the chain above ran
+                   file_path=str(final_path),
+                   **history_title_kwargs(self, page_url))
+            # Phase 66 (v3.41.0): cross-site filename duplicate detection.
+            # Look back through history for a successful download with the
+            # same filename + similar size. If found, log + emit event so
+            # the operator can decide whether to keep both. Opt-in via
+            # cross_site_dedup config flag (default off).
+            if self.config.get("cross_site_dedup", False):
+                try:
+                    from .db import db_find_filename_duplicate
+                    dup = db_find_filename_duplicate(
+                        filename, file_size=downloaded_size,
+                        exclude_site=self.site_id,
+                    )
+                    if dup:
+                        self.log_event("cross_site_dupe",
+                            f"Likely duplicate of {dup['site_name']} URL from "
+                            f"{dup['ts']}: {dup['filename']}",
+                            url=page_url)
+                except Exception as e:
+                    self.log.warning("cross_site_dedup check failed: %s", e)
+            # Phase 21.1: track completion for dashboard ETA. Slide window
+            # to drop entries older than 5 minutes; recompute per-minute rate
+            # using the surviving entries' time span (avoids the spike where
+            # the FIRST few completions look like infinite throughput).
+            try:
+                import time as _tt
+                now = _tt.time()
+                self._recent_completions.append(now)
+                while self._recent_completions and (now - self._recent_completions[0]) > 300:
+                    self._recent_completions.popleft()
+                if len(self._recent_completions) >= 2:
+                    span = max(1.0, self._recent_completions[-1] - self._recent_completions[0])
+                    self._recent_per_min = (len(self._recent_completions) - 1) * 60.0 / span
+                else:
+                    self._recent_per_min = 0.0
+            except Exception: pass
+            # Phase 31: round-robin account rotation on success. Spreads load
+            # across configured accounts to avoid hammering any single one.
+            # Only kicks in when mode = "round_robin" and there are 2+ accounts;
+            # otherwise falls through silently (failover mode rotates only on
+            # auth failures, which is handled elsewhere).
+            try:
+                if self.config.get("accounts_mode") == "round_robin":
+                    accounts = self.config.get("accounts") or []
+                    if len(accounts) >= 2:
+                        self._rr_completion_count = getattr(self, "_rr_completion_count", 0) + 1
+                        every = max(1, int(self.config.get("accounts_rotate_every", 50) or 50))
+                        if self._rr_completion_count >= every:
+                            self._rr_completion_count = 0
+                            # Round-robin to NEXT non-cooled-down account.
+                            # Don't apply a 24h cooldown to the current one
+                            # (it's healthy — we're just spreading load).
+                            cur = getattr(self, "_active_account_idx", 0)
+                            now = time.time()
+                            for offset in range(1, len(accounts) + 1):
+                                cand = (cur + offset) % len(accounts)
+                                cd = float(accounts[cand].get("cooldown_until", 0) or 0)
+                                if cd <= now:
+                                    self._active_account_idx = cand
+                                    self.config["username"] = accounts[cand].get("username","")
+                                    self.config["password"] = accounts[cand].get("password","")
+                                    self.config["cookie_file"] = accounts[cand].get("cookie_file","")
+                                    self.log_event("account_rotate",
+                                        f"Round-robin: switched to account {cand+1}/{len(accounts)} "
+                                        f"({accounts[cand].get('label','') or accounts[cand].get('username','?')})")
+                                    cf = self.config.get("cookie_file","")
+                                    if cf and Path(cf).exists():
+                                        try:
+                                            from .cookies import load_cookies_from_file
+                                            self.set_cookies(load_cookies_from_file(cf))
+                                        except Exception: pass
+                                    else:
+                                        self.set_cookies([])
+                                    break
+            except Exception as e:
+                self.log.exception("round_robin rotation failed: %s", e)
+            # Phase 20: fire integration hooks (post-download command,
+            # webhooks, Stash scan, Plex refresh, etc.). Fire-and-forget;
+            # hooks run in background threads and never block the worker.
+            try:
+                from .hooks import fire_event
+                fire_event("completed", self.config, job={
+                    "url": page_url, "filename": filename, "path": str(final_path),
+                    "file_size": downloaded_size,
+                    "resolution": (best.get("text", "") or "")[:40],
+                    "hash": expected_hash or "",
+                    "message": f"Saved: {filename}{verify_msg}",
+                })
+            except Exception as e:
+                sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
+            # v3.43.28: deep Stash enrichment. Runs after the basic scan
+            # trigger (above, in fire_event) has had time to start. The
+            # enrichment method polls Stash for ~10s waiting for the scene
+            # to appear, then pushes BulkDownloader-known metadata (studio,
+            # tags, URL) onto the new scene. Best-effort — failures don't
+            # propagate. Runs on a background thread so a slow Stash
+            # response doesn't block the worker picking up the next URL.
+            try:
+                from . import stash_deep as _sd
+                if _sd.deep_enabled(self.config):
+                    import threading as _t
+                    _t.Thread(
+                        target=self._stash_enrich_after_scan,
+                        args=(page_url, str(final_path)),
+                        daemon=True,
+                        name=f"stash-enrich-{self.site_id}",
+                    ).start()
+            except Exception as e:
+                sys.stderr.write(f"  stash_enrich spawn failed: {e}\n")
+            # v3.43.29: deep Plex enrichment — analogous to Stash. Runs
+            # after the basic refresh trigger (above, in fire_event).
+            # Path-scoped refresh + match confirmation + recently-added
+            # boost + collection routing all happen in the background.
+            try:
+                from . import plex_deep as _pd
+                if _pd.deep_enabled(self.config):
+                    import threading as _t
+                    _t.Thread(
+                        target=self._plex_enrich_after_scan,
+                        args=(page_url, str(final_path)),
+                        daemon=True,
+                        name=f"plex-enrich-{self.site_id}",
+                    ).start()
+            except Exception as e:
+                sys.stderr.write(f"  plex_enrich spawn failed: {e}\n")
+            # v3.43.37: deep Jellyfin enrichment — mirrors Plex. Per-item
+            # refresh + match confirmation + collection routing in
+            # background.
+            try:
+                from . import jellyfin_deep as _jd
+                if _jd.deep_enabled(self.config):
+                    import threading as _t
+                    _t.Thread(
+                        target=self._jellyfin_enrich_after_scan,
+                        args=(page_url, str(final_path)),
+                        daemon=True,
+                        name=f"jellyfin-enrich-{self.site_id}",
+                    ).start()
+            except Exception as e:
+                sys.stderr.write(f"  jellyfin_enrich spawn failed: {e}\n")
+        finally:  # row 523: every post-reservation exit owns this unwind
+            # An opened-but-empty part carries no resumable bytes. Remove it
+            # before release so the exit is either a guarded non-empty part or
+            # no part and no claim. Any unmeasurable state remains claimed.
+            try:
+                if (_staging_path.exists()
+                        and _staging_path.stat().st_size == 0):
+                    _staging_path.unlink()
+            except OSError:
+                pass
+            staging_claim.release(_staging_path, _staging_identity)
     def _http_download(self,page_url,page,ctx,file_url,final_path):
+        """Run one HTTP transfer inside the RAM staging ownership scope."""
+        ramdisk_claims = []
+        identity = staging_claim.job_identity(page_url)
+        _rl_slot = None
+
+        def _acquire_rate_limit(file_url):
+            nonlocal _rl_slot
+            from . import rate_limit as _rl
+            _rl_slot = _rl.acquire(file_url)
+
+        def _release_rate_limit():
+            nonlocal _rl_slot
+            if _rl_slot is None:
+                return
+            try:
+                _rl_slot.release()
+            except Exception:
+                pass
+            finally:
+                _rl_slot = None
+
+        def _report_progress(downloaded, msg):
+            self._update_job(page_url, "running", msg,
+                             file_size=downloaded)
+            try:
+                from .db import queue_upsert
+                queue_upsert(self.site_id, page_url, status="running",
+                             message=msg, file_size=downloaded)
+            except sqlite3.Error:
+                # Tick-rate persist failures are transient; the next tick
+                # remains able to record the current position.
+                pass
+
+        try:
+            return self._http_download_claimed(
+                page_url, page, ctx, file_url, final_path, ramdisk_claims,
+                _acquire_rate_limit, _release_rate_limit, _report_progress)
+        finally:
+            # The inner response-loop finally releases at the historical
+            # boundary. This idempotent outer call also covers failures after
+            # acquisition but before that inner try is entered.
+            _release_rate_limit()
+            # The inner transfer deliberately retains a claim beside partial
+            # bytes for resume. Every other exit (including a response error
+            # before open()) drops only this job's now-empty RAM-side claim.
+            for claimed_path in ramdisk_claims:
+                claimed_path = Path(claimed_path)
+                try:
+                    has_bytes = (claimed_path.exists()
+                                 and claimed_path.stat().st_size > 0)
+                except OSError:
+                    continue
+                if not has_bytes:
+                    staging_claim.release(claimed_path, identity)
+
+    def _http_download_claimed(
+            self, page_url, page, ctx, file_url, final_path, ramdisk_claims,
+            acquire_rate_limit, release_rate_limit, report_progress):
         """Stream the file URL to disk via httpx, with progress updates,
         resume support via Range, and pause/stop responsiveness.
 
@@ -1971,15 +2043,15 @@ class TransportMixin:
         # when the caller remembered to call it is not a defence. A claim held
         # by a different job refuses here; there is no alternative name to
         # divert to at this depth.
+        identity = staging_claim.job_identity(page_url)
         try:
-            tmp_path = staging_claim.claim(
-                final_path, staging_claim.job_identity(page_url))
+            tmp_path = staging_claim.claim(final_path, identity)
         except (staging_claim.StagingClaimedByAnotherJob,
                 staging_claim.StagingUnavailable) as e:
             raise _StagingUnavailable(str(e))
         # The claim guards the ON-DISK staging name and is released with it,
         # even when the bytes are staged in RAM below.
-        owner_path = staging_claim.owner_path_for(tmp_path)
+        reserved_staging_path = tmp_path
         # v3.45.6 Phase 183: opt-in RAM-disk staging. If enabled AND
         # this file is sized to fit, redirect tmp_path to the ram
         # staging path. Meta sidecar moves with it (volatile — crash
@@ -1995,10 +2067,14 @@ class TransportMixin:
                 # later), so reserve assuming max — caller can refine
                 # after HEAD. Conservative: 0 → "reserve max_file_gb".
                 _stage = _rd.reserve_staging_path(
-                    str(final_path), 0, self.config)
+                    str(final_path), 0, self.config, identity=identity,
+                    claim_reserver=staging_claim.reserve)
                 if _stage:
                     _ramdisk_staging_path = _stage
                     tmp_path = Path(_stage)
+                    ramdisk_claims.append(tmp_path)
+            except staging_claim.StagingUnavailable as e:
+                raise _StagingUnavailable(str(e))
             except Exception as e:
                 sys.stderr.write(
                     f"[{self.site_id}] ramdisk reserve failed, "
@@ -2058,8 +2134,7 @@ class TransportMixin:
         # opens. The slot is held for the entire stream duration, so
         # max_concurrent is interpreted as max in-flight downloads
         # per domain — accurate for the "shared CDN backend" case.
-        from . import rate_limit as _rl
-        _rl_slot = _rl.acquire(file_url)
+        acquire_rate_limit(file_url)
         # Phase 15.4: try curl_cffi first if installed + enabled. We keep
         # the rest of the streaming code identical via duck-typed iter().
         use_cffi = self.config.get("use_curl_cffi", True)
@@ -2167,12 +2242,9 @@ class TransportMixin:
                             for _p in (tmp_path, meta_path):
                                 try: Path(_p).unlink(missing_ok=True)
                                 except Exception: pass
-                            # part-staging-collision: the .part is gone, so its
-                            # claim goes with it. owner_path names the ON-DISK
-                            # staging file even when the bytes were staged in
-                            # RAM, which release(tmp_path) would miss.
-                            try: owner_path.unlink(missing_ok=True)
-                            except Exception: pass
+                            staging_claim.release(tmp_path, identity)
+                            staging_claim.release(reserved_staging_path,
+                                                  identity)
                             self.log_event(
                                 "resume",
                                 f"HTTP 416 could not be proven complete "
@@ -2183,8 +2255,17 @@ class TransportMixin:
                                 f"unverifiable .part instead of promoting it")
                         # Proven complete. Zero bytes transferred: the size on
                         # disk is not, and never was, evidence of a download.
-                        tmp_path.rename(final_path)
-                        staging_claim.release(tmp_path, staging_claim.job_identity(page_url))
+                        if _ramdisk_staging_path:
+                            from . import ramdisk_stage as _rd
+                            ok, err = _rd.promote(
+                                _ramdisk_staging_path, str(final_path))
+                            if not ok:
+                                raise _HTTPDownloadFailed(
+                                    f"ramdisk promote failed: {err}")
+                        else:
+                            tmp_path.rename(final_path)
+                        staging_claim.release(tmp_path, identity)
+                        staging_claim.release(reserved_staging_path, identity)
                         try: meta_path.unlink(missing_ok=True)
                         except Exception: pass
                         return final_path.stat().st_size, 0
@@ -2332,20 +2413,7 @@ class TransportMixin:
                                 msg=f"⬇ {pct}% • {fmt_bytes(downloaded)}/{fmt_bytes(total)} • {fmt_bytes(int(speed))}/s{cap_str}"
                             else:
                                 msg=f"⬇ {fmt_bytes(downloaded)} • {fmt_bytes(int(speed))}/s{cap_str}"
-                            self._update_job(page_url,"running",msg,file_size=downloaded)
-                            # Phase 6.2: every progress tick, persist
-                            # current bytes-on-disk to the queue table.
-                            # On crash recovery, resume picks up from this
-                            # value (capped by actual .part file size).
-                            try:
-                                from .db import queue_upsert
-                                queue_upsert(self.site_id,page_url,status="running",
-                                             message=msg,file_size=downloaded)
-                            except sqlite3.Error:
-                                # Tick-rate persist — failures here are
-                                # transient (DB busy, locked); the next
-                                # tick will succeed. Not worth logging.
-                                pass
+                            report_progress(downloaded, msg)
         except httpx.HTTPError as e:
             raise _HTTPDownloadFailed(f"http error: {e}")
         except _HTTPDownloadFailed:
@@ -2360,10 +2428,7 @@ class TransportMixin:
             # succeed, fail, or get stopped. Without finally, a worker
             # that crashed in the middle of streaming would leak its
             # slot and eventually deadlock the domain.
-            try:
-                _rl_slot.release()
-            except Exception:
-                pass
+            release_rate_limit()
         # ── BP-INT (v3.66.284): download-integrity size gate ────────────
         # A stream that ended before the advertised Content-Length was
         # satisfied is a TRUNCATED transfer; the .part must never be promoted
@@ -2385,11 +2450,8 @@ class TransportMixin:
                         continue
                     try: Path(_p).unlink(missing_ok=True)
                     except Exception: pass
-                # part-staging-collision: the .part is gone, so its claim goes
-                # with it. owner_path names the ON-DISK staging file even when
-                # the bytes were staged in RAM.
-                try: owner_path.unlink(missing_ok=True)
-                except Exception: pass
+                staging_claim.release(tmp_path, identity)
+                staging_claim.release(reserved_staging_path, identity)
                 raise _DownloadTruncated(
                     f"truncated: received {downloaded} of {total} bytes "
                     f"(Content-Length); not promoting to final")
@@ -2412,7 +2474,7 @@ class TransportMixin:
                 TransportMixin._promote_or_abort(tmp_path, final_path,
                                              downloaded, total,
                                              meta_path=meta_path,
-                                                 identity=staging_claim.job_identity(page_url))
+                                                 identity=identity)
             except _DownloadTruncated:
                 raise
             except Exception as e:
@@ -2421,11 +2483,10 @@ class TransportMixin:
         # is complete and the .part no longer exists.
         try: meta_path.unlink(missing_ok=True)
         except Exception: pass
-        # part-staging-collision: and the staging claim with it. Idempotent --
-        # the direct path already released inside _promote_or_abort; this also
-        # covers the ramdisk promote, which never goes through that helper.
-        try: owner_path.unlink(missing_ok=True)
-        except Exception: pass
+        # Both reservations are identity-checked. On the disk path they are
+        # the same claim; on the RAM path one protects the destination name and
+        # the other protects the bytes that were actually written.
+        staging_claim.release(reserved_staging_path, identity)
         # Phase 17.19: feed this download's measured throughput into the
         # EWMA so the next download picks a better chunk size. Only count
         # bytes ACTUALLY transferred this call (not resumed bytes) -- which is

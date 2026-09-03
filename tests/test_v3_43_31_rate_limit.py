@@ -14,9 +14,13 @@ Coverage:
 """
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tests.rate_limit_seam import run_sequential_transfer  # noqa: E402
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -402,39 +406,89 @@ def test_rate_limit_defaults_in_app_cfg():
 
 # ── Runner integration ───────────────────────────────────────────────
 
-def test_runner_acquires_slot_in_http_download():
-    """The single-stream downloader must acquire a slot before the
-    httpx stream opens. Otherwise the rate limit has no effect."""
-    src = _bd_runner_src()
-    fn_pos = src.find("def _http_download(self,page_url,page,ctx,file_url,final_path)")
-    assert fn_pos > 0
-    # v3.45.6: window bumped 8000→10000 to accommodate Phase 183
-    # ramdisk staging opt-in block inserted before rate_limit acquire.
-    body = src[fn_pos:fn_pos + 10000]
-    assert "from . import rate_limit" in body
-    assert "_rl.acquire(file_url)" in body
+# THE SOURCE-TEXT ERA OF THESE TWO GATES IS OVER, AND IT ENDED BY MEASUREMENT.
+# Both used to locate `def _http_download` and assert that literals appeared
+# inside its body -- `from . import rate_limit`, `_rl.acquire(file_url)`,
+# `_rl_slot.release()`. On 2026-09-03 a staging cut split the transfer into a
+# thin `_http_download` wrapper holding three closures and an
+# `_http_download_claimed` body that does the work. The literals stayed in the
+# wrapper's closures. The single live `acquire_rate_limit(file_url)` call moved
+# into the body neither gate reads, and DELETING IT -- switching per-domain
+# rate limiting off completely -- left both gates GREEN. CLAUDE.md A7: a gate
+# must see the subject it claims to judge.
+#
+# The replacements RUN the transfer through `tests/rate_limit_seam.py` and
+# count what the seam actually did. That is immune to both halves of the old
+# failure: a literal in an unreachable closure cannot satisfy an exact count,
+# and moving the call between functions cannot break one. See
+# `tests/mutants/v3_66_1453_w2_staginge_rate_limit_seam.json` for the mutants
+# that hold this line.
+
+def test_runner_acquires_slot_in_http_download(monkeypatch, tmp_path):
+    """The single-stream downloader must take exactly one slot, and must take
+    it BEFORE the httpx stream opens. Otherwise the rate limit has no effect."""
+    run = run_sequential_transfer(
+        monkeypatch, tmp_path, page_url="https://page.test/acquire-seam")
+
+    # Preconditions first. A refusal before the transport would make every
+    # count below trivially satisfiable, so the transfer is proved to have
+    # happened before its rate-limit behaviour is judged.
+    assert run.error is None, f"the probe transfer did not complete: {run.error!r}"
+    assert run.result == (8, 8), (
+        f"the fixture did not move its 8 scripted bytes; got {run.result!r}, "
+        f"so nothing below is a statement about a real transfer")
+    assert run.stream_opens == 1, (
+        f"the httpx stream opened {run.stream_opens} times, not once")
+
+    assert run.acquires == 1, (
+        f"rate_limit.acquire fired {run.acquires} times across one sequential "
+        f"transfer, expected exactly 1. Event log: {run.events}")
+    assert run.acquired_urls == ["https://cdn.test/seam.mp4"], (
+        f"the slot was taken against {run.acquired_urls}, not the file URL "
+        f"whose domain the limiter is keyed on")
+    assert run.milestones() == [
+        "acquire", "stream-open", "stream-close", "release"], (
+        f"the slot must be held ACROSS the stream, so acquire precedes the "
+        f"open and release follows the close; got {run.milestones()}")
 
 
-def test_runner_releases_slot_in_finally():
+def test_runner_releases_slot_in_finally(monkeypatch, tmp_path):
     """Without the finally, an exception mid-stream would leak the slot.
-    The release lives inside a `finally:` clause at the bottom of
-    _http_download's main try block — well past the function header
-    so the search window has to be generous."""
-    # AST-derived body, not a fixed character window. This was
-    # src[fn_pos:fn_pos + 22000] -- a magic number already bumped once
-    # ("window bumped 20000->22000"), and any comment added to the function
-    # pushed the release past it and failed a test whose subject was unchanged.
-    # A denominator that shifts when unrelated text is added is not measuring
-    # the property it names.
-    import ast as _ast
-    src = _bd_runner_src()
-    _tree = _ast.parse(src)
-    _fn = next(n for n in _ast.walk(_tree)
-               if isinstance(n, _ast.FunctionDef) and n.name == "_http_download")
-    body = _ast.unparse(_fn)
-    assert "_rl_slot.release()" in body
-    # Must be wrapped in a try/finally so it runs even on exception
-    assert "finally:" in body
+
+    The behavioural form of that claim: inject a transport failure partway
+    through the byte stream and require the slot to come back anyway, exactly
+    once. A `finally:` keyword in the right function is what used to be
+    asserted; this asserts the thing the keyword is there to guarantee.
+    """
+    from bulk_downloader.runner_transport import _HTTPDownloadFailed
+
+    # Control: the ordinary success path gives the slot back exactly once, so
+    # a "released once" verdict on the failure path is not the ambient state.
+    ok = run_sequential_transfer(
+        monkeypatch, tmp_path / "ok", page_url="https://page.test/release-ok")
+    assert ok.error is None and ok.result == (8, 8), (
+        f"the success control did not transfer: {ok.result!r} {ok.error!r}")
+    assert (ok.acquires, ok.releases) == (1, 1), (
+        f"success path acquired {ok.acquires} and released {ok.releases}, "
+        f"expected 1 and 1. Event log: {ok.events}")
+
+    broken = run_sequential_transfer(
+        monkeypatch, tmp_path / "broken",
+        page_url="https://page.test/release-on-error", raise_after=1)
+    assert isinstance(broken.error, _HTTPDownloadFailed), (
+        f"the mid-stream injection did not reach the transfer's error path; "
+        f"got {broken.error!r} with log {broken.events}")
+    assert broken.acquires == 1, (
+        f"the failing transfer took {broken.acquires} slots, expected 1 -- "
+        f"a leak test over an unacquired slot proves nothing")
+    assert broken.releases == 1, (
+        f"a transfer that failed mid-stream released its slot "
+        f"{broken.releases} times, expected exactly 1. Anything less leaks "
+        f"the slot and eventually deadlocks the domain. Log: {broken.events}")
+    assert broken.milestones() == [
+        "acquire", "stream-open", "stream-error", "stream-close", "release"], (
+        f"the release must follow the failure, not precede it; got "
+        f"{broken.milestones()}")
 
 
 def test_parallel_downloader_acquires_per_worker():

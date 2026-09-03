@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for rows 523 and 501. The M1 and M8 structural anchors are byte-identical to the primary battery, but this band merely imports the module and therefore both must ESCAPE.",
+  "subject": "transform control: importing runner_transport cannot catch removal of the ownership unwind",
+  "band": [
+    "tests/test_part_staging_collision.py::test_transform_control_only_imports_runner_transport"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL remove ownership unwind from an import-only spec",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "new": "            pass\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_transform_control_only_imports_runner_transport"
+    },
+    {
+      "label": "CONTROL hand the sequential count through shared state",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=max\\(0, )transferred(?=\\))",
+      "new": "self._last_transferred",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_transform_control_only_imports_runner_transport"
+    }
+  ]
+}

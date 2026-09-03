@@ -19,8 +19,8 @@ Constraints:
   • Concurrent files can't exceed `ramdisk_capacity_gb` total — when
     full, fall back to direct-to-disk (this module returns None, caller
     uses normal path)
-  • Reservation/release is in-memory only — process restart clears the
-    reservation table, which is fine since RAM-disk content is gone too
+  • Capacity accounting is process-local, but path ownership is a durable
+    filesystem claim so a second process cannot reuse a live staging file
 
 Operator config (BD site config):
   • ramdisk_path: '/mnt/ramdisk' or 'R:\\' (empty = disabled)
@@ -41,10 +41,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 
-# In-memory reservation table: {staging_path: (bytes_reserved, ts)}.
-# Protected by _lock. Lives for the BD process lifetime — process
-# restart implies RAM-disk is also wiped (or stale entries belong to
-# a different BD run we shouldn't touch).
+# In-memory capacity table: {staging_path: (bytes_reserved, ts)}. Protected by
+# _lock and deliberately advisory. Exclusive path ownership is the adjacent
+# staging_claim sidecar, which survives a second process or process restart.
 _reservations: dict = {}
 _lock = threading.Lock()
 
@@ -96,12 +95,16 @@ def reserve_staging_path(
     final_path: str,
     expected_size: int,
     config: dict,
+    identity: str | None = None,
+    claim_reserver=None,
 ) -> Optional[str]:
     """Reserve a staging path on RAM-disk for an in-flight download.
 
-    Returns the staging path string on success, or None if RAM-disk
-    isn't enabled / file is too big / not enough room. Caller must
-    invoke `release(staging_path)` after promote()/cleanup().
+    Returns a durably claimed staging path string on success, or None if the
+    RAM-disk isn't enabled / file is too big / not enough room. Unmeasurable
+    ownership raises ``staging_claim.StagingUnavailable`` rather than returning
+    an unclaimed path. Caller releases both this module's capacity slot and the
+    filesystem claim after promote()/cleanup().
 
     `expected_size` is the size we plan to download in bytes. If 0
     or negative (unknown), we reserve `max_file_gb` worth and let
@@ -135,14 +138,18 @@ def reserve_staging_path(
     except OSError as e:
         sys.stderr.write(f"[ramdisk] mkdir failed: {e}\n")
         return None
-    base = final.name
-    candidate = stage_dir / (base + ".part")
-    counter = 1
-    while candidate.exists() or str(candidate) in _reservations:
-        candidate = stage_dir / f"{base}.{counter}.part"
-        counter += 1
-        if counter > 10000:
-            return None  # absurd collision storm; bail
+    # The RAM-disk namespace is shared by every site and download directory,
+    # and process-local bookkeeping cannot reserve it across workers or a
+    # restart. Publish the same durable filesystem claim used by the ordinary
+    # transport path. ``reserve`` keeps the historical flat basename while
+    # atomically diverting a different owner to a suffixed candidate.
+    # The transport owns staging-claim policy and injects its atomic reserve
+    # operation. Without that authority this helper must fail back to disk;
+    # returning an unclaimed RAM path would make ownership UNKNOWN.
+    if not identity or claim_reserver is None:
+        return None
+    _candidate_final, candidate = claim_reserver(
+        stage_dir / final.name, identity)
     with _lock:
         _reservations[str(candidate)] = (reserve_bytes, time.time())
     return str(candidate)

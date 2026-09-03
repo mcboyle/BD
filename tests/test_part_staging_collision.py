@@ -58,6 +58,7 @@ transfer's own proxy resolution is asserted to be None so nothing can leave it.
 from __future__ import annotations
 
 import json
+import importlib
 import logging
 import os
 import threading
@@ -71,6 +72,11 @@ import pytest
 # This gate's subject is the transport module's staging path, so the affected
 # band selects it whenever that module changes.
 BD_GATE_SCOPE = "module"
+
+
+def _load_bd_module(name):
+    """Load an optional production sibling without changing its import mode."""
+    return importlib.import_module(f"bulk_downloader.{name}")
 
 # One chunk of the transfer loop. `chunk_size_mb` is set to match, so httpx
 # yields exactly this much per iteration and every write is far larger than the
@@ -958,3 +964,647 @@ def test_browser_fallback_writes_the_path_the_transport_reserved(tmp_path):
             sc.release(uncontended_stage, sc.job_identity("https://example.test/browser-ok"), force=True)
     finally:
         sc.release(staging, identity, force=True)
+
+
+# Rows 523 and 501: the top-level reservation owns every exit, and a RAM
+# staging path owns the bytes written under that path.
+
+class _Row523Locator:
+    def __init__(self, href):
+        self.href = href
+
+    def get_attribute(self, name):
+        return self.href if name == "href" else None
+
+    def click(self):
+        return None
+
+
+class _Row523Page:
+    def __init__(self, href):
+        self.url = "https://example.invalid/page"
+        self.href = href
+
+    def title(self):
+        return "Scene"
+
+    def expect_download(self, timeout):
+        from bulk_downloader.runner_transport import PWTimeout
+        raise PWTimeout(f"synthetic fallback timeout after {timeout}")
+
+
+def _row523_best(href):
+    return {
+        "locator": _Row523Locator(href),
+        "score": 1080,
+        "text": "1080p",
+        "size": 0,
+        "_via_learned": False,
+        "_all_candidates": [],
+    }
+
+
+def _row523_runner(http_behavior="real"):
+    from collections import deque
+    from types import SimpleNamespace
+    from bulk_downloader import runner_transport as rt
+
+    class _Runner(rt.TransportMixin):
+        def __init__(self):
+            self.site_id = "row523"
+            self.config = {
+                "name": "Row 523",
+                "filename_template": "{filename}",
+                "skip_if_exists": False,
+                "use_http_dl": True,
+                "use_curl_cffi": False,
+                "parallel_chunks": 1,
+                "verify_integrity": False,
+                "verify_hash": False,
+                "max_mbps": 0,
+            }
+            self.jobs = {}
+            self._lock = threading.RLock()
+            self._stop = threading.Event()
+            self._pause = threading.Event()
+            self._pause.set()
+            self.log = logging.getLogger("row523")
+            self.job_updates = []
+            self.failures = []
+            self._recent_completions = deque()
+            self._recent_per_min = 0.0
+            self.http_behavior = http_behavior
+
+        def _update_job(self, url, status, message, **extra):
+            self.job_updates.append((url, status, message, extra))
+
+        def _handle_failure(self, url, message, screenshot=""):
+            self.failures.append((url, message))
+            self._update_job(url, "failed", message, screenshot=screenshot)
+            rt.db_log(self.site_id, self.config["name"], url, "failed",
+                      "", 0, message)
+
+        def _screenshot(self, page, url):
+            return ""
+
+        def _probe_for_higher_tier(self, file_url, referer=""):
+            return file_url
+
+        def _build_mirror_urls(self, file_url):
+            return []
+
+        def _pick_fastest_mirror(self, file_url):
+            return file_url
+
+        def _download_proxy_url(self):
+            return None
+
+        def _recommended_chunk_bytes(self):
+            return CHUNK
+
+        def _current_cap_mbps(self):
+            return 0
+
+        def _start_daily_byte_accumulator(self):
+            return None
+
+        def _finish_daily_byte_accumulator(self, accumulator):
+            return None
+
+        def _http_download(self, page_url, page, ctx, file_url, final_path):
+            if self.http_behavior == "success":
+                Path(final_path).write_bytes(b"http-ok")
+                return len(b"http-ok"), len(b"http-ok")
+            if self.http_behavior == "partial":
+                from bulk_downloader import staging_claim as sc
+                staging = sc.claim(final_path, sc.job_identity(page_url))
+                staging.write_bytes(b"partial-bytes")
+                raise rt._HTTPDownloadFailed("synthetic interrupted transfer")
+            return super()._http_download(page_url, page, ctx, file_url,
+                                          final_path)
+
+        def _pw_save(self, dl, final_path):
+            Path(final_path).write_bytes(b"browser-ok")
+            return len(b"browser-ok"), len(b"browser-ok")
+
+        def _hls_download_guarded(self, module, url, final_path, **kwargs):
+            Path(final_path).write_bytes(b"segmented-ok")
+            return SimpleNamespace(ok=True, bytes_written=len(b"segmented-ok"),
+                                   error="", error_detail="")
+
+        def _embed_metadata_if_mp4(self, *args, **kwargs):
+            return None
+
+        def _size_on_disk_after_tagging(self, final_path, fallback):
+            return Path(final_path).stat().st_size
+
+    return _Runner()
+
+
+def _row523_patch_boundaries(monkeypatch, logs):
+    from bulk_downloader import runner_transport as rt
+    hooks = _load_bd_module("hooks")
+
+    monkeypatch.setattr(rt, "gate_candidate_url",
+                        lambda locator, page_url, **kwargs: (locator.href, None))
+    monkeypatch.setattr(rt, "db_skip_identity",
+                        lambda page_url, final_path: ("different", ""))
+    monkeypatch.setattr(rt, "history_title_kwargs", lambda runner, url: {})
+    monkeypatch.setattr(rt, "db_log", lambda *args, **kwargs: logs.append(args))
+    monkeypatch.setattr(hooks, "fire_event", lambda *args, **kwargs: None)
+
+
+def _row523_orphans(monkeypatch, download_dir):
+    crash_recovery = _load_bd_module("crash_recovery")
+    monkeypatch.setattr(crash_recovery, "_ignored_paths", lambda: set())
+    return crash_recovery.scan_for_orphans(
+        s_cfg={"row523": {"download_dir": str(download_dir)}},
+        runners={}, age_threshold_s=0)
+
+
+def test_do_download_staging_unavailable_exit_drops_its_empty_owned_claim(
+        tmp_path, monkeypatch):
+    from bulk_downloader import staging_claim as sc
+
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    runner = _row523_runner()
+    page_url = "https://example.invalid/staging-unavailable"
+    final = tmp_path / "scene.mp4"
+    staging = sc.staging_path_for(final)
+    owner = sc.owner_path_for(staging)
+    real_claim = sc.claim
+    observed = []
+
+    def _fail_the_inner_claim(final_path, identity):
+        if observed:
+            raise AssertionError("inner claim injection fired more than once")
+        if owner.exists():
+            observed.append({
+                "owners": len(list(tmp_path.glob("*.owner"))),
+                "holder": sc._read_owner_identity(owner),
+                "parts": len(list(tmp_path.glob("*.part"))),
+            })
+            raise sc.StagingUnavailable("synthetic inner claim ENOSPC")
+        return real_claim(final_path, identity)
+
+    monkeypatch.setattr(sc, "claim", _fail_the_inner_claim)
+    runner._do_download(
+        _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
+        _row523_best("https://cdn.invalid/scene.mp4"), tmp_path, "1080p")
+
+    identity = sc.job_identity(page_url)
+    assert observed == [{"owners": 1, "holder": identity, "parts": 0}], (
+        f"the injection missed the one-owner/no-part precondition: {observed}")
+    assert _row523_orphans(monkeypatch, tmp_path) == [], (
+        "the owner-only residue unexpectedly appeared in the *.part scan")
+    owners = list(tmp_path.glob("*.owner"))
+    assert owners == [], (
+        f"staging-unavailable exit left exactly {len(owners)} owner file: {owners}")
+    assert [u[1] for u in runner.job_updates].count("needs_review") == 1
+    assert [row[3] for row in logs].count("needs_review") == 1
+
+
+def test_do_download_http_then_timeout_exit_drops_its_empty_owned_claim(
+        tmp_path, monkeypatch):
+    from bulk_downloader import runner_transport as rt
+    from bulk_downloader import staging_claim as sc
+    rate_limit = _load_bd_module("rate_limit")
+
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    page_url = "https://example.invalid/http-404"
+    final = tmp_path / "scene.mp4"
+    staging = sc.staging_path_for(final)
+    owner = sc.owner_path_for(staging)
+    observed = []
+
+    class _Slot:
+        def release(self):
+            return None
+
+    class _Response:
+        status_code = 404
+        headers = {}
+
+        def __enter__(self):
+            observed.append({
+                "owners": len(list(tmp_path.glob("*.owner"))),
+                "holder": sc._read_owner_identity(owner),
+                "parts": len(list(tmp_path.glob("*.part"))),
+            })
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(rate_limit, "acquire", lambda url: _Slot())
+    monkeypatch.setattr(rt.httpx, "stream", lambda *args, **kwargs: _Response())
+    runner = _row523_runner()
+    runner._do_download(
+        _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
+        _row523_best("https://cdn.invalid/scene.mp4"), tmp_path, "1080p")
+
+    identity = sc.job_identity(page_url)
+    assert observed == [{"owners": 1, "holder": identity, "parts": 0}], (
+        f"the 404 injection missed the one-owner/no-part precondition: {observed}")
+    assert len(runner.failures) == 1
+    assert "HTTP 404" in runner.failures[0][1]
+    assert [row[3] for row in logs].count("failed") == 1
+    assert _row523_orphans(monkeypatch, tmp_path) == []
+    owners = list(tmp_path.glob("*.owner"))
+    assert owners == [], (
+        f"HTTP-then-timeout exit left exactly {len(owners)} owner file: {owners}")
+
+
+def test_do_download_scope_will_not_delete_a_different_jobs_claim(
+        tmp_path, monkeypatch):
+    from bulk_downloader import staging_claim as sc
+
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    runner = _row523_runner()
+    page_url = "https://example.invalid/losing-owner"
+    other = sc.job_identity("https://example.invalid/other-job")
+    final = tmp_path / "scene.mp4"
+    staging = sc.staging_path_for(final)
+    owner = sc.owner_path_for(staging)
+    real_claim = sc.claim
+    injected = []
+
+    def _replace_before_refusal(final_path, identity):
+        if owner.exists():
+            owner.write_text(json.dumps({"v": 1, "job": other}),
+                             encoding="utf-8")
+            injected.append(sc._read_owner_identity(owner))
+            raise sc.StagingUnavailable("synthetic ownership changed")
+        return real_claim(final_path, identity)
+
+    monkeypatch.setattr(sc, "claim", _replace_before_refusal)
+    runner._do_download(
+        _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
+        _row523_best("https://cdn.invalid/scene.mp4"), tmp_path, "1080p")
+
+    assert injected == [other], "the foreign-owner injection did not fire once"
+    owners = list(tmp_path.glob("*.owner"))
+    assert owners == [owner]
+    assert sc._read_owner_identity(owner) == other, (
+        "the scope guard blind-unlinked another worker's claim")
+
+
+def test_interrupted_do_download_keeps_its_part_claimed_for_resume(
+        tmp_path, monkeypatch):
+    from bulk_downloader import staging_claim as sc
+
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    runner = _row523_runner("partial")
+    page_url = "https://example.invalid/interrupted"
+    final = tmp_path / "scene.mp4"
+    runner._do_download(
+        _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
+        _row523_best("https://cdn.invalid/scene.mp4"), tmp_path, "1080p")
+
+    staging = sc.staging_path_for(final)
+    owner = sc.owner_path_for(staging)
+    identity = sc.job_identity(page_url)
+    assert staging.read_bytes() == b"partial-bytes"
+    assert list(tmp_path.glob("*.part")) == [staging]
+    assert list(tmp_path.glob("*.owner")) == [owner]
+    assert sc._read_owner_identity(owner) == identity
+    assert sc.claim(final, identity) == staging
+    assert staging.read_bytes() == b"partial-bytes", (
+        "the same job did not resume the exact bytes its claim protects")
+    sc.release(staging, force=True)
+
+
+@pytest.mark.parametrize("mode,href,payload", [
+    ("segmented", "https://cdn.invalid/scene.m3u8", b"segmented-ok"),
+    ("http", "https://cdn.invalid/scene.mp4", b"http-ok"),
+    ("browser", "https://cdn.invalid/scene.mp4", b"browser-ok"),
+])
+def test_successful_do_download_paths_leave_no_staging_residue(
+        mode, href, payload, tmp_path, monkeypatch):
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    runner = _row523_runner("success" if mode == "http" else "real")
+    if mode == "browser":
+        runner.config["use_http_dl"] = False
+    page_url = f"https://example.invalid/{mode}"
+
+    runner._do_download(_Row523Page(href), _Ctx(), page_url,
+                        _row523_best(href), tmp_path, "1080p")
+
+    finals = [p for p in tmp_path.iterdir()
+              if not p.name.endswith((".part", ".owner", ".meta"))]
+    assert len(finals) == 1 and finals[0].read_bytes() == payload
+    assert list(tmp_path.rglob("*.part")) == []
+    assert list(tmp_path.rglob("*.owner")) == []
+    assert [u[1] for u in runner.job_updates].count("done") == 1
+    assert [row[3] for row in logs].count("done") == 1
+
+
+def test_every_post_reservation_return_is_inside_one_ownership_scope():
+    """A future return cannot escape merely because nobody enumerated it."""
+    import ast
+    import inspect
+    import textwrap
+    from bulk_downloader.runner_transport import TransportMixin
+
+    fn = ast.parse(textwrap.dedent(
+        inspect.getsource(TransportMixin._do_download))).body[0]
+    reserves = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name)
+                and n.func.value.id == "staging_claim"
+                and n.func.attr == "reserve"]
+    assert len(reserves) == 1, f"expected one reservation, found {len(reserves)}"
+    reserve = reserves[0]
+
+    def _contains(root, target):
+        return any(node is target for node in ast.walk(root))
+
+    reserve_statement_indexes = [i for i, statement in enumerate(fn.body)
+                                 if _contains(statement, reserve)]
+    assert len(reserve_statement_indexes) == 1
+    post_reservation = fn.body[reserve_statement_indexes[0] + 1:]
+    population = [n for statement in post_reservation
+                  for n in ast.walk(statement) if isinstance(n, ast.Return)]
+    assert population, "the post-reservation return denominator is empty"
+
+    def _has_owned_release(node):
+        calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and isinstance(n.func.value, ast.Name)
+                 and n.func.value.id == "staging_claim"
+                 and n.func.attr == "release"]
+        return any(len(call.args) >= 2 for call in calls)
+
+    guards = [n for statement in post_reservation for n in ast.walk(statement)
+              if isinstance(n, ast.Try)
+              and n.finalbody and _has_owned_release(
+                  ast.Module(body=n.finalbody, type_ignores=[]))]
+    assert len(guards) == 1, (
+        f"expected one ownership finally, found {len(guards)} for "
+        f"{len(population)} post-reservation returns")
+    guarded_returns = {id(n) for n in ast.walk(
+        ast.Module(body=guards[0].body, type_ignores=[]))
+                       if isinstance(n, ast.Return)}
+    unguarded = [n.lineno for n in population if id(n) not in guarded_returns]
+    assert unguarded == [], (
+        f"post-reservation returns outside the ownership scope: {unguarded}; "
+        f"denominator={len(population)}")
+    assert fn.body[-1] is guards[0], (
+        "the ownership scope is not the final top-level statement; a return "
+        "can be appended after it and strand the reservation")
+
+
+def test_ramdisk_writer_path_has_its_own_claim_during_transfer(
+        origin, tmp_path, monkeypatch):
+    from bulk_downloader import staging_claim as sc
+    rd = _load_bd_module("ramdisk_stage")
+
+    ramdisk = tmp_path / "ramdisk"
+    download_dir = tmp_path / "downloads"
+    ramdisk.mkdir()
+    download_dir.mkdir()
+    page_url = "https://example.invalid/ramdisk-interrupted"
+    final = download_dir / "RamScene.mp4"
+    disk_staging = sc.staging_path_for(final)
+    disk_owner = sc.owner_path_for(disk_staging)
+    observed = []
+
+    def _measure_and_stop(harness):
+        written = list((ramdisk / "staging").glob("*.part"))
+        observed.append({
+            "written": written,
+            "sizes": [p.stat().st_size for p in written],
+            "disk_part": disk_staging.exists(),
+            "disk_owners": len(list(download_dir.glob("*.owner"))),
+            "disk_holder": (sc._read_owner_identity(disk_owner)
+                            if disk_owner.exists() else None),
+            "written_owners": [sc.owner_path_for(p).exists() for p in written],
+            "written_holders": [sc._read_owner_identity(sc.owner_path_for(p))
+                                for p in written
+                                if sc.owner_path_for(p).exists()],
+        })
+        harness._stop.set()
+
+    rd._reservations.clear()
+    harness = _harness("ramdisk-interrupted", after_write=_measure_and_stop)
+    harness.config.update({
+        "use_ramdisk_stage": True,
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 0.05,
+        "ramdisk_max_file_gb": 0.01,
+    })
+    try:
+        with pytest.raises(Exception, match="stopped"):
+            harness._http_download(page_url, None, _Ctx(),
+                                   origin["base"] + "/scene-b.mp4", final)
+        identity = sc.job_identity(page_url)
+        assert len(observed) == 1, f"write seam fired {len(observed)} times"
+        row = observed[0]
+        assert len(row["written"]) == 1, row
+        assert row["written"][0].parent == ramdisk / "staging"
+        assert row["written"][0].parent != download_dir
+        assert row["sizes"] == [CHUNK], (
+            f"transfer moved {row['sizes']}, not exact nonzero N={CHUNK}")
+        assert row["disk_part"] is False, (
+            "claim() unexpectedly created the on-disk .part")
+        assert row["disk_owners"] == 1
+        assert row["disk_holder"] == identity
+        assert row["written_owners"] == [True], (
+            f"the {CHUNK}-byte writer path has no claim: {row}")
+        assert row["written_holders"] == [identity]
+    finally:
+        for part in (ramdisk / "staging").glob("*.part"):
+            part.unlink(missing_ok=True)
+            sc.release(part, page_url, force=True)
+        sc.release(disk_staging, page_url, force=True)
+        rd._reservations.clear()
+
+
+def test_ramdisk_cross_process_collision_gets_two_claimed_paths(
+        tmp_path):
+    from bulk_downloader import staging_claim as sc
+    rd = _load_bd_module("ramdisk_stage")
+
+    ramdisk = tmp_path / "ramdisk"
+    ramdisk.mkdir()
+    config = {
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 0.05,
+        "ramdisk_max_file_gb": 0.01,
+    }
+    final_a = tmp_path / "site-a" / "Same.mp4"
+    final_b = tmp_path / "site-b" / "Same.mp4"
+    final_a.parent.mkdir()
+    final_b.parent.mkdir()
+    rd._reservations.clear()
+    first = rd.reserve_staging_path(
+        str(final_a), 4096, config,
+        identity=sc.job_identity(str(final_a.resolve())),
+        claim_reserver=sc.reserve)
+    assert first is not None, "first reserve failed open to the disk path"
+    assert Path(first).parent == ramdisk / "staging"
+    rd._reservations.clear()  # the second process has no copy of the first table
+    second = rd.reserve_staging_path(
+        str(final_b), 4096, config,
+        identity=sc.job_identity(str(final_b.resolve())),
+        claim_reserver=sc.reserve)
+    assert second is not None, "second reserve failed open to the disk path"
+    assert Path(second).parent == ramdisk / "staging"
+    try:
+        paths = {Path(first), Path(second)}
+        owners = list((ramdisk / "staging").glob("*.owner"))
+        assert len(paths) == 2, (
+            f"two process tables yielded {len(paths)} distinct staging path; "
+            f"owner files under the written namespace={len(owners)}")
+        assert len(owners) == 2
+        assert all(sc.owner_path_for(path).is_file() for path in paths)
+    finally:
+        for path in {Path(first), Path(second)}:
+            sc.release(path, force=True)
+        rd._reservations.clear()
+
+
+def test_unmeasurable_ramdisk_ownership_refuses_before_any_write(
+        tmp_path, monkeypatch):
+    from bulk_downloader import runner_transport as rt
+    from bulk_downloader import staging_claim as sc
+    rd = _load_bd_module("ramdisk_stage")
+
+    logs = []
+    _row523_patch_boundaries(monkeypatch, logs)
+    ramdisk = tmp_path / "ramdisk"
+    ramdisk.mkdir()
+    runner = _row523_runner()
+    runner.config.update({
+        "use_ramdisk_stage": True,
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 0.05,
+        "ramdisk_max_file_gb": 0.01,
+    })
+    calls = []
+
+    def _unknown(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise sc.StagingUnavailable("RAM ownership is UNKNOWN")
+
+    monkeypatch.setattr(rd, "reserve_staging_path", _unknown)
+    monkeypatch.setattr(
+        rt.httpx, "stream",
+        lambda *args, **kwargs: pytest.fail(
+            "HTTP opened after RAM ownership became UNKNOWN"))
+    page_url = "https://example.invalid/ramdisk-unknown"
+    runner._do_download(
+        _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
+        _row523_best("https://cdn.invalid/scene.mp4"), tmp_path, "1080p")
+
+    assert len(calls) == 1, f"RAM ownership was measured {len(calls)} times"
+    assert calls[0][1]["identity"] == sc.job_identity(page_url)
+    needs_review = [u for u in runner.job_updates if u[1] == "needs_review"]
+    assert len(needs_review) == 1
+    assert "RAM ownership is UNKNOWN" in needs_review[0][2]
+    assert list(tmp_path.rglob("*.part")) == []
+    assert list(tmp_path.rglob("*.owner")) == []
+
+
+def test_uncontended_ramdisk_transfer_promotes_exact_bytes_and_releases_claims(
+        origin, tmp_path):
+    rd = _load_bd_module("ramdisk_stage")
+
+    ramdisk = tmp_path / "ramdisk"
+    download_dir = tmp_path / "downloads"
+    ramdisk.mkdir()
+    download_dir.mkdir()
+    final = download_dir / "RamSuccess.mp4"
+    harness = _harness("ramdisk-success")
+    harness.config.update({
+        "use_ramdisk_stage": True,
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 0.05,
+        "ramdisk_max_file_gb": 0.01,
+    })
+    rd._reservations.clear()
+
+    result = harness._http_download(
+        "https://example.invalid/ramdisk-success", None, _Ctx(),
+        origin["base"] + "/scene-b.mp4", final)
+
+    assert result == (LEN_B, LEN_B), "the exact nonzero transfer count changed"
+    assert final.read_bytes() == BODY_B
+    assert list(tmp_path.rglob("*.part")) == []
+    assert list(tmp_path.rglob("*.owner")) == []
+    assert len(list(download_dir.iterdir())) == 1
+    rd._reservations.clear()
+
+
+def test_ramdisk_http_failure_releases_its_empty_written_path_claim(
+        origin, tmp_path, monkeypatch):
+    from bulk_downloader import staging_claim as sc
+    from bulk_downloader.constants import _HTTPDownloadFailed
+    rd = _load_bd_module("ramdisk_stage")
+
+    ramdisk = tmp_path / "ramdisk"
+    download_dir = tmp_path / "downloads"
+    ramdisk.mkdir()
+    download_dir.mkdir()
+    final = download_dir / "RamMissing.mp4"
+    page_url = "https://example.invalid/ramdisk-missing"
+    identity = sc.job_identity(page_url)
+    harness = _harness("ramdisk-missing")
+    harness.config.update({
+        "use_ramdisk_stage": True,
+        "ramdisk_path": str(ramdisk),
+        "ramdisk_capacity_gb": 0.05,
+        "ramdisk_max_file_gb": 0.01,
+    })
+    observed = []
+    real_reserve = rd.reserve_staging_path
+
+    def _record_claim(*args, **kwargs):
+        path_text = real_reserve(*args, **kwargs)
+        assert path_text is not None, "RAM reservation failed open to disk"
+        path = Path(path_text)
+        owner = sc.owner_path_for(path)
+        observed.append({
+            "path": path,
+            "parent": path.parent,
+            "part_exists": path.exists(),
+            "owner_count": len(list(path.parent.glob("*.owner"))),
+            "holder": sc._read_owner_identity(owner),
+        })
+        return path_text
+
+    rd._reservations.clear()
+    monkeypatch.setattr(rd, "reserve_staging_path", _record_claim)
+    try:
+        with pytest.raises(_HTTPDownloadFailed, match="HTTP 404"):
+            harness._http_download(
+                page_url, None, _Ctx(), origin["base"] + "/missing.mp4", final)
+
+        assert len(observed) == 1, (
+            f"RAM ownership seam fired {len(observed)} times")
+        row = observed[0]
+        assert row["parent"] == ramdisk / "staging"
+        assert row["parent"] != download_dir
+        assert row["part_exists"] is False, (
+            "404 fixture unexpectedly staged bytes before refusing")
+        assert row["owner_count"] == 1
+        assert row["holder"] == identity
+        assert list((ramdisk / "staging").glob("*.part")) == []
+        owners = list((ramdisk / "staging").glob("*.owner"))
+        assert owners == [], (
+            f"HTTP 404 left exactly {len(owners)} RAM owner file: {owners}")
+    finally:
+        for owner in (ramdisk / "staging").glob("*.owner"):
+            sc.release(owner.with_suffix(""), force=True)
+        rd._reservations.clear()
+
+
+def test_transform_control_only_imports_runner_transport():
+    """Mutation transform control: importability is not staging behavior."""
+    from bulk_downloader import runner_transport
+    assert runner_transport.TransportMixin is not None

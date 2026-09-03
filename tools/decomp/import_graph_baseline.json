@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4298,
+  "edge_count": 4303,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2153,6 +2153,12 @@
       "bulk_downloader/macro_recorder.py",
       "bulk_downloader/plugins.py",
       "bulk_downloader/vpn_config.py"
+    ],
+    "tests/rate_limit_seam.py": [
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_2c_guard_zero_match_interlock.py": [
       "bulk_downloader/app.py",
@@ -4513,7 +4519,8 @@
     ],
     "tests/test_v3_43_31_rate_limit.py": [
       "bulk_downloader/rate_limit.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_v3_43_32_cookie_validation.py": [
       "bulk_downloader/cookies.py"

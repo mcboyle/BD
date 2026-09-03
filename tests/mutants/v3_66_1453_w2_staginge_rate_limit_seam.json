@@ -1,0 +1,48 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The rate-limit and progress seams of the sequential transfer, after the staging cut split _http_download into a wrapper of closures plus _http_download_claimed. Every anchor is structural -- call names and identifiers only, no assignment, no quoted or numeric value -- so the row357 classifier reads them all as STABLE without a producer record. M1 is the exact mutation that ESCAPED the retired source-text gate: it deletes the only live acquire, and the old test stayed green because the literal survived in the wrapper's closure. Each anchor is a newline-delimited whole line, because the bare call text also occurs in the closure's own def line and would match twice. M4 pushes the other way: an extra defensive acquire the transfer never gives back, which the same exact-count gate must refuse while the progress and resume bandmates stay green.",
+  "subject": "the sequential HTTP transfer takes exactly one rate-limit slot before the stream opens, gives exactly one back however the stream ends, and reports absolute progress -- proved by running it, not by reading its source",
+  "band": [
+    "tests/test_v3_43_31_rate_limit.py",
+    "tests/test_live_telemetry.py::test_sequential_resume_progress_reports_absolute_file_size",
+    "tests/test_part_staging_collision.py::test_interrupted_do_download_keeps_its_part_claimed_for_resume"
+  ],
+  "mutants": [
+    {
+      "label": "M1 switch off per-domain rate limiting by deleting the only live acquire",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "\n        acquire_rate_limit(file_url)\n",
+      "new": "\n        pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_31_rate_limit.py::test_runner_acquires_slot_in_http_download"
+    },
+    {
+      "label": "M2 leak the slot by never returning it to the limiter",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "\n                _rl_slot.release()\n",
+      "new": "\n                pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_31_rate_limit.py::test_runner_releases_slot_in_finally"
+    },
+    {
+      "label": "M3 stop reporting sequential transfer progress to the liveness seam",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "\n                            report_progress(downloaded, msg)\n",
+      "new": "\n                            pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_live_telemetry.py::test_sequential_resume_progress_reports_absolute_file_size"
+    },
+    {
+      "label": "M4 over-correct into a defensive second acquire the transfer never gives back",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "\n            return self._http_download_claimed(\n",
+      "new": "\n            _acquire_rate_limit(file_url)\n            return self._http_download_claimed(\n",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_43_31_rate_limit.py::test_runner_releases_slot_in_finally",
+      "preserves": [
+        "tests/test_live_telemetry.py::test_sequential_resume_progress_reports_absolute_file_size",
+        "tests/test_part_staging_collision.py::test_interrupted_do_download_keeps_its_part_claimed_for_resume"
+      ]
+    }
+  ]
+}
