@@ -5,6 +5,28 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1451 - a staging claim is bound to the media it claimed, bulk delete removes every part file it made, and a latched sites-file pin stops looking like a first run
+
+Train 4b: three refute-first-reviewed worker patches, stacked on v3.66.1450.
+The other two patches proposed for this train were held back: both were
+authored against v3.66.1448 and main has moved under them, so they are being
+rebased rather than merged by hand.
+
+- ROWS 483 and 575: a sequential staging claim is now bound to a
+  query-insensitive media-resource identity. A measured nonzero resource
+  mismatch is refused before the Range request rather than after it, an empty
+  path rebinds safely, and a claim that predates provenance is grandfathered so
+  ordinary same-resource resumes keep working.
+
+- ROWS 507 and 485: bulk delete now resolves basenames inside the site download
+  directory and removes the .part, .part.meta, .part.bdseg.json and .part.owner
+  files it created, counting only unlinks that actually happened.
+
+- ROW 516: a latched sites-file pin that cannot be reached is no longer
+  indistinguishable from a first run. Publication and load through boot_once()
+  and the /api/health route stay unconditional, and the unreachable case is
+  reported rather than silently retried as if nothing had ever been pinned.
+
 ## v3.66.1450 - the health guard is real, the live registry is snapshotted, and five gates land
 
 Train 4a: seven refute-first-reviewed worker patches (one by a local Claude

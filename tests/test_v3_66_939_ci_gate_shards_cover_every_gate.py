@@ -146,6 +146,12 @@ _DECLARED = {
     # so bind it to the application-safety lane explicitly.
     # CI-SHARD-CLAIM row-645 application-safety tests/test_v3_62_2_guards.py
     "tests/test_v3_62_2_guards.py",
+    # Row 507. Queue force-cleanup deletes four staging artifacts per job and
+    # reports only measured filesystem effects. This module is scoped to the
+    # staging-claim boundary but is pinned because an unrun destructive-route
+    # gate provides no safety on a PR.
+    # CI-SHARD-CLAIM row-507 application-safety tests/test_row492_a_release_proves_what_it_frees.py
+    "tests/test_row492_a_release_proves_what_it_frees.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
     # and command-failed artifacts are distinct from the two healthy paths, so

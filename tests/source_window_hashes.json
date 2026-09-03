@@ -135,9 +135,9 @@
       "sha256": "413df57e402ec3a2a7ed63440cfb39102ab1394ab875b20dc828b088ea468a97"
     },
     {
-      "bytes": 10020,
+      "bytes": 10018,
       "key": "tests/test_v3_43_31_rate_limit.py::test_runner_acquires_slot_in_http_download::src[fn_pos:fn_pos + 10000]::1",
-      "sha256": "014319a520d5e66965069c715d47bf1cfc5de9004161b43912eb752078768b34"
+      "sha256": "f91fdf5e70d075264f0d29a70fffb6af427fc6c28cb703db6495a7b3943e2ae3"
     },
     {
       "bytes": 2502,
@@ -180,9 +180,9 @@
       "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
     },
     {
-      "bytes": 8018,
+      "bytes": 8016,
       "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "007c79ee6e4a364718f0ece5724f02cda955bd34426f879bbb91068d0cd6b780"
+      "sha256": "f4ff4079ea0d915111bca22f33695790735296404ec933f116d629d8999342f2"
     },
     {
       "bytes": 1414,

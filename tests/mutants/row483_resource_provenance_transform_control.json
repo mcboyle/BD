@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for rows 483/575. It applies the exact M1 transform while the named test only imports staging_claim and checks that claim is callable. It must ESCAPE, proving the main battery catches behavioral assertion failures rather than invalid Python or import breakage.",
+  "subject": "removing media-resource binding leaves staging_claim importable",
+  "band": [
+    "tests/test_part_staging_collision.py::test_resource_transform_control_only_imports_the_module"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 disabled resource binding remains importable",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "return hashlib.sha256(canonical.encode",
+      "new": "return hashlib.sha256(b\"same-resource\").hexdigest()  # disabled ",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_resource_transform_control_only_imports_the_module"
+    }
+  ]
+}

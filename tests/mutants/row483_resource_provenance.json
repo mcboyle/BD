@@ -1,0 +1,72 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 483 and 575. A page-level claim is not proof that a nonzero sequential partial belongs to the media resource now being requested. The battery pins resource binding, mismatch refusal before Range, compatible legacy binding, the measured empty rebind branch, and signed-query rotation. Every anchor occurs exactly once in the subject.",
+  "subject": "a nonzero sequential resume is allowed only when its claim proves the current media resource",
+  "band": [
+    "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes",
+    "tests/test_part_staging_collision.py::test_resource_binding_ignores_rotating_signatures_but_not_a_new_path",
+    "tests/test_part_staging_collision.py::test_a_proven_legacy_claim_binds_without_discarding_its_resume",
+    "tests/test_part_staging_collision.py::test_an_empty_proven_claim_measures_zero_before_rebinding",
+    "tests/test_part_staging_collision.py::test_v2_still_requires_the_proof_field_after_the_resource_format_bump",
+    "tests/test_part_staging_collision.py::test_the_same_job_resumes_its_own_part_and_is_not_restarted"
+  ],
+  "mutants": [
+    {
+      "label": "M1 resource_url is accepted but never bound to the claim",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "return hashlib.sha256(canonical.encode",
+      "new": "return hashlib.sha256(b\"same-resource\").hexdigest()  # disabled ",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
+    },
+    {
+      "label": "M2 matching resource identities no longer resume",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "                return staging\n\n            # Job equality proves WHO owns the path",
+      "new": "                raise StagingResourceMismatch(\"matching resource refused\")\n\n            # Job equality proves WHO owns the path",
+      "direction": "overcorrection",
+      "control": "tests/test_part_staging_collision.py::test_resource_binding_ignores_rotating_signatures_but_not_a_new_path",
+      "preserves": [
+        "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
+      ]
+    },
+    {
+      "label": "M3 rotating signed query values become different resources",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(),\n                            parsed.path",
+      "new": "urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(),\n                            parsed.path + parsed.query",
+      "direction": "overcorrection",
+      "control": "tests/test_part_staging_collision.py::test_resource_binding_ignores_rotating_signatures_but_not_a_new_path",
+      "preserves": [
+        "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
+      ]
+    },
+    {
+      "label": "M4 a measured resource mismatch is rebound over nonzero bytes",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "raise StagingResourceMismatch",
+      "new": "return staging\n                RuntimeError",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
+    },
+    {
+      "label": "M5 an empty staging path is mistaken for nonzero bytes",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "staging.stat().st_size\n            except FileNotFoundError",
+      "new": "staging.exists()\n            except FileNotFoundError",
+      "direction": "overcorrection",
+      "control": "tests/test_part_staging_collision.py::test_an_empty_proven_claim_measures_zero_before_rebinding",
+      "preserves": [
+        "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
+      ]
+    },
+    {
+      "label": "M6 the v3 format bump accidentally grandfathers malformed v2 proof records",
+      "file": "bulk_downloader/staging_claim.py",
+      "old": "version < OWNER_PROOF_FORMAT_VERSION",
+      "new": "version < OWNER_FORMAT_VERSION",
+      "direction": "regression",
+      "catcher": "tests/test_part_staging_collision.py::test_v2_still_requires_the_proof_field_after_the_resource_format_bump"
+    }
+  ]
+}

@@ -25,7 +25,7 @@ from .runner_util import (
     _bump_learned_stat, gate_candidate_url, record_bandwidth,
     resolve_url_attribute,
 )
-from .db import db_log, db_skip_identity
+from .db import db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template
 from .website_title import history_title_kwargs
@@ -100,6 +100,18 @@ def _closeable_response_context(response):
     streaming loop without changing the httpx branch.
     """
     return contextlib.closing(response)
+
+
+def _identity_requires_refusal(identity, final_path, attribution_state):
+    """Whether this existing path's attribution cannot self-heal."""
+    unmeasurable = (
+        identity == "unknown"
+        and (
+            not final_path.is_absolute()
+            or attribution_state in {"dangling", "unknown"}
+        )
+    )
+    return unmeasurable
 
 
 # RFC 9110 14.4: a 416 answer carries the UNSATISFIED-RANGE form of
@@ -1386,6 +1398,41 @@ class TransportMixin:
                     "proceeds",
                     page_url, type(_needs_review_exc).__name__,
                     _needs_review_exc, _owned)
+        # Row 485. Two UNKNOWN shapes cannot self-heal through a transfer.
+        # An orphaned library row says a file was attributed, but deletion of
+        # its current history owner erased the URL needed to identify it. A
+        # relative download directory is never admitted to library_record, so
+        # another transfer would be just as unmeasurable as the first and would
+        # accrete name_1, name_2, ... without bound. Refuse both as a distinct
+        # non-done outcome. An ordinary absolute-path UNKNOWN still reaches the
+        # collision-safe transfer once: that transfer creates durable library
+        # attribution, which is why the existing unknown-arm control remains a
+        # useful and safe negative control.
+        # Keep db_skip_identity's established dangling-link verdict exactly
+        # ("unknown", None): a missing owner is not identity. A separate query
+        # measures WHY an absolute-path UNKNOWN arose. No query is needed for
+        # the relative arm, which is unmeasurable by construction because
+        # library_record admits only absolute paths.
+        _attribution_state = "clear"
+        if _identity == "unknown" and final_path.is_absolute():
+            _attribution_state = db_skip_attribution_state(str(final_path))
+        _identity_unmeasurable = _identity_requires_refusal(
+            _identity, final_path, _attribution_state)
+        if _identity_unmeasurable and _may_skip:
+            note = (
+                "existing file attribution cannot be measured; refusing a "
+                f"silent duplicate download: {final_path}"
+            )
+            self._update_job(page_url, "needs_review", note,
+                             filename=final_path.name, file_size=0)
+            db_log(self.site_id, self.config.get("name", "?"), page_url,
+                   "needs_review", final_path.name, 0, note,
+                   bytes_fetched=0)
+            try:
+                dl.cancel()
+            except Exception:
+                pass
+            return
         if _identity=="same" and _may_skip:
             # Report the file this url actually owns, not the freshly rendered
             # name. They differ whenever an earlier run landed on a safe_dest
@@ -1926,8 +1973,10 @@ class TransportMixin:
         # divert to at this depth.
         try:
             tmp_path = staging_claim.claim(
-                final_path, staging_claim.job_identity(page_url))
+                final_path, staging_claim.job_identity(page_url),
+                resource_url=file_url)
         except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:
             raise _StagingUnavailable(str(e))
         # The claim guards the ON-DISK staging name and is released with it,
@@ -1986,8 +2035,10 @@ class TransportMixin:
         # sidecar `.part.meta` JSON file). On resume we send If-Range so the
         # server returns 200 (full content) instead of 206 (range) if the
         # resource changed — and we restart from byte 0 rather than gluing
-        # mismatched bytes together. If we have no sidecar metadata, fall
-        # back to optimistic resume (legacy behavior).
+        # mismatched bytes together. The claim above separately proves that
+        # the media URL's stable host/path matches before a nonzero resume;
+        # without validator metadata, only representation changes at that
+        # same stable URL remain optimistic.
         resume_from=tmp_path.stat().st_size if tmp_path.exists() else 0
         meta_path = tmp_path.with_suffix(tmp_path.suffix + ".meta")
         resume_validator = None
@@ -2502,8 +2553,10 @@ class TransportMixin:
         # live download refuses rather than pwrite into its bytes.
         try:
             tmp_path = staging_claim.claim(
-                final_path, staging_claim.job_identity(page_url))
+                final_path, staging_claim.job_identity(page_url),
+                resource_url=file_url)
         except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:
             raise _StagingUnavailable(str(e))
         # v3.43.27: per-file resume checkpoint. Replaces the previous

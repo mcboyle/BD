@@ -2366,7 +2366,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1702,
+    "edge_count": 1703,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4538,6 +4538,7 @@
         "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/staging_claim.py": [
+        "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/cleanup_helpers.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/runner_transport.py"
@@ -5977,7 +5978,8 @@
         "bulk_downloader/queue_templates.py",
         "bulk_downloader/resume.py",
         "bulk_downloader/runner.py",
-        "bulk_downloader/sse_broker.py"
+        "bulk_downloader/sse_broker.py",
+        "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/app_sites_teach.py": [
         "bulk_downloader/app_sites.py",

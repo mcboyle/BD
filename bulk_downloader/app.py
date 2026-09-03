@@ -1500,6 +1500,9 @@ SITES_FILE = _resolve_sites_file()
 # values published by this resolver remain eligible for the next call-time
 # refresh until the configured runtime binds its absolute identity.
 _SITES_FILE_LAST_AUTO_OBJECT = SITES_FILE
+_SITES_FILE_RUNTIME_PUBLISHED_OBJECT = None
+_SITES_FILE_EXISTED_AT_PUBLICATION = None
+_SITES_CONFIG_REACHABILITY = None
 
 
 def _sites_file_for_boot() -> Path:
@@ -1512,9 +1515,33 @@ def _sites_file_for_boot() -> Path:
 def _publish_sites_file_for_runtime(config_path) -> None:
     """Publish an accepted auto-owned candidate; preserve explicit patches."""
     global SITES_FILE, _SITES_FILE_LAST_AUTO_OBJECT
+    global _SITES_FILE_RUNTIME_PUBLISHED_OBJECT
+    global _SITES_FILE_EXISTED_AT_PUBLICATION
     if SITES_FILE is _SITES_FILE_LAST_AUTO_OBJECT:
+        repeated_publication = (
+            SITES_FILE is _SITES_FILE_RUNTIME_PUBLISHED_OBJECT
+            and SITES_FILE == Path(config_path)
+        )
         SITES_FILE = Path(config_path)
         _SITES_FILE_LAST_AUTO_OBJECT = SITES_FILE
+        _SITES_FILE_RUNTIME_PUBLISHED_OBJECT = SITES_FILE
+        if repeated_publication:
+            return
+        try:
+            SITES_FILE.stat()
+        except FileNotFoundError:
+            _SITES_FILE_EXISTED_AT_PUBLICATION = False
+        except OSError:
+            _SITES_FILE_EXISTED_AT_PUBLICATION = None
+        else:
+            _SITES_FILE_EXISTED_AT_PUBLICATION = True
+
+
+def _sites_config_reachability():
+    """Return the last load's operator-facing path measurement."""
+    if _SITES_CONFIG_REACHABILITY is None:
+        return {"ok": False, "path": str(SITES_FILE), "state": "unknown"}
+    return dict(_SITES_CONFIG_REACHABILITY)
 
 def _save_sites_config():
     """Write current sites to disk. Called on every add/update/delete.
@@ -1645,11 +1672,52 @@ def _build_meta(cfg: dict) -> dict:
 def _load_sites_config():
     """Read sites from disk on startup and instantiate SiteRunners.
     Each runner's __init__ rehydrates its queue from the SQLite queue table.
-    Missing file is fine (first run); malformed file is reported but ignored."""
-    if not SITES_FILE.exists(): return
+    A path absent at its first runtime publication is a first run. A path that
+    existed when first published and later vanished is UNKNOWN because its
+    configured contents are unavailable. Malformed files remain distinct."""
+    global _SITES_CONFIG_REACHABILITY
+    path = str(SITES_FILE)
+    try:
+        SITES_FILE.stat()
+    except FileNotFoundError:
+        published = SITES_FILE is _SITES_FILE_RUNTIME_PUBLISHED_OBJECT
+        unreachable = (
+            published and _SITES_FILE_EXISTED_AT_PUBLICATION is not False
+        )
+        _SITES_CONFIG_REACHABILITY = {
+            "ok": not unreachable,
+            "path": path,
+            "state": "unknown" if unreachable else "first_run",
+        }
+        if unreachable:
+            sys.stderr.write(f"  ! sites_config path is UNKNOWN: {path}\n")
+        return
+    except OSError:
+        _SITES_CONFIG_REACHABILITY = {
+            "ok": False,
+            "path": path,
+            "state": "unknown",
+        }
+        sys.stderr.write(f"  ! sites_config path is UNKNOWN: {path}\n")
+        return
+    _SITES_CONFIG_REACHABILITY = {
+        "ok": True,
+        "path": path,
+        "state": "reachable",
+    }
     try:
         # v3.43.16: explicit UTF-8 encoding (mirrors _save_sites_config).
-        data = json.loads(SITES_FILE.read_text(encoding="utf-8"))
+        raw_config = SITES_FILE.read_text(encoding="utf-8")
+    except OSError:
+        _SITES_CONFIG_REACHABILITY = {
+            "ok": False,
+            "path": path,
+            "state": "unknown",
+        }
+        sys.stderr.write(f"  ! sites_config path is UNKNOWN: {path}\n")
+        return
+    try:
+        data = json.loads(raw_config)
     except Exception as e:
         sys.stderr.write(f"  ! sites_config.json malformed, ignoring: {e}\n")
         return
