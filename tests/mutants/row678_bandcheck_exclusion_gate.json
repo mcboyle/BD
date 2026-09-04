@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 678 exclusion-table gate. The anchor is a structural filesystem/tracking condition and contains no pinned values.",
+  "subject": "a missing or untracked bd-bandcheck exclusion is a named failure over the complete table population",
+  "band": [
+    "tests/test_row678_bandcheck_exclusion_tables.py::test_a_nonexistent_exclusion_is_named_as_unresolved"
+  ],
+  "mutants": [
+    {
+      "label": "ROW678-M1 existing files are classified as unresolved",
+      "file": "tests/test_row678_bandcheck_exclusion_tables.py",
+      "old": "            if not path.is_file() or relative not in tracked:",
+      "new": "            if path.is_file() or relative not in tracked:",
+      "direction": "regression",
+      "catcher": "tests/test_row678_bandcheck_exclusion_tables.py::test_a_nonexistent_exclusion_is_named_as_unresolved"
+    }
+  ]
+}
