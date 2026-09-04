@@ -5,6 +5,34 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1479 - the installer row corrects its own variable, and a second installer defect
+
+A register train carrying no runtime change and no closure. One row filed, one
+amended. 1479 rather than 1478 because 1478 was claimed elsewhere first.
+
+Row 715 AMENDED, and the correction landed before any cut inherited it. The row
+asked the installer to accept BD_INSTALL_DIR as the authorizing variable. That
+was wrong twice over: BD_INSTALL_DIR already means the DATA directory in this
+product, and scripts/deploy.sh already defines this exact concept as
+BD_DEPLOY_DIR with the same default -- the installer simply never reads it. So
+the fix ADOPTS an existing name rather than inventing a third one for the same
+concept. Two further acceptance changes from the same review: print
+INSTALL_DIR_SOURCE on EVERY run, because today an env-authorized install is
+indistinguishable from a canonical one in stdout and a test that does not assert
+the source freezes that in; and key the running-unit check on the unit's
+WorkingDirectory rather than the service NAME, because an ai-ready unit belonging
+to another tree must be refused rather than rewritten and restarted.
+
+Row 718 FILED. install_service.sh never checks that the install directory is
+writable, so a failed install completes: both units written, service restarted,
+rc=0. When it cannot chmod +x the deployed-version helper it WARNS and carries
+on. A text search for a writability check returns two hits and neither is one --
+a comment and an error message -- which is the A7 shape where a scan finds its
+own prose. Distinct from 715: that row is about WHICH directory gets installed,
+this one about installing into a directory that cannot hold the installation. A
+canonical directory can be unwritable and a writable directory can be the wrong
+one, so they are independent and must not ride the same train.
+
 ## v3.66.1477 - a mirror chain abandoned on the wrong exception, and an undocumented dependency
 
 A register train carrying no runtime change and no closure. Two rows filed.
