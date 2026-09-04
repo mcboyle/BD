@@ -5,6 +5,41 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1477 - a mirror chain abandoned on the wrong exception, and an undocumented dependency
+
+A register train carrying no runtime change and no closure. Two rows filed.
+
+- Row 716. _StagingUnavailable is not a subclass of _HTTPDownloadFailed, so the
+  mirror loop -- which retries on the latter -- never sees it: a resource
+  mismatch is caught OUTSIDE the loop and returns to needs_review, abandoning
+  every remaining mirror. No wrong bytes are written; a download that could have
+  succeeded is refused instead.
+
+  The distinction the fix turns on must not be flattened: the same handler
+  documents a DELIBERATE refusal for the part-staging-collision case, where
+  another live download owns the .part and falling through to Playwright would
+  write the browser's bytes into the destination the refusal protects. That case
+  must keep refusing.
+
+  Reading the RAISE sites rather than the handler found the useful part: the
+  discriminator already exists one layer up and is thrown away. Two of the three
+  raise sites catch three distinct staging_claim exceptions in ONE except tuple
+  and re-raise them all as _StagingUnavailable(str(e)). The retryable case and
+  the must-refuse case arrive as different types and leave as the same one. So
+  the acceptance is "stop discarding the discriminator you have", not "invent
+  one" -- the A7 collapsing-diagnostic shape at its most literal.
+
+- Row 717. The cut-quality policy's active_checker resolves to an operator-harness
+  file that no tracked document names, so a fresh host cannot obtain it. Filed
+  with its DEPENDENCY FIRST because the row reads as false without it: the policy
+  is not on main at all -- no tracked policy file, no active_checker, neither
+  environment variable -- and arrives with the row 656 cut. It is not workable
+  until that lands. The fleet was already patched by sha, which is exactly why
+  the row exists: a completed action is not a durable fact, and it protects only
+  the hosts that were up when it ran. The harness file is cited BY NAME with no
+  path-colon-line form, because that form resolves against tracked paths only and
+  would refuse the tree.
+
 ## v3.66.1476 - the installer writes whatever directory it was run from
 
 A register train carrying no runtime change and no closure. One row filed.
