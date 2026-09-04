@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 699 transform control. The same parseable regression as M1 is pointed only at a test that imports the module without judging isolation, so it must ESCAPE.",
+  "subject": "an import-only test cannot grade fixture process isolation",
+  "band": [
+    "tests/test_the_fixture_serves_decodable_segments.py::test_row699_transform_control_imports_without_judging_isolation"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 decoder option producer stops returning its bound",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "(?m)^    return(?= \\[\"-threads\", \"1\"\\]$)",
+      "new": "    yield",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_transform_control_imports_without_judging_isolation"
+    }
+  ]
+}

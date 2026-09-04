@@ -55,9 +55,9 @@ RED-first: every assertion below fails on pristine source.
 from __future__ import annotations
 
 import base64
+import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -68,9 +68,28 @@ sys.path.insert(0, str(ROOT))
 _FIXTURE = ROOT / "tools" / "fixture_site.py"
 
 
-def _ffmpeg():
-    from bulk_downloader import ffmpeg_bin
-    return ffmpeg_bin.ffmpeg()
+def _fixture_ffmpeg_options() -> list[str]:
+    """Keep each real decoder inside one worker-sized thread budget."""
+    return ["-threads", "1"]
+
+
+@pytest.fixture
+def isolated_ffmpeg():
+    """Resolve both media tools afresh and restore their process-global caches."""
+    from bulk_downloader import ffmpeg_bin, integrity
+
+    ffmpeg_bin.reset()
+    binary = ffmpeg_bin.ffmpeg()
+    probe = ffmpeg_bin.ffprobe()
+    if not binary:
+        pytest.skip("ffmpeg not on PATH")
+    previous_probe = integrity._FFPROBE
+    integrity._FFPROBE = probe
+    try:
+        yield binary
+    finally:
+        integrity._FFPROBE = previous_probe
+        ffmpeg_bin.reset()
 
 
 def _segment_bytes():
@@ -163,8 +182,8 @@ def test_the_segment_is_embedded_not_generated_at_runtime():
 
 # ── the standard that judges them ────────────────────────────────────────────
 
-@pytest.mark.skipif(not _ffmpeg(), reason="ffmpeg not on PATH")
-def test_a_playlist_of_these_segments_muxes_to_a_valid_mp4():
+def test_a_playlist_of_these_segments_muxes_to_a_valid_mp4(
+        isolated_ffmpeg, tmp_path):
     """VALID BY THE SAME STANDARD THAT JUDGES IT -- #8's phrase.
 
     Not "ffmpeg accepts the segment" but "the whole path works": four segments,
@@ -173,52 +192,59 @@ def test_a_playlist_of_these_segments_muxes_to_a_valid_mp4():
     """
     from bulk_downloader import integrity
     seg = _segment_bytes()
-    with tempfile.TemporaryDirectory() as d:
-        dd = Path(d)
-        for i in range(4):
-            (dd / f"s{i}.ts").write_bytes(seg)
-        lines = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:1",
-                 "#EXT-X-MEDIA-SEQUENCE:0"]
-        for i in range(4):
-            lines += ["#EXTINF:1.0,", f"s{i}.ts"]
-        lines.append("#EXT-X-ENDLIST")
-        (dd / "p.m3u8").write_text("\n".join(lines) + "\n")
-        out = dd / "out.mp4"
-        r = subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error",
-                            "-i", str(dd / "p.m3u8"), "-c", "copy",
-                            "-f", "mp4", str(out), "-y"],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, (
-            f"ffmpeg refused a playlist of the fixture's own segments "
-            f"(exit {r.returncode}): {r.stderr[:300]}")
-        assert out.exists() and out.stat().st_size > 0, "no output produced"
-        head = out.read_bytes()[:12]
-        assert head[4:8] == b"ftyp", f"output is not an MP4 container: {head!r}"
-        ok, why = integrity.verify_media_integrity(str(out))
-        assert ok, (
-            f"BD's own verify_media_integrity rejects the muxed result: {why!r}. "
-            f"That is the check that decides the runner's verdict, so a segment "
-            f"ffmpeg tolerates but BD rejects would still fail every download.")
+    dd = tmp_path / "playlist-ffmpeg"
+    dd.mkdir()
+    assert dd.parent == tmp_path and dd.is_dir()
+    for i in range(4):
+        (dd / f"s{i}.ts").write_bytes(seg)
+    lines = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:1",
+             "#EXT-X-MEDIA-SEQUENCE:0"]
+    for i in range(4):
+        lines += ["#EXTINF:1.0,", f"s{i}.ts"]
+    lines.append("#EXT-X-ENDLIST")
+    (dd / "p.m3u8").write_text("\n".join(lines) + "\n")
+    out = dd / "out.mp4"
+    r = subprocess.run(
+        [isolated_ffmpeg, "-hide_banner", "-loglevel", "error",
+         *_fixture_ffmpeg_options(),
+         "-i", str(dd / "p.m3u8"), "-c", "copy",
+         "-f", "mp4", str(out), "-y"],
+        capture_output=True, text=True, cwd=dd,
+        env={**os.environ, "TMPDIR": str(dd)})
+    assert r.returncode == 0, (
+        f"ffmpeg refused a playlist of the fixture's own segments "
+        f"(exit {r.returncode}): {r.stderr[:300]}")
+    assert out.exists() and out.stat().st_size > 0, "no output produced"
+    head = out.read_bytes()[:12]
+    assert head[4:8] == b"ftyp", f"output is not an MP4 container: {head!r}"
+    ok, why = integrity.verify_media_integrity(str(out))
+    assert ok, (
+        f"BD's own verify_media_integrity rejects the muxed result: {why!r}. "
+        f"That is the check that decides the runner's verdict, so a segment "
+        f"ffmpeg tolerates but BD rejects would still fail every download.")
 
 
-@pytest.mark.skipif(not _ffmpeg(), reason="ffmpeg not on PATH")
-def test_a_single_segment_decodes_on_its_own():
+def test_a_single_segment_decodes_on_its_own(isolated_ffmpeg, tmp_path):
     """KEYFRAME-ONLY. A real HLS segment must be independently decodable -- a
     player joining mid-stream starts at a segment boundary. A segment that only
     decodes as a continuation of its predecessor would pass the whole-playlist
     mux above and fail any partial fetch.
     """
     seg = _segment_bytes()
-    with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "one.ts"
-        p.write_bytes(seg)
-        r = subprocess.run([_ffmpeg(), "-hide_banner", "-loglevel", "error",
-                            "-i", str(p), "-frames:v", "1",
-                            "-f", "null", "-"],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, (
-            f"one segment alone does not decode (exit {r.returncode}): "
-            f"{r.stderr[:300]}")
+    dd = tmp_path / "segment-ffmpeg"
+    dd.mkdir()
+    assert dd.parent == tmp_path and dd.is_dir()
+    p = dd / "one.ts"
+    p.write_bytes(seg)
+    r = subprocess.run(
+        [isolated_ffmpeg, "-hide_banner", "-loglevel", "error",
+         *_fixture_ffmpeg_options(),
+         "-i", str(p), "-frames:v", "1", "-f", "null", "-"],
+        capture_output=True, text=True, cwd=dd,
+        env={**os.environ, "TMPDIR": str(dd)})
+    assert r.returncode == 0, (
+        f"one segment alone does not decode (exit {r.returncode}): "
+        f"{r.stderr[:300]}")
 
 
 # ── the served surface ───────────────────────────────────────────────────────
@@ -250,3 +276,194 @@ def test_the_content_type_is_still_mp2t():
               None)
     assert "video/mp2t" in ast.unparse(fn), (
         "the segment route no longer declares video/mp2t")
+
+
+# ── row 699: the real decoder checks own their process resources ──────────
+
+_ROW699_FFMPEG_TESTS = (
+    "test_a_playlist_of_these_segments_muxes_to_a_valid_mp4",
+    "test_a_single_segment_decodes_on_its_own",
+)
+
+
+def _row699_private_tmpdir(node) -> bool:
+    """Whether an ``env=`` expression copies os.environ and pins TMPDIR to dd."""
+    import ast
+
+    if not isinstance(node, ast.Dict) or len(node.keys) != 2:
+        return False
+    inherited, key = node.keys
+    inherited_value, private_value = node.values
+    return (
+        inherited is None
+        and isinstance(inherited_value, ast.Attribute)
+        and isinstance(inherited_value.value, ast.Name)
+        and inherited_value.value.id == "os"
+        and inherited_value.attr == "environ"
+        and isinstance(key, ast.Constant)
+        and key.value == "TMPDIR"
+        and isinstance(private_value, ast.Call)
+        and isinstance(private_value.func, ast.Name)
+        and private_value.func.id == "str"
+        and len(private_value.args) == 1
+        and isinstance(private_value.args[0], ast.Name)
+        and private_value.args[0].id == "dd"
+    )
+
+
+def _row699_bounded_options(tree) -> bool:
+    """The starred option producer itself must still impose one thread."""
+    import ast
+
+    helpers = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_fixture_ffmpeg_options"
+    ]
+    if len(helpers) != 1:
+        return False
+    returns = [node for node in ast.walk(helpers[0]) if isinstance(node, ast.Return)]
+    if len(returns) != 1 or not isinstance(returns[0].value, ast.List):
+        return False
+    values = [
+        element.value for element in returns[0].value.elts
+        if isinstance(element, ast.Constant)
+    ]
+    return values == ["-threads", "1"]
+
+
+def _row699_fresh_binary_fixture(tree) -> bool:
+    """The process-global resolver and integrity probe are bounded by a fixture."""
+    import ast
+
+    fixtures = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "isolated_ffmpeg"
+    ]
+    if len(fixtures) != 1:
+        return False
+    body = fixtures[0]
+    reset_calls = [
+        node for node in ast.walk(body)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ffmpeg_bin"
+        and node.func.attr == "reset"
+    ]
+    yields = [node for node in ast.walk(body) if isinstance(node, ast.Yield)]
+    assignments = [ast.unparse(node) for node in ast.walk(body)
+                   if isinstance(node, ast.Assign)]
+    return (
+        len(reset_calls) == 2
+        and len(yields) == 1
+        and ast.unparse(yields[0].value) == "binary"
+        and "binary = ffmpeg_bin.ffmpeg()" in assignments
+        and "probe = ffmpeg_bin.ffprobe()" in assignments
+        and "integrity._FFPROBE = probe" in assignments
+        and "integrity._FFPROBE = previous_probe" in assignments
+    )
+
+
+def _row699_private_workspace(function) -> bool:
+    """The function's dd is a fresh child of its function-scoped tmp_path."""
+    import ast
+
+    owners = [
+        node for node in ast.walk(function)
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "dd"
+        and isinstance(node.value, ast.BinOp)
+        and isinstance(node.value.op, ast.Div)
+        and isinstance(node.value.left, ast.Name)
+        and node.value.left.id == "tmp_path"
+        and isinstance(node.value.right, ast.Constant)
+        and isinstance(node.value.right.value, str)
+    ]
+    mkdirs = [
+        node for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "dd"
+        and node.func.attr == "mkdir"
+    ]
+    return len(owners) == 1 and len(mkdirs) == 1
+
+
+def _row699_isolation_verdicts(source: str | None = None) -> list[bool]:
+    """Judge the complete, fixed population of real FFmpeg fixture checks."""
+    import ast
+
+    if source is None:
+        source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    functions = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in _ROW699_FFMPEG_TESTS
+    }
+    assert set(functions) == set(_ROW699_FFMPEG_TESTS), (
+        f"fixture-check denominator changed: {sorted(functions)}")
+    bounded_options = _row699_bounded_options(tree)
+    fresh_binary = _row699_fresh_binary_fixture(tree)
+
+    verdicts = []
+    for name in _ROW699_FFMPEG_TESTS:
+        function = functions[name]
+        runs = [
+            node for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+            and node.func.attr == "run"
+        ]
+        assert len(runs) == 1, f"{name}: expected 1 subprocess.run, got {len(runs)}"
+        call = runs[0]
+        keywords = {keyword.arg: keyword.value for keyword in call.keywords}
+        parameters = {argument.arg for argument in function.args.args}
+        argv = call.args[0] if call.args else None
+        elements = argv.elts if isinstance(argv, ast.List) else []
+        bounded = any(
+            isinstance(element, ast.Starred)
+            and isinstance(element.value, ast.Call)
+            and isinstance(element.value.func, ast.Name)
+            and element.value.func.id == "_fixture_ffmpeg_options"
+            for element in elements
+        )
+        private_binary = bool(
+            elements
+            and isinstance(elements[0], ast.Name)
+            and elements[0].id == "isolated_ffmpeg"
+        )
+        cwd = keywords.get("cwd")
+        verdicts.append(
+            bounded_options
+            and fresh_binary
+            and parameters.issuperset({"isolated_ffmpeg", "tmp_path"})
+            and private_binary
+            and bounded
+            and _row699_private_workspace(function)
+            and isinstance(cwd, ast.Name)
+            and cwd.id == "dd"
+            and _row699_private_tmpdir(keywords.get("env"))
+        )
+    return verdicts
+
+
+def test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources():
+    verdicts = _row699_isolation_verdicts()
+    assert len(verdicts) == 2, "the row must judge exactly 2 FFmpeg checks"
+    assert sum(verdicts) == 2, (
+        f"expected 2 isolated FFmpeg checks, found {sum(verdicts)}; each must "
+        "use its fresh binary fixture, one-thread options, pytest workspace "
+        "as cwd, and a private TMPDIR")
+
+
+def test_row699_transform_control_imports_without_judging_isolation():
+    """Mutation transform control: importing this module proves no verdict."""
+    assert subprocess is not None
