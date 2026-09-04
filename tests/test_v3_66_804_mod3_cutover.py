@@ -116,6 +116,20 @@ class TestDefaultOffAndFailClosed:
         r = pg.preflight_cutover()
         assert r["ok"] is False and r.get("reasons"), r
 
+    def test_unset_cutover_never_calls_postgres_connect(
+            self, monkeypatch, tmp_path):
+        _, pg = _reload(monkeypatch, tmp_path, dsn=None, shadow=None, cutover=None)
+        calls = []
+
+        def counted_connect():
+            calls.append("called")
+            return None
+
+        monkeypatch.setattr(pg, "_connect", counted_connect)
+        assert pg.cutover_requested() is False
+        assert pg.cutover_engaged() is False
+        assert len(calls) == 0, calls
+
 
 class TestEmptyDenominatorRefusal:
     """THE control this cut exists for -- engine-free, so binding on stash."""

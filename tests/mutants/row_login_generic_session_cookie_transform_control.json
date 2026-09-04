@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-only transform control for the generic-session-cookie regression. The identical valid transform must escape this test, proving the main catch comes from the behavior assertion rather than parsing or importing.",
+  "subject": "generic session cookie transform remains importable",
+  "band": [
+    "tests/test_login_submit_robustness.py::test_generic_cookie_transform_control_only_imports_classifier"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL restore generic session names under import only",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "        if any(h in name for h in _AUTH_COOKIE_HINTS):",
+      "new": "        if any(h in name for h in _AUTH_COOKIE_HINTS + _GENERIC_SESSION_COOKIE_HINTS):",
+      "direction": "regression",
+      "catcher": "tests/test_login_submit_robustness.py::test_generic_cookie_transform_control_only_imports_classifier"
+    }
+  ]
+}

@@ -744,14 +744,14 @@ Schema version: 2
 ## `bulk_downloader/login_impl/replay.py` (8 entries)
 
 ```
-- L0017 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0029 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0092 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0128 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0169 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0399 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0444 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0504 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0020 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0032 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0095 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0140 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0181 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0411 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0456 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0516 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 

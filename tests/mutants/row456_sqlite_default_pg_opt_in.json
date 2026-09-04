@@ -1,0 +1,35 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 456. All anchors are structural and occur exactly once. M1 injects a PostgreSQL probe into the SQLite-default seam, M2 disables named degradation recording, and M3 makes the unrequested cutover execute preflight. The new tests drive real SQLite and an isolated dead local port only.",
+  "subject": "MOD3 remains SQLite-default, Postgres-opt-in, observable when degraded, and fail-closed when cutover is unrequested",
+  "band": [
+    "tests/test_v3_66_800_mod3_dual_write.py",
+    "tests/test_v3_66_804_mod3_cutover.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 SQLite-default connection seam probes PostgreSQL unconditionally",
+      "file": "bulk_downloader/db.py",
+      "old": "    if pg_backend.dual_write_enabled():",
+      "new": "    pg_backend._connect()  # row 456 mutant: default-off path probes PG\n    if pg_backend.dual_write_enabled():",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_800_mod3_dual_write.py::TestDefaultOff::test_default_sqlite_cycle_never_calls_postgres_connect"
+    },
+    {
+      "label": "M2 mirror degradation is no longer recorded",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "def _degrade(reason):",
+      "new": "def _degrade(reason):\n    return  # row 456 mutant: suppress named degradation",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_800_mod3_dual_write.py::TestFailOpen::test_unreachable_postgres_names_degradation_and_keeps_sqlite"
+    },
+    {
+      "label": "M3 unrequested cutover runs PostgreSQL preflight",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "    if not cutover_requested():",
+      "new": "    if cutover_requested():  # row 456 mutant: invert default-off short circuit",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_804_mod3_cutover.py::TestDefaultOffAndFailClosed::test_unset_cutover_never_calls_postgres_connect"
+    }
+  ]
+}

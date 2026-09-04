@@ -5,10 +5,13 @@ from ._common import _fire_login_trigger_if_needed, _ms_since
 
 
 _AUTH_COOKIE_HINTS = (
-    "session", "sessid", "_sess", "auth", "login", "logged",
-    "remember", "passport", "credential", "jwt", "account",
+    "auth", "login", "logged", "remember", "passport", "credential",
+    "jwt", "account",
     "userid", "user_id", "_user",
 )
+
+
+_GENERIC_SESSION_COOKIE_HINTS = ("session", "sessid", "_sess")
 
 
 _NOT_AUTH_COOKIE_HINTS = ("csrf", "xsrf", "consent", "gdpr", "cookie_notice")
@@ -101,20 +104,28 @@ def _looks_authenticated(cookies):
     signal, biasing toward a false negative (a needless manual
     takeover is safe; a false success is not):
 
-      - a cookie whose NAME looks like a session/auth cookie, or
+      - a cookie whose NAME explicitly looks like authentication state, or
       - several substantial cookies — a real post-login jar is not
         one or two cookies.
 
+    Generic server-side session names are deliberately not authentication
+    evidence. A login page can assign PHPSESSID/sessionid before credentials
+    are submitted and leave it unchanged after a failed login.
+
     Returns (ok, reason)."""
     non_empty = [c for c in (cookies or []) if c.get("value")]
-    # Signal 1: an auth/session-named cookie (value need not be long —
-    # `logged_in=1` is a perfectly good signal).
+    # Signal 1: an explicitly auth-named cookie (value need not be long —
+    # `logged_in=1` is a perfectly good signal). Generic session identifiers
+    # merely bind anonymous server state and are not proof of a login.
+    generic_named = []
     for c in non_empty:
         name = str(c.get("name", "")).lower()
         if any(bad in name for bad in _NOT_AUTH_COOKIE_HINTS):
             continue
         if any(h in name for h in _AUTH_COOKIE_HINTS):
             return True, f"auth-looking cookie {c.get('name')!r}"
+        if any(h in name for h in _GENERIC_SESSION_COOKIE_HINTS):
+            generic_named.append(c.get("name"))
     # Signal 2: a real session sets several substantial cookies; one
     # or two long-valued cookies could just be analytics.
     substantial = [c for c in non_empty
@@ -122,7 +133,8 @@ def _looks_authenticated(cookies):
     if len(substantial) >= 4:
         return True, f"{len(substantial)} substantial cookies"
     return False, (f"{len(non_empty)} cookie(s), {len(substantial)} "
-                   "substantial, none auth-looking")
+                   f"substantial, {len(generic_named)} generic-session, "
+                   "none explicitly auth-looking")
 
 
 def replay_saved_login_flow(page, config):

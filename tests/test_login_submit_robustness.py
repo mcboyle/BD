@@ -13,6 +13,8 @@ Pins two fixes from OPEN_THREADS:
      flag) is not a session — that over-accepts a failed login.
      _looks_authenticated() now requires a real signal.
 """
+import time
+
 from bulk_downloader.login import _submit_login, _looks_authenticated
 
 
@@ -80,9 +82,32 @@ def test_empty_jar_is_not_a_session():
     assert ok2 is False
 
 
-def test_session_named_cookie_counts_as_auth():
-    """A session/auth-named cookie is a strong signal, even short."""
-    for name in ("PHPSESSID", "sessionid", "auth_token", "logged_in"):
+def test_an_unchanged_generic_session_cookie_is_not_login_success():
+    before_submit = [
+        {"name": "PHPSESSID", "value": "generic-pre-login-session"},
+        {
+            "name": "members_area_session",
+            "value": "expired-members-session",
+            "expirationDate": 1,
+        },
+    ]
+    after_submit = [dict(cookie) for cookie in before_submit]
+    assert len(after_submit) == 2
+    assert after_submit == before_submit, (
+        "precondition: the failed submit must not rewrite the cookie jar")
+    assert after_submit[1]["expirationDate"] < time.time(), (
+        "precondition: the members-area cookie must remain expired")
+
+    ok, why = _looks_authenticated(after_submit)
+
+    assert ok is False, (
+        "an unchanged generic PHP session cookie was treated as login success: "
+        f"{why}")
+
+
+def test_explicit_auth_named_cookie_counts_as_auth():
+    """An explicitly auth-named cookie is a strong signal, even short."""
+    for name in ("auth_token", "logged_in", "remember_token", "account_id"):
         ok, why = _looks_authenticated([{"name": name, "value": "1"}])
         assert ok is True, f"{name!r} should read as authenticated ({why})"
 
@@ -99,3 +124,7 @@ def test_several_substantial_cookies_count_as_auth():
     # one fewer is not enough
     ok2, _ = _looks_authenticated(jar[:3])
     assert ok2 is False
+
+
+def test_generic_cookie_transform_control_only_imports_classifier():
+    assert callable(_looks_authenticated)
