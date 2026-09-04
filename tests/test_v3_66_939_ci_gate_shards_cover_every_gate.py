@@ -200,6 +200,9 @@ _DECLARED = {
     # changed selector in any family changes its denominator, so it must run
     # directly rather than depend on a diff-derived template band.
     "tests/test_row362_templates_are_resolvable.py",
+    # Row 671. Reviewed templates use grouped selector roles outside the legacy
+    # corpus, so their independently counted denominator also runs on every PR.
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py",
     # Row 377. The installed verifier has PASS/FAIL/UNKNOWN outcomes; the CI
     # consumer must preserve UNKNOWN as a distinct refusal, never a pass.
     "tests/test_row377_installed_template_selftest_states.py",

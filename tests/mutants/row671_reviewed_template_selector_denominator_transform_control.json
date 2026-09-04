@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 671 transform control. The same fallback mutant must remain importable and ESCAPE an import-only spec, proving the primary catches are behavioral assertions rather than transform or compile failures.",
+  "subject": "transform-only control for the grouped reviewed selector walker",
+  "band": [
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_transform_control_imports_enumerator_without_judging_grouped_schema"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 grouped selector fallback remains importable",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old": "                    walk_grouped_selectors(child, child_path)",
+      "new": "                    walk(child, child_path)  # row 671 transform control",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_transform_control_imports_enumerator_without_judging_grouped_schema"
+    }
+  ]
+}

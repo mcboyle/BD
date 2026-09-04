@@ -67,11 +67,24 @@ def enumerate_template_selectors(template: dict[str, Any]) -> list[dict[str, Any
             "role": _role(path),
         })
 
+    def walk_grouped_selectors(value: Any, path: tuple[str, ...]) -> None:
+        if isinstance(value, dict):
+            for raw_key, child in value.items():
+                walk_grouped_selectors(child, (*path, str(raw_key)))
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                walk_grouped_selectors(child, (*path, f"[{index}]"))
+        elif isinstance(value, str):
+            add(value, path)
+
     def walk(value: Any, path: tuple[str, ...]) -> None:
         if isinstance(value, dict):
             for raw_key, child in value.items():
                 key = str(raw_key)
                 child_path = (*path, key)
+                if key == "selectors" and isinstance(child, dict):
+                    walk_grouped_selectors(child, child_path)
+                    continue
                 if key in _LOGIN_SELECTOR_KEYS or "selector" in key.lower():
                     if isinstance(child, list):
                         for index, item in enumerate(child):
