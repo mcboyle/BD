@@ -472,11 +472,14 @@ jobs:
           # Row 377 adds the installed-layout selftest-state gate here: the
           # same shard must also prove an unavailable verifier reads UNKNOWN
           # rather than as a template defect.
+          # Row 666. Offline candidate inspection resolves relative download
+          # links against the caller-supplied page URL, not the login fallback.
           - name: template-selectors
             suites: >-
               tests/test_row362_templates_are_resolvable.py
               tests/test_row377_installed_template_selftest_states.py
               tests/test_login_session_does_not_cover_the_scene_host.py
+              tests/test_row666_candidates_inspect_prefers_caller_url.py
           # Row 386. The download chain end to end -- page DOM, candidate
           # discovery, ranking, direct-URL resolution, filename, a real
           # loopback transfer, and the history/library rows a completion
@@ -573,6 +576,7 @@ jobs:
               tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py
               tests/test_row545_the_skip_arm_carries_its_whole_result.py
               tests/test_row607_a_history_row_proves_a_real_transfer.py
+              tests/test_row664_dedup_refusal_reaches_history.py
           # Row 649 recovers three independent module-scoped contracts whose
           # original test files never reached main. Keep their CI visibility
           # explicit rather than relying on a future touched-file derivation.

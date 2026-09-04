@@ -5,6 +5,35 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1467 - a dedup refusal reaches history, offline inspection trusts the caller's URL, and the supervisor gate finds every configuring class
+
+Three refute-first-reviewed patches, both lenses BOARD on each. Two of them add
+a CI shard line each; both are additive and both are present in the assembled
+tree.
+
+- A pre-download dedup refusal left no trace an operator could see. It is
+  terminal work -- the job stops there -- but it wrote no history row, so the
+  reason never reached the place a person looks. Refusals now persist exactly
+  one history row carrying the reason, asserted through the real worker
+  dispatch seam rather than a stub. The two remaining mutation escapes are
+  DIAGNOSTIC only: `bytes_fetched=0` becoming `None` and the kwarg being
+  dropped, both filtered by `done` wherever they are read.
+
+- Offline candidate inspection resolved relative download links against the
+  login fallback URL instead of the page URL its caller supplied, so a
+  relative href could be resolved against the wrong host entirely. It now
+  prefers the caller's URL and falls back only when there is none, with a spy
+  proving the fallback fires exactly once. The catcher for this lives in an
+  already-declared shard: the previous round's catcher was in NO shard, which
+  is what made its escape invisible to CI.
+
+- The supervisor cleanup gate asserted teardown for the class it happened to
+  name. It now DISCOVERS every configuring class -- 2 classes, 6 configuring
+  methods, both counts asserted nonzero -- and checks enabled=False, a global
+  rate of UNLIMITED and empty per-site state after each teardown. Teardown was
+  missing from one of the two classes and is now present in both.
+
+
 ## v3.66.1466 - the register says what the tree says
 
 A register and docs cut. No runtime change.

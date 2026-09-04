@@ -1,0 +1,51 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 657. The whole-module gate discovers every configuring class and checks enabled, global rate, and per-site state after teardown. Anchors are structural old_regex spans and exact-once.",
+  "subject": "every supervisor-configuring test class restores the complete module singleton state",
+  "band": [
+    "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test",
+    "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_row657_transform_control_imports_supervisor_without_judging_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "M1 reset skips its locked state-clearing body",
+      "file": "bulk_downloader/download_supervisor.py",
+      "old_regex": "(?m)^        with self\\._lock:(?=\\n            self\\._cfg = SupervisorConfig\\(\\)\\n            self\\._global_bucket)",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test"
+    },
+    {
+      "label": "M2 reset preserves the enabled configuration",
+      "file": "bulk_downloader/download_supervisor.py",
+      "old_regex": "SupervisorConfig\\(\\)(?=\\n            self\\._global_bucket)",
+      "new": "SupervisorConfig(enabled=self._cfg.enabled)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test"
+    },
+    {
+      "label": "M3 acquire-safety teardown is no longer discovered",
+      "file": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py",
+      "old_regex": "(?ms)^    def teardown_method\\(self\\):\\n        from bulk_downloader import download_supervisor as ds\\n        ds\\.reset\\(\\)\\n\\n(?=    def test_empty_site_id_safe)",
+      "new": "    def teardown_method_disabled(self):\n        from bulk_downloader import download_supervisor as ds\n        ds.reset()\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test"
+    },
+    {
+      "label": "M4 configuring-class teardown is removed from the discovered population",
+      "file": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py",
+      "old_regex": "(?ms)^    def teardown_method\\(self\\):\\n        from bulk_downloader import download_supervisor as ds\\n        ds\\.reset\\(\\)\\n\\n(?=    def test_enable_with_global_cap)",
+      "new": "    def teardown_method_disabled(self):\n        from bulk_downloader import download_supervisor as ds\n        ds.reset()\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test"
+    },
+    {
+      "label": "M5 the gate hardcodes one configuring class",
+      "file": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py",
+      "old_regex": "(?<=configuring_classes = )_supervisor_configuring_classes\\(\\)",
+      "new": "[TestSupervisorAcquireSafety]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_supervisor_acquire_safety_restores_module_state_after_each_test"
+    }
+  ]
+}

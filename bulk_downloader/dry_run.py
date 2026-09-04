@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from . import candidate_filter as cf
 from . import selector_lint as sl
@@ -36,12 +36,16 @@ def _host(url: str) -> str:
 
 # ── #1 Candidate Inspector ───────────────────────────────────────────────
 
-def _candidate_row(c: Dict[str, Any], page_host: str, *,
+def _candidate_row(c: Dict[str, Any], page_host: str, *, page_url: str = "",
                    selector: Optional[str] = None) -> Dict[str, Any]:
     sel = (selector
            or (c.get("selector_variants") or [{}])[0].get("selector") or "")
-    url = cf.best_url(c)
-    v = cf.classify_candidate(c, page_host=page_host or None, selector=sel)
+    raw_url = cf.best_url(c)
+    resolved_url = urljoin(page_url, raw_url)
+    resolved = dict(c)
+    resolved["href"] = resolved_url
+    v = cf.classify_candidate(resolved, page_host=page_host or None, selector=sel)
+    url = resolved_url if v.accepted and v.kind == "download" else raw_url
     return {
         "selector": sel,
         "text": (c.get("text") or "")[:120],
@@ -52,7 +56,7 @@ def _candidate_row(c: Dict[str, Any], page_host: str, *,
         "data_src": c.get("data_src") or "",
         "score": c.get("score"),
         "size": c.get("estimated_size_bytes") or c.get("size") or 0,
-        "host": _host(url),
+        "host": _host(resolved_url),
         "signals": list(v.positive_signals),
         "kind": v.kind,
         "accepted": v.accepted,
@@ -99,7 +103,7 @@ def inspect_candidates(html: str, page_url: str = "") -> Dict[str, Any]:
             sel = (_generalize_selectors(c) or [{}])[0].get("selector") or ""
         except Exception:
             sel = ""
-        rows.append(_candidate_row(c, page_host, selector=sel))
+        rows.append(_candidate_row(c, page_host, page_url=page_url, selector=sel))
 
     accepted = [r for r in rows if r["accepted"]]
     accepted.sort(key=lambda r: ((r["score"] or 0), (r["size"] or 0)),

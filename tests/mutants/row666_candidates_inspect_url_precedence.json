@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 666. The mutant changes only the executed precedence operator so a supplied caller URL once again yields the configured primary URL. The old_regex lookarounds identify the exact site while its match is the structural token 'or', which is classifiable by row 357.",
+  "subject": "candidate inspection prefers a supplied caller page URL over the configured site primary URL",
+  "band": [
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_candidates_inspect_prefers_the_callers_page_url",
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_template_dry_run_prefers_the_callers_page_url",
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_template_dry_run_without_url_falls_back_to_site_primary",
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_inspector_resolves_root_relative_form",
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_inspector_classifies_relative_media_against_the_caller_host"
+  ],
+  "mutants": [
+    {
+      "label": "M1 caller URL no longer wins over the configured primary URL",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "(?<=body\\.get\\(\"url\"\\) )or(?= _site_primary_url\\(cfg\\))",
+      "new": "and",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_candidates_inspect_prefers_the_callers_page_url"
+    },
+    {
+      "label": "M2 relative candidate URLs are returned without resolution",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "urljoin\\(page_url, raw_url\\)",
+      "new": "raw_url",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_inspector_resolves_root_relative_form"
+    },
+    {
+      "label": "M3 candidate classification uses the configured login host",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?<=    page_host = )_host\\(page_url\\)",
+      "new": "_host(\"https://login.example.test/login\")",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_inspector_classifies_relative_media_against_the_caller_host"
+    },
+    {
+      "label": "M4 template dry-run caller URL no longer wins over the configured primary URL",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old_regex": "(?<=body\\.get\\(\"url\"\\) )or(?= _site_primary_url\\(cfg\\))",
+      "new": "and",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_template_dry_run_prefers_the_callers_page_url"
+    },
+    {
+      "label": "M5 template dry-run no longer falls back to the configured primary URL",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old_regex": "(?<=body\\.get\\(\"url\"\\) or) _site_primary_url\\(cfg\\) or (?=\"\")",
+      "new": " ",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_template_dry_run_without_url_falls_back_to_site_primary"
+    }
+  ]
+}
