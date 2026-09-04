@@ -5,6 +5,34 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1481 - the SSRF band and its mutation battery reach their own subject
+
+Two refute-first-reviewed patches with disjoint paths, plus a register commit
+prepared by integrator C and applied here.
+
+- The affected-band mapping did not select the SSRF suites for the files that
+  carry the guard, so a change to a guard-bearing path could pass its band
+  without either SSRF suite running. The mapping now reaches them. The census
+  is honest about what it does not yet cover: ten guard-bearing paths still
+  have no curated mapping, named individually rather than rounded off, and a
+  separate population row is proposed for them.
+
+- The SSRF mutation battery dialled off-box. A mutation run executes production
+  code with its guard removed, so an SSRF battery attempts real connections by
+  construction -- and three of its mutants reached 169.254.169.254, which is
+  routed to the default gateway on this fleet and is a live instance metadata
+  service on a cloud-hosted runner. Containment is now local to the catchers:
+  S3 and S4 hold their own `socket.create_connection`, S7 moved to an owned
+  contained catcher reached through the existing registration seam, and the
+  measured off-box S10 is contained. MUTANT_INDEX.md names all four.
+
+- Row 702 CLOSED @1480. The SSRF loopback exemption no longer greps a
+  human-readable reason: the substring test is gone from app_template.py
+  entirely and both exemption sites compare a structured reason code. Blob-
+  verified by the register integrator against the row's acceptance rather than
+  the patch title -- including the negative control the row demanded, that a
+  genuine loopback is still admitted at both sites.
+
 ## v3.66.1480 - a refusal reason is classified, not string-matched
 
 One refute-first-reviewed patch, all three lenses BOARD (T3: correctness,

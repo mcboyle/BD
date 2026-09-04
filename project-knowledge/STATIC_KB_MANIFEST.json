@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-04T15:00:55+00:00",
- "version_context": "v3.66.1480",
- "file_count": 93,
+ "generated": "2026-09-04T19:04:42+00:00",
+ "version_context": "v3.66.1481",
+ "file_count": 94,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -157,8 +157,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "81eaa42b60d94edb4b2868983e42378c02cc75f2eed4c6d9b6b8e48ac7008c5c",
-   "bytes": 1099740
+   "sha256": "958bcd9fc8873c18e9b0fb881d216814068aa1b21e66b5fe046c350cf9c05bcb",
+   "bytes": 1101280
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",
@@ -191,6 +191,10 @@
   "LESSONS_LEARNED_v3_66_818.md": {
    "sha256": "881e6fc42792352283c0dd62cde08ee09281d3b7fa6412c74cb40fa9069205e0",
    "bytes": 14837
+  },
+  "MUTANT_INDEX.md": {
+   "sha256": "54bac3317da0d5fea95474ed5c5e6825e5f0a00a87f51a1ac65294090191fab1",
+   "bytes": 12197
   },
   "OPERATOR_POLICY_DECISIONS.md": {
    "sha256": "deca5ac7a99f2e3f62cddae3c40ba8ade1a936d3d78aad31a9a8193b24fec9e2",
@@ -289,8 +293,8 @@
    "bytes": 4365
   },
   "TOUCHED_FILE_TO_TEST.md": {
-   "sha256": "cd63ee24da0c1e59168623bb15dcf1fbc7f3d8263074ff64d0105ba045c3a873",
-   "bytes": 6153
+   "sha256": "103d4863ad3537bd6bbcff4ed3db76b0747ea39987d7036f4ddddf7aadf19130",
+   "bytes": 6427
   },
   "TRIAGE_RULES.json": {
    "sha256": "448030d6866d105c00116cc53b89cdf296cd5c32cbf70a28b42248b0d7b54d72",

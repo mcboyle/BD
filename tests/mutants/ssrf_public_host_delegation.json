@@ -1,0 +1,153 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Durable module battery, not a per-cut one. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/ssrf_public_host_delegation.json --work <a detached scratch clone OUTSIDE this repository>. Re-derive the population with: git grep -n '_is_safe_public_host(' -- bulk_downloader/ minus the definition itself; a site that command reports and this spec does not name means the battery is out of date. NOTHING RUNS THAT COMMAND: no gate asserts set-equality between it and this spec, so the population is checked by whoever reads this, not by the tree. The paired transform control must ESCAPE.",
+ "subject": "every call site of the canonical host classifier _is_safe_public_host that `git grep '_is_safe_public_host(' -- bulk_downloader/` reports, minus its definition, is reached by a test that fails when that call FAILS OPEN -- the population is that command's output, not every caller in the tree",
+ "band": [
+  "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_a_redirect_hop_to_a_non_public_host",
+  "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata",
+  "tests/test_core_bd01_manifest_probe_ssrf.py::test_fetch_manifest_text_refuses_internal_host_before_fetch",
+  "tests/test_mirror_probe_ssrf.py::test_no_head_to_loopback_file_url",
+  "tests/test_c1_ssrf_and_fileread.py::test_multiconn_probe_refuses_private_initial_host_without_connect",
+  "tests/test_multi_conn_ssrf.py::test_redirect_hook_blocks_hop_to_metadata",
+  "tests/test_rec01_02_deep_detect_probe_ssrf.py::test_default_http_client_blocks_link_local_metadata_host",
+  "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestDefaultHttpGetSSRFBlocking::test_metadata_refusal_comes_from_the_pre_fetch_guard",
+  "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestRedirectGuard::test_redirect_to_private_blocks_via_event_hook",
+  "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_app_is_url_public_rejects_cgnat",
+  "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_scrape_listing_delegates_to_canonical_guard",
+  "tests/test_v3_66_542_tier_probe_ssrf.py::test_tier_probe_ssrf_hook_rejects_non_public_hosts",
+  "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_loopback",
+  "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_loopback_requests",
+  "tests/test_v3_66_765_injected_http_get_ssrf_guard.py::test_guard_blocks_private_hosts_before_calling_inner",
+  "tests/test_v3_66_781_flaresolverr_ssrf.py::test_flaresolverr_test_rejects_metadata_endpoint"
+ ],
+ "mutants": [
+  {
+   "label": "S1_app_admin_host_check",
+   "file": "bulk_downloader/app.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_app_is_url_public_rejects_cgnat"
+  },
+  {
+   "label": "S2_flaresolverr_endpoint",
+   "file": "bulk_downloader/app_flaresolverr.py",
+   "old_regex": "_is_safe_public_host\\(_ep_host\\)",
+   "new": "(True, _ep_host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_781_flaresolverr_ssrf.py::test_flaresolverr_test_rejects_metadata_endpoint"
+  },
+  {
+   "label": "S3_template_prefetch",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "_is_safe_public_host\\(_urlparse\\(url\\)\\.hostname",
+   "new": "(True, _urlparse(url).hostname",
+   "direction": "regression",
+   "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata"
+  },
+  {
+   "label": "S4_template_redirect",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "_is_safe_public_host\\(\\n\\s+_urlparse\\(newurl\\)\\.hostname",
+   "new": "(True, _urlparse(newurl).hostname",
+   "direction": "regression",
+   "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_a_redirect_hop_to_a_non_public_host"
+  },
+  {
+   "label": "S5_deep_detect_probe",
+   "file": "bulk_downloader/deep_detect/orchestrate.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_rec01_02_deep_detect_probe_ssrf.py::test_default_http_client_blocks_link_local_metadata_host"
+  },
+  {
+   "label": "S6_capture_diag_probe",
+   "file": "bulk_downloader/dev_suite/capture_diag.py",
+   "old_regex": "_is_safe_public_host\\(_urlparse\\(url\\)\\.hostname",
+   "new": "(True, _urlparse(url).hostname",
+   "direction": "regression",
+   "catcher": "tests/test_core_bd01_manifest_probe_ssrf.py::test_fetch_manifest_text_refuses_internal_host_before_fetch"
+  },
+  {
+   "label": "S7_multiconn_initial",
+   "file": "bulk_downloader/multi_conn.py",
+   "old_regex": "return _is_safe_public_host\\(host\\)",
+   "new": "return (True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_c1_ssrf_and_fileread.py::test_multiconn_probe_refuses_private_initial_host_without_connect"
+  },
+  {
+   "label": "S8_multiconn_redirect",
+   "file": "bulk_downloader/multi_conn.py",
+   "old_regex": "(?<=ok, reason = )_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_multi_conn_ssrf.py::test_redirect_hook_blocks_hop_to_metadata"
+  },
+  {
+   "label": "S9_common_transport_initial",
+   "file": "bulk_downloader/provider_resolve_impl/_common.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestDefaultHttpGetSSRFBlocking::test_metadata_refusal_comes_from_the_pre_fetch_guard"
+  },
+  {
+   "label": "S10_common_transport_redirect",
+   "file": "bulk_downloader/provider_resolve_impl/_common.py",
+   "old_regex": "_is_safe_public_host\\(host_redir\\)",
+   "new": "(True, host_redir)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestRedirectGuard::test_redirect_to_private_blocks_via_event_hook"
+  },
+  {
+   "label": "S11_runner_listing",
+   "file": "bulk_downloader/runner.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_540_ssrf_classifier_consolidation.py::test_runner_scrape_listing_delegates_to_canonical_guard"
+  },
+  {
+   "label": "S12_runner_extractors",
+   "file": "bulk_downloader/runner_extractors.py",
+   "old_regex": "_is_safe_public_host\\(urlparse\\(url\\)\\.hostname",
+   "new": "(True, urlparse(url).hostname",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_765_injected_http_get_ssrf_guard.py::test_guard_blocks_private_hosts_before_calling_inner"
+  },
+  {
+   "label": "S13_runner_telemetry",
+   "file": "bulk_downloader/runner_telemetry.py",
+   "old_regex": "_is_safe_public_host\\(parsed\\.hostname",
+   "new": "(True, parsed.hostname",
+   "direction": "regression",
+   "catcher": "tests/test_mirror_probe_ssrf.py::test_no_head_to_loopback_file_url"
+  },
+  {
+   "label": "S14_selector_playground",
+   "file": "bulk_downloader/selector_playground.py",
+   "old_regex": "return _is_safe_public_host\\(host\\)",
+   "new": "return (True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_552_playground_ssrf.py::test_fetch_page_blocks_loopback_requests"
+  },
+  {
+   "label": "S15_site_weather",
+   "file": "bulk_downloader/site_weather.py",
+   "old_regex": "return _is_safe_public_host\\(host\\)",
+   "new": "return (True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_550_weather_ssrf.py::test_probe_http_blocks_loopback"
+  },
+  {
+   "label": "S16_tier_probe",
+   "file": "bulk_downloader/tier_probe.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_542_tier_probe_ssrf.py::test_tier_probe_ssrf_hook_rejects_non_public_hosts"
+  }
+ ]
+}
