@@ -57,6 +57,7 @@ transfer's own proxy resolution is asserted to be None so nothing can leave it.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib
 import logging
@@ -64,7 +65,7 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
@@ -94,6 +95,15 @@ HOLD = CHUNK          # bytes scene A has staged when scene B starts
 
 BODY_A = bytes([SCENE_A_BYTE]) * LEN_A
 BODY_B = bytes([SCENE_B_BYTE]) * LEN_B
+
+
+def _resource_identity_for_test(url: str) -> str:
+    """Derive the expected identity independently of staging_claim."""
+    parsed = urlsplit(url)
+    canonical = urlunsplit(
+        (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, "", "")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # ── the fixture origin: byte ranges, no validators, on loopback only ─────────
@@ -559,6 +569,285 @@ def test_a_completed_download_leaves_no_claim_behind(resumed):
     assert not staging.exists(), "the .part outlived its promotion"
     assert not owner_path_for(staging).exists(), (
         "the staging claim outlived the .part it guarded")
+
+
+# ── Row 483/575: one job identity can resolve to a different resource ────────
+
+@pytest.fixture(scope="module")
+def changed_resource_resume(origin, tmp_path_factory):
+    """Interrupt resource A, then resolve the same page job to resource B."""
+    from bulk_downloader import staging_claim as sc
+
+    out = {"unknown": None}
+    try:
+        origin["hold"].set()
+        with origin["handler"].lock:
+            request_start = len(origin["handler"].requests)
+
+        dl_dir = Path(tmp_path_factory.mktemp("changed-resource-resume"))
+        page_url = "https://example.invalid/one-page"
+        identity = sc.job_identity(page_url)
+        final = dl_dir / "Changing-tier.mp4"
+        staging = sc.staging_path_for(final)
+        owner = sc.owner_path_for(staging)
+
+        def _stop_after_first(harness):
+            harness._stop.set()
+
+        first = _harness("changed-resource-first", after_write=_stop_after_first)
+        try:
+            first._http_download(page_url, None, _Ctx(),
+                                 origin["base"] + "/scene-a.mp4", final)
+            out["first_error"] = "the interrupted attempt completed"
+        except BaseException as exc:              # noqa: BLE001 - measured
+            out["first_error"] = f"{type(exc).__name__}: {exc}"
+
+        owners = list(dl_dir.glob("*.owner"))
+        out.update({
+            "staged_bytes_before_second": (
+                staging.stat().st_size if staging.exists() else None),
+            "staged_census_before_second": (
+                _byte_census(staging.read_bytes()) if staging.exists() else None),
+            "owner_count_before_second": len(owners),
+            "owner_record_before_second": (
+                json.loads(owner.read_text(encoding="utf-8"))
+                if owner.is_file() else None),
+            "meta_count_before_second": len(list(dl_dir.glob("*.part.meta"))),
+        })
+
+        # The page-level reservation really matched rather than diverting. It
+        # intentionally cannot prove which media URL produced the staged bytes.
+        out["matched_reserve"] = sc.reserve(final, identity) == (final, staging)
+
+        second = _harness("changed-resource-second")
+        try:
+            out["second_result"] = second._http_download(
+                page_url, None, _Ctx(), origin["base"] + "/scene-b.mp4", final)
+            out["second_outcome"] = "completed"
+        except BaseException as exc:              # noqa: BLE001 - measured
+            out["second_outcome"] = "refused"
+            out["second_error_type"] = type(exc).__name__
+            out["second_error"] = str(exc)
+
+        with origin["handler"].lock:
+            requests = list(origin["handler"].requests[request_start:])
+        out["requests"] = requests
+        out["first_resource_requests"] = [
+            r for r in requests if r["path"] == "/scene-a.mp4"]
+        out["second_resource_ranges"] = [
+            r for r in requests
+            if r["path"] == "/scene-b.mp4" and r["range"] is not None]
+        out["final_exists"] = final.exists()
+        if final.exists():
+            blob = final.read_bytes()
+            out["final_size"] = len(blob)
+            out["final_digest"] = hashlib.sha256(blob).hexdigest()
+        out["source_digests"] = {
+            hashlib.sha256(BODY_A).hexdigest(),
+            hashlib.sha256(BODY_B).hexdigest(),
+        }
+        out["first_resource_identity"] = _resource_identity_for_test(
+            origin["base"] + "/scene-a.mp4")
+        out["staging_exists_after_second"] = staging.exists()
+        out["staging_census_after_second"] = (
+            _byte_census(staging.read_bytes()) if staging.exists() else None)
+        out["owner_count_after_second"] = len(list(dl_dir.glob("*.owner")))
+    except BaseException as exc:                  # noqa: BLE001 - recorded
+        out["unknown"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def _assert_changed_resource_preconditions(r):
+    assert r["unknown"] is None, r["unknown"]
+    assert "stopped" in r["first_error"], r["first_error"]
+    assert r["staged_bytes_before_second"] == CHUNK
+    assert r["staged_census_before_second"] == {SCENE_A_BYTE: CHUNK}
+    assert r["owner_count_before_second"] == 1
+    assert r["owner_record_before_second"]["job"] == hashlib.sha256(
+        b"https://example.invalid/one-page").hexdigest()
+    assert r["meta_count_before_second"] == 0
+    assert r["matched_reserve"] is True
+    assert len(r["source_digests"]) == 2
+    first = r["first_resource_requests"]
+    assert len(first) == 1, f"expected one first-resource request: {first}"
+    assert first[0]["range"] is None, (
+        f"a first run with no .part sent a Range request: {first}")
+    assert first[0]["status"] == 200
+
+
+def test_changed_resource_resume_measured_its_preconditions(
+        changed_resource_resume):
+    _assert_changed_resource_preconditions(changed_resource_resume)
+
+
+def test_changed_resource_is_never_appended_to_the_old_resources_bytes(
+        changed_resource_resume):
+    r = changed_resource_resume
+    _assert_changed_resource_preconditions(r)
+    assert r["second_outcome"] == "refused", (
+        "the same page identity resumed a different media resource and "
+        f"promoted digest {r.get('final_digest')}; source digests are "
+        f"{sorted(r['source_digests'])}, Range requests were "
+        f"{r['second_resource_ranges']}")
+    assert r["second_error_type"] == "_StagingUnavailable"
+    assert "resource mismatch" in r["second_error"].lower()
+    assert (r["owner_record_before_second"]["resource"] ==
+            r["first_resource_identity"])
+    assert r["second_resource_ranges"] == []
+    assert r["final_exists"] is False
+    assert r["staging_exists_after_second"] is True
+    assert r["staging_census_after_second"] == {SCENE_A_BYTE: CHUNK}
+    assert r["owner_count_after_second"] == 1
+
+
+def test_parallel_changed_resource_refuses_before_any_range(
+        origin, tmp_path, monkeypatch):
+    """The segmented path has its own resource-bound claim before workers."""
+    from bulk_downloader import staging_claim as sc
+
+    page_url = "https://example.invalid/one-parallel-page"
+    first_url = origin["base"] + "/scene-a.mp4"
+    second_url = origin["base"] + "/scene-b.mp4"
+    final = tmp_path / "Parallel-changing-tier.mp4"
+    identity = sc.job_identity(page_url)
+    staging = sc.claim(final, identity, resource_url=first_url)
+    staging.write_bytes(BODY_A[:CHUNK])
+    owner = sc.owner_path_for(staging)
+    owner_before = owner.read_bytes()
+    census_before = _byte_census(staging.read_bytes())
+    assert census_before == {SCENE_A_BYTE: CHUNK}
+    assert json.loads(owner_before)["resource"] == _resource_identity_for_test(
+        first_url)
+
+    with origin["handler"].lock:
+        request_start = len(origin["handler"].requests)
+    real_claim = sc.claim
+    parallel_claims = []
+
+    def _observed_claim(final_path, holder, *, resource_url=None):
+        parallel_claims.append((final_path, holder, resource_url))
+        return real_claim(final_path, holder, resource_url=resource_url)
+
+    monkeypatch.setattr(sc, "claim", _observed_claim)
+    harness = _harness("parallel-changed-resource")
+    chunk_count = 2
+    outcome = "completed"
+    error_type = error = None
+    try:
+        harness._http_download_parallel(
+            page_url, _Ctx(), second_url, final,
+            total=LEN_B, n_chunks=chunk_count)
+    except BaseException as exc:                 # noqa: BLE001 - measured
+        outcome = "refused"
+        error_type = type(exc).__name__
+        error = str(exc)
+
+    with origin["handler"].lock:
+        requests = list(origin["handler"].requests[request_start:])
+    ranges = [
+        row for row in requests
+        if row["path"] == "/scene-b.mp4" and row["range"] is not None
+    ]
+
+    assert chunk_count == 2 and chunk_count > 1
+    assert parallel_claims == [(final, identity, second_url)], (
+        f"parallel claim seam fired {len(parallel_claims)} times: "
+        f"{parallel_claims!r}")
+    assert outcome == "refused", (
+        "parallel transfer crossed a changed-resource claim; "
+        f"Range requests were {ranges}")
+    assert error_type == "_StagingUnavailable", error
+    assert "resource mismatch" in (error or "").lower()
+    assert ranges == []
+    assert final.exists() is False
+    assert staging.is_file()
+    assert _byte_census(staging.read_bytes()) == census_before
+    assert owner.read_bytes() == owner_before
+
+
+def test_resource_binding_ignores_rotating_signatures_but_not_a_new_path(
+        tmp_path):
+    """Negative control: the guard preserves signed-URL resumes."""
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Signed.mp4"
+    identity = sc.job_identity("https://example.invalid/one-page")
+    staging = sc.claim(
+        final, identity,
+        resource_url="https://cdn.example/video.mp4?token=first")
+    staging.write_bytes(bytes([SCENE_A_BYTE]) * CHUNK)
+
+    matched = sc.claim(
+        final, identity,
+        resource_url="https://cdn.example/video.mp4?token=rotated")
+    assert matched == staging
+    assert matched.stat().st_size == CHUNK
+    assert matched.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK
+
+    with pytest.raises(sc.StagingResourceMismatch, match="resource mismatch"):
+        sc.claim(final, identity,
+                 resource_url="https://cdn.example/higher-tier.mp4?token=rotated")
+    assert staging.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK, (
+        "a resource mismatch altered the staged bytes it refused")
+
+
+def test_a_proven_legacy_claim_binds_without_discarding_its_resume(tmp_path):
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Legacy.mp4"
+    identity = sc.job_identity("https://example.invalid/legacy-page")
+    staging = sc.claim(final, identity)
+    staging.write_bytes(bytes([SCENE_A_BYTE]) * CHUNK)
+
+    rebound = sc.claim(final, identity,
+                       resource_url="https://cdn.example/legacy.mp4")
+    assert rebound == staging
+    assert rebound.stat().st_size == CHUNK
+    assert staging.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK
+    owner = sc.owner_path_for(staging)
+    record = json.loads(owner.read_text(encoding="utf-8"))
+    assert record["resource"] == _resource_identity_for_test(
+        "https://cdn.example/legacy.mp4")
+
+
+def test_an_empty_proven_claim_measures_zero_before_rebinding(tmp_path):
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Empty.mp4"
+    identity = sc.job_identity("https://example.invalid/empty-page")
+    staging = sc.claim(
+        final, identity, resource_url="https://cdn.example/empty-old.mp4")
+    staging.touch()
+    assert staging.stat().st_size == 0
+
+    rebound = sc.claim(final, identity,
+                       resource_url="https://cdn.example/empty-new.mp4")
+    assert rebound == staging
+    assert rebound.stat().st_size == 0
+    record = json.loads(
+        sc.owner_path_for(staging).read_text(encoding="utf-8"))
+    assert record["resource"] == _resource_identity_for_test(
+        "https://cdn.example/empty-new.mp4")
+
+
+def test_v2_still_requires_the_proof_field_after_the_resource_format_bump(
+        tmp_path):
+    from bulk_downloader import staging_claim as sc
+
+    final = tmp_path / "Malformed-v2.mp4"
+    identity = sc.job_identity("https://example.invalid/malformed-v2")
+    owner = sc.owner_path_for(sc.staging_path_for(final))
+    owner.write_text(json.dumps({"v": 2, "job": identity}), encoding="utf-8")
+
+    with pytest.raises(sc.StagingUnavailable, match="no 'proven' proof field"):
+        sc.claim(final, identity)
+
+
+def test_resource_transform_control_only_imports_the_module():
+    """Mutation control: importability says nothing about provenance."""
+    from bulk_downloader import staging_claim as sc
+
+    assert callable(sc.claim)
 
 
 # ── 4. UNKNOWN is not permission ─────────────────────────────────────────────
@@ -1136,7 +1425,7 @@ def test_do_download_staging_unavailable_exit_drops_its_empty_owned_claim(
     real_claim = sc.claim
     observed = []
 
-    def _fail_the_inner_claim(final_path, identity):
+    def _fail_the_inner_claim(final_path, identity, *, resource_url=None):
         if observed:
             raise AssertionError("inner claim injection fired more than once")
         if owner.exists():
@@ -1146,7 +1435,7 @@ def test_do_download_staging_unavailable_exit_drops_its_empty_owned_claim(
                 "parts": len(list(tmp_path.glob("*.part"))),
             })
             raise sc.StagingUnavailable("synthetic inner claim ENOSPC")
-        return real_claim(final_path, identity)
+        return real_claim(final_path, identity, resource_url=resource_url)
 
     monkeypatch.setattr(sc, "claim", _fail_the_inner_claim)
     runner._do_download(
@@ -1232,13 +1521,13 @@ def test_do_download_scope_will_not_delete_a_different_jobs_claim(
     real_claim = sc.claim
     injected = []
 
-    def _replace_before_refusal(final_path, identity):
+    def _replace_before_refusal(final_path, identity, *, resource_url=None):
         if owner.exists():
             owner.write_text(json.dumps({"v": 1, "job": other}),
                              encoding="utf-8")
             injected.append(sc._read_owner_identity(owner))
             raise sc.StagingUnavailable("synthetic ownership changed")
-        return real_claim(final_path, identity)
+        return real_claim(final_path, identity, resource_url=resource_url)
 
     monkeypatch.setattr(sc, "claim", _replace_before_refusal)
     runner._do_download(

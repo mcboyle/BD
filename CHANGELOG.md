@@ -5,6 +5,20 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1470 - a staging claim keys on the resolved URL, so a changed resource cannot take another scene's bytes
+
+One refute-first-reviewed patch, all three lenses BOARD (T3: correctness,
+shape, and the design/security panel).
+
+- A parallel part-staging claim keyed on the REQUESTED url rather than the
+  resolved one, so when a resource changed between resolution and claim the
+  second scene could begin ranging over the first scene's staged bytes. The
+  claim now refuses before any Range is issued: with two chunks requested the
+  claim fires exactly once, scene B issues zero Range requests, and scene A's
+  chunk and owner record are unchanged. Both transport claim sites carry
+  mutants, and the existing signed-query and same-job-resume cases remain as
+  negative controls rather than being relaxed to fit.
+
 ## v3.66.1469 - the CI shard union is exactly the declared gate set again
 
 One refute-first-reviewed patch. No production function changed.
