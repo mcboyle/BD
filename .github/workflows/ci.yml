@@ -478,6 +478,7 @@ jobs:
           - name: template-selectors
             suites: >-
               tests/test_row362_templates_are_resolvable.py
+              tests/test_row671_reviewed_template_selectors_are_enumerated.py
               tests/test_row377_installed_template_selftest_states.py
               tests/test_login_session_does_not_cover_the_scene_host.py
               tests/test_row666_candidates_inspect_prefers_caller_url.py

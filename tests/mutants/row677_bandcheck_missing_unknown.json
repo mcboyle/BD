@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 677. The mutant restores the executed MISSING branch's old classification by setting the measured-unsafe flag instead of the unmeasurable flag. The old_regex matches only the structural identifier and is classifiable by row 357.",
+  "subject": "bd-bandcheck returns UNKNOWN for a missing-only target list while measured failures dominate",
+  "band": [
+    "tests/test_row677_bandcheck_missing_is_unknown.py::test_missing_target_is_unknown_and_names_unmeasurable_input"
+  ],
+  "mutants": [
+    {
+      "label": "M1 missing target is collapsed back into a measured unsafe finding",
+      "file": "toolchain/bin/bd-bandcheck",
+      "old_regex": "(?<=; )unmeasurable(?= = True\\n            names\\.add\\(base\\); continue)",
+      "new": "unsafe",
+      "direction": "regression",
+      "catcher": "tests/test_row677_bandcheck_missing_is_unknown.py::test_missing_target_is_unknown_and_names_unmeasurable_input"
+    }
+  ]
+}

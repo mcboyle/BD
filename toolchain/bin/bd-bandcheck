@@ -10,7 +10,8 @@ don't trip the band footguns:
 Usage:
   bd-bandcheck tests/test_foo.py tests/test_bar.py ...
   bd-bandcheck --tree DIR tests/...
-Exit 1 if any target is unsafe/invalid, else 0.
+Exit 0 if all targets are safe, 1 for measured unsafe findings, or 2 when a
+target cannot be measured and no measured unsafe finding exists.
 """
 import argparse, os, sys
 
@@ -56,27 +57,29 @@ def check(targets, tree):
     """(rc, lines) for a proposed band. Factored out of main() @849 so bd-band
     can REFUSE an unsafe band instead of discovering it 200 seconds later.
 
-    Pure: prints nothing, touches nothing. rc is 1 if any target is unsafe.
-    An EMPTY target list is rc 2 -- "all targets safe" over zero targets is the
-    CLAUDE.md section 0 shape, and this function is now a gate."""
+    Pure: prints nothing, touches nothing. rc is 1 if any target is measured
+    unsafe, else 2 if any target is unmeasurable. An EMPTY target list is rc 2
+    -- "all targets safe" over zero targets is the CLAUDE.md section 0 shape,
+    and this function is now a gate."""
     lines = []
     if not targets:
         return 2, ["  NO TARGETS -- a band over nothing is not a safe band."]
-    rc = 0
+    unsafe = False
+    unmeasurable = False
     names = set()
     for t in targets:
         base = os.path.basename(t.rstrip("/"))
         # whole-dir
         if t.rstrip("/").endswith("tests") or t.rstrip("/") in ("tests", "."):
-            lines.append(f"  UNSAFE  '{t}' -- the whole tests/ dir HANGS at test_perf_lab.py. Band targeted files."); rc = 1; continue
+            lines.append(f"  UNSAFE  '{t}' -- the whole tests/ dir HANGS at test_perf_lab.py. Band targeted files."); unsafe = True; continue
         # function-not-file
         stem = base[:-3] if base.endswith(".py") else base
         if stem in NOT_A_FILE:
             lines.append(f"  NOT A FILE  '{t}' is a test FUNCTION -> a broad run -> timeout -> ABORT.")
-            lines.append(f"              band instead: {NOT_A_FILE[stem]}"); rc = 1; continue
+            lines.append(f"              band instead: {NOT_A_FILE[stem]}"); unsafe = True; continue
         # known hang
         if base in HANG:
-            lines.append(f"  UNSAFE  {base} -- {HANG[base]}."); rc = 1; continue
+            lines.append(f"  UNSAFE  {base} -- {HANG[base]}."); unsafe = True; continue
         # exists?
         path = t if os.path.isabs(t) else os.path.join(tree, t)
         if not os.path.exists(path):
@@ -93,15 +96,15 @@ def check(targets, tree):
             # the operator fixes the paths and then bands the pair that leaks
             # BD_INSTALL_DIR. A leak pair is a hazard about what you are ABOUT
             # TO BAND, not about what happened to resolve.
-            lines.append(f"  MISSING '{t}' -- no such file under {tree}. Typo? (a non-file path triggers a broad run)."); rc = 1
+            lines.append(f"  MISSING '{t}' -- no such file under {tree}. Typo? (a non-file path triggers a broad run)."); unmeasurable = True
             names.add(base); continue
         lines.append(f"  ok      {os.path.relpath(path, tree)}")
         names.add(base)
     # leak-pair co-band check
     for setA, setB, why in LEAK_PAIRS:
         if names & setA and names & setB:
-            lines.append(f"  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); rc = 1
-    return rc, lines
+            lines.append(f"  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); unsafe = True
+    return (1 if unsafe else 2 if unmeasurable else 0), lines
 
 
 def main():
@@ -120,8 +123,13 @@ def main():
     rc, lines = check(a.targets, a.tree)
     for l in lines:
         print(l)
-    print("\n" + ("all targets safe to band." if rc == 0
-                  else "=> fix the flagged targets before banding (else timeout/ABORT/false-fail)."))
+    if rc == 0:
+        summary = "all targets safe to band."
+    elif rc == 2:
+        summary = "=> one or more targets could not be measured; fix the MISSING paths before banding."
+    else:
+        summary = "=> fix the flagged targets before banding (else timeout/ABORT/false-fail)."
+    print("\n" + summary)
     return rc
 
 if __name__ == "__main__":

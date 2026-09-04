@@ -5,6 +5,46 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1482 - a nested selector group is enumerated, and an unmeasurable band stops reading as unsafe
+
+Two refute-first-reviewed patches with disjoint paths, boarding on the
+correctness lens under the 20:2xZ ruling, plus a register commit prepared by
+integrator C and applied here.
+
+- Template selector enumeration only saw selectors under the key names it knew,
+  so a nested top-level `selectors` group contributed nothing to the count. It
+  now records every string and list leaf of any such group individually, with
+  the legacy key-name path unchanged, and an independent exact-12 gate over the
+  reviewed templates pins the result rather than trusting the enumerator to
+  describe itself.
+
+- `bd-bandcheck` collapsed two different failures into one exit code: a band
+  whose targets are measurably UNSAFE and a band whose targets cannot be
+  measured at all both exited 1. Those lead to opposite actions -- fix the
+  targets, or find out why they are missing -- so they are now separate:
+  unsafe findings dominate with rc 1, missing-only input returns rc 2, and safe
+  input passes. UNKNOWN stops reading as failure.
+
+- Row 681 CLOSED @1472 and row 712 CLOSED @1481. 681's changelog-placeholder
+  gate landed in train B-14 and was found by reading the row's acceptance
+  against main -- the name-matching sweep could not see it, because 681 has no
+  review worktree and its fix arrived under another name. 712 was closed on
+  bd-band-derive's OUTPUT rather than the mapping file's text: deriving against
+  the SSRF guard now yields a band containing both gates the row named.
+- Row 711 stays OPEN. Despite the B-22 train title, bd-mutate's _validate still
+  ends in an unconditional valid-by-default for any suffix it cannot parse, and
+  still has no .json branch.
+- Row 724 FILED. bd-cut-preflight's bandcheck parser counts the failing targets
+  and then reports a literal zero in the failed position, so a band of entirely
+  UNSAFE targets summarises as "N band target(s)" with nothing wrong. The tool's
+  verdict is unaffected -- the exit-code mapping is separate -- so what is lost
+  is the count a reader plans the fix around.
+- Rows 725-746 FILED: the panel's NOTE-class shape findings from the T2 reviews,
+  each with a one-line acceptance, a tier and a follow-up pointer. Two of the
+  panel's 24 were deliberately NOT filed -- the bd-freshcheck truncation is
+  already inside row 705's scope, and the unwritable install directory is row
+  718 -- because a second row for a filed finding splits its evidence.
+
 ## v3.66.1481 - the SSRF band and its mutation battery reach their own subject
 
 Two refute-first-reviewed patches with disjoint paths, plus a register commit
