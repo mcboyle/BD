@@ -5,6 +5,33 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1476 - the installer writes whatever directory it was run from
+
+A register train carrying no runtime change and no closure. One row filed.
+
+Row 715. A worker ran install_service.sh from its own detached worktree and the
+host then SERVED FROM THAT WORKTREE for about eight hours. The worktree has no
+secrets.json, so the health endpoint reported "vault uninitialized" -- which
+reads as a vault problem rather than as the service running from the wrong tree,
+and the diagnosis pointed away from the cause for the entire window.
+
+The mechanism is one line: install_service.sh:18 derives APP_DIR from the
+script's own location and :214 and :269 write it straight into the unit's
+WorkingDirectory=. The script has no notion of a canonical install directory at
+all. The refusal shape it needs is already in the file -- it refuses paths that
+would corrupt the unit, and it refuses an unknown RUN_USER -- so this is a
+missing CONDITION, not a missing capability.
+
+Verifying that citation surfaced a second installer the finding did not name:
+scripts/install_capture_service.sh:57 derives APP_DIR the same way. Whether it
+writes that into a unit is UNMEASURED and the row says so; it is a pointer, not
+a second finding. But the population is two installers until someone measures
+otherwise, and hardening one while leaving an identically-derived sibling is the
+shape row 239 has already cost this repository twice.
+
+This version is 1476, not 1475: 1475 was claimed by another integrator before
+this train was cut.
+
 ## v3.66.1474 - the mutation-collision row gets its first reproducible sighting
 
 A register train carrying no runtime change and no closure. One amendment and
