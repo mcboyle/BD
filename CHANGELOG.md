@@ -5,6 +5,85 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1474 - the mutation-collision row gets its first reproducible sighting
+
+A register train carrying no runtime change and no closure. One amendment and
+seven rows filed.
+
+- Row 711 -- the mutation validator falls through to VALID for every suffix it
+  cannot parse, so a corrupt .json mutant is recorded valid, its catcher fails
+  because the file no longer parses, and the grader scores that CAUGHT. The file
+  records the identical fail-open for .tsx under row 239; that case was closed by
+  adding a branch and the fallthrough it fell through was left. Two hits in one
+  night. This is the instrument that grades every cut.
+- Row 712 -- no SSRF gate is selectable by the band deriver: the touched-file
+  mapping contains no ssrf entry at all, so a change to the guard derives a band
+  naming neither of its tests. It should land before or with rows 702 and 703.
+- Row 713 -- three deep integrations carry a token to an operator-supplied URL
+  with zero guard references and zero redirect controls, so a 302 off-host sends
+  the token to the redirect target. Re-deriving the counts found a FOURTH file
+  the original measurement did not name, which matters because a cut scoped to
+  the three would leave it exactly as it is.
+- Row 714 -- both requirements-manifest readers break on an inline comment and
+  they break DIFFERENTLY: one raises inside a parser, the other fails a set
+  membership assertion. A fix aimed at parser exceptions leaves the second
+  failing, and a reviewer who tested the first would report the class closed.
+  This row supersedes a single-reader row proposed inside worker DONE.md files.
+
+- Row 710 FILED PRE-EMPTIVELY ON A RULING rather than on a defect, so the
+  condition attached to that ruling is machine-visible BEFORE the patch it
+  governs lands. An in-flight patch adds auto_relogin_refused and deliberately
+  excludes it from _SESSION_FAILURE_EVENTS, so a login cap refusing its own
+  re-login does not inflate a site's failure rate. That exclusion is accepted and
+  pinned by a test, which makes it a contract either way. The condition: the
+  refusal must be visible as its own counter. A number excluded from one total
+  and present in no other is not a decision to under-count, it is a decision to
+  stop counting, and the two are indistinguishable to every later reader.
+
+- Row 708 FILED, HIGH, with its premise NARROWED by the operator before this
+  train committed. Four sites landed UNAUTHENTICATED with a warm cookie jar
+  while the product reported login success -- the rendered pages carried "BECOME
+  A MEMBER", "Get Access" and a "3 views left" trial banner, and one site's 4k
+  download href pointed at its join subdomain. _looks_authenticated's Signal 2 is
+  a bare count: four or more cookies whose VALUE exceeds eight characters, with
+  no name test and no page test, which a trial session satisfies exactly. The
+  demotion that made cookie names matter touched Signal 1 only. The row also
+  corrects the campaign report: two of the four screenshots are not where it says
+  they are, and a survey capture may not show the same surface as a lane capture.
+  What the row may NOT yet assert: that those pages are a trial state rather than
+  each site's promo page. Which URL the product posted to, and which page it then
+  read, has to be measured first -- and if the product landed on the promo page
+  because the template login_url is the site root, the defect is the LOGIN URL
+  and a member-state check would paper over it. The Signal 2 mechanism is
+  measured either way; what is unestablished is whether it produced these four
+  screenshots.
+- Row 709 FILED. A state variable seeded with one of the verdict values it is
+  later compared against cannot distinguish never-ran from ran-and-said-this.
+  CLOAK_STATE was seeded UNKNOWN, which is itself a measured outcome, so a
+  per-state pin could not fail against it -- nine mutants were written before
+  anyone noticed one of them could not go red. One instance is measured and the
+  population is UNMEASURED; measuring it is the row's first job, because filing
+  it as a family would be the same error one size larger.
+
+Row 707 -- a concurrent cleanup replacing a mutation tree mid-battery -- was
+filed at v3.66.1473 on two sightings, each observed once. A third arrived
+afterwards and it is the first that REPRODUCES: an implementer had the
+bulk_downloader/ DIRECTORY of its bd-mutate work copy deleted mid-battery,
+twice, and moving the copy to a private temporary path fixed it. The victim is a
+whole source directory rather than a swapped tree, so the deleter removes a path
+it does not own rather than reusing a name someone else chose.
+
+Two things the sighting does NOT settle are recorded as open rather than
+inferred: nobody chased the deleting process, so which process does it is
+UNKNOWN; and all three sightings share one session scratchpad, so the evidence
+cannot discriminate between row 707's tracked half and the harness half. A
+whole-directory deletion points at a cleanup loop, but pointing is not measuring,
+and a fixing cut that inherits the inference would hunt the wrong subject.
+
+What it does change is schedulability: the row's acceptance already demanded a
+RED reproducing the interference between two concurrent runs on unmodified
+tooling, and this is the first evidence that such a RED is achievable at all.
+
 ## v3.66.1473 - eight rows filed, two closed, and one worker-assigned id corrected
 
 This version is 1473, not 1471. v3.66.1472 landed while this train's 1471
