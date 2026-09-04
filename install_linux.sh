@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # install_linux.sh - set up BulkDownloader on Linux.
 # Linux counterpart of install_windows.bat: creates a venv, installs
-# requirements.txt (one manifest since 2026-09-03; the former optional pins
-# live in it and are converged by scripts/deploy.sh on every deploy), and installs
-# the Playwright Chromium browser. Run from the project folder:
+# requirements.txt plus requirements-test.txt when present (the former optional
+# pins live in requirements.txt and are converged by scripts/deploy.sh on every
+# deploy), and installs the Playwright Chromium browser. Run from the project folder:
 #     chmod +x install_linux.sh && ./install_linux.sh
 #
 # It also makes a BEST-EFFORT attempt at the system (apt) package tier, using
@@ -196,6 +196,18 @@ else
     "$VPYTHON" -m pip install "flask>=3.0" "playwright>=1.61,<2.0" \
         "httpx>=0.25,<1.0" || {
         echo "  ERROR: core pip install failed. Check network access"
+        echo "  to pypi.org and that your Python version has wheels."
+        exit 1
+    }
+fi
+
+# capture/test requirements. A fresh user install runs capture.sh and its
+# validation gates from this venv, so the manifest that supplies those tools is
+# part of that documented path, not a deployed-host-only concern.
+if [ -f "$INSTALL_DIR/requirements-test.txt" ]; then
+    echo "  Installing requirements-test.txt ..."
+    "$VPYTHON" -m pip install -r "$INSTALL_DIR/requirements-test.txt" || {
+        echo "  ERROR: test dependency install failed. Check network access"
         echo "  to pypi.org and that your Python version has wheels."
         exit 1
     }

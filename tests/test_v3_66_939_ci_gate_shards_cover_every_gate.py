@@ -903,6 +903,10 @@ _DECLARED = {
     # isolated fresh-host fixtures, covering ordering, cross-host transfer and
     # the application-written sites_config shape on every PR.
     "tests/test_row343_fresh_host_bringup.py",
+    # Row 689. The documented fresh-user installer must converge the manifest
+    # needed by capture.sh's validation gates, independently of deployed hosts.
+    # CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
+    "tests/test_row689_install_linux_converges_test_manifest.py",
     # Row 259. These five source-derived safety censuses already rejected
     # credential disclosure, operator-state writes, migration-seam bypasses,
     # and uncontained browser launches, but all five remained legacy-baselined

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 689 convergence gate. Each regex uses a value-bearing lookahead while the matched anchor span is only the structural if token.",
+  "subject": "install_linux.sh conditionally converges requirements-test.txt on a fresh user install",
+  "band": [
+    "tests/test_row689_install_linux_converges_test_manifest.py::test_fresh_install_converges_the_present_test_manifest",
+    "tests/test_row689_install_linux_converges_test_manifest.py::test_absent_test_manifest_is_not_an_install_failure"
+  ],
+  "mutants": [
+    {
+      "label": "ROW689-M1 skip the present test manifest",
+      "file": "install_linux.sh",
+      "old_regex": "(?m)^if(?= \\[ -f \"\\$INSTALL_DIR/requirements-test\\.txt\" \\]; then$)",
+      "new": "if false &&",
+      "direction": "regression",
+      "catcher": "tests/test_row689_install_linux_converges_test_manifest.py::test_fresh_install_converges_the_present_test_manifest"
+    },
+    {
+      "label": "ROW689-M2 invoke pip when the test manifest is absent",
+      "file": "install_linux.sh",
+      "old_regex": "(?m)^if(?= \\[ -f \"\\$INSTALL_DIR/requirements-test\\.txt\" \\]; then$)",
+      "new": "if true ||",
+      "direction": "regression",
+      "catcher": "tests/test_row689_install_linux_converges_test_manifest.py::test_absent_test_manifest_is_not_an_install_failure"
+    }
+  ]
+}

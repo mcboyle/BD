@@ -5,6 +5,34 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1486 - the grouped selector walk stops dropping malformed leaves, and a fresh install converges its test manifest
+
+Two refute-first-reviewed worker patches, both boarding on the correctness lens
+at tier T2.
+
+- A widening shipped in v3.66.1482 was strictly weaker than the code it
+  parallels. walk_grouped_selectors omitted the `elif child is not None`
+  branch that walk keeps, so a non-string leaf inside a grouped selectors
+  block was dropped from the denominator instead of being reported. On the
+  same corpus the shipped verifier returned 11 rows with 0 MALFORMED and no
+  login.email path at all; the pre-grouped code returned 5 rows with 1
+  MALFORMED. It now returns 12 rows with login.email present and MALFORMED.
+  Two further fail-opens in the gate that was meant to judge this went with
+  it: the test corpus had no malformed leaf to find, so a hazard fixture now
+  plants four non-string leaves in a real grouped block and asserts the
+  refusal before any count; and the gate's own independent denominator
+  collected str leaves ONLY, the identical fail-open it was judging, so a
+  control that drops exactly what the subject drops agreed with a broken
+  subject by construction. It now collects every non-None leaf and asserts
+  helper == subject over the hazard corpus.
+- A fresh user install resolved the runtime requirements and stopped, so the
+  test manifest was never installed and the box could not run its own suite.
+  install_linux.sh now installs requirements-test.txt after the core
+  requirements when the file is present, and exits 1 with a distinct
+  diagnostic when that pip transaction fails rather than continuing to the
+  browser tier. An absent manifest is still a clean single-manifest install
+  returning 0, so a tree without one does not become a failing install.
+
 ## v3.66.1485 - cloak browser reach is an optional capability, so two fatal exits become named degradations
 
 One refute-first-reviewed patch, boarding on the correctness lens, plus a

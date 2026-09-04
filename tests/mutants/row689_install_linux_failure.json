@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 689 failure propagation. The regex lookahead identifies the new block while the matched span is only the structural exit token.",
+  "subject": "install_linux.sh fails with a named error when the test manifest cannot be installed",
+  "band": [
+    "tests/test_row689_install_linux_converges_test_manifest.py::test_test_manifest_install_failure_is_fatal_and_named"
+  ],
+  "mutants": [
+    {
+      "label": "ROW689-M3 ignore a failed test dependency install",
+      "file": "install_linux.sh",
+      "old_regex": "exit(?= 1\\n    \\}\\nfi\\n\\n\\n# ── Playwright browsers)",
+      "new": ":",
+      "direction": "regression",
+      "catcher": "tests/test_row689_install_linux_converges_test_manifest.py::test_test_manifest_install_failure_is_fatal_and_named"
+    }
+  ]
+}

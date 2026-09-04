@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 671 correction. walk_grouped_selectors shipped without the fail-closed else that walk keeps (elif child is not None: add(child, child_path)), so a non-string grouped leaf left the denominator and an invalid selector read as valid. Every anchor is zero-width around the None token, because the row357 classifier refuses a value-bearing anchor with no producer record.",
+  "subject": "a non-string grouped selector leaf stays in the denominator and is judged MALFORMED",
+  "band": [
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_grouped_walk_fails_closed_on_a_corpus_resident_garbage_leaf",
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_the_independent_denominator_can_see_the_garbage_leaf_too",
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_removing_the_planted_hazard_removes_the_malformed_verdict",
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_the_garbage_leaf_survives_into_the_source_verifier_denominator",
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_reviewed_directory_is_the_grouped_branch_corpus"
+  ],
+  "mutants": [
+    {
+      "label": "G1 the fail-closed else is disabled and the garbage leaf vanishes",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)^        elif(?= value is not None:$)",
+      "new": "        elif False and",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_grouped_walk_fails_closed_on_a_corpus_resident_garbage_leaf"
+    },
+    {
+      "label": "G2 the fail-closed else swallows an absent (None) leaf as well",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)^        elif(?= value is not None:$)",
+      "new": "        elif value is None or",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_the_garbage_leaf_survives_into_the_source_verifier_denominator"
+    },
+    {
+      "label": "G3 the independent denominator regresses to strings only",
+      "file": "tests/test_row671_reviewed_template_selectors_are_enumerated.py",
+      "old_regex": "(?m)^    elif(?= value is not None:$)",
+      "new": "    elif isinstance(value, str) and",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_the_independent_denominator_can_see_the_garbage_leaf_too"
+    },
+    {
+      "label": "G4 the source verifier drops its enumeration seam",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    entries = )enumerate_template_selectors(?=\\(template_data\\)$)",
+      "new": "(lambda _template: [])",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_the_garbage_leaf_survives_into_the_source_verifier_denominator"
+    },
+    {
+      "label": "G5 the reviewed corpus loses its list-branch enumeration",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^            for index, child in enumerate\\()value(?=\\):\\n                walk_grouped_selectors\\(child,)",
+      "new": "value[:1]",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_reviewed_directory_is_the_grouped_branch_corpus"
+    }
+  ]
+}

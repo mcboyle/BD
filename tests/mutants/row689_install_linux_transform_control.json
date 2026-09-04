@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 689: skipping the test manifest must escape a shell-parse-only test.",
+  "subject": "the row 689 transform changes executed installer behaviour independently of shell syntax",
+  "band": [
+    "tests/test_row689_install_linux_converges_test_manifest.py::test_row689_transform_control_only_parses_the_shell"
+  ],
+  "mutants": [
+    {
+      "label": "ROW689-C1 skip the test manifest without a behavioural oracle",
+      "file": "install_linux.sh",
+      "old_regex": "(?m)^if(?= \\[ -f \"\\$INSTALL_DIR/requirements-test\\.txt\" \\]; then$)",
+      "new": "if false &&",
+      "direction": "regression",
+      "catcher": "tests/test_row689_install_linux_converges_test_manifest.py::test_row689_transform_control_only_parses_the_shell"
+    }
+  ]
+}
