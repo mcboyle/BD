@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the pre-fetch prose regression remains importable when routing behaviour is not asserted, and must ESCAPE.",
+  "subject": "an import-only control cannot catch an attacker-controlled loopback exemption",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 prose-based pre-fetch exemption remains importable",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)^    if not _host_ok and(?= _host_why\\.code is not _HostSafetyReason\\.LOOPBACK:$)",
+      "new": "    if not _host_ok and \"loopback\" not in _host_why.lower(): # mutant prose decision: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    }
+  ]
+}

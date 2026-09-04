@@ -215,11 +215,12 @@ def api_template_sandbox():
     # static import edge onto provider_resolve_impl.
     import importlib as _il
     from urllib.parse import urlparse as _urlparse
-    _is_safe_public_host = getattr(
-        _il.import_module("bulk_downloader.provider_resolve_impl._common"),
-        "_is_safe_public_host")
+    _host_safety = _il.import_module(
+        "bulk_downloader.provider_resolve_impl._common")
+    _is_safe_public_host = getattr(_host_safety, "_is_safe_public_host")
+    _HostSafetyReason = getattr(_host_safety, "HostSafetyReason")
     _host_ok, _host_why = _is_safe_public_host(_urlparse(url).hostname or "")
-    if not _host_ok and "loopback" not in _host_why.lower():
+    if not _host_ok and _host_why.code is not _HostSafetyReason.LOOPBACK:
         return jsonify({"ok": False,
                         "error": f"url host not allowed: {_host_why}"}), 400
 
@@ -273,8 +274,8 @@ def api_template_sandbox():
                                      headers, newurl):
                     _ok, _why = _is_safe_public_host(
                         _urlparse(newurl).hostname or "")
-                    # Same loopback exemption as the pre-fetch guard.
-                    if not _ok and "loopback" not in _why.lower():
+                    # Same structured loopback exemption as the pre-fetch guard.
+                    if not _ok and _why.code is not _HostSafetyReason.LOOPBACK:
                         raise urllib.error.URLError(
                             f"SSRF redirect blocked: {_why}")
                     return super().redirect_request(
@@ -482,4 +483,3 @@ def register_routes(app) -> int:
     app.register_blueprint(template_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("template."))
-

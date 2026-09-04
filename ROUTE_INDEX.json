@@ -10364,7 +10364,7 @@
       "endpoint": "template.api_template_test_extract",
       "function": "api_template_test_extract",
       "file": "bulk_downloader/app_template.py",
-      "line": 332,
+      "line": 333,
       "csrf": true,
       "spa_wired": true,
       "operator_facing": true,

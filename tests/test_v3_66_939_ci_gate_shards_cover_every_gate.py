@@ -93,6 +93,9 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # rowssrf-loopback. Every canonical host-safety consumer and both template
+    # sandbox exemption sites must use the classifier's structured reason.
+    "tests/test_rowssrf_loopback_reason_is_structured.py",
     # Row 664. A pre-download dedup refusal is terminal work and must leave its
     # reason in operator-visible history through the real worker dispatch seam.
     "tests/test_row664_dedup_refusal_reaches_history.py",

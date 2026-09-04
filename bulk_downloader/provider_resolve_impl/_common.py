@@ -4,6 +4,7 @@ Sink. Lazy `from . import global_config/honeypot_*` absolutized to `..`."""
 
 from __future__ import annotations
 from contextvars import ContextVar
+from enum import Enum
 import json
 import os
 import re
@@ -293,7 +294,40 @@ class SSRFBlocked(Exception):
     """
 
 
-def _is_safe_public_host(host: str) -> Tuple[bool, str]:
+class HostSafetyReason(str, Enum):
+    """Machine-readable result of the canonical host/IP safety check."""
+
+    PUBLIC = "public"
+    NO_HOST = "no_host"
+    DNS_FAILURE = "dns_failure"
+    NO_ADDRESSES = "no_addresses"
+    NON_IP_ADDRESS = "non_ip_address"
+    LOOPBACK = "loopback"
+    CGNAT = "cgnat"
+    LINK_LOCAL = "link_local"
+    PRIVATE = "private"
+    RESERVED = "reserved"
+    MULTICAST = "multicast"
+    UNSPECIFIED = "unspecified"
+
+
+class _HostSafetyMessage(str):
+    """Human diagnostic carrying the fact that produced it."""
+
+    __slots__ = ("code",)
+
+    def __new__(cls, message: str, code: HostSafetyReason):
+        value = super().__new__(cls, message)
+        value.code = code
+        return value
+
+
+def _host_safety_message(
+        code: HostSafetyReason, message: str = "") -> _HostSafetyMessage:
+    return _HostSafetyMessage(message, code)
+
+
+def _is_safe_public_host(host: str) -> Tuple[bool, _HostSafetyMessage]:
     """Return ``(True, "")`` if ``host`` resolves to a public unicast
     IP, or ``(False, reason)`` if it's private/loopback/link-local/
     reserved/multicast.
@@ -318,7 +352,7 @@ def _is_safe_public_host(host: str) -> Tuple[bool, str]:
     import ipaddress
 
     if not host:
-        return False, "no host"
+        return False, _host_safety_message(HostSafetyReason.NO_HOST, "no host")
 
     # Strip IPv6 brackets if present. urlparse leaves them on for
     # bracketed hosts (e.g. "[::1]").
@@ -340,10 +374,16 @@ def _is_safe_public_host(host: str) -> Tuple[bool, str]:
     try:
         infos = socket.getaddrinfo(bare, None, type=socket.SOCK_STREAM)
     except (socket.gaierror, OSError, UnicodeError) as ex:
-        return False, f"DNS resolution failed: {type(ex).__name__}: {ex}"
+        return False, _host_safety_message(
+            HostSafetyReason.DNS_FAILURE,
+            f"DNS resolution failed: {type(ex).__name__}: {ex}",
+        )
 
     if not infos:
-        return False, "DNS resolution returned no addresses"
+        return False, _host_safety_message(
+            HostSafetyReason.NO_ADDRESSES,
+            "DNS resolution returned no addresses",
+        )
 
     # Every resolved address must be safe — if ANY is private, refuse.
     # This stops the simple "name resolves to multiple IPs, one
@@ -358,14 +398,17 @@ def _is_safe_public_host(host: str) -> Tuple[bool, str]:
         try:
             addr = ipaddress.ip_address(ip_str)
         except ValueError:
-            return False, f"got non-IP from getaddrinfo: {ip_str!r}"
+            return False, _host_safety_message(
+                HostSafetyReason.NON_IP_ADDRESS,
+                f"got non-IP from getaddrinfo: {ip_str!r}",
+            )
         ok, reason = _classify_ip(addr, bare)
         if not ok:
             return False, reason
-    return True, ""
+    return True, _host_safety_message(HostSafetyReason.PUBLIC)
 
 
-def _classify_ip(addr, host_repr: str) -> Tuple[bool, str]:
+def _classify_ip(addr, host_repr: str) -> Tuple[bool, _HostSafetyMessage]:
     """Per-IP safety check. Splits out from _is_safe_public_host so
     literal-IP hosts and resolved hostnames share the same predicate.
     """
@@ -378,7 +421,10 @@ def _classify_ip(addr, host_repr: str) -> Tuple[bool, str]:
     # "not public"). is_loopback and is_link_local are explicit
     # subsets. We list all four for clarity in the rejection reason.
     if addr.is_loopback:
-        return False, f"refusing loopback address ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.LOOPBACK,
+            f"refusing loopback address ({host_repr} → {addr})",
+        )
     # v3.66.524 (VR-P15): RFC 6598 CGNAT / shared address space (100.64.0.0/10)
     # is NOT flagged is_private/is_reserved/is_global by the stdlib, so it slipped
     # every check below and the SSRF classifier returned safe. Reject it
@@ -386,18 +432,36 @@ def _classify_ip(addr, host_repr: str) -> Tuple[bool, str]:
     # predicate, so _is_safe_public_host inherits the rejection.
     import ipaddress as _ip
     if isinstance(addr, _ip.IPv4Address) and addr in _ip.ip_network("100.64.0.0/10"):
-        return False, f"refusing CGNAT/shared address RFC 6598 ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.CGNAT,
+            f"refusing CGNAT/shared address RFC 6598 ({host_repr} → {addr})",
+        )
     if addr.is_link_local:
-        return False, f"refusing link-local address ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.LINK_LOCAL,
+            f"refusing link-local address ({host_repr} → {addr})",
+        )
     if addr.is_private:
-        return False, f"refusing private address ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.PRIVATE,
+            f"refusing private address ({host_repr} → {addr})",
+        )
     if addr.is_reserved:
-        return False, f"refusing reserved address ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.RESERVED,
+            f"refusing reserved address ({host_repr} → {addr})",
+        )
     if addr.is_multicast:
-        return False, f"refusing multicast address ({host_repr} → {addr})"
+        return False, _host_safety_message(
+            HostSafetyReason.MULTICAST,
+            f"refusing multicast address ({host_repr} → {addr})",
+        )
     if addr.is_unspecified:
-        return False, f"refusing unspecified address ({host_repr} → {addr})"
-    return True, ""
+        return False, _host_safety_message(
+            HostSafetyReason.UNSPECIFIED,
+            f"refusing unspecified address ({host_repr} → {addr})",
+        )
+    return True, _host_safety_message(HostSafetyReason.PUBLIC)
 
 
 _SSRF_GUARDED_TRANSPORT_CLS = None
