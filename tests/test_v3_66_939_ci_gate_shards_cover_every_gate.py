@@ -372,6 +372,7 @@ _DECLARED = {
     "tests/test_cockpit_navigation_contract.py",
     "tests/test_pk_mirrors_stay_retired.py",
     "tests/test_authority_documents.py",
+    "tests/test_changelog_draft_placeholder_is_refused.py",
     "tests/test_v3_66_1183_inv_tags_generated.py",
     "tests/test_v3_66_1183_safe_temp_janitors.py",
     "tests/test_v3_66_1183_source_window_content.py",

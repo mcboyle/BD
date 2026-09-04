@@ -1,0 +1,81 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Durable module battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/webhook_url_guard_delegation.json --work <a detached scratch clone OUTSIDE this repository>. Re-derive the population with: git grep -n '_validate_webhook_url(' -- bulk_downloader/ minus the definition itself; a site that command reports and this spec does not name means the battery is out of date. The paired transform control must ESCAPE.",
+ "subject": "every production call site of the outbound webhook host guard _validate_webhook_url is reached by a test that fails when that call FAILS OPEN",
+ "band": [
+  "tests/test_hooks_webhook_ssrf.py::test_redirect_to_metadata_blocked",
+  "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[home_assistant_notify]",
+  "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[jellyfin_refresh]",
+  "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[plex_refresh]",
+  "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[send_webhook]",
+  "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[stash_trigger_scan]",
+  "tests/test_webhooks_subscription_ssrf.py::test_add_subscription_rejects_ssrf_hosts",
+  "tests/test_webhooks_subscription_ssrf.py::test_deliver_blocks_ssrf_even_if_stored"
+ ],
+ "mutants": [
+  {
+   "label": "W1_hooks_redirect_hop",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(newurl\\)",
+   "new": "(True, newurl)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_redirect_to_metadata_blocked"
+  },
+  {
+   "label": "W2_hooks_generic",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "(?<=ok, msg = )_validate_webhook_url\\(url\\)",
+   "new": "(True, url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[send_webhook]"
+  },
+  {
+   "label": "W3_hooks_stash",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(stash_url\\)",
+   "new": "(True, stash_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[stash_trigger_scan]"
+  },
+  {
+   "label": "W4_hooks_plex",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(plex_url\\)",
+   "new": "(True, plex_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[plex_refresh]"
+  },
+  {
+   "label": "W5_hooks_jellyfin",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(jellyfin_url\\)",
+   "new": "(True, jellyfin_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[jellyfin_refresh]"
+  },
+  {
+   "label": "W6_hooks_home_assistant",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(ha_url\\)",
+   "new": "(True, ha_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_sink_refuses_cloud_metadata_before_dispatching[home_assistant_notify]"
+  },
+  {
+   "label": "W7_webhooks_subscribe",
+   "file": "bulk_downloader/webhooks.py",
+   "old_regex": "_validate_webhook_url\\(url\\.strip\\(\\)\\)",
+   "new": "(True, url.strip())",
+   "direction": "regression",
+   "catcher": "tests/test_webhooks_subscription_ssrf.py::test_add_subscription_rejects_ssrf_hosts"
+  },
+  {
+   "label": "W8_webhooks_deliver",
+   "file": "bulk_downloader/webhooks.py",
+   "old_regex": "_validate_webhook_url\\(url\\)",
+   "new": "(True, url)",
+   "direction": "regression",
+   "catcher": "tests/test_webhooks_subscription_ssrf.py::test_deliver_blocks_ssrf_even_if_stored"
+  }
+ ]
+}

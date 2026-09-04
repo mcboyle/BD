@@ -5,6 +5,32 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1472 - the webhook guard is proven at the seam it actually protects, and a draft release note can no longer ship
+
+Two refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.
+
+- Five outbound webhook sinks had an SSRF guard and no proof that any of them
+  consulted it. The new battery binds the PRODUCTION seam rather than the
+  test's own spy: it hooks the single outbound point all five sinks enter, not
+  the validator, so forcing every guard open makes each failure land on
+  `dispatched == []` carrying fully post-guard state. A guard that is never
+  reached is indistinguishable from one that works, and until now nothing in
+  the tree could tell those apart.
+
+- A release note could ship as its own placeholder. `bd-train --finish`
+  generates a `DRAFT: N reviewed patches (EDIT THIS TITLE...)` header for a
+  human to replace, and nothing refused a tree whose newest entry still said
+  that. The gate now reads the real CHANGELOG's newest release header and
+  fails if it is a draft. One shared separator regex feeds both forms the
+  writers emit -- `bd-cut`'s ` -- ` and `bd-bump`'s ` - ` -- and it
+  deliberately does not use `\s`, which crosses newlines and would let a
+  title-less `## v1.2.3 --` pass as a finished entry.
+
+  This gate caught its own train: the finish band refused v3.66.1472 while
+  this very entry was still the generated placeholder. That is the gate
+  working on its first live tree, and it is worth saying rather than quietly
+  editing around.
+
 ## v3.66.1470 - a staging claim keys on the resolved URL, so a changed resource cannot take another scene's bytes
 
 One refute-first-reviewed patch, all three lenses BOARD (T3: correctness,
