@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 671 correction transform control. The byte-identical fail-closed-else regressions must ESCAPE a node that only imports the enumerator. If either is reported CAUGHT here, the CAUGHTs in the sibling spec are compile breaks rather than assertion failures.",
+  "subject": "importing the enumerator does not constrain grouped leaf classification",
+  "band": [
+    "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_transform_control_imports_enumerator_without_judging_grouped_schema"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the fail-closed else is disabled",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)^        elif(?= value is not None:$)",
+      "new": "        elif False and",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_transform_control_imports_enumerator_without_judging_grouped_schema"
+    },
+    {
+      "label": "CONTROL the independent denominator regresses to strings only",
+      "file": "tests/test_row671_reviewed_template_selectors_are_enumerated.py",
+      "old_regex": "(?m)^    elif(?= value is not None:$)",
+      "new": "    elif isinstance(value, str) and",
+      "direction": "regression",
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_transform_control_imports_enumerator_without_judging_grouped_schema"
+    }
+  ]
+}

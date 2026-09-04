@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 671. The grouped reviewed-schema walker must visit every string leaf rather than falling back to the legacy key-name heuristic or silently discarding leaves. Both structural anchors occur exactly once and are exercised by the reviewed reptyle fixture.",
+  "_comment": "Row 671. The grouped reviewed-schema walker must visit every string leaf rather than falling back to the legacy key-name heuristic or silently discarding leaves. Both structural anchors occur exactly once (M2 via a lookbehind, because the fail-closed else added a second add(value, path) call) and are exercised by the reviewed reptyle fixture. M2: Converted from a literal anchor when the fail-closed else landed: ``add(value, path)`` then occurred twice in walk_grouped_selectors, so the literal no longer resolved exactly once. The lookbehind pins it to the string branch; the else branch has its own mutants in row671_grouped_leaf_fails_closed.json.",
   "subject": "reviewed grouped template selectors are individually enumerated",
   "band": [
     "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_reptyle_grouped_schema_enumerates_twelve_valid_selector_strings"
@@ -17,10 +17,10 @@
     {
       "label": "M2 grouped selector string leaves are discarded",
       "file": "bulk_downloader/template_selector_verifier.py",
-      "old": "            add(value, path)",
       "new": "            return  # row 671 mutant: discard grouped string leaf",
       "direction": "regression",
-      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_reptyle_grouped_schema_enumerates_twelve_valid_selector_strings"
+      "catcher": "tests/test_row671_reviewed_template_selectors_are_enumerated.py::test_reptyle_grouped_schema_enumerates_twelve_valid_selector_strings",
+      "old_regex": "(?m)(?<=^        elif isinstance\\(value, str\\):\\n)            add\\(value, path\\)"
     }
   ]
 }

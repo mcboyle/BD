@@ -76,6 +76,14 @@ def enumerate_template_selectors(template: dict[str, Any]) -> list[dict[str, Any
                 walk_grouped_selectors(child, (*path, f"[{index}]"))
         elif isinstance(value, str):
             add(value, path)
+        elif value is not None:
+            # Fail closed exactly as ``walk`` does with its own
+            # ``elif child is not None: add(child, child_path)``. A non-string,
+            # non-container leaf is a MALFORMED selector, not an absent one:
+            # dropping it here takes an invalid row OUT of the denominator and
+            # silently reclassifies it as valid. ``None`` stays excluded in both
+            # walks because an unset optional field is an absence, not a defect.
+            add(value, path)
 
     def walk(value: Any, path: tuple[str, ...]) -> None:
         if isinstance(value, dict):

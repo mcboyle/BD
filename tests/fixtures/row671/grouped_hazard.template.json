@@ -1,0 +1,34 @@
+{
+  "schema": "bulk_downloader.template.draft.v1",
+  "id": "row671_grouped_hazard",
+  "host": "row671-grouped-hazard.invalid",
+  "status": "fixture",
+  "safety_notes": [
+    "Row 671 fixture corpus. Never a live site: the host is .invalid.",
+    "This file deliberately carries INVALID selector leaves so the grouped walk",
+    "can be proven to fail closed. Do not repair the hazards below."
+  ],
+  "selectors": {
+    "login": {
+      "email": 123,
+      "password": "input[type=\"password\"]",
+      "submit": "button[type=\"submit\"]"
+    },
+    "player": {
+      "container": "video",
+      "play_button": null
+    },
+    "quality": {
+      "open_menu": true,
+      "resolution_option": 3.5
+    },
+    "download": {
+      "trigger": "[title*=\"Download\" i]",
+      "row_selectors": [
+        ".row-a",
+        7
+      ],
+      "api_template": "https://example.invalid/movie/{id}/download"
+    }
+  }
+}
