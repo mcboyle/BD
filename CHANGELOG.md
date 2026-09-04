@@ -5,6 +5,70 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1473 - eight rows filed, two closed, and one worker-assigned id corrected
+
+This version is 1473, not 1471. v3.66.1472 landed while this train's 1471
+candidate was unmerged, so shipping 1471 on top of it would have driven
+main's __version__ BACKWARDS from 1472 to 1471 -- a version regression on
+every deploy host, which is worse than a hole in the sequence. 1471 is void
+in the claim ledger with that reason and will never ship.
+
+A register train carrying no runtime change. Rebased onto v3.66.1470; the trio
+conflict was resolved by class -- CHANGELOG keeps both entries newest-first, the
+version and its pin take the candidate's higher number, and the generated pair
+was REGENERATED rather than hand-merged.
+
+CLOSED, each blob-verified here rather than taken from a landing report:
+
+- Row 678 @1469 (row678c-cx-b, candidate 3d6f37c9, merge 14522ebe). The static
+  exclusion table now has a gate that resolves every entry and returns UNKNOWN
+  rather than OK when it cannot decide -- four distinct UNKNOWN returns -- and it
+  is declared in CI, which is the half that makes a gate exist.
+- Row 483 @1470 (row483b-cx-b, candidate 278a1a6e, merge 3f62c14a). The staging
+  claim keys on the resolved URL, so it now answers "are these bytes this
+  resource" rather than "is this staging path mine".
+
+Both sat OPEN with their work already on main because those trains carried no
+register commit. That is now five such rows in one session.
+
+FILED, 699 through 707:
+
+- 699 -- two nodes of the decodable-segment fixture test fail under the canonical
+  -n 24 suite on bd3 and pass alone; a second run of the SAME tree returned 20675
+  passed, 0 failed. Flagged 2026-09-03 and never baselined, so it sat outside
+  every denominator that decides whether a suite is clean. The row records why
+  the second green run does not retire it: a schedule-sensitive failure is not
+  retired by one green sample, and the direction of a disagreement between two
+  runs of one tree does not say which run was the artefact.
+
+- 700 -- paid captcha egress disclosure is shipped in runner.py and has NO gate
+  on main at all, so the contract is unpinned. It also corrects a worker-assigned
+  id: the gate in the worker worktrees is named for row 697, which is a real and
+  unrelated row, and the filename gate would have certified that false citation.
+- 701 -- the quality scan scores candidates from OTHER scenes on the page, so a
+  240p tile belonging to a different scene drove a min-resolution refusal of a
+  scene BD had rendered correctly. Row 388 delivered a tie-break, not a scope.
+- 702 -- a host escapes the SSRF guard when its NAME contains "loopback", because
+  the exemption greps a human-readable reason into which the classifier
+  interpolates the hostname. loopback.x.example -> 169.254.169.254 is accepted.
+- 703 -- the DNS-rebinding transport is installed at a small minority of the 31
+  client constructions across 21 files; the rest re-resolve at connect.
+- 704 -- pagination and sort links pass as scenes because "/videos/" is a scene
+  hint and the listing keywords have no /sort/ or /page/ member. It has not yet
+  produced a wrong download only because scenes lead in DOM order.
+- 705 -- a published denominator taken from a paged survey reads as complete. Its
+  own instance is row 703's first module list, truncated by a head -12.
+- 706 -- a fail-closed SSRF test emits a real DNS query on every run, because
+  glibc does not short-circuit the RFC 6761 reserved suffix. Two denominators,
+  each naming the string it counts.
+- 707 -- a concurrent cleanup replaced a mutation tree MID-BATTERY, so verdicts
+  described a source no longer being mutated. Reported independently by two
+  implementers within one hour. The untracked half is harness item H41.
+
+Rows 705, 706 and 703 are deliberately filed together: 705 is the defect that
+produced 703's first figure, and 706 states both of its denominators because it
+rides the same commit as the row that names the shape.
+
 ## v3.66.1472 - the webhook guard is proven at the seam it actually protects, and a draft release note can no longer ship
 
 Two refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.
