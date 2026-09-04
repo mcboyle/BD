@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for w6-draftgate. This applies the same disabled title-structural-start branch as M1, but its only catcher imports the module without asserting CHANGELOG behavior. It must ESCAPE, proving the primary CAUGHT verdict is behavioral rather than a parse, collection, or import failure.",
+  "subject": "transform control -- import alone does not constrain CHANGELOG placeholder matching",
+  "band": [
+    "tests/test_changelog_draft_placeholder_is_refused.py::test_transform_control_imports_without_asserting_placeholder_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 disabled title structural start escapes an import-only assertion",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= title_match is not None:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_transform_control_imports_without_asserting_placeholder_behavior"
+    },
+    {
+      "label": "TC2 silent-next fallthrough escapes an import-only assertion",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= skipped is not None:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_transform_control_imports_without_asserting_placeholder_behavior"
+    }
+  ]
+}

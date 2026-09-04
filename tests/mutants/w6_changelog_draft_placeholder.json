@@ -1,0 +1,155 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w6-draftgatec. The repo-wide gate isolates the newest release entry and judges all three placeholder markers at all three structural starts: title, bullet, and paragraph. Every anchor is structural old_regex text. The paired transform control applies M1 to an import-only node and must ESCAPE. w6-draftgatef adds M13-M17: the newest-header separator grammar is derived from its producers (bd-cut ' -- ', bd-bump ' - '), and a version heading above the first recognised entry is UNKNOWN rather than silently-next. Anchors stay structural old_regex text; the paired transform control applies M15 to an import-only node and must ESCAPE.",
+  "subject": "w6-draftgate -- newest CHANGELOG release entry refuses placeholders at every structural start",
+  "band": [
+    "tests/test_changelog_draft_placeholder_is_refused.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 title structural starts are ignored",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= title_match is not None:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[title-draft]"
+    },
+    {
+      "label": "M2 bullet structural starts are ignored",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^        if(?= bullet_match is not None:$)",
+      "new": "        if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[bullet-draft]"
+    },
+    {
+      "label": "M3 paragraph structural starts are ignored",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^        elif(?= previous_blank and line\\.strip\\(\\):$)",
+      "new": "        elif False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[paragraph-draft]"
+    },
+    {
+      "label": "M4 anchored matches never make the gate fire",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^        if(?= \\(marker := _marker_at_start\\(text\\)\\) is not None$)",
+      "new": "        if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_shipped_draft_entry_is_refused"
+    },
+    {
+      "label": "M5 text-marker start matching is disabled",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^        if(?= text\\.startswith\\(marker\\):$)",
+      "new": "        if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[title-edit-title]"
+    },
+    {
+      "label": "M6 mechanism-marker start matching is disabled",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= _MECHANISM_MARKER\\.match\\(text\\):$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[title-mechanism]"
+    },
+    {
+      "label": "M7 refusal diagnostics omit text placeholders",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)_TEXT_PLACEHOLDERS(?= if marker in entry\\]$)",
+      "new": "()",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_shipped_draft_entry_is_refused"
+    },
+    {
+      "label": "M8 refusal diagnostics omit the mechanism placeholder",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= _MECHANISM_MARKER\\.search\\(entry\\):$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_shipped_draft_entry_is_refused"
+    },
+    {
+      "label": "M9 text-marker matching widens from structural start to prose",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^        if text\\.startswith\\(marker\\):$",
+      "new": "        if marker in text:",
+      "direction": "overcorrection",
+      "control": "tests/test_changelog_draft_placeholder_is_refused.py::test_markers_inside_title_prose_are_accepted",
+      "preserves": [
+        "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[title-draft]"
+      ]
+    },
+    {
+      "label": "M10 mechanism matching widens from structural start to prose",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if _MECHANISM_MARKER\\.match\\(text\\):$",
+      "new": "    if _MECHANISM_MARKER.search(text):",
+      "direction": "overcorrection",
+      "control": "tests/test_changelog_draft_placeholder_is_refused.py::test_unquoted_marker_inside_bullet_prose_is_accepted",
+      "preserves": [
+        "tests/test_changelog_draft_placeholder_is_refused.py::test_each_marker_is_refused_at_each_structural_start[bullet-mechanism]"
+      ]
+    },
+    {
+      "label": "M11 first body line is not eligible as a paragraph start",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    previous_blank(?= = [^\\n]+$)",
+      "new": "    previous_blank = False #",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_whitespace_and_first_body_line_markers_are_refused[paragraph-directly-under-title]"
+    },
+    {
+      "label": "M12 marker normalization returns before stripping whitespace",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    text(?= = text\\.lstrip\\([^\\n]+\\)$)",
+      "new": "    return None\n    text",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_whitespace_and_first_body_line_markers_are_refused[title-two-spaces]"
+    },
+    {
+      "label": "M13 newest-header grammar narrows back to the single-hyphen sample",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^_RELEASE_HEADER(?= = re\\.compile\\($)",
+      "new": "_RELEASE_HEADER = re.compile(r\"(?m)^## v\\d+\\.\\d+\\.\\d+(?: - [^\\n]+)?$\")\n_NARROWED_RELEASE_HEADER",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_every_producer_separator_is_judged_above_a_clean_entry[double-hyphen]"
+    },
+    {
+      "label": "M14 newest-title grammar narrows back to the single-hyphen sample",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^_RELEASE_TITLE(?= = re\\.compile\\($)",
+      "new": "_RELEASE_TITLE = re.compile(r\"^## v\\d+\\.\\d+\\.\\d+ - (?P<text>.*)$\")\n_NARROWED_RELEASE_TITLE",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_every_producer_separator_is_judged_above_a_clean_entry[double-hyphen]"
+    },
+    {
+      "label": "M15 a skipped newest header falls through to the next entry",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    if(?= skipped is not None:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_unrecognised_newest_header_is_unknown[no-separator]"
+    },
+    {
+      "label": "M16 the newest entry is not bounded by the next release header",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^    end(?= = matches\\[1\\]\\.start\\(\\) if len\\(matches\\) > 1 else len\\(changelog\\)$)",
+      "new": "    end = len(changelog) #",
+      "direction": "regression",
+      "catcher": "tests/test_changelog_draft_placeholder_is_refused.py::test_only_the_newest_release_entry_is_judged"
+    },
+    {
+      "label": "M17 the separator grammar widens past every producer's form",
+      "file": "tests/test_changelog_draft_placeholder_is_refused.py",
+      "old_regex": "(?m)^_SEPARATOR(?= = r)",
+      "new": "_SEPARATOR = r\"[ \\t]*-{1,3}[ \\t]*\" #",
+      "direction": "overcorrection",
+      "control": "tests/test_changelog_draft_placeholder_is_refused.py::test_unrecognised_newest_header_is_unknown[triple-hyphen]",
+      "preserves": [
+        "tests/test_changelog_draft_placeholder_is_refused.py::test_every_producer_separator_is_judged_above_a_clean_entry[double-hyphen]"
+      ]
+    }
+  ]
+}

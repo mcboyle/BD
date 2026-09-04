@@ -1,0 +1,27 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for webhook_url_guard_delegation.json. It must exit 1 with both mutants ESCAPED. The predicate tests judge _validate_webhook_url ITSELF and never reach a sink, so bypassing a sink's CALL cannot make them fail. A CAUGHT here would mean the mutants break parsing or import rather than behaviour, and every CAUGHT in the main battery would be worthless.",
+ "subject": "transform control -- a sink's guard bypass remains executable and is NOT caught by the predicate tests, which never call a sink",
+ "band": [
+  "tests/test_hooks_webhook_ssrf.py::test_rejects_cloud_metadata_ipv4",
+  "tests/test_hooks_webhook_ssrf.py::test_rejects_link_local"
+ ],
+ "mutants": [
+  {
+   "label": "TC W3_hooks_stash",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(stash_url\\)",
+   "new": "(True, stash_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_rejects_link_local"
+  },
+  {
+   "label": "TC W6_hooks_home_assistant",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(ha_url\\)",
+   "new": "(True, ha_url)",
+   "direction": "regression",
+   "catcher": "tests/test_hooks_webhook_ssrf.py::test_rejects_cloud_metadata_ipv4"
+  }
+ ]
+}
