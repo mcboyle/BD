@@ -5,6 +5,32 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1484 - the corpus guard is proven by execution, not by presence
+
+Integrator C's first patch train under the 21:0xZ alternation ruling. One patch
+plus a register commit.
+
+Row 698's subject: bdtools_sec.corpus_profile decided "guarded" from AST
+PRESENCE -- a call in unreachable code counted -- and again from the comment
+`lint: corpus-guard-ok`. Either could be true with no guard ever running, in the
+classifier that bd-tool-lint delegates to for the very finding row 470 exists to
+retire. The patch makes the guard prove itself by execution and separates the
+comment marker into its own opted-out state rather than folding it into guarded.
+
+Register, riding this train rather than a train of its own:
+
+- Row 677 CLOSED @1482 -- bd-bandcheck's unmeasurable path now exits 2 and names
+  the input it could not measure, with all three exit codes pinned on inputs that
+  produce them. Row 746 stays OPEN and now records why the same train's fix did
+  not reach it: an empty-string target still mints a PASS over the repository
+  root, measured by running the tool after the landing.
+- Row 686's negative-control clause AMENDED: the deploy must refuse to report the
+  cloak capability as OK, with health reported and cloak named ABSENT or UNKNOWN.
+  The old wording suppressed health entirely, which made a degraded host
+  indistinguishable from an unreachable one.
+
+1484 rather than 1483 because 1483 was claimed elsewhere first.
+
 ## v3.66.1482 - a nested selector group is enumerated, and an unmeasurable band stops reading as unsafe
 
 Two refute-first-reviewed patches with disjoint paths, boarding on the

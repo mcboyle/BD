@@ -398,6 +398,7 @@ _DECLARED = {
     # launcher can appear anywhere in the measured production/tool population.
     "tests/test_child_test_install_dir_isolation.py",
     "tests/test_toolchain_534.py",
+    "tests/test_row698_corpus_guard_execution.py",
     # Row 336. Audit promotion and the default static-analysis battery are both
     # release-verdict boundaries: absent witness/analyzer evidence must remain
     # UNKNOWN on every PR, independently of a diff-derived module band.
