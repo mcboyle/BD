@@ -19,9 +19,12 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import stat
 import subprocess
 import sys
+import tempfile
+import tokenize
 import zipfile
 from urllib.parse import urlsplit
 
@@ -607,11 +610,25 @@ def enumerate_fetch_sinks(work=DEFAULT_WORK, strict=False, label="--work"):
 
 
 CORPUS_FLAGS = ("--tree", "--work", "--home", "--scan", "--corpus", "--root", "--src")
-_CORPUS_MARKER_RE = re.compile(r'#\s*lint:\s*corpus-guard-ok')
 _CORPUS_ARG_TEXT_RE = re.compile(
     r'add_argument\(\s*["\'](--tree|--work|--home|--scan|--corpus|--root|--src)["\']')
-_CORPUS_GUARD_TEXT_RE = re.compile(
-    r'require_corpus|require_source_tree|require_bundle|strict\s*=\s*True|lint:\s*corpus-guard-ok')
+_CORPUS_MARKER_RE = re.compile(
+    r'^#\s*lint:\s*corpus-guard-ok(?:\s*--\s*(\S.*))?\s*$')
+_CORPUS_PROBE_ARGS_RE = re.compile(r'^#\s*sweep:\s*probe-args\s+(.+?)\s*$')
+
+
+class CorpusGuardState(str):
+    """Explicit classifier state, with legacy truthiness only for GUARDED."""
+
+    def __bool__(self):
+        return self == CORPUS_GUARDED
+
+
+CORPUS_GUARDED = CorpusGuardState("guarded")
+CORPUS_OPTED_OUT = CorpusGuardState("opted-out")
+CORPUS_UNGUARDED = CorpusGuardState("unguarded")
+CORPUS_UNKNOWN = CorpusGuardState("unknown")
+CORPUS_NOT_APPLICABLE = CorpusGuardState("not-applicable")
 
 BUNDLE_MARKERS = ("BulkDownloader_v3_66_*.zip", "BulkDL_next_session_*.zip",
                   "STATE.json", "bdsuite_v3_66_*.zip")
@@ -625,21 +642,102 @@ def is_analysis_tool(src):
     return ("bdtools_sec" in src or "bdtools_taint" in src)
 
 
-def corpus_profile(src):
-    """(declares, guarded, flags, parsed) -- ONE definition, every consumer.
+def _comment_values(src, pattern):
+    """Return regex groups from real comment tokens, never strings/examples."""
+    try:
+        tokens = tokenize.generate_tokens(iter(src.splitlines(True)).__next__)
+        return [m.groups() for tok in tokens if tok.type == tokenize.COMMENT
+                for m in [pattern.match(tok.string)] if m]
+    except (IndentationError, tokenize.TokenError):
+        return []
+
+
+def corpus_opt_out_reasons(src):
+    """Reasons from real corpus opt-out comments; ``None`` means malformed."""
+    return tuple(reason.strip() if reason else None
+                 for (reason,) in _comment_values(src, _CORPUS_MARKER_RE))
+
+
+def _required_positionals(tree):
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fname = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if fname != "add_argument":
+            continue
+        for arg in node.args:
+            if (isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                    and not arg.value.startswith("-")):
+                out.append(arg.value)
+    return out
+
+
+def _executed_corpus_guard_state(src, tree, executable, flags, timeout):
+    """Execute every declared corpus seam against one proven-absent path."""
+    probe_args = _comment_values(src, _CORPUS_PROBE_ARGS_RE)
+    if len(probe_args) > 1:
+        return CORPUS_UNKNOWN
+    try:
+        extra = (["BD_CORPUS_PROBE" for _ in _required_positionals(tree)]
+                 + (shlex.split(probe_args[0][0]) if probe_args else []))
+    except ValueError:
+        return CORPUS_UNKNOWN
+
+    states = []
+    with tempfile.TemporaryDirectory(prefix="bd_corpus_guard_") as parent:
+        missing = os.path.join(parent, "absent")
+        if os.path.exists(missing):
+            return CORPUS_UNKNOWN
+        env = os.environ.copy()
+        env.pop("BD_INSTALL_DIR", None)
+        libdir = os.path.dirname(os.path.realpath(__file__))
+        env["PYTHONPATH"] = (libdir + os.pathsep + env["PYTHONPATH"]
+                             if env.get("PYTHONPATH") else libdir)
+        for flag in flags:
+            try:
+                run = subprocess.run(
+                    [sys.executable, executable, flag, missing] + extra,
+                    capture_output=True, text=True, timeout=timeout, env=env,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                states.append(CORPUS_UNKNOWN)
+                continue
+            output = (run.stdout or "") + "\n" + (run.stderr or "")
+            refused = (
+                run.returncode == EXIT_CANNOT_EVALUATE
+                and "CANNOT-EVALUATE" in output
+                and "reason=%s" % REASON_ABSENT in output
+                and missing in output
+            )
+            if refused:
+                states.append(CORPUS_GUARDED)
+            elif run.returncode == EXIT_OK:
+                states.append(CORPUS_UNGUARDED)
+            else:
+                states.append(CORPUS_UNKNOWN)
+    if states and all(state == CORPUS_GUARDED for state in states):
+        return CORPUS_GUARDED
+    if CORPUS_UNGUARDED in states:
+        return CORPUS_UNGUARDED
+    return CORPUS_UNKNOWN
+
+
+def corpus_profile(src, executable=None, timeout=10):
+    """(declares, state, flags, parsed) -- ONE definition, every consumer.
 
     AST, not grep: a regex over raw text matches these flag names inside a tool's
     own STRING LITERALS, which is how the first cut of this check reported
-    bd-tool-lint itself as a corpus tool (its fixtures contain the *text*
-    add_argument("--tree")). parsed=False means WE COULD NOT SEE -- report that,
-    never a clean result over a failed probe.
+    bd-tool-lint itself as a corpus tool. A guard is GUARDED only after the
+    executable refuses a proven-absent path at every declared flag. A comment
+    marker is the distinct OPTED_OUT state and must carry a reason. Missing or
+    unavailable execution is UNKNOWN, never a clean result.
     """
     try:
         tree = ast.parse(src)
     except SyntaxError:
-        return (bool(_CORPUS_ARG_TEXT_RE.search(src)),
-                bool(_CORPUS_GUARD_TEXT_RE.search(src)), [], False)
-    declares, guarded, flags = False, False, []
+        return (bool(_CORPUS_ARG_TEXT_RE.search(src)), CORPUS_UNKNOWN, [], False)
+    declares, flags = False, []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -650,18 +748,17 @@ def corpus_profile(src):
                     declares = True
                     if arg.value not in flags:
                         flags.append(arg.value)
-        # The named predicates ARE the guard: both call require_corpus. A detector
-        # that only knows the raw helper would report a properly guarded tool as
-        # unguarded debt -- the checker blind to the very fix it demanded.
-        if fname in ("require_corpus", "require_source_tree", "require_bundle"):
-            guarded = True
-        for kw in node.keywords:
-            if (kw.arg == "strict" and isinstance(kw.value, ast.Constant)
-                    and kw.value.value is True):
-                guarded = True
-    if _CORPUS_MARKER_RE.search(src):
-        guarded = True
-    return (declares, guarded, flags, True)
+    if not declares:
+        return (False, CORPUS_NOT_APPLICABLE, flags, True)
+    markers = corpus_opt_out_reasons(src)
+    if markers:
+        if all(markers):
+            return (True, CORPUS_OPTED_OUT, flags, True)
+        return (True, CORPUS_UNKNOWN, flags, True)
+    if executable is None:
+        return (True, CORPUS_UNKNOWN, flags, True)
+    state = _executed_corpus_guard_state(src, tree, executable, flags, timeout)
+    return (True, state, flags, True)
 
 
 def require_source_tree(work=DEFAULT_WORK, label="--work/--tree"):

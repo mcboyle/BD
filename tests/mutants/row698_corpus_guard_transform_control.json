@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 698 transform control. It uses byte-identical structural mutations from both primary batteries against an import-only node; both must ESCAPE, proving primary catches are behavioral assertions rather than compile failures.",
+  "subject": "transform control for corpus runtime and opted-out classification",
+  "band": [
+    "tests/test_row698_corpus_guard_execution.py::test_row698_transform_control_imports_without_asserting_guard_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL skip execution and declare every parsed guard guarded",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=    state = )_executed_corpus_guard_state(?=\\(src, tree, executable, flags, timeout\\))",
+      "new": "(lambda *_args: CORPUS_GUARDED)",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_transform_control_imports_without_asserting_guard_behavior"
+    },
+    {
+      "label": "CONTROL ignore every parsed marker",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=    if )markers(?=:)",
+      "new": "()",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_transform_control_imports_without_asserting_guard_behavior"
+    }
+  ]
+}

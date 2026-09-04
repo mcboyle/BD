@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 698 execution and consumer seams. Every old_regex matches only a structural identifier; all values stay in lookarounds or replacements.",
+  "subject": "corpus guard classification requires an executed absent-corpus refusal at every consumer seam",
+  "band": [
+    "tests/test_row698_corpus_guard_execution.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 skip execution and declare every parsed guard guarded",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=    state = )_executed_corpus_guard_state(?=\\(src, tree, executable, flags, timeout\\))",
+      "new": "(lambda *_args: CORPUS_GUARDED)",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M2 invert the executed refusal verdict",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=            if )refused(?=:)",
+      "new": "not refused",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M3 lint no longer calls the shared profile",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?<=parsed = )sec\\.corpus_profile(?=\\()",
+      "new": "(lambda *_args, **_kwargs: (False, sec.CORPUS_NOT_APPLICABLE, [], True))",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M4 sweep drops the shared declaration profile",
+      "file": "toolchain/bin/bd-sweep",
+      "old_regex": "(?<=parsed = )sec\\.corpus_profile(?=\\(src\\))",
+      "new": "(lambda *_args: (False, sec.CORPUS_NOT_APPLICABLE, [], True))",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_bd_sweep_executes_the_shared_profile_flag"
+    },
+    {
+      "label": "M5 golden drops the shared declaration profile",
+      "file": "toolchain/bin/bd-golden",
+      "old_regex": "(?<=_p = )sec\\.corpus_profile(?=\\(src\\))",
+      "new": "(lambda *_args: (False, sec.CORPUS_NOT_APPLICABLE, [], True))",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_bd_golden_keeps_the_tree_derived_flag_seam"
+    },
+    {
+      "label": "M6 lint executes a tool on the never-execute roster",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?<=is_analysis and )probe_allowed(?= else None)",
+      "new": "do_runtime",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    }
+  ]
+}

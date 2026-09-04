@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 698 opt-out state. Anchors are value-free structural identifiers; marker text and state values occur only outside matched spans.",
+  "subject": "reasoned corpus marker is an explicit opted-out state and never guarded",
+  "band": [
+    "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+  ],
+  "mutants": [
+    {
+      "label": "M1 scan string tokens instead of real comments",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=tok.type == )tokenize\\.COMMENT(?=\\n)",
+      "new": "tokenize.STRING",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M2 ignore every parsed marker",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=    if )markers(?=:)",
+      "new": "()",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M3 accept a reasonless marker",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "old_regex": "(?<=        if )all(?=\\(markers\\))",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M4 accounting folds opted-out tools into guarded",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?<=str\\(sec\\.)CORPUS_OPTED_OUT(?=\\): corpus_opted_out)",
+      "new": "CORPUS_GUARDED",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    },
+    {
+      "label": "M5 lint ignores parsed opt-out reasons",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?<=opt_out_reasons = )sec\\.corpus_opt_out_reasons(?=\\(src\\))",
+      "new": "(lambda *_args: ())",
+      "direction": "regression",
+      "catcher": "tests/test_row698_corpus_guard_execution.py::test_row698_guard_roster_executes_and_reports_four_distinct_states"
+    }
+  ]
+}

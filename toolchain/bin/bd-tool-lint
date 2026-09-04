@@ -175,55 +175,11 @@ def runtime_ansi_in_json(tool, bindir):
 # off. So the known set is a DECLARED, FROZEN BACKLOG (warning, counted, can only
 # shrink), while ANY TOOL NOT IN IT IS AN ERROR. You cannot add a new unguarded
 # corpus tool; you can only pay the old ones down.
-CORPUS_ARG_RE = re.compile(
-    r'add_argument\(\s*["\'](--tree|--work|--home|--scan|--corpus|--root|--src)["\']')
-# Guarded = calls the shared precondition, OR asks iter_py to guard for it, OR
-# declares an alternative mechanism explicitly (bd-worktree-check refuses via its
-# own status=error -> exit 2; the marker keeps the backlog honest rather than
-# listing a tool that does refuse).
-CORPUS_GUARD_RE = re.compile(r'require_corpus|strict\s*=\s*True|lint:\s*corpus-guard-ok')
-CORPUS_MARKER_RE = re.compile(r'#\s*lint:\s*corpus-guard-ok')
-
 # FROZEN AT 3.66.728. Shrink only. Re-freeze with --corpus-debt --update.
 CORPUS_UNGUARDED_BASELINE = frozenset([
     # EMPTY -- the F-1 backlog is PAID. Nothing may join it: a NEW unguarded
     # corpus tool is an ERROR, not a baseline entry.
 ])
-
-
-CORPUS_FLAGS = ("--tree", "--work", "--home", "--scan", "--corpus", "--root", "--src")
-
-
-def _corpus_ast(src):
-    """AST, not grep. A regex over raw text matches these flag names inside a
-    tool's own STRING LITERALS -- which is how the first cut of this very check
-    reported bd-tool-lint as a corpus tool (its selftest fixtures contain the
-    text add_argument("--tree")). That is the string-grep-not-decorator shape,
-    committed by the checker written to catch exactly this class. Parse it.
-
-    Returns (declares, guarded, parsed). parsed=False means we COULD NOT SEE --
-    the caller must say so rather than report a clean result over a failed probe.
-    """
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return (False, False, False)
-    declares = guarded = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        fname = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
-        if fname == "add_argument":
-            for arg in node.args:
-                if isinstance(arg, ast.Constant) and arg.value in CORPUS_FLAGS:
-                    declares = True
-        if fname == "require_corpus":
-            guarded = True
-        for kw in node.keywords:
-            if (kw.arg == "strict" and isinstance(kw.value, ast.Constant)
-                    and kw.value.value is True):
-                guarded = True
-    return (declares, guarded, True)
 
 
 BROAD_EXCEPT = re.compile(r'^\s*except\s*(Exception|BaseException)?\s*:', re.M)
@@ -295,15 +251,6 @@ def blind_excepts(src):
     return out
 
 
-def declares_corpus_arg(src):
-    """Delegates to bdtools_sec.corpus_profile -- ONE definition, suite-wide."""
-    return sec.corpus_profile(src)[0]
-
-
-def has_corpus_guard(src):
-    return sec.corpus_profile(src)[1]
-
-
 def lint_tool(tool, bindir, imported, do_runtime):
     path = os.path.join(bindir, tool)
     raw = open(path, "rb").read()
@@ -319,6 +266,11 @@ def lint_tool(tool, bindir, imported, do_runtime):
     # Legacy operational/workflow tools (bd-boot, bd-cut, bd-bump, ...) don't and
     # are a different class -- selftest/json don't apply to them.
     is_analysis = ("bdtools_sec" in src or "bdtools_taint" in src) and not is_lib
+    probe_allowed = (do_runtime and NEVER_EXEC is not None and tool not in NEVER_EXEC)
+    declares, corpus_state, _corpus_flags, parsed = sec.corpus_profile(
+        src, executable=path if is_analysis and probe_allowed else None
+    )
+    opt_out_reasons = sec.corpus_opt_out_reasons(src)
 
     # --- ERRORS (all tools) ---
     if tool in imported and not has_guard(src):
@@ -358,15 +310,28 @@ def lint_tool(tool, bindir, imported, do_runtime):
     if is_analysis and "--json" not in src and "sys.stdout" not in src:
         errors.append("no-json: no --json / machine-readable output")
     # --- corpus-arg-unguarded (F-1): new = ERROR, legacy = tracked backlog ---
-    if is_analysis and declares_corpus_arg(src) and not has_corpus_guard(src):
-        if tool in CORPUS_UNGUARDED_BASELINE:
-            warnings.append("corpus-arg-unguarded: takes a corpus arg but never "
-                            "calls require_corpus() -- mints a verdict over an "
+    if is_analysis and declares:
+        if corpus_state == sec.CORPUS_OPTED_OUT:
+            pass
+        elif corpus_state == sec.CORPUS_UNKNOWN:
+            if opt_out_reasons:
+                errors.append(
+                    "corpus-opt-out-invalid: '# lint: corpus-guard-ok' requires "
+                    "a non-empty reason after ' -- '"
+                )
+            else:
+                errors.append(
+                    "corpus-guard-unknown: runtime execution did not prove an "
+                    "absent corpus reached its guard"
+                )
+        elif corpus_state == sec.CORPUS_UNGUARDED and tool in CORPUS_UNGUARDED_BASELINE:
+            warnings.append("corpus-arg-unguarded: takes a corpus arg but did not "
+                            "execute an absent-corpus refusal -- mints a verdict over an "
                             "absent/empty tree (tracked backlog; see --corpus-debt)")
-        else:
+        elif corpus_state == sec.CORPUS_UNGUARDED:
             errors.append("corpus-arg-unguarded: takes a corpus arg (--tree/--work/"
-                          "--home/--scan/--corpus) but never calls require_corpus() "
-                          "-- it would report GREEN over a tree that does not exist. "
+                          "--home/--scan/--corpus) but did not execute an absent-corpus "
+                          "refusal -- it would report GREEN over a tree that does not exist. "
                           "Guard it with sec.require_corpus() / iter_py(strict=True), "
                           "or declare an alternative with '# lint: corpus-guard-ok -- <why>'")
 
@@ -390,7 +355,10 @@ def lint_tool(tool, bindir, imported, do_runtime):
         if a is True:
             warnings.append("ansi-in-json: --json output contains ANSI escapes")
 
-    return {"tool": tool, "errors": errors, "warnings": warnings}
+    return {"tool": tool, "errors": errors, "warnings": warnings,
+            "corpus_declares": bool(is_analysis and declares),
+            "corpus_state": str(corpus_state) if is_analysis and declares else None,
+            "corpus_parsed": parsed}
 
 
 def run(bindir, do_runtime):
@@ -405,12 +373,17 @@ def run(bindir, do_runtime):
                    if "--selftest" not in open(os.path.join(bindir, t),
                                                errors="ignore").read()]
     # corpus-guard accounting: the debt must be VISIBLE and can only shrink.
-    corpus_unguarded, corpus_guarded = [], []
-    for t in analysis:
-        csrc = open(os.path.join(bindir, t), errors="ignore").read()
-        if not declares_corpus_arg(csrc):
+    corpus_unguarded, corpus_guarded, corpus_opted_out, corpus_unknown = [], [], [], []
+    for row in results:
+        if not row["corpus_declares"]:
             continue
-        (corpus_guarded if has_corpus_guard(csrc) else corpus_unguarded).append(t)
+        target = {
+            str(sec.CORPUS_GUARDED): corpus_guarded,
+            str(sec.CORPUS_OPTED_OUT): corpus_opted_out,
+            str(sec.CORPUS_UNGUARDED): corpus_unguarded,
+            str(sec.CORPUS_UNKNOWN): corpus_unknown,
+        }.get(row["corpus_state"], corpus_unknown)
+        target.append(row["tool"])
     corpus_new = sorted(set(corpus_unguarded) - CORPUS_UNGUARDED_BASELINE)
     corpus_fixed = sorted(CORPUS_UNGUARDED_BASELINE - set(corpus_unguarded)
                           - (set(tools) ^ set(tools)))
@@ -419,14 +392,19 @@ def run(bindir, do_runtime):
             "imported_tools": sorted(imported),
             "results": results,
             "corpus_debt": {
-                "with_corpus_arg": len(corpus_guarded) + len(corpus_unguarded),
+                "with_corpus_arg": (len(corpus_guarded) + len(corpus_opted_out)
+                                    + len(corpus_unguarded) + len(corpus_unknown)),
                 "guarded": sorted(corpus_guarded),
                 "guarded_count": len(corpus_guarded),
+                "opted_out": sorted(corpus_opted_out),
+                "opted_out_count": len(corpus_opted_out),
                 "unguarded_count": len(corpus_unguarded),
+                "unknown": sorted(corpus_unknown),
+                "unknown_count": len(corpus_unknown),
                 "baseline": len(CORPUS_UNGUARDED_BASELINE),
                 "new": corpus_new,
                 "fixed_since_baseline": corpus_fixed,
-                "regressed": bool(corpus_new)},
+                "regressed": bool(corpus_new or corpus_unknown)},
             "error_count": sum(len(r["errors"]) for r in results),
             "warning_count": sum(len(r["warnings"]) for r in results),
             "critical_core": {"present": len(cc_present),
@@ -512,30 +490,32 @@ def selftest():
 
 def _selftest_corpus_guard():
     """The F-1 enforcement check: a NEW tool that mints a verdict over a corpus
-    it never validated must be an ERROR at package time. POS: the guarded forms
-    (require_corpus, iter_py(strict=True), and an explicitly declared alternative)
-    are all accepted. NEG: an unguarded tool NOT in the frozen backlog errors.
+    it never validated must be an ERROR at package time. Runtime refusal is
+    GUARDED; a reasoned comment is OPTED_OUT; source presence proves neither.
     """
     import tempfile
     ok = True
-    head = "import sys, bdtools_sec\n# --json --selftest\n"
-    tail = ("def selftest():\n    print('SELFTEST PASS')\n    return 0\n"
-            'if __name__ == "__main__":\n    sys.exit(main())\n')
+    head = "import argparse, sys, bdtools_sec\n# --json\n"
+    tail = 'if __name__ == "__main__":\n    sys.exit(main())\n'
     with tempfile.TemporaryDirectory() as d:
         open(os.path.join(d, "bd-unguarded"), "w").write(
-            head + 'def main():\n    ap.add_argument("--tree", default=".")\n'
+            head + 'def main():\n    ap = argparse.ArgumentParser()\n'
+            '    ap.add_argument("--tree")\n    ap.parse_args()\n'
             "    return 0\n" + tail)
         open(os.path.join(d, "bd-guarded"), "w").write(
-            head + 'def main():\n    ap.add_argument("--tree", default=".")\n'
+            head + 'def main():\n    ap = argparse.ArgumentParser()\n'
+            '    ap.add_argument("--tree")\n    a = ap.parse_args()\n'
             "    bdtools_sec.require_corpus(a.tree)\n    return 0\n" + tail)
         open(os.path.join(d, "bd-strict"), "w").write(
-            head + 'def main():\n    ap.add_argument("--work", default=".")\n'
-            "    bdtools_sec.iter_py(a.work, strict=True)\n    return 0\n" + tail)
+            head + 'def main():\n    ap = argparse.ArgumentParser()\n'
+            '    ap.add_argument("--work")\n    a = ap.parse_args()\n'
+            "    list(bdtools_sec.iter_py(a.work, strict=True))\n    return 0\n" + tail)
         open(os.path.join(d, "bd-declared"), "w").write(
-            head + "# lint: corpus-guard-ok -- refuses via its own status=error -> 2\n"
-            'def main():\n    ap.add_argument("--tree", default=".")\n'
+            head + "# lint: corpus-guard-ok -- reviewed alternate refusal\n"
+            'def main():\n    ap = argparse.ArgumentParser()\n'
+            '    ap.add_argument("--tree")\n    ap.parse_args()\n'
             "    return 0\n" + tail)
-        res = run(d, do_runtime=False)
+        res = run(d, do_runtime=True)
     by = {r["tool"]: r for r in res["results"]}
 
     def has_cau(t):
@@ -545,12 +525,19 @@ def _selftest_corpus_guard():
     print(("PASS" if neg else "FAIL") +
           "  NEG new unguarded corpus tool is an ERROR (blocks packaging)")
     ok &= neg
-    for t in ("bd-guarded", "bd-strict", "bd-declared"):
-        good = not has_cau(t)
-        print(("PASS" if good else "FAIL") + "  POS %s accepted as guarded" % t)
-        ok &= good
+    states = {r["tool"]: r["corpus_state"] for r in res["results"]}
+    expected_states = {"bd-unguarded": "unguarded", "bd-guarded": "guarded",
+                       "bd-strict": "guarded", "bd-declared": "opted-out"}
+    state_ok = states == expected_states
+    print(("PASS" if state_ok else "FAIL") +
+          "  runtime corpus states: %s" % states)
+    ok &= state_ok
     dbt = res["corpus_debt"]
-    acct = dbt["new"] == ["bd-unguarded"] and dbt["with_corpus_arg"] == 4
+    acct = (dbt["new"] == ["bd-unguarded"]
+            and dbt["with_corpus_arg"] == 4
+            and dbt["guarded_count"] == 2
+            and dbt["opted_out_count"] == 1
+            and dbt["unknown_count"] == 0)
     print(("PASS" if acct else "FAIL") +
           "  corpus-debt accounting: with_corpus_arg=%d new=%s"
           % (dbt["with_corpus_arg"], dbt["new"]))
@@ -586,7 +573,11 @@ def main():
         print("  analysis tools taking a corpus arg : %d" % cd["with_corpus_arg"])
         print("  guarded                            : %d  (%s)"
               % (cd["guarded_count"], ", ".join(cd["guarded"]) or "-"))
+        print("  opted-out (reasoned, never guarded): %d  (%s)"
+              % (cd["opted_out_count"], ", ".join(cd["opted_out"]) or "-"))
         print("  unguarded (tracked debt)           : %d" % cd["unguarded_count"])
+        print("  UNKNOWN (measurement unavailable)  : %d  (%s)"
+              % (cd["unknown_count"], ", ".join(cd["unknown"]) or "-"))
         if cd["fixed_since_baseline"]:
             print("  %sfixed since baseline (re-freeze!)  : %d  (%s)%s"
                   % (G, len(cd["fixed_since_baseline"]),
@@ -594,7 +585,8 @@ def main():
         if cd["new"]:
             print("  %sNEW (unbaselined -- these ERROR)   : %s%s"
                   % (R, ", ".join(cd["new"]), RST))
-        return 1 if cd["new"] else 0
+        return (sec.EXIT_CANNOT_EVALUATE if cd["unknown_count"]
+                else (1 if cd["new"] else 0))
     if a.json:
         import json
         json.dump(res, sys.stdout, indent=1, sort_keys=True)
@@ -613,8 +605,10 @@ def main():
         print("  %suntested: %s%s" % (DIM, ", ".join(cc["untested"]), RST))
     # corpus-guard ratchet line -- the F-1 backlog, always visible, shrink-only
     ccol = R if cd["regressed"] else (Y if cd["unguarded_count"] else G)
-    print("corpus-guard (F-1): %s%d/%d corpus-arg tools UNGUARDED%s (baseline %d%s)" %
-          (ccol, cd["unguarded_count"], cd["with_corpus_arg"], RST, cd["baseline"],
+    print("corpus-guard (F-1): %s%d/%d UNGUARDED, %d UNKNOWN, %d OPTED-OUT%s "
+          "(baseline %d%s)" %
+          (ccol, cd["unguarded_count"], cd["with_corpus_arg"],
+           cd["unknown_count"], cd["opted_out_count"], RST, cd["baseline"],
            "; %d fixed" % len(cd["fixed_since_baseline"])
            if cd["fixed_since_baseline"] else ""))
     for r in res["results"]:
