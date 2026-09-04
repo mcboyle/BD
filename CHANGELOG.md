@@ -5,6 +5,31 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1485 - cloak browser reach is an optional capability, so two fatal exits become named degradations
+
+One refute-first-reviewed patch, boarding on the correctness lens, plus a
+register commit prepared by integrator C.
+
+- A deploy died twice over a capability the product treats as optional. An
+  absent `requirements-cloak.txt` called `die`, and so did a failed CloakBrowser
+  launch/render probe -- so a host that could serve perfectly well refused to
+  finish deploying because one optional browser could not start. Both are now
+  named degradations: the manifest check is a predicate that sets an explicit
+  state and prints a WARN carrying its step number and the file path, and the
+  probe failure is reported rather than fatal.
+- Suppressing health on a degraded host made it indistinguishable from an
+  unreachable one -- two states with opposite operator actions sharing one
+  silence. Health is now reported WITH the cloak capability named ABSENT or
+  UNKNOWN, so an operator can tell "this host is down" from "this host is up and
+  one optional capability is missing".
+
+- Rows 657 and 699 AMENDED, both still OPEN. Flake court ruled the three
+  schedule-sensitive reds INHERITED; the rows now record that verdict and state
+  that inherited is not progress toward their acceptance. Inherited eliminates
+  the cheapest hypothesis -- that a candidate's own diff caused it -- and names
+  no mechanism, which is exactly what both rows ask for and what both say a
+  verdict of flaky cannot supply.
+
 ## v3.66.1484 - the corpus guard is proven by execution, not by presence
 
 Integrator C's first patch train under the 21:0xZ alternation ruling. One patch

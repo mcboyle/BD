@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 686. This spec must report one valid ESCAPED mutant: the identical M2 launch-bypass transform runs only bash syntax validation, which imports the pytest module but asserts no browser behavior. Escape proves the behavioral battery catches a missing launch rather than a syntax, collection, or transform failure.",
+  "subject": "transform control - shell syntax does not constrain the CloakBrowser launch probe",
+  "band": [
+    "tests/test_deploy_script.py::test_cloak_browser_transform_control_only_checks_shell_syntax"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 bypass the Playwright launch while the syntax-only control remains green",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^probe_cloak_browser_reach[(][)]$",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_browser_transform_control_only_checks_shell_syntax"
+    }
+  ]
+}
