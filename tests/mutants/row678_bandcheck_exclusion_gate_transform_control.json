@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 678: the same source transform must escape a loader-only test.",
+  "subject": "the row 678 mutation changes executable audit logic independently of a behavioral assertion",
+  "band": [
+    "tests/test_row678_bandcheck_exclusion_tables.py::test_row678_transform_control_only_loads_bandcheck"
+  ],
+  "mutants": [
+    {
+      "label": "ROW678-C1 existing files are inverted without an audit oracle",
+      "file": "tests/test_row678_bandcheck_exclusion_tables.py",
+      "old": "            if not path.is_file() or relative not in tracked:",
+      "new": "            if path.is_file() or relative not in tracked:",
+      "direction": "regression",
+      "catcher": "tests/test_row678_bandcheck_exclusion_tables.py::test_row678_transform_control_only_loads_bandcheck"
+    }
+  ]
+}

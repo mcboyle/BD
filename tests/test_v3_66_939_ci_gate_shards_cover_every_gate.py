@@ -96,6 +96,10 @@ _DECLARED = {
     # Row 664. A pre-download dedup refusal is terminal work and must leave its
     # reason in operator-visible history through the real worker dispatch seam.
     "tests/test_row664_dedup_refusal_reaches_history.py",
+    # Row 678. The bd-bandcheck exclusion population is hand-maintained and
+    # tree-wide, so no changed subject can derive this path-existence gate.
+    # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
+    "tests/test_row678_bandcheck_exclusion_tables.py",
     # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
     # caller instead of being flattened into an accepted login request.
     "tests/test_login_api_refuses_impossible_manual_start.py",

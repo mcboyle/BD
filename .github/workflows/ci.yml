@@ -310,6 +310,7 @@ jobs:
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
+              tests/test_row678_bandcheck_exclusion_tables.py
               tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
               tests/test_v3_66_1154_the_object_not_the_name.py
               tests/test_v3_66_1145_step0_fails_closed.py

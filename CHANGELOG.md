@@ -5,6 +5,19 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1469 - the CI shard union is exactly the declared gate set again
+
+One refute-first-reviewed patch. No production function changed.
+
+- A gate was declared but not sharded, so the shard union and the declared gate
+  set had drifted apart and the tree-wide reconciliation that pins them was
+  failing. The missing `_DECLARED` entry is restored, the exclusion tables the
+  reconciliation reads are now covered by their own test, and the live
+  denominator asserts exactly four resolved paths with a negative control that
+  names the one unresolved path rather than passing on an empty set. A gate CI
+  does not run does not exist, and a declaration CI cannot see is the same
+  thing with extra paperwork.
+
 ## v3.66.1468 - the register catches up with three landings, and two rows are filed
 
 A register/docs train, carrying no runtime change. Integrator C owns register
