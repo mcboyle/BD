@@ -63,6 +63,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "deploy.sh"
 CHECK_REQ = REPO / "tools" / "check_requirements.py"
@@ -181,12 +183,24 @@ printf '%s\n' "$*" >> "$PY_LOG"
 case "${1:-}" in
   -c) exec "${REAL_PY:?REAL_PY not set by the harness}" "$@";;
 esac
+if [ "${1:-}" = "-m" ] && [ "${2:-}" = "cloakbrowser" ]; then
+  exec "${REAL_PY:?REAL_PY not set by the harness}" "$@"
+fi
 args=" $* "
 case "$args" in
   *check_requirements.py*)
-    case "${REQ_MODE:-ok}" in
+    req_mode="${REQ_MODE:-ok}"
+    case "$args" in
+      *requirements-cloak.txt*) req_mode="${CLOAK_REQ_MODE:-$req_mode}";;
+    esac
+    case "$req_mode" in
       ok)          exit 0;;
-      missing)     printf 'lxml\n'; exit 1;;
+      missing)
+        case "$args" in
+          *requirements-cloak.txt*) printf 'cloakbrowser[geoip]>=0.4.5\n';;
+          *) printf 'lxml\n';;
+        esac
+        exit 1;;
       install_fixes)
         if [ -f "$PIP_MARKER" ]; then exit 0; fi
         printf 'lxml\n'; exit 1;;
@@ -399,6 +413,74 @@ esac
 exit "${NPM_EXIT:-0}"
 """
 
+_FAKE_CLOAK = r'''from __future__ import annotations
+
+import os
+from pathlib import Path
+
+
+def _record(event: str) -> None:
+    with open(os.environ["BROWSER_LOG"], "a", encoding="ascii") as stream:
+        stream.write(event + "\n")
+
+
+class _Locator:
+    def text_content(self):
+        _record("text_content")
+        if os.environ.get("BROWSER_MODE") == "render_mismatch":
+            return "wrong-render"
+        return "bulk-downloader-browser-reach"
+
+
+class _Page:
+    def goto(self, url, **kwargs):
+        _record("goto " + url)
+
+    def locator(self, selector):
+        _record("locator " + selector)
+        return _Locator()
+
+
+class _Context:
+    def new_page(self):
+        _record("new_page")
+        return _Page()
+
+    def close(self):
+        _record("context_close")
+
+
+class _Browser:
+    def new_context(self):
+        _record("new_context")
+        return _Context()
+
+    def close(self):
+        _record("browser_close")
+
+
+def launch(*, headless=True):
+    _record("launch headless=" + str(headless))
+    if not Path(os.environ["BROWSER_MARKER"]).is_file():
+        raise RuntimeError("stealth Chromium binary is absent")
+    if os.environ.get("BROWSER_MODE") == "launch_fails":
+        raise RuntimeError("deliberately broken browser")
+    return _Browser()
+'''
+
+_FAKE_CLOAK_MAIN = r'''import os
+import sys
+from pathlib import Path
+
+with open(os.environ["BROWSER_LOG"], "a", encoding="ascii") as stream:
+    stream.write("module " + " ".join(sys.argv[1:]) + "\n")
+if sys.argv[1:] != ["install"]:
+    raise SystemExit(64)
+if os.environ.get("BROWSER_MODE") == "install_fails":
+    raise SystemExit(41)
+Path(os.environ["BROWSER_MARKER"]).touch()
+'''
+
 
 # ────────────────────────────────────────────────── repo + fixture
 
@@ -429,6 +511,7 @@ def _seed_files(version=TREE_VERSION, deploy_source=None):
         "bulk_downloader/__init__.py": '__version__ = "%s"\n' % version,
         "requirements.txt": "# runtime deps\nlxml>=5.0,<7.0\n",
         "requirements-test.txt": "# suite deps\npyflakes>=3.0,<4.0\n",
+        "requirements-cloak.txt": "cloakbrowser[geoip]>=0.4.5\n",
         "frontend/package.json": '{"name": "bd-frontend", "private": true}\n',
         "frontend/src/main.ts": "// spa entry\n",
         "tools/check_requirements.py": "# stub; the fake venv python dispatches on this path\n",
@@ -464,6 +547,9 @@ def _setup(version=TREE_VERSION, deploy_source=None, **envextra):
     _write_exec(os.path.join(binroot, "systemctl"), _FAKE_SYSTEMCTL)
     _write_exec(os.path.join(binroot, "curl"), _FAKE_CURL)
     _write_exec(os.path.join(binroot, "npm"), _FAKE_NPM)
+    fake_modules = os.path.join(work, "fake-modules")
+    _write(os.path.join(fake_modules, "cloakbrowser", "__init__.py"), _FAKE_CLOAK)
+    _write(os.path.join(fake_modules, "cloakbrowser", "__main__.py"), _FAKE_CLOAK_MAIN)
 
     logs = {k: os.path.join(work, "log-%s" % k) for k in
             ("py", "pip", "inv", "sudo", "systemctl", "npm")}
@@ -486,6 +572,9 @@ def _setup(version=TREE_VERSION, deploy_source=None, **envextra):
     env["CURL_CALLS_FILE"] = os.path.join(work, "curl-calls")
     env["CURL_RESPONSES_FILE"] = os.path.join(work, "curl-responses")
     env["CURL_VERSION"] = version
+    env["PYTHONPATH"] = fake_modules
+    env["BROWSER_LOG"] = os.path.join(work, "log-browser")
+    env["BROWSER_MARKER"] = os.path.join(work, "cloak-browser-installed")
     env.update({k: str(v) for k, v in envextra.items()})
     _write(env["SVC_STATE"], "active\n")     # the box starts with the unit running
 
@@ -570,6 +659,78 @@ def _curl_calls(fx):
 
 def _curl_responses(fx):
     return [line.split("\t", 2) for line in _lines(fx.env["CURL_RESPONSES_FILE"])]
+
+
+def _cloak_record(fx):
+    """The deployed-capability provenance record written beside the graph pin.
+
+    It is a SEPARATE file from `<pin>.deploy-tree` on purpose: capture.sh's
+    run_graph_hash_gate reads that record with `tr -d '\r\n'` and compares the
+    whole result against the current tree SHA, so a cloak line appended there
+    would concatenate into "<tree>cloak=OK" and report every host
+    NOT-APPLICABLE. This asserts the record that exists, not one we wish existed.
+    """
+    return _read(fx.env["BD_GRAPH_HASH_PIN"] + ".deploy-capabilities")
+
+
+def _cloak_surfaces(r):
+    """The step-[12] health report line and the step-[13] summary line.
+
+    Returned separately rather than as one blob so a caller asserts each
+    reporting surface on its own: a single `"cloak=OK" in output` check passes
+    when two of the three surfaces are silent, which is exactly the shape the
+    ruling refuses.
+    """
+    lines = _out(r).splitlines()
+    health = [ln for ln in lines if "cloak browser capability (optional)" in ln]
+    summary = [ln for ln in lines
+               if "DEPLOY OK --" in ln or "ALREADY CURRENT --" in ln]
+    return health, summary
+
+
+def _assert_cloak_reported(r, fx, state):
+    """Assert ONE disposition at all THREE durable surfaces, separately.
+
+    Cloak browser reach is an OPTIONAL capability (operator ruling 2026-09-04),
+    so a degraded reach never stops the deploy -- which makes these three
+    surfaces the only way a later operator can tell a verified reach from an
+    unmeasured one. Each is asserted on its own line, with an exact count, so a
+    site that goes silent fails here rather than being covered by a sibling.
+    """
+    health, summary = _cloak_surfaces(r)
+    assert len(health) == 1, (
+        "the [12] health gate must report the cloak disposition exactly once; "
+        "found %r" % health + _ctx(r))
+    assert "[step 12]" in health[0], (
+        "the cloak health report must be attributed to step 12" + _ctx(r))
+    assert health[0].endswith("cloak=" + state), (
+        "the [12] health gate reported %r, expected cloak=%s" % (health[0], state)
+        + _ctx(r))
+    assert len(summary) == 1, (
+        "the [13] summary must be printed exactly once; found %r" % summary
+        + _ctx(r))
+    assert summary[0].endswith("cloak=" + state), (
+        "the [13] summary reported %r, expected cloak=%s" % (summary[0], state)
+        + _ctx(r))
+    assert _cloak_record(fx) == "cloak=%s\n" % state, (
+        "the deployed-capability record holds %r, expected cloak=%s"
+        % (_cloak_record(fx), state) + _ctx(r))
+    assert _read(fx.env["BD_GRAPH_HASH_PIN"] + ".deploy-tree").strip() \
+        == _git(fx.clone, "rev-parse", "HEAD^{tree}").strip(), (
+        "the tree record must still be the bare tree SHA: appending the cloak "
+        "line there would break capture.sh's `tr -d` read" + _ctx(r))
+
+
+def _origin_without_cloak_manifest(fx):
+    """Push an origin whose tree has no requirements-cloak.txt -- the real shape
+    of a fleet host that has not yet converged the capability manifest."""
+    manifest = Path(fx.seed) / "requirements-cloak.txt"
+    assert manifest.is_file(), "harness error: cloak manifest was not seeded"
+    _git(fx.seed, "rm", "requirements-cloak.txt")
+    _git(fx.seed, "commit", "-m", "remove cloak manifest")
+    _git(fx.seed, "push", "origin", "HEAD:refs/heads/main")
+    assert not manifest.exists(), (
+        "harness error: the origin still contains the cloak manifest")
 
 
 # ─────────────────────────────────────────────────────────── tests
@@ -827,6 +988,328 @@ def test_test_requirements_converge_too():
         "dependency declared there is invisible to the deploy and the box "
         "fails the suite on it (pyflakes, v3.66.861)"
         + _ctx(r, "check calls: %r" % checks))
+
+
+def test_deploy_installs_and_renders_with_the_cloak_browser():
+    """A host with no browser must be repaired before deploy can report OK."""
+    fx = _setup()
+    _bundle_current(fx)
+    marker = Path(fx.env["BROWSER_MARKER"])
+    assert not marker.exists(), (
+        "harness error: the browser-missing precondition was not constructed")
+    assert _read(Path(fx.clone) / "requirements-cloak.txt") == (
+        "cloakbrowser[geoip]>=0.4.5\n"
+    ), "harness error: the versioned cloak manifest was not constructed"
+
+    r = _deploy(fx)
+
+    browser_events = _lines(fx.env["BROWSER_LOG"])
+    cloak_checks = [
+        line for line in _lines(fx.logs["py"])
+        if "check_requirements.py requirements-cloak.txt" in line
+    ]
+    assert len(cloak_checks) == 1, (
+        "the specifier-aware cloak manifest check must fire exactly once"
+        + _ctx(r, "python log: %r" % _lines(fx.logs["py"])))
+    cloak_installs = [
+        line for line in _lines(fx.logs["pip"])
+        if "-r requirements-cloak.txt" in line
+    ]
+    assert len(cloak_installs) == 0, (
+        "an already-resolved cloak manifest must not trigger pip"
+        + _ctx(r, "pip log: %r" % _lines(fx.logs["pip"])))
+    assert marker.is_file(), (
+        "deploy reported without installing the absent CloakBrowser binary"
+        + _ctx(r, "browser events: %r" % browser_events))
+    assert browser_events.count("module install") == 1, (
+        "the cloak manifest's browser install step must fire exactly once"
+        + _ctx(r, "browser events: %r" % browser_events))
+    for event in (
+        "launch headless=True", "new_context", "new_page",
+        "locator #bd-browser-reach", "text_content",
+        "context_close", "browser_close",
+    ):
+        assert browser_events.count(event) == 1, (
+            "%r must fire exactly once; browser events=%r" % (event, browser_events)
+            + _ctx(r))
+    goto_events = [event for event in browser_events if event.startswith("goto file://")]
+    assert len(goto_events) == 1, (
+        "the reach probe must load exactly one local page; events=%r" % browser_events
+        + _ctx(r))
+    assert r.returncode == 0, (
+        "a successful install plus rendered local marker must permit deploy"
+        + _ctx(r, "browser events: %r" % browser_events))
+    assert "cloak browser convergence verified" in _low(r), (
+        "the deploy must explicitly report the verified cloak convergence state"
+        + _ctx(r))
+    assert "capability (requirements-cloak.txt) ok" in _low(r), (
+        "a resolved cloak manifest must report the distinct OK disposition"
+        + _ctx(r))
+    _assert_cloak_reported(r, fx, "OK")
+
+
+def test_a_wrong_rendered_marker_is_unknown_reach_not_a_deploy_stop():
+    """Negative control: a binary is not reach when the rendered marker differs.
+
+    The probe must still DISTINGUISH a wrong render from a right one -- that is
+    the whole point of rendering a marker rather than checking for a binary --
+    but under the optional-capability ruling the consequence is cloak=UNKNOWN
+    reported on three surfaces, not a dead deploy. THIS TEST'S PREVIOUS
+    ASSERTIONS WERE `returncode == 1` AND `_curl_calls(fx) == 0`; both were this
+    patch's own (origin/main's copy of this file contains no cloak test at all),
+    and both are deliberately inverted here: they pinned that health must NOT
+    run when reach failed, which is the opposite of the ruling.
+    """
+    fx = _setup(BROWSER_MODE="render_mismatch")
+    _bundle_current(fx)
+    assert not Path(fx.env["BROWSER_MARKER"]).exists(), (
+        "harness error: the browser-missing precondition was not constructed")
+
+    r = _deploy(fx)
+
+    browser_events = _lines(fx.env["BROWSER_LOG"])
+    assert browser_events.count("module install") == 1, (
+        "negative control did not reach the installer exactly once: %r"
+        % browser_events)
+    assert browser_events.count("launch headless=True") == 1, (
+        "negative control did not reach the Playwright launch exactly once: %r"
+        % browser_events)
+    assert browser_events.count("text_content") == 1, (
+        "negative control did not read rendered content exactly once: %r"
+        % browser_events)
+    assert r.returncode == 0, (
+        "a wrong rendered marker degrades an OPTIONAL capability; it must not "
+        "stop the delivery of everything else"
+        + _ctx(r, "browser events: %r" % browser_events))
+    assert "cloakbrowser playwright launch/render probe failed" in _low(r), (
+        "the degradation must still name the failed browser capability" + _ctx(r))
+    assert "[step 5b] cloak browser warn" in _low(r), (
+        "the reach degradation must be a named WARN at its own step 5b"
+        + _ctx(r))
+    assert "fail [step 5b]" not in _low(r), (
+        "a failed reach on an optional capability is no longer a step-5b FAIL"
+        + _ctx(r))
+    assert _curl_calls(fx) == 2, (
+        "health and GET / must both still run: the deploy continues past a "
+        "degraded optional capability"
+        + _ctx(r, "browser events: %r" % browser_events))
+    _assert_cloak_reported(r, fx, "UNKNOWN")
+
+
+def test_deploy_names_failed_browser_install_as_degradation_when_reach_works():
+    """An optional installer failure is named when a stale browser still works."""
+    fx = _setup(BROWSER_MODE="install_fails")
+    _bundle_current(fx)
+    marker = Path(fx.env["BROWSER_MARKER"])
+    marker.touch()
+    assert marker.is_file(), (
+        "harness error: the stale-browser precondition was not constructed")
+
+    r = _deploy(fx)
+
+    browser_events = _lines(fx.env["BROWSER_LOG"])
+    assert browser_events.count("module install") == 1, (
+        "failed browser install did not fire exactly once: %r" % browser_events)
+    assert sum(event.startswith("launch ") for event in browser_events) == 1, (
+        "the stale browser reach probe must fire exactly once: %r" % browser_events)
+    assert r.returncode == 0, (
+        "an optional installer failure with proven browser reach must degrade, not die"
+        + _ctx(r, "browser events: %r" % browser_events))
+    assert "warn" in _low(r) and "browser install" in _low(r), (
+        "the installer failure must be a named degradation" + _ctx(r))
+    assert _curl_calls(fx) == 2, (
+        "a named optional degradation must not stop deploy before health" + _ctx(r))
+    _assert_cloak_reported(r, fx, "OK")
+
+
+def test_a_cloak_browser_that_cannot_launch_is_unknown_and_deploy_continues():
+    """DIE 2 (scripts/deploy.sh, the reach probe): a failed launch STOPPED the
+    deploy of everything else on an OPTIONAL capability.
+
+    A resolved package with no runnable browser is measured-and-failed, which is
+    cloak=UNKNOWN -- reach is unproven, not known absent. The probe must still
+    fire exactly once and still fail; only the CONSEQUENCE changes. The previous
+    `returncode == 1` / `_curl_calls == 0` assertions here were this patch's own
+    and are deliberately inverted, as recorded in DONE.md.
+    """
+    fx = _setup(BROWSER_MODE="launch_fails")
+    _bundle_current(fx)
+    assert not Path(fx.env["BROWSER_MARKER"]).exists(), (
+        "harness error: the browser-missing precondition was not constructed")
+
+    r = _deploy(fx)
+
+    browser_events = _lines(fx.env["BROWSER_LOG"])
+    assert browser_events.count("module install") == 1, browser_events
+    assert browser_events.count("launch headless=True") == 1, browser_events
+    assert browser_events.count("new_context") == 0, browser_events
+    assert r.returncode == 0, (
+        "an unreachable OPTIONAL browser must not stop the deploy" + _ctx(r))
+    assert "[step 5b] cloak browser warn" in _low(r), (
+        "the failed launch must be a NAMED WARN at its own step 5b" + _ctx(r))
+    assert "launch/render probe failed" in _low(r), _ctx(r)
+    assert "fail [step 5b]" not in _low(r), (
+        "an unreachable optional browser is no longer a step-5b FAIL" + _ctx(r))
+    assert _curl_calls(fx) == 2, (
+        "the deploy must continue to the health gate and GET /" + _ctx(r))
+    _assert_cloak_reported(r, fx, "UNKNOWN")
+
+
+def test_an_absent_cloak_manifest_is_absent_and_deploy_continues():
+    """DIE 1 (scripts/deploy.sh, require_cloak_manifest): an absent manifest
+    STOPPED the deploy of everything else -- the exact ABSENT case the
+    optional-capability ruling exempts.
+
+    A host that has not yet converged requirements-cloak.txt could deploy
+    NOTHING. It now reports cloak=ABSENT on three surfaces and delivers the rest.
+    ABSENT is distinct from UNKNOWN: the manifest's absence is a MEASURED fact,
+    whereas a failed probe leaves reach unproven. The previous
+    `returncode == 1` / `_curl_calls == 0` assertions here were this patch's own
+    and are deliberately inverted, as recorded in DONE.md.
+    """
+    fx = _setup()
+    _origin_without_cloak_manifest(fx)
+
+    r = _deploy(fx)
+
+    clone_manifest = Path(fx.clone) / "requirements-cloak.txt"
+    assert not clone_manifest.exists(), (
+        "deploy did not reset to the manifest-absent origin fixture" + _ctx(r))
+    assert r.returncode == 0, (
+        "an absent OPTIONAL capability manifest must not stop the deploy of "
+        "everything else" + _ctx(r))
+    assert "[step 5b] capability (requirements-cloak.txt) warn: absent" in _low(r), (
+        "the degradation must be a named WARN carrying step 5b and the file "
+        "path" + _ctx(r))
+    assert "requirements-cloak.txt is absent after the reset" in _low(r), (
+        "the WARN must say what was measured, not merely that something WARNed"
+        + _ctx(r))
+    assert "fail [step 5b]" not in _low(r), (
+        "an absent optional manifest is no longer a step-5b FAIL" + _ctx(r))
+    assert _lines(fx.env["BROWSER_LOG"]) == [], (
+        "an absent manifest must not install or launch a browser" + _ctx(r))
+    assert _curl_calls(fx) == 2, (
+        "the deploy must continue to the health gate and GET /" + _ctx(r))
+    _assert_cloak_reported(r, fx, "ABSENT")
+
+
+@pytest.mark.parametrize(
+    ("state", "envextra", "drop_manifest"),
+    (
+        pytest.param("OK", {}, False, id="ok"),
+        pytest.param("UNKNOWN", {"BROWSER_MODE": "launch_fails"}, False, id="unknown"),
+        pytest.param("ABSENT", {}, True, id="absent"),
+    ),
+)
+def test_cloak_state_is_reported_at_health_summary_and_record(
+    state, envextra, drop_manifest
+):
+    """Every cloak state reaches every reporting surface.
+
+    Three states x three surfaces, because a capability that never stops a
+    deploy is legible ONLY through what it reports. Each surface is asserted
+    separately inside _assert_cloak_reported, so a site that silently drops the
+    disposition fails here even while the other two still carry it -- and the
+    companion mutant battery pins each of the three literals at each site.
+    """
+    fx = _setup(**envextra)
+    _bundle_current(fx)
+    if drop_manifest:
+        _origin_without_cloak_manifest(fx)
+
+    r = _deploy(fx)
+
+    assert r.returncode == 0, (
+        "no cloak state stops the deploy: reach is OPTIONAL" + _ctx(r))
+    health, summary = _cloak_surfaces(r)
+    assert len(health) == 1 and len(summary) == 1, (
+        "exactly one health report and one summary line are expected; got "
+        "%r / %r" % (health, summary) + _ctx(r))
+    other = {"OK", "UNKNOWN", "ABSENT"} - {state}
+    for wrong in sorted(other):
+        assert "cloak=" + wrong not in _out(r), (
+            "the deploy reported a cloak state it did not measure: cloak=%s"
+            % wrong + _ctx(r))
+        assert "cloak=" + wrong not in _cloak_record(fx), (
+            "the capability record names a state that was not measured: "
+            "cloak=%s" % wrong + _ctx(r))
+    _assert_cloak_reported(r, fx, state)
+
+
+def test_cloak_browser_transform_control_only_checks_shell_syntax():
+    """Mutation control: importing/running no behavior leaves the transform live."""
+    r = subprocess.run([BASH, "-n", str(SCRIPT)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.parametrize(
+    ("mode", "check_count", "install_count", "status", "detail", "state"),
+    (
+        pytest.param(
+            "unevaluable", 1, 0, "WARN", "capability state UNKNOWN", "UNKNOWN",
+            id="unknown",
+        ),
+        pytest.param(
+            "missing", 2, 1, "WARN", "ABSENT: cloakbrowser[geoip]>=0.4.5", "ABSENT",
+            id="absent",
+        ),
+    ),
+)
+def test_cloak_manifest_non_ok_dispositions_are_named(
+    mode, check_count, install_count, status, detail, state
+):
+    """UNKNOWN and ABSENT are distinct degradations, never false OKs."""
+    fx = _setup(CLOAK_REQ_MODE=mode)
+    _bundle_current(fx)
+    manifest = Path(fx.clone) / "requirements-cloak.txt"
+    assert manifest.read_text(encoding="ascii") == "cloakbrowser[geoip]>=0.4.5\n"
+
+    r = _deploy(fx)
+
+    checks = [
+        line for line in _lines(fx.logs["py"])
+        if "check_requirements.py requirements-cloak.txt" in line
+    ]
+    assert len(checks) == check_count, (
+        "the cloak manifest evaluator fired the wrong exact count" + _ctx(r))
+    installs = [
+        line for line in _lines(fx.logs["pip"])
+        if "-r requirements-cloak.txt" in line
+    ]
+    assert len(installs) == install_count, (
+        "the optional cloak install fired the wrong exact count" + _ctx(r))
+    assert _lines(fx.env["BROWSER_LOG"]) == [], (
+        "an unresolved manifest must not claim browser reach" + _ctx(r))
+    assert r.returncode == 0, (
+        "an optional cloak capability must degrade without aborting deploy" + _ctx(r))
+    assert f"capability (requirements-cloak.txt) {status}" in _out(r), _ctx(r)
+    assert detail in _out(r), _ctx(r)
+    _assert_cloak_reported(r, fx, state)
+
+
+def test_missing_cloak_requirement_is_installed_then_rechecked_to_ok():
+    """A repairable missing spec is installed once and evaluated again."""
+    fx = _setup(CLOAK_REQ_MODE="install_fixes")
+    _bundle_current(fx)
+    assert not Path(fx.env["PIP_MARKER"]).exists(), (
+        "harness error: pip repair marker already exists")
+
+    r = _deploy(fx)
+
+    checks = [
+        line for line in _lines(fx.logs["py"])
+        if "check_requirements.py requirements-cloak.txt" in line
+    ]
+    installs = [
+        line for line in _lines(fx.logs["pip"])
+        if "-r requirements-cloak.txt" in line
+    ]
+    assert len(checks) == 2, "cloak spec must be checked before and after repair"
+    assert len(installs) == 1, "the missing cloak spec must be installed exactly once"
+    assert Path(fx.env["PIP_MARKER"]).is_file(), (
+        "harness error: the fake installer did not record its side effect")
+    assert r.returncode == 0, _ctx(r)
+    assert "capability (requirements-cloak.txt) ok" in _low(r), _ctx(r)
 
 
 def test_requirement_still_missing_after_install_fails():

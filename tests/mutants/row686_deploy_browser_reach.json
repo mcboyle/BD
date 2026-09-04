@@ -1,0 +1,188 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 686, generation be. Cloak browser reach is an OPTIONAL capability (operator ruling 2026-09-04): an absent requirements-cloak.txt and a failed launch/render probe are NAMED NON-FATAL degradations that set the cloak state and let the deploy of everything else finish. M10 and M11 re-introduce the two die calls the ruling removed and must be caught by the deploy-continues assertions. M13-M21 freeze each of the three cloak states at each of the three reporting surfaces -- the step [12] health report, the step [13] summary disposition and the deployed-capability record -- because a capability that never stops a deploy is legible only through what it reports. Every anchor matches structural text (a shell variable reference or a branch keyword) with the surrounding literal carried in fixed-width lookaround.",
+  "subject": "row 686 - an absent or unreachable cloak browser degrades the deploy by name at three reporting surfaces instead of stopping it",
+  "band": [
+    "tests/test_deploy_script.py::test_deploy_installs_and_renders_with_the_cloak_browser",
+    "tests/test_deploy_script.py::test_a_wrong_rendered_marker_is_unknown_reach_not_a_deploy_stop",
+    "tests/test_deploy_script.py::test_deploy_names_failed_browser_install_as_degradation_when_reach_works",
+    "tests/test_deploy_script.py::test_a_cloak_browser_that_cannot_launch_is_unknown_and_deploy_continues",
+    "tests/test_deploy_script.py::test_an_absent_cloak_manifest_is_absent_and_deploy_continues",
+    "tests/test_deploy_script.py::test_cloak_manifest_non_ok_dispositions_are_named[unknown]",
+    "tests/test_deploy_script.py::test_cloak_manifest_non_ok_dispositions_are_named[absent]",
+    "tests/test_deploy_script.py::test_missing_cloak_requirement_is_installed_then_rechecked_to_ok",
+    "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]",
+    "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[unknown]",
+    "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[absent]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 omit the cloak manifest browser installer so the initially absent binary remains absent",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^  if install_cloak_browsers; then$",
+      "new": "  if true; then",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_deploy_installs_and_renders_with_the_cloak_browser"
+    },
+    {
+      "label": "M2 bypass the Playwright launch/render reach probe entirely",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^probe_cloak_browser_reach[(][)]$",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_deploy_installs_and_renders_with_the_cloak_browser"
+    },
+    {
+      "label": "M3 accept any rendered marker, so a browser that renders the wrong page reads as reach",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^            if _mismatch[(]rendered, expected[)]:$",
+      "new": "            if False:",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_a_wrong_rendered_marker_is_unknown_reach_not_a_deploy_stop"
+    },
+    {
+      "label": "M4 drop the named degradation for a failed optional browser install",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^  else(?=\\n    note \"cloak browser install WARN:)",
+      "new": "  elif false; then",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_deploy_names_failed_browser_install_as_degradation_when_reach_works"
+    },
+    {
+      "label": "M5 make the absent-manifest branch unreachable, so an absent manifest reports no ABSENT state at all",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^else(?=\\n  CLOAK_STATE=ABSENT\\n  note \"capability \\(\\$CAP_FILE\\) WARN: ABSENT: \\$CAP_FILE is absent)",
+      "new": "elif false; then",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_an_absent_cloak_manifest_is_absent_and_deploy_continues"
+    },
+    {
+      "label": "M6 collapse the three-way disposition so nothing takes the resolved branch",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^  if(?= \\[ \"\\$CAP_RC\" -eq 0 \\]; then$)",
+      "new": "  if false &&",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_deploy_installs_and_renders_with_the_cloak_browser"
+    },
+    {
+      "label": "M7 attribute the capability step to 5 rather than to its own step 5b",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^CAP_FILE=requirements-cloak\\.txt)\\n(?=\\ninstall_cloak_browsers)",
+      "new": "\nSTEP=5",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_an_absent_cloak_manifest_is_absent_and_deploy_continues"
+    },
+    {
+      "label": "M8 disable the initial specifier evaluator for the capability manifest",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=tools/)check_requirements(?=\\.py \"\\$CAP_FILE\" 2>/dev/null\\)\" \\|\\| CAP_RC=\\$\\?\\n  if \\[)",
+      "new": "check_requirements_disabled",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_manifest_non_ok_dispositions_are_named[absent]"
+    },
+    {
+      "label": "M9 disable the post-install specifier recheck for the capability manifest",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=tools/)check_requirements(?=\\.py \"\\$CAP_FILE\" 2>/dev/null\\)\" \\|\\| CAP_RC=\\$\\?\\n  fi$)",
+      "new": "check_requirements_disabled",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_missing_cloak_requirement_is_installed_then_rechecked_to_ok"
+    },
+    {
+      "label": "M10 re-introduce DIE 1: an absent capability manifest stops the whole deploy again",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^else(?=\\n  CLOAK_STATE=ABSENT\\n  note \"capability \\(\\$CAP_FILE\\) WARN: ABSENT: \\$CAP_FILE is absent)",
+      "new": "else\n  die \"requirements-cloak.txt is absent after the reset; cloak browser capability is UNKNOWN\"",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_an_absent_cloak_manifest_is_absent_and_deploy_continues"
+    },
+    {
+      "label": "M11 re-introduce DIE 2: a failed launch/render probe stops the whole deploy again",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^  else(?=\\n    CLOAK_STATE=UNKNOWN\\n    note \"cloak browser WARN:)",
+      "new": "  else\n    die \"CloakBrowser Playwright launch/render probe failed after browser install\"",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_a_cloak_browser_that_cannot_launch_is_unknown_and_deploy_continues"
+    },
+    {
+      "label": "M12 make the failed-probe branch unreachable, so a failed reach records no UNKNOWN state",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^  else(?=\\n    CLOAK_STATE=UNKNOWN\\n    note \"cloak browser WARN:)",
+      "new": "  elif false; then",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_a_cloak_browser_that_cannot_launch_is_unknown_and_deploy_continues"
+    },
+    {
+      "label": "M13 freeze the health [12] site at a constant OK, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^note \"cloak browser capability \\(optional\\): cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "OK",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[absent]"
+    },
+    {
+      "label": "M14 freeze the health [12] site at a constant UNKNOWN, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^note \"cloak browser capability \\(optional\\): cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "UNKNOWN",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    },
+    {
+      "label": "M15 freeze the health [12] site at a constant ABSENT, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^note \"cloak browser capability \\(optional\\): cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "ABSENT",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    },
+    {
+      "label": "M16 freeze the summary [13] site at a constant OK, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^SUMMARY_CLOAK=\", cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "OK",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[absent]"
+    },
+    {
+      "label": "M17 freeze the summary [13] site at a constant UNKNOWN, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^SUMMARY_CLOAK=\", cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "UNKNOWN",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    },
+    {
+      "label": "M18 freeze the summary [13] site at a constant ABSENT, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^SUMMARY_CLOAK=\", cloak=)\\$CLOAK_STATE(?=\"$)",
+      "new": "ABSENT",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    },
+    {
+      "label": "M19 freeze the capability record site at a constant OK, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^printf \\'cloak=%s\\\\n\\' \")\\$CLOAK_STATE(?=\" > \"\\$GTMP\")",
+      "new": "OK",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[absent]"
+    },
+    {
+      "label": "M20 freeze the capability record site at a constant UNKNOWN, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^printf \\'cloak=%s\\\\n\\' \")\\$CLOAK_STATE(?=\" > \"\\$GTMP\")",
+      "new": "UNKNOWN",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    },
+    {
+      "label": "M21 freeze the capability record site at a constant ABSENT, so it reports a state it did not measure",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)(?<=^printf \\'cloak=%s\\\\n\\' \")\\$CLOAK_STATE(?=\" > \"\\$GTMP\")",
+      "new": "ABSENT",
+      "direction": "regression",
+      "catcher": "tests/test_deploy_script.py::test_cloak_state_is_reported_at_health_summary_and_record[ok]"
+    }
+  ]
+}

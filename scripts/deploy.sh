@@ -608,6 +608,127 @@ converge_reqs requirements.txt
 # deploy can converge them without provisioning a build host.
 converge_reqs requirements-test.txt
 
+# ── [5b] CloakBrowser capability converge + reach proof ────────────
+# requirements-cloak.txt remains posture-sensitive and is deliberately NOT a
+# converge_reqs input: its package stays isolated from requirements.txt.  The
+# manifest's own browser-install command is nevertheless mandatory here.  A
+# successful download is then proved at the Playwright API boundary by loading
+# a local page and reading a marker from the rendered DOM; binary presence or
+# an import alone cannot establish browser reach.
+STEP=5b
+CAP_FILE=requirements-cloak.txt
+
+install_cloak_browsers() {
+  "$VENV_PY" -m cloakbrowser install
+}
+
+cloak_manifest_present() {
+  [ -f "$CAP_FILE" ]
+}
+
+# CLOAK BROWSER REACH IS AN OPTIONAL CAPABILITY (operator ruling 2026-09-04).
+# It was MANDATORY here until that ruling: an absent manifest and a failed
+# launch/render probe each called die, so a host that had not yet converged
+# requirements-cloak.txt could deploy NOTHING -- the trade the ruling rejected.
+# Both are now NAMED, NON-FATAL degradations that set CLOAK_STATE and let the
+# deploy of everything else finish.
+#
+# CLOAK_STATE starts UNKNOWN because an UNMEASURED optional capability is not
+# OK, and nothing below can reach OK by falling through: only a rendered marker
+# assigns it. An absent manifest or an unresolved specifier is ABSENT; anything
+# measured and failed stays UNKNOWN. Steps [12] and [13] and the deployed
+# capability record all read this one variable, so a degradation here is never
+# silent on the three durable surfaces a later operator reads.
+CLOAK_STATE=UNKNOWN
+CLOAK_READY=0
+CAP_MISSING=""
+CAP_RC=0
+if cloak_manifest_present; then
+  CAP_MISSING="$("$VENV_PY" tools/check_requirements.py "$CAP_FILE" 2>/dev/null)" || CAP_RC=$?
+  if [ "$CAP_RC" -ne 0 ] && [ "$CAP_RC" -ne 2 ]; then
+    note "capability ($CAP_FILE) does not resolve: $CAP_MISSING -- installing"
+    if "$VENV_PY" -m pip install -q -r "$CAP_FILE"; then
+      note "install ($CAP_FILE) OK"
+    else
+      note "install ($CAP_FILE) WARN: optional install failed; evaluating actual capability state"
+    fi
+    CAP_RC=0
+    CAP_MISSING="$("$VENV_PY" tools/check_requirements.py "$CAP_FILE" 2>/dev/null)" || CAP_RC=$?
+  fi
+  if [ "$CAP_RC" -eq 0 ]; then
+    note "capability ($CAP_FILE) OK: every entry resolves in the venv"
+    CLOAK_READY=1
+  elif [ "$CAP_RC" -eq 2 ]; then
+    CLOAK_STATE=UNKNOWN
+    note "capability ($CAP_FILE) WARN: could not evaluate -- capability state UNKNOWN, which is not the same as absent"
+  else
+    CLOAK_STATE=ABSENT
+    note "capability ($CAP_FILE) WARN: ABSENT: $(echo "$CAP_MISSING" | cut -c1-70)"
+  fi
+else
+  CLOAK_STATE=ABSENT
+  note "capability ($CAP_FILE) WARN: ABSENT: $CAP_FILE is absent after the reset, so
+  cloak browser reach was never measured on this host. Reach is an OPTIONAL
+  capability, so this deploy continues and reports cloak=$CLOAK_STATE instead of
+  stopping the delivery of everything else."
+fi
+
+if [ "$CLOAK_READY" -eq 1 ]; then
+  if install_cloak_browsers; then
+    note "cloak browser install OK"
+  else
+    note "cloak browser install WARN: installer failed; probing existing browser reach"
+  fi
+if "$VENV_PY" -c '
+from pathlib import Path
+import tempfile
+
+from cloakbrowser import launch
+
+def _mismatch(rendered, expected):
+    return rendered != expected
+
+
+def probe_cloak_browser_reach():
+    expected = "bulk-downloader-browser-reach"
+    browser = None
+    context = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="bd-browser-reach-") as directory:
+            page_path = Path(directory) / "reach.html"
+            page_path.write_text(
+                "<!doctype html><div id=\"bd-browser-reach\">" + expected + "</div>",
+                encoding="utf-8",
+            )
+            browser = launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto(page_path.as_uri(), wait_until="load")
+            rendered = page.locator("#bd-browser-reach").text_content()
+            if _mismatch(rendered, expected):
+                raise RuntimeError(
+                    "rendered marker mismatch: expected %r, got %r" % (expected, rendered)
+                )
+    finally:
+        if context is not None:
+            context.close()
+        if browser is not None:
+            browser.close()
+
+
+probe_cloak_browser_reach()
+'; then
+    CLOAK_STATE=OK
+    note "cloak browser convergence verified: requirements-cloak.txt resolves and local render is OK; cloak=$CLOAK_STATE"
+  else
+    CLOAK_STATE=UNKNOWN
+    note "cloak browser WARN: CloakBrowser Playwright launch/render probe failed after
+  browser install, so reach is unproven rather than absent. Reach is an OPTIONAL
+  capability, so this deploy continues and reports cloak=$CLOAK_STATE instead of
+  stopping the delivery of everything else."
+  fi
+fi
+
 # ── [6] frontend bundle, keyed on CONTENT ───────────────────────────
 # frontend/dist/ is gitignored with zero tracked files, so the deploy never
 # delivers it and its staleness is invisible to git. The marker records WHICH
@@ -666,6 +787,7 @@ fi
 STEP=7
 PIN="${BD_GRAPH_HASH_PIN:-/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256}"
 PIN_DEPLOY_RECORD="${PIN}.deploy-tree"
+PIN_CLOAK_RECORD="${PIN}.deploy-capabilities"
 if [ "$SKIP_GRAPH" -eq 1 ]; then
   note "WARNING: --skip-graph-pin given. A present pin still describes the
   PREVIOUS tree, so after this deploy is recorded the next ./capture.sh step [2b]
@@ -1022,6 +1144,12 @@ if [ "$health_serving_degraded" -eq 1 ]; then
 else
   note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 fi
+# THE HEALTH STEP REPORTS CLOAK REACH IN EVERY STATE, OK INCLUDED. This is the
+# surface an operator reads to learn what a deploy actually achieved, and an
+# optional capability left out of it made a degraded reach byte-indistinguishable
+# from a verified one. UNKNOWN and ABSENT are NAMED degradations here, not
+# failures: they are reported and they do not change this step's verdict.
+note "cloak browser capability (optional): cloak=$CLOAK_STATE"
 
 # ── [13] summary ────────────────────────────────────────────────────
 # An unchanged tree that verified clean says so and exits 0. It does NOT
@@ -1062,11 +1190,38 @@ recorded_tree="$(tr -d '\r\n' < "$PIN_DEPLOY_RECORD" 2>/dev/null || true)"
 [ "$recorded_tree" = "$DEPLOY_TREE" ] \
   || die "deployed tree record did not read back as $DEPLOY_TREE: $PIN_DEPLOY_RECORD"
 note "deployed tree provenance recorded beside graph pin: $DEPLOY_TREE"
+
+# THE CAPABILITY DISPOSITION IS ITS OWN RECORD, NOT A SECOND LINE IN .deploy-tree.
+# capture.sh's run_graph_hash_gate reads that record with `tr -d '\r\n'` and
+# compares the whole result to the current tree SHA, so an appended line would
+# concatenate into "<tree>cloak=OK" and report EVERY host NOT-APPLICABLE. The
+# disposition therefore lands in an adjacent file that no existing reader parses.
+# It is written here, after health, for the same reason the tree record is: a
+# record written at step 7 would let a later failed deploy claim this state.
+# GTMP is reused deliberately -- it is the variable the EXIT cleanup() at the top
+# of this script removes, so a die between mktemp and rm leaves no temp behind.
+GTMP="$(mktemp "${TMPDIR:-/tmp}/bd_deploy_cap.XXXXXX")" \
+  || die "mktemp failed; cannot record deployed capability provenance"
+printf 'cloak=%s\n' "$CLOAK_STATE" > "$GTMP" \
+  || die "could not prepare deployed capability provenance"
+sudo install -m 0644 "$GTMP" "$PIN_CLOAK_RECORD" \
+  || die "could not record deployed capability state: $PIN_CLOAK_RECORD"
+rm -f -- "$GTMP"; GTMP=""
+recorded_cloak="$(tr -d '\r\n' < "$PIN_CLOAK_RECORD" 2>/dev/null || true)"
+[ "$recorded_cloak" = "cloak=$CLOAK_STATE" ] \
+  || die "deployed capability record did not read back as cloak=$CLOAK_STATE: $PIN_CLOAK_RECORD"
+note "deployed capability provenance recorded beside graph pin: cloak=$CLOAK_STATE"
+# THE SUMMARY DISPOSITION IS DERIVED ONCE, not repeated in both branches. Two
+# copies of the same field drift: a later edit to one summary line silently
+# leaves the other reporting nothing, and only one of the two branches is
+# exercised by any single deploy, so a test can be green on the branch that
+# still carries it. One site, both branches.
+SUMMARY_CLOAK=", cloak=$CLOAK_STATE"
 if [ "$SAME" -eq 1 ] && [ -z "$handoff_expected" ] \
    && [ "$DID_PIP" -eq 0 ] && [ "$DID_BUILD" -eq 0 ]; then
-  note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE"
+  note "ALREADY CURRENT -- verified, $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE$SUMMARY_CLOAK"
 else
-  note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE"
+  note "DEPLOY OK -- $DIR now running $TREE_VERSION ($NEW), intended via $INTENDED_SOURCE$SUMMARY_CLOAK"
 fi
 DEPLOY_SUCCEEDED=1
 exit 0
