@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for D1: applies the identical rule-removal mutants, but names a catcher that imports both redactors and asserts only the shared signing VOCABULARY, never the redaction behaviour. Both must ESCAPE, which proves the D1 CAUGHTs are assertion failures rather than import or syntax breaks.",
+  "subject": "transform-only control for the D1 path-assignment redaction rule",
+  "band": [
+    "tests/test_d1_path_signed_urls_are_redacted.py::test_the_signing_vocabulary_denominator_is_nonempty"
+  ],
+  "mutants": [
+    {
+      "label": "D1-TC1 removing the substitution is invisible to an import-only assertion",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "    return _PATH_ASSIGNMENT_RE.sub(",
+      "new": "    return text or _PATH_ASSIGNMENT_RE.sub(  # mutant: the rule never substitutes",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::test_the_signing_vocabulary_denominator_is_nonempty"
+    },
+    {
+      "label": "D1-TC2 removing the redact_value wiring is invisible to an import-only assertion",
+      "file": "bulk_downloader/capture_artifact_redact.py",
+      "old": "redact_path_signing(out)",
+      "new": "out  # mutant: the derivation boundary skips path signing",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::test_the_signing_vocabulary_denominator_is_nonempty"
+    }
+  ]
+}

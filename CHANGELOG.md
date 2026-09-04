@@ -5,6 +5,37 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1464 - a signed URL stops leaking through its path, a retired runtime stops reporting success, and two test families stop depending on each other
+
+Three refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.
+
+- A signed URL that carried its credentials in the PATH rather than the query
+  string was redacted only in part. Redaction assumed the secret-bearing
+  `name=value` pairs live after the `?`, so a path-signed CDN URL kept its
+  credential, expiry and client-identifying values in a stored capture. One
+  shared rule now redacts the value of such an assignment wherever it appears
+  in a path-segment run, and every existing call site routes through it rather
+  than repeating the pattern. A leaked capture cannot be un-circulated, so this
+  is the direction of failure that matters.
+
+- The login API returned HTTP 200 for a site runtime that was being deleted.
+  A runtime restored to the registry after a FAILED delete would accept a
+  manual login launch and report success, having launched nothing. It now
+  refuses with the retirement diagnostic and 503 while preserving the existing
+  callback and `None` contract for in-process callers, and the refusal states
+  which condition fired rather than collapsing no-display, no-handle and
+  retirement into one message. Negative controls hold: a real handle still
+  returns 200.
+
+- Two test families were order-dependent through the working directory. The
+  cleanup path resolved a data file against `Path.cwd()`, so a test that
+  changed directory left the next one reading a different file, and the auth
+  throttle and secrets families passed or failed by schedule rather than by
+  behaviour. The leak is fixed at its source rather than by pinning an order.
+  The three mutant anchors that made this unmeasurable are re-anchored on
+  structurally selected, non-value-bearing spans, and the anchor-fragility gate
+  goes from one refused anchor to 16 passing.
+
 ## v3.66.1463 - a template claim meets a captured live DOM, and the tool docs stop naming a tool that is gone
 
 Two refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.

@@ -42,7 +42,7 @@ import re
 from typing import Any, List, Tuple
 
 from .capture_redact import (PLACEHOLDER, SENSITIVE_QS_KEY, apply_url_mode,
-                             redact_query)
+                             redact_path_signing, redact_query)
 from .redaction_profile import KEEP_FULL, KEEP_STRUCTURE, current_profile
 
 # ── Value detectors (content-based) ──────────────────────────────────────────
@@ -219,6 +219,13 @@ def redact_value(s: str, *, redact_signed_query: bool = True,
     # 3. signed / credentialed URL query strings (host + path kept)
     if redact_signed_query and "?" in out and ("://" in out or out.startswith("/")):
         out = redact_query(out)
+    # 3b. D1: signing packed into a URL PATH as name=value assignments
+    #     (``/key=<sig>,end=<epoch>,ip=<client ip>/``). Always on -- like the
+    #     userinfo passes above and unlike the gated query pass -- because the
+    #     run carries a live credential AND the operator's public IP, and no
+    #     surface legitimately retains those. Scoped to path-segment assignment
+    #     runs, so a query string stays the gated pass's business.
+    out = redact_path_signing(out)
     # 4. key=secret pairs anywhere in the string (cookies / bodies / fragments).
     #    The pair regex matches ALL key=value runs; only those whose key marks a
     #    secret are redacted — selector/structure pairs (e.g. color=red) pass

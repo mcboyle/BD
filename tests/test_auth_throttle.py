@@ -86,6 +86,8 @@ def _client():
     from bulk_downloader.db import db_init
     from bulk_downloader import secrets_store as ss
     orig_cwd = os.getcwd()
+    prior_sites_file = A.SITES_FILE
+    prior_sites_file_last_auto_object = A._SITES_FILE_LAST_AUTO_OBJECT
     with tempfile.TemporaryDirectory() as td:
         os.chdir(td)
         Path(td, "screenshots").mkdir(exist_ok=True)
@@ -104,11 +106,39 @@ def _client():
             yield c, H, fake
         finally:
             ss._backend, ss._backend_pref = prior_be, prior_pref
+            A.SITES_FILE = prior_sites_file
+            A._SITES_FILE_LAST_AUTO_OBJECT = prior_sites_file_last_auto_object
             at.reset()
             os.chdir(orig_cwd)
 
 
 # ─── unit: math + contracts ──────────────────────────────────────────
+
+def test_client_restores_sites_file_runtime_pin():
+    from bulk_downloader import app as A
+
+    saved_sites_file = A.SITES_FILE
+    saved_auto_object = A._SITES_FILE_LAST_AUTO_OBJECT
+    published = None
+    try:
+        with _client():
+            published = A.SITES_FILE
+            assert published is A._SITES_FILE_LAST_AUTO_OBJECT
+            assert published is not saved_sites_file
+            assert published.is_absolute()
+            assert published.parent == Path.cwd()
+            assert published.parent.is_dir()
+
+        assert published is not None, "the client never published a runtime path"
+        assert not published.parent.exists(), (
+            "the temporary client directory did not leave scope"
+        )
+        assert A.SITES_FILE is saved_sites_file
+        assert A._SITES_FILE_LAST_AUTO_OBJECT is saved_auto_object
+    finally:
+        A.SITES_FILE = saved_sites_file
+        A._SITES_FILE_LAST_AUTO_OBJECT = saved_auto_object
+
 
 def test_disabled_is_a_noop():
     with _env(BD_AUTH_THROTTLE=None):
