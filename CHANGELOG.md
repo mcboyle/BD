@@ -5,6 +5,37 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1468 - the register catches up with three landings, and two rows are filed
+
+A register/docs train, carrying no runtime change. Integrator C owns register
+commits from this point, so the closures that trains 8 and 3 landed without are
+filed here.
+
+- Row 664 CLOSED @1467 and row 666 CLOSED @1467. Their patches (row664c-cx-b and
+  row666d) landed in v3.66.1467 on a train that carried no register commit, so
+  the rows sat OPEN while their work was already on main. Blob-verified here
+  rather than taken from the landing report: six authored files are byte-identical
+  between candidate 4ccbff98 and origin/main.
+- Row 688 CLOSED @1466. The .gitignore WAL/SHM rules landed in commit 15555920.
+  The closing evidence says what it does NOT claim: capture.sh RC=2 on a fresh
+  box was not re-measured after the fix, because every live host carries a
+  .git/info/exclude stopgap that a linked worktree shares and would have masked
+  the RED.
+- Row 657 STAYS OPEN and says why a landing did not close it. v3.66.1467's
+  row657c hardened the supervisor teardown gate, which is a member of this row's
+  family, not its acceptance -- that still asks for the mechanism by which
+  test_row386 exceeds 240s inside a 772-file band while passing alone in 20.
+- Row 455 STAYS OPEN with its landed partial recorded: v3.66.1463 pinned 19
+  selectors against a session-free live DOM; four of five selector kinds remain
+  UNKNOWN because the authenticated DOM is still unreachable.
+- Row 697 FILED: the deploy health gate refuses a restarted vault host because
+  the state reads missing_credentials rather than locked. Measured deploying
+  v3.66.1466 to three runners; the mechanism was corrected before filing, since
+  deploy.sh already tolerates a locked vault and the body did not match it.
+- Row 698 FILED: the corpus-guard classifier can be satisfied without any guard
+  ever executing -- by a call in unreachable code, or by a comment. It is the
+  instrument row 470 is counted with.
+
 ## v3.66.1467 - a dedup refusal reaches history, offline inspection trusts the caller's URL, and the supervisor gate finds every configuring class
 
 Three refute-first-reviewed patches, both lenses BOARD on each. Two of them add
