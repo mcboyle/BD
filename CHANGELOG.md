@@ -9,7 +9,16 @@ archive is not present in this repository; consult source-control history.
 
 A register and docs cut. No runtime change.
 
-- Thirty-eight rows closed, each amended with WHY before it was closed.
+- Forty rows closed, each amended with WHY before it was closed. Two of them
+  are FILED AND CLOSED IN THE SAME COMMIT at v3.66.1465 -- the PHPSESSID
+  false-success and the inert use_real_chrome setting -- because their
+  patches landed in a train that carried no register commit and neither
+  patch named a row. Rather than guess which existing row they closed, which
+  is how a release once credited an unrelated row, the findings are written
+  from the patches' own mechanism sections and closed against the landing.
+
+- Thirty-eight of the forty were closed from the reconciled close-list and
+  its siblings, each amended with WHY before it was closed.
   bd-register-close stamps a version and nothing else, so a bare close leaves a
   reader unable to tell work that was done from work that was relocated or found
   stale. Eighteen from the reconciled close-list, whose every evidence string an
