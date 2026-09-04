@@ -2056,8 +2056,10 @@ class TransportMixin:
         # divert to at this depth.
         identity = staging_claim.job_identity(page_url)
         try:
-            tmp_path = staging_claim.claim(final_path, identity)
+            tmp_path = staging_claim.claim(
+                final_path, identity, resource_url=file_url)
         except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:
             raise _StagingUnavailable(str(e))
         # The claim guards the ON-DISK staging name and is released with it,
@@ -2621,8 +2623,10 @@ class TransportMixin:
         # live download refuses rather than pwrite into its bytes.
         try:
             tmp_path = staging_claim.claim(
-                final_path, staging_claim.job_identity(page_url))
+                final_path, staging_claim.job_identity(page_url),
+                resource_url=file_url)
         except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:
             raise _StagingUnavailable(str(e))
         # v3.43.27: per-file resume checkpoint. Replaces the previous

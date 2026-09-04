@@ -92,6 +92,7 @@ import pathlib
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 try:
     import fcntl
@@ -105,20 +106,24 @@ except ImportError:  # Windows, and anywhere else without POSIX advisory locks
 STAGING_SUFFIX = ".part"
 OWNER_SUFFIX = ".owner"
 
-# Version 2 adds OWNER_PROOF_KEY. A v1 record has no proof field because v1
+# Version 2 added OWNER_PROOF_KEY. Version 3 adds OWNER_RESOURCE_KEY: the
+# stable identity of the media resource whose bytes may occupy the staging
+# path. A v1 record has no proof field because v1
 # minted and set the bytes aside in ONE synchronous call, so reaching the
 # reclaim branch at all meant the mint had completed -- see
 # ``_read_owner_record`` for why that makes key-absent-on-v1 equal to proven,
 # and why the same absence on a v2 record is UNKNOWN instead. Older code
 # reading a v2 record still finds ``v`` and ``job`` where it expects them, so
 # the format is readable in both directions across a rolling deploy.
-OWNER_FORMAT_VERSION = 2
+OWNER_PROOF_FORMAT_VERSION = 2
+OWNER_FORMAT_VERSION = 3
 
 # The claim's second proof. ``job`` says WHO owns the staging path; this says
 # whether the bytes AT that path have been accounted for by the mint that
 # published the claim. The two are separate questions and a claim that answers
 # only the first is exactly the state a crashed mint leaves behind.
 OWNER_PROOF_KEY = "proven"
+OWNER_RESOURCE_KEY = "resource"
 
 # Mirrors detect.safe_dest's range: X, X_1 .. X_999, then a random suffix.
 MAX_NUMBERED_CANDIDATES = 1000
@@ -227,6 +232,15 @@ class StagingClaimedByAnotherJob(RuntimeError):
     """
 
 
+class StagingResourceMismatch(RuntimeError):
+    """This job owns the path, but its staged bytes name another resource.
+
+    This is determinate rather than UNKNOWN: both resource identities were
+    measured and differ. The transport refuses before issuing a Range request,
+    leaving the claim and its bytes untouched for an operator or later retry.
+    """
+
+
 def job_identity(page_url) -> str:
     """The stable identity of a download job.
 
@@ -244,6 +258,29 @@ def job_identity(page_url) -> str:
     return hashlib.sha256(page_url.encode("utf-8")).hexdigest()
 
 
+def resource_identity(file_url) -> str:
+    """Stable identity of the media resource a sequential resume targets.
+
+    Query strings and fragments are deliberately excluded: signed CDN URLs
+    routinely rotate those components while continuing to name the same
+    resource. A host or path change is treated conservatively as a different
+    resource; a safe false mismatch costs a resume, while a false match splices
+    bytes from two objects.
+    """
+    if not isinstance(file_url, str) or not file_url:
+        raise StagingUnavailable(
+            f"cannot derive resource provenance from {file_url!r}: no "
+            "file_url was supplied, so a nonzero resume cannot be proven")
+    parsed = urlsplit(file_url)
+    if not parsed.scheme or not parsed.netloc:
+        raise StagingUnavailable(
+            f"cannot derive resource provenance from {file_url!r}: the media "
+            "URL has no scheme or host")
+    canonical = urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(),
+                            parsed.path or "/", "", ""))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def staging_path_for(final_path) -> Path:
     """The ``.part`` path for ``final_path``. THE single definition."""
     final_path = Path(final_path)
@@ -259,8 +296,8 @@ def owner_path_for(staging_path) -> Path:
     return Path(str(staging_path) + OWNER_SUFFIX)
 
 
-def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
-    """``(identity, proven)`` for an existing claim, or UNKNOWN.
+def _read_owner_details(owner_path: Path) -> tuple[str, bool, str | None]:
+    """``(job identity, proven, resource identity)`` or UNKNOWN.
 
     An EMPTY claim means "another worker is publishing this right now" rather
     than "this is corrupt", and it is only reachable on the no-hardlink
@@ -312,7 +349,38 @@ def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
         raise StagingUnavailable(
             f"staging claim {owner_path} carries a malformed job identity; "
             "ownership is UNKNOWN. Remove that file if it is stale.")
-    return identity, _read_proof(owner_path, record)
+    return (identity, _read_proof(owner_path, record),
+            _read_resource(owner_path, record))
+
+
+def _read_owner_record(owner_path: Path) -> tuple[str, bool]:
+    """Compatibility view of a claim's job identity and byte proof."""
+    identity, proven, _resource = _read_owner_details(owner_path)
+    return identity, proven
+
+
+def _read_resource(owner_path: Path, record) -> str | None:
+    """Read the bound media-resource identity, preserving safe migration.
+
+    Claims written before resource binding cannot prove which media URL
+    produced their bytes. That absence is represented as ``None``. A proven
+    legacy claim is grandfathered to the first resource-aware reclaim: the
+    older writer established that these were this job's bytes, preserving
+    in-flight resumes across a rolling deployment.
+    """
+    if OWNER_RESOURCE_KEY in record:
+        resource = record[OWNER_RESOURCE_KEY]
+        if resource is None:
+            return None
+        if (isinstance(resource, str)
+                and len(resource) == _IDENTITY_HEX_LEN
+                and all(c in "0123456789abcdef" for c in resource)):
+            return resource
+        raise StagingUnavailable(
+            f"staging claim {owner_path} carries a malformed "
+            f"{OWNER_RESOURCE_KEY!r} field; resource provenance is UNKNOWN. "
+            "Remove that file if it is stale.")
+    return None
 
 
 def _read_proof(owner_path: Path, record) -> bool:
@@ -344,7 +412,7 @@ def _read_proof(owner_path: Path, record) -> bool:
                 "file if it is stale.")
         return proof
     version = record.get("v")
-    if isinstance(version, int) and version < OWNER_FORMAT_VERSION:
+    if isinstance(version, int) and version < OWNER_PROOF_FORMAT_VERSION:
         return True
     raise StagingUnavailable(
         f"staging claim {owner_path} declares format v{version!r} but carries "
@@ -371,7 +439,16 @@ def _write_complete(path: Path, payload: bytes) -> None:
         os.close(fd)
 
 
-def _create_owner(owner_path: Path, identity: str) -> bool:
+def _owner_payload(identity: str, proven: bool,
+                   resource: str | None) -> bytes:
+    return json.dumps(
+        {"v": OWNER_FORMAT_VERSION, "job": identity,
+         OWNER_PROOF_KEY: proven, OWNER_RESOURCE_KEY: resource},
+        sort_keys=True).encode("utf-8")
+
+
+def _create_owner(owner_path: Path, identity: str,
+                  resource: str | None = None) -> bool:
     """Atomically publish the claim. True if WE created it, False if it existed.
 
     The claim is written to a private temporary name FIRST and published with
@@ -393,9 +470,7 @@ def _create_owner(owner_path: Path, identity: str) -> bool:
     the proof here instead would be a claim asserting something no code had
     checked, which is the shape of every defect in this file's history.
     """
-    payload = json.dumps(
-        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: False},
-        sort_keys=True).encode("utf-8")
+    payload = _owner_payload(identity, False, resource)
     tmp = owner_path.parent / (
         f"{owner_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
@@ -467,6 +542,28 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def _rewrite_owner(owner_path: Path, identity: str, *, proven: bool,
+                   resource: str | None) -> None:
+    """Atomically replace a claim while retaining its measured fields."""
+    payload = _owner_payload(identity, proven, resource)
+    tmp = owner_path.parent / (
+        f"{owner_path.name}.{os.getpid()}.{uuid.uuid4().hex}.proof")
+    try:
+        _write_complete(tmp, payload)
+        os.replace(str(tmp), str(owner_path))
+        _fsync_dir(owner_path.parent)
+    except OSError as exc:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise StagingUnavailable(
+            f"the staging claim {owner_path} cannot record that its bytes "
+            f"were accounted for ({type(exc).__name__}: {exc}); whether this "
+            "path is safe to stage into is UNKNOWN, so this download refuses "
+            "rather than write under a claim that proves nothing") from exc
+
+
 def _prove_owner(owner_path: Path, identity: str) -> None:
     """Record that the bytes this claim names have been accounted for.
 
@@ -487,25 +584,12 @@ def _prove_owner(owner_path: Path, identity: str) -> None:
     stream gigabytes into it and the NEXT reclaim, reading unproven, would set
     those bytes aside as unaccounted-for -- destroying the job's own work.
     """
-    payload = json.dumps(
-        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: True},
-        sort_keys=True).encode("utf-8")
-    tmp = owner_path.parent / (
-        f"{owner_path.name}.{os.getpid()}.{uuid.uuid4().hex}.proof")
-    try:
-        _write_complete(tmp, payload)
-        os.replace(str(tmp), str(owner_path))
-        _fsync_dir(owner_path.parent)
-    except OSError as exc:
-        try:
-            os.unlink(str(tmp))
-        except OSError:
-            pass
-        raise StagingUnavailable(
-            f"the staging claim {owner_path} cannot record that its bytes "
-            f"were accounted for ({type(exc).__name__}: {exc}); whether this "
-            "path is safe to stage into is UNKNOWN, so this download refuses "
-            "rather than write under a claim that proves nothing") from exc
+    holder, _proven, resource = _read_owner_details(owner_path)
+    if holder != identity:
+        raise StagingClaimedByAnotherJob(
+            f"staging claim {owner_path} changed owner before it could be "
+            "proved")
+    _rewrite_owner(owner_path, identity, proven=True, resource=resource)
 
 
 def _adopt_abandoned_claim(owner_path: Path, identity: str) -> None:
@@ -560,9 +644,7 @@ def _adopt_abandoned_claim(owner_path: Path, identity: str) -> None:
     this job may reclaim and any other job diverts around. Neither wedges the
     name, which is the whole point of the row.
     """
-    payload = json.dumps(
-        {"v": OWNER_FORMAT_VERSION, "job": identity, OWNER_PROOF_KEY: False},
-        sort_keys=True).encode("utf-8")
+    payload = _owner_payload(identity, False, None)
     unique = f"{os.getpid()}.{uuid.uuid4().hex}"
     tmp = owner_path.parent / f"{owner_path.name}.{unique}{_ADOPT_TMP_SUFFIX}"
     probe = owner_path.parent / f"{owner_path.name}.{unique}.probe"
@@ -756,7 +838,7 @@ def _acquire_claim_lock(owner_path: Path):
 
 
 def _settle_claim(staging: Path, owner: Path, identity: str, *,
-                  minted: bool) -> Path:
+                  minted: bool, resource: str | None = None) -> Path:
     """Settle the claim, RECOVERING an abandoned empty one first (row 528).
 
     ``_settle_claim_once`` does the whole settle under one lock. The only state
@@ -786,7 +868,8 @@ def _settle_claim(staging: Path, owner: Path, identity: str, *,
     """
     for _ in range(_SETTLE_ATTEMPTS):
         try:
-            return _settle_claim_once(staging, owner, identity, minted=minted)
+            return _settle_claim_once(
+                staging, owner, identity, minted=minted, resource=resource)
         except _ClaimRecovered:
             continue
     raise StagingUnavailable(
@@ -796,7 +879,7 @@ def _settle_claim(staging: Path, owner: Path, identity: str, *,
 
 
 def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
-                       minted: bool) -> Path:
+                       minted: bool, resource: str | None = None) -> Path:
     """Finish the claim at ``owner`` and return the staging path it guards.
 
     Raises ``_ClaimRecovered`` when it recovered an abandoned blank claim
@@ -848,7 +931,7 @@ def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
     exclusive = lock_fd is not None
     try:
         try:
-            holder, proven = _read_owner_record(owner)
+            holder, proven, held_resource = _read_owner_details(owner)
         except EmptyStagingClaim as blank:
             # ROW 528. The claim pathname is taken by a file that names nobody,
             # which is what a killed no-hardlink publish leaves. Recover it
@@ -900,6 +983,37 @@ def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
             # the claim we published while we were descheduled, and its
             # transport may already be streaming. Returning here without
             # touching anything is the whole fix for that arm.
+            if resource is None:
+                return staging
+            if held_resource == resource:
+                return staging
+
+            # Job equality proves WHO owns the path, not WHICH media object
+            # produced its bytes. Measure before binding or refusing. Claims
+            # from before resource provenance are grandfathered to their first
+            # resource-aware reclaim: their proof already establishes that the
+            # bytes belong to this job, preserving in-flight upgrades. Once a
+            # resource is bound, however, a different identity must never
+            # append, regardless of byte count.
+            try:
+                staged_size = staging.stat().st_size
+            except FileNotFoundError:
+                staged_size = 0
+            except OSError as exc:
+                raise StagingUnavailable(
+                    f"staging path {staging} cannot be measured while binding "
+                    f"resource provenance ({type(exc).__name__}: {exc}); the "
+                    "resume offset is UNKNOWN and is refused") from exc
+            if held_resource is None:
+                _rewrite_owner(
+                    owner, identity, proven=True, resource=resource)
+                return staging
+            if staged_size > 0:
+                raise StagingResourceMismatch(
+                    f"staging resource mismatch for {staging}: this job's "
+                    f"{staged_size} staged byte(s) belong to a different "
+                    "media URL; refusing before a Range request")
+            _rewrite_owner(owner, identity, proven=True, resource=resource)
             return staging
         if not exclusive and not minted:
             # No `fcntl` in this interpreter, so exclusion cannot be
@@ -932,7 +1046,11 @@ def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
         # present rather than a memory of an earlier read.
         try:
             _set_aside_unowned_bytes(staging)
-            _prove_owner(owner, identity)
+            if resource is not None and resource != held_resource:
+                _rewrite_owner(
+                    owner, identity, proven=True, resource=resource)
+            else:
+                _prove_owner(owner, identity)
         except BaseException:
             # UNWIND ONLY WHAT THIS CALL PUBLISHED. Row 533: a claim this call
             # minted and could not make good on must not outlive the call, or
@@ -962,16 +1080,18 @@ def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
             os.close(lock_fd)
 
 
-def claim(final_path, identity: str) -> Path:
+def claim(final_path, identity: str, *, resource_url: str | None = None) -> Path:
     """Take (or reclaim) the staging path for exactly ``final_path``.
 
     Returns the staging path on success. Raises ``StagingClaimedByAnotherJob``
     when the claim is measured and belongs to somebody else, and
     ``StagingUnavailable`` when ownership cannot be measured at all.
 
-    Idempotent for one identity: a job that already holds the claim gets it
-    back, which is what makes an interrupted download resume its own ``.part``
-    instead of being forced to restart.
+    Idempotent for one identity and one media resource: a job that already
+    holds the claim gets it back, which is what makes an interrupted download
+    resume its own ``.part`` instead of being forced to restart. When
+    ``resource_url`` is supplied, nonzero bytes are returned only when the
+    owner record proves they were staged for that resource.
     """
     staging = staging_path_for(final_path)
     owner = owner_path_for(staging)
@@ -991,8 +1111,11 @@ def claim(final_path, identity: str) -> Path:
     # `_settle_claim`: the record a mint published can be made good by another
     # worker before this call gets to act on it, so a mint that trusted its own
     # `_create_owner` return was reading state as stale as the reclaim was.
+    resource = (resource_identity(resource_url)
+                if resource_url is not None else None)
     minted = _create_owner(owner, identity)
-    return _settle_claim(staging, owner, identity, minted=minted)
+    return _settle_claim(
+        staging, owner, identity, minted=minted, resource=resource)
 
 
 def release(staging_path, identity: str | None = None, *, force: bool = False) -> bool:
