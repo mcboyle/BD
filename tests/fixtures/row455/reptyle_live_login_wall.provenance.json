@@ -1,0 +1,30 @@
+{
+  "capture_host": "test6 10.0.70.249",
+  "capture_log_mtime_utc": "2026-09-03T02:24:49.661156+00:00",
+  "capture_sha256": "0d125de55781201f190184a3aa0dbcf61d4beaa3235f68c080d6090da1942a9b",
+  "capture_url": "https://auth.reptyle.com/oauth/login?referer=spa",
+  "challenge": "detector armed and PAUSED on this page; widget never touched",
+  "generator": "bd-live-template-resolve.py (operator harness, run 3) + rescrub.py",
+  "mask": {
+    "header_band_uniform": true,
+    "residual_visible": 0
+  },
+  "output": "reptyle_live_login_wall.html",
+  "output_bytes": 30855,
+  "output_sha256": "a2f38895206f82bc6189043defe0a16008a9ab58e1f31a5df3dd0d8b5a53b515",
+  "repo_head": "a70b7a4a26aabb136da11bf9cdc6abe266034abb",
+  "repo_version": "3.66.1450",
+  "scrub": {
+    "bd_scan_artifact_secrets_after": [],
+    "csrf_nonce_values_zeroed": 1,
+    "inert_tags_pruned": 42,
+    "needle_hits_after": 0,
+    "opaque_runs_zeroed": 4,
+    "zero_entropy_fill": "0 repeated to the original length"
+  },
+  "scrub_preserves_measurement": "all 19 selector counts identical before and after",
+  "scrubbed_at": "2026-09-03T02:35:15.114583+00:00",
+  "session": "NONE -- no cookie, no credential, no storage state was injected",
+  "source": "LIVE capture, not a replay",
+  "template_sha256": "7c4b29b875f80b6c2a813fa2ee87c358be6d61fb95e2ab476296026e2facc5ae"
+}

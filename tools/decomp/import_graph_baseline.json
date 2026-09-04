@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4311,
+  "edge_count": 4313,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3863,6 +3863,10 @@
       "bulk_downloader/capture_artifact_redact.py",
       "tools/build_recognizer_corpus.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_row455_reviewed_template_against_a_live_dom.py": [
+      "bulk_downloader/template_assist.py",
+      "bulk_downloader/template_selector_verifier.py"
     ],
     "tests/test_row475_offline_vault_password_check.py": [
       "bulk_downloader/auth_throttle.py",

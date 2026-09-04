@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""bd-versync fixed."""
+"""Run the release-trio preflight against a source tree.
+
+The preflight performs four checks:
+1. Read the version from bulk_downloader/__init__.py.
+2. Compare it with the newest semantic-version header in CHANGELOG.md.
+3. Load tools/build_pin_index.py and require its test files to be parseable.
+4. Require one matching version pin in settings_center_slice4.
+
+Exit 0 means all version claims agree. Exit 1 reports findings. Exit 2 means
+the check cannot be evaluated. These exit codes come from bdtools_sec.
+"""
 import argparse, importlib.util, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
