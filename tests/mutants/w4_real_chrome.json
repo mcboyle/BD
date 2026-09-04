@@ -1,0 +1,54 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "W4 real-Chrome routing. Exact-once structural regex anchors mutate each of the four wrapper call sites independently; M5 challenges the explicit-backend precedence branch. The paired transform-control spec applies M1 to a resolver-only test and must ESCAPE.",
+  "subject": "explicit real Chrome reaches every launch boundary without overriding an operator backend",
+  "band": [
+    "tests/test_v3_66_141_browser_backend.py::test_explicit_backend_survives_real_chrome_request",
+    "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_selects_playwright_channel",
+    "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_persistent_retry_keeps_playwright",
+    "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_nonpersistent_reaches_playwright_channel",
+    "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_nonpersistent_retry_keeps_playwright"
+  ],
+  "mutants": [
+    {
+      "label": "M1 primary persistent launch receives the unmodified site config",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                    args=args_val,user_agent=ua_val,config=)launch_config(?=,\\n                    netns=netns,\\*\\*extra\\)$)",
+      "new": "self.config",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_selects_playwright_channel"
+    },
+    {
+      "label": "M2 persistent bundled retry receives the unmodified site config",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                            args=args_val,user_agent=ua_val,config=)launch_config(?=,\\n                            netns=netns,\\*\\*extra\\)$)",
+      "new": "self.config",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_persistent_retry_keeps_playwright"
+    },
+    {
+      "label": "M3 primary non-persistent launch receives the unmodified site config",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                headless=headless,args=args_val,config=)launch_config(?=,\\n                netns=netns,\\*\\*extra\\)$)",
+      "new": "self.config",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_nonpersistent_reaches_playwright_channel"
+    },
+    {
+      "label": "M4 non-persistent bundled retry receives the unmodified site config",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                    headless=headless,args=args_val,config=)launch_config(?=,\\n                    netns=netns,\\*\\*extra\\)$)",
+      "new": "self.config",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_nonpersistent_retry_keeps_playwright"
+    },
+    {
+      "label": "M5 real Chrome overrides an explicit operator backend",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^        if )channel(?= and _cloak\\.resolve_backend\\(self\\.config,use_default=False\\) is None: launch_config\\[)",
+      "new": "True or channel",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_explicit_backend_survives_real_chrome_request"
+    }
+  ]
+}

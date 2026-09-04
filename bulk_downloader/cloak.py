@@ -222,9 +222,9 @@ _ENV_KEYS = ("BD_BROWSER_BACKEND", "BD_USE_CLOAK",
              "BD_SESSION_KEEPER_USE_CLOAKBROWSER")
 
 
-def resolve_backend(config: dict | None = None) -> str:
+def resolve_backend(config: dict | None = None, *, use_default: bool = True) -> str | None:
     """Single source of truth for the browser backend — returns
-    ``"cloakbrowser"`` or ``"playwright"``.
+    a backend, or no explicit choice when ``use_default=False``.
 
     Precedence (most specific first):
       1. per-call ``config`` (``browser_backend``, or legacy bool keys)
@@ -246,8 +246,8 @@ def resolve_backend(config: dict | None = None) -> str:
             requested = _first_backend(lambda k: _gc.get(k, None), _CFG_KEYS)
         except Exception:
             requested = None
-    if requested is None:
-        requested = CLOAKBROWSER if is_available() else PLAYWRIGHT
+    if requested is None: requested = (CLOAKBROWSER if is_available() else PLAYWRIGHT) if use_default else None
+    if requested is None: return None
     if requested == CLOAKBROWSER and not is_available():
         return PLAYWRIGHT
     return requested

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 456 transform control. The unconditional-connect mutant must remain importable and ESCAPE an import-only spec, proving M1 is caught by its exact-zero assertion rather than a malformed transform.",
+  "subject": "transform-only control for the SQLite-default connection seam",
+  "band": [
+    "tests/test_v3_66_800_mod3_dual_write.py::TestDefaultOff::test_transform_control_imports_db_without_exercising_pg_seam"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 unconditional PostgreSQL probe remains importable",
+      "file": "bulk_downloader/db.py",
+      "old": "    if pg_backend.dual_write_enabled():",
+      "new": "    pg_backend._connect()  # row 456 transform control\n    if pg_backend.dual_write_enabled():",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_800_mod3_dual_write.py::TestDefaultOff::test_transform_control_imports_db_without_exercising_pg_seam"
+    }
+  ]
+}

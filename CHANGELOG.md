@@ -5,6 +5,37 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1465 - real Chrome becomes a choice, a login stops depending on one cookie name, and the SQLite default is pinned by a test
+
+Three refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.
+
+- Real Chrome is now opt-in rather than the app default, and the choice is
+  resolved explicitly instead of being inferred. Any per-site, environment or
+  explicit setting still wins; what changed is that the absence of a choice no
+  longer silently means "real Chrome". The launch overlay is threaded through
+  all four call sites -- persistent and non-persistent, primary and retry --
+  because a browser-backend override honoured at three of four launch points is
+  the shape whose predecessor was refuted. All four are now caught
+  independently, 0 escapes.
+
+- A login replay recognised only one session-cookie name. A site issuing an
+  equivalent cookie under a different name read as "not logged in", so the
+  replay path re-authenticated when it did not need to. The recogniser is now
+  generic over the session-cookie family rather than pinned to PHPSESSID.
+  Its regression mutant also drops a `preserves` field that is illegal beside
+  `direction: regression` -- the tree-wide mutant-spec gate had been green on
+  base and red on the candidate, which is exactly the class bd-precut --gate
+  exists to catch before a freeze.
+
+- The SQLite default is now pinned by tests rather than by convention. Four
+  cases assert it: a default write/read cycle that never calls postgres
+  connect (counted, not assumed), a named degradation when an opted-in
+  Postgres is unreachable, a mocked opt-in connect, and an unrequested cutover
+  short-circuit. No application change -- this cut makes an existing promise
+  measurable, and the negative control mocks only psycopg.connect because a
+  bare listener cannot complete PG wire negotiation.
+
+
 ## v3.66.1464 - a signed URL stops leaking through its path, a retired runtime stops reporting success, and two test families stop depending on each other
 
 Three refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.

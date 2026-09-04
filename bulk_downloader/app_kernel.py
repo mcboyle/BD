@@ -35,8 +35,8 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # _load_sites_config rebuild, the same reason predictive_relogin_*
             # above are here.
             "dismiss_selectors","dismiss_selectors_login",
-            # Phase 9: Cloudflare-resistance toggles. All default ON; user can
-            # disable via the API or by editing sites_config.json directly.
+            # Phase 9: Cloudflare-resistance toggles. Real Chrome is opt-in;
+            # the stealth and persistent-profile toggles default ON.
             "use_real_chrome","use_stealth","use_stealth_library","use_persistent_profile",
             # Phase 13: optional per-site network request log. Off by
             # default — when enabled the runner records every non-asset
@@ -509,7 +509,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # relogin_predict.DEFAULT_FRACTION.
           "predictive_relogin_enabled":False,"predictive_relogin_fraction":0.8,
           "auto_relogin_interval_hours":12,
-          "use_real_chrome":True,"use_stealth":True,"use_persistent_profile":True,
+          "use_real_chrome":False,"use_stealth":True,"use_persistent_profile":True,
           # v3.43.56: opt-in playwright-stealth library integration.
           # When True AND the library is installed (pip install
           # playwright-stealth), workers apply the library's

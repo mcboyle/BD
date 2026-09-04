@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the byte-identical M1 call-site regression is pointed at a resolver-only test that imports cloak but never launches BrowserMixin, so it must ESCAPE rather than fail by parse or import error.",
+  "subject": "w4 real-Chrome transform control",
+  "band": [
+    "tests/test_v3_66_141_browser_backend.py::test_percall_browser_backend_wins"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL primary persistent launch mutation is not observed by resolver-only test",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                    args=args_val,user_agent=ua_val,config=)launch_config(?=,\\n                    netns=netns,\\*\\*extra\\)$)",
+      "new": "self.config",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_141_browser_backend.py::test_percall_browser_backend_wins"
+    }
+  ]
+}

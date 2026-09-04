@@ -96,6 +96,10 @@ def _isolated_history_db(tmp_path, monkeypatch):
 
 
 class TestDefaultOff:
+    def test_transform_control_imports_db_without_exercising_pg_seam(self):
+        module = importlib.import_module("bulk_downloader.db")
+        assert callable(module.db_conn)
+
     def test_dual_write_is_off_without_a_dsn(self, monkeypatch):
         monkeypatch.delenv("MOD3_PG_DSN", raising=False)
         pg = importlib.import_module("bulk_downloader.pg_backend")
@@ -115,6 +119,40 @@ class TestDefaultOff:
             assert isinstance(cx, sqlite3.Connection), type(cx)
         finally:
             cx.close()
+
+    def test_default_sqlite_cycle_never_calls_postgres_connect(
+            self, monkeypatch, tmp_path):
+        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        monkeypatch.setenv("BD_HOME", str(tmp_path))
+        from bulk_downloader import db, pg_backend
+        importlib.reload(pg_backend)
+        importlib.reload(db)
+        assert pg_backend.dual_write_enabled() is False
+        assert db._resolve_db_path() == str(tmp_path / "downloader_history.db")
+
+        connect_calls = []
+        real_connect = pg_backend._connect
+
+        def counted_connect():
+            connect_calls.append("called")
+            return real_connect()
+
+        monkeypatch.setattr(pg_backend, "_connect", counted_connect)
+        db.db_init()
+        with db.db_conn() as cx:
+            assert isinstance(cx, sqlite3.Connection), type(cx)
+            assert not isinstance(cx, db._DualWriteConn), type(cx)
+            cx.execute(
+                "INSERT INTO history(site_id, url, status) VALUES (?,?,?)",
+                ("sqlite-default", "http://example.invalid/default", "done"))
+        with db.db_conn() as cx:
+            row = cx.execute(
+                "SELECT url, status FROM history WHERE site_id=?",
+                ("sqlite-default",)).fetchone()
+        assert row is not None
+        assert (row["url"], row["status"]) == (
+            "http://example.invalid/default", "done")
+        assert len(connect_calls) == 0, connect_calls
 
 
 class TestFailOpen:
@@ -169,6 +207,63 @@ class TestFailOpen:
                 "SELECT site_id FROM history WHERE site_id=?",
                 ("nodriver-site",)).fetchone()
         assert row is not None, "SQLite write lost when psycopg was absent"
+
+    def test_unreachable_postgres_names_degradation_and_keeps_sqlite(
+            self, monkeypatch, tmp_path):
+        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        monkeypatch.setenv("BD_HOME", str(tmp_path))
+        from bulk_downloader import db, pg_backend
+        importlib.reload(pg_backend)
+        importlib.reload(db)
+        importlib.import_module("psycopg")
+        db.db_init()
+        initial = pg_backend.stats()
+        assert set(initial) == {
+            "mirrored", "skipped", "failed", "degraded_reason"}
+        assert initial["mirrored"] == 0
+        assert initial["skipped"] == 0
+        assert initial["failed"] == 0
+        assert initial["degraded_reason"] is None
+
+        monkeypatch.setenv(
+            "MOD3_PG_DSN", "postgresql://nobody@127.0.0.1:1/nonexistent")
+        assert pg_backend.dual_write_enabled() is True
+        with db.db_conn() as cx:
+            cx.execute(
+                "INSERT INTO history(site_id, url, status) VALUES (?,?,?)",
+                ("named-degrade", "http://example.invalid/degraded", "done"))
+        with db.db_conn() as cx:
+            row = cx.execute(
+                "SELECT status FROM history WHERE site_id=?",
+                ("named-degrade",)).fetchone()
+        assert row is not None and row["status"] == "done"
+
+        state = pg_backend.stats()
+        assert state["mirrored"] == 0
+        assert state["failed"] == 1
+        assert state["degraded_reason"] is not None
+        assert "connect failed" in state["degraded_reason"]
+
+    def test_opt_in_reaches_psycopg_connect_exactly_once(
+            self, monkeypatch):
+        dsn = "postgresql://synthetic@127.0.0.1:1/negative_control"
+        monkeypatch.setenv("MOD3_PG_DSN", dsn)
+        from bulk_downloader import pg_backend
+        importlib.reload(pg_backend)
+        psycopg = importlib.import_module("psycopg")
+        assert callable(psycopg.connect)
+
+        calls = []
+        sentinel = object()
+
+        def fake_connect(value, *, connect_timeout):
+            calls.append((value, connect_timeout))
+            return sentinel
+
+        monkeypatch.setattr(psycopg, "connect", fake_connect)
+        assert pg_backend._connect() is sentinel
+        assert calls == [(dsn, 5)]
+        assert pg_backend.stats()["degraded_reason"] is None
 
 
 class TestRealRoundTrip:

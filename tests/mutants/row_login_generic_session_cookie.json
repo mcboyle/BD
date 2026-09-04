@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "A generic server session identifier is not proof of login in an uncertain no-navigation branch. The structural transform restores generic session hints to the explicit authentication test; the catcher asserts the unchanged pre-login jar and the negative control preserves explicit auth-cookie acceptance.",
+  "subject": "generic session cookie names do not establish login success",
+  "band": [
+    "tests/test_login_submit_robustness.py::test_an_unchanged_generic_session_cookie_is_not_login_success",
+    "tests/test_login_submit_robustness.py::test_explicit_auth_named_cookie_counts_as_auth"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore generic session names as authentication evidence",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "        if any(h in name for h in _AUTH_COOKIE_HINTS):",
+      "new": "        if any(h in name for h in _AUTH_COOKIE_HINTS + _GENERIC_SESSION_COOKIE_HINTS):",
+      "direction": "regression",
+      "catcher": "tests/test_login_submit_robustness.py::test_an_unchanged_generic_session_cookie_is_not_login_success"
+    }
+  ]
+}

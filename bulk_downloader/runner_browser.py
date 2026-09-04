@@ -212,11 +212,12 @@ class BrowserMixin:
         if headless is None: headless=bool(self.config.get("headless", True))
         if use_persistent is None:
             use_persistent=bool(self.config.get("use_persistent_profile",True))
-        # 9.1: prefer system Chrome over bundled Chromium when available.
-        # Fall back gracefully if Chrome isn't installed.
         channel=None
-        if self.config.get("use_real_chrome",True):
+        if self.config.get("use_real_chrome",False):
             channel="chrome"
+        from . import cloak as _cloak
+        launch_config=dict(self.config)
+        if channel and _cloak.resolve_backend(self.config,use_default=False) is None: launch_config["browser_backend"]="playwright"
         # Build launch options
         launch_kwargs={"headless":headless,"args":self._launch_args(headless=headless)}
         if channel: launch_kwargs["channel"]=channel
@@ -255,7 +256,6 @@ class BrowserMixin:
                 sys.stderr.write(f"  using proxy {pp.scheme}://{pp.hostname} (creds={'yes' if pp.username else 'no'})\n")
             except Exception as e:
                 sys.stderr.write(f"  proxy config parse error (ignored): {e}\n")
-        from . import cloak as _cloak
         flow = (f"manual download[{self.site_id}]" if profile_override
                 else f"worker[{self.site_id}/{worker_idx or 0}]")
         if use_persistent:
@@ -289,7 +289,7 @@ class BrowserMixin:
             try:
                 ctx,used_pw,backend=_cloak.open_persistent_context(
                     user_data_dir=str(user_data_dir),headless=headless,
-                    args=args_val,user_agent=ua_val,config=self.config,
+                    args=args_val,user_agent=ua_val,config=launch_config,
                     netns=netns,**extra)
                 self._install_stealth(ctx)
                 # v3.66.465: GATED full-access after_context hook. Live ctx +
@@ -314,7 +314,7 @@ class BrowserMixin:
                     try:
                         ctx,used_pw,backend=_cloak.open_persistent_context(
                             user_data_dir=str(user_data_dir),headless=headless,
-                            args=args_val,user_agent=ua_val,config=self.config,
+                            args=args_val,user_agent=ua_val,config=launch_config,
                             netns=netns,**extra)
                         self._install_stealth(ctx)
                         _cloak.log_choice(flow,backend,detail+" (bundled)")
@@ -328,14 +328,14 @@ class BrowserMixin:
         args_val=extra.pop("args",None)
         try:
             browser,used_pw,backend=_cloak.launch_browser(
-                headless=headless,args=args_val,config=self.config,
+                headless=headless,args=args_val,config=launch_config,
                 netns=netns,**extra)
         except Exception as e:
             if channel and "channel" in extra:
                 sys.stderr.write(f"  launch (channel={channel}) failed: {str(e)[:100]}; falling back to bundled\n")
                 extra.pop("channel",None)
                 browser,used_pw,backend=_cloak.launch_browser(
-                    headless=headless,args=args_val,config=self.config,
+                    headless=headless,args=args_val,config=launch_config,
                     netns=netns,**extra)
             else:
                 raise
