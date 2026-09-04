@@ -241,7 +241,14 @@ def api_account_pool_reset(sid, account_idx):
 def api_login(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    runners[sid].login_async(); return jsonify({"ok":True})
+    refusal = runners[sid].login_async()
+    if refusal:
+        return _login_refused(refusal)
+    return jsonify({"ok":True})
+
+
+def _login_refused(reason):
+    return jsonify({"ok": False, "error": str(reason)}), 503
 
 
 @sites_bp.route("/api/sites/<sid>/accounts")

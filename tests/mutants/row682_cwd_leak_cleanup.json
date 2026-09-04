@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 682. Each regression removes one distinct test-owned cleanup boundary. Replay from a detached standalone scratch with: venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row682_cwd_leak_cleanup.json --work <scratch> --timeout 900 --json.",
+  "subject": "temporary app and vault state is restored by the test that changes it",
+  "band": [
+    "tests/test_auth_throttle.py::test_client_restores_sites_file_runtime_pin",
+    "tests/test_rows617_623_624_625_628_629_631_secrets_family.py::test_row625_false_save_and_success_keep_their_existing_results"
+  ],
+  "mutants": [
+    {
+      "label": "M1 auth client retains its dead absolute sites pin",
+      "file": "tests/test_auth_throttle.py",
+      "old_regex": "(?<=            )A\\.SITES_FILE(?=[^\\n]*\\n            A\\._SITES_FILE_LAST_AUTO_OBJECT)",
+      "new": "A._SITES_FILE_LAST_AUTO_OBJECT",
+      "direction": "regression",
+      "catcher": "tests/test_auth_throttle.py::test_client_restores_sites_file_runtime_pin"
+    },
+    {
+      "label": "M2 row625 undoes the whole isolation fixture mid-test",
+      "file": "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",
+      "old_regex": "Path\\.cwd\\(\\)",
+      "new": "(monkeypatch.undo() or Path.cwd())",
+      "direction": "regression",
+      "catcher": "tests/test_rows617_623_624_625_628_629_631_secrets_family.py::test_row625_false_save_and_success_keep_their_existing_results"
+    }
+  ]
+}

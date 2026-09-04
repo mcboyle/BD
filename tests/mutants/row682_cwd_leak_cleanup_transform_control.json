@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 682 transform control. The same dead-sites-pin transform as M1 must remain importable and ESCAPE when the band never enters the client context.",
+  "subject": "transform-only control for the auth client cleanup mutant",
+  "band": [
+    "tests/test_auth_throttle.py::test_disabled_is_a_noop"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 dead sites pin cleanup deletion remains importable",
+      "file": "tests/test_auth_throttle.py",
+      "old_regex": "(?<=            )A\\.SITES_FILE(?=[^\\n]*\\n            A\\._SITES_FILE_LAST_AUTO_OBJECT)",
+      "new": "A._SITES_FILE_LAST_AUTO_OBJECT",
+      "direction": "regression",
+      "catcher": "tests/test_auth_throttle.py::test_disabled_is_a_noop"
+    }
+  ]
+}

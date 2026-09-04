@@ -93,6 +93,9 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
+    # caller instead of being flattened into an accepted login request.
+    "tests/test_login_api_refuses_impossible_manual_start.py",
     # Rows 566/571. The meta-gate over this file and over the tracked Markdown
     # corpus. It holds the EXACT bidirectional Markdown denominator -- the
     # modules themselves keep only shrink-only floors -- and the only refusal of

@@ -319,6 +319,7 @@ def test_row625_delete_restores_the_entry_when_save_raises(isolated, monkeypatch
 def test_row625_false_save_and_success_keep_their_existing_results(
     isolated, monkeypatch
 ):
+    install, vault, meta, _sites, _cfg = isolated
     backend = _backend({_KEY: _VALUE, _OTHER_KEY: _OTHER_VALUE})
     before = dict(backend._data["ciphertexts"])
     monkeypatch.setattr(backend, "_save", lambda: False)
@@ -326,7 +327,9 @@ def test_row625_false_save_and_success_keep_their_existing_results(
         backend.delete(_KEY)
     assert backend._data["ciphertexts"] == before
 
-    monkeypatch.undo()
+    assert Path.cwd() == install, "the row625 test escaped its isolated cwd"
+    assert ss.SECRETS_FILE == vault
+    assert ss.SECRETS_META_FILE == meta
     backend = _backend({_KEY: _VALUE, _OTHER_KEY: _OTHER_VALUE})
     assert backend.delete(_KEY) is True
     assert _KEY not in backend.list_keys()

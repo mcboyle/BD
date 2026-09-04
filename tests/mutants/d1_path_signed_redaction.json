@@ -1,0 +1,62 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "D1 -- a CDN that signs in the URL PATH (key=<sig>,end=<epoch>,ip=<client ip>) left the signature, the expiry and the operator's public IP in operator-visible evidence. Every anchor here is structural: no digit, no quoted value and no '=' character, so the row357 anchor gate classifies each as non-value-bearing without a producer record.",
+  "subject": "the path-assignment redaction rule removes signature/expiry/client-IP from a path-signed URL in both redactors, without destroying the URL's identity",
+  "band": [
+    "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_media_url_redacts_all_three_assignments",
+    "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_artifact_value_redacts_all_three_assignments",
+    "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_every_name_in_the_shared_signing_vocabulary_is_redacted",
+    "tests/test_d1_path_signed_urls_are_redacted.py::TestRedactionPreservesTheUrlsIdentity::test_host_filename_and_rung_survive",
+    "tests/test_d1_path_signed_urls_are_redacted.py::TestRedactionPreservesTheUrlsIdentity::test_benign_path_assignments_survive"
+  ],
+  "mutants": [
+    {
+      "label": "D1-M1 the shared path-assignment substitution is a no-op",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "    return _PATH_ASSIGNMENT_RE.sub(",
+      "new": "    return text or _PATH_ASSIGNMENT_RE.sub(  # mutant: the rule never substitutes",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_media_url_redacts_all_three_assignments"
+    },
+    {
+      "label": "D1-M2 the free-string path-run scanner is a no-op",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "    return _PATH_SIGNING_RUN_RE.sub(",
+      "new": "    return text or _PATH_SIGNING_RUN_RE.sub(  # mutant: no path run is scanned",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_artifact_value_redacts_all_three_assignments"
+    },
+    {
+      "label": "D1-M3 redact_media_url stops applying the rule to its path segments",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "_redact_path_assignments(segment)",
+      "new": "segment  # mutant: the signing segment is passed through",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_media_url_redacts_all_three_assignments"
+    },
+    {
+      "label": "D1-M4 redact_value stops applying the rule",
+      "file": "bulk_downloader/capture_artifact_redact.py",
+      "old": "redact_path_signing(out)",
+      "new": "out  # mutant: the derivation boundary skips path signing",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestPathSignedUrlLosesItsCredentialExpiryAndClientIp::test_artifact_value_redacts_all_three_assignments"
+    },
+    {
+      "label": "D1-M5 the rule masks the whole segment and destroys the URL's identity",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "_redact_path_assignments(segment)",
+      "new": "PLACEHOLDER  # mutant: mask every assignment-bearing segment wholesale",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestRedactionPreservesTheUrlsIdentity::test_host_filename_and_rung_survive"
+    },
+    {
+      "label": "D1-M6 the rule stops being name-driven and redacts benign assignments",
+      "file": "bulk_downloader/capture_redact.py",
+      "old": "def _assignment_name_is_sensitive(name: str) -> bool:",
+      "new": "def _assignment_name_is_sensitive(name: str) -> bool:\n    return True  # mutant: every path assignment name reads as sensitive",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::TestRedactionPreservesTheUrlsIdentity::test_benign_path_assignments_survive"
+    }
+  ]
+}

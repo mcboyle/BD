@@ -45,8 +45,9 @@ def _auth_start_guard(retired_result, *, on_retired=None):
             end = getattr(self, "_end_auxiliary_start", None)
             admitted = True if not callable(begin) else begin()
             if admitted is not True:
-                if on_retired is not None:
-                    on_retired(self, *args, **kwargs)
+                if (on_retired is not None
+                        and on_retired(self, *args, **kwargs) is True):
+                    return None
                 return retired_result()
             try:
                 return method(self, *args, **kwargs)
@@ -61,11 +62,12 @@ def _resolve_retired_login(self, on_done=None, allow_manual=True):
     """Complete the async callback contract when retirement rejects login."""
     del allow_manual
     if on_done is None:
-        return
+        return False
     try:
         on_done(False)
     except Exception as exc:
         sys.stderr.write(f"[{self.site_id}] login on_done raised: {exc}\n")
+    return True
 
 
 def _resolve_takeover_mode(config: dict) -> str:
@@ -196,7 +198,7 @@ def _admit_takeover(config: dict, active_count: int):
 
 
 class AuthMixin:
-    @_auth_start_guard(lambda: None, on_retired=_resolve_retired_login)
+    @_auth_start_guard(lambda: "Site runtime is being deleted", on_retired=_resolve_retired_login)
     def login_async(self,on_done=None,allow_manual=True):
         """Phase 4.4: by default, allow manual takeover when auto-login
         can't complete the form. The Chromium window stays open with the
@@ -252,6 +254,8 @@ class AuthMixin:
                 # don't raise, let the manual-done flow do the rest.
                 self._login_status = ("⏳ " if ok else "✗ ") + msg
                 _fire(False)  # not "ok" yet — user must finish manually
+                if not ok:
+                    return msg
                 return
         self._login_status="Logging in..."
         # v3.66.834: stamp this attempt so a second caller's watcher can read

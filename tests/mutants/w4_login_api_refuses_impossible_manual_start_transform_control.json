@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the identical structural mutation is run against a node that imports the route but makes no assertion about its response, so it must ESCAPE.",
+  "subject": "transform control for the login API refusal response",
+  "band": [
+    "tests/test_login_api_refuses_impossible_manual_start.py::test_transform_control_only_imports_login_api"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL discard refusal under an import-only assertion",
+      "file": "bulk_downloader/app_sites_auth.py",
+      "old": "        return _login_refused(refusal)\n",
+      "new": "        pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_transform_control_only_imports_login_api"
+    },
+    {
+      "label": "CONTROL suppress the producer under an import-only assertion",
+      "file": "bulk_downloader/runner_auth.py",
+      "old": "                    return msg\n",
+      "new": "                    return\n",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_transform_control_only_imports_login_api"
+    }
+  ]
+}

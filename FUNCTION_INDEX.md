@@ -509,34 +509,34 @@ Schema version: 2
 ```
 - L0016 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
 - L0039 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
-- L0060 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
-- L0071 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0082 `_truthy` `[private]`
-- L0092 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0098 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0108 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0123 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0132 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0147 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0179 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0198 `AuthMixin` `[class]`
-  - L0200 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0387 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0434 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0529 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0557 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0666 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0710 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0915 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L0965 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L0970 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L0985 `AuthMixin.is_awaiting_manual_login`
-  - L0987 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1009 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1088 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1096 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1161 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1216 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0061 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0073 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0084 `_truthy` `[private]`
+- L0094 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0100 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0110 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0125 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0134 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0149 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0181 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0200 `AuthMixin` `[class]`
+  - L0202 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0391 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0438 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0533 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0561 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0670 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0714 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L0919 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L0969 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L0974 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L0989 `AuthMixin.is_awaiting_manual_login`
+  - L0991 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1013 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1092 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1100 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1165 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1220 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 

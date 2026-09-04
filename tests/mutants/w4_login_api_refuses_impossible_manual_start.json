@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The structural anchor removes the route's refusal response after login_async has synchronously reported that the first-run headed browser could not start. The catcher proves the launch-failure preconditions and requires the API to report that known failure.",
+  "subject": "the login API reports a synchronous manual-browser startup refusal",
+  "band": [
+    "tests/test_login_api_refuses_impossible_manual_start.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 discard the manual-browser startup refusal",
+      "file": "bulk_downloader/app_sites_auth.py",
+      "old": "        return _login_refused(refusal)\n",
+      "new": "        pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_login_api_refuses_when_first_run_manual_browser_cannot_launch"
+    },
+    {
+      "label": "M2 suppress the startup refusal before it reaches the route",
+      "file": "bulk_downloader/runner_auth.py",
+      "old": "                    return msg\n",
+      "new": "                    return\n",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_login_api_refuses_when_first_run_manual_browser_cannot_launch"
+    },
+    {
+      "label": "M3 discard the retired-runtime refusal",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^    @_auth_start_guard\\()lambda:(?= \\\"Site runtime is being deleted\\\", on_retired=_resolve_retired_login\\)$)",
+      "new": "lambda: None and",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_login_api_refuses_a_retired_runtime_restored_after_failed_delete"
+    },
+    {
+      "label": "M4 erase the launch diagnostic from the refusal body",
+      "file": "bulk_downloader/app_sites_auth.py",
+      "old_regex": "(?<=\\\"error\\\": )str\\(reason\\)(?=\\}\\), 503)",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_login_api_refuses_impossible_manual_start.py::test_login_api_refuses_when_first_run_manual_browser_cannot_launch"
+    }
+  ]
+}
