@@ -21,7 +21,10 @@ evidence, not current task queues.
 Treat every reading as a claim about both a commit and a host. Before relying
 on a result, record or verify:
 
-- hostname and machine identity;
+- IP address and self-reported hostname TOGETHER. On this fleet hostnames are
+  NOT unique -- bd4 and 10.0.70.83 both answer `test`, while bd2 and 10.0.70.149
+  both answer `fresh-1` -- so the IP is the identity and the hostname is a label.
+  A claim carrying only a hostname does not name a machine;
 - repository path and official origin;
 - branch, HEAD commit, tree SHA, parent/base, and ahead/behind state;
 - clean tracked/untracked/index state;
@@ -74,9 +77,30 @@ backlog with a unique row, status, evidence, acceptance criteria, and dependency
 Prose such as "later" or an unchecked historical checklist is not a deferral.
 Do not invent a row for work that is completed, obsolete, or already represented.
 
+Any train may carry a register commit -- bd-register-append, bd-register-close,
+bd-register-amend -- filing the rows its patches close and the defects they met
+on the way. A dedicated register cut is for corrections. Workers PROPOSE row
+text and never assign ids; the integrator assigns them, because two workers
+filing concurrently choose the same number. Register rows are documentation:
+they never gate a runtime lane.
+
 When a meaningful choice would change the product or expand authority, present
 the evidence and ask. Routine, reversible, in-scope implementation and
-verification should continue without confirmation. Never convert ambiguity
+verification should continue without confirmation.
+
+Landing authority sits with the integrator: it lands a train on its own once the
+required lenses BOARD, the lane is green, and exact-head CI is green. The
+adjudicator rules on refusals, lane failures, and lens disagreement, and
+verifies every landing by blob afterwards. A routine choice takes the
+recommended default, is logged in OPERATOR_DECISIONS.md with the word DEFAULT,
+and reaches the operator in a periodic digest; only a blocker interrupts. Any
+TIMED hold carries an EXPIRY ACTION -- what happens when the clock runs out --
+because a timed hold with no stated expiry is indistinguishable from a stall and
+cost nine hours once. A bare `hold` is not timed: it stands until `resume`, and
+inventing an expiry for it is resuming work the operator stopped. A DURATION IS
+NOT AN EXPIRY ACTION: "hold 15 min" says when, never what, and the instruction
+is complete only when it also says what happens at the end -- resume, escalate,
+or stop for good. Never convert ambiguity
 into a narrower or easier objective merely to obtain a green result.
 
 Know which host you are changing. Never edit a checkout while an authoritative
@@ -88,6 +112,16 @@ authenticated site unless that exact contact is authorized and isolated.
 Carry one coherent feature per cut, or one coherent safety contract. Do not fold unrelated
 cleanup or a second backlog item into it. If the work cannot fit one coherent
 cut, split it or ask; do not weaken acceptance criteria.
+
+A TRAIN is the second sanctioned shape: N independently reviewed patches whose
+authored paths are DISJOINT, carried under one version trio, one lane, and one
+exact-head CI, up to sixteen patches. Because the trio forces landings to be
+serial, WIDTH is the throughput lever and the number of cuts is not. A lane
+failure on a train is BISECTED by patch with `bd-train.sh --bisect`, which
+applies each patch exactly as the assembler does, and the offending patch goes
+back to its worker with the lane log; a train is never debugged whole. Two
+patches sharing a path ride different trains and are never merged by hand. A
+train's changelog entry names every patch it carries.
 
 Use this lifecycle in order:
 
@@ -106,8 +140,18 @@ Use this lifecycle in order:
    and rerun gates invalidated by regeneration.
 8. Freeze an immutable candidate, push it normally, and run all final lanes
    against that exact SHA/tree. Pre-freeze evidence never substitutes.
-9. Obtain independent implementation/scope, test-integrity/denominator, and
-   evidence reviews. Reviewer output is data until its cited facts are checked.
+9. Obtain adversarial review at the depth `project-knowledge/CUT_TIERING.md`
+   sets, using ITS tier definitions and not a second list here: T0/T1 AS
+   CUT_TIERING DEFINES THEM take ONE lens; T2/T3 take BOTH -- a CORRECTNESS lens
+   that runs the code and a SHAPE lens that MUTATES the subject the gate names
+   -- and BOARD requires both. Two tracked files must not define the same tier
+   differently: if CUT_TIERING's wording disagrees with the depth this step
+   claims, CUT_TIERING is amended IN THE SAME CUT, because a delegation to a
+   file that says something else is worse than no delegation at all. One lens is not a cheaper version of two: a single correctness lens
+   once boarded a patch that satisfied three text-scanning gates with decoy
+   literals while the real seam moved out of their reach, and only the mutating
+   lens caught it. Record the tier and the reason for it in the PR body.
+   Reviewer output is data until its cited facts are checked.
 10. Require exact-head GitHub CI and a current PR body before merge.
 11. Merge only the reviewed head, prove merged-tree identity, deploy when the
     change affects runtime/deployment state, and verify health/version.
@@ -191,6 +235,23 @@ artifacts, or review premises change. Documentation-only changes may transfer
 only when they provably cannot affect the claimed behavior or denominator.
 
 ## A5 | Verification
+
+Before a worker reports `VERDICT: PATCH` on a T2 or T3 patch it runs the
+correctness lens's own checklist against itself: the RED command with its EXACT
+failure text, the GREEN command and result, a negative control, an exact-count
+assertion, the bd-mutate result, and both required tree-gate lines. A DONE.md
+missing any of these is BOUNCED BY THE REVIEW DISPATCHER before a lens is
+spent on it -- a review round costs more than the worker minute that would have
+prevented it. Note precisely what this is NOT, because the first draft of this
+paragraph claimed it and was wrong: bd-review-prep checks that DONE.md exists and
+that its first line is exactly `VERDICT: PATCH`, and nothing more. It does not
+look for a RED text, a GREEN result, a negative control, an exact count, a
+mutation result, or the tree-gate lines. Making it do so is a separate cut with
+its own RED, filed as a harness item; until then the floor is enforced by the
+dispatcher, not by the tool, and a contract that says otherwise teaches an agent
+to trust a guard that is not there. A
+T0/T1 patch owes only what its tier owes; do not demand a mutation result from a
+docs cut that has no runtime subject to mutate.
 
 Use real pytest through the repository interpreter. Derive affected tests with
 `toolchain/bin/bd-band-derive`; its output is a floor, never a ceiling. Add
@@ -319,7 +380,12 @@ inode while the path names the new file. Changes to later deploy steps therefore
 take effect on the following invocation unless an explicit handoff is designed.
 
 After merge, deploy the exact merged main tree when runtime, source delivery,
-generated artifacts, or deployment state changed. Verify the script reports the
+generated artifacts, or deployment state changed, at the cadence the operator
+sets -- per train, per batch of trains, or per session. Whatever the cadence,
+the canonical suite runs on the exact tree that is DEPLOYED: prove
+`main^{tree}` equality after the final landing rather than assuming a suite
+transfers. The fleet is never left carrying two different versions across
+role=runner hosts. Verify the script reports the
 merged SHA, health endpoint version, and `GET / = 200`. There is no general
 `/api/version`; use `/api/health` for deployment verification.
 
@@ -417,6 +483,16 @@ In shallow clones, only `git merge-base --is-ancestor` exit 0 proves ancestry.
 Nonzero is UNKNOWN until history is deepened. Fetching a commit by SHA may obtain
 the object without connecting its history and can manufacture a false negative.
 
+A row, a document, or a commit message cites a TRACKED path plus a function or
+anchor NAME. A line number is a courtesy that goes stale on the first edit above
+it, and the repository's doc anchor gate resolves `file:line` against tracked
+paths only -- so citing an operator-harness script in the `file` colon `line`
+form can never resolve and refuses the whole tree. Harness scripts live outside
+the tracked denominator and are cited BY NAME ALONE, with the line number in
+words if it is worth keeping at all. This paragraph is written that way on
+purpose: an earlier draft of it used a real harness path in the colon form as
+its own EXAMPLE, and the gate refused the tree for the example.
+
 Any source rewriter or mutation harness must:
 
 - assert the old anchor occurs exactly once;
@@ -444,6 +520,11 @@ failure, not a successful no-op.
 Keep this routing table small. It is a starting point, not a complete tool
 denominator; inspect `toolchain/bin` and read the nearest tool's implementation
 and selftest before hand-writing a replacement.
+
+A Codex worker session is addressed by host IP and session name, never by
+hostname. A host may carry two workers while it runs no lane and no suite; a
+capacity host carrying a lane or the canonical suite takes none, because worker
+load moves the very timings the lane exists to measure.
 
 The tool denominator is not only `toolchain/bin`. Operator harness scripts live
 outside the repository and are equally load-bearing. Before creating a file at
