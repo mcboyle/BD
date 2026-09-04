@@ -1,0 +1,106 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "rowssrf-loopback T3 battery. Each anchor matches only structural whitespace, an identifier, or branch syntax; every regression must be CAUGHT.",
+  "subject": "template sandbox loopback exemptions consume a structured classifier reason at both fetch boundaries",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 pre-fetch exemption reverts to attacker-controlled English",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)^    if not _host_ok and(?= _host_why\\.code is not _HostSafetyReason\\.LOOPBACK:$)",
+      "new": "    if not _host_ok and \"loopback\" not in _host_why.lower(): # mutant prose decision: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[pre-fetch]"
+    },
+    {
+      "label": "M2 redirect exemption reverts to attacker-controlled English",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)^                    if not _ok and(?= _why\\.code is not _HostSafetyReason\\.LOOPBACK:$)",
+      "new": "                    if not _ok and \"loopback\" not in _why.lower(): # mutant prose decision: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[redirect]"
+    },
+    {
+      "label": "M3 pre-fetch structured comparison is inverted",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    if not _host_ok and _host_why\\.code )is not(?= _HostSafetyReason\\.LOOPBACK:$)",
+      "new": "is",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_genuine_loopback_remains_admitted_at_both_exemption_sites[pre-fetch]"
+    },
+    {
+      "label": "M4 redirect structured comparison is inverted",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^                    if not _ok and _why\\.code )is not(?= _HostSafetyReason\\.LOOPBACK:$)",
+      "new": "is",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_genuine_loopback_remains_admitted_at_both_exemption_sites[redirect]"
+    },
+    {
+      "label": "M5 link-local producer falsely emits the loopback reason",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^            (?=HostSafetyReason\\.LINK_LOCAL,$)",
+      "new": "            HostSafetyReason.LOOPBACK, # mutant replaces code: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_classifier_carries_machine_reason_without_changing_human_message"
+    },
+    {
+      "label": "M10 private producer falsely emits the loopback reason",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^            (?=HostSafetyReason\\.PRIVATE,$)",
+      "new": "            HostSafetyReason.LOOPBACK, # mutant replaces code: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_classifier_carries_machine_reason_without_changing_human_message"
+    },
+    {
+      "label": "M11 CGNAT producer falsely emits the loopback reason",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^            (?=HostSafetyReason\\.CGNAT,$)",
+      "new": "            HostSafetyReason.LOOPBACK, # mutant replaces code: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_classifier_carries_machine_reason_without_changing_human_message"
+    },
+    {
+      "label": "M12 multicast producer falsely emits the loopback reason",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^            (?=HostSafetyReason\\.MULTICAST,$)",
+      "new": "            HostSafetyReason.LOOPBACK, # mutant replaces code: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_classifier_carries_machine_reason_without_changing_human_message"
+    },
+    {
+      "label": "M6 hostname classifier propagation launders link-local as loopback",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^            return False, )reason$",
+      "new": "_host_safety_message(HostSafetyReason.LOOPBACK, str(reason))",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[pre-fetch]"
+    },
+    {
+      "label": "M7 facade drops the canonical host classifier export",
+      "file": "bulk_downloader/provider_resolve_impl/__init__.py",
+      "old_regex": "(?m)^    (?=_is_safe_public_host,$)",
+      "new": "    _is_safe_public_host as _removed_is_safe_public_host, # mutant drops export: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_provider_facade_still_exports_both_classifier_seams"
+    },
+    {
+      "label": "M8 facade drops the canonical per-IP classifier export",
+      "file": "bulk_downloader/provider_resolve_impl/__init__.py",
+      "old_regex": "(?m)^    (?=_classify_ip,$)",
+      "new": "    _classify_ip as _removed_classify_ip, # mutant drops export: ",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_provider_facade_still_exports_both_classifier_seams"
+    },
+    {
+      "label": "M9 dynamic route receives an always-safe classifier",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    _is_safe_public_host = getattr\\()_host_safety(?=, \"_is_safe_public_host\"\\)$)",
+      "new": "type(\"Bypass\", (), {\"_is_safe_public_host\": staticmethod(lambda _host: (True, \"\"))})",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[pre-fetch]"
+    }
+  ]
+}

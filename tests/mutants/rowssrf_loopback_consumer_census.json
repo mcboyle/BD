@@ -1,0 +1,170 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "One structural call-name deletion per canonical runtime consumer. The independent AST census must catch every missing seam; anchors match only the bare function identifier.",
+  "subject": "every runtime consumer of the canonical host and per-IP classifiers remains inside the audited census",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+  ],
+  "mutants": [
+    {
+      "label": "C01 app URL-public guard drops host classifier call",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^        ok, _reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C02 flaresolverr guard drops host classifier call",
+      "file": "bulk_downloader/app_flaresolverr.py",
+      "old_regex": "(?m)(?<=^        _ok, _why = )_is_safe_public_host(?=\\(_ep_host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C03 template pre-fetch drops host classifier call",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    _host_ok, _host_why = )_is_safe_public_host",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C04 template redirect drops host classifier call",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^                    _ok, _why = )_is_safe_public_host",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C05 deep-detect guard drops host classifier call",
+      "file": "bulk_downloader/deep_detect/orchestrate.py",
+      "old_regex": "(?m)(?<=^    ok, reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C06 capture diagnostic drops host classifier call",
+      "file": "bulk_downloader/dev_suite/capture_diag.py",
+      "old_regex": "(?m)(?<=^    _ok_host, _why = )_is_safe_public_host",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C07 multi-connection forwarding seam drops host classifier call",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?m)(?<=^    return )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C08 multi-connection enforcement drops host classifier call",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?m)(?<=^    ok, reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C09 provider pre-fetch drops host classifier call",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^            ok, reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C10 provider redirect drops host classifier call",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^            ok2, reason2 = )_is_safe_public_host(?=\\(host_redir\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C11 runner fetch guard drops host classifier call",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^            ok, reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C12 runner extractor drops host classifier call",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old_regex": "(?m)(?<=^        ok, reason = )_is_safe_public_host",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C13 telemetry guard drops host classifier call",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?m)(?<=^                _ok, _why = )_is_safe_public_host",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C14 selector playground forwarding seam drops host classifier call",
+      "file": "bulk_downloader/selector_playground.py",
+      "old_regex": "(?m)(?<=^    return )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C15 site-weather forwarding seam drops host classifier call",
+      "file": "bulk_downloader/site_weather.py",
+      "old_regex": "(?m)(?<=^    return )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C16 tier probe drops host classifier call",
+      "file": "bulk_downloader/tier_probe.py",
+      "old_regex": "(?m)(?<=^    ok, reason = )_is_safe_public_host(?=\\(host\\)$)",
+      "new": "_is_safe_public_host_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C17 candidate filter drops per-IP classifier call",
+      "file": "bulk_downloader/candidate_filter.py",
+      "old_regex": "(?m)(?<=^            _ip_ok, _ = )_classify_ip",
+      "new": "_classify_ip_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C18 literal-host path drops per-IP classifier call",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^        return )_classify_ip(?=\\(addr, bare\\)$)",
+      "new": "_classify_ip_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C19 hostname path drops per-IP classifier call",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^        ok, reason = )_classify_ip(?=\\(addr, bare\\)$)",
+      "new": "_classify_ip_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "C20 guarded transport drops per-IP classifier call",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^                ok, reason = )_classify_ip(?=\\(addr, original_host\\)$)",
+      "new": "_classify_ip_bypassed",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    }
+  ]
+}

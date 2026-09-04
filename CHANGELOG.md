@@ -5,6 +5,48 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1480 - a refusal reason is classified, not string-matched
+
+One refute-first-reviewed patch, all three lenses BOARD (T3: correctness,
+shape and the design/security panel), plus a register commit prepared by
+integrator C and applied here.
+
+- An SSRF refusal reported its reason as a string, and callers compared that
+  string. `"loopback" == HostSafetyReason.LOOPBACK` is true for a str-enum, so
+  a comparison could look correct while carrying no guarantee about which class
+  the classifier had actually assigned. Every refusal producer now returns the
+  structured member, and the tests fail when the WRONG member is attached
+  rather than only when the shape is wrong: LINK_LOCAL emitting LOOPBACK fails
+  at both sites, LOOPBACK emitting LINK_LOCAL fails at both controls, pinning
+  `.code` fails, and a plain string from the message helper fails five ways.
+- Its battery gained PRIVATE, CGNAT and MULTICAST mutants, the three that
+  escaped the previous round. Converting prose to an enum moves the defect
+  rather than removing it unless something pins which member each class
+  produces.
+
+Register, filed by integrator C from the operator's test2 rerun findings:
+
+- Row 708 AMENDED with the measured production failure behind it: nine submit
+  methods across sixty selectors ran with NO navigation, and the product then
+  logged "no nav signal, but 4 substantial cookies -- treating as success" and
+  reported SUCCEEDED. The form never submitted; a reCAPTCHA gates it. The cookie
+  heuristic did not weakly support that verdict, it was the verdict.
+- Row 719 -- the scene-URL classifier selects ZERO real scenes on an
+  authenticated members page (17 present, 0 selected) while the title fallback
+  picks /my/* account nav. Filed apart from row 704 because that row is the same
+  function over-accepting and this is it under-selecting.
+- Row 720 -- template onboarding always captures the LOGIN page, because
+  _site_primary_url resolves login_url first. There is no player on a login page,
+  so no template can ever learn a download selector.
+- Row 721 -- the age-gate interstitial has no ENTER affordance. The EXIT denylist
+  refusal is correct and stays; the ENTER side is the missing half.
+- Row 722 -- one residential egress IP for 470 login submits and 847 keeper
+  launches in a night, and the keeper's re-logins do not count against the cap.
+  A row carrying an operator decision rather than a patch.
+- Row 723 -- use_real_chrome declared on hosts without real Chrome, falling back
+  silently. Partly resolved; the row keeps the remainder and the disproved
+  captcha hypothesis.
+
 ## v3.66.1479 - the installer row corrects its own variable, and a second installer defect
 
 A register train carrying no runtime change and no closure. One row filed, one
