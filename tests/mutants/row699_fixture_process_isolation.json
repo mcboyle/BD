@@ -1,0 +1,123 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 699. Structural, value-free matched spans cover the shared option producer, resolver/probe fixture, and both real subprocess seams. Literal context appears only in lookarounds.",
+  "subject": "both real fixture decoder checks own a bounded binary and private pytest workspace",
+  "band": [
+    "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources",
+    "tests/test_the_fixture_serves_decodable_segments.py::test_row699_transform_control_imports_without_judging_isolation"
+  ],
+  "mutants": [
+    {
+      "label": "M1 decoder option producer stops returning its bound",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "(?m)^    return(?= \\[\"-threads\", \"1\"\\]$)",
+      "new": "    yield",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M2 binary fixture inherits the resolver cache",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "(?m)^    ffmpeg_bin\\.reset\\(\\)(?=\\n    binary = ffmpeg_bin\\.ffmpeg\\(\\))",
+      "new": "    ffmpeg_bin.available()",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M3 integrity probe is not pinned to the fresh resolution",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "(?m)^    integrity\\._FFPROBE(?= = probe$)",
+      "new": "    ffmpeg_bin._CACHE",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M4 integrity probe is not restored after the check",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "(?m)^        integrity\\._FFPROBE(?= = previous_probe$)",
+      "new": "        ffmpeg_bin._CACHE",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M5 playlist check drops its fresh binary",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "isolated_ffmpeg(?=, \"-hide_banner\", \"-loglevel\", \"error\",\\n         \\*_fixture_ffmpeg_options\\(\\),\\n         \"-i\", str\\(dd / \"p\\.m3u8\"\\))",
+      "new": "None",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M6 playlist check drops its decoder bound",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "_fixture_ffmpeg_options\\(\\)(?=,\\n         \"-i\", str\\(dd / \"p\\.m3u8\"\\))",
+      "new": "()",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M7 playlist check leaves pytest's private workspace",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "tmp_path(?= / \"playlist-ffmpeg\")",
+      "new": "ROOT",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M8 playlist process does not enter its workspace",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "cwd(?==dd,\\n        env=\\{\\*\\*os\\.environ, \"TMPDIR\": str\\(dd\\)\\}\\)\\n    assert r\\.returncode == 0, \\(\\n        f\"ffmpeg refused a playlist)",
+      "new": "start_new_session",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M9 playlist process inherits the worker temp root",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "env(?==\\{\\*\\*os\\.environ, \"TMPDIR\": str\\(dd\\)\\}\\)\\n    assert r\\.returncode == 0, \\(\\n        f\"ffmpeg refused a playlist)",
+      "new": "input",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M10 single-segment check drops its fresh binary",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "isolated_ffmpeg(?=, \"-hide_banner\", \"-loglevel\", \"error\",\\n         \\*_fixture_ffmpeg_options\\(\\),\\n         \"-i\", str\\(p\\), \"-frames:v\")",
+      "new": "None",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M11 single-segment check drops its decoder bound",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "_fixture_ffmpeg_options\\(\\)(?=,\\n         \"-i\", str\\(p\\), \"-frames:v\")",
+      "new": "()",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M12 single-segment check leaves pytest's private workspace",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "tmp_path(?= / \"segment-ffmpeg\")",
+      "new": "ROOT",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M13 single-segment process does not enter its workspace",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "cwd(?==dd,\\n        env=\\{\\*\\*os\\.environ, \"TMPDIR\": str\\(dd\\)\\}\\)\\n    assert r\\.returncode == 0, \\(\\n        f\"one segment alone)",
+      "new": "start_new_session",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    },
+    {
+      "label": "M14 single-segment process inherits the worker temp root",
+      "file": "tests/test_the_fixture_serves_decodable_segments.py",
+      "old_regex": "env(?==\\{\\*\\*os\\.environ, \"TMPDIR\": str\\(dd\\)\\}\\)\\n    assert r\\.returncode == 0, \\(\\n        f\"one segment alone)",
+      "new": "input",
+      "direction": "regression",
+      "catcher": "tests/test_the_fixture_serves_decodable_segments.py::test_row699_both_real_ffmpeg_checks_isolate_process_and_temp_resources"
+    }
+  ]
+}

@@ -5,6 +5,22 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1487 - the two real decoder checks stop sharing process and temporary state
+
+One refute-first-reviewed worker patch, boarding on the correctness lens at tier T2.
+
+- Two tests exercised the real ffmpeg and ffprobe binaries while sharing
+  worker-global state: neither reset or restored the decoder configuration,
+  both took whatever thread capacity was available, and both ran with the
+  session's cwd and TMPDIR rather than their own. Under the qualified
+  scheduling contract that makes them sensitive to whichever tests share their
+  worker, which is a schedule-dependent failure rather than a defect in the
+  fixture they were meant to prove. Both nodes now reset and restore ffmpeg
+  and ffprobe state, pin one decoder thread, and run with a function-scoped
+  pytest workspace as both cwd and TMPDIR. The contended resources are named
+  in the test rather than left implicit: concurrent decoder and thread
+  capacity, and worker-global temporary state.
+
 ## v3.66.1486 - the grouped selector walk stops dropping malformed leaves, and a fresh install converges its test manifest
 
 Two refute-first-reviewed worker patches, both boarding on the correctness lens
