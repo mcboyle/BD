@@ -1,0 +1,27 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for ssrf_public_host_delegation.json. It must exit 1 with both mutants ESCAPED. These two sites are the ones a pre-existing test could not see: each site's OLDER neighbour test was measured green with the same mutant applied, because a second, still-intact guard refuses the same host. A CAUGHT here would mean the mutants break parsing or execution rather than behaviour, and every CAUGHT in the main battery would be worthless.",
+ "subject": "transform control -- the two fail-open mutants remain executable and are NOT caught by the neighbour tests that predate this battery",
+ "band": [
+  "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata",
+  "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestDefaultHttpGetSSRFBlocking::test_aws_metadata_blocked"
+ ],
+ "mutants": [
+  {
+   "label": "TC S4_template_redirect",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "_is_safe_public_host\\(\\n\\s+_urlparse\\(newurl\\)\\.hostname",
+   "new": "(True, _urlparse(newurl).hostname",
+   "direction": "regression",
+   "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata"
+  },
+  {
+   "label": "TC S9_common_transport_initial",
+   "file": "bulk_downloader/provider_resolve_impl/_common.py",
+   "old_regex": "_is_safe_public_host\\(host\\)",
+   "new": "(True, host)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestDefaultHttpGetSSRFBlocking::test_aws_metadata_blocked"
+  }
+ ]
+}

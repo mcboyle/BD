@@ -42,6 +42,7 @@ import ipaddress
 import socket
 import threading
 import time
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, Tuple
 from unittest import mock
@@ -56,6 +57,30 @@ from bulk_downloader.provider_resolve import (
     _is_safe_public_host,
     _make_default_http_get,
 )
+
+
+@contextmanager
+def _contained_create_connections():
+    """Refuse non-loopback dials before the real socket call."""
+    real_create = socket.create_connection
+    census = {"attempted": [], "non_loopback_connects": []}
+
+    def contained(address, *args, **kwargs):
+        census["attempted"].append(address)
+        host = str(address[0]).split("%", 1)[0]
+        try:
+            is_loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            is_loopback = host == "localhost" or host.endswith(".localhost")
+        if not is_loopback:
+            raise OSError(f"contained non-loopback create_connection: {address!r}")
+        result = real_create(address, *args, **kwargs)
+        if not is_loopback:
+            census["non_loopback_connects"].append(address)
+        return result
+
+    with mock.patch.object(socket, "create_connection", side_effect=contained):
+        yield census
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +302,29 @@ class TestDefaultHttpGetSSRFBlocking:
                 "http://169.254.169.254/latest/meta-data/")
         assert "link-local" in str(excinfo.value)
 
+    def test_metadata_refusal_comes_from_the_pre_fetch_guard(self):
+        """The pre-fetch guard and the request event-hook BOTH refuse a
+        link-local host, and only their wording tells them apart.  Every
+        other test in this class asserts the reason text ("link-local"),
+        which both refusals carry -- so a pre-fetch guard that failed open
+        would leave this class green while the fetch reached the hook.
+
+        Assert the distinctive diagnostic instead: the pre-fetch refusal is
+        the bare "SSRF guard: " prefix, the hook's carries "(redirect)".
+        """
+        with pytest.raises(SSRFBlocked) as excinfo:
+            _default_http_get(
+                "http://169.254.169.254/latest/meta-data/")
+        message = str(excinfo.value)
+        assert "(redirect)" not in message, (
+            "the link-local host was refused by the redirect event-hook, "
+            "not by the pre-fetch guard -- the pre-fetch guard did not run: "
+            + repr(message))
+        assert message.startswith("SSRF guard: "), (
+            "unrecognised refusal shape; this test can no longer tell the "
+            "pre-fetch guard from the hook: " + repr(message))
+        assert "link-local" in message, repr(message)
+
     def test_loopback_http_blocked(self):
         with pytest.raises(SSRFBlocked):
             _default_http_get("http://127.0.0.1/")
@@ -468,16 +516,19 @@ class TestRedirectGuard:
         # which will fail to connect, but the SSRF hook should
         # raise first.
         _SmallHandler.redirect_to = "http://10.0.0.1/admin"
-        try:
-            monkeypatch.setattr(pr, "_is_safe_public_host", fake_check)
-            g = _make_default_http_get()
-            with pytest.raises(SSRFBlocked) as excinfo:
-                g(first_url)
-            assert "redirect" in str(excinfo.value).lower()
-            assert "10.0.0.1" in str(excinfo.value) or "private" in str(
-                excinfo.value)
-        finally:
-            _SmallHandler.redirect_to = None
+        with _contained_create_connections() as connects:
+            try:
+                monkeypatch.setattr(pr, "_is_safe_public_host", fake_check)
+                g = _make_default_http_get()
+                with pytest.raises(SSRFBlocked) as excinfo:
+                    g(first_url)
+                assert "redirect" in str(excinfo.value).lower()
+                assert "10.0.0.1" in str(excinfo.value) or "private" in str(
+                    excinfo.value)
+            finally:
+                _SmallHandler.redirect_to = None
+        assert len(connects["attempted"]) == 1, connects
+        assert len(connects["non_loopback_connects"]) == 0, connects
 
     def test_unguarded_redirect_works_with_opt_out(
         self, localhost_server,
