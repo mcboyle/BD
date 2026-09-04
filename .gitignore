@@ -18,6 +18,15 @@ __pycache__/
 # --- runtime state (BD_HOME): user data, history, credentials ---
 bd_home/
 *.db
+# ...and the SQLite WAL companions, which `*.db` does NOT match: they end in
+# .db-shm and .db-wal, so the glob stops at the hyphen. The service opens the
+# history DB in WAL mode, so both files appear the moment it starts, and
+# capture.sh's clean-tree gate then refuses on a fresh install that has done
+# nothing wrong. The GLOB form rather than the two literal names: the tree also
+# carries video_hashes.db, and naming only downloader_history's companions would
+# leave the identical defect waiting behind the second database. Row 688.
+*.db-shm
+*.db-wal
 # pre-migration DB backup (migrations.py: <db> + ".premigration.bak") -- live history, never commit
 *.premigration.bak
 *.sqlite3

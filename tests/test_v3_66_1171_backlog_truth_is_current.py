@@ -96,19 +96,38 @@ def _row174_transfer_errors(
         if required not in text_174:
             errors.append(f"row 174 does not record {required!r}")
 
-    expected_open = {
-        244: ("DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY", "2 matching lines / 1 unique line"),
-        245: ("POST-1191-MARKERLESS-TEST-ROOTS", "14 UNKNOWN roots"),
+    # CLOSED @1465, and the pin MOVED rather than being deleted. Dropping these
+    # three entries would have shrunk the denominator to make the gate pass,
+    # which is the move A7 exists to refuse: the gate would then assert nothing
+    # about the rows whose truth it was written to hold. Each still names its
+    # TITLE and now names its CLOSING evidence instead of its open-state
+    # evidence, so the gate pins the closure the way it used to pin the openness.
+    expected_closed = {
+        244: (
+            "DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY",
+            # The operator's own words, quoted in the row. Fable proposed
+            # "0 duplicated key material 2026-09-03"; that string is NOT in the
+            # row and pinning it would fail on a true closure. This is.
+            "ZERO duplicated key material",
+        ),
+        245: (
+            "POST-1191-MARKERLESS-TEST-ROOTS",
+            # The 752/752/0 recount Fable named is not in the row or in
+            # close-list.tsv, so it cannot be pinned without inventing it. The
+            # closure rests on the atomic-publish seam being tested, which is
+            # what the row records and what this pins.
+            "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py",
+        ),
         243: ("UNREGISTERED-PYTEST-PROCESSES", "accepted census=3"),
     }
-    for row_id, (title, evidence) in expected_open.items():
+    for row_id, (title, evidence) in expected_closed.items():
         status, text = rows[row_id]
-        if status != "OPEN":
-            errors.append(f"row {row_id} is not OPEN: {status}")
+        if not status.startswith("CLOSED"):
+            errors.append(f"row {row_id} is not CLOSED: {status}")
         if title not in text:
             errors.append(f"row {row_id} does not name {title}")
         if evidence not in text:
-            errors.append(f"row {row_id} does not record {evidence}")
+            errors.append(f"row {row_id} does not record its closing evidence {evidence!r}")
     return errors
 
 

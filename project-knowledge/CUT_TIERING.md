@@ -38,6 +38,11 @@ One self-check. Merge on green. No review round, no fleet, no full suite.
 ### T1 — localized, or a pure docs/register cut
 One module, or one test, or a docs/register/backlog cut with no cross-subsystem
 readers and no runtime behavior change.
+A PURE TREE GATE -- one that judges tracked text or structure and exercises no
+runtime subject -- is T1 (operator ruling 2026-09-03, which named a tree gate
+alongside register and one-line config cuts as taking one lens). A gate whose
+subject is runtime behaviour or a fixture is T2 and takes both lenses; the
+distinction is the SUBJECT the gate exercises, not the fact that it is a gate.
 Floor:
 - RED-first only if the cut changes behavior.
 - Affected floor via `bd-band-derive` (a floor, never a ceiling).
@@ -52,7 +57,8 @@ Floor:
   touched.
 
 ### T2 — standard
-Cross-subsystem change, a new gate, a generated-artifact change, a fixture or
+Cross-subsystem change, a gate with a runtime or fixture subject, a
+generated-artifact change, a fixture or
 corpus change, or anything touching a secret-scanning boundary.
 Floor: everything in T1, plus —
 - RED-first plus a mutation battery on the new logic (`bd-mutate`).

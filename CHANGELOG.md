@@ -5,6 +5,64 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1466 - the register says what the tree says
+
+A register and docs cut. No runtime change.
+
+- Forty rows closed, each amended with WHY before it was closed. Two of them
+  are FILED AND CLOSED IN THE SAME COMMIT at v3.66.1465 -- the PHPSESSID
+  false-success and the inert use_real_chrome setting -- because their
+  patches landed in a train that carried no register commit and neither
+  patch named a row. Rather than guess which existing row they closed, which
+  is how a release once credited an unrelated row, the findings are written
+  from the patches' own mechanism sections and closed against the landing.
+
+- Thirty-eight of the forty were closed from the reconciled close-list and
+  its siblings, each amended with WHY before it was closed.
+  bd-register-close stamps a version and nothing else, so a bare close leaves a
+  reader unable to tell work that was done from work that was relocated or found
+  stale. Eighteen from the reconciled close-list, whose every evidence string an
+  independent sweep re-verified with one command against this tree first; 573 and
+  575 as duplicates of 501 and 483; 633, whose candidate content had landed under
+  a different commit than the row anticipated; and eleven MOVED TO THE HARNESS
+  BACKLOG, whose subject is operator harness this repository does not track and
+  which therefore cannot be gated from here.
+
+- Six of those closed at v3.66.1463, v3.66.1464 and v3.66.1465 rather than at
+  this version: 655, 662, 669, 682, 683 and 456 shipped on trains that carried no
+  register commit, so the register said OPEN while the tree said otherwise.
+  Stamping them 1466 would have credited this cut with work it did not carry.
+
+- 434 was not closed. It is already CLOSED @1447, and re-stamping a closed row
+  is how a release once credited an unrelated row for a merge.
+
+- The backlog-truth gate's pin MOVED rather than being deleted. It held 243, 244
+  and 245 as OPEN with a required title and evidence substring each; deleting
+  those entries to let the closure through would have shrunk a gate's
+  denominator to make it pass. They are pinned CLOSED now, still by title and
+  now by their closing evidence, with RED proven against the unclosed register.
+
+- Three separate gates read the register row BODY and refused this cut before it
+  landed: a mutation anchor that pinned a row's OPEN status, a deferral intake
+  that requires the body to begin with its title and a dash, and a reference
+  parser that reads NNNN-NN as a row range and so read an ISO date as a range
+  from row 2026 to row 9. Each was repaired across its whole affected
+  population rather than the single row the failing gate happened to name.
+
+- CLAUDE.md gains nine standing rules the last two days paid for -- host
+  identity is the IP, landing authority and hold expiry, trains as a sanctioned
+  cut shape, review depth by tier, the worker verification floor, deploy cadence
+  against the tree actually deployed, citation by tracked path plus name, and
+  IP-addressed sessions -- with project-knowledge/CUT_TIERING.md amended in the
+  same cut so the file A3 delegates to sets the depth that step claims it sets.
+
+- `.gitignore` covers the SQLite WAL companions (row 688). `*.db` never matched
+  a name ending in .db-shm or .db-wal, so the service's own files made
+  capture.sh refuse against a fresh install that had done nothing wrong. Its
+  gate builds a throwaway repository and asks git, because every live host
+  carries a stopgap in .git/info/exclude that a linked worktree shares -- asking
+  the checkout would answer about the stopgap rather than about the rule.
+
 ## v3.66.1465 - real Chrome becomes a choice, a login stops depending on one cookie name, and the SQLite default is pinned by a test
 
 Three refute-first-reviewed patches, both lenses BOARD on each, disjoint paths.

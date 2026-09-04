@@ -696,6 +696,7 @@ jobs:
               tests/test_ct1_corpus_validation.py
               tests/test_history_columns_go_through_migrations.py
               tests/test_gitignore_rules_actually_match.py
+              tests/test_row688_gitignore_covers_sqlite_companions.py
               tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
           # Row 259. These five gates derive safety populations from live_tests,
           # tools and product source. They were all frozen-baseline legacy and

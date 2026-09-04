@@ -876,6 +876,7 @@ _DECLARED = {
     "tests/test_v3_66_1192_build_release_sh_stays_retired.py",
     "tests/test_deploy_manifest_stays_retired.py",
     "tests/test_gitignore_rules_actually_match.py",
+    "tests/test_row688_gitignore_covers_sqlite_companions.py",
     "tests/test_task_tracker_stays_retired.py",
     "tests/test_v3_66_918_tracked_source_denominator.py",
     "tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py",

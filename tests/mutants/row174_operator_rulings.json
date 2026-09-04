@@ -26,8 +26,8 @@
     {
       "label": "M3 the live authorized-key duplicate is falsely closed without operator action",
       "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
-      "old": "| 244 | OPEN | DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY --",
-      "new": "| 244 | CLOSED @unperformed | DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY --",
+      "old": "DUPLICATE-TEST6-MBOYLE-LAPTOP-KEY",
+      "new": "DUPLICATE-TEST6-MBOYLE-LAPTOP-KEYS",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1171_backlog_truth_is_current.py::test_row_174_rulings_are_owned_and_side_findings_are_transferred"
     },
@@ -58,8 +58,8 @@
     {
       "label": "M7 the unregistered-process finding falls out of the transfer population",
       "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
-      "old": "| 243 | OPEN | UNREGISTERED-PYTEST-PROCESSES --",
-      "new": "| 244 | OPEN | UNREGISTERED-PYTEST-PROCESSES --",
+      "old": "UNREGISTERED-PYTEST-PROCESSES",
+      "new": "UNREGISTERED-PYTEST-PROCESS",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1171_backlog_truth_is_current.py::test_row_174_rulings_are_owned_and_side_findings_are_transferred"
     }
