@@ -285,7 +285,7 @@ def api_candidates_inspect(sid):
     html = body.get("html") or ""
     try:
         from .dry_run import inspect_candidates
-        url = _site_primary_url(cfg) or body.get("url") or ""
+        url = body.get("url") or _site_primary_url(cfg) or ""
         return jsonify(inspect_candidates(html, page_url=url))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

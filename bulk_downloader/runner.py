@@ -4145,6 +4145,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         _dup = self._dedup_preflight(url, job)
         if _dup:
             self._update_job(url, "skipped_duplicate", _dup)
+            db_log(self.site_id, self.config.get("name", "?"), url,
+                   "skipped_duplicate", "", 0, _dup, bytes_fetched=0)
             return
 
         # Phase 19: auto-teach for first download. Extracted in v3.43.18.

@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 664. Both old_regex anchors match only structural call names. Their zero-width context resolves the dedup history-write and production worker-dispatch seams exactly once without putting values in the row357 denominator. The transform control applies the same valid transforms to an import-only test and must ESCAPE.",
+  "subject": "a worker-dispatched pre-download dedup refusal writes its distinctive reason to operator-visible history exactly once",
+  "band": [
+    "tests/test_row664_dedup_refusal_reaches_history.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the dedup refusal history write",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^            )db_log(?=\\(self\\.site_id, self\\.config\\.get\\(\"name\", \"\\?\"\\), url,\\n                   \"skipped_duplicate\", \"\", 0, _dup, bytes_fetched=0\\)$)",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row664_dedup_refusal_reaches_history.py::test_dedup_refusal_writes_one_history_row_with_reason"
+    },
+    {
+      "label": "M2 bypass the sole production worker dispatch into process_one",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^            )self\\._process_one(?=\\(browser, url, persistent_ctx=persistent_ctx\\)$)",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row664_dedup_refusal_reaches_history.py::test_dedup_refusal_writes_one_history_row_with_reason"
+    }
+  ]
+}

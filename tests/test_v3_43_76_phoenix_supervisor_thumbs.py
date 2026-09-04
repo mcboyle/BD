@@ -11,6 +11,7 @@ All modules fail-open; tests use no network.
 from __future__ import annotations
 
 import os
+import inspect
 import tempfile
 # [SAST 3:13pm 13 may] removed unused: import threading
 import time
@@ -228,6 +229,10 @@ class TestSupervisorConfigure:
         from bulk_downloader import download_supervisor as ds
         ds.reset()
 
+    def teardown_method(self):
+        from bulk_downloader import download_supervisor as ds
+        ds.reset()
+
     def test_enable_with_global_cap(self):
         from bulk_downloader import download_supervisor as ds
         ds.configure(enabled=True, global_bps=5_000_000)
@@ -272,6 +277,10 @@ class TestSupervisorAcquireSafety:
         from bulk_downloader import download_supervisor as ds
         ds.reset()
 
+    def teardown_method(self):
+        from bulk_downloader import download_supervisor as ds
+        ds.reset()
+
     def test_empty_site_id_safe(self):
         from bulk_downloader import download_supervisor as ds
         ds.configure(enabled=True, global_bps=1_000_000)
@@ -289,6 +298,65 @@ class TestSupervisorAcquireSafety:
         ds.configure(enabled=True, global_bps=1)  # very tight
         assert ds.acquire("any", 0) == 0.0
         assert ds.acquire("any", -1) == 0.0
+
+
+def _supervisor_configuring_classes():
+    """Return every module class with a test that enables the supervisor."""
+    def _configures(method):
+        source = inspect.getsource(method)
+        return "ds.configure(" in source and "enabled=True" in source
+
+    found = []
+    for candidate in globals().values():
+        if not isinstance(candidate, type):
+            continue
+        methods = inspect.getmembers(candidate, inspect.isfunction)
+        if any(_configures(method)
+                   for name, method in methods if name.startswith("test_")):
+            found.append(candidate)
+    return found
+
+
+def test_supervisor_acquire_safety_restores_module_state_after_each_test():
+    from bulk_downloader import download_supervisor as ds
+
+    configuring_classes = _supervisor_configuring_classes()
+    assert len(configuring_classes) == 2, configuring_classes
+    def _configures(method):
+        source = inspect.getsource(method)
+        return "ds.configure(" in source and "enabled=True" in source
+
+    configuring_methods = [
+        (cls, method)
+        for cls in configuring_classes
+        for name, method in inspect.getmembers(cls, inspect.isfunction)
+        if name.startswith("test_")
+        and _configures(method)
+    ]
+    assert len(configuring_methods) == 6, configuring_methods
+
+    for cls, method in configuring_methods:
+        case = cls()
+        case.setup_method()
+        try:
+            method(case)
+            before = ds.stats()
+            assert ds.is_enabled() is True
+            assert before["global"]["rate_bps"] != ds.UNLIMITED
+        finally:
+            teardown = getattr(case, "teardown_method", None)
+            if callable(teardown):
+                teardown()
+        after = ds.stats()
+        assert ds.is_enabled() is False
+        assert after["global"]["rate_bps"] == ds.UNLIMITED
+        assert after["per_site"] == {}
+
+
+def test_row657_transform_control_imports_supervisor_without_judging_cleanup():
+    from bulk_downloader import download_supervisor as ds
+
+    assert callable(ds.reset)
 
 
 # ─── Thumbnail generation ─────────────────────────────────────────

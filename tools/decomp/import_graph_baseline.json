@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4315,
+  "edge_count": 4321,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3977,6 +3977,16 @@
     "tests/test_row639_runner_lock_survives_a_fork.py": [
       "bulk_downloader/app_state.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_row664_dedup_refusal_reaches_history.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py": [
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_sites_teach.py",
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/dry_run.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

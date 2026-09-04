@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 666. The same valid operator mutation must ESCAPE when the selected test imports the route without invoking or asserting its URL precedence. A CAUGHT or INVALID result would mean import or transformation failure masqueraded as behavioral evidence. The old_regex matches only structural text for row 357 classification.",
+  "subject": "transform control for the valid candidate-inspection precedence regression",
+  "band": [
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_row666_transform_control_imports_route_without_judging_precedence"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 precedence regression remains importable when behavior is not judged",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "(?<=body\\.get\\(\"url\"\\) )or(?= _site_primary_url\\(cfg\\))",
+      "new": "and",
+      "direction": "regression",
+      "catcher": "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_row666_transform_control_imports_route_without_judging_precedence"
+    }
+  ]
+}

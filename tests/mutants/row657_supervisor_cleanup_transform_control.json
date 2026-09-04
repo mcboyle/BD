@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 657. The acquire-safety teardown rename is applied to an import-only test and must escape, proving behavioral assertions catch the primary mutants.",
+  "subject": "the supervisor cleanup transform remains importable without a cleanup assertion",
+  "band": [
+    "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_row657_transform_control_imports_supervisor_without_judging_cleanup"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 teardown rename leaves import-only control green",
+      "file": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py",
+      "old_regex": "(?ms)^    def teardown_method\\(self\\):\\n        from bulk_downloader import download_supervisor as ds\\n        ds\\.reset\\(\\)\\n\\n(?=    def test_empty_site_id_safe)",
+      "new": "    def teardown_method_disabled(self):\n        from bulk_downloader import download_supervisor as ds\n        ds.reset()\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_76_phoenix_supervisor_thumbs.py::test_row657_transform_control_imports_supervisor_without_judging_cleanup"
+    }
+  ]
+}

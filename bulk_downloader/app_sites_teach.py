@@ -407,7 +407,7 @@ def api_template_dry_run(sid):
     html = body.get("html") or ""
     try:
         from .dry_run import template_dry_run
-        url = _site_primary_url(cfg) or body.get("url") or ""
+        url = body.get("url") or _site_primary_url(cfg) or ""
         return jsonify(template_dry_run(url, html=html))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

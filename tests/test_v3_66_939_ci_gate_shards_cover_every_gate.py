@@ -93,6 +93,9 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 664. A pre-download dedup refusal is terminal work and must leave its
+    # reason in operator-visible history through the real worker dispatch seam.
+    "tests/test_row664_dedup_refusal_reaches_history.py",
     # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
     # caller instead of being flattened into an accepted login request.
     "tests/test_login_api_refuses_impossible_manual_start.py",
@@ -157,6 +160,8 @@ _DECLARED = {
     "tests/test_row492_a_release_proves_what_it_frees.py",
     # CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
     "tests/test_login_session_does_not_cover_the_scene_host.py",
+    # CI-SHARD-CLAIM row-666 template-selectors tests/test_row666_candidates_inspect_prefers_caller_url.py
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
     # boundaries. This behavioral module proves missing, malformed, degraded,
     # and command-failed artifacts are distinct from the two healthy paths, so
