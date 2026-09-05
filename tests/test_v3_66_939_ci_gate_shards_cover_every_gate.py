@@ -198,6 +198,7 @@ _DECLARED = {
     # unless its fetcher capability imports. This runtime gate proves the
     # absent, probe-unknown, recovery-only, and fully available states.
     "tests/test_row360_turnstile_bypass_is_installed.py",
+    "tests/test_rows706_714_test_hygiene.py",
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.
     "tests/test_v3_57_phase9.py",

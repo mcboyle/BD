@@ -1,4 +1,7 @@
+import re
 from pathlib import Path
+
+from packaging.requirements import Requirement
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -6,11 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def test_pytest_is_installed_by_core_requirements() -> None:
     requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    declared = {
-        line.strip().lower()
-        for line in requirements.splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    }
+    declared = set()
+    for raw in requirements.splitlines():
+        line = re.sub(r"(^|\s+)#.*$", "", raw).strip()
+        if not line or line.startswith("#"):
+            continue
+        Requirement(line)
+        declared.add(line.lower())
 
     assert "pytest>=7.0,<10.0" in declared, (
         "requirements.txt must install real pytest so capture and validation "

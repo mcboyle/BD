@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control. The valid row360 comment-stripping regression must escape a test that imports both reader modules without executing either reader.",
+  "subject": "import-only control for the row714 reader transform",
+  "band": [
+    "tests/test_rows706_714_test_hygiene.py::test_transform_control_only_imports_the_reader_modules"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 row360 comment transform is invisible to import-only control",
+      "file": "tests/test_row360_turnstile_bypass_is_installed.py",
+      "old_regex": "re\\.sub(?=\\(r\"\\(\\^\\|\\\\s\\+\\)#\\.\\*\\$\", \"\", raw\\)\\.strip\\(\\))",
+      "new": "(lambda *_: raw.partition(\" #\")[0])",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_transform_control_only_imports_the_reader_modules"
+    }
+  ]
+}

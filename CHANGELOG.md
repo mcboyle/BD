@@ -5,6 +5,24 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1491 - the test-hygiene gates count their own subject, and a pinned requirement survives an inline comment
+
+One refute-first-reviewed worker patch, boarding on the correctness lens at tier T2.
+
+- The row-706 hygiene gate asserted on a resolver it never proved it had
+  reached. It now carries exact census and call-count witnesses -- twenty
+  sites and fourteen node ids, a resolver call count of one and five reader
+  calls -- so a gate that stops seeing its subject reports UNKNOWN with the
+  observed and expected numbers named, instead of passing over a shrunken
+  denominator. Controls force the 19/13 and call-count-2 cases and require
+  the refusal.
+- Both requirement readers parsed an inline `#` comment as part of the
+  version specifier, so a legitimately pinned dependency raised
+  InvalidRequirement and the row-714 checks could not read a manifest that a
+  human had annotated. Both readers now strip pip-rule comments before
+  parsing, with space-and-TAB fixture coverage on the separator, since the
+  two are not interchangeable to pip and only one of them was exercised.
+
 ## v3.66.1490 - a register-only cut: a user template can turn on paid captcha egress with no acknowledgement, and that is now a filed row
 
 No source change. This cut files one row and nothing else, under the pause that

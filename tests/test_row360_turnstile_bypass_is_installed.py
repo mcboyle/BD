@@ -97,7 +97,8 @@ def test_the_core_manifest_installs_the_turnstile_fetcher_extra():
     requirements = [
         Requirement(line)
         for raw in manifest.read_text(encoding="utf-8").splitlines()
-        if (line := raw.strip()) and not line.startswith("#")
+        if (line := re.sub(r"(^|\s+)#.*$", "", raw).strip())
+        and not line.startswith("#")
     ]
     scrapling = [req for req in requirements if req.name.lower() == "scrapling"]
 

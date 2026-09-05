@@ -1,0 +1,69 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 714. Value-free anchors cover both reader seams, malformed-line validation in the membership reader, and the independent tree-side reader denominator.",
+  "subject": "every requirements reader tolerates inline comments while both affected readers still reject malformed requirements",
+  "band": [
+    "tests/test_rows706_714_test_hygiene.py::test_row714_row360_reader_tolerates_an_inline_comment",
+    "tests/test_rows706_714_test_hygiene.py::test_row714_runtime_reader_tolerates_an_inline_comment",
+    "tests/test_rows706_714_test_hygiene.py::test_row714_every_tree_derived_manifest_reader_tolerates_inline_comments",
+    "tests/test_rows706_714_test_hygiene.py::test_row714_malformed_requirement_still_fails"
+  ],
+  "mutants": [
+    {
+      "label": "M1 row360 reader returns before parsing",
+      "file": "tests/test_row360_turnstile_bypass_is_installed.py",
+      "old_regex": "(?m)^def test_the_core_manifest_installs_the_turnstile_fetcher_extra\\(\\):$",
+      "new": "def test_the_core_manifest_installs_the_turnstile_fetcher_extra():\n    return",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_malformed_requirement_still_fails[test_the_core_manifest_installs_the_turnstile_fetcher_extra]"
+    },
+    {
+      "label": "M2 runtime reader returns before parsing",
+      "file": "tests/test_pytest_runtime_requirement.py",
+      "old_regex": "(?m)^def(?= test_pytest_is_installed_by_core_requirements\\(\\) -> None:$)",
+      "new": "async def",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_malformed_requirement_still_fails[test_pytest_is_installed_by_core_requirements]"
+    },
+    {
+      "label": "M3 row360 strips only literal-space inline comments",
+      "file": "tests/test_row360_turnstile_bypass_is_installed.py",
+      "old_regex": "re\\.sub(?=\\(r\"\\(\\^\\|\\\\s\\+\\)#\\.\\*\\$\", \"\", raw\\)\\.strip\\(\\))",
+      "new": "(lambda *_: raw.partition(\" #\")[0])",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_row360_reader_tolerates_an_inline_comment"
+    },
+    {
+      "label": "M4 runtime reader strips only literal-space inline comments",
+      "file": "tests/test_pytest_runtime_requirement.py",
+      "old_regex": "re\\.sub(?=\\(r\"\\(\\^\\|\\\\s\\+\\)#\\.\\*\\$\", \"\", raw\\)\\.strip\\(\\))",
+      "new": "(lambda *_: raw.partition(\" #\")[0])",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_runtime_reader_tolerates_an_inline_comment"
+    },
+    {
+      "label": "M5 membership reader stops validating malformed lines",
+      "file": "tests/test_pytest_runtime_requirement.py",
+      "old_regex": "(?m)^        Requirement\\(line\\)$",
+      "new": "        str(line)",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_malformed_requirement_still_fails[test_pytest_is_installed_by_core_requirements]"
+    },
+    {
+      "label": "M6 tree-derived manifest readers are not accumulated",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "readers\\.append(?=\\(nodeid\\))",
+      "new": "readers.extend",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_every_tree_derived_manifest_reader_tolerates_inline_comments"
+    },
+    {
+      "label": "M7 inline-comment fixture omits tab-preceded comments",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "comment_index(?= % 2 else)",
+      "new": "comment_index * 0",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row714_row360_reader_tolerates_an_inline_comment"
+    }
+  ]
+}

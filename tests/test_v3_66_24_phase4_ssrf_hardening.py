@@ -196,10 +196,14 @@ class TestIsSafePublicHost:
 
     def test_unresolvable_hostname_blocked_fail_closed(self):
         """A hostname that doesn't resolve should fail closed (block)
-        not fail open (allow). Use a TLD-like garbage string that
-        won't accidentally resolve."""
-        ok, reason = _is_safe_public_host(
-            "this-host-does-not-exist.invalid")
+        not fail open (allow), without consulting a live resolver."""
+        with mock.patch(
+            "socket.getaddrinfo",
+            side_effect=socket.gaierror(-2, "Name or service not known"),
+        ) as resolve:
+            ok, reason = _is_safe_public_host(
+                "this-host-does-not-exist.invalid")
+        assert resolve.call_count == 1
         assert not ok
         assert "DNS" in reason or "resolution" in reason.lower()
 
