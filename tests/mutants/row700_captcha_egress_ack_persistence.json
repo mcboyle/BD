@@ -1,0 +1,36 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 700: each acknowledgement-consumption seam must keep the request-only field out of the durable site config.",
+  "subject": "row 700 -- captcha egress acknowledgement is consumed before persistence",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_site_update_ack_is_absent_from_persisted_config",
+    "tests/test_row700_captcha_egress_disclosure.py::test_config_import_existing_site_ack_is_absent_from_persisted_config",
+    "tests/test_row700_captcha_egress_disclosure.py::test_config_import_created_site_ack_is_absent_from_persisted_config"
+  ],
+  "mutants": [
+    {
+      "label": "M1 site update retains the acknowledgement in request data",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "pop(?=\\(CAPTCHA_EGRESS_ACK_FIELD,)",
+      "new": "get",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_site_update_ack_is_absent_from_persisted_config"
+    },
+    {
+      "label": "M2 existing-site config import aliases the persisted config",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "dict(?=\\(cfg\\)\\n                _captcha_gate_input\\[CAPTCHA_EGRESS_ACK_FIELD\\])",
+      "new": "(lambda item: item)",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_config_import_existing_site_ack_is_absent_from_persisted_config"
+    },
+    {
+      "label": "M3 create config import aliases the persisted config",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "dict(?=\\(cfg\\)\\n            _captcha_gate_input\\[CAPTCHA_EGRESS_ACK_FIELD\\])",
+      "new": "(lambda item: item)",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_config_import_created_site_ack_is_absent_from_persisted_config"
+    }
+  ]
+}

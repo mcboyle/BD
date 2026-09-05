@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 700 seam 3/5: the single-site import writer must execute the paid-captcha disclosure guard.",
+  "subject": "row 700 -- single-site import cannot bypass paid-captcha disclosure",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_import_writers_apply_the_same_nonpersistent_gate"
+  ],
+  "mutants": [
+    {
+      "label": "M1 single-site import ignores the disclosure verdict",
+      "file": "bulk_downloader/app_sites_collection.py",
+      "old_regex": "(?m)captcha_egress_disclosure_error(?=\\(_captcha_gate_input\\)$)",
+      "new": "(lambda *_args, **_kwargs: \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_import_writers_apply_the_same_nonpersistent_gate"
+    }
+  ]
+}

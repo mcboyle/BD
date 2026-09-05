@@ -5,6 +5,35 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1490 - the paid-captcha egress gate lands under the row that owns it, and pins the contract through the canonical writer
+
+One refute-first-reviewed worker patch, boarding on the correctness lens at
+tier T2, plus its register closure.
+
+- The runtime half of the paid-captcha egress disclosure was shipped and the
+  gate half was not: no test pinned captcha_egress_disclosure_error, so a
+  change to it broke nothing. The gate that did exist was filed under row 395,
+  a WORKER-ASSIGNED id that collided with a real and unrelated row, and the
+  row654 filename gate resolves test_row-N names against the register -- so it
+  certified that false citation as correct. A gate that resolves a citation to
+  the WRONG row is worse than one that cannot resolve it, because it reports OK.
+  The gate now lands as tests/test_row700_captcha_egress_disclosure.py, under
+  the row that owns it and still inside the test_row family the filename gate
+  measures, and it pins the shipped contract through the canonical writer: a
+  configured third-party solver requires a one-shot acknowledgement to leave the
+  default-off posture, a rejected write leaves the solver off and persists no
+  acknowledgement field, a provider change on an already-active key is gated the
+  same way rather than inheriting a durable bypass, and the site-creation and
+  config-import writers apply the same non-persistent gate. Five test functions
+  become ten; the transform control that imports the module without judging the
+  gate is kept.
+- The import-graph baseline records the rename as a deliberate removal: the
+  row395 edge is gone, the row700 key carries three edges where the old one
+  carried one, and edge_count moves 4322 -> 4324. The two new edges are the
+  canonical writer modules the acceptance requires the gate to drive.
+
+Register: row 700 CLOSED @1490.
+
 ## v3.66.1488 - a restarted vault stops failing the deploy, terminal jobs become visible, keeper re-logins count against the cap, and the mutation validator stops passing what it cannot parse
 
 Train B-32: four refute-first-reviewed worker patches with disjoint authored

@@ -590,7 +590,7 @@ jobs:
             suites: >-
               tests/test_row089_capture_corpus_backup_restore.py
               tests/test_row090_global_run_cap.py
-              tests/test_row395_captcha_egress_disclosure.py
+              tests/test_row700_captcha_egress_disclosure.py
           - name: jobs-determinism
             suites: >-
               tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py

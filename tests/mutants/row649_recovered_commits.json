@@ -3,8 +3,8 @@
   "_comment": "Row 649 recovery battery. Seven behavioral mutants must be CAUGHT. The final duplicate captcha transform points only at an import/callability control and must ESCAPE, proving the behavioral catches come from assertions rather than a broken transform or import.",
   "subject": "row 649 -- recovered operational, application, navigation, backup, and evidence contracts remain observable",
   "band": [
-    "tests/test_row395_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted",
-    "tests/test_row395_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate",
+    "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted",
+    "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate",
     "tests/test_row350_job_api_durable_truth.py::test_dev_test_launcher_places_its_cap_outside_the_subject",
     "tests/test_nav_reachability.py::test_outbound_links_accept_explicit_server_and_spa_routes",
     "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py::test_bd_gc_worktree_cleanup_requires_a_released_inode_bound_owner_record",
@@ -19,7 +19,7 @@
       "old": "    if not (key_will_enable or provider_moves_active_key):",
       "new": "    if True:",
       "direction": "regression",
-      "catcher": "tests/test_row395_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
     },
     {
       "label": "M2 the dev test launcher drops its outer timeout wrapper",
@@ -75,7 +75,7 @@
       "old": "    if not (key_will_enable or provider_moves_active_key):",
       "new": "    if True:",
       "direction": "regression",
-      "catcher": "tests/test_row395_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
     }
   ]
 }

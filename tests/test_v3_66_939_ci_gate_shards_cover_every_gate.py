@@ -564,7 +564,7 @@ _DECLARED = {
     # explicit declarations are paired with the recovered-contracts CI shard.
     "tests/test_row089_capture_corpus_backup_restore.py",
     "tests/test_row090_global_run_cap.py",
-    "tests/test_row395_captcha_egress_disclosure.py",
+    "tests/test_row700_captcha_egress_disclosure.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     # Row 357. Anchor fragility is a whole-population property: no changed
     # subject path can make a diff router select the gate that audits every
@@ -1015,7 +1015,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
     "tests/test_row089_capture_corpus_backup_restore.py",  # module
     "tests/test_row090_global_run_cap.py",  # module
-    "tests/test_row395_captcha_egress_disclosure.py",  # module
+    "tests/test_row700_captcha_egress_disclosure.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
     "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",  # module
     "tests/test_row363_affordance_learning.py",  # module

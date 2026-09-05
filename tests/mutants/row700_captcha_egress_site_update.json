@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 700 seam 2/5: the per-site update writer must execute the paid-captcha disclosure guard.",
+  "subject": "row 700 -- site updates cannot bypass paid-captcha disclosure",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+  ],
+  "mutants": [
+    {
+      "label": "M1 site update ignores the disclosure verdict",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "captcha_egress_disclosure_error(?=\\(\\n        data, s_cfg\\.get\\(sid\\) or \\{\\}\\))",
+      "new": "(lambda *_args, **_kwargs: \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+    }
+  ]
+}
