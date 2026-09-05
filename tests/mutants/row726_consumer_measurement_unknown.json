@@ -1,0 +1,92 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 726: the matched span is value-free branch syntax; an unavailable derived population must remain UNKNOWN.",
+  "subject": "structured-reason consumer census reports unavailable measurement as UNKNOWN",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_returns_unknown_when_search_is_unavailable",
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions",
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[dns-failure-http]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 unavailable census loses its UNKNOWN verdict",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)^    assert(?= candidate_result\\.returncode == 0, \\($)",
+      "new": "    raise RuntimeError(\"mutant unavailable census\"); assert",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_returns_unknown_when_search_is_unavailable"
+    },
+    {
+      "label": "M2 existing consumer decides on reason text",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    if not _host_ok and )_host_why\\.code\\s+is\\s+not\\s+_HostSafetyReason\\.LOOPBACK(?=:$)",
+      "new": "str(_host_why).startswith(\"refusing\")",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M3 reason-text decision admits a DNS failure",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    if not _host_ok and )_host_why\\.code\\s+is\\s+not\\s+_HostSafetyReason\\.LOOPBACK(?=:$)",
+      "new": "str(_host_why).startswith(\"refusing\")",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[dns-failure-http]"
+    },
+    {
+      "label": "M4 negated call-form reason text decision",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    if not _host_ok and )_host_why\\.code\\s+is\\s+not\\s+_HostSafetyReason\\.LOOPBACK(?=:$)",
+      "new": "not str(_host_why).startswith(\"refusing\")",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M5 alias consumer hides behind unreachable canonical decoy",
+      "file": "bulk_downloader/app_template.py",
+      "old_regex": "(?m)(?<=^    _host_ok, _host_why = )_is_safe_public_host(?=\\(_urlparse\\(url\\)\\.hostname or \"\"\\)$)",
+      "new": "(False, \"\")\n    _resolve_safe_public_host = _is_safe_public_host\n    _host_ok, _host_why = _resolve_safe_public_host(\n        _urlparse(url).hostname or \"\")\n    if False:\n        _is_safe_public_host(_urlparse(url).hostname or \"\")\n    if not _host_ok and \"refusing\" not in str(_host_why):\n        _host_ok = True\n    (lambda *_args: None)",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M6 weather wrapper consumer exempts English loopback text",
+      "file": "bulk_downloader/site_weather.py",
+      "old_regex": "(?m)^            if\\s+not\\s+ok:(?=\\n                raise SSRFBlocked\\(reason\\)$)",
+      "new": "            if not ok and \"loopback\" not in str(reason):",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M7 selector initial wrapper consumer exempts English loopback text",
+      "file": "bulk_downloader/selector_playground.py",
+      "old_regex": "(?m)^    if\\s+not\\s+_ok:(?=\\n        return \\{\"ok\": False, \"error\": f\"blocked: \\{_why\\}\", \"html\": \"\"\\}$)",
+      "new": "    if not _ok and \"loopback\" not in str(_why):",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M8 selector redirect wrapper consumer exempts English loopback text",
+      "file": "bulk_downloader/selector_playground.py",
+      "old_regex": "(?m)^            if\\s+not\\s+_hop_ok:(?=\\n                raise SSRFBlocked\\(_hop_why\\)$)",
+      "new": "            if not _hop_ok and \"loopback\" not in str(_hop_why):",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M9 multi-connection probe wrapper consumer exempts English loopback text",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?m)^    if\\s+not\\s+ok:(?=\\n        return ProbeResult\\()",
+      "new": "    if not ok and \"loopback\" not in str(reason):",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    },
+    {
+      "label": "M10 multi-connection downloader wrapper consumer exempts English loopback text",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?m)^    if\\s+not\\s+ok:(?=\\n        return DownloadResult\\()",
+      "new": "    if not ok and \"loopback\" not in str(reason):",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
+    }
+  ]
+}

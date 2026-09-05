@@ -385,9 +385,10 @@ def _is_safe_public_host(host: str) -> Tuple[bool, _HostSafetyMessage]:
             "DNS resolution returned no addresses",
         )
 
-    # Every resolved address must be safe — if ANY is private, refuse.
-    # This stops the simple "name resolves to multiple IPs, one
-    # public one private" trick.
+    # Classify the complete answer set before choosing a verdict. In particular,
+    # a loopback result is only an exemption fact for consumers that explicitly
+    # support it; it must not hide a later link-local/private sibling.
+    classified = []
     for family, _socktype, _proto, _canonname, sockaddr in infos:
         if family == socket.AF_INET:
             ip_str = sockaddr[0]
@@ -398,14 +399,29 @@ def _is_safe_public_host(host: str) -> Tuple[bool, _HostSafetyMessage]:
         try:
             addr = ipaddress.ip_address(ip_str)
         except ValueError:
-            return False, _host_safety_message(
+            classified.append((False, _host_safety_message(
                 HostSafetyReason.NON_IP_ADDRESS,
                 f"got non-IP from getaddrinfo: {ip_str!r}",
-            )
-        ok, reason = _classify_ip(addr, bare)
-        if not ok:
-            return False, reason
-    return True, _host_safety_message(HostSafetyReason.PUBLIC)
+            )))
+            continue
+        classified.append(_classify_ip(addr, bare))
+
+    if not classified:
+        return False, _host_safety_message(
+            HostSafetyReason.NO_ADDRESSES,
+            "DNS resolution returned no usable addresses",
+        )
+    refusals = [reason for ok, reason in classified if not ok]
+    if refusals:
+        # A non-loopback refusal outranks the operator-facing loopback exemption.
+        # This selection happens only after every answer has been classified.
+        reason = next(
+            (item for item in refusals
+             if item.code is not HostSafetyReason.LOOPBACK),
+            refusals[0],
+        )
+        return False, reason
+    return True, classified[0][1]
 
 
 def _classify_ip(addr, host_repr: str) -> Tuple[bool, _HostSafetyMessage]:

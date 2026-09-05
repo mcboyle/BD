@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1500 - every address in a multi-answer resolution is classified, and the structured refusal reason has a gate that finds its own consumers
+
+One refute-first-reviewed worker patch at tier T3 security, riding alone: correctness boarded by
+chain adjudication and the panel boarded it 22 of 22 with no escapes.
+
+- rows 725 and 726 (rows725-726d-local): a DNS answer with more than one address was classified on
+  one of them and connected on another, so the address that was vetted and the address that was
+  used could differ -- which is the whole of what an SSRF guard is for. Every address in a
+  multi-answer resolution is now classified, and a non-loopback refusal outranks the operator-facing
+  loopback exemption. The RED is a two-answer fixture. ROWS 725 AND 726 STAY OPEN: 725's second
+  clause -- that the connection is pinned to the vetted IP literal rather than to a name that can
+  resolve again -- is row 728's subject and is not in this patch, and 726 is not closed by it
+  either.
+- The structured refusal reason gained a gate that derives every consumer of it FROM THE TREE and
+  fails when one of them decides on text instead, returning UNKNOWN when the population cannot be
+  measured rather than reporting OK over a denominator it could not build. That distinction is the
+  point: a consumer census that cannot see its own population is not a passing census.
+- The patch is the squash of generation c plus generation d's delta, published whole. It also
+  removes a false positive of its own making rather than leaving it to be discovered later.
 
 ## v3.66.1499 - register adjudication: six closes, three harness moves, 22 new rows and 33 evidence appends
 

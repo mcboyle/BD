@@ -1,0 +1,82 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 725 transform control: making the no-usable-address branch public remains importable and must ESCAPE an import-only test.",
+  "subject": "an import-only test cannot catch a host-classification regression",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 unusable DNS answer is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^    if\\s+not\\s+classified:",
+      "new": "    if not classified:\n        return True, _host_safety_message(HostSafetyReason.PUBLIC)\n    if not classified:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D1 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)^(?=        derived: set = set\\(\\)$)",
+      "new": "        return names, set()\n",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D2 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)^(?=            for entry in node\\.names:$)",
+      "new": "            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D3 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^    python_sources = )collect_sources\\(call_names \\| wrapper_names\\)(?=$)",
+      "new": "collect_sources(call_names)",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D4 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(statement, )ast\\.Return(?=\\):$)",
+      "new": "ast.Pass",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D5 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(target, )ast\\.Name(?=\\):$)",
+      "new": "ast.Slice",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D6 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(statement, )ast\\.Match(?=\\):$)",
+      "new": "ast.Pass",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC D7 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                            and returned\\.value\\.id in )stored_results(?=\\):$)",
+      "new": "frozenset()",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    },
+    {
+      "label": "TC R1 transform remains importable",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                    if )not truthy(?= and current in parent\\.body:$)",
+      "new": "parent.test.value is False",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_transform_control_imports_subject_without_judging_the_exemption"
+    }
+  ]
+}

@@ -153,7 +153,7 @@
     {
       "label": "C19 hostname path drops per-IP classifier call",
       "file": "bulk_downloader/provider_resolve_impl/_common.py",
-      "old_regex": "(?m)(?<=^        ok, reason = )_classify_ip(?=\\(addr, bare\\)$)",
+      "old_regex": "(?m)(?<=^        classified\\.append\\()_classify_ip(?=\\(addr, bare\\)\\)$)",
       "new": "_classify_ip_bypassed",
       "direction": "regression",
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
