@@ -11,12 +11,14 @@ All modules fail-open; no network required for tests (HTTP mocked).
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
 import os
-# [SAST 3:13pm 13 may] removed unused: import sys
+import sys
 import tempfile
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
-# [SAST 3:13pm 13 may] removed unused: import pytest
+import pytest
 
 
 # ─── yt_dlp_archive ────────────────────────────────────────────────
@@ -285,6 +287,57 @@ class TestExtractFailOpen:
         assert r.ok is False
         assert r.error == "page_is_none"
 
+    class _Page:
+        def __init__(self, *, fail_on_goto):
+            self.fail_on_goto = fail_on_goto
+            self.goto_calls = []
+            self.evaluate_calls = 0
+
+        def goto(self, url, *, wait_until, timeout):
+            self.goto_calls.append((url, wait_until, timeout))
+            if len(self.goto_calls) == self.fail_on_goto:
+                raise RuntimeError("fixture middle page failed")
+
+        def evaluate(self, javascript):
+            assert "querySelectorAll" in javascript
+            self.evaluate_calls += 1
+            return [{
+                "url": "https://example.com/video/fixture.mp4",
+                "title": "Fixture scene",
+            }]
+
+    @staticmethod
+    def _assert_partial_refused(result):
+        assert result.ok is False, f"partial playlist must be non-ok: {result}"
+        assert result.truncated is True
+        assert result.error == "page_load_failed:RuntimeError"
+
+    def test_row735_middle_page_failure_is_truncated_and_non_ok(self):
+        from bulk_downloader import playlist_extractor as p
+        listing = "https://example.com/category/fixture"
+        scene = "https://example.com/video/fixture.mp4"
+        failed = self._Page(fail_on_goto=2)
+        partial = p.extract_playlist_urls(failed, listing, max_pages=5)
+
+        assert len(failed.goto_calls) == 2
+        assert failed.evaluate_calls == 1
+        assert partial.page_count == 1
+        assert partial.urls == [scene]
+        assert partial.titles == {scene: "Fixture scene"}
+        self._assert_partial_refused(partial)
+
+        complete_page = self._Page(fail_on_goto=None)
+        complete = p.extract_playlist_urls(complete_page, listing, max_pages=1)
+        assert len(complete_page.goto_calls) == 1
+        assert complete_page.evaluate_calls == 1
+        assert complete.page_count == 1
+        assert complete.urls == [scene]
+        assert complete.ok is True
+        assert complete.truncated is False
+        assert complete.error == ""
+        with pytest.raises(AssertionError, match="partial playlist must be non-ok"):
+            self._assert_partial_refused(complete)
+
 
 # ─── community_scrapers ───────────────────────────────────────────
 
@@ -530,6 +583,66 @@ class TestRunnerHooks:
     def test_playlist_expand_method(self):
         from bulk_downloader.runner import SiteRunner
         assert hasattr(SiteRunner, "_playlist_expand_one")
+
+    def test_row735_runner_refuses_partial_non_ok_playlist(self, monkeypatch):
+        from bulk_downloader import runner
+
+        listing = "https://example.com/category/fixture"
+        scene = "https://example.com/video/fixture.mp4"
+        extractor_calls = []
+        pauses = []
+
+        def extract(page, listing_url, *, template, max_pages):
+            extractor_calls.append((page, listing_url, template, max_pages))
+            return SimpleNamespace(
+                ok=False,
+                urls=[scene],
+                titles={scene: "must not be consumed"},
+            )
+
+        fake_cloak = SimpleNamespace(
+            cloaked_page=lambda **kwargs: nullcontext("fixture-page")
+        )
+        fake_keeper = SimpleNamespace(
+            pause_site_keepers=lambda site_id: pauses.append(site_id)
+        )
+        package = sys.modules["bulk_downloader"]
+        monkeypatch.setitem(sys.modules, "bulk_downloader.cloak", fake_cloak)
+        monkeypatch.setitem(sys.modules, "bulk_downloader.session_keeper", fake_keeper)
+        monkeypatch.setattr(package, "cloak", fake_cloak, raising=False)
+        monkeypatch.setattr(package, "session_keeper", fake_keeper, raising=False)
+        monkeypatch.setattr(runner, "_PLAYLIST_AVAILABLE", True)
+        monkeypatch.setattr(
+            runner, "_playlist", SimpleNamespace(extract_playlist_urls=extract)
+        )
+        subject = SimpleNamespace(
+            config={"playlist_max_pages": 5},
+            site_id="row735",
+            _lock=nullcontext(),
+            _listing_titles={},
+        )
+
+        result = runner.SiteRunner._playlist_expand_one(subject, listing)
+
+        assert pauses == ["row735"]
+        assert len(extractor_calls) == 1
+        assert extractor_calls[0][1:] == (listing, subject.config, 5)
+        assert result == []
+        assert subject._listing_titles == {}
+
+        successful_playlist = SimpleNamespace(
+            extract_playlist_urls=lambda *args, **kwargs: SimpleNamespace(
+                ok=True,
+                urls=[scene],
+                titles={scene: "Fixture scene"},
+            )
+        )
+        monkeypatch.setattr(runner, "_playlist", successful_playlist)
+        successful = runner.SiteRunner._playlist_expand_one(subject, listing)
+        scene_count = successful.count(scene)
+        assert scene_count == 1, (
+            f"playlist consumer returned the extracted scene "
+            f"{scene_count} times")
 
     def test_lazy_video_method(self):
         from bulk_downloader.runner import SiteRunner

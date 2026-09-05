@@ -92,9 +92,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _print_human(report: dict[str, Any]) -> None:
+    match_count = report.get("match_count")
+    matches = "-" if type(match_count) is not int else str(match_count)
     print(
         f"template={report.get('template_id', '<corpus>')} "
-        f"verdict={report['verdict']} selectors={report['selector_count']}"
+        f"verdict={report['verdict']} selectors={report['selector_count']} "
+        f"matches={matches}"
     )
     for row in report.get("selectors", []):
         count = "-" if row.get("count") is None else str(row["count"])

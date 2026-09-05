@@ -74,6 +74,15 @@ function InspectPanel({ res }: { res: InspectResult }) {
         {res.n_accepted} accepted · {res.n_rejected} rejected ·{" "}
         {res.n_candidates} total
       </div>
+      <div className="text-xs">
+        <span
+          className={res.safe_candidate_available ? "text-green" : "text-ink-3"}
+        >
+          {res.safe_candidate_available
+            ? "✓ a safe candidate would be selected"
+            : "no safe candidate from supplied HTML"}
+        </span>
+      </div>
       {res.winner && (
         <Card className="border bg-green-soft/40 p-3 hairline">
           <div className="mb-1 flex items-center gap-2">

@@ -79,6 +79,7 @@ _SPEC_DENOMINATORS = {
     "src/routes/History.endpoints.test.tsx": 4,
     "src/routes/History.confirm.test.tsx": 7,
     "src/routes/History.route.test.tsx": 3,
+    "src/routes/DryRunInspector.contract.test.tsx": 2,
 }
 
 
@@ -102,6 +103,13 @@ def test_t2_route_is_reachable_at_runtime():
     palette item lands on that pathname."""
     spec = "src/routes/History.route.test.tsx"
     run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+
+
+def test_row734_dry_run_inspector_reads_the_emitted_candidate_key():
+    spec = "src/routes/DryRunInspector.contract.test.tsx"
+    receipt = run_vitest(spec, expected_tests=_SPEC_DENOMINATORS[spec])
+    assert receipt["files_passed"] == receipt["files_collected"] == 1
+    assert receipt["tests_passed"] == receipt["tests_collected"] == 2
 
 
 def test_t2_route_is_a_lazy_dynamic_entry():

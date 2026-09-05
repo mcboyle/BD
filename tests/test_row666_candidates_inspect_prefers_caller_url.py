@@ -21,6 +21,8 @@ _MEASUREMENT_URL = "https://site/x/y/"
 _ROOT_RELATIVE = "/scene/123.mp4"
 _PATH_RELATIVE = "clip.mp4"
 _ABSOLUTE = "https://cdn.example.test/fixed.mp4"
+_ROW734_LISTING = "https://example.com/category/fixture"
+_ROW734_SCENE = "https://example.com/video/fixture.mp4"
 _RELATIVE_HTML = (
     f'<a href="{_ROOT_RELATIVE}">Root</a>'
     f'<a href="{_PATH_RELATIVE}">Path</a>'
@@ -216,3 +218,21 @@ def test_template_dry_run_caller_assertion_rejects_primary_url():
 
 def test_row666_transform_control_imports_route_without_judging_precedence():
     assert callable(site_core.api_candidates_inspect)
+
+
+def test_row734_backend_emits_safe_candidate_available_by_name():
+    accepted = dry_run.inspect_candidates(
+        f'<a href="{_ROW734_SCENE}">fixture</a>', page_url=_ROW734_LISTING
+    )
+    empty = dry_run.inspect_candidates("<p>fixture</p>", page_url=_ROW734_LISTING)
+
+    assert accepted["n_candidates"] == 1
+    assert accepted["n_accepted"] == 1
+    assert accepted["winner"] is not None
+    assert list(accepted).count("safe_candidate_available") == 1
+    assert accepted["safe_candidate_available"] is True
+    assert empty["n_candidates"] == 0
+    assert empty["n_accepted"] == 0
+    assert empty["winner"] is None
+    assert list(empty).count("safe_candidate_available") == 1
+    assert empty["safe_candidate_available"] is False

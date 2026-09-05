@@ -604,6 +604,7 @@ jobs:
               tests/test_v3_66_1180_band_derivation_paths.py
           - name: mutation-tools
             suites: >-
+              tests/test_row705_published_denominators.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_v3_66_1188_bd_mutate_review_controls.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py

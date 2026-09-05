@@ -86,6 +86,13 @@ def _run(cmd, root):
         return None, str(e)
 
 
+def _truncation_suffix(values, shown, label):
+    """Make a bounded diagnostic visibly different from a complete list."""
+    if len(values) <= shown:
+        return ""
+    return f"; showing {shown} of {len(values)} {label}"
+
+
 def check_anchors(root: pathlib.Path) -> dict:
     """Every `file.py:123` in the gating docs must resolve and be in range.
 
@@ -156,7 +163,9 @@ def check_anchors(root: pathlib.Path) -> dict:
             "detail": f"{len(docs)} document(s), {len(historical)} historical excluded; "
                       f"{ok}/{total} anchors resolve and are in range"
                       + (f", {ambiguous} ambiguous basename(s) not judged" if ambiguous else "")
-                      + ("; BROKEN: " + "; ".join(broken[:6]) if broken else "")}
+                      + ("; BROKEN: " + "; ".join(broken[:6])
+                         + _truncation_suffix(broken, 6, "broken anchors")
+                         if broken else "")}
 
 
 def _is_shallow(root: pathlib.Path):

@@ -65,6 +65,50 @@ HISTORICAL_DOCS={
                     "the tree as it was, not as it is",
 }
 
+# This is deliberately a narrow publication vocabulary, not a claim that NLP
+# can recognise every count in English.  ``THE POPULATION`` is the explicit
+# marker used by register rows when a number is meant to be complete.  The
+# derivation words below are evidence labels, not proof that the derivation is
+# correct; this gate prevents an unlabelled survey result from reading as one.
+_PUBLISHED_POPULATION = re.compile(r"\bTHE\s+POPULATION\b")
+_NUMERIC_CLAIM = re.compile(r"(?<![A-Za-z0-9_])\d[\d,]*(?:\.\d+)?(?![A-Za-z0-9_])")
+_STATED_DERIVATION = re.compile(
+    r"\b(?:DERIV(?:ED|ATION)|RE-COUNTED|MEASURED|CENSUS|PARSED|"
+    r"HAND-LABELLED|REPRODUCED|ESTABLISHED|CONFIRMED)\b",
+    re.IGNORECASE,
+)
+
+
+def _markdown_prose(text):
+    """Remove fenced examples and comments before classifying prose claims."""
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    return re.sub(r"^\s*```.*?^\s*```\s*$", "", text,
+                  flags=re.DOTALL | re.MULTILINE)
+
+
+def _published_population_findings(name, text):
+    """Return (numeric publication count, underived findings)."""
+    prose = _markdown_prose(text)
+    published = 0
+    findings = []
+    for marker in _PUBLISHED_POPULATION.finditer(prose):
+        start = max(0, marker.start() - 320)
+        end = min(len(prose), marker.end() + 320)
+        window = prose[start:end]
+        if not _NUMERIC_CLAIM.search(window):
+            continue
+        published += 1
+        if _STATED_DERIVATION.search(window):
+            continue
+        line = prose.count("\n", 0, marker.start()) + 1
+        excerpt = " ".join(window.split())[:240]
+        findings.append({
+            "doc": name,
+            "kind": "underived-population",
+            "claim": "line %d: %s" % (line, excerpt),
+        })
+    return published, findings
+
 
 def contract_docs(work):
     """The root-level documents, split into (included, excluded).
@@ -89,6 +133,8 @@ def scan(docs, work, extra=(), files=None, historical_excluded=0):
     # as clean for as long as it did.
     files=(sorted(glob.glob(os.path.join(docs,"*.md")))+list(extra)
            if files is None else list(files))
+    published_population_claims = 0
+    underived_population_claims = 0
     # file-path claims: `some/path.py` references that don't exist
     for f in files:
         name=os.path.relpath(f,work).replace(os.sep,"/")
@@ -97,9 +143,15 @@ def scan(docs, work, extra=(), files=None, historical_excluded=0):
             path=m.group(1)
             if not os.path.exists(os.path.join(work,path)):
                 stale.append({"doc":name,"kind":"missing-file","claim":path})
+        published, underived = _published_population_findings(name, txt)
+        published_population_claims += published
+        underived_population_claims += len(underived)
+        stale.extend(underived)
     return {"current_version":cur,"stale":stale[:60],"stale_count":len(stale),
             "docs_dir":docs,"docs_scanned":len(files),
             "current_docs":len(files),
+            "published_population_claims":published_population_claims,
+            "underived_population_claims":underived_population_claims,
             "historical_excluded":historical_excluded,
             "docs_dir_exists":os.path.isdir(docs)}
 

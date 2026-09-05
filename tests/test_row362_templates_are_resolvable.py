@@ -1,17 +1,21 @@
 """Row 362: template claims need an executable, fail-closed selector witness."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
+import pytest
 
 
 BD_GATE_SCOPE = "repo-wide"
@@ -184,6 +188,7 @@ def test_unreachable_subject_is_unknown_and_never_ok(tmp_path: Path):
     assert report["selector_count"] == len(independent) > 0, report
     assert report["verdict"] == "UNKNOWN", report
     assert report["ok"] is False, report
+    assert report.get("match_count") is None, report
     assert report["subject"]["status"] == "UNKNOWN", report
     assert all(item["status"] == "UNKNOWN" for item in report["selectors"]), report
 
@@ -531,3 +536,149 @@ def test_transform_control_only_imports_the_verifier_contract():
     api = _api()
     assert callable(api.verify_template_source)
     assert callable(api.audit_committed_selector_syntax)
+
+
+class _Row733Locator:
+    def __init__(self, count: int):
+        self._count = count
+
+    def count(self) -> int:
+        return self._count
+
+
+class _Row733Route:
+    def __init__(self, page):
+        self._page = page
+        self.request = SimpleNamespace(
+            resource_type="document",
+            url="https://bd-template-fixture.invalid/",
+        )
+
+    def fulfill(self, *, status, content_type, body):
+        self._page.fulfilled.append((status, content_type, body))
+
+    def abort(self):
+        raise AssertionError("offline fixture document was unexpectedly aborted")
+
+
+class _Row733Page:
+    def __init__(self):
+        self.context = self
+        self.fulfilled = []
+        self.goto_calls = []
+        self.locator_calls = []
+        self._route = None
+
+    def set_offline(self, value):
+        assert value is True
+
+    def route(self, pattern, callback):
+        assert pattern == "**/*"
+        self._route = callback
+
+    def route_web_socket(self, pattern, callback):
+        assert pattern == "**/*"
+        assert callable(callback)
+
+    def set_default_timeout(self, timeout):
+        assert timeout > 0
+
+    def goto(self, url, *, wait_until, timeout):
+        self.goto_calls.append((url, wait_until, timeout))
+        assert self._route is not None
+        self._route(_Row733Route(self))
+        return SimpleNamespace(status=200)
+
+    def locator(self, selector):
+        self.locator_calls.append(selector)
+        assert selector == "a.scene"
+        assert len(self.fulfilled) == 1
+        return _Row733Locator(self.fulfilled[0][2].count('class="scene"'))
+
+
+def _assert_row733_one_and_many(counts):
+    assert counts == [1, 159], f"one/many match counts collapsed: {counts}"
+
+
+def test_row733_verifier_exports_exact_match_counts(tmp_path, monkeypatch):
+    pages = []
+
+    @contextmanager
+    def fake_cloaked_page(**kwargs):
+        assert kwargs["headless"] is True
+        page = _Row733Page()
+        pages.append(page)
+        yield page
+
+    cloak = importlib.import_module("bulk_downloader.cloak")
+    monkeypatch.setattr(cloak, "cloaked_page", fake_cloaked_page)
+    template = {
+        "id": "row733",
+        "learned": {"download": {"row_selectors": ["a.scene"]}},
+    }
+    reports = []
+    for count in (1, 159):
+        html = "".join('<a class="scene"></a>' for _ in range(count))
+        assert html.count('class="scene"') == count
+        subject = tmp_path / f"matches-{count}.html"
+        subject.write_text(html, encoding="utf-8")
+        reports.append(_api().verify_template_source(template, subject))
+
+    assert len(pages) == 2
+    assert [len(page.goto_calls) for page in pages] == [1, 1]
+    assert [len(page.locator_calls) for page in pages] == [2, 2]
+    assert [report["selector_count"] for report in reports] == [1, 1]
+    assert [report["selectors"][0]["count"] for report in reports] == [1, 159]
+    counts = [report.get("match_count") for report in reports]
+    _assert_row733_one_and_many(counts)
+    assert all(type(count) is int for count in counts)
+    with pytest.raises(AssertionError, match="one/many match counts collapsed"):
+        _assert_row733_one_and_many([1, 1])
+
+
+def test_row733_human_consumer_prints_the_exact_match_count(capsys):
+    tool = runpy.run_path(str(_REPO / "toolchain/bin/bd-template-verify"))
+    print_human = tool["_print_human"]
+    for count in (1, 159):
+        print_human({
+            "template_id": "row733",
+            "verdict": "HIT",
+            "selector_count": 1,
+            "match_count": count,
+            "selectors": [],
+        })
+    assert capsys.readouterr().out.splitlines() == [
+        "template=row733 verdict=HIT selectors=1 matches=1",
+        "template=row733 verdict=HIT selectors=1 matches=159",
+    ]
+
+
+def test_row733_cli_human_calls_report_counts_on_both_dispatch_seams(capsys):
+    tool = runpy.run_path(str(_REPO / "toolchain/bin/bd-template-verify"))
+    verify_calls = []
+    audit_calls = []
+
+    def verify(*args, **kwargs):
+        verify_calls.append((args, kwargs))
+        return {
+            "template_id": "row733",
+            "verdict": "HIT",
+            "selector_count": 1,
+            "match_count": 159,
+            "selectors": [],
+        }
+
+    def audit():
+        audit_calls.append("audit")
+        return {"verdict": "OK", "selector_count": 7, "selectors": []}
+
+    tool["main"].__globals__["verify_template_source"] = verify
+    tool["main"].__globals__["audit_committed_selector_syntax"] = audit
+    assert tool["main"](["row733", "fixture.html"]) == 0
+    assert tool["main"](["--audit-corpus"]) == 0
+    assert len(verify_calls) == 1
+    assert len(audit_calls) == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "template=row733 verdict=HIT selectors=1 matches=159",
+        "template=<corpus> verdict=OK selectors=7 matches=-",
+    ]

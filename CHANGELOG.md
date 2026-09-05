@@ -5,6 +5,28 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1495 - published denominators are proven, and the operator is told the truth about what was extracted
+
+Two refute-first-reviewed worker patches, authored paths disjoint, plus a
+register commit prepared by integrator C.
+
+- The freshness and doc-truth tools published denominators that nothing
+  proved. Row 705 gives them a gate that runs the tools and checks the
+  numbers they print against an independently derived count, so a published
+  denominator that stops matching its subject fails rather than being read
+  as current. The row now carries its own CI shard registration, so the gate
+  is in a shard rather than merely present in the tree.
+- The dry-run inspector and the template verifier reported results the
+  operator could not check. The playlist extractor, the template source
+  verifier and the inspector panel now agree on what was actually extracted:
+  a successful consumer control asserts the extracted scene occurs exactly
+  once, and the existing partial and non-OK assertions are unchanged, so a
+  zero negative-result count is proven rather than assumed.
+
+Register: rows 690 and 725 amended, both remaining OPEN. Six further amend
+requests in the same handoff refused their compare-and-swap and were left for
+their author to regenerate; they are not in this cut.
+
 ## v3.66.1493 - a register-only cut: the hunt reaping test fails only under canonical load
 
 No source change. This cut files one row and nothing else.
