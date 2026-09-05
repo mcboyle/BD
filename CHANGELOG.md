@@ -5,6 +5,31 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1490 - a register-only cut: a user template can turn on paid captcha egress with no acknowledgement, and that is now a filed row
+
+No source change. This cut files one row and nothing else, under the pause that
+authorises register-only cuts.
+
+- Row 751 FILED, T3 SECURITY. runner.captcha_egress_disclosure_error states the
+  contract -- a non-empty captcha_api_key turns third-party solving on from the
+  shipped default-off posture, a provider change on an already-active key moves
+  the egress destination, both need a one-shot acknowledgement, and that
+  acknowledgement is never persisted -- and the three canonical writers all call
+  it. Two supported paths go around it. Both template-apply sites loop over a
+  template's config_defaults and assign every key with no allowlist and no gate
+  call, then persist and hand the result to the live runner; the non-destructive
+  guard does not help, because it skips only keys the user has already set and
+  default-off makes captcha_api_key exactly the unset case it does apply. And
+  the template secret strip is one level deep, so a nested
+  config_defaults.captcha_api_key survives export, import validation and append
+  alike -- measured, with the top-level copy of the same key correctly removed
+  in the same call -- which means the import preview reports "secrets omitted"
+  while the nested secret is not omitted, the one thing that function's own
+  docstring says it must not do.
+- The row was found while verifying a panel bounce against another patch, and it
+  is filed rather than fixed on purpose: the defect is live on main independent
+  of that patch, and the fix cut waits for GO.
+
 ## v3.66.1488 - a restarted vault stops failing the deploy, terminal jobs become visible, keeper re-logins count against the cap, and the mutation validator stops passing what it cannot parse
 
 Train B-32: four refute-first-reviewed worker patches with disjoint authored
