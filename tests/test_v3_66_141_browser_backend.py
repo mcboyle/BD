@@ -4,6 +4,11 @@ Pure decision logic, no browser launch: every flow now resolves its backend
 through cloak.resolve_backend, configurable as "cloakbrowser" | "playwright"
 via per-call config / env / global Settings, with availability downgrade.
 """
+import json
+from pathlib import Path
+
+import pytest
+
 from bulk_downloader import cloak
 
 DEFAULTS = __import__(
@@ -89,15 +94,23 @@ def test_coerce_backend_values():
 
 def _runner_launch(
         config, tmp_path, monkeypatch, *, use_persistent=True,
-        fail_first=False):
+        fail_first=False, cookie_loads=None):
     _isolate(monkeypatch, available=True)
     runner_browser = __import__(
         "bulk_downloader.runner_browser", fromlist=["BrowserMixin"])
     monkeypatch.setattr(runner_browser, "_VPN_RUNTIME_AVAILABLE", False)
     calls = []
+    if cookie_loads is None:
+        cookie_loads = []
 
     class Context:
         pages = []
+
+        def __init__(self):
+            self.cookie_batches = []
+
+        def add_cookies(self, cookies):
+            self.cookie_batches.append(cookies)
 
     class Browser:
         pass
@@ -122,7 +135,9 @@ def _runner_launch(
         backend = record(
             "open_persistent_context", config,
             {"user_data_dir": user_data_dir, **kwargs})
-        return Context(), None, backend
+        context = Context()
+        calls[-1]["context"] = context
+        return context, None, backend
 
     def launch_browser(*, config, **kwargs):
         backend = record("launch_browser", config, kwargs)
@@ -136,7 +151,17 @@ def _runner_launch(
 
         def __init__(self):
             self.config = dict(config)
+            self.cookies = []
             self.stealth_installs = 0
+
+        def set_cookies_from_file(self, path):
+            cookie_loads.append(path)
+            try:
+                raw = json.loads(Path(path).read_text(encoding="utf-8"))
+                self.cookies = raw if isinstance(raw, list) else []
+                return True, f"Loaded {len(self.cookies)} cookies"
+            except Exception as exc:
+                return False, str(exc)
 
         def _profile_dir(self, worker_idx=None):
             return str(tmp_path / "profile")
@@ -263,3 +288,119 @@ def test_disabled_real_chrome_preserves_cloakbrowser(
     assert backend == cloak.CLOAKBROWSER
     launch = calls[0]
     assert launch["channel"] is None
+
+
+def _write_imported_cookie_jar(tmp_path):
+    # Documented zero-entropy fixture values; these are not credentials.
+    cookies = [
+        {"name": "test-session-a", "value": "cookie-fixture-not-a-secret",
+         "domain": "example.invalid", "path": "/", "sameSite": "Lax",
+         "secure": True, "httpOnly": True},
+        {"name": "test-session-b", "value": "cookie-fixture-not-a-secret",
+         "domain": ".example.invalid", "path": "/member",
+         "sameSite": "Strict", "secure": False, "httpOnly": False},
+    ]
+    cookie_file = tmp_path / "imported-cookies.json"
+    cookie_file.write_text(json.dumps(cookies), encoding="utf-8")
+    assert cookie_file.is_file()
+    assert cookie_file.stat().st_size > 0
+    assert json.loads(cookie_file.read_text(encoding="utf-8")) == cookies
+    assert len(cookies) == 2
+    return cookie_file, cookies
+
+
+@pytest.mark.parametrize(("fail_first", "expected_launches"), [
+    (False, 1),
+    (True, 2),
+])
+def test_persistent_context_applies_imported_cookie_file(
+        tmp_path, monkeypatch, fail_first, expected_launches):
+    cookie_file, expected_cookies = _write_imported_cookie_jar(tmp_path)
+    cookie_loads = []
+
+    backend, calls = _runner_launch({
+        "cookie_file": str(cookie_file),
+        "use_real_chrome": True,
+        "use_persistent_profile": True,
+    }, tmp_path, monkeypatch, fail_first=fail_first,
+        cookie_loads=cookie_loads)
+
+    assert backend == cloak.PLAYWRIGHT
+    assert len(calls) == expected_launches
+    assert calls[-1]["boundary"] == "open_persistent_context"
+    assert cookie_loads == [str(cookie_file)]
+    assert calls[-1]["context"].cookie_batches == [expected_cookies]
+
+
+def test_persistent_context_without_cookie_file_does_not_load_cookies(
+        tmp_path, monkeypatch):
+    cookie_loads = []
+    backend, calls = _runner_launch({
+        "browser_backend": "cloakbrowser",
+        "use_persistent_profile": True,
+    }, tmp_path, monkeypatch, cookie_loads=cookie_loads)
+
+    assert backend == cloak.CLOAKBROWSER
+    assert len(calls) == 1
+    assert cookie_loads == []
+    assert calls[0]["context"].cookie_batches == []
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty"])
+def test_persistent_context_ignores_missing_or_empty_cookie_file(
+        tmp_path, monkeypatch, kind):
+    cookie_file = tmp_path / f"{kind}-cookies.json"
+    if kind == "empty":
+        cookie_file.write_text("", encoding="utf-8")
+    assert cookie_file.exists() is (kind == "empty")
+    assert not cookie_file.exists() or cookie_file.stat().st_size == 0
+
+    cookie_loads = []
+    backend, calls = _runner_launch({
+        "browser_backend": "cloakbrowser",
+        "cookie_file": str(cookie_file),
+        "use_persistent_profile": True,
+    }, tmp_path, monkeypatch, cookie_loads=cookie_loads)
+
+    assert backend == cloak.CLOAKBROWSER
+    assert len(calls) == 1
+    assert cookie_loads == []
+    assert calls[0]["context"].cookie_batches == []
+
+
+def test_persistent_context_keeps_context_when_cookie_file_is_unusable(
+        tmp_path, monkeypatch):
+    cookie_file = tmp_path / "malformed-cookies.json"
+    cookie_file.write_text("not-json", encoding="utf-8")
+    assert cookie_file.is_file()
+    assert cookie_file.stat().st_size == len("not-json")
+
+    cookie_loads = []
+    backend, calls = _runner_launch({
+        "browser_backend": "cloakbrowser",
+        "cookie_file": str(cookie_file),
+        "use_persistent_profile": True,
+    }, tmp_path, monkeypatch, cookie_loads=cookie_loads)
+
+    assert backend == cloak.CLOAKBROWSER
+    assert len(calls) == 1
+    assert calls[0]["boundary"] == "open_persistent_context"
+    assert cookie_loads == [str(cookie_file)]
+    assert calls[0]["context"].cookie_batches == []
+
+
+def test_cookie_file_does_not_change_nonpersistent_launch(
+        tmp_path, monkeypatch):
+    cookie_file, _expected_cookies = _write_imported_cookie_jar(tmp_path)
+    loads = []
+    backend, calls = _runner_launch({
+        "browser_backend": "cloakbrowser",
+        "cookie_file": str(cookie_file),
+        "use_persistent_profile": False,
+    }, tmp_path, monkeypatch, use_persistent=False, cookie_loads=loads)
+
+    assert backend == cloak.CLOAKBROWSER
+    assert len(calls) == 1
+    assert calls[0]["boundary"] == "launch_browser"
+    assert "context" not in calls[0]
+    assert loads == []

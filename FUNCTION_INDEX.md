@@ -131,59 +131,59 @@ Schema version: 2
 - L3592 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
 - L4073 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
 - L4108 `_bd_cookie_dir` `[private]`
-- L4115 `_site_primary_url` `[private]` — Resolve a site's primary URL from the usual config fields (mirrors
-- L4171 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L4257 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L4374 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L4387 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L4405 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L4453 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L4503 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L4522 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L4549 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L4640 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L4656 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L4698 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L4757 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L4789 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L4919 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L4964 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L4999 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L5024 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L5058 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L5078 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5172 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5201 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5229 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5279 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L5476 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L5512 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5673 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L5737 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L5877 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L5902 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6106 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6119 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6146 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6166 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6206 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6274 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6416 `serve_ss` `GET /screenshots/<path:filename>`
-- L7707 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7714 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7725 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7740 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7804 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7833 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7841 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7858 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7870 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7893 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7909 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7925 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7942 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7995 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L8116 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L4115 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
+- L4213 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4299 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4416 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4429 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4447 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L4495 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L4545 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L4564 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L4591 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L4682 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L4698 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L4740 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L4799 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L4831 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L4961 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L5006 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L5041 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L5066 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L5100 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L5120 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5214 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5243 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5271 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5321 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L5518 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5554 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5715 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L5779 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L5919 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L5944 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6148 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6161 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6188 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6208 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6248 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6316 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6458 `serve_ss` `GET /screenshots/<path:filename>`
+- L7749 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7756 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7767 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7782 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7846 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7875 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7883 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7900 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7912 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7935 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7951 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7967 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7984 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L8037 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L8158 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -388,7 +388,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (10 entries)
+## `bulk_downloader/runner_browser.py` (11 entries)
 
 ```
 - L0018 `BrowserMixin` `[class]`
@@ -397,10 +397,11 @@ Schema version: 2
   - L0064 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
   - L0128 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
   - L0150 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0181 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L0344 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L0363 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L0384 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L0181 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0197 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L0362 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L0381 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L0402 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
 ```
 
 
@@ -747,11 +748,11 @@ Schema version: 2
 - L0020 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
 - L0032 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
 - L0095 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0140 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0181 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0411 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0456 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0516 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0150 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0191 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0421 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0466 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0526 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
@@ -797,4 +798,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 621 across 22 files._
+_Total entries: 622 across 22 files._

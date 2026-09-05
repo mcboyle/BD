@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4322,
+  "edge_count": 4326,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3187,7 +3187,11 @@
       "bulk_downloader/session_scope.py"
     ],
     "tests/test_login_submit_robustness.py": [
-      "bulk_downloader/login.py"
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/stealth.py"
     ],
     "tests/test_login_surface_lock.py": [
       "bulk_downloader/login.py"

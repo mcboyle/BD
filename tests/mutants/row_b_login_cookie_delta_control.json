@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-only transform control: removing the delta filter must ESCAPE this spec.",
+  "subject": "cookie delta transform remains importable",
+  "band": [
+    "tests/test_login_submit_robustness.py::test_generic_cookie_transform_control_only_imports_classifier"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 delta filter removal remains importable",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "not in before_names",
+      "new": "not in ()",
+      "catcher": "tests/test_login_submit_robustness.py::test_generic_cookie_transform_control_only_imports_classifier",
+      "direction": "regression"
+    }
+  ]
+}

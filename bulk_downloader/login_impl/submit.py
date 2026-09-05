@@ -1016,6 +1016,13 @@ def do_login(config, allow_manual_takeover=False):
         try: _try_check_remember_me(page)
         except Exception as e: sys.stderr.write(f"  login: remember-me check skipped: {e}\n")
 
+        # Freeze the jar before submit can mutate it. An unreadable baseline
+        # is UNKNOWN, not an empty jar that makes every later cookie new.
+        try:
+            cookies_before_submit = tuple(dict(c) for c in ctx.cookies())
+        except Exception as e:
+            cookies_before_submit = None
+            sys.stderr.write(f"  login: pre-submit cookie snapshot failed: {e}\n")
         ok,method=_submit_login(page,sb_candidates,pf_candidates)
         # Page closed mid-submit (or before) — the form likely auto-submitted
         # on a previous step. Try to read cookies; if we got any usable session
@@ -1032,7 +1039,8 @@ def do_login(config, allow_manual_takeover=False):
             # jar actually looks like an authenticated session. One
             # stray cookie is not a login (OPEN_THREADS: loose
             # success test).
-            authed,why=_looks_authenticated(cookies)
+            authed,why=_looks_authenticated(
+                cookies, before_cookies=cookies_before_submit)
             if authed:
                 sys.stderr.write(f"  login: page closed mid-submit; {why} "
                                  f"— treating as success\n")
@@ -1059,7 +1067,8 @@ def do_login(config, allow_manual_takeover=False):
             except Exception as e:
                 cookies_after_submit=[]
                 sys.stderr.write(f"  login: cookie read after non-nav submit failed: {e}\n")
-            authed,why=_looks_authenticated(cookies_after_submit)
+            authed,why=_looks_authenticated(
+                cookies_after_submit, before_cookies=cookies_before_submit)
             if authed:
                 sys.stderr.write(f"  login: no nav signal, but {why} "
                                  f"— treating as success\n")
@@ -1116,7 +1125,8 @@ def do_login(config, allow_manual_takeover=False):
             try: cookies=pw_to_json(ctx.cookies())
             except Exception: cookies=[]
             _hard_close()
-            authed,why=_looks_authenticated(cookies)
+            authed,why=_looks_authenticated(
+                cookies, before_cookies=cookies_before_submit)
             if authed:
                 return True,(f"OK — {len(cookies)} cookies "
                              f"(page closed post-submit; {why})"),cookies

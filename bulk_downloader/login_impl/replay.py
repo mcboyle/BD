@@ -92,7 +92,7 @@ def _success_url_matches(success_url, final_url):
         return final_url.startswith(success_url)
 
 
-def _looks_authenticated(cookies):
+def _looks_authenticated(cookies, *, before_cookies=()):
     """Decide whether a captured cookie jar plausibly belongs to a
     logged-in session. Used when a login page closes mid-submit and
     there is no navigation signal to confirm the login.
@@ -105,8 +105,12 @@ def _looks_authenticated(cookies):
     takeover is safe; a false success is not):
 
       - a cookie whose NAME explicitly looks like authentication state, or
-      - several substantial cookies — a real post-login jar is not
-        one or two cookies.
+      - at least four substantial cookies with names absent before submit.
+
+    Submit recovery supplies before_cookies; None means the snapshot could
+    not be read and Signal 2 is unavailable. Single-jar diagnostic callers
+    retain the historical jar-shape heuristic with the empty default; they
+    do not establish that a submit succeeded.
 
     Generic server-side session names are deliberately not authentication
     evidence. A login page can assign PHPSESSID/sessionid before credentials
@@ -126,14 +130,20 @@ def _looks_authenticated(cookies):
             return True, f"auth-looking cookie {c.get('name')!r}"
         if any(h in name for h in _GENERIC_SESSION_COOKIE_HINTS):
             generic_named.append(c.get("name"))
-    # Signal 2: a real session sets several substantial cookies; one
-    # or two long-valued cookies could just be analytics.
+    # Signal 2: pre-existing cookies (even with rotated values) say nothing
+    # about this submit. Count new names, not copies across domain/path scopes.
+    if before_cookies is None:
+        return False, "pre-submit cookie snapshot unavailable; no auth-looking cookie"
+    before_names = {c.get("name") for c in before_cookies}
     substantial = [c for c in non_empty
                    if len(str(c.get("value", ""))) > 8]
-    if len(substantial) >= 4:
-        return True, f"{len(substantial)} substantial cookies"
+    new_substantial = {c.get("name") for c in substantial
+                       if c.get("name") and c.get("name") not in before_names}
+    if len(new_substantial) >= 4:
+        return True, f"{len(new_substantial)} new substantial cookies"
     return False, (f"{len(non_empty)} cookie(s), {len(substantial)} "
-                   f"substantial, {len(generic_named)} generic-session, "
+                   f"substantial, {len(new_substantial)} new substantial, "
+                   f"{len(generic_named)} generic-session, "
                    "none explicitly auth-looking")
 
 

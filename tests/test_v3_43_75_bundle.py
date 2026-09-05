@@ -207,6 +207,28 @@ class TestSceneUrlFilter:
         ):
             assert p._looks_like_scene_url(url), f"missed: {url}"
 
+    def test_film_paths_are_scene_urls(self):
+        from bulk_downloader import playlist_extractor as p
+        urls = (
+            "https://venus.wowgirls.com/film/a2bca551/one-pie-after-another",
+            "https://venus.wowgirls.com/films/a2bca551/one-pie-after-another",
+        )
+        decisions = [p._looks_like_scene_url(url) for url in urls]
+        assert decisions == [True, True], (
+            f"film scene paths were not classified as scenes: {decisions}")
+
+    def test_film_vocabulary_does_not_admit_account_redirect_or_listing_paths(self):
+        from bulk_downloader import playlist_extractor as p
+        urls = (
+            "https://venus.wowgirls.com/my/activity",
+            "https://venus.wowgirls.com/my/favorites",
+            "https://venus.wowgirls.com/goto/site/24",
+            "https://venus.wowgirls.com/models/",
+        )
+        decisions = [p._looks_like_scene_url(url) for url in urls]
+        assert decisions == [False, False, False, False], (
+            f"non-scene controls were admitted: {decisions}")
+
     def test_rejects_listings(self):
         from bulk_downloader import playlist_extractor as p
         for url in (

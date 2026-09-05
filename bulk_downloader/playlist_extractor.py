@@ -98,6 +98,7 @@ _SCENE_URL_HINTS = (
     "/watch/", "/watch?v=",
     "/episode/", "/episodes/",
     "/movie/", "/movies/",
+    "/film/", "/films/",
     "/clip/", "/clips/",
     "/play/", "view_video.php",
 )
