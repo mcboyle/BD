@@ -5,6 +5,35 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1497 - four test2 winners: a scene URL is classified, a primary URL is correct, a persistent context keeps its cookies, and login stops trusting a cookie count
+
+Four operator-supplied winner patches from the test2 head-to-head set, each
+verified by bd-fable, with disjoint authored paths, plus the register rows
+they close. CI on the exact head is the gate for this train; the local lane
+suite was skipped by operator instruction.
+
+- The scene-URL path token list omitted /film/ and /films/, so a URL under
+  either prefix failed the scene test and fell through to the playlist
+  branch: the extractor walked it for candidate links instead of downloading
+  the scene the URL names. Removing the one production line from the patched
+  tree fails exactly one test and no others, so the RED is specific to this
+  defect rather than to the fixture around it.
+- Login decided success from a COOKIE COUNT rather than a cookie delta, so a
+  session that already carried enough cookies read as SUCCESS without the
+  login having established anything -- a false positive on the exact signal
+  the caller trusts. The decision is now the delta across the submit, with
+  all-branch coverage and a negative control.
+- _site_primary_url returned the wrong URL for the content seam. Five
+  consumers share it -- status, onboard, dry-run, inspect and the lazy
+  delegate -- so the wrong value reached all of them rather than one caller.
+- A persistent browser context ignored an existing, nonempty configured
+  cookie jar, so an imported session was silently absent from exactly the
+  contexts meant to keep one. Persistent launches now load the jar and apply
+  its cookies after launch; missing, empty and unusable jars no-op, and the
+  nonpersistent, proxy and VPN paths are untouched.
+
+Register: rows 754, 755, 756 and 757 filed and CLOSED at this version.
+
 ## v3.66.1495 - published denominators are proven, and the operator is told the truth about what was extracted
 
 Two refute-first-reviewed worker patches, authored paths disjoint, plus a

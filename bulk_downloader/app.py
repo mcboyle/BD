@@ -4112,14 +4112,56 @@ def _bd_cookie_dir():
     return d
 
 # ── v3.66.144: reviewed-template visibility + manual onboarding ──────────
-def _site_primary_url(cfg):
-    """Resolve a site's primary URL from the usual config fields (mirrors
-    tools/onboard_site_template.best_url_from_site)."""
-    for key in ("login_url", "start_url", "base_url", "url",
-                "homepage", "member_url", "site_url"):
-        v = (cfg.get(key) or "").strip()
+def _site_primary_url(cfg, *, prefer_login=False):
+    """Resolve a content URL, retaining an explicit login-first mode."""
+    login_first = ("login_url", "start_url", "base_url", "url",
+                   "homepage", "member_url", "site_url")
+    if prefer_login:
+        keys = login_first
+    else:
+        keys = ("crawler_listing_url", "listing_url")
+    for key in keys:
+        value = cfg.get(key)
+        v = value.strip() if isinstance(value, str) else ""
         if v.startswith(("http://", "https://")):
             return v
+
+    if not prefer_login:
+        fingerprint = cfg.get("url_fingerprint")
+        if isinstance(fingerprint, dict):
+            hosts = fingerprint.get("known_hosts") or ()
+            prefixes = fingerprint.get("known_path_prefixes") or ()
+            if isinstance(hosts, (set, frozenset)):
+                hosts = sorted(hosts)
+            elif not isinstance(hosts, (list, tuple)):
+                hosts = ()
+            if isinstance(prefixes, (set, frozenset)):
+                prefixes = sorted(prefixes)
+            elif not isinstance(prefixes, (list, tuple)):
+                prefixes = ()
+            for raw_host in hosts:
+                host = raw_host.strip() if isinstance(raw_host, str) else ""
+                labels = host.split(".")
+                if (not host or any(
+                        not label or len(label) > 63
+                        or not re.fullmatch(
+                            r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?",
+                            label)
+                        for label in labels)):
+                    continue
+                for raw_prefix in prefixes:
+                    prefix = (raw_prefix.strip()
+                              if isinstance(raw_prefix, str) else "")
+                    if (prefix.startswith("/") and not prefix.startswith("//")
+                            and not any(ch.isspace() for ch in prefix)
+                            and "?" not in prefix and "#" not in prefix):
+                        return f"https://{host}{prefix}"
+
+        for key in login_first[1:] + ("login_url",):
+            value = cfg.get(key)
+            v = value.strip() if isinstance(value, str) else ""
+            if v.startswith(("http://", "https://")):
+                return v
     return ""
 
 

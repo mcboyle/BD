@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Six behavioral controls cover all three submit recovery callers, delta names, unavailable measurement, and retained AJAX success.",
+  "subject": "submit success requires new cookie names across all cookie-recovery branches",
+  "band": [
+    "tests/test_login_submit_robustness.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 closed-page recovery discards before snapshot",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                sys.stderr.write\\(f\"  login: page closed)",
+      "new": "()",
+      "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[closed]",
+      "direction": "regression"
+    },
+    {
+      "label": "M2 AJAX recovery discards before snapshot",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                sys.stderr.write\\(f\"  login: no nav)",
+      "new": "()",
+      "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M3 post-submit closure discards before snapshot",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                return True)",
+      "new": "()",
+      "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[post_closed]",
+      "direction": "regression"
+    },
+    {
+      "label": "M4 preexisting names counted as new",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "not in before_names",
+      "new": "not in ()",
+      "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M5 unavailable snapshot treated as empty",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "sys\\.stderr\\.write(?=\\(f\"  login: pre-submit cookie snapshot failed:)",
+      "new": "cookies_before_submit = (); sys.stderr.write",
+      "catcher": "tests/test_login_submit_robustness.py::test_unavailable_cookie_snapshot_cannot_prove_a_delta[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M6 wowgirls new cookie delta disabled",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "if len(new_substantial)",
+      "new": "if False and len(new_substantial)",
+      "catcher": "tests/test_login_submit_robustness.py::test_wowgirls_ajax_new_cookie_delta_still_succeeds[ajax]",
+      "direction": "regression"
+    }
+  ]
+}

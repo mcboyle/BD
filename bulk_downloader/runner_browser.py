@@ -178,6 +178,22 @@ class BrowserMixin:
                 if p.is_symlink() or p.exists(): p.unlink()
             except Exception: pass
         return str(d.resolve())
+    def _apply_persistent_cookie_file(self, ctx):
+        """Apply a configured, usable cookie jar to a persistent context."""
+        cookie_file = self.config.get("cookie_file")
+        if not cookie_file:
+            return
+        try:
+            from pathlib import Path
+            cookie_path = Path(str(cookie_file)).expanduser()
+            if not cookie_path.is_file() or cookie_path.stat().st_size == 0:
+                return
+            loaded, _detail = self.set_cookies_from_file(str(cookie_path))
+            if loaded and self.cookies:
+                ctx.add_cookies(self.cookies)
+        except Exception as e:
+            sys.stderr.write(
+                f"  persistent cookie file load failed: {str(e)[:100]}\n")
     def _launch_browser(self,headless=None,use_persistent=None,worker_idx=None,profile_override=None,netns=None):
         """Phase 9 / v3.66.141: unified browser launcher routed through the
         shared cloak wrapper so every runner flow honours the configured
@@ -291,6 +307,7 @@ class BrowserMixin:
                     user_data_dir=str(user_data_dir),headless=headless,
                     args=args_val,user_agent=ua_val,config=launch_config,
                     netns=netns,**extra)
+                self._apply_persistent_cookie_file(ctx)
                 self._install_stealth(ctx)
                 # v3.66.465: GATED full-access after_context hook. Live ctx +
                 # first page (if any). No-op unless allow_full_access is on.
@@ -316,6 +333,7 @@ class BrowserMixin:
                             user_data_dir=str(user_data_dir),headless=headless,
                             args=args_val,user_agent=ua_val,config=launch_config,
                             netns=netns,**extra)
+                        self._apply_persistent_cookie_file(ctx)
                         self._install_stealth(ctx)
                         _cloak.log_choice(flow,backend,detail+" (bundled)")
                         return None,ctx,used_pw,backend

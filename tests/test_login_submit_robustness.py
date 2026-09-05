@@ -14,9 +14,11 @@ Pins two fixes from OPEN_THREADS:
      _looks_authenticated() now requires a real signal.
 """
 import time
+from types import SimpleNamespace
+
+import pytest
 
 from bulk_downloader.login import _submit_login, _looks_authenticated
-
 
 # ── 1. submit loop stops once an earlier method had its effect ──────
 
@@ -128,3 +130,134 @@ def test_several_substantial_cookies_count_as_auth():
 
 def test_generic_cookie_transform_control_only_imports_classifier():
     assert callable(_looks_authenticated)
+
+
+def _delta_jar(names):
+    # Documented zero-entropy cookie fixtures, never live session values.
+    return [{"name": name, "value": "0" * 16} for name in names]
+
+
+def _run_delta_login(monkeypatch, before, after, branch, *, unreadable=False):
+    """Drive real do_login/classification; replace only browser/UI boundaries."""
+    from bulk_downloader import cloak, interstitial, learn, stealth
+    from bulk_downloader.login_impl import submit
+
+    calls = {"submit": 0, "fill": [], "reads": [], "close": 0}
+    jar = [dict(cookie) for cookie in before]
+
+    class Page:
+        @property
+        def url(self):
+            if calls["submit"] and branch == "post_closed":
+                raise RuntimeError("fixture page closed after submit")
+            return "https://login.example.invalid/login"
+
+        def goto(self, url, **kwargs):
+            assert url == self.url
+
+    page = Page()
+
+    def cookies():
+        phase = "after" if calls["submit"] else "before"
+        calls["reads"].append(phase)
+        if phase == "before" and unreadable:
+            raise RuntimeError("fixture cookie snapshot unavailable")
+        return jar
+
+    def close():
+        calls["close"] += 1
+
+    ctx = SimpleNamespace(new_page=lambda: page, cookies=cookies)
+    browser = SimpleNamespace(new_context=lambda **kw: ctx, close=close)
+    monkeypatch.setattr(cloak, "launch_browser", lambda **kw: (browser, None, "fixture"))
+    monkeypatch.setattr(cloak, "log_choice", lambda *a, **kw: None)
+    monkeypatch.setattr(learn, "install_recorder", lambda page: None)
+    monkeypatch.setattr(stealth, "apply_to_page", lambda *a: None)
+    monkeypatch.setattr(interstitial, "dismiss_gates", lambda *a, **kw: [])
+    monkeypatch.setattr(submit.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(submit, "replay_saved_login_flow", lambda *a: {"ran": False})
+    monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a: (False, False, ""))
+    monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *a, **kw: (None, 0))
+    monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
+
+    def fill(page, selectors, value, role):
+        calls["fill"].append(role)
+        return True, "fixture field"
+
+    def submit_form(page, selectors, password_selectors):
+        calls["submit"] += 1
+        assert jar == before and len(before) > 0
+        # In-place update proves the before snapshot survives jar mutation.
+        jar[:] = [dict(cookie) for cookie in after]
+        return {"ajax": False, "closed": "PAGE_CLOSED", "post_closed": True}[branch], "fixture submit"
+
+    monkeypatch.setattr(submit, "_try_fill", fill)
+    monkeypatch.setattr(submit, "_submit_login", submit_form)
+    # Documented zero-entropy password; no vault reference or real credential.
+    config = {"login_url": page.url, "username": "fixture", "password": "zero-entropy-password",
+              "success_url": "/members", "wait": 0, "use_real_chrome": False,
+              "use_stealth": False, "use_stealth_library": False}
+    result = submit.do_login(config)
+    assert calls["submit"] == 1
+    assert calls["fill"] == ["username", "password"]
+    assert calls["close"] == 1
+    assert jar == after
+    return result, calls
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+def test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded(monkeypatch, branch):
+    before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
+    after = [dict(cookie) for cookie in before]
+    assert len(before) == 4 and before == after
+    assert all(len(cookie["value"]) > 8 for cookie in before)
+    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    assert result[0] is False, "unchanged four-cookie jar falsely accepted login"
+    assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+def test_wowgirls_ajax_new_cookie_delta_still_succeeds(monkeypatch, branch):
+    before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
+    added = _delta_jar(["member_a", "member_b", "member_c", "member_d"])
+    assert len(added) == 4
+    assert {c["name"] for c in before}.isdisjoint(c["name"] for c in added)
+    result, calls = _run_delta_login(monkeypatch, before, before + added, branch)
+    assert result[0] is True, f"new AJAX login cookies were rejected: {result[1]}"
+    assert len(result[2]) == 8
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+def test_explicit_auth_cookie_still_succeeds_without_delta(monkeypatch, branch):
+    before = [{"name": "logged_in", "value": "1"}]
+    result, calls = _run_delta_login(monkeypatch, before, before, branch)
+    assert result[0] is True, result[1]
+    assert "auth-looking cookie" in result[1]
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+def test_unavailable_cookie_snapshot_cannot_prove_a_delta(monkeypatch, branch):
+    before = _delta_jar(["pref_a"])
+    after = before + _delta_jar(["member_a", "member_b", "member_c", "member_d"])
+    result, calls = _run_delta_login(monkeypatch, before, after, branch, unreadable=True)
+    assert result[0] is False, "unavailable before jar was treated as an empty jar"
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("shape", ["three_new", "values_changed", "duplicate_names"])
+def test_cookie_delta_requires_four_new_names(monkeypatch, shape):
+    before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
+    if shape == "three_new":
+        after = before + _delta_jar(["member_a", "member_b", "member_c"])
+    elif shape == "values_changed":
+        # Documented zero-entropy replacement values; names remain identical.
+        after = [{**cookie, "value": "1" * 16} for cookie in before]
+    else:
+        after = before + _delta_jar(["member_a"] * 4)
+    assert len({c["name"] for c in after} - {c["name"] for c in before}) < 4
+    result, calls = _run_delta_login(monkeypatch, before, after, "ajax")
+    assert result[0] is False, f"insufficient new cookie names accepted: {shape}"
+    assert calls["reads"] == ["before", "after"]

@@ -138,7 +138,7 @@ def api_template_status(sid):
         from .template_assist import template_summary
         from .template_registry import find_template_for_url
         from .selector_lint import lint_template, has_blocking_issues
-        url = _site_primary_url(cfg)
+        url = _site_primary_url(cfg, prefer_login=True)
         tmpl_obj = find_template_for_url(url) if url else None
         summary = template_summary(tmpl_obj)
         # 3c: the run/download leg targets the site's CONTENT host (start_url),
