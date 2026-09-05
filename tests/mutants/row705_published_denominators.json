@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 705. The two mutants remove the document-publication finding and invert the bounded-list disclosure. Both catchers execute the real operator tools and assert exact nonzero populations.",
+  "subject": "published numeric populations require stated derivation and bounded diagnostics disclose their hidden tail",
+  "band": [
+    "tests/test_row705_published_denominators.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 an underived published population is ignored",
+      "file": "toolchain/bin/bd-doc-truth",
+      "old": "        stale.extend(underived)",
+      "new": "        stale.extend(())",
+      "direction": "regression",
+      "catcher": "tests/test_row705_published_denominators.py::test_the_real_paged_survey_population_is_refused_without_derivation"
+    },
+    {
+      "label": "M2 a truncated broken-anchor list claims to be complete",
+      "file": "toolchain/bin/bd-freshcheck",
+      "old_regex": "(?<=if len\\(values\\) )<(?== shown:)",
+      "new": ">",
+      "direction": "regression",
+      "catcher": "tests/test_row705_published_denominators.py::test_freshcheck_names_the_hidden_tail_of_a_broken_anchor_list"
+    }
+  ]
+}

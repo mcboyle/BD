@@ -535,10 +535,17 @@ def verify_template_source(
             f"subject could not be rendered: {type(exc).__name__}: {exc}"[:700],
         )
 
+    counts = [row.get("count") for row in rows]
+    match_count = (
+        sum(counts)
+        if counts and all(type(count) is int for count in counts)
+        else None
+    )
     verdict = _verdict(rows)
     return {
         "template_id": template_id,
         "selector_count": len(rows),
+        "match_count": match_count,
         "verdict": verdict,
         "ok": verdict == "HIT",
         "subject": subject_info,

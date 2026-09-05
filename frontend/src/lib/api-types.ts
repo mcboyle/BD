@@ -736,6 +736,7 @@ export interface InspectResult {
   n_candidates: number;
   n_accepted: number;
   n_rejected: number;
+  safe_candidate_available: boolean;
 }
 export interface SelectorHit {
   selector: string;

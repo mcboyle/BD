@@ -96,6 +96,10 @@ _DECLARED = {
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",
+    # Row 705. Published populations must state derivation, and bounded
+    # diagnostics disclose their hidden tail.
+    # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
+    "tests/test_row705_published_denominators.py",
     # rowssrf-loopback. Every canonical host-safety consumer and both template
     # sandbox exemption sites must use the classifier's structured reason.
     "tests/test_rowssrf_loopback_reason_is_structured.py",

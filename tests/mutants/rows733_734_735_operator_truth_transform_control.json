@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Expected ESCAPE. The exact-count regression is applied, but this band only imports all three subjects and asserts callability. Its escape proves the primary count mutant is caught by behavioral assertions rather than a broken transform or import.",
+  "subject": "transform control for rows 733-735 operator truth",
+  "band": [
+    "tests/test_row362_templates_are_resolvable.py::test_transform_control_only_imports_the_verifier_contract"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL booleanize the exported match count under an import-only spec",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?<=        )sum(?=\\(counts\\))",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_transform_control_only_imports_the_verifier_contract"
+    }
+  ]
+}

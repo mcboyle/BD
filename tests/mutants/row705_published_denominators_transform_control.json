@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 705 transform control. Removing the publication finding must ESCAPE when the band only imports the tools and asserts no publication behavior.",
+  "subject": "transform control -- importing document tools does not judge published population claims",
+  "band": [
+    "tests/test_row705_published_denominators.py::test_loading_the_row705_tools_alone_asserts_no_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 ignored population finding escapes an import-only control",
+      "file": "toolchain/bin/bd-doc-truth",
+      "old": "        stale.extend(underived)",
+      "new": "        stale.extend(())",
+      "direction": "regression",
+      "catcher": "tests/test_row705_published_denominators.py::test_loading_the_row705_tools_alone_asserts_no_behavior"
+    }
+  ]
+}

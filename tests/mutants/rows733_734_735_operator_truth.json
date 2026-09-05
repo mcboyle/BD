@@ -1,0 +1,88 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 733, 734, and 735. Every matched span is structural; literals used to locate an anchor are confined to lookarounds. The band executes exact-count, unavailable-measurement, both CLI dispatch seams, both SPA boolean states, partial/complete pagination, and the runner refusal seam.",
+  "subject": "rows 733-735 operator truth: exact selector matches, emitted inspector state, and explicit playlist truncation",
+  "band": [
+    "tests/test_row362_templates_are_resolvable.py::test_row733_verifier_exports_exact_match_counts",
+    "tests/test_row362_templates_are_resolvable.py::test_row733_human_consumer_prints_the_exact_match_count",
+    "tests/test_row362_templates_are_resolvable.py::test_row733_cli_human_calls_report_counts_on_both_dispatch_seams",
+    "tests/test_row666_candidates_inspect_prefers_caller_url.py::test_row734_backend_emits_safe_candidate_available_by_name",
+    "tests/test_t2_history_wired.py::test_row734_dry_run_inspector_reads_the_emitted_candidate_key",
+    "tests/test_v3_43_75_bundle.py::TestExtractFailOpen::test_row735_middle_page_failure_is_truncated_and_non_ok",
+    "tests/test_v3_43_75_bundle.py::TestRunnerHooks::test_row735_runner_refuses_partial_non_ok_playlist"
+  ],
+  "mutants": [
+    {
+      "label": "M1 collapse the exported selector match count back to a boolean",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?<=        )sum(?=\\(counts\\))",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_row733_verifier_exports_exact_match_counts"
+    },
+    {
+      "label": "M2 print the selector denominator where the match count belongs",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?<=f\"matches=\\{)matches(?=\\}\")",
+      "new": "report['selector_count']",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_row733_human_consumer_prints_the_exact_match_count"
+    },
+    {
+      "label": "M3 omit the normal verification report from the human CLI seam",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?<=    else:\\n        )_print_human(?=\\(report\\)\\n    if report\\[\"verdict\"\\] == \"HIT\":)",
+      "new": "(lambda _report: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_row733_cli_human_calls_report_counts_on_both_dispatch_seams"
+    },
+    {
+      "label": "M4 omit the audit report from the human CLI seam",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?<=        else:\\n            )_print_human(?=\\(report\\)\\n        if report\\[\"verdict\"\\] == \"OK\":)",
+      "new": "(lambda _report: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row362_templates_are_resolvable.py::test_row733_cli_human_calls_report_counts_on_both_dispatch_seams"
+    },
+    {
+      "label": "M5 read the old candidate-selection name in the inspection panel",
+      "file": "frontend/src/routes/DryRunInspector.tsx",
+      "old_regex": "(?<=          \\{res\\.)safe_candidate_available(?=\\n            \\? \"✓ a safe candidate)",
+      "new": "safe_candidate_selected",
+      "direction": "regression",
+      "catcher": "tests/test_t2_history_wired.py::test_row734_dry_run_inspector_reads_the_emitted_candidate_key"
+    },
+    {
+      "label": "M6 do not mark a middle-page failure as truncated",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?<=            )truncated(?= = True)",
+      "new": "pagination_complete",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_75_bundle.py::TestExtractFailOpen::test_row735_middle_page_failure_is_truncated_and_non_ok"
+    },
+    {
+      "label": "M7 allow a nonempty partial playlist to report ok",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?<=len\\(final\\) > 0 and )not truncated(?=\\),)",
+      "new": "True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_75_bundle.py::TestExtractFailOpen::test_row735_middle_page_failure_is_truncated_and_non_ok"
+    },
+    {
+      "label": "M8 erase the named middle-page failure diagnostic",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?<=        error=)pagination_error(?=,)",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_75_bundle.py::TestExtractFailOpen::test_row735_middle_page_failure_is_truncated_and_non_ok"
+    },
+    {
+      "label": "M9 let the runner consume URLs from a non-ok partial result",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?<=            if )not(?= result\\.ok:)",
+      "new": "bool(result.urls) and",
+      "direction": "regression",
+      "catcher": "tests/test_v3_43_75_bundle.py::TestRunnerHooks::test_row735_runner_refuses_partial_non_ok_playlist"
+    }
+  ]
+}

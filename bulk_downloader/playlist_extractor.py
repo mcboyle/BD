@@ -217,6 +217,7 @@ class PlaylistResult:
     page_count: int = 0
     base_url: str = ""
     error: str = ""
+    truncated: bool = False
 
 
 def _normalize_links(
@@ -348,6 +349,8 @@ def extract_playlist_urls(
     all_titles: dict = {}
     page_count = 0
     current_url = listing_url
+    truncated = False
+    pagination_error = ""
 
     for page_idx in range(max(1, int(max_pages))):
         try:
@@ -359,7 +362,8 @@ def extract_playlist_urls(
                     ok=False, base_url=listing_url,
                     error=f"page_load_failed:{type(e).__name__}",
                 )
-            # On subsequent pages, just stop pagination
+            truncated = True
+            pagination_error = f"page_load_failed:{type(e).__name__}"
             break
 
         page_count += 1
@@ -391,11 +395,13 @@ def extract_playlist_urls(
 
     final = _dedup_preserving_order(all_urls)
     return PlaylistResult(
-        ok=(len(final) > 0),
+        ok=(len(final) > 0 and not truncated),
         urls=final,
         titles={url: all_titles[url] for url in final if url in all_titles},
         page_count=page_count,
         base_url=listing_url,
+        error=pagination_error,
+        truncated=truncated,
     )
 
 
