@@ -1088,6 +1088,30 @@ def _first_line(text: str) -> str:
     return text.split("\n", 1)[0]
 
 
+# THE SUFFIXES THIS TOOL'S OWN CORPUS ALREADY MUTATES, REGISTERED AS DATA.
+#
+# Row 711 makes an unregistered suffix UNKNOWN, because declining to judge must
+# never be recorded as a pass. That default is only safe while registration
+# stays COMPLETE for the corpus bd-mutate actually runs. Installing the default
+# WITHOUT these two families flipped 35 tracked mutants across 15 specs from
+# VALID to UNKNOWN, failed
+# tests/test_row353_mutant_anchors_survive_a_moved_census.py, and made
+# tests/mutants/row645_guard_health_and_ci_transform_control.json -- a control
+# that exists PRECISELY to ESCAPE -- unable to escape at all, because an
+# UNKNOWN mutant is never graded. Completeness is therefore gated, by
+# test_row711_every_suffix_in_the_tracked_mutant_corpus_is_registered, which
+# derives the population from the tracked specs and asks _validate itself.
+#
+# `.md` and `.txt` are prose/data subjects: no parse contract exists for a
+# mutant to break, so a mutated one is valid BY CONSTRUCTION. That is a
+# judgement, not a decline.
+_TEXT_SUFFIXES = frozenset({".md", ".txt"})
+# `.yml`/`.yaml` CAN be unparseable and PyYAML is in this environment, so they
+# are parsed for real. An unparseable one is False/INVALID -- the parser ran and
+# refused -- never the None that means "nobody looked".
+_YAML_SUFFIXES = frozenset({".yml", ".yaml"})
+
+
 def _validate(path: Path, text: str) -> tuple[bool | None, str]:
     """Can this mutant even run? Invalid is its own outcome, never 'caught'."""
     suffix = path.suffix
@@ -1107,6 +1131,37 @@ def _validate(path: Path, text: str) -> tuple[bool | None, str]:
                 return False, f"bash -n: {r.stderr.strip()[:200]}"
         finally:
             os.unlink(tmp)
+        return True, ""
+
+    if suffix == ".json":
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as exc:
+            json_unknown = None
+            return json_unknown, "json.loads: %s" % exc
+        return True, ""
+
+    if suffix in _TEXT_SUFFIXES:
+        return True, ""
+
+    if suffix in _YAML_SUFFIXES:
+        try:
+            import yaml
+        except ImportError as exc:
+            return None, (
+                "cannot validate %s: PyYAML is not importable (%s), so this "
+                "mutant's validity is UNKNOWN -- which is not the same as valid "
+                "(row 239)." % (suffix, exc))
+        try:
+            yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            # INVALID, NOT UNKNOWN. The parser ran and REFUSED this text; a
+            # measured refusal is a judgement. None would claim nobody looked,
+            # and row 711's UNKNOWN verdict skips grading entirely -- which
+            # would silently retire every .yml mutant in the corpus.
+            yaml_invalid = False
+            return yaml_invalid, "yaml.safe_load: %s" % (
+                " ".join(str(exc).split())[:200],)
         return True, ""
 
     # TYPESCRIPT AND JSX, PARSED BY THE TOOLCHAIN ALREADY IN THE TREE.
@@ -1149,7 +1204,15 @@ def _validate(path: Path, text: str) -> tuple[bool | None, str]:
                 loader, (r.stderr.strip() or "refused the mutated source")[:200])
         return True, ""
 
-    return True, ""            # unknown type: not our place to guess
+    # Extensionless, non-Python/non-shell subjects are an existing explicit
+    # contract: there is no suffix to classify, so preserve the declined
+    # validation result pinned by test_bd_mutate_reads_the_loader_first_line.
+    if not suffix:
+        return True, ""
+
+    unknown = None
+    return unknown, (
+        "cannot validate %s: no parser is registered; validity is UNKNOWN" % suffix)
 
 
 def _apply(src: str, old: str, new: str) -> str:

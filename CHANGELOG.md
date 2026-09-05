@@ -5,6 +5,79 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1488 - a restarted vault stops failing the deploy, terminal jobs become visible, keeper re-logins count against the cap, and the mutation validator stops passing what it cannot parse
+
+Train B-32: four refute-first-reviewed worker patches with disjoint authored
+paths, plus the register commit integrator C left behind on retiring.
+
+- Every service restart locks the credential vault, because the key is
+  memory-only, so the first deploy after a restart met a health endpoint that
+  reported `missing_credentials` where the gate expected `locked` and refused a
+  host that only needed unlocking. deploy.sh now diagnoses the health payload
+  into four named kinds -- unlock_pending, missing_credentials, uninitialized,
+  unrelated -- from the credential counts together with the state and the
+  degraded reason, rather than from the state string alone, and attempts the
+  sanctioned unlock exactly once for the pending kind. A host with no unlock
+  hook installed is a NAMED WARNING and a stated condition, never a pass and
+  never a failure: an absent optional hook and a hook that is present but
+  unusable have opposite remedies, and reporting the second as the first sends
+  an operator to install what is already there.
+- The v2 queue route could not return a job in a terminal state, so a caller
+  polling it could not tell finished from never-existed. Terminal jobs are now
+  visible through /api/queue/v2 carrying their terminal state, and a state that
+  cannot be determined reports UNKNOWN rather than absent -- the distinction the
+  route existed to make.
+- session_keeper re-logged in roughly every half hour without counting those
+  attempts against the login cap, so a night of keeping a session alive could
+  spend a site's tolerance invisibly. Re-login attempts are now accounted
+  against the cap through the production path, the reservation window
+  discriminates its events rather than collapsing them, a reservation write that
+  cannot be confirmed refuses as UNKNOWN, and the credential login stops logging
+  a non-persistent backend while use_persistent_profile is True.
+- bd-mutate's validator branched on suffix for Python, shell, TypeScript and
+  JSX, and every other suffix reached an unconditional `return True` -- so a
+  corrupt .json mutant was recorded VALID and its named catcher then failed
+  because the file no longer parsed rather than because any assertion fired.
+  This is the instrument that grades every cut, which is why it outranks its
+  size. An unregistered suffix is now UNKNOWN, because declining to judge must
+  never be recorded as a pass; .md and .txt are judged valid by construction
+  since no parse contract exists for a mutant to break; and .yml/.yaml are
+  parsed for real, so an unparseable one is INVALID -- the parser ran and
+  refused -- rather than the None that means nobody looked. The UNKNOWN default
+  is safe only while registration stays complete for the corpus, so completeness
+  is itself gated: installing the default without the text and YAML families
+  flipped 35 tracked mutants across 15 specs to UNKNOWN and left a control that
+  exists precisely to escape unable to escape at all.
+
+Register (integrator C's outstanding work, carried on this train):
+
+- Rows 747-750 FILED: the bandcheck contract pinned at one caller while bd-band
+  delegates unguarded; two of six webhook host-refusal classes with no executed
+  assertion; the guarded transport not driven end to end into the three deep
+  handlers; and an IPv6 encoding of the metadata address left unwrapped before
+  classification, so a spelling passes a guard that is correct about every
+  address it is asked about.
+- Row 697 gains a HOOK-ABSENT clause and tier T1. Its acceptance required the
+  sanctioned unlock hook to run, and no hook exists on main -- so it demanded a
+  step no correct cut could take.
+- Rows 671 @1486, 686 @1485, 689 @1486 and 699 @1487 CLOSED on main evidence,
+  each checked against its own acceptance rather than its patch title. 671 and
+  699 are the two worth reading. 671's acceptance asks for a test asserting 19
+  valid selectors, and the landed gate asserts 12 in its first test and 19 in a
+  later one: 12 is the committed grouped shape of the reviewed template, 19 is
+  what the production adapter emits, and the file ties the two denominators with
+  arithmetic rather than leaving a reader to reconcile them. 699 had two clauses
+  joined by AND, which is why the flake-court INHERITED verdict did not close it
+  -- that verdict names no mechanism. The landed cut both isolates the fixture's
+  ffmpeg and temporary-directory resource and NAMES the contention, so the row
+  closes on the naming plus the isolation, and never on the negative-
+  reproduction branch: its 3x rerun covers one file, not the canonical suite.
+- Row 698 CLOSED @1484. The corpus-guard classifier is proven by execution
+  rather than by AST presence, and the comment marker reports as its own
+  opted-out state instead of counting as guarded -- so both ways a tool could be
+  called guarded with no guard running are closed. It was the instrument under
+  row 470, whose count now means what it says.
+
 ## v3.66.1487 - the two real decoder checks stop sharing process and temporary state
 
 One refute-first-reviewed worker patch, boarding on the correctness lens at tier T2.

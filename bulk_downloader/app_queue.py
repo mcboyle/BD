@@ -182,13 +182,26 @@ def api_queue_preflight():
 
     ready = not any(ch["status"] == "fail" for ch in checks)
     return jsonify({"ok": True, "ready": ready, "checks": checks})
+_QUEUE_V2_TERMINAL_STATUSES = frozenset({
+    "done",
+    "skipped_duplicate",
+    "failed",
+    "error",
+    "cancelled",
+    "needs_review",
+    "stopped",
+    "dead_letter",
+})
+
+
 @queue_bp.route("/api/queue/v2")
 def api_queue_v2():
-    """SPA-shaped queue snapshot. Three buckets:
+    """SPA-shaped queue snapshot. Four buckets:
       - running: currently downloading, with progress + ETA
       - waiting: pending, with priority (lower = sooner)
+      - terminal: completed/refused/stopped jobs, addressable by URL
       - done_today_count: integer
-    Each running/waiting entry has site_id + avatar color so the SPA
+    Each job entry has site_id + avatar color so the SPA
     can render the colored per-site chip without a separate sites
     lookup."""
     runners = _app_runners()
@@ -198,6 +211,7 @@ def api_queue_v2():
     try:
         running = []
         waiting = []
+        terminal = []
         per_site_acc = []
         done_today = 0
         for sid, runner in _runners_generation(runners):
@@ -239,10 +253,20 @@ def api_queue_v2():
                                 "priority": j.get("priority", 0),
                                 "queued_ts": j.get("queued_ts", 0),
                             })
-                        elif s == "done":
-                            ts = j.get("ts_iso", "") or ""
-                            if ts.startswith(today_iso):
-                                done_today += 1
+                        elif s in _QUEUE_V2_TERMINAL_STATUSES:
+                            terminal.append({
+                                "site_id": sid, "site_name": name,
+                                "avatar_color": color,
+                                "url": url,
+                                "filename": j.get("filename", ""),
+                                "status": s,
+                                "message": j.get("message", ""),
+                                "ts_iso": j.get("ts_iso", ""),
+                            })
+                            if s == "done":
+                                ts = j.get("ts_iso", "") or ""
+                                if ts.startswith(today_iso):
+                                    done_today += 1
             except Exception:
                 continue
             if site_running or site_waiting:
@@ -258,6 +282,7 @@ def api_queue_v2():
         waiting.sort(key=lambda e: (e["priority"], e["queued_ts"]))
         # Cap waiting list at 200 for payload size; SPA paginates.
         truncated = max(0, len(waiting) - 200)
+        terminal_truncated = max(0, len(terminal) - 200)
         # Per-site drain summary (F1.6): longest-draining site first; a None
         # eta (no rate yet) sorts last so populated estimates lead.
         per_site_acc.sort(
@@ -268,6 +293,8 @@ def api_queue_v2():
             "running": running,
             "waiting": waiting[:200],
             "waiting_truncated_count": truncated,
+            "terminal": terminal[:200],
+            "terminal_truncated_count": terminal_truncated,
             "done_today_count": done_today,
             "per_site": per_site_acc,
             "ts": int(_t.time()),

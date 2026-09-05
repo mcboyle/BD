@@ -1894,8 +1894,34 @@ def _start_session_keepers(site_id=None):
                 login_cfg["password"] = acc.get("password", "")
             else:
                 login_cfg = cfg
-            # allow_manual_takeover=False: keeper runs headless, no
-            # human present to solve captchas.
+            try:
+                daily_cap = int(cfg.get("login_attempt_cap_per_day", 3))
+            except (TypeError, ValueError):
+                return False, "daily login attempt cap is invalid"
+            if daily_cap < 1:
+                return False, "daily login attempt cap must be positive"
+            attempts = _sk.login_attempts_for_day(site_id)
+            if (attempts.get("status") != "OK"
+                    or not isinstance(attempts.get("count"), int)):
+                return False, ("daily login attempt cap unavailable: "
+                               f"{attempts.get('reason', 'unknown reason')}")
+            if attempts["count"] >= daily_cap:
+                return False, ("daily login attempt cap reached "
+                               f"({attempts['count']}/{daily_cap})")
+            # The read above is NOT the bound -- it only ever refuses MORE, and
+            # it is what reports an unmeasurable denominator. The bound is the
+            # reservation: count, decide and record are one statement, so the
+            # two keepers a two-account site spawns cannot both pass one stale
+            # count. Account before contact; a failed attempt spends the site's
+            # tolerance too, and a refusal writes nothing.
+            reservation = _sk.reserve_login_attempt(
+                site_id, "app._do_login_for_keeper", daily_cap, account_idx)
+            if reservation["status"] != "OK":
+                return False, ("daily login attempt cap unavailable: "
+                               f"{reservation.get('reason', 'unknown reason')}")
+            if not reservation["granted"]:
+                return False, ("daily login attempt cap reached "
+                               f"({reservation['count']}/{daily_cap})")
             result = _login.do_login(login_cfg, allow_manual_takeover=False)
             if not isinstance(result, tuple) or len(result) < 3:
                 return False, f"do_login returned unexpected: {type(result).__name__}"

@@ -38,8 +38,8 @@
     {
       "label": "M4 OVER-CORRECTION: every TypeScript mutant is refused, valid or not",
       "file": "toolchain/bin/bd-mutate",
-      "old": "        return True, \"\"\n\n    return True, \"\"            # unknown type: not our place to guess",
-      "new": "        return False, \"tsx is not validated\"\n\n    return True, \"\"            # unknown type: not our place to guess",
+      "old_regex": "(?m)^        return(?= True, \"\"$\\n\\n    # Extensionless)",
+      "new": "        return False and",
       "direction": "overcorrection",
       "control": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_a_valid_tsx_mutant_is_still_accepted",
       "preserves": [

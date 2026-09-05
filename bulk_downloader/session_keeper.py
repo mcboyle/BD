@@ -63,6 +63,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import sqlite3
 import sys
 import threading
 import time
@@ -109,6 +110,230 @@ _LOGIN_FORM_JS = """() => {
 
 from . import cloak as _cloak
 from . import db
+
+
+# Every credential-login path records this event BEFORE contacting the site.
+# A failed login spends the site's tolerance too, so outcome events remain
+# separate and never define this denominator.
+_LOGIN_ATTEMPT_EVENT = "login_attempt"
+
+# The site config key that lifts the cap, and the value that ships. The runner
+# reads THESE; the keeper's own literals are pinned to the same two values by
+# test_keeper_shipped_default_cap_refuses_the_fourth_attempt, so the pair cannot
+# drift apart or away from the string an operator is told to edit.
+LOGIN_CAP_KEY = "login_attempt_cap_per_day"
+DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY = 3
+
+# A relogin WE refused never reached the site. It shares only the word
+# "failure" with a credential rejection, and the two lead to OPPOSITE actions
+# -- repair the account, or wait for the day to roll (A7, bd-vault-unlock).
+# session_lifetime_observations also closes a measured lifetime window on
+# auto_relogin_fail, so filing a self-refusal there would corrupt expiry
+# prediction with a window that no site ever ended.
+RELOGIN_REFUSED_EVENT = "auto_relogin_refused"
+_SELF_REFUSAL_MARK = "daily login attempt cap"
+
+
+def relogin_event_type(detail: str) -> str:
+    """Name the durable event for a failed relogin by WHO refused it.
+
+    The marker is the one phrase every cap refusal carries and no site reply
+    reaches: a site's own words arrive wrapped as ``login failed: ...``.
+    """
+    return (RELOGIN_REFUSED_EVENT if _SELF_REFUSAL_MARK in str(detail or "")
+            else "auto_relogin_fail")
+
+
+def _local_day_bounds(selected):
+    """Return ``[start, finish)`` epoch seconds for one LOCAL calendar day.
+
+    Each boundary is localised on its OWN date, so a day on the far side of a
+    DST transition is bucketed with the offset that was actually in force then.
+    A single fixed offset sampled at call time buckets such a day an hour
+    wrong in whichever direction the transition ran.
+    """
+    import datetime as _dt
+
+    def _epoch(d):
+        return _dt.datetime.combine(d, _dt.time.min).astimezone().timestamp()
+
+    return _epoch(selected), _epoch(selected + _dt.timedelta(days=1))
+
+
+def _require_login_identity(site_id, source):
+    """Normalise and REFUSE blank attribution before anything is written.
+
+    ONE copy, used by both writers: a second copy is a second thing to forget
+    to fix, and an unattributed attempt is indistinguishable from an untaken
+    one in the denominator the cap reads.
+    """
+    site_id = str(site_id or "").strip()
+    source = str(source or "").strip()
+    if not site_id or not source:
+        raise ValueError("login attempt requires nonempty site_id and source")
+    return site_id, source
+
+
+def reserve_login_attempt(site_id: str, source: str, cap: int,
+                          account_idx: int | None = None) -> dict:
+    """Atomically decide AND record one login attempt against the site/day cap.
+
+    The count, the decision and the insert are ONE SQLite statement, so the
+    write transaction is open -- and the write lock held -- before the counting
+    subquery reads.  Two accounts on one site hold DIFFERENT takeover locks
+    (``get_takeover_lock`` is keyed on ``(site, account)`` while this
+    denominator is keyed on SITE alone) and therefore enter this function
+    together; an unlocked read-then-write let all of them pass one stale count.
+
+    A REFUSAL NEVER WRITES A ROW.  The inverse -- insert, re-read, then refuse
+    on the post-insert count -- would file refused attempts as attempts, so one
+    burst would lock every account on the site out for the day with rows that
+    never touched it: the defect wearing the other face (A7).
+
+    Returns ``{"granted", "status", "count", "cap", "reason"}``.  ``status`` is
+    ``UNKNOWN`` when the denominator could not be measured at all, which is
+    distinct from a measured zero and is never permission to proceed.
+    """
+    import time as _time
+
+    site_id, source = _require_login_identity(site_id, source)
+    try:
+        cap = int(cap)
+    except (TypeError, ValueError):
+        raise ValueError("login attempt cap must be an integer")
+    detail = json.dumps({"source": source}, sort_keys=True,
+                        separators=(",", ":"))
+    try:
+        start, finish = _local_day_bounds(_dt_date_today())
+        params = {
+            "ts": _time.time(),
+            "site_id": site_id,
+            "account_idx": account_idx,
+            "event_type": _LOGIN_ATTEMPT_EVENT,
+            "detail": detail,
+            "start": start,
+            "finish": finish,
+            "cap_bound": cap,
+        }
+        window = ("WHERE site_id=:site_id AND event_type=:event_type "
+                  "AND ts>=:start AND ts<:finish")
+        with db.db_conn() as cx:
+            inserted = cx.execute(
+                "INSERT INTO session_history"
+                "(ts, site_id, account_idx, event_type, detail) "
+                "SELECT :ts, :site_id, :account_idx, :event_type, :detail "
+                "WHERE (SELECT COUNT(*) FROM session_history "
+                + window + ") < :cap_bound",
+                params,
+            ).rowcount
+            total = cx.execute(
+                "SELECT COUNT(*) FROM session_history " + window,
+                params,
+            ).fetchone()[0]
+        return {
+            "granted": inserted == 1,
+            "status": "OK",
+            "count": int(total),
+            "cap": cap,
+            "reason": None,
+        }
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        return {
+            "granted": False,
+            "status": "UNKNOWN",
+            "count": None,
+            "cap": cap,
+            "reason": f"login attempt reservation unavailable: {exc}",
+        }
+
+
+def _dt_date_today():
+    """Today's LOCAL calendar date. Named so a mutant can move it alone."""
+    import datetime as _dt
+
+    return _dt.date.today()
+
+
+def record_login_attempt(site_id: str, source: str,
+                         account_idx: int | None = None) -> None:
+    """Durably append one site login attempt, attributed to its caller.
+
+    Database failure propagates to the caller.  The login must not contact the
+    site when its attempt cannot first enter the accounting denominator.
+    """
+    site_id, source = _require_login_identity(site_id, source)
+    detail = json.dumps({"source": source}, sort_keys=True, separators=(",", ":"))
+    db.session_event_record(site_id, account_idx, _LOGIN_ATTEMPT_EVENT, detail)
+
+
+def login_attempts_for_day(site_id: str, day=None) -> dict:
+    """Return one site's complete local-calendar-day attempt denominator.
+
+    UNKNOWN is distinct from a measured zero: an invalid day, unavailable
+    database, or malformed attribution cannot report an OK count.
+    """
+    import datetime as _dt
+
+    selected = None
+    try:
+        if day is None:
+            selected = _dt.date.today()
+        elif isinstance(day, _dt.datetime):
+            selected = day.date()
+        elif isinstance(day, _dt.date):
+            selected = day
+        else:
+            selected = _dt.date.fromisoformat(str(day))
+        start, finish = _local_day_bounds(selected)
+        site_scope = "site_id=:site_id AND "
+        time_scope = "ts>=:start AND ts<:finish "
+        with db.db_conn() as cx:
+            rows = cx.execute(
+                "SELECT ts, account_idx, detail FROM session_history "
+                "WHERE " + site_scope + "event_type=:event_type AND " + time_scope +
+                "ORDER BY ts ASC, id ASC",
+                {
+                    "site_id": str(site_id),
+                    "event_type": _LOGIN_ATTEMPT_EVENT,
+                    "start": start,
+                    "finish": finish,
+                },
+            ).fetchall()
+        attempts = []
+        malformed = 0
+        for row in rows:
+            try:
+                payload = json.loads(row["detail"] or "{}")
+                source = payload.get("source")
+                if not isinstance(source, str) or not source.strip():
+                    raise ValueError("missing source")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                source = "UNKNOWN"
+                malformed += 1
+            attempts.append({
+                "ts": row["ts"],
+                "account_idx": row["account_idx"],
+                "source": source,
+            })
+        result = {
+            "status": "OK" if malformed == 0 else "UNKNOWN",
+            "site_id": str(site_id),
+            "day": selected.isoformat(),
+            "count": len(attempts),
+            "attempts": attempts,
+        }
+        if malformed:
+            result["reason"] = f"{malformed} attempt row(s) lack attribution"
+        return result
+    except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+        return {
+            "status": "UNKNOWN",
+            "site_id": str(site_id),
+            "day": selected.isoformat() if selected is not None else str(day or ""),
+            "count": None,
+            "attempts": None,
+            "reason": f"login attempt measurement unavailable: {exc}",
+        }
 
 
 # ─── Timing knobs ────────────────────────────────────────────────────
@@ -560,7 +785,10 @@ class SessionKeeper:
             self._set_state("connected", "auto-relogin succeeded")
             self._record_event("auto_relogin_ok", relogin_detail)
         else:
-            self._record_event("auto_relogin_fail", relogin_detail)
+            # Who refused decides the durable identity: a cap refusal we issued
+            # ourselves and a rejection by the site lead to opposite actions.
+            self._record_event(relogin_event_type(relogin_detail),
+                               relogin_detail)
             if "captcha" in relogin_detail.lower() or "2fa" in relogin_detail.lower():
                 self._set_state("needs_takeover", relogin_detail)
                 self._record_event("needs_takeover", relogin_detail)

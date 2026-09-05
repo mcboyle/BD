@@ -278,14 +278,57 @@ class AuthMixin:
                 # applies here too — a keeper heartbeat running its own
                 # sync_playwright in parallel can deadlock the worker-
                 # initiated re-login. The keeper detects its torn-down
-                # browser on next heartbeat and reconnects automatically;
-                # no explicit resume call needed (no such function exists).
-                # Best-effort: if session_keeper isn't importable or
-                # pause raises, we proceed anyway — that's the same
-                # fail-open behavior the keeper's own relogin callback
-                # uses (session_keeper.py:721).
+                # browser reconnects on the next heartbeat; no resume API exists.
+                # Pausing preserves its historical best-effort behavior.
+                # Accounting below is fail-closed: no row means no site contact.
+                # Bind the accounting module BEFORE its first use. When this
+                # lived inside a warn-only try, a failed import left _sk unbound
+                # and the operator was shown "cannot access local variable
+                # '_sk'" -- a Python scoping artifact instead of the step that
+                # failed and the error it raised (A7).
                 try:
                     from . import session_keeper as _sk
+                except Exception as _e:
+                    _accounting_error = RuntimeError(
+                        "login accounting unavailable: session_keeper is not "
+                        f"importable ({type(_e).__name__}: {_e})")
+                    raise _accounting_error from _e
+                # This path spends the same site/day budget the keeper spends,
+                # so it reads the same bound. Leaving it uncapped let UI and
+                # worker logins drain the day and starve the keeper -- the one
+                # caller the cap could reach -- which is not a cap.
+                _cap_raw = self.config.get(
+                    _sk.LOGIN_CAP_KEY, _sk.DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY)
+                try:
+                    _daily_cap = int(_cap_raw)
+                except (TypeError, ValueError):
+                    _daily_cap = None
+                if _daily_cap is None or _daily_cap < 1:
+                    self._login_status = (
+                        "✗ daily login attempt cap is invalid: "
+                        f"{_sk.LOGIN_CAP_KEY}={_cap_raw!r}")
+                    _settle(False)
+                    return
+                _reservation = _sk.reserve_login_attempt(
+                    self.site_id, "runner_auth.login_async", _daily_cap,
+                    getattr(self, "_active_account_idx", None))
+                if not _reservation["granted"]:
+                    _refusal = (
+                        "daily login attempt cap unavailable: "
+                        f"{_reservation['reason']}"
+                        if _reservation["status"] != "OK" else
+                        "daily login attempt cap reached "
+                        f"({_reservation['count']}/{_daily_cap}); raise "
+                        f"{_sk.LOGIN_CAP_KEY} for this site to log in "
+                        "again today")
+                    self._login_status = "✗ " + _refusal
+                    sys.stderr.write(
+                        f"[{self.site_id}] login_async refused: {_refusal}\n")
+                    _settle(False)
+                    return
+                # Only pause the keepers for a login that is actually going to
+                # happen; a refused attempt must leave the keeper running.
+                try:
                     _sk.pause_site_keepers(self.site_id)  # INV-001
                 except Exception as _e:
                     sys.stderr.write(

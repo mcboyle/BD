@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 697 transform control. The same valid hook-bypass transform is applied while only the module-import control runs. It must ESCAPE, proving the primary CAUGHT result comes from behavioral assertions rather than syntax, import, or collection failure.",
+  "subject": "row 697 transform control imports the deploy subject without judging unlock behavior",
+  "band": [
+    "tests/test_row697_deploy_unlock_pending_vault.py::test_transform_control_imports_subject_without_asserting_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL bypass sanctioned local unlock hook under import-only coverage",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bbash\\b(?= \"\\$vault_unlock_hook\" local)",
+      "new": "true",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_transform_control_imports_subject_without_asserting_behavior"
+    }
+  ]
+}

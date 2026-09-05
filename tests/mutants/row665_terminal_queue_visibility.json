@@ -1,0 +1,114 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 665. M1-M8 independently remove every measured terminal state; M9 removes the bucket append, M10 corrupts the reported state, and M11-M12 break the independent payload bound and truncation count. Every old_regex matches only value-free structure; status and bound literals live solely in zero-width lookarounds. The companion transform control applies M7 to an import-only node and must ESCAPE.",
+  "subject": "api_queue_v2 exposes every known terminal job by URL and actual status in a bounded additive bucket",
+  "band": [
+    "tests/test_row665_terminal_jobs_are_visible.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 omit done from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"done\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_done_and_skipped_duplicate_are_both_visible_by_url"
+    },
+    {
+      "label": "M2 omit skipped_duplicate from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"skipped_duplicate\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_done_and_skipped_duplicate_are_both_visible_by_url"
+    },
+    {
+      "label": "M3 omit failed from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"failed\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[failed]"
+    },
+    {
+      "label": "M4 omit error from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"error\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[error]"
+    },
+    {
+      "label": "M5 omit cancelled from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"cancelled\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[cancelled]"
+    },
+    {
+      "label": "M6 omit needs_review from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"needs_review\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[needs_review]"
+    },
+    {
+      "label": "M7 omit stopped from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"stopped\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[stopped]"
+    },
+    {
+      "label": "M8 omit dead_letter from the terminal denominator",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"dead_letter\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[dead_letter]"
+    },
+    {
+      "label": "M9 append terminal jobs to waiting instead",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "terminal(?=\\.append\\(\\{)",
+      "new": "waiting",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_done_and_skipped_duplicate_are_both_visible_by_url"
+    },
+    {
+      "label": "M10 report every terminal job with the wrong state",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?<=                                \"status\": )s(?=,\\n                                \"message\")",
+      "new": "\"done\"",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_each_other_terminal_state_is_visible_by_url[stopped]"
+    },
+    {
+      "label": "M11 shift the bounded terminal window by one job",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "terminal(?=\\[:200\\],)",
+      "new": "terminal[1:]",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_terminal_bucket_is_capped_and_reports_the_exact_remainder"
+    },
+    {
+      "label": "M12 derive terminal truncation from waiting jobs",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "terminal(?=\\) - 200\\))",
+      "new": "waiting",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_terminal_bucket_is_capped_and_reports_the_exact_remainder"
+    },
+    {
+      "label": "M13 classify every non-active state as terminal",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "elif\\s+s\\s+in\\s+_QUEUE_V2_TERMINAL_STATUSES:",
+      "new": "elif s not in {\"running\", \"pending\"}:",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_an_unknown_future_status_is_not_misclassified_as_terminal"
+    }
+  ]
+}

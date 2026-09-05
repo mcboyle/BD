@@ -1,0 +1,98 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 697 deploy unlock-pending battery. Every old_regex matches only value-free shell/Python structure; policy values appear solely in lookarounds. M11 matches only the space after the timeout value, then lengthens that value in its replacement. The battery mutates each behavior at the sole _vault_health_diagnosis call seam: recognize unlock-pending observations, invoke the sanctioned hook, enforce one bounded re-probe, retain every distinctive refusal, and pass the measured curl bound on the executed argv.",
+  "subject": "row 697 - deploy unlocks an initialized restart-locked vault before bounded health judgment",
+  "band": [
+    "tests/test_row697_deploy_unlock_pending_vault.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 refuse to classify locked missing_credentials as unlock-pending",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^    or(?= \\(state == \"missing_credentials\" and degraded == \"credential_missing\" and missing_count > 0\\)$)",
+      "new": "    and",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_initialized_locked_vault_runs_unlock_hook_then_reprobes_health"
+    },
+    {
+      "label": "M2 bypass the sanctioned local unlock hook",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bbash\\b(?= \"\\$vault_unlock_hook\" local)",
+      "new": "true",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_initialized_locked_vault_runs_unlock_hook_then_reprobes_health"
+    },
+    {
+      "label": "M3 stop after the hook instead of re-probing health",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^        continue(?=\\n      fi\\n      if \\[ \"\\$vault_state\" != \"locked\" \\]; then)",
+      "new": "        break",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_initialized_locked_vault_runs_unlock_hook_then_reprobes_health"
+    },
+    {
+      "label": "M4 collapse genuine post-unlock missing credentials into unrelated degradation",
+      "file": "scripts/deploy.sh",
+      "old_regex": "missing_credentials(?=\\)\\n      if \\[ \"\\$vault_unlock_attempted\" -eq 1 \\]; then)",
+      "new": "never_missing",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_a_genuinely_missing_credential_fails_after_the_unlock_reprobe"
+    },
+    {
+      "label": "M5 collapse an uninitialized vault into unrelated degradation",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?m)^elif(?= \\(\\n    isinstance\\(credentials, dict\\)\\n    and credentials.get\\(\"is_initialized\"\\) is False)",
+      "new": "elif False and",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_non_unlockable_degradation_fails_without_calling_the_hook[first0-VAULT-UNINITIALIZED]"
+    },
+    {
+      "label": "M6 let unrelated degradation fall through to ordinary polling",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\*(?=\\)\\n      die \"UNRELATED-DEGRADED: GET \\$HEALTH_URL)",
+      "new": "invalid",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_non_unlockable_degradation_fails_without_calling_the_hook[first1-UNRELATED-DEGRADED]"
+    },
+    {
+      "label": "M7 downgrade the no-hook missing_credentials refusal to a note",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bdie\\b(?= \"VAULT-UNLOCK-HOOK-UNAVAILABLE:)",
+      "new": "note",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_missing_credentials_without_unlock_hook_refuses_before_accepting_degraded"
+    },
+    {
+      "label": "M8 downgrade the post-unlock still-locked refusal to a note",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bdie\\b(?= \"VAULT-STILL-LOCKED-AFTER-UNLOCK:)",
+      "new": "note",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_still_locked_after_unlock_refuses_after_one_bounded_reprobe"
+    },
+    {
+      "label": "M9 downgrade the nonzero unlock-hook refusal to a note",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bdie\\b(?= \"VAULT-UNLOCK-HOOK-FAILED:)",
+      "new": "note",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_nonzero_unlock_hook_refuses_without_an_extra_health_probe"
+    },
+    {
+      "label": "M10 downgrade the pre-unlock credential-missing refusal to a note",
+      "file": "scripts/deploy.sh",
+      "old_regex": "\\bdie\\b(?= \"CREDENTIAL-MISSING:)",
+      "new": "note",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_preunlock_missing_credential_keeps_its_distinctive_refusal"
+    },
+    {
+      "label": "M11 lengthen the health curl maximum time from five to five hundred seconds",
+      "file": "scripts/deploy.sh",
+      "old_regex": "(?<=--max-time 5) (?=\"\\$HEALTH_URL\")",
+      "new": "00 ",
+      "direction": "regression",
+      "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_initialized_locked_vault_runs_unlock_hook_then_reprobes_health"
+    }
+  ]
+}

@@ -467,6 +467,7 @@ jobs:
               tests/test_v3_62_2_guards.py
               tests/test_row634_live_registry_iteration_is_snapshotted.py
               tests/test_login_api_refuses_impossible_manual_start.py
+              tests/test_row667_login_attempt_accounting.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -549,6 +550,7 @@ jobs:
           - name: deploy-readiness
             suites: >-
               tests/test_deploy_script.py
+              tests/test_row697_deploy_unlock_pending_vault.py
           # Rows 617/623/624/625/628/629/631. Secrets delete/probe state is a
           # cross-backend safety contract, including a deterministic two-writer
           # transaction and the extension rate-accounting boundary.
@@ -580,6 +582,7 @@ jobs:
               tests/test_row545_the_skip_arm_carries_its_whole_result.py
               tests/test_row607_a_history_row_proves_a_real_transfer.py
               tests/test_row664_dedup_refusal_reaches_history.py
+              tests/test_row665_terminal_jobs_are_visible.py
           # Row 649 recovers three independent module-scoped contracts whose
           # original test files never reached main. Keep their CI visibility
           # explicit rather than relying on a future touched-file derivation.

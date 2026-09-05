@@ -1,0 +1,114 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 711. The validator must parse JSON, judge the suffix families its own tracked corpus mutates, and fail closed for every suffix that is still unregistered. Each old/old_regex matched span is structural and value-free; values live only in lookaheads. M6-M11 cover the registration seam added after generation c: installing the UNKNOWN default WITHOUT registering .md/.txt/.yml flipped 35 tracked mutants across 15 specs from graded to UNKNOWN, so a CAUGHT stopped being CAUGHT and a transform control that exists to ESCAPE could not escape. The paired transform control applies M1 to an import-only node and must ESCAPE.",
+  "subject": "row711 -- bd-mutate validation never mistakes unparsed source for a valid mutant",
+  "band": [
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_corrupt_json_is_unknown_and_never_graded",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_unknown_suffix_is_unknown_and_never_graded",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_well_formed_json_still_grades_normally",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_every_suffix_in_the_tracked_mutant_corpus_is_registered",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_the_registration_gate_fires_when_a_family_is_deregistered",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_text_subjects_are_judged_valid_rather_than_declined",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_yaml_is_parsed_for_real_and_a_broken_one_is_INVALID_not_UNKNOWN",
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_a_yaml_mutant_still_grades_normally",
+    "tests/test_bd_mutate_reads_the_loader_first_line.py::test_a_genuine_non_python_subject_is_still_declined"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the unknown-suffix path falls through as valid again",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    return unknown",
+      "new": "    return True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_unknown_suffix_is_unknown_and_never_graded"
+    },
+    {
+      "label": "M2 JSON bypasses its parser and becomes merely unknown",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^    if(?= suffix == \"\\.json\":$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_corrupt_json_is_unknown_and_never_graded"
+    },
+    {
+      "label": "M3 corrupt JSON is accepted without parsing",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^            json\\.loads(?=\\(text\\)$)",
+      "new": "            str",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_corrupt_json_is_unknown_and_never_graded"
+    },
+    {
+      "label": "M4 OVER-CORRECTION well-formed JSON is also refused",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^        return(?= True, \"\"$\\n\\n    if suffix in _TEXT_SUFFIXES:)",
+      "new": "        return False and",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_well_formed_json_still_grades_normally",
+      "preserves": [
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_corrupt_json_is_unknown_and_never_graded",
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_unknown_suffix_is_unknown_and_never_graded"
+      ]
+    },
+    {
+      "label": "M5 extensionless declined subjects are reclassified as unknown",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^    if(?= not suffix:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_bd_mutate_reads_the_loader_first_line.py::test_a_genuine_non_python_subject_is_still_declined"
+    },
+    {
+      "label": "M6 the text family stops being judged and every .md mutant goes UNKNOWN",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^    if(?= suffix in _TEXT_SUFFIXES:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_text_subjects_are_judged_valid_rather_than_declined"
+    },
+    {
+      "label": "M7 the text registration is emptied, which is the regression this cut repairs",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^_TEXT_SUFFIXES = )frozenset(?=\\(\\{)",
+      "new": "set() and frozenset",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_every_suffix_in_the_tracked_mutant_corpus_is_registered"
+    },
+    {
+      "label": "M8 the yaml family stops being judged, so every CI-shard mutant goes UNKNOWN",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^    if(?= suffix in _YAML_SUFFIXES:$)",
+      "new": "    if False and",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_a_yaml_mutant_still_grades_normally"
+    },
+    {
+      "label": "M9 yaml is not actually parsed, so an unparseable mutant is called valid",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^            yaml\\.safe_load(?=\\(text\\)$)",
+      "new": "            str",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_yaml_is_parsed_for_real_and_a_broken_one_is_INVALID_not_UNKNOWN"
+    },
+    {
+      "label": "M10 a parser that ran and refused is downgraded to nobody-looked",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^            return yaml_invalid, (?=\"yaml\\.safe_load: %s\" % \\($)",
+      "new": "            return None, ",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_yaml_is_parsed_for_real_and_a_broken_one_is_INVALID_not_UNKNOWN"
+    },
+    {
+      "label": "M11 OVER-CORRECTION every text subject is refused instead of judged valid",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)^        return(?= True, \"\"$\\n\\n    if suffix in _YAML_SUFFIXES:)",
+      "new": "        return False and",
+      "direction": "overcorrection",
+      "control": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_text_subjects_are_judged_valid_rather_than_declined",
+      "preserves": [
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_unknown_suffix_is_unknown_and_never_graded",
+        "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_every_suffix_in_the_tracked_mutant_corpus_is_registered"
+      ]
+    }
+  ]
+}

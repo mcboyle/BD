@@ -1,0 +1,362 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 667. Anchors match structural names, keywords, or zero-width execution positions only; values and derived counts are outside every matched span. The transform control applies M1 to the clause-2 load path and must ESCAPE.",
+  "subject": "every credential login reserves its attempt atomically against one per-site/local-day cap, and a refusal we issued is not a refusal by the site",
+  "band": [
+    "tests/test_row667_login_attempt_accounting.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 runner bypasses attempt accounting",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^                _reservation = _sk\\.)reserve_login_attempt(?=\\()",
+      "new": "session_event_recent",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    },
+    {
+      "label": "M2 keeper callback bypasses attempt accounting",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^            reservation = _sk\\.)reserve_login_attempt(?=\\()",
+      "new": "session_event_recent",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    },
+    {
+      "label": "M3 appended attempts use an event the query does not count",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=db\\.session_event_record\\(site_id, account_idx, )_LOGIN_ATTEMPT_EVENT(?=, detail\\))",
+      "new": "_SIGNIN_WORD",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_durable_site_day_query_counts_attempts_and_preserves_attribution"
+    },
+    {
+      "label": "M4 runner contacts the site before reserving its attempt",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?=^                _reservation = _sk\\.reserve_login_attempt\\($)",
+      "new": "                do_login(self.config, allow_manual_takeover=allow_manual)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    },
+    {
+      "label": "M5 keeper contacts the site before reserving its attempt",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?=^            reservation = _sk\\.reserve_login_attempt\\($)",
+      "new": "            _login.do_login(login_cfg, allow_manual_takeover=False)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    },
+    {
+      "label": "M6 malformed attribution is reported OK",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=\\\"status\\\": \\\"OK\\\" if )malformed(?= == 0 else \\\"UNKNOWN\\\")",
+      "new": "malformed - malformed",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_malformed_attempt_attribution_is_unknown"
+    },
+    {
+      "label": "M7 query drops the site scope",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=\\\"WHERE \\\" \\+ )site_scope(?= \\+ \\\"event_type=:event_type AND \\\" \\+ time_scope)",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M8 query drops the time window",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=\\\"event_type=:event_type AND \\\" \\+ )time_scope(?= \\+\\n                \\\"ORDER BY ts ASC, id ASC\\\")",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M9 query finish extends four hundred days",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^        time_scope = \\\"ts>=:start AND ts<:finish \\\"\\n)(?=        with db\\.db_conn\\(\\) as cx:$)",
+      "new": "        finish = _local_day_bounds(selected + _dt.timedelta(days=400))[1]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M10 explicit day argument is ignored",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?=^            selected = _dt\\.date\\.fromisoformat\\(str\\(day\\)\\)$)",
+      "new": "            day = _dt.date.today().isoformat()\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M11 invalid attribution guard silently returns",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)^        raise(?= ValueError\\(\\\"login attempt requires nonempty site_id and source\\\"\\)$)",
+      "new": "        return",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M12 keeper cap bypasses the durable query",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^            attempts = )_sk\\.login_attempts_for_day(?=\\(site_id\\)$)",
+      "new": "(lambda *_a, **_k: {\"status\": \"OK\", \"count\": 0})",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_unknown_count_refuses_without_contact"
+    },
+    {
+      "label": "M13 shipped default cap is replaced by an effectively unbounded value",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^                daily_cap = int\\()cfg\\.get(?=\\(\"login_attempt_cap_per_day\", 3\\)\\)$)",
+      "new": "(lambda *_args: 999)",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_shipped_default_cap_refuses_the_fourth_attempt"
+    },
+    {
+      "label": "M14 UNKNOWN attempt measurement is allowed to proceed",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)^            if (?=\\(attempts\\.get\\(\"status\"\\) != \"OK\"$)",
+      "new": "            if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_unknown_count_refuses_without_contact"
+    },
+    {
+      "label": "M15 invalid cap falls back to an effectively unbounded value",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^                )return(?= False, \"daily login attempt cap is invalid\"$)",
+      "new": "daily_cap = 999\n                if False: return",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_invalid_cap_refuses_without_contact"
+    },
+    {
+      "label": "M16 nonpositive cap refusal is bypassed",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)^            if (?=daily_cap < 1:$)",
+      "new": "            if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_zero_cap_refuses_without_contact"
+    },
+    {
+      "label": "M17 shared session history rows bypass the login event discriminator",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=\"WHERE \" \\+ site_scope \\+ \")event_type(?==:event_type AND \" \\+ time_scope \\+)",
+      "new": "1=1 OR event_type",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M18 empty source no longer triggers the write guard",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^    if not site_id )or not source(?=:$)",
+      "new": "and not source",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_record_attempt_rejects_blank_identity_without_writing[empty-source]"
+    },
+    {
+      "label": "M19 site identity is no longer stripped before validation",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^    site_id = str\\(site_id or \"\"\\))\\.strip\\(\\)(?=$)",
+      "new": "[0:]",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_record_attempt_rejects_blank_identity_without_writing[blank-site]"
+    },
+    {
+      "label": "M20 whitespace-only source is treated as attributed",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^                if not isinstance\\(source, str\\) )or not source\\.strip\\(\\)(?=:$)",
+      "new": "or False and source.strip()",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_whitespace_only_attempt_source_is_unknown"
+    },
+    {
+      "label": "M21 datetime argument is replaced by today",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            selected = )day\\.date\\(\\)(?=$)",
+      "new": "_dt.date.today()",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_datetime_argument_uses_its_calendar_day"
+    },
+    {
+      "label": "M22 date argument is replaced by today",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            selected = )day(?=$)",
+      "new": "_dt.date.today()",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_date_argument_uses_the_supplied_calendar_day"
+    },
+    {
+      "label": "M23 runner account identity is discarded",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^                    )getattr(?=\\(self, \"_active_account_idx\", None\\)\\)$)",
+      "new": "(lambda *_args: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_attempt_row_preserves_active_account_identity"
+    },
+    {
+      "label": "M24 query start reaches back four hundred days",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^        time_scope = \\\"ts>=:start AND ts<:finish \\\"\\n)(?=        with db\\.db_conn\\(\\) as cx:$)",
+      "new": "        start = _local_day_bounds(selected - _dt.timedelta(days=400))[0]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M25 day bounds are read in UTC instead of local time",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=_dt\\.datetime\\.combine\\(d, _dt\\.time\\.min\\)\\.)astimezone\\(\\)(?=\\.timestamp\\(\\))",
+      "new": "replace(tzinfo=_dt.timezone.utc)",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_query_scopes_to_one_site_and_one_local_day"
+    },
+    {
+      "label": "M26 day bounds use one offset sampled at call time",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=_dt\\.datetime\\.combine\\(d, _dt\\.time\\.min\\)\\.)astimezone\\(\\)(?=\\.timestamp\\(\\))",
+      "new": "replace(tzinfo=_dt.datetime.now().astimezone().tzinfo)",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_day_bounds_use_the_offset_in_force_on_that_day"
+    },
+    {
+      "label": "M27 the reservation admits one attempt past the cap",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \"cap_bound\": )cap(?=,$)",
+      "new": "cap + 1",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M28 the reservation ignores whether the insert actually happened",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"granted\\\": )inserted(?= == 1,$)",
+      "new": "1",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M29 the runner ignores the reservation verdict",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)^                if (?=not _reservation\\[\\\"granted\\\"\\]:$)",
+      "new": "                if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_login_reads_the_same_cap_it_spends"
+    },
+    {
+      "label": "M30 the keeper ignores the reservation verdict",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)^            if (?=not reservation\\[\\\"granted\\\"\\]:$)",
+      "new": "            if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M31 the keeper reverts to an unlocked read-then-write",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)(?<=^            reservation = )_sk\\.reserve_login_attempt(?=\\($)",
+      "new": "(lambda _site, _source, _cap, _idx: (_sk.record_login_attempt(_site, _source, _idx), {\"granted\": True, \"status\": \"OK\", \"count\": 0, \"cap\": _cap, \"reason\": None})[-1])",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M32 the accounting module is left unbound when its import fails",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)^                    raise _accounting_error from _e$",
+      "new": "                    _sk = None",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_unimportable_session_keeper_names_the_failing_step"
+    },
+    {
+      "label": "M33 the classifier files our own refusal as a site rejection",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=    return \\()RELOGIN_REFUSED_EVENT(?= if _SELF_REFUSAL_MARK in str\\(detail or \\\"\\\"\\))",
+      "new": "\"auto_relogin_fail\"",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_a_self_refusal_and_a_site_refusal_have_distinct_event_types"
+    },
+    {
+      "label": "M34 the relogin branch stops asking who refused",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            self\\._record_event\\()relogin_event_type(?=\\(relogin_detail\\),$)",
+      "new": "(lambda _detail: \"auto_relogin_fail\")",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_a_self_refusal_and_a_site_refusal_have_distinct_event_types"
+    },
+    {
+      "label": "M35 the reservation counts every site instead of this one",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^                \\+ )window(?= \\+ \"\\) < :cap_bound\",$)",
+      "new": "\"WHERE 1=1\"",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M36 the reservation counts an event no login writes",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"event_type\\\": )_LOGIN_ATTEMPT_EVENT(?=,$)",
+      "new": "\"heartbeat_ok\"",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M37 the reservation counts a day that can never contain today",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^        start, finish = _local_day_bounds\\()_dt_date_today\\(\\)(?=\\)$)",
+      "new": "_dt_date_today() - __import__(\"datetime\").timedelta(days=400)",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
+    },
+    {
+      "label": "M38 the runner's shipped default becomes effectively unbounded",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^                    _sk\\.LOGIN_CAP_KEY, _sk\\.)DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY(?=\\)$)",
+      "new": "DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY * 999",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_shipped_default_and_invalid_cap_refuse_without_contact"
+    },
+    {
+      "label": "M39 the runner's invalid-cap guard is bypassed",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)^                if (?=_daily_cap is None or _daily_cap < 1:$)",
+      "new": "                if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_shipped_default_and_invalid_cap_refuse_without_contact"
+    },
+    {
+      "label": "M40 reservation storage failure grants site contact",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"granted\\\": )(?=False,$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_refuses_when_reservation_write_makes_count_unknown"
+    },
+    {
+      "label": "M41 reservation storage failure reports a measured status",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"granted\\\": False,\\n            \\\"status\\\": )(?=\\\"UNKNOWN\\\",$)",
+      "new": "\"OK\" if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_refuses_when_reservation_write_makes_count_unknown"
+    },
+    {
+      "label": "M42 reservation storage failure invents a zero count",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"status\\\": \\\"UNKNOWN\\\",\\n            \\\"count\\\": )(?=None,$)",
+      "new": "0 if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_runner_refuses_when_reservation_write_makes_count_unknown"
+    },
+    {
+      "label": "M43 reservation window drops the event discriminator",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^        window = \\(\\\"WHERE site_id=:site_id AND event_type=:event_type \\\"\\n                  \\\"AND ts>=:start AND ts<:finish\\\"\\)\\n)(?=        with db\\.db_conn\\(\\) as cx:$)",
+      "new": "        window = window.replace(\"event_type=:event_type AND \", \"\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_reservation_window_counts_only_login_attempt_events"
+    },
+    {
+      "label": "M44 source identity is no longer stripped before validation",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^    source = str\\(source or \\\"\\\"\\))\\.strip\\(\\)(?=$)",
+      "new": "[0:]",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_reservation_strips_source_and_refuses_whitespace_before_writing"
+    }
+  ]
+}

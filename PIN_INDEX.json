@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 126,
+    "total": 127,
     "version": 1,
-    "count_dict": 125,
-    "test_files_scanned": 1612,
+    "count_dict": 126,
+    "test_files_scanned": 1615,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -40,6 +40,7 @@
       "tests/test_row360_turnstile_bypass_is_installed.py": 2,
       "tests/test_row363_affordance_learning.py": 1,
       "tests/test_row439_segmented_transfers_honor_the_egress_gate.py": 1,
+      "tests/test_row667_login_attempt_accounting.py": 1,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
@@ -436,6 +437,16 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row667_login_attempt_accounting.py",
+      "line": 413,
+      "value": {
+        "heartbeat_ok": 1,
+        "login_attempt": 1
+      },
+      "gates_what": "test_reservation_window_counts_only_login_attempt_events"
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
       "line": 808,
       "value": {
@@ -493,7 +504,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1487",
+      "value": "3.66.1488",
       "gates_what": "test_containment_routes_and_version"
     },
     {
