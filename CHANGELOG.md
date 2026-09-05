@@ -5,6 +5,24 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1498 - a whitespace-only cookie value no longer counts as substantial
+
+One operator-supplied winner patch (astra), a security follow-up to row 757,
+verified by bd-fable, plus the register row it closes. CI on the exact head is
+the gate; the local lane suite was skipped by operator instruction.
+
+- v3.66.1497 made login decide success on a cookie DELTA rather than a cookie
+  count, and the delta counts a cookie as substantial when its value exceeds
+  eight characters. That length was measured on the raw value, so a value of
+  nothing but whitespace -- nine spaces is nine characters -- satisfied the
+  test, and a padded, empty-in-substance cookie re-opened the very
+  false-positive row 757 had closed. The value is now stripped before it is
+  measured. Reverting that single .strip() fails twelve tests against a green
+  fifty-one, and the failures name the padded_short cases, so the RED is
+  specific to whitespace padding rather than to the fixture around it.
+
+Register: row 758 filed and CLOSED at this version.
+
 ## v3.66.1497 - four test2 winners: a scene URL is classified, a primary URL is correct, a persistent context keeps its cookies, and login stops trusting a cookie count
 
 Four operator-supplied winner patches from the test2 head-to-head set, each

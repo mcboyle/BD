@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Six behavioral controls cover all three submit recovery callers, delta names, unavailable measurement, and retained AJAX success.",
+  "_comment": "Behavioral controls cover all three submit recovery callers, delta names, unavailable measurement, retained AJAX success, and empty/whitespace values.",
   "subject": "submit success requires new cookie names across all cookie-recovery branches",
   "band": [
     "tests/test_login_submit_robustness.py"
@@ -52,6 +52,22 @@
       "old": "if len(new_substantial)",
       "new": "if False and len(new_substantial)",
       "catcher": "tests/test_login_submit_robustness.py::test_wowgirls_ajax_new_cookie_delta_still_succeeds[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M7 whitespace padding counted as substantial",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "\\.strip\\(\\)(?=\\) > \\d+\\])",
+      "new": ".ljust(0)",
+      "catcher": "tests/test_login_submit_robustness.py::test_cookie_delta_rejects_insubstantial_fourth_value[spaces-ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M8 preexisting empty-valued names forgotten",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "for c in before_cookies",
+      "new": "for c in before_cookies if c.get('value')",
+      "catcher": "tests/test_login_submit_robustness.py::test_preexisting_empty_cookie_name_never_counts_as_new[gained_value-ajax]",
       "direction": "regression"
     }
   ]

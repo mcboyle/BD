@@ -136,7 +136,7 @@ def _looks_authenticated(cookies, *, before_cookies=()):
         return False, "pre-submit cookie snapshot unavailable; no auth-looking cookie"
     before_names = {c.get("name") for c in before_cookies}
     substantial = [c for c in non_empty
-                   if len(str(c.get("value", ""))) > 8]
+                   if len(str(c.get("value", "")).strip()) > 8]
     new_substantial = {c.get("name") for c in substantial
                        if c.get("name") and c.get("name") not in before_names}
     if len(new_substantial) >= 4:
