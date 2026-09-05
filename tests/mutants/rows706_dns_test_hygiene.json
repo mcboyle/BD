@@ -1,0 +1,61 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 706. Every old_regex matches only value-free structure; literals used to identify a seam are confined to lookahead. The battery catches removal of the fail-closed test body, loss of its deterministic DNS failure, deletion of the tree-derived population, and a disabled child-process DNS boundary.",
+  "subject": "the fail-closed SSRF assertion and every tree-derived resolver-adjacent test run without live DNS",
+  "band": [
+    "tests/test_rows706_714_test_hygiene.py::test_row706_fail_closed_probe_never_reaches_the_live_resolver",
+    "tests/test_rows706_714_test_hygiene.py::test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire",
+    "tests/test_rows706_714_test_hygiene.py::test_row706_narrowed_census_is_unknown",
+    "tests/test_rows706_714_test_hygiene.py::test_row706_gate_owns_the_resolver_call_count_assertion"
+  ],
+  "mutants": [
+    {
+      "label": "M1 fail-closed test returns before checking its resolver seam",
+      "file": "tests/test_v3_66_24_phase4_ssrf_hardening.py",
+      "old_regex": "(?m)^    def test_unresolvable_hostname_blocked_fail_closed\\(self\\):$",
+      "new": "    def test_unresolvable_hostname_blocked_fail_closed(self):\n        return",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_fail_closed_probe_never_reaches_the_live_resolver"
+    },
+    {
+      "label": "M2 deterministic resolver failure changes class",
+      "file": "tests/test_v3_66_24_phase4_ssrf_hardening.py",
+      "old_regex": "socket\\.gaierror(?=\\(-2, \"Name or service not known\"\\))",
+      "new": "RuntimeError",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_fail_closed_probe_never_reaches_the_live_resolver"
+    },
+    {
+      "label": "M3 tree-derived resolver-adjacent sites are not accumulated",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "sites\\.append(?=\\(\\(f\"\\{path\\}:\\{item\\.lineno\\}:\\{nodeid\\}\")",
+      "new": "sites.extend",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire"
+    },
+    {
+      "label": "M4 child DNS boundary is disabled",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "if isinstance(?=\\(host, str\\) and host\\.endswith\\(_suffix\\):)",
+      "new": "if bool",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire"
+    },
+    {
+      "label": "M5 gate resolver call-count assertion is deleted",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "(?m)^    assert(?= resolve\\.call_count)",
+      "new": "    pass  #",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_gate_owns_the_resolver_call_count_assertion"
+    },
+    {
+      "label": "M6 resolver-adjacent census is truncated",
+      "file": "tests/test_rows706_714_test_hygiene.py",
+      "old_regex": "(?m)^    return tuple\\(sorted\\(sites\\)\\)$",
+      "new": "    return tuple(sorted(sites[:-1]))",
+      "direction": "regression",
+      "catcher": "tests/test_rows706_714_test_hygiene.py::test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire"
+    }
+  ]
+}
