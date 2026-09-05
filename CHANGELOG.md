@@ -5,6 +5,30 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1493 - a register-only cut: the hunt reaping test fails only under canonical load
+
+No source change. This cut files one row and nothing else.
+
+- Row 753 FILED, T2, and it is a diagnosis rather than a report. On the exact
+  final tree of v3.66.1492,
+  test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait fails
+  under the sanctioned -n 24 --dist loadfile form at host load ~85, passes
+  alone, and passes under -n 12 --dist loadfile. Its whole file passes alone at
+  157 tests. So the discriminator is concurrency and load, not the tree, and
+  nothing about the code under test differs between those runs.
+- It is not a regression: the subject is unchanged across 1490..1492 and
+  exact-head CI is green on all three candidates.
+- What the row does not claim: WHY load decides it. A test named for never
+  entering an unbounded child wait, failing only when 24 workers contend,
+  points at a reap or timeout window that is generous at -n 12 and not at -n
+  24 -- but that is a hypothesis, and nobody has instrumented the wait. Its
+  acceptance asks for that boundary to be named by instrumenting it rather than
+  by reading the source, and explicitly refuses raising a timeout until the
+  failure stops.
+- The operator ruled it tolerated and not a deploy gate; the v3.66.1492
+  canonical suite was released as PASS-WITH-TOLERATED naming this row and row
+  752. The row is filed so that suite is never later read as clean.
+
 ## v3.66.1492 - a register-only cut: the parallel display test fails under the canonical schedule and passes alone
 
 No source change. This cut files one row and nothing else.
