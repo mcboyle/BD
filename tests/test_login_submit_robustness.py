@@ -261,3 +261,54 @@ def test_cookie_delta_requires_four_new_names(monkeypatch, shape):
     result, calls = _run_delta_login(monkeypatch, before, after, "ajax")
     assert result[0] is False, f"insufficient new cookie names accepted: {shape}"
     assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+# Documented zero-entropy empty, whitespace, and substantial fixture values.
+@pytest.mark.parametrize("value", ["", " " * 16, "0" * 16],
+                         ids=["empty", "whitespace", "gained_value"])
+def test_preexisting_empty_cookie_name_never_counts_as_new(monkeypatch, branch, value):
+    before = [{"name": "pref_empty", "value": ""}]
+    added = _delta_jar(["member_a", "member_b", "member_c"])
+    after = [{"name": "pref_empty", "value": value}] + added
+    assert len(before) == 1 and before[0]["value"] == ""
+    assert after[0]["name"] == before[0]["name"]
+    assert len({c["name"] for c in after} - {c["name"] for c in before}) == 3
+    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    assert result[0] is False, "preexisting empty-valued name counted as new"
+    assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+# Documented zero-entropy values: whitespace cannot supply substantial bytes.
+@pytest.mark.parametrize("value", ["", " " * 16, "\t\n " * 4, "\u2003" * 9,
+                                  "  " + "0" * 8 + "  "],
+                         ids=["empty", "spaces", "mixed", "unicode", "padded_short"])
+def test_cookie_delta_rejects_insubstantial_fourth_value(monkeypatch, branch, value):
+    before = [{"name": "pref_empty", "value": ""}]
+    added = _delta_jar(["member_a", "member_b", "member_c"])
+    # The existing empty name reappears with whitespace, never as new evidence.
+    after = [{"name": "pref_empty", "value": " " * 16}] + added
+    after.append({"name": "member_d", "value": value})
+    assert len(added) == 3 and all(len(c["value"]) == 16 for c in added)
+    assert before[0]["name"] == after[0]["name"] and before[0]["value"] == ""
+    assert len({c["name"] for c in after} - {c["name"] for c in before}) == 4
+    assert len(value.strip()) <= 8
+    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    assert result[0] is False, "insubstantial fourth new cookie falsely accepted login"
+    assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
+    assert calls["reads"] == ["before", "after"]
+
+
+@pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
+def test_cookie_delta_accepts_genuinely_substantial_padded_values(monkeypatch, branch):
+    before = [{"name": "pref_empty", "value": ""}]
+    added = _delta_jar(["member_a", "member_b", "member_c", "member_d"])
+    # Documented zero-entropy values with nine substantial bytes inside padding.
+    after = before + [{**cookie, "value": "  " + "0" * 9 + "  "} for cookie in added]
+    assert len(added) == 4 and all(len(c["value"].strip()) == 9 for c in after[1:])
+    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    assert result[0] is True, result[1]
+    assert len(result[2]) == 5
+    assert calls["reads"] == ["before", "after"]
