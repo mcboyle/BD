@@ -5,6 +5,27 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1492 - a register-only cut: the parallel display test fails under the canonical schedule and passes alone
+
+No source change. This cut files one row and nothing else.
+
+- Row 752 FILED, T2. The canonical suite on the v3.66.1490 tree returned 1
+  failed, 20852 passed, and the one failure --
+  test_cited_cleanup_leaves_a_foreign_display_alive -- passes 4 of 4 when its
+  file is run alone on the same tree. That makes it schedule-dependent, in the
+  family of rows 657, 659, 682 and 699. It is not a regression: the file last
+  changed at v3.66.1297, whose own commit message is that the parallel display
+  test owns the display it kills, and nothing landed since touches display,
+  xvfb or row300 by path.
+- The row records what is NOT known as carefully as what is: the mechanism is
+  unnamed, one green sample does not retire a schedule-sensitive failure, and
+  the contended resource is still open. Its acceptance asks for the neighbour or
+  the resource to be named, or for a recorded 3x negative reproduction under the
+  same schedule, AND for the test to own its display resource.
+- The operator ruled this is not a deploy gate and the deploy proceeds. The row
+  exists so the v3.66.1490 canonical suite is never later read as clean, because
+  it was not.
+
 ## v3.66.1491 - the test-hygiene gates count their own subject, and a pinned requirement survives an inline comment
 
 One refute-first-reviewed worker patch, boarding on the correctness lens at tier T2.
