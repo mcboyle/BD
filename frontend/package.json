@@ -31,7 +31,7 @@
     "react-grid-layout": "^1.4.4",
     "react-resizable": "^3.0.5",
     "react-router-dom": "^6.30.5",
-    "recharts": "^2.13.0",
+    "recharts": "^3.10.1",
     "rsuite": "^5.71.0",
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.4"
