@@ -993,6 +993,8 @@ deadline=$(( $(date +%s) + TIMEOUT ))
 got=""
 code=""
 health_serving_degraded=0
+vault_unlock_attempted=0
+vault_unlock_hook="${HOME:-}/bd-vault-unlock.sh"
 
 # A master-password vault deliberately locks on every process restart.  That
 # makes /api/health answer 503 even though this exact service is listening and
@@ -1001,7 +1003,7 @@ health_serving_degraded=0
 # remains a failure.  JSON is parsed rather than grepped because accepting a
 # coincidental string from an error page would turn an unavailable measurement
 # into deploy permission.
-_locked_vault_version() {
+_vault_health_diagnosis() {
   printf '%s' "$1" | "$VENV_PY" -c '
 import json
 import sys
@@ -1011,7 +1013,8 @@ try:
 except Exception:
     raise SystemExit(1)
 if not isinstance(payload, dict):
-    raise SystemExit(1)
+    sys.stdout.write("invalid\t\tinvalid")
+    raise SystemExit(0)
 credentials = payload.get("credentials")
 download_hold = payload.get("download_hold")
 exact_int = lambda value: type(value) is int
@@ -1021,9 +1024,8 @@ reference_count = credentials.get("reference_count") if isinstance(credentials, 
 stored_count = credentials.get("stored_count") if isinstance(credentials, dict) else None
 unavailable_count = credentials.get("unavailable_count") if isinstance(credentials, dict) else None
 hold_state = download_hold.get("state") if isinstance(download_hold, dict) else None
-observed = (
+common = (
     payload.get("ok") is False
-    and payload.get("degraded") == "credential_vault_locked"
     and payload.get("db_ok") is True
     and nonnegative(payload.get("queue_depth"))
     and nonnegative(payload.get("active_downloads"))
@@ -1034,22 +1036,52 @@ observed = (
     and isinstance(credentials, dict)
     and credentials.get("backend") == "master_password"
     and credentials.get("ok") is False
-    and credentials.get("state") == "locked"
-    and credentials.get("is_initialized") is True
-    and credentials.get("is_unlocked") is False
     and type(credentials.get("missing_count")) is int
-    and credentials.get("missing_count") == 0
     and type(credentials.get("resolved_count")) is int
-    and credentials.get("resolved_count") == 0
     and positive(reference_count)
-    and positive(stored_count)
-    and positive(unavailable_count)
-    and unavailable_count == reference_count
+    and nonnegative(stored_count)
+    and nonnegative(unavailable_count)
 )
 version = payload.get("version")
-if not observed or not isinstance(version, str) or not version:
-    raise SystemExit(1)
-sys.stdout.write(version)
+state = credentials.get("state") if isinstance(credentials, dict) else None
+degraded = payload.get("degraded")
+missing_count = credentials.get("missing_count") if isinstance(credentials, dict) else None
+resolved_count = credentials.get("resolved_count") if isinstance(credentials, dict) else None
+state_is_pending = (
+    (state == "locked" and degraded == "credential_vault_locked" and missing_count == 0)
+    or (state == "missing_credentials" and degraded == "credential_missing" and missing_count > 0)
+)
+if (
+    common
+    and credentials.get("is_initialized") is True
+    and credentials.get("is_unlocked") is False
+    and resolved_count == 0
+    and state_is_pending
+    and missing_count + unavailable_count == reference_count
+):
+    kind = "unlock_pending"
+elif (
+    common
+    and credentials.get("is_initialized") is True
+    and credentials.get("is_unlocked") is True
+    and state == "missing_credentials"
+    and degraded == "credential_missing"
+    and missing_count > 0
+):
+    kind = "missing_credentials"
+elif (
+    isinstance(credentials, dict)
+    and credentials.get("is_initialized") is False
+    and credentials.get("is_unlocked") is False
+    and state == "uninitialized"
+    and degraded == "credential_vault_uninitialized"
+):
+    kind = "uninitialized"
+else:
+    kind = "unrelated"
+if not isinstance(version, str) or not version:
+    version = ""
+sys.stdout.write("\t".join((kind, version, str(state or "unknown"))))
 '
 }
 while :; do
@@ -1064,25 +1096,61 @@ while :; do
   # does not serve frontend/dist at all.  Only the exact restart-locked-vault
   # condition can proceed, and GET / still independently proves the SPA below.
   if [ "$code" = "503" ]; then
-    locked_version=""
-    if locked_version="$(_locked_vault_version "$body")"; then
-      if [ "$locked_version" != "$TREE_VERSION" ]; then
+    vault_diagnosis="$(_vault_health_diagnosis "$body")" || vault_diagnosis="invalid"
+    IFS=$'\t' read -r vault_kind vault_version vault_state <<< "$vault_diagnosis"
+    case "$vault_kind" in
+    unlock_pending)
+      if [ "$vault_version" != "$TREE_VERSION" ]; then
         die "health gate: $HEALTH_URL reported the structured
-  credential_vault_locked state from version $locked_version, expected
+  credential vault unlock-pending state from version $vault_version, expected
   $TREE_VERSION. A degraded sibling tree is still the wrong deployment."
       fi
-      got="$locked_version"
+      if [ "$vault_unlock_attempted" -eq 1 ]; then
+        die "VAULT-STILL-LOCKED-AFTER-UNLOCK: the sanctioned local unlock hook
+  returned success, but the bounded health re-probe still reports $vault_state."
+      fi
+      if [ -f "$vault_unlock_hook" ]; then
+        note "UNLOCK-PENDING: initialized credential vault reports $vault_state
+  after restart; running the sanctioned local unlock hook and re-probing within 5s."
+        if ! bash "$vault_unlock_hook" local; then
+          die "VAULT-UNLOCK-HOOK-FAILED: $vault_unlock_hook local returned nonzero;
+  health remains unverified."
+        fi
+        vault_unlock_attempted=1
+        continue
+      fi
+      if [ "$vault_state" != "locked" ]; then
+        die "VAULT-UNLOCK-HOOK-UNAVAILABLE: initialized locked vault reports
+  $vault_state, but $vault_unlock_hook is absent; credential presence cannot be
+  judged until the sanctioned unlock hook runs."
+      fi
+      got="$vault_version"
       health_serving_degraded=1
       note "SERVING-DEGRADED: Credential vault is LOCKED after the service restart.
   The intended service is listening, but stored credentials are unavailable
   until a human opens Settings -> Secrets -> Unlock. This explicit unlock is
   required after every service restart. Verifying GET / separately."
       break
-    fi
-    die "health gate: GET $HEALTH_URL returned HTTP 503, and its response did
-  not prove the exact structured credential_vault_locked serving-degraded
-  condition. Expected HTTP 200 or that explicit restart state; not retried
-  because 503 is a definite answer rather than a slow start."
+      ;;
+    missing_credentials)
+      if [ "$vault_unlock_attempted" -eq 1 ]; then
+        die "CREDENTIAL-MISSING-AFTER-UNLOCK: the sanctioned hook opened the
+  initialized vault, and the bounded health re-probe still reports a genuinely
+  missing credential. Repair the credential; another unlock cannot fix it."
+      fi
+      die "CREDENTIAL-MISSING: the initialized vault is already unlocked and
+  reports a genuinely missing credential. Repair it rather than unlocking."
+      ;;
+    uninitialized)
+      die "VAULT-UNINITIALIZED: credential storage has never been initialized;
+  initialize it explicitly rather than running the restart unlock hook."
+      ;;
+    *)
+      die "UNRELATED-DEGRADED: GET $HEALTH_URL returned HTTP 503, and its
+  response is neither an initialized unlock-pending vault nor a post-unlock
+  missing credential. The definite degraded state is not deploy readiness."
+      ;;
+    esac
   fi
 
   # A body is health evidence only when it came with HTTP 200. In particular,

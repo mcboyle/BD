@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 711 transform control. The exact M1 fail-open mutation is pointed at a test that imports bd-mutate without asserting suffix validation. It must ESCAPE, proving the primary catch is behavioral rather than a parse or import break.",
+  "subject": "transform control -- importing bd-mutate does not constrain unknown-suffix validation",
+  "band": [
+    "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_transform_control_imports_without_asserting_suffix_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the restored fail-open escapes an import-only test",
+      "file": "toolchain/bin/bd-mutate",
+      "old": "    return unknown",
+      "new": "    return True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1237_mutant_validity_is_not_assumed.py::test_row711_transform_control_imports_without_asserting_suffix_behavior"
+    }
+  ]
+}

@@ -93,12 +93,18 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # Row 667. Both credential-login callers must append to the same durable
+    # per-site/day attempt denominator before contacting a site.
+    "tests/test_row667_login_attempt_accounting.py",
     # rowssrf-loopback. Every canonical host-safety consumer and both template
     # sandbox exemption sites must use the classifier's structured reason.
     "tests/test_rowssrf_loopback_reason_is_structured.py",
     # Row 664. A pre-download dedup refusal is terminal work and must leave its
     # reason in operator-visible history through the real worker dispatch seam.
     "tests/test_row664_dedup_refusal_reaches_history.py",
+    # Row 665. Every terminal queue outcome must remain addressable by URL;
+    # the gate also pins the bounded additive response shape.
+    "tests/test_row665_terminal_jobs_are_visible.py",
     # Row 678. The bd-bandcheck exclusion population is hand-maintained and
     # tree-wide, so no changed subject can derive this path-existence gate.
     # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
@@ -796,6 +802,9 @@ _DECLARED = {
     # independently of the source-derived band because every fleet deploy
     # rests on the step-12 readiness claim.
     "tests/test_deploy_script.py",
+    # Row 697. A restart-locked vault must run the sanctioned unlock hook and
+    # receive a bounded health re-probe before deploy decides readiness.
+    "tests/test_row697_deploy_unlock_pending_vault.py",
     # Row 290: no-argument capture must reach its local fixture and every later
     # step; the same executable harness proves --parallel still owns and routes
     # a real distinct port pair.
@@ -976,6 +985,7 @@ _DECLARED = {
 _CONFIRMED_SAFETY_GATE_FLOOR = 7
 
 _NON_DERIVABLE_DECLARED = {
+    "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module

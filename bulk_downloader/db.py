@@ -2790,10 +2790,25 @@ def session_event_record(site_id, account_idx, event_type, detail=""):
                                 lifetime measurement)
         'heartbeat_ok'       - we verified the session is still valid
         'heartbeat_fail'     - session rejected by server
+        'heartbeat_inconclusive'
+                             - the site answered with nothing about this
+                                session's authentication (5xx, 404, a
+                                redirect that is not a sign-in page); NO
+                                auth claim is made in either direction
         'auto_relogin_ok'    - the keep-alive triggered a relogin
                                 that succeeded
-        'auto_relogin_fail'  - relogin attempt failed (bad creds,
-                                rate-limited, network down)
+        'auto_relogin_fail'  - relogin attempt failed AT THE SITE (bad
+                                creds, rate-limited, network down)
+        'auto_relogin_refused'
+                             - WE refused the relogin before contacting
+                                the site (the daily login attempt cap).
+                                Distinct from auto_relogin_fail because
+                                the two lead to opposite actions: repair
+                                the account, or wait for the day to roll
+        'login_attempt'      - one credential-login attempt, recorded by
+                                every login caller BEFORE it contacts the
+                                site; the denominator the daily cap
+                                (`login_attempt_cap_per_day`) bounds
         'needs_takeover'     - relogin needs a human (captcha, 2FA)
     """
     import time

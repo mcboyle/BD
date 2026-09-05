@@ -239,6 +239,29 @@ that profile mid-copy. Watch for:
   manual login: synced session into runtime profiles: main, keepalive_0
 ```
 
+### Daily login attempt cap
+
+Every credential login BD makes against a site -- the background session keeper
+re-logging in on its own timer, and the Login button in the UI (and the same
+worker/scheduler path behind it) -- records one `login_attempt` row and spends
+one unit of the same per-site, per-local-day budget.
+
+- The knob is the per-site config key `login_attempt_cap_per_day`.
+- It ships as `3`. It is not a knob you have to set; it is a knob you have to
+  RAISE when three logins a day is not enough for a site.
+- Both callers read it. When the budget is spent, the keeper stops re-logging
+  in for the rest of the local day and the UI Login button reports
+  `daily login attempt cap reached (3/3)` and names this key. Raise the key for
+  that site to log in again the same day.
+- Counting, deciding and recording happen in one database statement, so two
+  accounts on one site cannot both spend the last unit, and a refusal never
+  records an attempt.
+- A refusal we issued ourselves is recorded as `auto_relogin_refused`, NOT as
+  `auto_relogin_fail`. If the session-event log shows `auto_relogin_refused`,
+  the credentials are not the problem: the day's budget is spent.
+- If the attempt count cannot be measured at all, the login is refused rather
+  than allowed through. An unmeasurable budget is not an unlimited one.
+
 ### Safer template generation (candidate filtering)
 
 The site-template flow rejects obvious non-download links so it no longer

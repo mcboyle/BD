@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 665 transform control. The byte-identical M7 transform runs against a node that imports app_queue but asserts no terminal behavior. It must ESCAPE, proving the main stopped catcher fails because the executed response lost the job rather than because the transform broke parsing or import.",
+  "subject": "transform control for the stopped terminal-state mutation",
+  "band": [
+    "tests/test_row665_terminal_jobs_are_visible.py::test_app_queue_import_transform_control"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 omit stopped under import-only coverage",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?m)^    (?=\"stopped\",$)",
+      "new": "    # mutant omits ",
+      "direction": "regression",
+      "catcher": "tests/test_row665_terminal_jobs_are_visible.py::test_app_queue_import_transform_control"
+    }
+  ]
+}

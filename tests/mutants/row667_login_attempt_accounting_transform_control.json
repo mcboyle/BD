@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the fail-closed reservation mutation must ESCAPE a test that imports session_keeper but never drives the reservation failure branch.",
+  "subject": "transform control for the fail-closed reservation seam",
+  "band": [
+    "tests/test_row667_login_attempt_accounting.py::test_session_event_record_documents_the_login_event_vocabulary"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL reservation failure grants outside the asserted path",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?m)(?<=^            \\\"granted\\\": )(?=False,$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_session_event_record_documents_the_login_event_vocabulary"
+    }
+  ]
+}
