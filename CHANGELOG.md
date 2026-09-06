@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1504 - row 764 is restored to exactly what it was, because the ruling that amended it was overturned
+
+A register cut that reverses ONE edit of the previous release and nothing else.
+
+- row 764 is RESTORED to its pre-v3.66.1503 text, BYTE FOR BYTE, verified by
+  diffing the row against the same row read out of commit e7fa1442. The
+  v3.66.1503 entry said its `solve_cloudflare` clause was withdrawn because
+  this product classifies challenges and never solves them. THAT IS NOT THE
+  RULE. The operator ruled directly on the question afterwards: solving IS
+  allowed, FlareSolverr STAYS and is to be MAINTAINED in the code, and the flag
+  belongs in whichever cut fixes this row. So the clause was never wrong and
+  the amendment that removed it is what has to go.
+- THE v3.66.1503 ENTRY'S row 764 BULLET IS WITHDRAWN. It is left standing in
+  that entry as the record of what was published, and this bullet is the
+  correction; a changelog entry is a release record and is not rewritten after
+  the fact. Nothing else in v3.66.1503 is affected -- its correction to the
+  v3.66.1500 fail-open, the row 714 close, the row 728 amendment and the five
+  new rows 784 through 788 all stand exactly as they landed.
+- NO ROW WAS FILED to remove the solve path from the runner, so there is
+  nothing to withdraw there. That path is kept and maintained.
+
+WHAT THIS COST AND WHY IT IS RECORDED: the reversal is a separate release
+rather than an edit because PR #810 had already merged when the ruling was
+overturned, and merged history is not rewritten. The register is back to the
+state it would have been in had the amendment never been made; the version
+number is the only trace it leaves.
+
 ## v3.66.1503 - register carry-forward: a correction to v3.66.1500's entry, one close on a false premise, two amended rows and five new ones
 
 A register cut. It changes no product source. Everything here is a correction
