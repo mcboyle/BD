@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1501 - three matcher one-liners, five verified templates and four corrections in the template corpus
+
+A product cut against the PM-handoff 2026-09-06 template gap report. A matcher
+gap is silent: suggest_for_url returns an empty list and the site runs with no
+download template while its login template works, so the failure looks like a
+site problem rather than a spelling one.
+
+- rows 766 and 768 CLOSE. nubiles_network spelled its member host without the
+  hyphen, so members.nubiles-porn.com matched nothing; gamma_kosmos omitted
+  xempire entirely although login_xempire ships. Both now resolve, each with a
+  negative control and a mutant that removes the pattern again.
+- row 767 STAYS OPEN and is amended. tiny4k was claimed by four wrong owners;
+  this cut removes two of them (vip4k_family and wowgirls_network), gives it the
+  dedicated pornpros_tiny4k template, and pins exactly one claimant. The Aylo
+  host list in extractors_aylo.py and the phoenix_catalog entry still claim it,
+  so is_aylo_url on a tiny4k members URL is still True and the row's RED is not
+  satisfied.
+- row 781 is FILED AND CLOSED here. africancasting, pegasproductions and
+  reptyle had a verified capture and no download template at all; the three
+  site templates plus login_africancasting were added, moving the corpus from
+  91 to 95 templates and the login corpus from 27 to 28. reptyle_teamskeet
+  claims reptyle.com only, because teamskeet.com is already served by
+  teamskeet_network and claiming it too would return two ids.
+- row 782 is FILED AND CLOSED here. vixen_network matched none of its own
+  members host members.vixenplus.com nor the wifey.com brand; both were added
+  to the existing template rather than to a duplicate id.
+- row 783 is FILED AND CLOSED here. nookies, bang_originals, nubiles_network
+  and vixen_network described themselves as Speculative -- selectors written
+  without a captured page. All four were captured in the same session; the
+  descriptions now say VERIFIED with the date, the guessed nookies user field,
+  the bang_originals LOGIN-WITH-GOOGLE control and the guessed vixen tier
+  anchors were replaced with the measured selectors, and twenty selector
+  strings are pinned by identity.
+- Every corpus pin the additions moved was RECOMPUTED, never loosened: the
+  templates list identity, the reviewed-selector enumeration, the dev-suite
+  login count and the snapshot baseline. The new gate is registered in its CI
+  shard.
+
 ## v3.66.1500 - every address in a multi-answer resolution is classified, and the structured refusal reason has a gate that finds its own consumers
 
 One refute-first-reviewed worker patch at tier T3 security, riding alone: correctness boarded by

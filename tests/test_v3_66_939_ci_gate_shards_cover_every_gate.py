@@ -93,6 +93,10 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # PM-handoff 2026-09-06 template gap report. The matcher and the committed
+    # template corpus are a tree-wide denominator: the gate judges every
+    # template, not the four files this cut edited.
+    "tests/test_row_pm_template_gap_matchers_and_corpus.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

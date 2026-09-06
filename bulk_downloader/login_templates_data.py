@@ -587,6 +587,26 @@ LOGIN_TEMPLATES = [
                 "button.app-button.app-button--white"
             ]
         }
+    },
+    {
+        # PM-handoff 2026-09-06 template gap report, section B1. The only site
+        # in that survey with NO login template at all. Its CMS prefixes the
+        # field names with `ahd_`, which is why every generic username /
+        # password / type=email matcher in the fallback list misses them.
+        "id": "login_africancasting",
+        "name": "African Casting (login)",
+        "host": "members.africancasting.com",
+        "login": {
+            "user_field": [
+                "input[name='ahd_username']"
+            ],
+            "pass_field": [
+                "input[name='ahd_password']"
+            ],
+            "submit_btn": [
+                "button:has-text('Sign In')"
+            ]
+        }
     }
 ]
 
