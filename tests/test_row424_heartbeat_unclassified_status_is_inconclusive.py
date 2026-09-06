@@ -43,8 +43,12 @@ BD_GATE_SCOPE = "module"
 
 
 _BASE = "https://row424.test"
+# keep_alive_enabled is supplied EXPLICITLY: this file's subject is heartbeat
+# CLASSIFICATION, and keep-alive is opt-in per site, so the keeper needs the
+# operator's intent in its config to reach the heartbeat at all.
 _CFG = {"login_url": _BASE + "/login", "success_url": _BASE + "/home",
-        "keep_alive_check_url": _BASE + "/account", "password": "p"}
+        "keep_alive_check_url": _BASE + "/account", "password": "p",
+        "keep_alive_enabled": True}
 
 
 # ── fakes ─────────────────────────────────────────────────────────────────

@@ -100,6 +100,7 @@ _DECLARED = {
     # Rows 715/718: installer provenance and refusal before unit writes.
     "tests/test_row715_installer_refuses_a_foreign_directory.py",
     "tests/test_row718_installer_refuses_an_unwritable_install_dir.py",
+    "tests/test_keepalive_default_off.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

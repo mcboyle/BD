@@ -780,6 +780,7 @@ def api_clone_site(sid):
     new_sid = uuid.uuid4().hex[:8]
     # Fields to STRIP from clone (must be unique per site)
     strip = {"username","password","cookie_file","accounts","learned",
+             "keep_alive_enabled",
              "fingerprint","captcha_api_key",
              # Phase 20: site-specific secrets that shouldn't carry over
              "stash_api_key","plex_token","jellyfin_api_key","ha_token"}
@@ -998,7 +999,7 @@ def api_update(sid):
     # or stop/restart it.
     try:
         from . import session_keeper as _sk
-        keepalive_now = s_cfg[sid].get("keep_alive_enabled", True)
+        keepalive_now = s_cfg[sid].get("keep_alive_enabled", False)
         active = [k for k in _sk.get_status() if k["site_id"] == sid]
         if keepalive_now and s_cfg[sid].get("password"):
             if active:

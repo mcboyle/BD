@@ -840,7 +840,7 @@ class AuthMixin:
             try:
                 from . import profile_sync
                 ensure = ["main"]
-                if self.config.get("keep_alive_enabled", True):
+                if self.config.get("keep_alive_enabled", False):
                     ensure.append("keepalive_0")
                 summ = profile_sync.sync_manual_to_runtime(
                     self.site_id, ensure=ensure)

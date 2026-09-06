@@ -729,7 +729,7 @@ class SessionKeeper:
     def _run_one_check(self):
         """Try to verify the session is still alive. If not, try to
         relogin. Records the result to session_history."""
-        if not self.config.get("keep_alive_enabled", True):
+        if not self.config.get("keep_alive_enabled", False):
             self._set_state("disabled", "keep_alive_enabled is False")
             return
         if not self.config.get("password"):

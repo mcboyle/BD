@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1506 - BEHAVIOUR CHANGE: the shipped per-site keep-alive default is now OFF, and a hidden resolution cell can no longer win on quality
+
+Train: 2 refute-first-reviewed worker patches, disjoint authored paths, one lane.
+
+- BEHAVIOUR CHANGE, READ THIS BEFORE UPGRADING (row 789, filed and closed by
+  this train). The shipped per-site default for `keep_alive_enabled` flips from
+  True to False at all six seams that read it: `app_kernel.py` DEFAULTS,
+  `session_keeper.py` in `_run`, `app.py` in `_start_session_keepers`,
+  `app_sites_id_core.py` in `api_update` (the PUT fallback) and in
+  `api_clone_site` (the strip set), and `runner_auth.py` in
+  `finish_manual_login`. AN EXISTING INSTALL CHANGES WHAT IT DOES ON RESTART: a
+  site config that was written before the key existed, and therefore does not
+  carry it, ran a keep-alive loop after every restart and now runs none. That is
+  the intent -- those loops re-login roughly every thirty minutes and spend site
+  tolerance nobody asked for -- but it is a change to a running deployment and
+  not a silent one. THE EXPLICIT-ON PATH IS BYTE-FOR-BYTE UNCHANGED: a config
+  that carries `keep_alive_enabled: true` keeps its keeper, and the explicit
+  setter in `app_sites_lifecycle.py` is untouched. To restore the old behaviour
+  for a site, set the key to true explicitly. The runner's `auto_retry` knobs
+  are deliberately untouched and `runner_scheduler.py` is not in this diff;
+  that was verified twice and is not an omission.
+- A COMPUTED-HIDDEN RESOLUTION CELL CAN NO LONGER BE THE QUALITY WINNER (row
+  759, PART 759-4 only). In `detect.py`, a resolution cell whose computed
+  visibility is False could still take a resolution score and outscore the
+  visible quality label beside it, so the candidate chosen for a Gamma/Kosmos
+  download modal was an element the browser never shows. Only the resolution
+  SCORE is removed from a hidden cell; nothing else about hidden-element
+  admission changes. ROW 759 STAYS OPEN. Its parts 1, 2 and 3 -- the hrefless
+  Download trigger, the modal wait, and the visible-label click in `runner.py`
+  `_process_one` -- are not built, so the row's own acceptance is not met and
+  the row was amended rather than closed.
+- The register carries one new row and one amendment: row 789 is filed for the
+  keep-alive default and closed at this version, and row 759 records that part
+  759-4 landed here while the row itself remains open.
+
 ## v3.66.1505 - the installer refuses a directory that is not the installation, and refuses one it cannot write
 
 Rows 715 (HIGH) and 718, carried together because they author the same two
