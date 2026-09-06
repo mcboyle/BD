@@ -13,7 +13,8 @@ BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parents[1]
 _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
-_LEGACY_ROWS_SHA256 = "2b6a25cd9089ffb44bafe8f20cce1abf44405cd03fb388dcb0aba87c600560e9"
+# 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
+_LEGACY_ROWS_SHA256 = "20264107a314d55431ea41cb2dd9c67ccb33a0c187347a060ead82be5b1125ac"
 _REVIEWED_DIR = _REPO / "templates" / "reviewed"
 _ROW455 = _REPO / "tests" / "test_row455_reviewed_template_against_a_live_dom.py"
 _HAZARD = _REPO / "tests" / "fixtures" / "row671" / "grouped_hazard.template.json"
@@ -90,7 +91,7 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
     templates_module = importlib.import_module("bulk_downloader.site_templates")
     committed = templates_module.TEMPLATES
 
-    assert len(committed) == 91, "precondition: legacy template population changed"
+    assert len(committed) == 95, "precondition: legacy template population changed"
     templates = {template["id"]: template for template in committed}
     assert "wowgirls_network" in templates
     sample = api.enumerate_template_selectors(templates["wowgirls_network"])
@@ -108,13 +109,13 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
         for row in api.enumerate_template_selectors(template)
     ]
     encoded = json.dumps(all_rows, sort_keys=True, separators=(",", ":")).encode()
-    assert len(all_rows) == 550
+    assert len(all_rows) == 565
     assert hashlib.sha256(encoded).hexdigest() == _LEGACY_ROWS_SHA256
 
     audit = api.audit_committed_selector_syntax()
-    assert audit["template_count"] == 91
-    assert audit["selector_count"] == 550
-    assert audit["checked_count"] == 550
+    assert audit["template_count"] == 95
+    assert audit["selector_count"] == 565
+    assert audit["checked_count"] == 565
     assert audit["malformed_count"] == 0
     assert audit["unknown_count"] == 0
 

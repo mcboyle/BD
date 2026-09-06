@@ -110,7 +110,10 @@ ITEMS = [
             # add it manually, it'll still match the row_selectors
             # below — the patterns are only used for "suggested
             # template" highlighting in the wizard.
-            r"tiny4k\.com",
+            # v3.66.15xx (PM-handoff 2026-09-06 template gap report): tiny4k
+            # is PornPros / Fame Digital, NOT this operator. It is served by
+            # the dedicated `pornpros_tiny4k` template; leaving it here applied
+            # WowGirls selectors to a Vue SPA that has none of them.
             r"4kteens\.com",
             r"tushy4k\.com",
             r"teens4k\.com",
@@ -206,6 +209,9 @@ ITEMS = [
             r"transangels\.com",
             r"burningangel\.com",
             r"evilangel\.com",
+            # PM-handoff 2026-09-06: xempire IS Gamma (same billing form, same
+            # gammacdn download modal); members.xempire.com matched nothing.
+            r"xempire\.com",
         ],
         "learned": {
             "login": {

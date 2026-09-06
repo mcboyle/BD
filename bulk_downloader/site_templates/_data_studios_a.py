@@ -10,7 +10,8 @@ ITEMS = [
             r"black4k\.com",
             r"tushy4k\.com",
             r"4kteens\.com",
-            r"tiny4k\.com",
+            # PM-handoff 2026-09-06: tiny4k removed -- PornPros / Fame Digital,
+            # see the `pornpros_tiny4k` template.
             r"teens4k\.com",
             r"hot4k\.com",
         ],
@@ -37,8 +38,8 @@ ITEMS = [
     },
 {
         "id": "vixen_network",
-        "name": "Vixen / Blacked / Tushy / Deeper network",
-        "description": "Vixen Media Group sites. Resolution buttons typically labeled '4K' / '1080p' / '720p'. Speculative — site refreshes layouts often.",
+        "name": "Vixen Network (Vixen/Blacked/Tushy/Deeper/vixenplus)",
+        "description": "Vixen Media Group sites behind the login.vixen.com SSO. VERIFIED 2026-09-06 (PM-handoff template gap report): the scene page's DOWNLOAD control opens a DownloadModal whose tier buttons are labeled '4K MP4 UHD' / 'HD MP4 1080P' / 'HD MP4 720P' / 'SD MP4 480P'; the resulting cdn-download-* URLs are IP-BOUND (an ip= parameter pinned to the egress that fetched them) AND cookie-bound, with a per-period download quota. The login POST is Cloudflare-Turnstile gated, so an unattended login needs a Turnstile solver; that is NOT part of this template.",
         "patterns": [
             r"vixen\.com",
             r"blacked\.com",
@@ -48,25 +49,42 @@ ITEMS = [
             r"deeper\.com",
             r"slayed\.com",
             r"milfy\.com",
+            # PM-handoff 2026-09-06: the members host and the one brand the
+            # pattern list was missing.
+            r"vixenplus\.com",
+            r"wifey\.com",
         ],
         "learned": {
+            "login": {
+                "user_field": [
+                    "input[name='username']",
+                ],
+                "pass_field": [
+                    "input[name='password']",
+                ],
+                "submit_btn": [
+                    "button:has-text('LOGIN')",
+                ],
+            },
             "download": {
                 "row_selectors": [
-                    "a.video-download-link[href]",
-                    "a[data-download-url]",
-                    "a:has-text('4K')[href*='.mp4']",
-                    "a:has-text('1080p')[href*='.mp4']",
+                    "button:has-text('4K MP4 UHD')",
+                    "button:has-text('HD MP4 1080P')",
+                    "a[href*='cdn-download-']",
                 ],
-                "url_attribute": ["href", "data-download-url", "href", "href"],
+                "url_attribute": "href",
+                "tier_labels_seen": ["4K MP4 UHD", "HD MP4 1080P", "HD MP4 720P", "SD MP4 480P"],
                 "trigger_selectors": [
-                    "button:has-text('Download')",
+                    "a:has-text('DOWNLOAD')",
+                    "[class*=DownloadButton]",
                 ],
             },
         },
         "config_defaults": {
             "quality_preference": "2160,1080,720",
-            "min_resolution": 1080,
-            "use_curl_cffi": True,
+            "min_resolution": 720,
+            "use_real_chrome": True,
+            "use_persistent_profile": True,
         },
     },
 {

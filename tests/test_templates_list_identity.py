@@ -1,7 +1,7 @@
 """test_templates_list_identity.py -- band guard for the templates -> site_templates cut.
 
 Wraps tools/decomp/templates_snapshot.py: asserts the live TEMPLATES list matches the
-frozen baseline (91 elements, original order, per-element content stable). This is the
+frozen baseline (95 elements, original order, per-element content stable). This is the
 binding invariant for DECOMP-LEAF cut 1 (the data-list analogue of a surface-lock).
 
 Runs under the custom run_tests.py harness (zero-arg functions; derives repo root from
@@ -39,10 +39,13 @@ def test_templates_list_identity_holds():
     assert rc == 0, "TEMPLATES list-identity drift (see tool output)"
 
 
-def test_templates_count_is_91():
+def test_templates_count_is_95():
+    # 91 -> 95: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
+    # Updated by RECOMPUTING the population, never by loosening the pin to an
+    # inequality -- the pin exists to make an unannounced change visible.
     tool = _load_tool()
     manifest = tool.compute_manifest()
-    assert manifest["count"] == 91, f"expected 91 elements, got {manifest['count']}"
+    assert manifest["count"] == 95, f"expected 95 elements, got {manifest['count']}"
 
 
 def test_templates_shim_reexports_surface():

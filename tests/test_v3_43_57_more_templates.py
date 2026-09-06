@@ -186,27 +186,37 @@ def test_ultrafilms_pattern_matches():
     assert "ultrafilms" in suggest_for_url("https://ultrafilms.com/v/123")
 
 
-# ── Tiny4K rolled into wowgirls_network ─────────────────────────
+# ── Tiny4K belongs to PornPros / Fame Digital, not VIP4K ────────
+#
+# CORRECTED by the PM-handoff 2026-09-06 template gap report (brief
+# matcher-templates.md, A3). v3.43.57 asserted tiny4k was "rolled into
+# wowgirls_network"; the report measured the site and it is PornPros /
+# Fame Digital. The premise of the two assertions below was wrong, so
+# they now pin the CORRECTED owner rather than being deleted -- the
+# behavioural question ("who claims tiny4k?") is still asked, and it is
+# asked more strictly, because the old form accepted either of two ids.
 
 
-def test_tiny4k_matches_wowgirls_network():
-    """User listed Tiny4K separately. It's part of the VIP4K
-    operator family — handled by wowgirls_network's patterns."""
+def test_tiny4k_is_claimed_by_pornpros_not_the_vip4k_family():
+    """tiny4k.com is PornPros / Fame Digital. Exactly one template may
+    claim it, and it is not wowgirls_network or vip4k_family."""
     from bulk_downloader.templates import suggest_for_url
     suggested = suggest_for_url("https://tiny4k.com/v/1")
-    # Either wowgirls_network or vip4k_family must match
-    assert "wowgirls_network" in suggested or "vip4k_family" in suggested
+    assert suggested == ["pornpros_tiny4k"], suggested
+    assert "wowgirls_network" not in suggested
+    assert "vip4k_family" not in suggested
 
 
-def test_vip4k_family_alias_still_covers_tiny4k():
-    """Both templates that share the network should match tiny4k."""
+def test_the_vip4k_family_no_longer_claims_tiny4k():
+    """The mis-assignment must be REMOVED from the pattern list, not
+    merely outranked by a template that happens to sort earlier."""
     from bulk_downloader import templates
     vip = templates.get("vip4k_family")
     assert vip is not None
-    patterns = vip.get("patterns", [])
-    # Either as a regex or substring
-    joined = " ".join(patterns)
-    assert "tiny4k" in joined
+    joined = " ".join(vip.get("patterns", []))
+    assert "tiny4k" not in joined, joined
+    # negative control: the rest of the family is untouched
+    assert "vip4k" in joined and "black4k" in joined, joined
 
 
 # ── All speculative templates have safe quality_preference defaults ──
@@ -270,8 +280,12 @@ def test_new_templates_marked_speculative():
     """Speculative templates must say so in their description so
     users know to run a teach pass on first use."""
     from bulk_downloader import templates
-    new_ids = ["nubiles_network", "nookies", "new_sensations",
-                 "bang_originals", "teen_mega_world",
+    # nubiles_network, nookies and bang_originals left this list on
+    # 2026-09-06: the PM-handoff template gap report (brief
+    # matcher-templates.md, C) confirmed their selectors against real
+    # HTML, which is exactly the condition this docstring names for
+    # dropping the word. The remaining five are still unconfirmed.
+    new_ids = ["new_sensations", "teen_mega_world",
                  "dogfart_network", "teamskeet_network", "ultrafilms"]
     for tid in new_ids:
         t = templates.get(tid)
@@ -279,6 +293,13 @@ def test_new_templates_marked_speculative():
         assert "speculative" in desc, (
             f"{tid}: description should mark it speculative until "
             f"selectors are confirmed against real HTML")
+    # ...and the three that were confirmed must no longer claim to be
+    # guesses, so this gate keeps teeth in both directions.
+    for tid in ("nubiles_network", "nookies", "bang_originals"):
+        desc = (templates.get(tid).get("description") or "").lower()
+        assert "speculative" not in desc, (
+            f"{tid}: selectors are verified; the word misleads the user "
+            f"into running an unnecessary teach pass")
 
 
 # ── Total count regression ───────────────────────────────────────

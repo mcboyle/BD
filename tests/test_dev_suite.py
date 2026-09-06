@@ -167,7 +167,11 @@ def test_invariant_audit_runs_all_checks(fresh_app):
 
 def test_template_audit_all_templates_valid():
     result = ds.template_audit()
-    assert result["template_count"] == 27
+    # 27 -> 28: the PM-handoff 2026-09-06 template gap report added
+    # login_africancasting (members.africancasting.com, ahd_ prefixed fields,
+    # which no generic matcher reaches). Updated by RECOMPUTING the
+    # population, never by loosening the pin to an inequality.
+    assert result["template_count"] == 28
     # the v3.62.2 guards already enforce this — the tool must agree
     assert result["with_issues"] == 0, result["verdict"]
 
