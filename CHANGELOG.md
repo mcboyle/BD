@@ -5,6 +5,27 @@ phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
 
+## v3.66.1499 - register adjudication: six closes, three harness moves, 22 new rows and 33 evidence appends
+
+A register-only cut carrying the 20260906T160000Z adjudication. It closes rows
+733, 734 and 735 at v3.66.1495, row 612 at v3.66.1417, row 706 at v3.66.1491 and
+row 711 at v3.66.1488 against the landed evidence each names; closes row 690 at
+v3.66.1485 on the operator ruling that the 690-r3 outcome (b) adjudication is on
+record; and moves rows 477, 742 and 743 to the harness backlog in the row-476
+form, because their subjects are untracked harness artifacts that no tracked cut
+can ever close. It files 22 new rows, 759 through 780, from the campaign and
+review evidence; row 780 is carried UNVERIFIED. It appends 33 evidence blocks to
+open rows and applies the 3d amendments to rows 703, 722, 727, 729 and 730.
+
+Two corrections were made to the source tables rather than copied from them: the
+adjudication's proposed cells were truncated at 260 and 384 characters, so the
+untruncated originals were taken from the generator's own inputs; and citations
+of untracked artifacts were rewritten out of the file colon line form, which the
+doc anchor gate resolves against tracked paths only.
+
+No runtime, test or generated behaviour changes.
+
+
 ## v3.66.1498 - a whitespace-only cookie value no longer counts as substantial
 
 One operator-supplied winner patch (astra), a security follow-up to row 757,
