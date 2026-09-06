@@ -1,7 +1,148 @@
 """login_impl.replay -- verbatim cluster from login.py @v447 (DECOMP-LEAF cut 3)."""
 
+import os
+import sys
 import time
+from pathlib import Path
+
+from ..constants import INSTALL_DIR
 from ._common import _fire_login_trigger_if_needed, _ms_since
+
+
+# ── row 708: the settled-no-nav login state ─────────────────────────────
+#
+# A login that fires no navigation used to be SUCCEEDED on the strength of
+# its cookie jar. v3.66.1497 narrowed which jars qualified (four NEW
+# substantial names) but left the jar as the decider, so a trial session or
+# a bot-detection layer that seeds cookies on the POST still read as a
+# login and the failure surfaced later, on the download.
+#
+# Row 708 requires the cookie-only outcome to become a THIRD value that is
+# neither success nor failure -- "so the two are not one value". It is
+# falsy, so every existing `if ok:` consumer treats it as not-success
+# without being rewritten, but it is not EQUAL to False either: a caller
+# that needs to tell "we could not confirm" from "the submit failed" reads
+# `.status`. Success on a no-nav path now requires a POSITIVE member-state
+# check on the page the run actually read.
+LOGIN_SETTLED_NO_NAV = "settled-no-nav"
+
+
+class LoginOutcome:
+    """A login verdict that is deliberately not a bool.
+
+    Falsy so `if ok:` keeps working; unequal to True and to False so the
+    settled-no-nav state and a hard submit failure are distinguishable.
+    `evidence_path` is the rendered page the verdict was read from, or
+    None when the page could not be read at all (an UNKNOWN, which is
+    never success -- CLAUDE.md A2).
+    """
+
+    __slots__ = ("status", "ok", "evidence_path", "why")
+
+    def __init__(self, status, ok=False, evidence_path=None, why=""):
+        self.status = status
+        self.ok = bool(ok)
+        self.evidence_path = evidence_path
+        self.why = why
+
+    def __bool__(self):
+        return self.ok
+
+    def __eq__(self, other):
+        if isinstance(other, LoginOutcome):
+            return (self.status, self.ok, self.evidence_path) == (
+                other.status, other.ok, other.evidence_path)
+        # NotImplemented (rather than False) so `outcome == "MANUAL_PENDING"`
+        # and `outcome == False` fall back to identity and answer False,
+        # instead of this class silently claiming equality semantics for
+        # every type the login result is compared against.
+        return NotImplemented
+
+    def __hash__(self):
+        return hash((self.status, self.ok))
+
+    def __repr__(self):
+        return (f"LoginOutcome(status={self.status!r}, ok={self.ok!r}, "
+                f"evidence_path={self.evidence_path!r}, why={self.why!r})")
+
+
+def _login_evidence_dir(config):
+    """Where the rendered page a login verdict was read from is kept."""
+    configured = (config or {}).get("login_evidence_dir")
+    return Path(configured) if configured else Path(INSTALL_DIR) / "login_evidence"
+
+
+def write_login_evidence(page, config, final_url, tag):
+    """Keep the page the run ACTUALLY read: its HTML and its final URL.
+
+    Returns the path written, or None when nothing could be captured. A
+    capture failure never improves a verdict -- the caller still decides on
+    the URL it read.
+    """
+    try:
+        html = page.content()
+    except Exception as e:
+        html = f"<!-- page content unavailable: {e} -->"
+    try:
+        directory = _login_evidence_dir(config)
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        path = directory / f"{tag}-{stamp}-{os.getpid()}.html"
+        path.write_text(f"<!-- final_url: {final_url} -->\n{html}",
+                        encoding="utf-8", errors="replace")
+        return str(path)
+    except Exception as e:
+        sys.stderr.write(f"  login: could not keep the page read as evidence: {e}\n")
+        return None
+
+
+def member_state_check(page, config, *, tag="login"):
+    """Positive member-state check on the page the run ACTUALLY read.
+
+    The only two positive signals row 708 admits, in order: the declared
+    `success_url` matching the final URL, and the template's learned
+    `member_indicator` being present on that page. Deliberately NOT a
+    heuristic over cookie names or page length -- inventing one is how the
+    cookie jar got to decide in the first place.
+
+    Returns (matched, why, evidence_path). `matched` is False for every
+    unavailable measurement, because an unavailable measurement is never
+    permission.
+    """
+    config = config or {}
+    success_url = config.get("success_url", "") or ""
+    learned_login = (config.get("learned") or {}).get("login") or {}
+    indicator = learned_login.get("member_indicator") or ""
+    if not success_url and not indicator:
+        return False, "no success_url and no member indicator declared", None
+    try:
+        final_url = page.url
+    except Exception as e:
+        return False, f"final URL unreadable ({e}); member state UNKNOWN", None
+    evidence_path = write_login_evidence(page, config, final_url, tag)
+    if success_url and _success_url_matches(success_url, final_url):
+        return (True,
+                f"success_url {success_url!r} matches the page read ({final_url})",
+                evidence_path)
+    if indicator:
+        try:
+            present = page.locator(indicator).count() > 0
+        except Exception as e:
+            return (False,
+                    f"member indicator {indicator!r} unreadable ({e}); UNKNOWN",
+                    evidence_path)
+        if present:
+            return (True,
+                    f"member indicator {indicator!r} present on the page read "
+                    f"({final_url})",
+                    evidence_path)
+        return (False,
+                f"member indicator {indicator!r} absent from the page read "
+                f"({final_url})",
+                evidence_path)
+    return (False,
+            f"no success_url match on the page read ({final_url})",
+            evidence_path)
 
 
 _AUTH_COOKIE_HINTS = (

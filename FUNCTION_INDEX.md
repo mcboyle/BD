@@ -522,22 +522,22 @@ Schema version: 2
 - L0181 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
 - L0200 `AuthMixin` `[class]`
   - L0202 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0434 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0481 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0576 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0604 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0713 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0757 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0962 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1012 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1017 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1032 `AuthMixin.is_awaiting_manual_login`
-  - L1034 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1056 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1135 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1143 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1208 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1263 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L0440 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0487 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0582 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0610 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0719 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0763 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L0968 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1018 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1023 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1038 `AuthMixin.is_awaiting_manual_login`
+  - L1040 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1062 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1141 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1149 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1214 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1269 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -742,29 +742,39 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (8 entries)
+## `bulk_downloader/login_impl/replay.py` (17 entries)
 
 ```
-- L0020 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0032 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0095 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0150 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0191 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0421 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0466 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0526 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0030 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
+  - L0042 `LoginOutcome.__init__` `[dunder]`
+  - L0048 `LoginOutcome.__bool__` `[dunder]`
+  - L0051 `LoginOutcome.__eq__` `[dunder]`
+  - L0061 `LoginOutcome.__hash__` `[dunder]`
+  - L0064 `LoginOutcome.__repr__` `[dunder]`
+- L0069 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
+- L0075 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
+- L0099 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
+- L0161 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0173 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0236 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0291 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0332 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0562 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0607 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0667 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (6 entries)
+## `bulk_downloader/login_impl/submit.py` (7 entries)
 
 ```
-- L0018 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0057 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0132 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0193 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0426 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0496 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0024 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0053 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0092 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0167 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0228 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0461 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0531 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -798,4 +808,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 622 across 22 files._
+_Total entries: 632 across 22 files._

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4326,
+  "edge_count": 4331,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1495,6 +1495,7 @@
     ],
     "bulk_downloader/login_impl/replay.py": [
       "bulk_downloader/cloak.py",
+      "bulk_downloader/constants.py",
       "bulk_downloader/cross_site_selectors.py",
       "bulk_downloader/login_flow_recorder.py",
       "bulk_downloader/macro_recorder.py",
@@ -3994,6 +3995,12 @@
     ],
     "tests/test_row671_reviewed_template_selectors_are_enumerated.py": [
       "bulk_downloader/template_assist.py"
+    ],
+    "tests/test_row708_no_nav_login_is_not_success.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/stealth.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

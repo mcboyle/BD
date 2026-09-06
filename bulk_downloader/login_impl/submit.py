@@ -12,7 +12,42 @@ from ._common import (
     _try_fill,
 )
 from .manual import _MANUAL_LOGIN_BANNER_JS
-from .replay import _looks_authenticated, replay_saved_login_flow
+from .replay import (
+    LOGIN_SETTLED_NO_NAV,
+    LoginOutcome,
+    _looks_authenticated,
+    member_state_check,
+    replay_saved_login_flow,
+)
+
+
+def _no_nav_verdict(page, config, cookies, why, phase, hard_close):
+    """Row 708: decide a login that fired NO navigation.
+
+    The cookie jar no longer decides. Success requires a POSITIVE
+    member-state check on the page the run actually read (a matching
+    declared success_url, or the template's learned member indicator);
+    the page read is kept as evidence either way. Everything else settles
+    into the distinct settled-no-nav state, which is not success and is
+    not the submit-failed value.
+
+    `why` is the cookie-jar diagnostic, carried into the message so the
+    operator still sees what the jar looked like -- as a description, not
+    as the verdict. Returns do_login's (verdict, info, cookies) tuple.
+    """
+    confirmed, member_why, evidence = member_state_check(
+        page, config, tag=f"login-{phase}")
+    hard_close()
+    if confirmed:
+        info = (f"OK \u2014 {len(cookies)} cookies ({phase}; {why}; "
+                f"member state confirmed: {member_why}; evidence {evidence})")
+        sys.stderr.write(f"  login: {info}\n")
+        return True, info, cookies
+    info = (f"{LOGIN_SETTLED_NO_NAV} ({why}; no navigation; {member_why}"
+            f"{'; evidence ' + evidence if evidence else ''}) \u2014 NOT success")
+    sys.stderr.write(f"  login: {info}\n")
+    return (LoginOutcome(LOGIN_SETTLED_NO_NAV, False, evidence, why),
+            info, cookies)
 
 
 def _staged_password_retry(page, sb_candidates, pf_candidates, password):
@@ -1042,11 +1077,11 @@ def do_login(config, allow_manual_takeover=False):
             authed,why=_looks_authenticated(
                 cookies, before_cookies=cookies_before_submit)
             if authed:
-                sys.stderr.write(f"  login: page closed mid-submit; {why} "
-                                 f"— treating as success\n")
-                _hard_close()
-                return True,(f"OK — {len(cookies)} cookies "
-                             f"(page closed mid-submit; {why})"),cookies
+                # v3.66 row 708: the jar no longer decides. A page that
+                # closed mid-submit fired no navigation, so success needs a
+                # positive member-state check on the page actually read.
+                return _no_nav_verdict(page, config, cookies, why,
+                                       "page closed mid-submit", _hard_close)
             # Cookies absent or unconvincing — login almost certainly
             # did not go through. Manual takeover is the right answer.
             sys.stderr.write(f"  login: page closed mid-submit but cookies "
@@ -1070,11 +1105,11 @@ def do_login(config, allow_manual_takeover=False):
             authed,why=_looks_authenticated(
                 cookies_after_submit, before_cookies=cookies_before_submit)
             if authed:
-                sys.stderr.write(f"  login: no nav signal, but {why} "
-                                 f"— treating as success\n")
-                _hard_close()
-                return True,(f"OK — {len(cookies_after_submit)} cookies "
-                             f"(no nav signal; {why})"),cookies_after_submit
+                # v3.66 row 708: the AJAX no-nav path is the seam the row
+                # names. A convincing jar is a description of the jar, not
+                # a navigation.
+                return _no_nav_verdict(page, config, cookies_after_submit,
+                                       why, "no nav signal", _hard_close)
             sys.stderr.write(f"  login: no nav signal and cookies "
                              f"unconvincing ({why})\n")
             if allow_manual_takeover:
@@ -1124,12 +1159,15 @@ def do_login(config, allow_manual_takeover=False):
             # as above. This branch is rare but defensible.
             try: cookies=pw_to_json(ctx.cookies())
             except Exception: cookies=[]
-            _hard_close()
             authed,why=_looks_authenticated(
                 cookies, before_cookies=cookies_before_submit)
             if authed:
-                return True,(f"OK — {len(cookies)} cookies "
-                             f"(page closed post-submit; {why})"),cookies
+                # v3.66 row 708: same rule at the third cookie-only seam.
+                # The URL is unreadable here, so the member-state check
+                # returns UNKNOWN and this settles rather than succeeding.
+                return _no_nav_verdict(page, config, cookies, why,
+                                       "page closed post-submit", _hard_close)
+            _hard_close()
             return False,(f"Page closed after submit; cookies "
                           f"unconvincing ({why})"),[]
         if success and success not in cur:
