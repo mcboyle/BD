@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Standalone transform control: MUST ESCAPE the single import-only test, which imports the harness without driving either installer.",
+  "subject": "CONTROL install_service.sh: brace authorized path reference",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL install_service.sh: brace authorized path reference",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=\\$)AUTHORIZED_DIR(?=\" \\]; then)",
+      "new": "{AUTHORIZED_DIR}",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+    }
+  ]
+}

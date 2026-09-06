@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Writability is independent from canonical authorization and helper diagnostics;",
+  "band": [
+    "tests/test_row718_installer_refuses_an_unwritable_install_dir.py"
+  ],
+  "mutants": [
+    {
+      "label": "remove install directory writability check",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= \\[ ! -w )",
+      "new": "if true; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row718_installer_refuses_an_unwritable_install_dir.py::test_writability_refusal_independent_of_helper_chmod"
+    },
+    {
+      "label": "writability refusal becomes warning and continues",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= \\[ ! -w )",
+      "new": "if true; then echo \"WARNING: install directory is not writable\"; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row718_installer_refuses_an_unwritable_install_dir.py::test_writability_refusal_independent_of_helper_chmod"
+    },
+    {
+      "label": "check HOME instead of install directory",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=! -w \"\\$)APP_DIR(?=\" \\]; then)",
+      "new": "HOME",
+      "direction": "regression",
+      "catcher": "tests/test_row718_installer_refuses_an_unwritable_install_dir.py::test_writability_refusal_independent_of_helper_chmod"
+    },
+    {
+      "label": "chmod failure becomes warning and continues",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^        exit(?= [^\\n]*\\n    else\\n        # F3)",
+      "new": "        :",
+      "direction": "regression",
+      "catcher": "tests/test_row718_installer_refuses_an_unwritable_install_dir.py::test_helper_failure_is_deliberate[chmod]"
+    }
+  ],
+  "_comment": "Every regression must be CAUGHT. Standalone sibling transform-control specs MUST ESCAPE their import-only band. Each structural anchor selects an executed token using surrounding context."
+}

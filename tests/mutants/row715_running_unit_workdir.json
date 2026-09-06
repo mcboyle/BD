@@ -1,0 +1,138 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Inspect every existing unit before any restart; unavailable observation refuses.",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py"
+  ],
+  "mutants": [
+    {
+      "label": "bulkdownloader: omit inspection seam",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=; )do(?=\\n    if ! UNIT_PROPERTIES)",
+      "new": "do\n    [ \"$CHECK_SERVICE\" != \"bulkdownloader\" ] || continue",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[False-bulkdownloader]"
+    },
+    {
+      "label": "bulkdownloader-ai-ready: omit inspection seam",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=; )do(?=\\n    if ! UNIT_PROPERTIES)",
+      "new": "do\n    [ \"$CHECK_SERVICE\" != \"bulkdownloader-ai-ready\" ] || continue",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[False-bulkdownloader-ai-ready]"
+    },
+    {
+      "label": "main: service name substitutes for directory comparison",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^\\s*if(?= [^\\n]*\\$UNIT_DIR[^\\n]*\\$APP_DIR)",
+      "new": "            if [ \"$CHECK_SERVICE\" != \"$SERVICE_NAME\" ] && [ \"$CHECK_SERVICE\" != \"$AI_SERVICE_NAME\" ] &&",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[False-bulkdownloader-ai-ready]"
+    },
+    {
+      "label": "main: blanket restart refusal",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^\\s*if(?= [^\\n]*\\$UNIT_DIR[^\\n]*\\$APP_DIR)",
+      "new": "    if true ||",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[True-bulkdownloader]"
+    },
+    {
+      "label": "capture: delete running-tree check",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^case(?= \"\\$PREINSTALL_STATE\")",
+      "new": "PREINSTALL_STATE=inactive\ncase",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[False-bulkdownloader-capture@fixture.service]"
+    },
+    {
+      "label": "capture: unit name substitutes for tree",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^\\s*if(?= [^\\n]*\\$UNIT_DIR[^\\n]*\\$APP_DIR)",
+      "new": "    if [ \"$SERVICE_INSTANCE\" != \"bulkdownloader-capture@${INSTANCE}.service\" ] &&",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[False-bulkdownloader-capture@fixture.service]"
+    },
+    {
+      "label": "capture: blanket restart refusal",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^\\s*if(?= [^\\n]*\\$UNIT_DIR[^\\n]*\\$APP_DIR)",
+      "new": "    if true ||",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_running_unit_tree[True-bulkdownloader-capture@fixture.service]"
+    },
+    {
+      "label": "install_service.sh: ignore failed observation",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^\\s*if(?= ! UNIT_PROPERTIES=)",
+      "new": "    if UNIT_PROPERTIES=\"$(systemctl show \"$CHECK_SERVICE\" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)\"; then :; elif false &&",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[transport-install_service.sh]"
+    },
+    {
+      "label": "install_service.sh: unknown tree becomes current tree",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^\\s*if(?= \\[ -z [^\\n]*\\$UNIT_DIR)",
+      "new": "    if [ -z \"$UNIT_DIR\" ]; then UNIT_DIR=\"$APP_DIR\"; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[missing-workdir-install_service.sh]"
+    },
+    {
+      "label": "install_service.sh: unknown state permits install",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=; )exit(?= [^\\n]*;;\\n    esac\\ndone\\n\\necho)",
+      "new": ":",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[bad-state-install_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: ignore failed observation",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^\\s*if(?= ! UNIT_PROPERTIES=)",
+      "new": "    if UNIT_PROPERTIES=\"$(systemctl show \"$SERVICE_INSTANCE\" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)\"; then :; elif false &&",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[transport-scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: unknown tree becomes current tree",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^\\s*if(?= \\[ -z [^\\n]*\\$UNIT_DIR)",
+      "new": "    if [ -z \"$UNIT_DIR\" ]; then UNIT_DIR=\"$APP_DIR\"; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[missing-workdir-scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: unknown state permits install",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)(?<=; )exit(?= [^\\n]*;;\\nesac\\nRUN_USER)",
+      "new": ":",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[bad-state-scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "main: incomplete observation defaults inactive",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^\\s*if(?= \\[ [^\\n]*\\$UNIT_FIELDS)",
+      "new": "    if true; then [ -n \"$UNIT_STATE\" ] || UNIT_STATE=inactive; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unavailable_unit_measurement_refuses[empty-install_service.sh]"
+    },
+    {
+      "label": "main: omit empty properties",
+      "file": "install_service.sh",
+      "old_regex": "--all(?= --property=LoadState)",
+      "new": " ",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_authorized_tree_and_source[canonical-install_service.sh]"
+    },
+    {
+      "label": "capture: read protected environment without privilege",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "sudo(?= sed -n)",
+      "new": " ",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_capture_reads_root_owned_environment_through_sudo"
+    }
+  ],
+  "_comment": "Every regression must be CAUGHT. Standalone sibling transform-control specs MUST ESCAPE their import-only band. Each structural anchor selects an executed token using surrounding context."
+}

@@ -97,6 +97,9 @@ _DECLARED = {
     # template corpus are a tree-wide denominator: the gate judges every
     # template, not the four files this cut edited.
     "tests/test_row_pm_template_gap_matchers_and_corpus.py",
+    # Rows 715/718: installer provenance and refusal before unit writes.
+    "tests/test_row715_installer_refuses_a_foreign_directory.py",
+    "tests/test_row718_installer_refuses_an_unwritable_install_dir.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

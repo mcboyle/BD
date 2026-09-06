@@ -235,6 +235,9 @@ def _installer_env(
         "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
         "action = sys.argv[1] if len(sys.argv) > 1 else ''\n"
         "state = os.environ['SERVICE_STATE']\n"
+        "if action == 'show':\n"
+        "    print('LoadState=not-found\\nActiveState=inactive\\nWorkingDirectory=')\n"
+        "    raise SystemExit(0)\n"
         "if action == 'restart':\n"
         "    open(state, 'w').write('active\\n')\n"
         "elif action == 'stop':\n"
@@ -271,6 +274,7 @@ def _installer_env(
         "CAPTURE_SERVICE_RUNTIME_DIR": str(runtime),
         "CAPTURE_SERVICE_PYTHON": sys.executable,
         "CAPTURE_SERVICE_READY_TRIES": "1",
+        "BD_DEPLOY_DIR": str(scratch_repo),
     }
     assert installer.is_file() and os.access(installer, os.X_OK)
     assert Path(sys.executable).is_absolute() and os.access(sys.executable, os.X_OK)

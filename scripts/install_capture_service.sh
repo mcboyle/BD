@@ -4,7 +4,7 @@ set -u
 set -o pipefail
 
 usage() {
-  echo "usage: $0 start INSTANCE APP_PORT INSTALL_DIR [SECRETS_FILE]" >&2
+  echo "usage: $0 start INSTANCE APP_PORT INSTALL_DIR [SECRETS_FILE] [--install-dir PATH]" >&2
   echo "       $0 stop INSTANCE" >&2
   exit 2
 }
@@ -47,7 +47,7 @@ fi
 
 APP_PORT="${3:-}"
 INSTALL_DIR="${4:-}"
-SECRETS_FILE="${5:-}"
+SECRETS_FILE=""
 case "$APP_PORT" in ''|*[!0-9]*) usage ;; esac
 if [ "$APP_PORT" -lt 1024 ] || [ "$APP_PORT" -gt 65535 ]; then
   usage
@@ -56,6 +56,70 @@ case "$INSTALL_DIR" in /*) ;; *) usage ;; esac
 
 APP_DIR="$(dirname "$(readlink -f "$0")")/.."
 APP_DIR="$(readlink -f "$APP_DIR")"
+
+# INSTALL_DIR above is capture data; authorize the code tree separately.
+INSTALL_DIR_SOURCE=canonical
+AUTHORIZED_DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
+[ -z "${BD_DEPLOY_DIR:-}" ] || INSTALL_DIR_SOURCE=BD_DEPLOY_DIR
+shift 4
+if [ "$#" -gt 0 ] && [ "$1" != "--install-dir" ]; then
+  SECRETS_FILE="$1"
+  shift
+fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --install-dir)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "capture service: WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=--install-dir"
+        echo "capture service: INSTALL-DIR-REFUSED: --install-dir requires PATH" >&2
+        exit 1
+      fi
+      AUTHORIZED_DIR="$2"
+      INSTALL_DIR_SOURCE=--install-dir
+      shift 2
+      ;;
+    *)
+      echo "capture service: WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+      echo "capture service: INSTALL-DIR-REFUSED: unknown argument $1" >&2
+      exit 1
+      ;;
+  esac
+done
+AUTHORIZED_DIR="$(readlink -f -- "$AUTHORIZED_DIR")"
+echo "capture service: WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+if [ -z "$APP_DIR" ] || [ "$APP_DIR" != "$AUTHORIZED_DIR" ]; then
+  echo "capture service: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR." >&2
+  echo "Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH." >&2
+  exit 1
+fi
+
+# The capture template changes directory inside ExecStart, via this instance's
+# environment file; systemd's WorkingDirectory alone does not identify it.
+if ! UNIT_PROPERTIES="$(systemctl show "$SERVICE_INSTANCE" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)"; then
+  echo "capture service: UNIT-DIR-UNKNOWN: cannot inspect $SERVICE_INSTANCE: $UNIT_PROPERTIES" >&2
+  exit 1
+fi
+PREINSTALL_STATE="$(printf '%s\n' "$UNIT_PROPERTIES" | sed -n 's/^ActiveState=//p')"
+case "$PREINSTALL_STATE" in
+  inactive|failed) ;;
+  active|activating|reloading|deactivating)
+    UNIT_DIR="$(sudo sed -n 's/^BD_CAPTURE_APP_DIR=//p' "$ENV_PATH" 2>/dev/null)"
+    case "$UNIT_DIR" in
+      /*) UNIT_DIR="$(readlink -f -- "$UNIT_DIR")" ;;
+      *) UNIT_DIR= ;;
+    esac
+    if [ -z "$UNIT_DIR" ]; then
+      echo "capture service: UNIT-DIR-UNKNOWN: cannot resolve the code tree from $ENV_PATH" >&2
+      exit 1
+    fi
+    if [ "$UNIT_DIR" != "$APP_DIR" ]; then
+      echo "capture service: RUNNING-UNIT-DIR-REFUSED: $SERVICE_INSTANCE belongs to $UNIT_DIR, not $APP_DIR." >&2
+      echo "Stop that instance explicitly and review its environment before changing trees." >&2
+      exit 1
+    fi
+    ;;
+  *) echo "capture service: UNIT-DIR-UNKNOWN: $SERVICE_INSTANCE state is ${PREINSTALL_STATE:-unavailable}" >&2; exit 1 ;;
+esac
 RUN_USER="${SUDO_USER:-$(whoami)}"
 PYEXE="${CAPTURE_SERVICE_PYTHON:-$APP_DIR/venv/bin/python}"
 
