@@ -1862,7 +1862,7 @@ def _init_vpn_runtime():
 
 
 # v3.43.16: spawn session keep-alive threads for sites that have a
-# password configured + keep_alive_enabled (default True).
+# password configured + keep_alive_enabled (default False).
 #
 # Each (site, account) pair gets its own daemon thread. The keeper
 # periodically verifies the site's session is still valid; if not, it
@@ -1955,7 +1955,7 @@ def _start_session_keepers(site_id=None):
 
     for sid, cfg in configured_sites:
         if not isinstance(cfg, dict): continue
-        if not cfg.get("keep_alive_enabled", True): continue
+        if not cfg.get("keep_alive_enabled", False): continue
         accounts = cfg.get("accounts") or []
         if accounts:
             # Spawn one keeper per account

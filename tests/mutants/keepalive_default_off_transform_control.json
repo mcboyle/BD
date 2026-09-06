@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL. The manual-login regression from the main spec, pointed at the site-mint test, which imports every module in the chain but never drives finish_manual_login. It must ESCAPE: an ESCAPE here proves the main spec's CAUGHTs are assertion failures at the seam and not parse or import breakage.",
+  "subject": "keepalive-default-off transform control",
+  "band": [
+    "tests/test_keepalive_default_off.py::test_new_site_defaults_to_inert_keepalive"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL manual-login profile seed is not observed by the site-mint test",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?<=if )self\\.config\\.get(?=\\(\"keep_alive_enabled\", False\\):)",
+      "new": "not self.config.get",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_new_site_defaults_to_inert_keepalive"
+    }
+  ]
+}

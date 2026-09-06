@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Anchors are STRUCTURAL spans (row357): the value-bearing text of each decision -- the quotes, the False -- sits in the zero-width lookarounds, and the span is the identifier or the guard the decision is made with. Each mutant restores the pre-cut hazard at exactly one seam. The PUT fallback (app_sites_id_core api_update) is NOT scored here: measured pairwise it is an EQUIVALENT mutant, masked by the spawner it delegates to, which also defaults False. It is pinned by test_put_without_the_key_does_not_respawn_a_keeper as defence-in-depth.",
+  "subject": "an automatic login is opt-in at every keep-alive seam: the site-config DEFAULTS, the keeper's own fallback, the spawner's gate, the manual-login profile seed, and the clone strip set",
+  "band": [
+    "tests/test_keepalive_default_off.py"
+  ],
+  "mutants": [
+    {
+      "label": "the DEFAULTS entry stops governing a newly minted or reloaded site",
+      "file": "bulk_downloader/app_kernel.py",
+      "old_regex": "(?<=\")keep_alive_enabled(?=\":False,)",
+      "new": "keep_alive_enabled_unmapped",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_new_site_defaults_to_inert_keepalive"
+    },
+    {
+      "label": "the keeper's own guard stops disabling a config that omits the key",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=if )not self\\.config\\.get(?=\\(\"keep_alive_enabled\", False\\):)",
+      "new": "self.config.get",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_keyless_keeper_disables_before_heartbeat"
+    },
+    {
+      "label": "the spawner's gate stops skipping a config that omits the key",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?<=if )not cfg\\.get(?=\\(\"keep_alive_enabled\", False\\): continue)",
+      "new": "cfg.get",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_keyless_config_never_spawns_a_keeper"
+    },
+    {
+      "label": "finish_manual_login seeds a keepalive profile for a config that omits the key",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?<=if )self\\.config\\.get(?=\\(\"keep_alive_enabled\", False\\):)",
+      "new": "not self.config.get",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_manual_login_does_not_seed_a_keepalive_profile"
+    },
+    {
+      "label": "the clone strip set stops removing the parent's opt-in",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "(?<=\")keep_alive_enabled(?=\",\\n)",
+      "new": "keep_alive_enabled_not_stripped",
+      "direction": "regression",
+      "catcher": "tests/test_keepalive_default_off.py::test_clone_does_not_inherit_the_parents_opt_in"
+    }
+  ]
+}

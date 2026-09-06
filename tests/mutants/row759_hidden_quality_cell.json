@@ -1,0 +1,56 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 759. Two seams, both inside find_best_download's wide sweep: the VISIBILITY ADMISSION that decides whether a harvested element may carry a resolution score, and the RANKER'S SCORING CALL that decides which admitted candidate wins. Every anchor SPAN is a call or a branch predicate -- never a literal, a quoted value or an assignment -- because an anchor on a value breaks on the next edit of that value and proves nothing about behaviour (row 357). The lookbehind/lookahead forms exist for exactly that: they pin the unique site while leaving the assignment operator and its literal OUTSIDE the matched text.",
+ "subject": "a COMPUTED-HIDDEN quality cell can never carry a resolution score, and visible candidates are still ranked by the shipped scorer",
+ "band": [
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheFixtureItself::test_visibility_is_consulted_exactly_once_per_admitted_candidate",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_is_not_the_quality_winner",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_scores_zero_but_is_still_a_candidate",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheRefusalIsNarrow::test_a_visible_resolution_cell_still_wins_normally",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheRefusalIsNarrow::test_a_locator_whose_visibility_raises_is_still_admitted",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestEveryWideSweepEntryPoint::test_section_1_direct_media_link_hidden_is_refused",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestEveryWideSweepEntryPoint::test_section_3_data_resolution_marker_hidden_is_refused"
+ ],
+ "mutants": [
+  {
+   "label": "SEAM1-M1 the wide-sweep admission never refuses -- the row 759 defect put back exactly",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=if )_is_hidden_from_operator\\(el\\)(?=: s)",
+   "new": "_is_hidden_from_operator(None)",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_is_not_the_quality_winner"
+  },
+  {
+   "label": "SEAM1-M2 the admission predicate inverts -- hidden scores, visible is de-scored",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=return )el\\.is_visible\\(\\)(?= is False)",
+   "new": "(not el.is_visible())",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_scores_zero_but_is_still_a_candidate"
+  },
+  {
+   "label": "SEAM1-M3 the admission is consulted for nothing -- decision made, result discarded",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "if _is_hidden_from_operator\\(el\\)(?=: s)",
+   "new": "if _is_hidden_from_operator(el) is None",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestEveryWideSweepEntryPoint::test_section_3_data_resolution_marker_hidden_is_refused"
+  },
+  {
+   "label": "SEAM2-M4 the ranker's scoring call is not made -- every admitted candidate ties",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=\\n        s=)res_score\\(t\\)",
+   "new": "len(t) and 0",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheRefusalIsNarrow::test_a_visible_resolution_cell_still_wins_normally"
+  },
+  {
+   "label": "SEAM1-M5 the unmeasurable arm fails CLOSED -- a detached handle is treated as hidden",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=is_visible\\(\\) is False\\n    except Exception:\\n        return )(?=False)",
+   "new": "not ",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheRefusalIsNarrow::test_a_locator_whose_visibility_raises_is_still_admitted"
+  }
+ ]
+}

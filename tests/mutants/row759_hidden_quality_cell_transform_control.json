@@ -1,0 +1,19 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for row759_hidden_quality_cell.json. It must exit 1 with its mutant ESCAPED. The mutation is a PURE PARENTHESISATION of an argument in the very block row 759 edits: the code parses, imports and behaves identically, so the band must not notice it. A CAUGHT here would mean the main battery's CAUGHTs are parse or import breaks rather than behaviour, and every CAUGHT in it would be worthless.",
+ "subject": "transform control -- a behaviour-preserving rewrite inside the row 759 admission block is invisible to the row 759 band",
+ "band": [
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_is_not_the_quality_winner",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestTheRefusalIsNarrow::test_a_visible_resolution_cell_still_wins_normally"
+ ],
+ "mutants": [
+  {
+   "label": "TC1 pure parenthesisation of a _note_admission_drop argument (no behaviour change)",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "_note_admission_drop\\(_admission, t\\)",
+   "new": "_note_admission_drop((_admission), (t))",
+   "direction": "regression",
+   "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_is_not_the_quality_winner"
+  }
+ ]
+}

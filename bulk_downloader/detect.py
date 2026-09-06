@@ -964,6 +964,39 @@ def _learned_candidate_requires_signal(el, selector):
         return True
 
 
+def _is_hidden_from_operator(el):
+    """True only when Playwright REPORTS this element as not visible.
+
+    Row 759. detect.py already refuses an invisible element on both of its
+    OTHER admission paths -- the learned row-selector loop since v3.66.247
+    (a learned row that is not visible cannot be clicked) and
+    ``_resolve_taught_control`` since row 486 -- but the WIDE SWEEP had no such
+    decision, and a modal built for every breakpoint at once carries a
+    resolution cell that is in the DOM at all of them and rendered at none.
+    That cell is scored by ``res_score`` like any other harvested text, wins on
+    2160 alone, and cannot be clicked: the operator reads "Clicked but no
+    download started" while the visible label sits one candidate below it.
+
+    UNMEASURABLE VISIBILITY SCORES NORMALLY. The decision is exactly "reported
+    not visible", never "not proven visible": a locator stub, a detached handle
+    or a Playwright fault returns False here and the candidate keeps its score.
+    That is the fail-open ``_is_wrapper_not_control`` and the P5-3 honeypot
+    filter already take on this same path, and it is deliberate -- the wide
+    sweep is the last resort, so a refusal it makes on evidence it does not
+    have costs the operator a real download.
+
+    The caller uses this to zero a resolution score, never to drop a
+    candidate. Deleting an invisible control is the separate, env-gated and
+    DEFAULT-OFF decision v3.66.28's P5-3 filter owns; row 759 does not reopen
+    it, because an invisible-but-real trigger is still clickable and a hidden
+    quality cell only has to stop outranking the label beside it.
+    """
+    try:
+        return el.is_visible() is False
+    except Exception:
+        return False
+
+
 def _is_wrapper_not_control(el):
     """True only for a measured wrapper with no affordance of its own."""
     if _candidate_has_own_affordance(el):
@@ -1506,6 +1539,18 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             _note_admission_drop(_admission, t)
             return
         s=res_score(t)
+        # Row 759: a cell the operator cannot SEE is not a QUALITY candidate.
+        # It stays a CANDIDATE -- v3.66.28's P5-3 filter decided deliberately,
+        # and default-off, that invisibility alone must never DELETE a control,
+        # because an invisible-but-real trigger is a download the operator
+        # loses. What invisibility does forfeit is the resolution score: a
+        # modal built for every breakpoint at once carries a 2160p cell that is
+        # in the DOM at all of them and rendered at none, and res_score would
+        # otherwise let that cell outrank the visible label beside it and
+        # become the quality winner nobody can click.
+        # Asked last on purpose -- is_visible() is a live DOM round trip, so it
+        # is asked only of text that survived every cheap refusal above.
+        if _is_hidden_from_operator(el): s=0
         seen.add(t)
         candidates.append({"locator":el,"text":t[:160],
                            "score":max(0,s),"size":parse_size_bytes(t),

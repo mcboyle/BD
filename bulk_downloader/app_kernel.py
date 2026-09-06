@@ -173,8 +173,7 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # {name, url, interval_hours, last_run_ts} dicts. The
             # auto_retry loop scans listings on schedule and imports new URLs.
             "subscriptions",
-            # v3.43.16: session keep-alive opt-in flag. Default True via
-            # DEFAULTS; per-site checkbox in the edit modal.
+            # Session keep-alive is opt-in per site via the edit modal.
             "keep_alive_enabled",
             # v3.43.21: backend selector + JD connection details. Without
             # these in CFG_FIELDS the values would be dropped on reload.
@@ -527,10 +526,8 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # OS-level download dir as the takeover, bypassing the worker's
           # Playwright download routing. Workers now default headless;
           # set headless=False in site config only for debugging.
-          # v3.43.16: keep-alive defaults ON. Background thread heartbeats
-          # every 5 min and triggers a relogin 10 min before predicted
-          # session expiry. Per-site opt-out via UI checkbox or this field.
-          "keep_alive_enabled":True,
+          # Keep-alive defaults OFF; an operator must opt in per site.
+          "keep_alive_enabled":False,
           "headless":True,
           # Phase 41.6: separate persistent profile for manual login/teach
           # sessions. Enables password manager extensions to be installed once

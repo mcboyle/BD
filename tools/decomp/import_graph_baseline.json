@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4331,
+  "edge_count": 4337,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3108,6 +3108,13 @@
     "tests/test_keepalive_browser.py": [
       "bulk_downloader/session_keeper.py"
     ],
+    "tests/test_keepalive_default_off.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/session_keeper.py"
+    ],
     "tests/test_l0_extract_v2.py": [
       "tools/l0_extract.py"
     ],
@@ -4001,6 +4008,9 @@
       "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
+    ],
+    "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py": [
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
