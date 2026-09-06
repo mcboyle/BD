@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 726 gen d: reachability. A constant branch test is judged by TRUTHINESS, not by `is False` identity -- the identity form reported an unreachable `if 0:` decoy as a live escape, a false positive in the gate itself.",
+  "subject": "an unreachable decision is not a decision",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py"
+  ],
+  "mutants": [
+    {
+      "label": "R1 a constant test is judged by identity again, so `if 0:` reads as live (E7)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                    if )not truthy(?= and current in parent\\.body:$)",
+      "new": "parent.test.value is False",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_does_not_report_an_unreachable_integer_zero_decoy"
+    }
+  ]
+}

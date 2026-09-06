@@ -1,0 +1,66 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 726 gen c: the census must follow DATA FLOW, IMPORT ALIASES and CROSS-MODULE WRAPPERS. Each mutant removes one of the three and the named catcher must go red. Anchors are zero-width or structural spans so row 357 can classify them.",
+  "subject": "the consumer census is not defeated by indirection",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py"
+  ],
+  "mutants": [
+    {
+      "label": "D1 the stored-decision taint never propagates (E1-E7)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)^(?=        derived: set = set\\(\\)$)",
+      "new": "        return names, set()\n",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_catches_a_stored_membership_decision"
+    },
+    {
+      "label": "D2 an import alias is not resolved to the guard (E9)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)^(?=            for entry in node\\.names:$)",
+      "new": "            continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_catches_an_import_alias_consumer"
+    },
+    {
+      "label": "D3 the population is not re-filtered with the wrappers (E8)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^    python_sources = )collect_sources\\(call_names \\| wrapper_names\\)(?=$)",
+      "new": "collect_sources(call_names)",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_catches_a_cross_module_wrapper_consumer"
+    },
+    {
+      "label": "D4 a text decision in a return value is not read (E3)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(statement, )ast\\.Return(?=\\):$)",
+      "new": "ast.Pass",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_reports_a_text_decision_in_a_return_value"
+    },
+    {
+      "label": "D5 the pair bound to one name hides its reason slot (E4)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(target, )ast\\.Name(?=\\):$)",
+      "new": "ast.Slice",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_reports_a_decision_on_a_tuple_bound_reason"
+    },
+    {
+      "label": "D6 a match subject is not a decision (E5)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                elif isinstance\\(statement, )ast\\.Match(?=\\):$)",
+      "new": "ast.Pass",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_reports_a_match_statement_on_the_reason_text"
+    },
+    {
+      "label": "D7 a wrapper that stores then returns is not derived (E6)",
+      "file": "tests/test_rowssrf_loopback_reason_is_structured.py",
+      "old_regex": "(?m)(?<=^                            and returned\\.value\\.id in )stored_results(?=\\):$)",
+      "new": "frozenset()",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_census_follows_a_wrapper_that_stores_then_returns_the_result"
+    }
+  ]
+}

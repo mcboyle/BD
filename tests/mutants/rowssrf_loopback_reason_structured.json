@@ -73,7 +73,7 @@
     {
       "label": "M6 hostname classifier propagation launders link-local as loopback",
       "file": "bulk_downloader/provider_resolve_impl/_common.py",
-      "old_regex": "(?m)(?<=^            return False, )reason$",
+      "old_regex": "(?m)(?<=^        return False, )reason$",
       "new": "_host_safety_message(HostSafetyReason.LOOPBACK, str(reason))",
       "direction": "regression",
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[pre-fetch]"

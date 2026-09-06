@@ -1,0 +1,76 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 725: value-free structural anchors prove that every DNS answer is classified before exemption selection.",
+  "subject": "multi-answer host classification cannot stop at an exempt loopback sibling",
+  "band": [
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_every_multi_answer_address_is_classified_before_loopback_exemption",
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode",
+    "tests/test_rowssrf_loopback_reason_is_structured.py::test_classifier_carries_machine_reason_without_changing_human_message"
+  ],
+  "mutants": [
+    {
+      "label": "M1 classifier returns after the first DNS answer",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^        classified\\.append(?=\\(_classify_ip\\(addr, bare\\)\\)$)",
+      "new": "        return",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_every_multi_answer_address_is_classified_before_loopback_exemption"
+    },
+    {
+      "label": "M2 loopback outranks the unsafe sibling",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^             if item\\.code )is not(?= HostSafetyReason\\.LOOPBACK\\),$)",
+      "new": "is",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_every_multi_answer_address_is_classified_before_loopback_exemption"
+    },
+    {
+      "label": "M3 a missing host is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^    if\\s+not\\s+host:",
+      "new": "    if not host:\n        return True, _host_safety_message(HostSafetyReason.PUBLIC)\n    if not host:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[no-host-http]"
+    },
+    {
+      "label": "M4 a DNS failure is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^    except\\s+\\(socket\\.gaierror,\\s+OSError,\\s+UnicodeError\\)\\s+as\\s+ex:",
+      "new": "    except (socket.gaierror, OSError, UnicodeError) as ex:\n        return True, _host_safety_message(HostSafetyReason.PUBLIC)\n    except (socket.gaierror, OSError, UnicodeError) as ex:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[dns-failure-http]"
+    },
+    {
+      "label": "M5 an empty DNS answer set is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^    if\\s+not\\s+infos:",
+      "new": "    if not infos:\n        return True, _host_safety_message(HostSafetyReason.PUBLIC)\n    if not infos:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[no-addresses-http]"
+    },
+    {
+      "label": "M6 an unusable DNS answer is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^    if\\s+not\\s+classified:",
+      "new": "    if not classified:\n        return True, _host_safety_message(HostSafetyReason.PUBLIC)\n    if not classified:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[no-usable-addresses-http]"
+    },
+    {
+      "label": "M7 a non-IP DNS answer is treated as public",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)^        except\\s+ValueError:(?=\\n            classified\\.append)",
+      "new": "        except ValueError:\n            return True, _host_safety_message(HostSafetyReason.PUBLIC)\n        except ValueError:",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_unknown_host_safety_producer_refuses_before_either_fetch_mode[non-ip-address-http]"
+    },
+    {
+      "label": "M8 classifier precedence decides from English text",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^             if )item\\.code\\s+is\\s+not\\s+HostSafetyReason\\.LOOPBACK(?=\\),$)",
+      "new": "\"loopback\" in str(item)",
+      "direction": "regression",
+      "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_every_multi_answer_address_is_classified_before_loopback_exemption"
+    }
+  ]
+}
