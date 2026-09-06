@@ -9,7 +9,7 @@
     {
       "label": "M1 closed-page recovery discards before snapshot",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                sys.stderr.write\\(f\"  login: page closed)",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                # v3\\.66 row 708: the jar no longer decides)",
       "new": "()",
       "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[closed]",
       "direction": "regression"
@@ -17,7 +17,7 @@
     {
       "label": "M2 AJAX recovery discards before snapshot",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                sys.stderr.write\\(f\"  login: no nav)",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                # v3\\.66 row 708: the AJAX no-nav path)",
       "new": "()",
       "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[ajax]",
       "direction": "regression"
@@ -25,7 +25,7 @@
     {
       "label": "M3 post-submit closure discards before snapshot",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                return True)",
+      "old_regex": "(?<=before_cookies=)cookies_before_submit(?=\\)\\n            if authed:\\n                # v3\\.66 row 708: same rule at the third)",
       "new": "()",
       "catcher": "tests/test_login_submit_robustness.py::test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded[post_closed]",
       "direction": "regression"
@@ -51,7 +51,7 @@
       "file": "bulk_downloader/login_impl/replay.py",
       "old": "if len(new_substantial)",
       "new": "if False and len(new_substantial)",
-      "catcher": "tests/test_login_submit_robustness.py::test_wowgirls_ajax_new_cookie_delta_still_succeeds[ajax]",
+      "catcher": "tests/test_login_submit_robustness.py::test_wowgirls_ajax_new_cookie_delta_is_settled_no_nav[ajax]",
       "direction": "regression"
     },
     {

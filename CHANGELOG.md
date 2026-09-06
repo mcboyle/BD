@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1502 - a login with no navigation signal is never succeeded by the cookie jar alone
+
+Row 708 was the HIGH row the 2026-09-06 adjudication kept open, and it was a
+measured production failure rather than a code reading: a cold login filled the
+form, ticked Remember me, ran all nine submit methods across sixty button
+selectors, and NEVER NAVIGATED -- a reCAPTCHA v2 gated the form. The product
+then logged "no nav signal, but 4 substantial cookies -- treating as success"
+and reported final_status SUCCEEDED. The heuristic manufactured the success.
+The same shape fired for another site at nineteen substantial cookies.
+
+- True is now reachable ONLY through a navigation or a declared success_url
+  match. Every cookie-only branch calls _no_nav_verdict, which runs a POSITIVE
+  member-state check on the page the run actually read, writes that page to the
+  run record, and on no confirmation returns a distinct settled-no-nav outcome
+  that is falsy and is not False -- so the cookie-only case and a real failure
+  are no longer one value.
+- All THREE cookie-only branches are rerouted, not just the one the brief
+  named: page-closed, AJAX no-nav, and post-submit URL unreadable. Each has its
+  own mutant. Fixing one alone would have been the sibling-seam escape.
+- The settled-no-nav outcome's __eq__ returns NotImplemented, so `== True`,
+  `== False` and `== "MANUAL_PENDING"` all fall back to identity and answer
+  False. Every existing `if ok:` consumer is unmodified and was judged
+  individually.
+- row 708 CLOSES. What closes is its ADDED ACCEPTANCE. The row's other clause
+  -- which URL the product POSTED the login to, and whether the template
+  login_url is the site root -- is NOT answered here and is not claimed.
+
 ## v3.66.1501 - three matcher one-liners, five verified templates and four corrections in the template corpus
 
 A product cut against the PM-handoff 2026-09-06 template gap report. A matcher

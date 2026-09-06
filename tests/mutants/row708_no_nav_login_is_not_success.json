@@ -1,0 +1,91 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "One mutant per seam: each of the three no-nav recovery branches, the settled/success value distinction (both halves -- falsiness and equality), the positive success_url check, the member-indicator check, and the evidence write. Plus a transform control that must ESCAPE.",
+  "subject": "a login with no navigation signal is settled-no-nav, never success",
+  "band": [
+    "tests/test_row708_no_nav_login_is_not_success.py",
+    "tests/test_login_submit_robustness.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 page-closed seam no longer routed through the no-nav verdict",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if authed:(?=\\n                # v3\\.66 row 708: the jar no longer decides)",
+      "new": "if not authed:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_no_nav_cookie_delta_is_settled_no_nav_not_success[closed]",
+      "direction": "regression"
+    },
+    {
+      "label": "M2 AJAX seam no longer routed through the no-nav verdict",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if authed:(?=\\n                # v3\\.66 row 708: the AJAX no-nav path)",
+      "new": "if not authed:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_no_nav_cookie_delta_is_settled_no_nav_not_success[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M3 post-submit-closure seam no longer routed through the no-nav verdict",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if authed:(?=\\n                # v3\\.66 row 708: same rule at the third)",
+      "new": "if not authed:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_no_nav_cookie_delta_is_settled_no_nav_not_success[post_closed]",
+      "direction": "regression"
+    },
+    {
+      "label": "M4 restore unconditional success on the no-nav path",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old": "if confirmed:",
+      "new": "if confirmed or cookies:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_no_nav_cookie_delta_is_settled_no_nav_not_success[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M5 settled-no-nav made truthy -- the state becomes the success value",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "return self\\.ok(?=\\n\\n    def __eq__)",
+      "new": "return not self.ok",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_settled_no_nav_is_not_the_same_value_as_success_or_failure[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M6 settled-no-nav made equal to every value it is compared against",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "return NotImplemented",
+      "new": "return True",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_settled_no_nav_is_not_the_same_value_as_success_or_failure[ajax]",
+      "direction": "regression"
+    },
+    {
+      "label": "M7 the positive success_url check is skipped",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "new": "if success_url and not _success_url_matches(success_url, final_url):",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_no_nav_but_success_url_matches_the_page_read_succeeds",
+      "direction": "regression",
+      "old_regex": "if success_url and _success_url_matches\\(success_url, final_url\\):(?=\\n        return \\(True,)"
+    },
+    {
+      "label": "M8 the member-indicator check never sees the page",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old": "page.locator(indicator).count()",
+      "new": "int()",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_member_indicator_present_on_the_page_read_succeeds",
+      "direction": "regression"
+    },
+    {
+      "label": "M9 the page read is no longer kept as evidence",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "new": "(lambda *a: None)",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_the_page_actually_read_is_written_to_the_run_record",
+      "direction": "regression",
+      "old_regex": "write_login_evidence(?=\\(page, config, final_url, tag\\)\\n    if success_url)"
+    },
+    {
+      "label": "M10 transform control -- imports the seam, asserts no behaviour, must ESCAPE",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old": "if confirmed:",
+      "new": "if confirmed or cookies:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_transform_control_only_imports_the_seam",
+      "direction": "regression"
+    }
+  ]
+}

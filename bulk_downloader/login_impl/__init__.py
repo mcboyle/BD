@@ -27,6 +27,9 @@ from .replay import (
     replay_saved_login_flow,
     verify_login_replay,
     _success_url_matches,
+    LOGIN_SETTLED_NO_NAV,
+    LoginOutcome,
+    member_state_check,
     _looks_authenticated,
     _build_verify_result,
     _compute_cookie_expiry_days,
@@ -53,4 +56,7 @@ __all__ = [
     "replay_saved_login_flow",
     "do_login",
     "verify_login_replay",
+    "LOGIN_SETTLED_NO_NAV",
+    "LoginOutcome",
+    "member_state_check",
 ]

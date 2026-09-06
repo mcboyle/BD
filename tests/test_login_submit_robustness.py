@@ -137,7 +137,7 @@ def _delta_jar(names):
     return [{"name": name, "value": "0" * 16} for name in names]
 
 
-def _run_delta_login(monkeypatch, before, after, branch, *, unreadable=False):
+def _run_delta_login(monkeypatch, tmp_path, before, after, branch, *, unreadable=False):
     """Drive real do_login/classification; replace only browser/UI boundaries."""
     from bulk_downloader import cloak, interstitial, learn, stealth
     from bulk_downloader.login_impl import submit
@@ -195,7 +195,9 @@ def _run_delta_login(monkeypatch, before, after, branch, *, unreadable=False):
     monkeypatch.setattr(submit, "_submit_login", submit_form)
     # Documented zero-entropy password; no vault reference or real credential.
     config = {"login_url": page.url, "username": "fixture", "password": "zero-entropy-password",
-              "success_url": "/members", "wait": 0, "use_real_chrome": False,
+              "success_url": "/members", "wait": 0,
+              # v3.66 row 708: evidence goes to the test tmp dir, never the repo tree.
+              "login_evidence_dir": str(tmp_path / "login_evidence"), "use_real_chrome": False,
               "use_stealth": False, "use_stealth_library": False}
     result = submit.do_login(config)
     assert calls["submit"] == 1
@@ -206,49 +208,76 @@ def _run_delta_login(monkeypatch, before, after, branch, *, unreadable=False):
 
 
 @pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
-def test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded(monkeypatch, branch):
+def test_unchanged_four_prelogin_cookies_never_mean_submit_succeeded(monkeypatch, tmp_path, branch):
     before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
     after = [dict(cookie) for cookie in before]
     assert len(before) == 4 and before == after
     assert all(len(cookie["value"]) > 8 for cookie in before)
-    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, branch)
     assert result[0] is False, "unchanged four-cookie jar falsely accepted login"
     assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
     assert calls["reads"] == ["before", "after"]
 
 
 @pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
-def test_wowgirls_ajax_new_cookie_delta_still_succeeds(monkeypatch, branch):
+def test_wowgirls_ajax_new_cookie_delta_is_settled_no_nav(monkeypatch, tmp_path, branch):
+    """ROW 708: a four-name AJAX cookie delta settles, it does not succeed.
+
+    v3.66.1497's classification is UNCHANGED -- the delta still QUALIFIES the
+    jar, and this test still asserts that reason verbatim. What row 708 changed
+    is the VERDICT: a qualified jar is not a navigation, so do_login returns the
+    distinct settled-no-nav state instead of True. Before row 708 this test was
+    named test_wowgirls_ajax_new_cookie_delta_still_succeeds and asserted
+    `result[0] is True`. See tests/test_row708_no_nav_login_is_not_success.py.
+    """
     before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
     added = _delta_jar(["member_a", "member_b", "member_c", "member_d"])
     assert len(added) == 4
     assert {c["name"] for c in before}.isdisjoint(c["name"] for c in added)
-    result, calls = _run_delta_login(monkeypatch, before, before + added, branch)
-    assert result[0] is True, f"new AJAX login cookies were rejected: {result[1]}"
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, before + added, branch)
+    assert result[0].status == "settled-no-nav", (
+        "row 708: a four-name AJAX cookie delta with NO NAV SIGNAL must settle "
+        f"as settled-no-nav, never succeed -- got {result[0]!r} / {result[1]}")
+    assert result[0].why == "4 new substantial cookies", (
+        "row 708 moved the VERDICT only; v3.66.1497's cookie classification "
+        f"reason must be carried through verbatim -- got {result[0].why!r}")
     assert len(result[2]) == 8
     assert calls["reads"] == ["before", "after"]
 
 
 @pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
-def test_explicit_auth_cookie_still_succeeds_without_delta(monkeypatch, branch):
+def test_explicit_auth_cookie_qualifies_the_jar_but_is_not_a_navigation(
+        monkeypatch, tmp_path, branch):
+    """ROW 708: an auth-named cookie qualifies the jar but is not a navigation.
+
+    An auth-named cookie is still a COOKIE. It qualifies the jar exactly as
+    before and the reason is carried through verbatim, but on a no-nav path the
+    jar no longer decides the login. Before row 708 this test was named
+    test_explicit_auth_cookie_still_succeeds_without_delta and asserted
+    `result[0] is True`.
+    """
     before = [{"name": "logged_in", "value": "1"}]
-    result, calls = _run_delta_login(monkeypatch, before, before, branch)
-    assert result[0] is True, result[1]
-    assert "auth-looking cookie" in result[1]
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, before, branch)
+    assert result[0].status == "settled-no-nav", (
+        "row 708: an auth-named cookie with NO NAV SIGNAL must settle as "
+        f"settled-no-nav, never succeed -- got {result[0]!r} / {result[1]}")
+    assert "auth-looking cookie" in result[1], (
+        "row 708 moved the VERDICT only; the auth-looking-cookie reason must "
+        f"still be carried through verbatim -- got {result[1]}")
     assert calls["reads"] == ["before", "after"]
 
 
 @pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
-def test_unavailable_cookie_snapshot_cannot_prove_a_delta(monkeypatch, branch):
+def test_unavailable_cookie_snapshot_cannot_prove_a_delta(monkeypatch, tmp_path, branch):
     before = _delta_jar(["pref_a"])
     after = before + _delta_jar(["member_a", "member_b", "member_c", "member_d"])
-    result, calls = _run_delta_login(monkeypatch, before, after, branch, unreadable=True)
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, branch, unreadable=True)
     assert result[0] is False, "unavailable before jar was treated as an empty jar"
     assert calls["reads"] == ["before", "after"]
 
 
 @pytest.mark.parametrize("shape", ["three_new", "values_changed", "duplicate_names"])
-def test_cookie_delta_requires_four_new_names(monkeypatch, shape):
+def test_cookie_delta_requires_four_new_names(monkeypatch, tmp_path, shape):
     before = _delta_jar(["pref_a", "pref_b", "pref_c", "pref_d"])
     if shape == "three_new":
         after = before + _delta_jar(["member_a", "member_b", "member_c"])
@@ -258,7 +287,7 @@ def test_cookie_delta_requires_four_new_names(monkeypatch, shape):
     else:
         after = before + _delta_jar(["member_a"] * 4)
     assert len({c["name"] for c in after} - {c["name"] for c in before}) < 4
-    result, calls = _run_delta_login(monkeypatch, before, after, "ajax")
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, "ajax")
     assert result[0] is False, f"insufficient new cookie names accepted: {shape}"
     assert calls["reads"] == ["before", "after"]
 
@@ -267,14 +296,14 @@ def test_cookie_delta_requires_four_new_names(monkeypatch, shape):
 # Documented zero-entropy empty, whitespace, and substantial fixture values.
 @pytest.mark.parametrize("value", ["", " " * 16, "0" * 16],
                          ids=["empty", "whitespace", "gained_value"])
-def test_preexisting_empty_cookie_name_never_counts_as_new(monkeypatch, branch, value):
+def test_preexisting_empty_cookie_name_never_counts_as_new(monkeypatch, tmp_path, branch, value):
     before = [{"name": "pref_empty", "value": ""}]
     added = _delta_jar(["member_a", "member_b", "member_c"])
     after = [{"name": "pref_empty", "value": value}] + added
     assert len(before) == 1 and before[0]["value"] == ""
     assert after[0]["name"] == before[0]["name"]
     assert len({c["name"] for c in after} - {c["name"] for c in before}) == 3
-    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, branch)
     assert result[0] is False, "preexisting empty-valued name counted as new"
     assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
     assert calls["reads"] == ["before", "after"]
@@ -285,7 +314,7 @@ def test_preexisting_empty_cookie_name_never_counts_as_new(monkeypatch, branch, 
 @pytest.mark.parametrize("value", ["", " " * 16, "\t\n " * 4, "\u2003" * 9,
                                   "  " + "0" * 8 + "  "],
                          ids=["empty", "spaces", "mixed", "unicode", "padded_short"])
-def test_cookie_delta_rejects_insubstantial_fourth_value(monkeypatch, branch, value):
+def test_cookie_delta_rejects_insubstantial_fourth_value(monkeypatch, tmp_path, branch, value):
     before = [{"name": "pref_empty", "value": ""}]
     added = _delta_jar(["member_a", "member_b", "member_c"])
     # The existing empty name reappears with whitespace, never as new evidence.
@@ -295,20 +324,34 @@ def test_cookie_delta_rejects_insubstantial_fourth_value(monkeypatch, branch, va
     assert before[0]["name"] == after[0]["name"] and before[0]["value"] == ""
     assert len({c["name"] for c in after} - {c["name"] for c in before}) == 4
     assert len(value.strip()) <= 8
-    result, calls = _run_delta_login(monkeypatch, before, after, branch)
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, branch)
     assert result[0] is False, "insubstantial fourth new cookie falsely accepted login"
     assert "Submit failed" in result[1] or "Page closed after submit" in result[1]
     assert calls["reads"] == ["before", "after"]
 
 
 @pytest.mark.parametrize("branch", ["ajax", "closed", "post_closed"])
-def test_cookie_delta_accepts_genuinely_substantial_padded_values(monkeypatch, branch):
+def test_cookie_delta_accepts_genuinely_substantial_padded_values(monkeypatch, tmp_path, branch):
+    """ROW 708: padded values are still substantial, but the login settles.
+
+    This test keeps its v3.66.1497 name because it still exercises exactly the
+    1497 padded-value delta -- nine substantial bytes inside whitespace padding
+    still count as four new substantial cookies, and that reason is asserted
+    verbatim. Under row 708 the VERDICT it asserts changed: with NO NAV SIGNAL
+    the run returns the distinct settled-no-nav state, where before row 708 this
+    test asserted `result[0] is True`.
+    """
     before = [{"name": "pref_empty", "value": ""}]
     added = _delta_jar(["member_a", "member_b", "member_c", "member_d"])
     # Documented zero-entropy values with nine substantial bytes inside padding.
     after = before + [{**cookie, "value": "  " + "0" * 9 + "  "} for cookie in added]
     assert len(added) == 4 and all(len(c["value"].strip()) == 9 for c in after[1:])
-    result, calls = _run_delta_login(monkeypatch, before, after, branch)
-    assert result[0] is True, result[1]
+    result, calls = _run_delta_login(monkeypatch, tmp_path, before, after, branch)
+    assert result[0].why == "4 new substantial cookies", (
+        "row 708 moved the VERDICT only; v3.66.1497's padded-value delta must "
+        f"still count 4 new substantial cookies -- got {result[0].why!r}")
+    assert result[0].status == "settled-no-nav", (
+        "row 708: a padded-value delta with NO NAV SIGNAL must settle as "
+        f"settled-no-nav, never succeed -- got {result[0]!r} / {result[1]}")
     assert len(result[2]) == 5
     assert calls["reads"] == ["before", "after"]

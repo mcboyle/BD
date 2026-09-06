@@ -267,10 +267,16 @@ class AuthMixin:
         def _run():
             _settled = threading.Event()
             def _settle(ok):
+                # v3.66 row 708: do_login's verdict is no longer always a
+                # bool -- the no-nav path returns the distinct
+                # settled-no-nav LoginOutcome, which is falsy. Normalise
+                # once here so every _fire callback keeps the boolean
+                # contract it was written against.
+                ok = bool(ok)
                 if _settled.is_set():
                     return
                 _settled.set()
-                self._login_outcome = (_attempt, bool(ok))
+                self._login_outcome = (_attempt, ok)
                 _fire(ok)
             try:
                 # v3.43.78 (F2): pause session keepers BEFORE do_login spawns
