@@ -17,6 +17,42 @@ set -o pipefail
 
 APP_DIR="$(dirname "$(readlink -f "$0")")"
 
+# Authorize the code tree, independently of BD_INSTALL_DIR (the data tree).
+INSTALL_DIR_SOURCE=canonical
+AUTHORIZED_DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
+[ -z "${BD_DEPLOY_DIR:-}" ] || INSTALL_DIR_SOURCE=BD_DEPLOY_DIR
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --install-dir)
+            if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=--install-dir"
+                echo "  ERROR: INSTALL-DIR-REFUSED: --install-dir requires PATH"
+                exit 1
+            fi
+            AUTHORIZED_DIR="$2"
+            INSTALL_DIR_SOURCE=--install-dir
+            shift 2
+            ;;
+        *)
+            echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+            echo "  ERROR: INSTALL-DIR-REFUSED: unknown argument $1"
+            exit 1
+            ;;
+    esac
+done
+APP_DIR="$(readlink -f -- "$APP_DIR")"
+AUTHORIZED_DIR="$(readlink -f -- "$AUTHORIZED_DIR")"
+echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+if [ -z "$APP_DIR" ] || [ "$APP_DIR" != "$AUTHORIZED_DIR" ]; then
+    echo "  ERROR: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR."
+    echo "  Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH."
+    exit 1
+fi
+if [ ! -w "$APP_DIR" ]; then
+    echo "  ERROR: INSTALL-DIR-NOT-WRITABLE: $APP_DIR; repair directory permissions before installing."
+    exit 1
+fi
+
 # If invoked via sudo, the service should still run as the operator's
 # normal account -- not root. yt-dlp + Playwright running as root is a
 # security smell, and the SQLite DB + sites_config.json files would
@@ -89,6 +125,46 @@ SERVICE_NAME="bulkdownloader"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 AI_SERVICE_NAME="bulkdownloader-ai-ready"
 AI_UNIT_PATH="/etc/systemd/system/${AI_SERVICE_NAME}.service"
+
+# Inspect both loaded units before the helper or either unit can be written.
+# A failed or incomplete observation is not evidence that no service exists.
+for CHECK_SERVICE in "$SERVICE_NAME" "$AI_SERVICE_NAME"; do
+    if ! UNIT_PROPERTIES="$(systemctl show "$CHECK_SERVICE" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)"; then
+        echo "  ERROR: UNIT-DIR-UNKNOWN: cannot inspect $CHECK_SERVICE: $UNIT_PROPERTIES"
+        exit 1
+    fi
+    UNIT_LOAD= UNIT_STATE= UNIT_DIR= UNIT_FIELDS=0
+    while IFS='=' read -r PROPERTY VALUE; do
+        case "$PROPERTY" in
+            LoadState) UNIT_LOAD="$VALUE"; UNIT_FIELDS=$((UNIT_FIELDS + 1)) ;;
+            ActiveState) UNIT_STATE="$VALUE"; UNIT_FIELDS=$((UNIT_FIELDS + 1)) ;;
+            WorkingDirectory) UNIT_DIR="$VALUE"; UNIT_FIELDS=$((UNIT_FIELDS + 1)) ;;
+        esac
+    done <<< "$UNIT_PROPERTIES"
+    if [ "$UNIT_FIELDS" -ne 3 ] || [ -z "$UNIT_LOAD" ] || [ -z "$UNIT_STATE" ]; then
+        echo "  ERROR: UNIT-DIR-UNKNOWN: incomplete properties for $CHECK_SERVICE."
+        exit 1
+    fi
+    case "$UNIT_STATE" in
+        inactive|failed) ;;
+        active|activating|reloading|deactivating)
+            case "$UNIT_DIR" in
+                /*) UNIT_DIR="$(readlink -f -- "$UNIT_DIR")" ;;
+                *) UNIT_DIR= ;;
+            esac
+            if [ -z "$UNIT_DIR" ]; then
+                echo "  ERROR: UNIT-DIR-UNKNOWN: $CHECK_SERVICE has no resolved WorkingDirectory."
+                exit 1
+            fi
+            if [ "$UNIT_DIR" != "$APP_DIR" ]; then
+                echo "  ERROR: RUNNING-UNIT-DIR-REFUSED: $CHECK_SERVICE belongs to $UNIT_DIR, not $APP_DIR."
+                echo "  Stop that service explicitly and review its unit before changing trees."
+                exit 1
+            fi
+            ;;
+        *) echo "  ERROR: UNIT-DIR-UNKNOWN: $CHECK_SERVICE state is $UNIT_STATE"; exit 1 ;;
+    esac
+done
 
 echo " ================================================================"
 echo "  BulkDownloader - systemd service install"
@@ -164,10 +240,9 @@ fi
 HELPER="$APP_DIR/tools/write_deployed_version.sh"
 if [ -f "$HELPER" ]; then
     if ! chmod +x "$HELPER" 2>/dev/null; then
-        echo "  WARNING: could not chmod +x $HELPER"
-        echo "  (read-only filesystem? permission denied?)"
-        echo "  Skipping pre-install version write; systemd will retry"
-        echo "  on every service start."
+        echo "  ERROR: HELPER-CHMOD-REFUSED: could not chmod +x $HELPER"
+        echo "  Repair the helper permissions before installing the service."
+        exit 1
     else
         # F3 (v3.66.31): run the helper as RUN_USER, not as the current
         # (possibly root, under sudo) user. ExecStartPre later runs this

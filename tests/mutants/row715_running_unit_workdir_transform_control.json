@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Standalone transform control: MUST ESCAPE the single import-only test, which imports the harness without driving either installer.",
+  "subject": "CONTROL: reorder independent restarts",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL: reorder independent restarts",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^echo(?= [^\\n]*Starting \\$\\{SERVICE_NAME\\})",
+      "new": "SWAP_SERVICE=\"$SERVICE_NAME\"; SERVICE_NAME=\"$AI_SERVICE_NAME\"; AI_SERVICE_NAME=\"$SWAP_SERVICE\"\ntrap 'if [ \"${RESTARTS_SEEN:-0}\" = 2 ]; then SWAP_SERVICE=\"$SERVICE_NAME\"; SERVICE_NAME=\"$AI_SERVICE_NAME\"; AI_SERVICE_NAME=\"$SWAP_SERVICE\"; trap - DEBUG; elif [[ \"$BASH_COMMAND\" == sudo\\ systemctl\\ restart* ]]; then RESTARTS_SEEN=$((${RESTARTS_SEEN:-0} + 1)); fi' DEBUG\necho",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+    }
+  ]
+}

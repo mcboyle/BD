@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Import-only control for canonical refusal removal",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL: delete canonical refusal outside the asserted path",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if true; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+    }
+  ],
+  "_comment": "Standalone transform control: removing the canonical refusal MUST ESCAPE the single import-only test, which imports the harness without driving either installer."
+}

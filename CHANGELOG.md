@@ -4,6 +4,60 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1505 - the installer refuses a directory that is not the installation, and refuses one it cannot write
+
+Rows 715 (HIGH) and 718, carried together because they author the same two
+files. On 2026-09-04T05:03:22Z a worker ran `./install_service.sh` from its own
+detached worktree; the script derives its install directory from wherever the
+script itself sits and writes that straight into the unit's
+`WorkingDirectory=`, so a production host served from that worktree -- which
+has no `secrets.json` -- for roughly eight hours, reporting `vault
+uninitialized`, a message that reads as a vault fault rather than as the
+service running from the wrong tree.
+
+- row 715: both installers now resolve an AUTHORIZED install directory
+  (`BD_DEPLOY_DIR`, defaulting to `$HOME/BulkDownloader` -- the name
+  `scripts/deploy.sh` already uses; no new variable is invented) or an explicit
+  `--install-dir` naming it, `readlink -f` both sides before comparing, and
+  REFUSE with `INSTALL-DIR-REFUSED` and a nonzero exit BEFORE the first write.
+  `INSTALL_DIR_SOURCE=` is printed on EVERY run, exactly once, so an
+  env-authorized install is no longer indistinguishable from a canonical one.
+  The running-unit check keys on the unit's own `WorkingDirectory` rather than
+  the service NAME, so a unit belonging to another tree is refused rather than
+  rewritten and restarted -- that is the step that turned a bad unit into eight
+  hours of downtime. An unobservable unit (systemctl absent, transport error,
+  incomplete properties, unrecognised `ActiveState`) is `UNIT-DIR-UNKNOWN` and
+  refuses: an unavailable measurement is not permission. This is a deliberate
+  behaviour change on hosts without systemd.
+- `scripts/install_capture_service.sh` derives its directory the same way and is
+  hardened in the same cut (row 239's lesson: hardening one of an identically
+  derived pair is the shape that has cost this repository twice). Its running
+  instance keys on `BD_CAPTURE_APP_DIR` read from the root-owned environment
+  file through sudo, because systemd's `WorkingDirectory` does not identify that
+  template.
+- row 718: the install directory is checked WRITABLE before anything is written,
+  refusing with `INSTALL-DIR-NOT-WRITABLE` and a nonzero exit. The helper
+  `chmod +x` moves from WARN-and-continue to `HELPER-CHMOD-REFUSED`, exit 1 --
+  the unit's `ExecStartPre` points at that file. The two remaining WARNs (the
+  helper ran and failed; the helper is absent) are KEPT deliberately, because
+  `ExecStartPre` carries a leading dash and serving does not depend on the
+  version stamp; both dispositions are asserted.
+- Evidence: RED on an untouched archive of the base is 44 failed / 3 passed,
+  every failure the intended assertion, with the production incident reproduced
+  exactly -- both units written with `WorkingDirectory` in a scratch tree, both
+  services restarted, rc 0. GREEN is 47 passed. The refusal tests assert the
+  unit files are UNWRITTEN and no restart was issued, not the exit code alone,
+  because deploy-path refusals share exit codes. Mutation: 28 caught, 0 escaped,
+  0 invalid across three regression specs, with five transform controls in their
+  own spec files escaping as designed. 15 existing installer consumers run
+  green (305 passed).
+- Recorded because the opposite shape cost several trains a bounce tonight: the
+  cut's own report volunteered that its FIRST mutation battery scored 1 caught /
+  3 escaped, and that one of those escapes was a real coverage gap, which it
+  then closed before asking for review. Mutation evidence is only worth what its
+  reporting is worth, and a battery reported honestly against itself is the
+  thing the 28/0/0 above rests on.
+
 ## v3.66.1504 - row 764 is restored to exactly what it was, because the ruling that amended it was overturned
 
 A register cut that reverses ONE edit of the previous release and nothing else.

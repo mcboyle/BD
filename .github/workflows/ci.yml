@@ -590,6 +590,8 @@ jobs:
           # explicit rather than relying on a future touched-file derivation.
           - name: recovered-contracts
             suites: >-
+              tests/test_row715_installer_refuses_a_foreign_directory.py
+              tests/test_row718_installer_refuses_an_unwritable_install_dir.py
               tests/test_row089_capture_corpus_backup_restore.py
               tests/test_row090_global_run_cap.py
               tests/test_row395_captcha_egress_disclosure.py

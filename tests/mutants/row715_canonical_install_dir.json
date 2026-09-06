@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Both installers authorize the resolved code tree before writing and disclose the source.",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py"
+  ],
+  "mutants": [
+    {
+      "label": "install_service.sh: delete canonical refusal",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if true; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_foreign_tree_refuses_before_effects[install_service.sh]"
+    },
+    {
+      "label": "install_service.sh: refuse only after first tee",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if true; then trap 'if [ -s \"${UNIT_TMP:-${UNIT_PATH:-}}\" ]; then trap - DEBUG; if [ -z \"$APP_DIR\" ] || [ \"$APP_DIR\" != \"$AUTHORIZED_DIR\" ]; then\n    echo \"  ERROR: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR.\"\n    echo \"  Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH.\"\n    exit 1\nfi\nfi' DEBUG; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_foreign_tree_refuses_before_effects[install_service.sh]"
+    },
+    {
+      "label": "install_service.sh: any environment value authorizes",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if [ -n \"${BD_DEPLOY_DIR:-}\" ]; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unrelated_environment_is_not_authorization[install_service.sh]"
+    },
+    {
+      "label": "install_service.sh: provenance only on refusal",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^echo(?= [^\\n]*INSTALL_DIR_SOURCE)",
+      "new": "[ \"$APP_DIR\" = \"$AUTHORIZED_DIR\" ] || echo",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_authorized_tree_and_source[canonical-install_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: delete canonical refusal",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if true; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_foreign_tree_refuses_before_effects[scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: refuse only after first tee",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if true; then trap 'if [ -s \"${UNIT_TMP:-${UNIT_PATH:-}}\" ]; then trap - DEBUG; if [ -z \"$APP_DIR\" ] || [ \"$APP_DIR\" != \"$AUTHORIZED_DIR\" ]; then\n  echo \"capture service: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR.\" >&2\n  echo \"Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH.\" >&2\n  exit 1\nfi\nfi' DEBUG; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_foreign_tree_refuses_before_effects[scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: any environment value authorizes",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^if(?= [^\\n]*\\$AUTHORIZED_DIR)",
+      "new": "if [ -n \"${BD_DEPLOY_DIR:-}\" ]; then :; elif",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_unrelated_environment_is_not_authorization[scripts/install_capture_service.sh]"
+    },
+    {
+      "label": "scripts/install_capture_service.sh: provenance only on refusal",
+      "file": "scripts/install_capture_service.sh",
+      "old_regex": "(?m)^echo(?= [^\\n]*INSTALL_DIR_SOURCE)",
+      "new": "[ \"$APP_DIR\" = \"$AUTHORIZED_DIR\" ] || echo",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_authorized_tree_and_source[canonical-scripts/install_capture_service.sh]"
+    }
+  ],
+  "_comment": "Every regression must be CAUGHT. Standalone sibling transform-control specs MUST ESCAPE their import-only band. Each structural anchor selects an executed token using surrounding context."
+}

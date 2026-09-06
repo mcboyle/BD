@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Standalone transform control: MUST ESCAPE the single import-only test, which imports the harness without driving either installer.",
+  "subject": "CONTROL: change writable diagnostic prose",
+  "band": [
+    "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL: change writable diagnostic prose",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=; )repair(?= directory permissions before installing)",
+      "new": "restore",
+      "direction": "regression",
+      "catcher": "tests/test_row715_installer_refuses_a_foreign_directory.py::test_transform_control_import_only"
+    }
+  ]
+}
