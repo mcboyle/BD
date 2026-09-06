@@ -4,6 +4,53 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1503 - register carry-forward: a correction to v3.66.1500's entry, one close on a false premise, two amended rows and five new ones
+
+A register cut. It changes no product source. Everything here is a correction
+or a filing, and each item names what was MEASURED rather than what was
+inherited from a prose handoff.
+
+- CORRECTION TO THE v3.66.1500 ENTRY. That release closed a SECOND fail-open
+  in `_is_safe_public_host` and did not say so. On its base, the classification
+  loop skipped any getaddrinfo answer whose family was neither AF_INET nor
+  AF_INET6 with a bare `continue`; a resolution whose answers were ALL of such
+  a family therefore fell out of the loop having classified nothing and
+  returned `(True, PUBLIC)` -- a host admitted as safe on zero classified
+  addresses. On the head that landed, the `classified` list is empty in exactly
+  that case and the function returns `NO_ADDRESSES`. The entry described only
+  the multi-answer classification, so this is recorded here rather than left in
+  a diff nobody re-reads.
+- row 714 CLOSES as NOT-APPLICABLE, and the close is a MEASUREMENT, not a fix:
+  no code changed and none was needed. The row asserted that both
+  requirements-manifest readers break on an inline comment, in two different
+  shapes. Read BY BLOB from origin/main, both readers already strip the comment
+  with the identical expression, and the probe line parses and matches. The row
+  records what was not claimed: two readers were measured, no third was derived.
+- row 764 AMENDED. Its `solve_cloudflare` clause is WITHDRAWN and is not a
+  defect: under the operator's standing rule this product CLASSIFIES a
+  challenge and never SOLVES one, so not requesting a solve is intended, and
+  asking for it would have been the defect. The adjudication that filed the
+  clause was wrong. The rest of the row stands unchanged -- an unsolved
+  challenge is still reported as a bypass whenever any incidental cookie is
+  present -- and its RED now carries a negative control it lacked.
+- row 728 AMENDED. Its conditional is RESOLVED: the SSRF work landed at
+  v3.66.1500 without the pinning, and that release's own entry says so, so the
+  row is live. It is also split out of that train and NEEDS ITS OWN CUT, since
+  the shared pinned-urllib-redirect implementation spans all three urllib seams
+  and is not a delta on a patch that has already landed.
+- FIVE NEW ROWS, four of them found by lenses on cuts that landed anyway and
+  deliberately not fixed in those cuts. row 784: the no-nav login verdict keeps
+  no page when neither check is declared, although its own docstring says
+  either way. row 785: the login evidence filename embeds spaces, because the
+  phase string is operator prose. row 786: a signed one-time download URL can
+  be SPENT TWICE, because the HTTP fallback re-clicks the original control.
+  row 787: a nothing-in-scope sentinel for `find_best_download` must not be
+  truthy and keyless -- filed although the cut that exposed it was refused,
+  because the hazard is the SHAPE and four of five call sites decide on
+  truthiness alone. row 788: the 708b mutant spec declares its transform
+  control inline instead of in its own spec file, which this repository does
+  136 times out of 337 and nowhere else inline.
+
 ## v3.66.1502 - a login with no navigation signal is never succeeded by the cookie jar alone
 
 Row 708 was the HIGH row the 2026-09-06 adjudication kept open, and it was a
