@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 721. Each mutant removes one decision the age-gate cut adds. E1/E2/E3 mutants added after two independent lenses REFUTED the first round: the ENTER vocabulary was unpinned in the WIDENING direction, the gate_landing_unknown arm was unpinned, and the block report had no consumer. All anchors are zero-width on the decision and every inserted fragment is a complete statement so it parses rather than reporting INVALID.",
+  "_comment": "Row 721. Each mutant removes one decision the age-gate cut adds. E1/E2/E3 mutants added after two independent lenses REFUTED the first round: the ENTER vocabulary was unpinned in the WIDENING direction, the gate_landing_unknown arm was unpinned, and the block report had no consumer. All anchors are zero-width on the decision and every inserted fragment is a complete statement so it parses rather than reporting INVALID. E1 is zero-width IMMEDIATELY AFTER the real ENTER_AFFORDANCE definition, so the widened redefinition shadows it: its first form anchored before the following comment and resolved COMMENT_ONLY under tests/test_row532_a_mutant_anchor_must_resolve_into_code.py, which is a mutant that edits prose and cannot be caught for the right reason.",
   "subject": "bulk_downloader/interstitial.py dismiss_gates: content-recognised age gate admits ENTER, EXIT stays refused, unreadable content is UNKNOWN, a block behind the gate is not a clearance",
   "band": [
     "tests/test_row721_age_gate_enter_affordance.py::test_age_gate_enter_is_clicked_exactly_once",
@@ -50,7 +50,7 @@
     {
       "label": "E1 WIDEN the ENTER vocabulary to admit any label",
       "file": "bulk_downloader/interstitial.py",
-      "old_regex": "(?m)(?<=\\n)(?=# Read AFTER the ENTER click, never before it: the evilangel)",
+      "old_regex": "(?m)(?<=\\)\\$\", re\\.I\\)\\n)(?=\\n# Read AFTER the ENTER click)",
       "new": "ENTER_AFFORDANCE = re.compile(r\"^.*$\", re.I)\n",
       "direction": "regression",
       "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_a_purchase_control_on_an_age_wall_is_never_clicked"
