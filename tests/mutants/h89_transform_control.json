@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 transform control. The V1 mutant of h89_control_verdict.json is applied byte for byte while the catcher only loads the tool, so it MUST ESCAPE. This spec DECLARES itself a control by its suffix: bd-mutate reports CONTROL-ESCAPED (expected) and exits 0. A CONTROL-CAUGHT here, exit 1, would mean the loader sees the mapping.",
+  "subject": "the verdict-mapping mutant escapes a band member that only loads the tool",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_transform_control_only_loads_the_tool_without_grading_a_control"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL ESCAPED stays ESCAPED, judged by a load-only node",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    return )(?=\\{ESCAPED: CONTROL_ESCAPED, CAUGHT: CONTROL_CAUGHT\\}\\.get\\(verdict, verdict\\)$)",
+      "new": "verdict if verdict == ESCAPED else ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_transform_control_only_loads_the_tool_without_grading_a_control"
+    }
+  ]
+}

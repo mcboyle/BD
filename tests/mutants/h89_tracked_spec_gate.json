@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 7: the tracked-spec gate admits control_spec only as a literal true. Both arms of that admission are pinned: the field is optional, and only true is accepted.",
+  "subject": "tests/mutants/*.json may carry control_spec: true and nothing else",
+  "band": [
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else"
+  ],
+  "mutants": [
+    {
+      "label": "G1 the optional field is not admitted",
+      "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+      "old_regex": "(?m)(?<=^_OPTIONAL_TOP_LEVEL_FIELDS = \\{\\\"control_spec\\\"\\})(?=$)",
+      "new": " - {\"control_spec\"}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else"
+    },
+    {
+      "label": "G2 any control_spec value is accepted",
+      "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+      "old_regex": "(?<=assert document\\[\\\"control_spec\\\"\\] is True)(?=, \\()",
+      "new": " or True",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else"
+    }
+  ]
+}

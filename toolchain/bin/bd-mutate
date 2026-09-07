@@ -59,6 +59,21 @@ THE CONTRACT
     control  required for overcorrection; this nodeid must fail
     preserves required for overcorrection; these nodeids must still pass
 
+  A TRANSFORM CONTROL -- the primary battery's mutant applied byte for byte
+  while a band member that cannot see it is named as the catcher, run to
+  prove the primary CAUGHT verdicts come from assertions -- must DECLARE
+  itself: either its basename ends in ``_transform_control.json`` or the
+  spec carries a top-level ``"control_spec": true`` (the two must agree).
+  A declared control is graded the other way up: ESCAPED is reported as
+  CONTROL-ESCAPED (expected) and the run exits 0; CAUGHT is reported as
+  CONTROL-CAUGHT, a FAILURE that exits 1, because a control whose band
+  member sees the transform is not a control. Control rows are counted
+  apart from the regression numerator and denominator. Without the
+  declaration a control's row is byte-identical to a real escape
+  (HARNESS_BACKLOG H89). --emit-spec carries the declaration into the
+  emitted document and refuses a *_transform_control.json name for a run
+  that was not declared a control.
+
   After an overcorrection runs, its control and preserves are run once more
   against the restored source.  Every one must PASS.  A fixture can leave
   state outside the mutated file; without this independent replay, that state
@@ -73,7 +88,8 @@ THE CONTRACT
   supplies this runner. Mutating the runner's own repository makes concurrent
   review evidence untrustworthy, so that topology fails closed before baseline.
 
-  Exit 0 only when every selected mutant is CAUGHT. Exit 1 if any ESCAPED or is
+  Exit 0 only when every selected mutant is CAUGHT -- or, in a declared
+  control, CONTROL-ESCAPED. Exit 1 if any ESCAPED, CONTROL-CAUGHT or
   INDISCRIMINATE. Exit 2 if the battery could not be measured -- an empty
   selection, UNKNOWN/INVALID/ERROR mutant, red or unprovable baseline, missing
   named nodeid, partial JUnit, or failed restore. Two is not a softer one: it
@@ -108,6 +124,14 @@ from collections import Counter
 from pathlib import Path
 
 CAUGHT, ESCAPED = "CAUGHT", "ESCAPED"
+# H89: a DECLARED control is graded the other way up. Its escape is the
+# expected result and its catch is the failure, and the row says which.
+CONTROL_ESCAPED, CONTROL_CAUGHT = "CONTROL-ESCAPED", "CONTROL-CAUGHT"
+_CONTROL_SUFFIX = "_transform_control.json"
+_CONTROL_DISPLAY = {
+    CONTROL_ESCAPED: "CONTROL-ESCAPED (expected)",
+    CONTROL_CAUGHT: "CONTROL-CAUGHT (FAILURE)",
+}
 INDISCRIMINATE, UNKNOWN = "INDISCRIMINATE", "UNKNOWN"
 INVALID, ERROR = "INVALID", "ERROR"
 SPEC_SCHEMA = "bd-mutate-spec/1"
@@ -1537,11 +1561,43 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
     return normalised, band
 
 
+def _declared_control(document: object, spec_path: Path | None) -> bool:
+    """A control says so in a FIELD or in its NAME, and the two must agree.
+
+    H89: without a declaration a correct control's row -- direction
+    regression, a named catcher, verdict ESCAPED, exit 1 -- is byte-identical
+    to a genuine uncaught mutant, and two readers misread one in an hour.
+    """
+    named = spec_path is not None and spec_path.name.endswith(_CONTROL_SUFFIX)
+    if not isinstance(document, dict) or "control_spec" not in document:
+        return bool(named)
+    declared = document["control_spec"]
+    if not isinstance(declared, bool):
+        raise ValueError(
+            f"control_spec must be true or false, got {declared!r}")
+    if named and not declared:
+        raise ValueError(
+            f"{spec_path.name} is named *{_CONTROL_SUFFIX} but declares "
+            '"control_spec": false; a control\'s name and its declaration '
+            "must agree")
+    return declared
+
+
+def _control_verdict(verdict: str) -> str:
+    """Read a declared control's measurement the other way up."""
+    return {ESCAPED: CONTROL_ESCAPED, CAUGHT: CONTROL_CAUGHT}.get(verdict, verdict)
+
+
+def _verdict_display(verdict: str) -> str:
+    return _CONTROL_DISPLAY.get(verdict, verdict)
+
+
 def _battery_exit(rows: list[dict]) -> int:
     """Map measured verdicts to the public three-state CLI contract."""
     if any(row.get("verdict") in {UNKNOWN, INVALID, ERROR} for row in rows):
         return 2
-    return 0 if rows and all(row.get("verdict") == CAUGHT for row in rows) else 1
+    return 0 if rows and all(
+        row.get("verdict") in {CAUGHT, CONTROL_ESCAPED} for row in rows) else 1
 
 
 def _defined_test_nodeids(work: Path, rel: str) -> set[str]:
@@ -1593,12 +1649,21 @@ def _tracked_paths(work: Path) -> set[str]:
 
 
 def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
-                          mutants: list[dict]) -> tuple[_PinnedDirectory, Path, bytes]:
+                          mutants: list[dict],
+                          control_spec: bool = False) -> tuple[_PinnedDirectory, Path, bytes]:
     """Validate one canonical candidate; publication waits for a real verdict."""
     if not _EMIT_NAME.fullmatch(name):
         raise ValueError(
             "--emit-spec must be a canonical basename like "
             "v3_66_1185_short_slug.json")
+    if name.endswith(_CONTROL_SUFFIX) and not control_spec:
+        # H89: the emitted spec would re-run as a control although this run
+        # was graded as a regression battery -- a document whose meaning
+        # changes between the measurement and the re-run.
+        raise ValueError(
+            f"--emit-spec {name} declares a control by suffix but this run was "
+            'not declared a control; add "control_spec": true to the source '
+            f"spec or name it *{_CONTROL_SUFFIX}")
     if not subject.strip():
         raise ValueError("--subject is required with --emit-spec")
     if not band or any(not target for target in band):
@@ -1673,13 +1738,15 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
                 raise ValueError(f"nodeid is not a defined test: {nodeid}")
 
     rel = Path("tests") / "mutants" / name
-    document = {
-        "schema": SPEC_SCHEMA,
+    document: dict = {"schema": SPEC_SCHEMA}
+    if control_spec:
+        document["control_spec"] = True
+    document.update({
         "_comment": f"Re-run: toolchain/bin/bd-mutate --spec {rel.as_posix()}",
         "subject": subject.strip(),
         "band": band,
         "mutants": mutants,
-    }
+    })
     payload = (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
 
     tests_owner = _PinnedDirectory(work / "tests")
@@ -2129,6 +2196,22 @@ def _named_outcome(result: dict, nodeid: str) -> tuple[str | None, str | None]:
     return values[0], None
 
 
+def _other_members_note(result: dict, nodeid: str) -> str:
+    """Say what the REST of the band did -- measured, never 'may have'.
+
+    H89: 'named catcher passed while another band member may have failed'
+    was emitted unconditionally, so a one-member band read as a finding.
+    """
+    others = {other: values for other, values in result["outcomes"].items()
+              if other != nodeid}
+    if not others:
+        return "and it is the only band member that ran"
+    failed = sorted(other for other, values in others.items() if "failed" in values)
+    if failed:
+        return f"while other band member(s) failed {failed}"
+    return f"and no other band member failed ({len(others)} other(s) ran)"
+
+
 def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
     """Grade the named subject, never whichever unrelated test also screamed."""
     if result.get("collection_error"):
@@ -2154,7 +2237,9 @@ def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
         if outcome == "failed":
             return CAUGHT, f"named catcher failed: {catcher}"
         if outcome == "passed":
-            return ESCAPED, f"named catcher passed while another band member may have failed: {catcher}"
+            return ESCAPED, (
+                f"named catcher passed {_other_members_note(result, catcher)}: "
+                f"{catcher}")
         return UNKNOWN, f"named catcher was {outcome}, not an executed assertion verdict: {catcher}"
 
     control = mutant["control"]
@@ -2174,7 +2259,9 @@ def _grade_mutant(mutant: dict, result: dict) -> tuple[str, str]:
     if unknown:
         return UNKNOWN, f"preserved nodeids lacked assertion verdicts: {unknown}"
     if control_outcome == "passed":
-        return ESCAPED, f"named control passed while another band member may have failed: {control}"
+        return ESCAPED, (
+            f"named control passed {_other_members_note(result, control)}: "
+            f"{control}")
     failed_preserves = [nodeid for nodeid, outcome in preserve_outcomes if outcome == "failed"]
     if failed_preserves:
         return INDISCRIMINATE, (
@@ -2670,7 +2757,8 @@ def journal_recover(work: Path) -> int:
 
 def run_battery(spec: list[dict], band: list[str], work: Path,
                 verbose: bool = True,
-                timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS) -> tuple[int, list[dict]]:
+                timeout: float = DEFAULT_BAND_TIMEOUT_SECONDS,
+                control_spec: bool = False) -> tuple[int, list[dict]]:
     out: list[dict] = []
 
     # ---- DENOMINATOR. An empty battery must never read as "all caught". -----
@@ -2891,6 +2979,8 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                 operation_stage = "mutant band execution"
                 result = _run_band(band, work, timeout=timeout)
                 row["verdict"], row["why"] = _grade_mutant(m, result)
+                if control_spec:
+                    row["verdict"] = _control_verdict(row["verdict"])
             except Exception as exc:
                 operation_problem = "%s is unproved (%s)" % (
                     operation_stage, _exception_summary(exc))
@@ -2980,19 +3070,26 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                   "were verified" % operation_problem, file=sys.stderr)
             return 2, out
         if verbose:
-            print(f"  [{row['verdict']:7}] {label}")
+            print(f"  [{_verdict_display(row['verdict']):7}] {label}")
 
     return _battery_exit(out), out
 
 
-def _report(rows: list[dict]) -> None:
+def _report(rows: list[dict], control_spec: bool = False) -> None:
     c = Counter(r["verdict"] for r in rows)
-    print("\n%-8s %-46s %s" % ("VERDICT", "MUTANT", "NOTE"))
+    width = max([8] + [len(_verdict_display(r["verdict"])) for r in rows])
+    print("\n%-*s %-46s %s" % (width, "VERDICT", "MUTANT", "NOTE"))
     for r in rows:
-        print("%-8s %-46s %s" % (r["verdict"], r["label"][:46], (r.get("why") or "")[:70]))
-    print("\n%d caught, %d escaped, %d indiscriminate, %d unknown, %d invalid, %d error"
-          % (c[CAUGHT], c[ESCAPED], c[INDISCRIMINATE], c[UNKNOWN],
-             c[INVALID], c[ERROR]))
+        print("%-*s %-46s %s" % (width, _verdict_display(r["verdict"]),
+                                 r["label"][:46], (r.get("why") or "")[:70]))
+    counts = ("%d caught, %d escaped, %d indiscriminate, %d unknown, %d invalid, %d error"
+              % (c[CAUGHT], c[ESCAPED], c[INDISCRIMINATE], c[UNKNOWN],
+                 c[INVALID], c[ERROR]))
+    if control_spec:
+        # H89: controls sit OUTSIDE the regression numerator and denominator.
+        counts += (", %d control-escaped (expected), %d control-caught (FAILURE)"
+                   % (c[CONTROL_ESCAPED], c[CONTROL_CAUGHT]))
+    print("\n" + counts)
     if c[INVALID]:
         print("INVALID is not CAUGHT: those mutants never ran, so they are "
               "unmeasured, not survived.")
@@ -3001,6 +3098,16 @@ def _report(rows: list[dict]) -> None:
               "constrain. Close it by ADDING the missing test -- and prove that "
               "test RED with the mutant applied AND green without it. A test "
               "that passes in both states is not a test.")
+    if control_spec and c[CONTROL_CAUGHT]:
+        print("verdict: CONTROL-CAUGHT (FAILURE) -- %d of %d declared control(s) "
+              "were caught. A control's band member must NOT see the transform; "
+              "a caught control is not a control. Point it at an import-only "
+              "node, or move the mutant into the primary battery."
+              % (c[CONTROL_CAUGHT], len(rows)))
+    elif control_spec and rows and c[CONTROL_ESCAPED] == len(rows):
+        print("verdict: CONTROL-ESCAPED (expected) -- every declared control "
+              "escaped. Controls are outside the regression numerator and "
+              "denominator; this is the result a control is run to produce.")
 
 
 def _cleanup_selftest_directory(cleanup) -> None:
@@ -3297,6 +3404,34 @@ def _selftest(work: Path) -> int:
         print(("PASS" if import_guard else "FAIL")
               + "  a parseable import break is INVALID rather than CAUGHT")
 
+        # 10. A DECLARED CONTROL IS GRADED THE OTHER WAY UP (H89): its escape
+        # is the expected result and exits 0; its catch is the failure.
+        test_path.write_text(
+            "import importlib, m\n"
+            "def fresh(): return importlib.reload(m)\n"
+            "def test_import_only(): assert fresh() is not None\n"
+            "def test_sees(): assert fresh().render(None) == 'unknown'\n",
+            encoding="utf-8")
+        control = {
+            "label": "CONTROL flip the None sentinel", "file": "m.py",
+            "old": "        return 'unknown'", "new": "        return 'UNKNOWN'",
+            "direction": "regression",
+            "catcher": "tests/test_m.py::test_import_only",
+        }
+        rc, rows = run_battery([control], ["tests/test_m.py"], d,
+                               verbose=False, control_spec=True)
+        expected = rc == 0 and rows and rows[0]["verdict"] == CONTROL_ESCAPED
+        ok &= expected
+        print(("PASS" if expected else "FAIL")
+              + "  a declared control that escapes is CONTROL-ESCAPED and exits 0")
+        seen = dict(control, catcher="tests/test_m.py::test_sees")
+        rc, rows = run_battery([seen], ["tests/test_m.py"], d,
+                               verbose=False, control_spec=True)
+        failure = rc == 1 and rows and rows[0]["verdict"] == CONTROL_CAUGHT
+        ok &= failure
+        print(("PASS" if failure else "FAIL")
+              + "  a declared control that is caught is CONTROL-CAUGHT and exits 1")
+
     print("SELFTEST PASS" if ok else "SELFTEST FAIL")
     return 0 if ok else 1
 
@@ -3372,6 +3507,7 @@ def main() -> int:
     try:
         document = json.loads(Path(a.spec).read_text(encoding="utf-8"))
         spec, band = _normalise_spec(document, [b for b in a.band.split() if b])
+        control_spec = _declared_control(document, Path(a.spec))
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"BD-MUTATE-UNRUNNABLE: invalid spec: {e}", file=sys.stderr)
         return 2
@@ -3384,7 +3520,8 @@ def main() -> int:
             return 2
         try:
             prepared_emit = _prepare_emitted_spec(
-                work, a.emit_spec, a.subject, band, spec)
+                work, a.emit_spec, a.subject, band, spec,
+                control_spec=control_spec)
         except (OSError, ValueError) as e:
             print(f"BD-MUTATE-UNRUNNABLE: cannot emit spec: {e}", file=sys.stderr)
             return 2
@@ -3399,7 +3536,8 @@ def main() -> int:
         return 2
     try:
         rc, rows = run_battery(
-            selected, band, work, verbose=not a.json, timeout=a.timeout)
+            selected, band, work, verbose=not a.json, timeout=a.timeout,
+            control_spec=control_spec)
     except BaseException as primary:
         if prepared_emit is not None:
             prepared_emit[0].close(primary=primary)
@@ -3422,12 +3560,13 @@ def main() -> int:
         print(json.dumps({
             "exit": rc,
             "direction": a.direction,
+            "control_spec": control_spec,
             "selected": len(selected),
             "total": total,
             "rows": rows,
         }, indent=1))
     elif rows:
-        _report(rows)
+        _report(rows, control_spec)
     return rc
 
 

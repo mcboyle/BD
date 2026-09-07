@@ -696,9 +696,13 @@ def test_bd_mutate_catches_four_regressions_and_control_escapes(tmp_path):
         "M1", "M2", "M3", "M4"
     }
 
-    assert control_process.returncode == 1, (
+    # H89: the *_transform_control.json suffix DECLARES the control, so its
+    # escapes are the expected result (exit 0) and read CONTROL-ESCAPED,
+    # never the byte-identical shape of a real uncaught mutant.
+    assert control_process.returncode == 0, (
         control_process.stdout + control_process.stderr
     )
+    assert control["control_spec"] is True, control
     assert control["selected"] == control["total"] == 2
     assert len(control["rows"]) == 2
-    assert [row["verdict"] for row in control["rows"]] == ["ESCAPED"] * 2
+    assert [row["verdict"] for row in control["rows"]] == ["CONTROL-ESCAPED"] * 2

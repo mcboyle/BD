@@ -1,0 +1,45 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 1: _declared_control decides whether a spec IS a control. Every anchor is a zero-width position on the decision; each mutant short-circuits one arm.",
+  "subject": "a spec declares itself a control by suffix or by control_spec, and the two must agree",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[field]",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_malformed_or_contradictory_declaration_is_UNRUNNABLE[h89_plain.json-yes-control_spec must be true or false]",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_malformed_or_contradictory_declaration_is_UNRUNNABLE[h89_transform_control.json-False-declares \"control_spec\": false]"
+  ],
+  "mutants": [
+    {
+      "label": "D1 the _transform_control.json suffix is not recognised",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    named = )(?=spec_path is not None and spec_path\\.name\\.endswith\\(_CONTROL_SUFFIX\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]"
+    },
+    {
+      "label": "D2 an explicit control_spec: true is ignored",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    return )(?=declared$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[field]"
+    },
+    {
+      "label": "D3 a non-boolean control_spec is accepted",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=not isinstance\\(declared, bool\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_malformed_or_contradictory_declaration_is_UNRUNNABLE[h89_plain.json-yes-control_spec must be true or false]"
+    },
+    {
+      "label": "D4 a suffix-named spec may declare control_spec: false",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=named and not declared:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_malformed_or_contradictory_declaration_is_UNRUNNABLE[h89_transform_control.json-False-declares \"control_spec\": false]"
+    }
+  ]
+}

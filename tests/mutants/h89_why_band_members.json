@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 4: the why of a passed catcher is conditional on what the rest of the band actually did. Each mutant disables one branch of _other_members_note.",
+  "subject": "a passed catcher's why names failed band members, says none failed, or says it ran alone",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_the_why_of_a_passed_catcher_reports_the_band_members_it_measured"
+  ],
+  "mutants": [
+    {
+      "label": "W1 a one-member band is reported as if others ran",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=not others:\\n        return \\\"and it is the only band member that ran\\\"$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_why_of_a_passed_catcher_reports_the_band_members_it_measured"
+    },
+    {
+      "label": "W2 failed band members are never named",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=failed:\\n        return f\\\"while other band member\\(s\\) failed \\{failed\\}\\\"$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_why_of_a_passed_catcher_reports_the_band_members_it_measured"
+    }
+  ]
+}
