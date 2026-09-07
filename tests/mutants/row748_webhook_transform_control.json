@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 748 TRANSFORM CONTROL -- this spec must report exactly one valid ESCAPED mutant. It applies the same IPv6-metadata regression as row748_webhook_ipv6_metadata.json but bands it on an import-only test, proving the caught mutants above are behavioural failures rather than import or syntax breakage. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row748_webhook_transform_control.json",
+  "subject": "an import-only test cannot catch a webhook IPv6-metadata regression",
+  "band": [
+    "tests/test_hooks_webhook_ssrf.py::test_webhook_refusal_transform_control_imports_subject"
+  ],
+  "mutants": [
+    {
+      "label": "metadata branch remains importable",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^        if a == _\\w+:$)",
+      "new": "        _v6_imds = None\n",
+      "direction": "regression",
+      "catcher": "tests/test_hooks_webhook_ssrf.py::test_webhook_refusal_transform_control_imports_subject"
+    }
+  ]
+}

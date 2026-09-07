@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 748: the reserved-address refusal must stay reachable. The mutant disables the branch and the per-class execution test catches it by its distinctive diagnostic. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row748_webhook_reserved.json",
+  "subject": "webhook reserved-address refusal remains reachable",
+  "band": [
+    "tests/test_hooks_webhook_ssrf.py::test_every_webhook_refusal_class_is_executed_and_named[RESERVED]"
+  ],
+  "mutants": [
+    {
+      "label": "M4 reserved branch deleted",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)^        if a\\.is_reserved:$",
+      "new": "        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_hooks_webhook_ssrf.py::test_every_webhook_refusal_class_is_executed_and_named[RESERVED]"
+    }
+  ]
+}

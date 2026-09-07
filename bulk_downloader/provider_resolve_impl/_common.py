@@ -321,6 +321,9 @@ class _HostSafetyMessage(str):
         value.code = code
         return value
 
+    def __getnewargs__(self):
+        return str(self), self.code
+
 
 def _host_safety_message(
         code: HostSafetyReason, message: str = "") -> _HostSafetyMessage:

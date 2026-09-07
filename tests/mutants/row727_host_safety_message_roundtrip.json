@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 727: a _HostSafetyMessage that survives copy/pickle must come back with the same reason. M1 removes __getnewargs__ so reconstruction silently loses the class. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row727_host_safety_message_roundtrip.json",
+  "subject": "_HostSafetyMessage reconstruction preserves its HostSafetyReason",
+  "band": [
+    "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_round_trip_preserves_text_and_reason",
+    "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_reason_is_not_just_its_text"
+  ],
+  "mutants": [
+    {
+      "label": "M1 reconstruction hook removed",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?ms)^    def __getnewargs__\\(self\\):\\n        return str\\(self\\), self\\.code\\n",
+      "new": "    # reconstruction hook removed by mutant\\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_round_trip_preserves_text_and_reason[copy-cgnat-refusing cgnat]"
+    }
+  ]
+}

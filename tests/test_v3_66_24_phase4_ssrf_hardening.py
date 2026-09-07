@@ -38,7 +38,9 @@ What's covered
 """
 from __future__ import annotations
 
+import copy
 import ipaddress
+import pickle
 import socket
 import threading
 import time
@@ -50,6 +52,10 @@ from unittest import mock
 import pytest
 
 from bulk_downloader import provider_resolve as pr
+from bulk_downloader.provider_resolve_impl._common import (
+    HostSafetyReason,
+    _host_safety_message,
+)
 from bulk_downloader.provider_resolve import (
     SSRFBlocked,
     _classify_ip,
@@ -57,6 +63,41 @@ from bulk_downloader.provider_resolve import (
     _is_safe_public_host,
     _make_default_http_get,
 )
+
+
+@pytest.mark.parametrize(
+    "reason,message",
+    [
+        (HostSafetyReason.CGNAT, "refusing cgnat"),
+        (HostSafetyReason.RESERVED, "refusing reserved"),
+    ],
+)
+@pytest.mark.parametrize("round_trip", [copy.copy, copy.deepcopy, pickle.loads])
+def test_host_safety_message_round_trip_preserves_text_and_reason(
+        reason, message, round_trip):
+    """Regression: reconstruction must retain the structured refusal code."""
+    original = _host_safety_message(reason, message)
+    rebuilt = round_trip(original if round_trip is not pickle.loads else pickle.dumps(original))
+    assert type(rebuilt) is type(original)
+    assert str(rebuilt) == message
+    assert rebuilt.code is reason
+
+
+def test_host_safety_message_reason_is_not_just_its_text():
+    """Negative control: the structured reason distinguishes equal messages."""
+    cgnat = _host_safety_message(HostSafetyReason.CGNAT, "same diagnostic")
+    reserved = _host_safety_message(HostSafetyReason.RESERVED, "same diagnostic")
+    assert str(cgnat) == str(reserved)
+    assert cgnat.code is not reserved.code
+    assert cgnat.code is HostSafetyReason.CGNAT
+
+
+def test_host_safety_reason_still_round_trips_without_message_state():
+    """Negative control: the pre-existing enum protocol remains unchanged."""
+    reason = HostSafetyReason.CGNAT
+    assert copy.copy(reason) is reason
+    assert copy.deepcopy(reason) is reason
+    assert pickle.loads(pickle.dumps(reason)) is reason
 
 
 @contextmanager
