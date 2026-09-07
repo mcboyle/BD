@@ -538,6 +538,8 @@ _DECLARED = {
     "tests/test_v3_66_1255_backlog_references_resolve.py",
     "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
     "tests/test_v3_66_1173_gate_scope_debt_is_paid.py",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py",
+    "tests/test_row469_toolchain_denominator_import_control.py",
     "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py",
     "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
@@ -607,6 +609,10 @@ _DECLARED = {
     # Row 473. Candidate shipment is a relation between the whole register and
     # the target tree, so no one candidate's changed paths can select it.
     "tests/test_row473_register_tree_containment.py",
+    # Row 660. A gate that regenerates the tree it inspects. The subject is the
+    # bd-regen-order/FOOTGUNS detector seam, which no one candidate's changed
+    # paths can select -- the hazard fires on runs that touch neither file.
+    "tests/test_row660_gate_is_read_only_over_generated_artifacts.py",
     "tests/test_v3_66_1186_bd_mutate_named_controls.py",
     "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
     "tests/test_v3_66_1188_bd_mutate_review_controls.py",

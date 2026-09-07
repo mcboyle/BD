@@ -1,0 +1,88 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 469. Each mutant removes a tool from ONE auditor's view, or disarms the reconciliation/membership decision; the examined-SET gate must go RED for each.",
+  "subject": "the shared toolchain/bin census: expected = examined + excluded, unknown forces UNKNOWN",
+  "band": [
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_a_tool_removed_from_one_auditors_view_is_UNKNOWN_not_dropped",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_all_four_auditors_examine_the_same_set_member_by_member",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_absent_or_empty_bin_is_UNKNOWN_not_an_empty_population",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_unmeasurable_tool_stays_in_the_examined_set_and_is_named",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_report_refuses_to_certify_a_census_that_does_not_reconcile",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_the_denominator_is_every_file_in_the_tree",
+    "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_unreadable_member_is_unmeasured_by_name_not_a_population_wide_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "census stops counting files that are neither examined nor excluded (silent drop returns)",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^        self\\.unknown = )(?=sorted\\(exp - exa - exc\\)$)",
+      "new": "[] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_a_tool_removed_from_one_auditors_view_is_UNKNOWN_not_dropped"
+    },
+    {
+      "label": "scoped_census shrinks the tree-derived denominator by one file",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^    names = expected\\(bindir\\))(?=\\n    examined, excluded, unmeasured = \\[\\], \\{\\}, \\{\\}$)",
+      "new": "[1:]",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_the_denominator_is_every_file_in_the_tree"
+    },
+    {
+      "label": "report() certifies a census that does not reconcile",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^    if not )(?=census_obj\\.ok:$)",
+      "new": "True and not ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_report_refuses_to_certify_a_census_that_does_not_reconcile"
+    },
+    {
+      "label": "an absent bin dir yields an empty population instead of UNKNOWN",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^    if not )(?=os\\.path\\.isdir\\(bindir\\):$)",
+      "new": "True and not ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_absent_or_empty_bin_is_UNKNOWN_not_an_empty_population"
+    },
+    {
+      "label": "bd-tool-lint silently examines a smaller set than the other three",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?m)(?<=^    return census\\(bindir\\)\\.examined)(?=$)",
+      "new": "[1:]",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_all_four_auditors_examine_the_same_set_member_by_member"
+    },
+    {
+      "label": "classification gates examination again: an unreadable-by-pyflakes tool leaves the examined set",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^            elif python_analyzer and )(?=not is_python_source\\(bindir, n\\):$)",
+      "new": "examined.pop() and ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_unmeasurable_tool_stays_in_the_examined_set_and_is_named"
+    },
+    {
+      "label": "the examined SET is never reported, only its size",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^    stream\\.write\\()(?=census_obj\\.members_line\\(\\) \\+ \"\\\\n\"\\)$)",
+      "new": "\"\" and ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_all_four_auditors_examine_the_same_set_member_by_member"
+    },
+    {
+      "label": "an unreadable member stops being recorded, so the population no longer says which file could not be read",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^            if )(?=not readable\\(bindir, n\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_unreadable_member_is_unmeasured_by_name_not_a_population_wide_unknown"
+    },
+    {
+      "label": "a single unreadable member aborts the whole population again (the v3.66.1507 collision)",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^        )(?=return None\\n    if not first\\.startswith)",
+      "new": "raise PopulationUnavailable(\"unreadable: %s\" % path)\n        ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_auditor_denominators_reconcile.py::test_an_unreadable_member_is_unmeasured_by_name_not_a_population_wide_unknown"
+    }
+  ]
+}

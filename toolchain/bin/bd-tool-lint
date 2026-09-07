@@ -38,6 +38,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec   # noqa: E402  (ONE definition of corpus_profile)
+import bdtools_population as pop  # noqa: E402
 
 DEFAULT_BIN = os.path.dirname(os.path.realpath(__file__))
 # The release-gating mutators: they edit the tree and gate every release. The
@@ -65,12 +66,16 @@ NEEDS_INPUT = {
 
 
 def discover(bindir):
-    tools = []
-    for p in sorted(glob.glob(os.path.join(bindir, "bd-*")) +
-                    glob.glob(os.path.join(bindir, "bdtools_*.py"))):
-        if os.path.isfile(p):
-            tools.append(os.path.basename(p))
-    return tools
+    """ROW 469: the lint's tool list IS the shared examined set.
+
+    Every auditor examines the same members; nothing is dropped by a private
+    glob, and no classification decides membership.
+    """
+    return census(bindir).examined
+
+
+def census(bindir):
+    return pop.scoped_census(bindir)
 
 
 def imported_set(bindir, tools):
@@ -567,9 +572,14 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
-    if not glob.glob(os.path.join(a.bin, "bd-*")):
-        sys.stderr.write("CANNOT-EVALUATE --bin %s: no bd-* tools found -- a scan over "
-                         "nothing is not a clean toolchain\n" % a.bin)
+    # ROW 469: state the denominator before any verdict.
+    try:
+        _cen = pop.census_from_examined(a.bin, discover(a.bin))
+    except pop.PopulationUnavailable as e:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNKNOWN (%s) -- a scan over "
+                         "nothing is not a clean toolchain\n" % (a.bin, e))
+        return sec.EXIT_CANNOT_EVALUATE
+    if not pop.report(_cen, sys.stderr) or not _cen.examined:
         return sec.EXIT_CANNOT_EVALUATE
     res = run(a.bin, do_runtime=not a.no_runtime)
     cc = res["critical_core"]

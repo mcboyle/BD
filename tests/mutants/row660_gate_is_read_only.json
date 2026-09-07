@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 660: a gate ran the REGENERATION chain while merely checking. One mutant per CODE seam -- the chain-skip DECISION, the read-only/write refusal DECISION, and the verifier DENOMINATOR that read-only mode must still judge -- all MUST be CAUGHT. The third seam, the detector argv in FOOTGUNS.json, carries NO mutant on purpose: test_row357 refuses a value-bearing anchor there and no producer record establishes its class. That seam is covered by assertion instead -- test_row660_the_census_detector_does_not_run_the_regeneration_chain reads the argv out of FOOTGUNS.json rather than retyping it, so dropping --check from the detector fails that test.",
+  "subject": "bd-regen-order --check is read-only, and the FOOTGUNS detector asks for it",
+  "band": [
+    "tests/test_row660_gate_is_read_only_over_generated_artifacts.py"
+  ],
+  "mutants": [
+    {
+      "label": "invert the chain-skip decision so a read-only check regenerates again",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    if )(?=a\\.check:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_the_census_detector_does_not_run_the_regeneration_chain"
+    },
+    {
+      "label": "disarm the read-only/write refusal so --check silently accepts a write request",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    if )(?=a\\.check and \\(a\\.declare_surface)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_read_only_mode_refuses_an_explicit_write_request"
+    },
+    {
+      "label": "empty the verifier denominator so read-only mode stops judging the subject",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    for label, argv, _why in )VERIFY(?=:$)",
+      "new": "[]",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_check_mode_still_runs_every_read_only_verifier"
+    },
+    {
+      "label": "skip the reachability ratchet in read-only mode so --check stops judging dark endpoints",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^        good, msg = )check_reach(?=\\(work\\)$)",
+      "new": "(lambda w: (True, \"skipped\") if a.check else check_reach(w))",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_check_mode_still_judges_the_subject_the_detector_blocks_on"
+    }
+  ]
+}

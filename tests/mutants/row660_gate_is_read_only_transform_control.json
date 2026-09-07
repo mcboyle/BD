@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: this mutant MUST ESCAPE. It inverts the same chain-skip decision as the regression spec, but is banded on a test that loads bd-regen-order and reads its chain population WITHOUT ever driving main(). An escape here proves the regression CAUGHTs above are assertion failures, not import or compile breaks.",
+  "subject": "transform control for the row 660 chain-skip seam",
+  "band": [
+    "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_the_chain_population_is_nonzero_and_writes_tracked_files"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL invert the chain-skip decision outside the asserted path",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    if )(?=a\\.check:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_the_chain_population_is_nonzero_and_writes_tracked_files"
+    }
+  ]
+}

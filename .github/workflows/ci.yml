@@ -342,6 +342,8 @@ jobs:
               tests/test_frontend_secret_keys_in_sync.py
           - name: toolchain-deep
             suites: >-
+              tests/test_row469_toolchain_auditor_denominators_reconcile.py
+              tests/test_row469_toolchain_denominator_import_control.py
               tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
               tests/test_v3_66_1161_context_census_is_retired.py
               tests/test_failed_measurements_have_distinct_states.py
@@ -745,6 +747,7 @@ jobs:
               tests/test_row336_audit_and_scan_evidence.py
               tests/test_row349_shared_caches_are_identity_bound.py
               tests/test_row473_register_tree_containment.py
+              tests/test_row660_gate_is_read_only_over_generated_artifacts.py
           - name: artifacts-pins
             suites: >-
               tests/test_generated_artifacts_are_not_tracked.py
