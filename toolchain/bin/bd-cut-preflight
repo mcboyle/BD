@@ -201,10 +201,10 @@ def p_bandderive(t):
 def p_bandcheck(t):
     # measured: "  ok      tests/x.py"; source also emits UNSAFE / NOT A FILE / MISSING
     ok = len(re.findall(r"^[^\S\n]{2}ok[^\S\n]{2,}\S", t, re.M))
-    bad = len(re.findall(r"^\s{2}(?:UNSAFE|NOT A FILE|MISSING)\b", t, re.M))
+    bad = len(re.findall(r"^\s{2}(?:UNSAFE|NOT A FILE|MISSING|EMPTY TARGET)\b", t, re.M))
     if ok + bad == 0:
         return None
-    return ok + bad, ok + bad, 0, "band target(s)"
+    return ok + bad, ok, bad, "band target(s)"
 
 
 def make_p_imports(repo):
@@ -992,6 +992,29 @@ def _e2e_real_failure(interp):
         _cleanup(root)
 
 
+def _e2e_bandcheck_flagged_receipt(interp):
+    """A flagged band must retain its zero examined denominator end to end."""
+    tools = dict(_E2E_GOOD)
+    tools["bd-bandcheck"] = ('import sys\n'
+                              'print("  UNSAFE tests/a.py")\n'
+                              'print("  NOT A FILE test_fn")\n'
+                              'print("  MISSING tests/missing.py")\n'
+                              'sys.exit(1)\n')
+    root, logdir = _fixture(interp, tools, "bandcheck-flagged")
+    if root is None:
+        yield "fixture built", False, "git could not build the fixture repo"
+        return
+    try:
+        rc, out = _run_battery(root, logdir)
+        st, why = _row(out, "bd-bandcheck")
+        yield ("flagged lines are UNKNOWN with their true zero-examined receipt",
+               st == UNKNOWN and "examined 0 of 3 band target(s)" in why,
+               "%s %s" % (st, why))
+        yield "exit is nonzero", rc != 0, "rc=%s" % rc
+    finally:
+        _cleanup(root)
+
+
 def _e2e_reaped_keeps_partial(interp):
     """A REAPED COMMAND IS NOT A RESULT -- and its partial log is the only
     record of how far it got, so it has to survive on disk."""
@@ -1192,6 +1215,7 @@ _E2E_CASES = [
     ("E9  BD_INSTALL_DIR exported:", _e2e_env_hygiene),
     ("E10 fingerprint unit:", _e2e_fingerprint_unit),
     ("E11 --logdir inside the repo:", _e2e_logdir_inside_repo),
+    ("E12 flagged bd-bandcheck receipt:", _e2e_bandcheck_flagged_receipt),
 ]
 
 

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 746, the brief's second 746 mutant: point the bad-arguments code back at 2 so a usage error is indistinguishable from could-not-measure again. Zero-width anchor on the exit call's decision; `new` is the complete conditional token `2 if True else `, the shape row667's M41 uses, so the original digit stays as the dead branch and the mutant parses.",
+  "subject": "a bd-bandcheck usage error is exit 3, never the could-not-measure 2",
+  "band": [
+    "tests/test_row746_bandcheck_empty_target_is_refused.py"
+  ],
+  "mutants": [
+    {
+      "label": "a usage error exits with the could-not-measure code again",
+      "file": "toolchain/bin/bd-bandcheck",
+      "old_regex": "(?<=self\\.exit\\()(?=3, \"%s: usage error)",
+      "new": "2 if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row746_bandcheck_empty_target_is_refused.py::test_missing_arguments_are_usage_error_not_unmeasurable"
+    }
+  ]
+}

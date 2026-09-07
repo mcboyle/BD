@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 723. Six seams of the real-Chrome -> bundled-Chromium degradation record: the cloak.persistent_context arm (both outcomes) and its retry predicate, and the runner_browser persistent and non-persistent arms plus the drain that surfaces login/replay notes. Every anchor is zero-width (lookbehind + lookahead) and names a DECISION -- a call site or a branch predicate -- never a value. Filed after lens L2 refused this cut for leaving the cloak arm unguarded.",
+  "subject": "cloak.persistent_context / runner_browser._record_channel_fallback -- the degradation the run record must carry",
+  "band": [
+    "tests/test_row723_chrome_channel_fallback_reaches_run_record.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 cloak arm: the RECOVERED fallback is never recorded (the exact deletion L2 measured)",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^            )(?=note_channel_fallback\\($)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_persistent_context_records_its_recovered_channel_fallback"
+    },
+    {
+      "label": "M2 cloak arm: a bundled retry that ALSO fails is never recorded",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^                )(?=note_channel_fallback\\($)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_persistent_context_records_a_retry_that_also_fails"
+    },
+    {
+      "label": "M3 cloak arm: invert the channel_fallback predicate so the retry never runs",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^        if )(?=channel_fallback and \"channel\" in extra:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_persistent_context_records_its_recovered_channel_fallback"
+    },
+    {
+      "label": "M4 runner persistent arm: the recovered fallback never reaches the run record",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                        )(?=self\\._record_channel_fallback\\(flow,channel,msg,True\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_persistent_fallback_is_recorded_in_the_site_run_record"
+    },
+    {
+      "label": "M5 runner non-persistent arm: the recovered fallback never reaches the run record",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^                )(?=self\\._record_channel_fallback\\(flow,channel,str\\(e\\)\\[:100\\],True\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_non_persistent_fallback_is_recorded_in_the_site_run_record"
+    },
+    {
+      "label": "M6 the drain that surfaces login/replay notes returns nothing, so no runner ever reports them",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^            notes=)(?=_cloak\\.drain_channel_fallbacks\\(self\\.site_id\\)$)",
+      "new": "[] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_pending_notes_from_a_login_flow_are_surfaced_into_the_run_record"
+    }
+  ]
+}

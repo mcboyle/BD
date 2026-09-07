@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 747 M2. Anchor is ZERO-WIDTH on the decision -- it consumes nothing, so no value-bearing token is inside the matched span, and the mutation is an INSERTION that really executes. Two earlier shapes were measured and rejected: putting the digit in a LOOKAHEAD while substituting `return 0` does not consume it, so the mutant read `return 02`, never parsed, and bd-mutate reported INVALID (never ran) rather than CAUGHT; and CONSUMING `return \\d` does parse but makes the anchor value-bearing, which tests/test_row357_mutant_anchors_are_not_fragile.py REFUSES as UNKNOWN (measured: 'contains value-bearing source text, but no producer or audited stable exception establishes its class'). This shape is the one row667 _transform_control uses: zero-width lookbehind/lookahead on the structure, insertion as `new`.",
+  "subject": "bd-band does not run a band when bd-bandcheck cannot be loaded to verify the targets",
+  "band": [
+    "tests/test_row747_bd_band_delegation_is_guarded.py::test_missing_loader_refuses_once"
+  ],
+  "mutants": [
+    {
+      "label": "M2 the missing-checker arm falls through to success, so an UNVERIFIED band is no longer refused",
+      "file": "toolchain/bin/bd-band",
+      "old_regex": "(?<=if not a\\.skip_bandcheck:\\n            )(?=return \\d\\n    elif a\\.skip_bandcheck)",
+      "new": "return 0\n            ",
+      "direction": "regression",
+      "catcher": "tests/test_row747_bd_band_delegation_is_guarded.py::test_missing_loader_refuses_once"
+    }
+  ]
+}

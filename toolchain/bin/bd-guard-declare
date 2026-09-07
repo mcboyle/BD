@@ -8,10 +8,10 @@ STATE.json, which this tool was written to rewrite, is RETIRED along with the
 sandbox that held it. So with no --state the tool no longer errors: it does the
 read-only half (recompute the live sha, diff it against the guards.json pin,
 refuse a non-guard) and then STOPS, printing the exact edit for the operator to
-make. It deliberately does NOT write guards.json -- rebaselining a release guard
-is an explicit operator decision, and a tool that re-froze it silently would
-defeat the gate it exists to serve. The --state path below is unchanged and still
-works if you hand it a real STATE.json.
+make. It does not write guards.json itself. A brief CENSUS may declare a repin
+under the 20:3xZ ruling (carried by register row 744), and the operator or cut
+makes that printed edit. The --state path below is unchanged and still works if
+you hand it a real STATE.json.
 
 THE 7 RELEASE GUARDS must stay byte-identical between releases UNLESS the operator
 explicitly declares a new SHA. Hand-declaring is error-prone: a typo'd SHA, or
@@ -76,9 +76,9 @@ def _manifest_pin(root, rel):
     """The pin guards.json currently carries for `rel`, as (short8, full) or None.
 
     READ-ONLY. guards.json is the live single source of truth for the 7 guard
-    SHAs (root guards.json); this tool deliberately does NOT write it,
-    because rebaselining a guard is an explicit operator decision and a tool that
-    re-froze it silently would defeat the gate it exists to serve.
+    SHAs (root guards.json); this tool does not write it itself. A brief CENSUS
+    may declare a repin under the 20:3xZ ruling (register row 744), and the
+    operator or cut makes that printed edit.
     """
     p = os.path.join(root, MANIFEST_NAME)
     if not os.path.isfile(p):
@@ -218,9 +218,9 @@ def main(argv=None):
         print(f"  {Y}DRIFT{RST}: guards.json {man8} -> live {live8}")
         if not a.apply:
             print()
-            print(f"{DIM}dry-run. This tool does NOT write guards.json: rebaselining a "
-                  f"guard is an explicit operator decision (guards.json), and a "
-                  f"tool that re-froze it silently would defeat the gate.{RST}")
+            print(f"{DIM}dry-run. This tool does not write guards.json itself. A brief CENSUS "
+                  f"may declare a repin under the 20:3xZ ruling (register row 744); the "
+                  f"operator or cut makes that printed edit.{RST}")
             return 0
         # --apply with nothing writable: say so with a code that means "no verdict
         # minted / nothing done", not 0 (which would read as APPLIED) and not 1

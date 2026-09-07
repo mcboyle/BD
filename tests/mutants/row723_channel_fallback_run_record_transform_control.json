@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 723 TRANSFORM CONTROL. This mutant MUST ESCAPE. It is the same mutation as M1 -- the recovered recording in the cloak.persistent_context arm -- but banded on a test that imports cloak and drives only the ledger PRIMITIVE, never the arm. A CAUGHT here would mean the row723 CAUGHTs are import/compile breakage rather than assertion failures. It is also the precise distinction lens L2 drew when it refused the first generation of this cut.",
+  "subject": "control -- proves the row723 CAUGHTs are assertion failures, not import errors",
+  "band": [
+    "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_cloak_ledger_records_the_degradation_for_flows_with_no_runner"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL: the cloak arm's recovered recording is removed -- MUST ESCAPE, this test never drives that arm",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^            )(?=note_channel_fallback\\($)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_chrome_channel_fallback_reaches_run_record.py::test_cloak_ledger_records_the_degradation_for_flows_with_no_runner"
+    }
+  ]
+}

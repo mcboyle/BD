@@ -4,6 +4,83 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1507 - toolchain receipts count what they actually read, and the Chrome channel fallback reaches the run record
+
+Train A2-03, two independently reviewed patches with disjoint authored paths.
+
+CAR 1, cut/toolchain-receipts (rows 746, 747, 724, 744, 745; T1 x5; PASS by bd-lens-L2 on
+re-verify, after its one escape -- EMPTY TARGET missing from bd-cut-preflight's BAD regex --
+was closed):
+
+- bd-bandcheck no longer mints a PASS over the tree root for an empty-string target. An
+  empty or whitespace target is refused with an EMPTY TARGET line and rc 2, the empty-list
+  path is now reachable from the CLI and prints NO TARGETS, and a usage error is rc 3 so it
+  can no longer be confused with could-not-measure. Closes row 746.
+- bd-cut-preflight's p_bandcheck reports the measured failure count in the FAILED position
+  and counts only ok lines in the PASSED position. It previously returned ok+bad as the
+  total, ok+bad AGAIN as passed, and a literal zero as failed, so a band whose every target
+  was UNSAFE summarised as "nothing wrong". The parser counted the failures and threw the
+  count away at the moment it reported them. Row 724 is amended and STAYS OPEN -- see below.
+- bd-tool-lint's receipt records what was actually read rather than what the loop visited,
+  and an unreadable input now returns the tool's own CANNOT-EVALUATE code with
+  reason=UNREADABLE instead of leaking a PermissionError exit code outside the tool's three-
+  code convention. Closes row 745.
+- bd-guard-declare's refusal text no longer contradicts the brief-declared repin rule; every
+  current claim names the census exception. Closes row 744.
+- bd-band's delegation to the bandcheck contract is guarded by a test that fails when that
+  seam stops refusing, with each covered arm asserting its distinctive line exactly once
+  rather than only its exit code. Closes row 747.
+
+CAR 2, cut/row723-chrome-fallback-run-record (row 723; PASS by bd-lens-L2 on re-verify,
+after its refusal was cleared by a test that drives the cloak persistent_context
+channel_fallback arm itself for both recovered=True and recovered=False, and by running the
+battery that had been skipped): cloak.py gains a bounded thread-safe degradation ledger and
+runner_browser's BrowserMixin gains _record_channel_fallback, so a Chrome channel fallback
+now reaches the run record instead of being lost. Row 720 is NOT in this patch and stays
+open.
+
+IMPORT-GRAPH BASELINE, re-frozen by the integrator at assembly per the amended import ruling:
+tools/decomp/import_graph_baseline.json edge_count 4337 -> 4339. The two added edges are exactly
+the two car 2 declared, and both are TEST-to-module --
+tests/test_row723_chrome_channel_fallback_reaches_run_record.py -> bulk_downloader/cloak.py and
+-> bulk_downloader/runner_browser.py. No product module gained an edge (runner_browser already
+imported cloak in _launch_browser, and cloak's only new import is stdlib time) and no edge was
+removed; the baseline diff equals the union of the declared edges exactly.
+
+ROW 724 IS AMENDED AND DELIBERATELY LEFT OPEN. Its acceptance requires its two mutants be
+caught WITH A TRANSFORM CONTROL THAT ESCAPES, and this cut's only escaping control has
+toolchain/bin/bd-band as its subject -- row 747's file, not row 724's. Nothing here proves
+row 724's three CAUGHTs are assertion failures at the named arms rather than an import or
+parse break in bd-cut-preflight. The code is correct and lens-passed; the evidence is short,
+so the row records exactly what is owed -- a transform control spec of its own whose subject
+is toolchain/bin/bd-cut-preflight, banded on a test that imports it without driving a
+refusal -- and exactly what is already done, including the RED tuple (3, 0, 3) and the
+all-ok negative control (2, 2, 0), so the next worker repeats none of it. Adjudicator law
+23:06Z refused closing it on the cut-wide control; the disposition to ship the proven part
+and record the rest as owed is the same shape used for row 759 earlier tonight.
+
+ALSO IN THIS TRAIN, register work carried by the cut that had the tree:
+
+- Row 660 amended twice from bd-scribe's measurement. Its wording implied a PATCHED tree was
+  needed; it is not. bd-precut --gate RE-DERIVES the tracked generated artifacts from the
+  current tree and does not restore them, so the trigger is any change to the artifacts'
+  INPUTS -- not a patch and not staging. Measured on one clone at 7b67e9ba with tracked
+  sources unpatched in both runs: pristine dirtied zero files; the same tree plus one
+  untracked new test file dirtied one, with PIN_INDEX.json test_files_scanned moving 1619 to
+  1620. The row now carries the five-second repro, and that single fact reconciles the
+  conflicting dirty-file counts measured that night -- 0, 1, a lens's 4, an author's
+  6-plus-trio -- as several readers measuring several different trees, none of them wrong
+  and the question underspecified. It also explains the index-strip bounces: a RED-first cut
+  adds a new test file by construction, that alone makes bd-precut rewrite the artifacts into
+  the worktree, and a broad add sweeps them in. Row 660 stays OPEN.
+- Row 790 filed. bd-precut prints RESULT: cut-ready while a blocking detector is
+  unavailable, and an unavailable measurement is never permission. A missing bd-footguns
+  prints SKIPPED and appends nothing to the tool's own `unknown` list; a missing bd-ratchet
+  has no else branch at all; and both test rc == 3 only, so any other nonzero return is
+  indistinguishable from a pass. Latent rather than firing -- all three detectors are
+  present in this tree and this release's precut run reported zero UNKNOWNs -- and the fix
+  pattern already exists in the same function, where bd-coretest does it correctly.
+
 ## v3.66.1506 - BEHAVIOUR CHANGE: the shipped per-site keep-alive default is now OFF, and a hidden resolution cell can no longer win on quality
 
 Train: 2 refute-first-reviewed worker patches, disjoint authored paths, one lane.

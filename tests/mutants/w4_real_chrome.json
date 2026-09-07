@@ -37,7 +37,7 @@
     {
       "label": "M4 non-persistent bundled retry receives the unmodified site config",
       "file": "bulk_downloader/runner_browser.py",
-      "old_regex": "(?m)(?<=^                    headless=headless,args=args_val,config=)launch_config(?=,\\n                    netns=netns,\\*\\*extra\\)$)",
+      "old_regex": "(?m)(?<=^                        headless=headless,args=args_val,config=)launch_config(?=,\\n                        netns=netns,\\*\\*extra\\)$)",
       "new": "self.config",
       "direction": "regression",
       "catcher": "tests/test_v3_66_141_browser_backend.py::test_configured_real_chrome_nonpersistent_retry_keeps_playwright"

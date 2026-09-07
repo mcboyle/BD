@@ -194,6 +194,59 @@ class BrowserMixin:
         except Exception as e:
             sys.stderr.write(
                 f"  persistent cookie file load failed: {str(e)[:100]}\n")
+    def _record_channel_fallback(self,flow,channel,error,recovered):
+        """Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+        SITE'S RUN RECORD, not only in the service log. The site asked for a
+        real Chrome binary (`use_real_chrome` -> Playwright channel="chrome",
+        which only Google Chrome satisfies) and this host does not have one, so
+        the run happened on bundled Chromium with a different fingerprint. A2:
+        a capability that degrades silently is indistinguishable from one that
+        worked, so the run record has to say so. Also files the note in cloak's
+        ledger for callers that own a record but not this mixin."""
+        from . import cloak as _cloak
+        note=_cloak.note_channel_fallback(
+            site_id=self.site_id,flow=str(flow),channel=str(channel),
+            error=str(error),recovered=bool(recovered))
+        verdict=("ran on bundled Chromium instead" if recovered
+                 else "and the bundled-Chromium retry ALSO failed")
+        _log=getattr(self,"log_event",None)
+        if _log is None:
+            # No event log on this caller. The note is still in cloak's ledger,
+            # so the degradation is recorded and drainable -- it is never
+            # dropped, which is the whole point of row 723.
+            sys.stderr.write(f"  [browser] channel fallback (unrecorded sink): "
+                             f"{note['channel']} {verdict}\n")
+            return note
+        _log("browser",
+            f"real Chrome unavailable (channel={channel}); {verdict} "
+            f"-- {note['error']}",
+            extra={"requested_channel":note["channel"],
+                   "recovered":note["recovered"],
+                   "flow":note["flow"],
+                   "error":note["error"],
+                   "degraded":True})
+        return note
+    def _surface_pending_channel_fallbacks(self):
+        """Drain degradations recorded by flows that have no runner (login
+        submit, session replay, capture) and put them in THIS site's run
+        record. Returns how many were surfaced."""
+        from . import cloak as _cloak
+        try:
+            notes=_cloak.drain_channel_fallbacks(self.site_id)
+        except Exception:
+            return 0
+        for n in notes:
+            verdict=("ran on bundled Chromium instead" if n.get("recovered")
+                     else "and the bundled-Chromium retry ALSO failed")
+            self.log_event("browser",
+                f"real Chrome unavailable (channel={n.get('channel')}) in "
+                f"{n.get('flow')}; {verdict} -- {n.get('error','')}",
+                extra={"requested_channel":n.get("channel"),
+                       "recovered":bool(n.get("recovered")),
+                       "flow":n.get("flow"),
+                       "error":n.get("error",""),
+                       "degraded":True})
+        return len(notes)
     def _launch_browser(self,headless=None,use_persistent=None,worker_idx=None,profile_override=None,netns=None):
         """Phase 9 / v3.66.141: unified browser launcher routed through the
         shared cloak wrapper so every runner flow honours the configured
@@ -336,9 +389,11 @@ class BrowserMixin:
                         self._apply_persistent_cookie_file(ctx)
                         self._install_stealth(ctx)
                         _cloak.log_choice(flow,backend,detail+" (bundled)")
+                        self._record_channel_fallback(flow,channel,msg,True)
                         return None,ctx,used_pw,backend
                     except Exception as e2:
                         sys.stderr.write(f"  launch persistent fallback failed: {str(e2)[:100]}\n")
+                        self._record_channel_fallback(flow,channel,str(e2)[:100],False)
                 # Persistent failed entirely — fall through to non-persistent
         # Non-persistent path: caller will create its own context
         extra=dict(launch_kwargs)
@@ -352,9 +407,14 @@ class BrowserMixin:
             if channel and "channel" in extra:
                 sys.stderr.write(f"  launch (channel={channel}) failed: {str(e)[:100]}; falling back to bundled\n")
                 extra.pop("channel",None)
-                browser,used_pw,backend=_cloak.launch_browser(
-                    headless=headless,args=args_val,config=launch_config,
-                    netns=netns,**extra)
+                try:
+                    browser,used_pw,backend=_cloak.launch_browser(
+                        headless=headless,args=args_val,config=launch_config,
+                        netns=netns,**extra)
+                except Exception as e2:
+                    self._record_channel_fallback(flow,channel,str(e2)[:100],False)
+                    raise
+                self._record_channel_fallback(flow,channel,str(e)[:100],True)
             else:
                 raise
         _cloak.log_choice(flow,backend,"non-persistent")
