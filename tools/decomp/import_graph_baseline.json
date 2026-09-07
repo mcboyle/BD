@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4380,
+  "edge_count": 4384,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4029,6 +4029,16 @@
     ],
     "tests/test_row671_reviewed_template_selectors_are_enumerated.py": [
       "bulk_downloader/template_assist.py"
+    ],
+    "tests/test_row672_reviewed_template_is_reachable.py": [
+      "bulk_downloader/template_selector_verifier.py"
+    ],
+    "tests/test_row673_reviewed_probe_adapter_ships_once.py": [
+      "bulk_downloader/template_assist.py"
+    ],
+    "tests/test_row674_live_state_round_trips.py": [
+      "bulk_downloader/dom_serialize.py",
+      "tools/build_recorded_dom_fixture.py"
     ],
     "tests/test_row675_minified_js_is_not_a_secret.py": [
       "bulk_downloader/capture_artifact_redact.py",

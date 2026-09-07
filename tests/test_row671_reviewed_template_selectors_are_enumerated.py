@@ -312,31 +312,19 @@ def test_twelve_committed_leaves_and_nineteen_adapted_rows_reconcile():
     leaves, which have no ``learned`` home, and expands the single
     ``download.trigger`` into ten resolution-templated trigger selectors.
     """
-    from bulk_downloader.template_assist import (
-        selector_group,
-        template_to_learned_download,
-    )
+    from bulk_downloader.template_assist import template_to_selector_probe
 
     template = json.loads(_REPTILE.read_text(encoding="utf-8"))
     committed = _api().enumerate_template_selectors(template)
     assert len(committed) == 12
 
-    login = selector_group(template, "login")
-    player = selector_group(template, "player")
-    adapted = _api().enumerate_template_selectors({
-        "id": "row671_reconciliation_probe",
-        "learned": {
-            "download": template_to_learned_download(template),
-            "login": {
-                "user_field": login["email"],
-                "pass_field": login["password"],
-                "submit_btn": login["submit"],
-            },
-            "player": {
-                "player_selectors": [player["container"], player["play_button"]],
-            },
-        },
-    })
+    # Row 673: this file carried the THIRD copy of the reviewed-to-learned
+    # composition (the row named only row 126 and row 455). It imports the one
+    # shipped adapter now, so the reconciliation below is measured against the
+    # adapter the product runs rather than against a local restatement of it.
+    adapted = _api().enumerate_template_selectors(
+        template_to_selector_probe(template, "row671_reconciliation_probe")
+    )
 
     pinned = _live_count_keys()
     assert len(pinned) == len(set(pinned)) == 19, pinned
