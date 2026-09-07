@@ -384,6 +384,21 @@ _DECLARED = {
     "tests/test_source_windows_do_not_shift.py",
     "tests/test_generated_artifacts_are_not_tracked.py",
     "tests/test_settings_center_slice4.py",
+    # FOOTGUNS.json named a BLOCKING detector on each of the four files below
+    # and no CI job ran any of them, so their drift was only ever evaluable by
+    # hand. The two registries are now linked in one direction by the fifth
+    # entry: naming a test in FOOTGUNS.json requires it in a shard. Both
+    # populations there are derived, so no third hand-kept list is created.
+    # CI-SHARD-CLAIM footgun-endpoint artifacts-pins tests/test_endpoint_catalog_in_sync.py
+    "tests/test_endpoint_catalog_in_sync.py",
+    # CI-SHARD-CLAIM footgun-function-index artifacts-pins tests/test_function_index_in_sync.py
+    "tests/test_function_index_in_sync.py",
+    # CI-SHARD-CLAIM footgun-route-map artifacts-pins tests/test_route_map_invariant.py
+    "tests/test_route_map_invariant.py",
+    # CI-SHARD-CLAIM footgun-slice5 artifacts-pins tests/test_settings_center_slice5.py
+    "tests/test_settings_center_slice5.py",
+    # CI-SHARD-CLAIM footgun-ci-link artifacts-pins tests/test_footgun_detectors_are_executed_by_ci.py
+    "tests/test_footgun_detectors_are_executed_by_ci.py",
     # Row 439. Segmented (HLS/DASH) transfers bypassed the fail-closed VPN
     # egress gate every sibling transfer path passes, so ffmpeg fetched every
     # segment on the clear interface for a vpn_required site whose tunnel was

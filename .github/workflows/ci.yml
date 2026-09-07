@@ -783,6 +783,11 @@ jobs:
               tests/test_row335_release_gate_populations.py
               tests/test_row339_measurement_noise_bounds.py
               tests/test_scan_version_pins_fixture.py
+              tests/test_endpoint_catalog_in_sync.py
+              tests/test_function_index_in_sync.py
+              tests/test_route_map_invariant.py
+              tests/test_settings_center_slice5.py
+              tests/test_footgun_detectors_are_executed_by_ci.py
     name: gate-suites (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4

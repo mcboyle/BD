@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "the FOOTGUNS.json -> CI shard link: the coverage decision, the active filter, and the shard list itself",
+  "_comment": "M3 is the DELETION TEST the contract owes at every tier: remove one adopted suite from ci.yml and the live gate must go RED. M1/M2/M4 anchor ZERO-WIDTH on decisions in the gate, never on values. M3 note: bd-mutate refuses an empty 'new', so the suite is REPLACED by a name no shard should carry rather than deleted outright -- same effect on the decision under test, tests/test_route_map_invariant.py is no longer executed by any CI job. M5 is the bounce's second owed item: it pins HOW the exemption matches, not only what is in it. It widens the exact-key lookup into a stem prefix -- the shape a maintainer reaches for when a file is renamed -- and a widened match must turn something red.",
+  "band": [
+    "tests/test_footgun_detectors_are_executed_by_ci.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the exemption swallows every subject",
+      "file": "tests/test_footgun_detectors_are_executed_by_ci.py",
+      "old_regex": "(?m)(?<=    return sorted\\(set\\(subjects\\) - set\\(executed\\))(?= - set\\(_EXEMPT\\)\\)$)",
+      "new": " - set(subjects)",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_a_footgun_pointed_at_a_file_in_no_shard_is_reported"
+    },
+    {
+      "label": "M2 the active filter stops filtering",
+      "file": "tests/test_footgun_detectors_are_executed_by_ci.py",
+      "old_regex": "(?m)(?<=        if fg\\.get\\(\"status\"\\) != \"active\")(?=:$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_an_inactive_footgun_contributes_no_subject"
+    },
+    {
+      "label": "M3 DELETION TEST: one adopted suite is taken back out of the shard",
+      "file": ".github/workflows/ci.yml",
+      "old": "              tests/test_route_map_invariant.py\n",
+      "new": "              tests/test_route_map_invariant_REMOVED_BY_THE_MUTANT.py\n",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_every_active_footgun_test_subject_is_executed_by_some_ci_job"
+    },
+    {
+      "label": "M4 the spent-exemption check stops detecting a sharded exemption",
+      "file": "tests/test_footgun_detectors_are_executed_by_ci.py",
+      "old_regex": "(?m)(?<=    return sorted\\(set\\(exempt\\))(?= & set\\(executed\\)\\)$)",
+      "new": " - set(executed)",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_a_spent_exemption_is_named_and_a_live_one_is_not"
+    },
+    {
+      "label": "M5 the exemption stops matching an exact path and matches by stem instead",
+      "file": "tests/test_footgun_detectors_are_executed_by_ci.py",
+      "old_regex": "(?m)^    return sorted\\(set\\(subjects\\) - set\\(executed\\) - set\\(_EXEMPT\\)\\)$",
+      "new": "    return sorted(set(subjects) - set(executed) - {p for p in subjects if any(p.startswith(e[:-3]) for e in _EXEMPT)})",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_the_uncovered_comparison_is_not_severed_from_either_input"
+    }
+  ]
+}

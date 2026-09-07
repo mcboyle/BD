@@ -4,6 +4,76 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1518 - the blocking footgun detectors are executed by CI, and the two registries are linked so a detector cannot rest on a test nothing runs
+
+Train F-08, base origin/main 142133f5 (v3.66.1517). TWO reviewed worker patches with DISJOINT authored paths --
+footguns-ci-shard (11 paths, BOARDed 5 of 5) and 1513-register-close (3 paths, BOARDed by L2 on
+this same head after main moved twice under a correct verdict). Path count is `git diff --cached 142133f5 --name-only`: 11 authored, plus the
+version trio and the register edit this train adds. Base NAMED, never a bare HEAD.
+
+- THE DEFECT, AND IT WAS LATENT RATHER THAN FAILING. CI runs EXPLICIT FILE LISTS -- ci.yml names
+  every file in its shards and never runs `tests/` as a directory -- so a test in no shard list is
+  never executed. The 939 gate stops files falling out, but it only sees files carrying
+  BD_GATE_SCOPE or sitting in its pinned remainder. FOOTGUNS.json is a SEPARATE registry, linked to
+  the shard denominator in NEITHER direction, and four BLOCKING footguns pointed their detectors at
+  tests no job ran: test_endpoint_catalog_in_sync, test_function_index_in_sync,
+  test_route_map_invariant and test_settings_center_slice5. Four of those names are drift detectors
+  whose entire job is to catch a tree that has moved. Measured on the patched tree, bd-footguns
+  reports PASS for all four: THE FOOTGUNS WERE NEVER FAILING, NOTHING WAS RUNNING THEM.
+- HALF (a) -- THE FOUR DETECTORS ARE NOW IN A SHARD, in four coupled edits the tree forces rather
+  than four the author chose: each file declares BD_GATE_SCOPE = "repo-wide" with its reason; each
+  leaves tests/gate_scope_baseline.txt, the UNCLASSIFIED legacy population, 1257 -> 1253; each
+  joins _DECLARED in the 939 gate, whose shard union must EQUAL _DECLARED, with a CI-SHARD-CLAIM
+  binding it to the artifacts-pins entry that executes it; and
+  tests/test_v3_66_1173_gate_scope_debt_is_paid.py is amended IN THE SAME CUT because it pins that
+  baseline BY COUNT AND BY SHA256 IDENTITY, 1242 -> 1238 and a new digest, with a FOOTGUN_MIGRATED
+  tuple naming WHICH four left -- a digest can refuse a swap but cannot say which four were meant.
+- HALF (b) -- THE TWO REGISTRIES ARE LINKED, in one direction, with no third list to drift.
+  tests/test_footgun_detectors_are_executed_by_ci.py derives BOTH populations: subjects are walked
+  from the FOOTGUNS.json structure, executed paths from the PARSED workflow. PARSED, NEVER GREPPED,
+  and that is load-bearing -- ci.yml's own timing commentary names suites, so a text scan would read
+  a commented-out file as executed, and a synthetic control pins it. The gate STATES ITS OWN
+  EXTRACTION RULE, because two readers extracted 8 and 9 subjects from the same JSON on the same
+  night and nobody had written down why; it takes the WIDE rule and asserts what the wide rule costs
+  today (exactly tests/test_gui_parity.py, already executed), so the price is pinned if it ever
+  stops being free. A subject naming a file not in the tree reads UNKNOWN and FAILS rather than
+  being skipped.
+- THE ONE HOLE IS HELD TO ONE ENTRY AND DIES WITH ITS CAUSE. tests/test_v3_66_726_body_contract.py
+  is NOT adopted: pytest reports 12 passed for it while run_tests.py reports 10 of 12, and adopting
+  a suite that SPLITS BY RUNNER into a blocking lane makes that lane flaky. _EXEMPT holds exactly
+  one entry with the measurement as its reason, matched by EXACT PATH and never a prefix or stem, and
+  the exemption fails in BOTH directions -- if 726 is later sharded, spent_exemptions() names it and
+  the gate stays red until the entry is deleted; if no active footgun names 726 any more, the
+  exemption has no subject and fails too.
+- MUTATION, RUN VOLUNTARILY, AND ONE ESCAPE FOUND AND CLOSED. 5 mutants, 5 CAUGHT, plus a transform
+  control that ESCAPES as required, on a fresh independent clone. M3 is the deletion test -- one
+  adopted suite taken back out of ci.yml -- which is owed at every tier. M4 originally escaped: the
+  only thing asserting on that comparison was the assertion being mutated, the same
+  detector-with-no-detector shape the 939 gate's own docstring describes. It was closed by
+  EXTRACTING spent_exemptions() and driving it synthetically, then RE-ANCHORING the mutant on the
+  extracted decision -- re-anchored, never deleted.
+- THE SECOND CAR IS A REGISTER CORRECTION, AND IT IS WHY A DEDICATED REGISTER CUT EXISTS.
+  cut/1513-register-close closes rows 731, 732 and 751 at @1513 -- the version that actually landed
+  their code -- and files rows 795, 796 and 797. It also appends a CORRECTION paragraph under the
+  v3.66.1513 entry rather than editing it: a landed changelog is evidence, so the entry stays
+  byte-for-byte intact and the correction states what it got wrong. Three things, each re-derived
+  against the landed commit 98bc6057 rather than copied from the ruling that reported them: the
+  entry names base f54b811d when 98bc6057's parent is 05d5f11e at v3.66.1512; its path count of 24
+  matches neither tree (28 against 05d5f11e, 43 against f54b811d); and its claim that four rows
+  were closed by that train describes a closure that never happened. Row 675 STAYS OPEN, because
+  the literal-value exemption landed in the detector and never reached the DOM text path.
+  ITS LESSON IS THE ONE THIS TRAIN IS RUN BY: naming a base protects you only if you RE-DERIVE it
+  after the rebase, and a stale declared base is worse than no base.
+- THE TWO CARS ARE DISJOINT IN AUTHORED PATHS AND THE INTEGRATOR RESOLVED THE ONE COLLISION THEY
+  DID HAVE: both proposed register rows numbered 795 and 796. Ids are the integrator's to assign
+  (A2) precisely because two seats filing concurrently pick the same number; the register car's
+  795/796/797 stand, because its BOARD names those ids, and this train's own two rows were
+  renumbered to 798 and 799.
+
+- ROW 798 IS CLOSED BY THIS TRAIN AND ROW 799 IS FILED OPEN BESIDE IT. 799 is the residual: the
+  exemption is a hole held open, not a fix, and it carries the runner disagreement as its own row so
+  it cannot be lost when 795 closes. A closure rides with its code; a residual gets a row.
+
 ## v3.66.1517 - a persistent-profile browser that cannot apply its cookie jar is disposed of instead of handed back, and the four callers that launch one are pinned
 
 Train G-03, base origin/main dd959706 (v3.66.1516). ONE reviewed worker patch, rowtest2D-1b-cx-d,
@@ -158,6 +228,32 @@ diff, so the probe can say yes. The shard gate was RUN on this tree rather than 
   battery, including a transform control.
 
 ROWS 731, 732, 751 AND 675 ARE CLOSED BY THIS TRAIN.
+
+CORRECTION, ADDITIVE, filed after the fact by the v3.66.1513 register cut (bd-worker-b2, ORDER-1513
+O1). The entry above is left byte-for-byte intact -- a landed changelog is evidence and A4 forbids
+amending it -- so this paragraph states what it got wrong. Every number below was re-derived
+against the landed commit 98bc6057 rather than copied from the ruling that reported the defect.
+
+- THE BASE IS WRONG. The entry names "base origin/main f54b811d (v3.66.1511)". 98bc6057's parent is
+  05d5f11e, the merge of PR #818 (train B2-01, rows 660 and 469), and that commit carries
+  __version__ 3.66.1512. Re-derived with `git rev-parse 98bc6057^` and
+  `git show 05d5f11e:bulk_downloader/__init__.py`.
+- THE PATH COUNT IS WRONG AND MATCHES NEITHER TREE. `git diff --name-only 05d5f11e 98bc6057` is 28
+  paths. `git diff --name-only f54b811d 98bc6057` is 43. The entry claims 24, which is neither.
+- THE CLOSURE CLAIM WAS UNTRUE WHEN WRITTEN. "ROWS 731, 732, 751 AND 675 ARE CLOSED BY THIS TRAIN"
+  describes a closure that never happened: the train landed the code for four rows and closed none
+  of them. Rows 731, 732 and 751 are closed @1513 by this same register cut, as a retrospective
+  correction naming the version that landed their code, each verified by content against
+  05d5f11e..98bc6057 and confirmed still OPEN at 142133f5 before the register was touched. Row 675
+  STAYS OPEN, because the literal-value exemption landed in the detector
+  (capture_artifact_redact._value_findings) and never reached the DOM text path, which is pinned
+  in-tree by test_the_workbench_still_rewrites_the_literal_script_it_no_longer_flags; its follow-up
+  is filed as its own register row.
+
+THE LESSON, and it is law now: NAMING A BASE PROTECTS YOU ONLY IF YOU RE-DERIVE IT AFTER THE
+REBASE. A STALE DECLARED BASE IS WORSE THAN NO BASE. The entry above boasts "against the DECLARED
+base and never a bare HEAD" while naming a base the rebase had already invalidated, and that
+sentence is what stopped anyone re-checking a number that cites its own command.
 ## v3.66.1512 - a check stops rewriting the tree it checks, and the four toolchain auditors state one denominator
 
 Train B2-01, base origin/main f54b811d (v3.66.1511). TWO reviewed worker patches, authored paths

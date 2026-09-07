@@ -17,7 +17,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tests" / "gate_scope_baseline.txt"
-BASELINE_IDS_SHA256 = "ea130c0df6ff9f65b953083eaaff998cbbc37664383c3f2ed49efc4637351b35"
+BASELINE_IDS_SHA256 = "2dc2e8f767dab96a7f4caaab7837d8af820316ec45a1897df77c93038400dad7"
 
 MIGRATED = (
     "tests/test_v3_66_1018_registrable_domain_drain.py",
@@ -44,6 +44,19 @@ MIGRATED = (
     "tests/test_generated_artifact_workflow.py",
     "tests/test_git_deploy_gaps_are_documented.py",
     "tests/test_desandbox_tool_verifiers.py",
+)
+
+
+# The four gates FOOTGUNS.json pointed a BLOCKING detector at while no CI job
+# ran them. They are classified and sharded together in the same cut that links
+# the two registries (tests/test_footgun_detectors_are_executed_by_ci.py), so
+# they leave the unclassified population by the same route the 24 above did:
+# named, not merely counted.
+FOOTGUN_MIGRATED = (
+    "tests/test_endpoint_catalog_in_sync.py",
+    "tests/test_function_index_in_sync.py",
+    "tests/test_route_map_invariant.py",
+    "tests/test_settings_center_slice5.py",
 )
 
 
@@ -82,7 +95,7 @@ def test_the_exact_twenty_four_pre_policy_gates_are_now_explicit() -> None:
 
 def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
     entries = _baseline_entries()
-    assert len(entries) == 1242, (
+    assert len(entries) == 1238, (
         "gate_scope_baseline must contain the 1,290 pre-Cut-C entries minus "
         "the exact 24 migrated gates and the later classified defect-precision and "
         "template-identity, frontend-secret, capture-vault, and capture-runtime "
@@ -90,12 +103,28 @@ def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
         "safety gates, the row-298 regen-idempotence gate, and the row-297 "
         "corpus-credential gate, the row-310 secret-runtime-route gate, and "
         "the row-292 capture-lane census gate, plus the classified download-"
-        "integrity suite; "
+        "integrity suite, and the four footgun-detector gates named in "
+        "FOOTGUN_MIGRATED; "
         "do not trade one unclassified path for another"
     )
     assert _identity_digest(entries) == BASELINE_IDS_SHA256, (
         "the legacy baseline identities changed; a stable count cannot detect a swap"
     )
+
+
+def test_the_four_footgun_detector_gates_are_now_explicit() -> None:
+    """Same discipline as the 24: the migration is pinned by IDENTITY.
+
+    A count alone cannot tell this migration from someone quietly dropping four
+    other files out of the baseline, which is the swap the digest above exists
+    to refuse -- and the digest cannot say WHICH four were meant.
+    """
+    assert len(FOOTGUN_MIGRATED) == len(set(FOOTGUN_MIGRATED)) == 4
+    assert not (_baseline_entries() & set(FOOTGUN_MIGRATED))
+    assert not (set(MIGRATED) & set(FOOTGUN_MIGRATED))
+    wrong = {rel: _scope(ROOT / rel) for rel in FOOTGUN_MIGRATED
+             if _scope(ROOT / rel) != "repo-wide"}
+    assert not wrong, f"adopted footgun detector lacks an honest marker: {wrong}"
 
 
 def test_the_migration_predicate_has_a_nonempty_negative_control(tmp_path: Path) -> None:
