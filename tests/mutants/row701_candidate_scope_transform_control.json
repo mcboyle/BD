@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 701, in its own file per the 2026-09-06 mutation-evidence rules. It applies M1's byte-identical transform to the population predicate while its only band node reads the FIXTURE's preconditions (work_affinity, res_score, the DOM) and never drives the population. It MUST ESCAPE. The escape proves the regression spec's CAUGHTs are assertion failures rather than a SyntaxError, an import failure or a transform that never applied.",
+  "subject": "transform control for row 701's candidate-scope population predicate",
+  "band": [
+    "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_fixture_carries_the_hazard_the_row_names"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the population predicate admits everything, under a node that never reads the population",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    return )(?=candidate\\.get\\(\"work\", _WORK_UNKNOWN\\) > _WORK_UNKNOWN$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_fixture_carries_the_hazard_the_row_names"
+    }
+  ]
+}

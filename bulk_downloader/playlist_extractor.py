@@ -87,6 +87,12 @@ _LISTING_KEYWORDS = (
     "/studios/", "/site/", "/network/",
 )
 
+# Route actions are an open class: templates may add site-specific actions via
+# ``listing_route_words``.  They are deliberately independent of the route
+# root, because a new ``/clips/`` or ``/movies/`` root must not reopen listing
+# fan-out.
+_LISTING_ROUTE_WORDS = ("sort", "page", "browse", "sites", "gallery", "shorts")
+
 
 # Per-extractor "scene URL looks like THIS" patterns. Used as a
 # secondary filter — listing pages often link to navigation as well as
@@ -175,7 +181,8 @@ def _looks_like_scene_url(
 
     `template`: when the site declares `url_patterns` (the standard
     scene-URL patterns in templates.py), use them. Otherwise fall
-    through to generic hints.
+    through to generic hints. ``listing_route_words`` extends the default
+    open-class listing actions without changing ``url_patterns`` precedence.
     """
     if not url or not isinstance(url, str):
         return False
@@ -188,6 +195,21 @@ def _looks_like_scene_url(
     for kw in _LISTING_KEYWORDS:
         if kw in url_low:
             return False
+    listing_words = set(_LISTING_ROUTE_WORDS)
+    if template is not None:
+        listing_words.update(str(word).lower().strip("/")
+                             for word in (template.get("listing_route_words") or [])
+                             if isinstance(word, str))
+    try:
+        segments = [segment.lower() for segment in urlparse(url).path.split("/")
+                    if segment]
+        # Locale prefixes are not a route component (``/en/videos/sort``).
+        if segments and len(segments[0]) == 2 and segments[0].isalpha():
+            segments = segments[1:]
+        if len(segments) >= 2 and segments[1] in listing_words:
+            return False
+    except Exception:
+        return False
     # Template-declared scene URL patterns
     if template is not None:
         pats = template.get("url_patterns") or []

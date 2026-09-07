@@ -127,6 +127,10 @@ _DECLARED = {
     # cookie jar before their first page uses the context.
     # CI-SHARD-CLAIM test2D-1 application-safety tests/test_test2d_1_persistent_profile_cookie_jar.py
     "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+    # Rows 701/704. Scene selection must refuse foreign or listing routes
+    # before they can drive an operator-facing quality decision.
+    "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py",
+    "tests/test_row704_listing_routes_are_not_scenes.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

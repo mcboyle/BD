@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1523 - a quality scan decides from the scene's own candidates, and CLAUDE.md A5 states CI's pytest denominator as it is
+
+Train A2-08, base origin/main dbff6581 (v3.66.1522, #828). TWO reviewed worker patches whose
+authored path sets are DISJOINT -- the intersection is EMPTY, measured with `comm -12` over both
+`git diff --cached dbff6581 --name-only` lists, not asserted -- so this train does not even use the
+constructed ci.yml / 939-shard pair's overlap allowance: 15 + 2 = 17 authored paths, and the
+assembler resolved nothing. Both cars were re-measured at da748288 by their writers and restacked
+onto dbff6581 here; every non-pair blob in the assembled index is byte-identical to the car it came
+from (15 SAME / 0 DIFFERS / 0 MISSING), and both pair files take insertions only (ci.yml +2/-0,
+the 939 census +4/-0) against a positive control of deletions elsewhere in the same diff.
+
+scene-selection, T2/T3, rows 701 + 704 (and 388, which rides 701): a page's quality scan must decide
+from the SCENE'S OWN candidates rather than from whatever the page happens to link.
+`_candidate_work_affinity` becomes three-valued -- IN-SCOPE(1) / FOREIGN(-1) / UNKNOWN(0) -- with
+FOREIGN a POSITIVE finding (some attribute RESOLVES TO A DIFFERENT WORK) rather than a default, and
+`_candidate_is_in_scope` is the population predicate. Clause 1: when anything on the page proves
+affinity, UNKNOWN is excluded. Clause 2: only when NOTHING proves affinity is an UNKNOWN tier
+admitted, and that admission is MARKED (`_no_identity_proof`) into the run record and the refusal
+message -- an unmarked admission does not happen. Both assembly seams are scoped and the page-level
+question is asked ONCE over all learned groups rather than once per group. Row 704: a listing route
+is an open class -- `_LISTING_ROUTE_WORDS` plus a template-extendable `listing_route_words` and a
+root-agnostic second-segment rule at any depth -- so a listing URL is not walked as a scene. Row 388
+is not separable: 701's marked-admission ruling reaches into row 388's file, and applying the test
+half without the product half was measured, not assumed.
+THE AFFECTED BAND CAUGHT TWO DEFECTS THIS CUT INTRODUCED AND BOTH ARE FIXED HERE, which is why the
+patch grew between generations rather than by scope creep. (A) An ANONYMOUS page was condemning
+candidates as foreign: a page proving nothing about identity stamped otherwise-valid candidates
+FOREIGN, so one guard at the top of `_candidate_names_another_work` now requires a resolved
+attribute before the verdict, and the narrowness is asserted -- the same node checks the same value
+still classifies when the page does prove identity. (B) The admitted group's EXCLUDED EVIDENCE was
+being deleted: `learned_excluded.extend(excluded)` now runs ABOVE the `if scoped:` break, so every
+reviewed group contributes what it refused instead of only the last one. Both were RED first in the
+cut's own gate before their fixes existed. The fifteenth path,
+tests/test_row399_a_photo_gallery_is_not_a_failed_video_page.py, is another row's test file and is
+called out rather than left for a reader to find: 701 splits one list into a deciding population and
+the evidence it refused, and 399's assertion had to follow the split. No assertion was deleted,
+relaxed or marked xfail.
+
+claude-md-a5-fact, T1, cut E: CLAUDE.md A5 said "CI is a tree-wide denominator independent of the
+diff", and that is false. Parsed as YAML rather than scanned as text, the workflow hands pytest an
+ENUMERATED LIST of 318 unique named files -- 36 gate-suite shards naming 314 suites plus the
+postgres-integration step's 4 -- and hands it a DIRECTORY zero times, against 1668 tracked `.py`
+under tests/, so 1350 tracked test modules are named by nothing. The sentence is replaced by what
+was measured, and tests/test_v3_66_1170_claude_is_concise_authority.py now RE-DERIVES both
+populations every run rather than pinning a number into the contract, because A8 forbids volatile
+counts there. A text needle over-counts by two -- tests/frontend_vitest.py and
+tests/test_capture_provides_a_display.py are named ONLY on prose comment lines of ci.yml -- so the
+gate parses. NOTHING REQUIRED IS RELAXED: "A gate CI does not run does not exist", the BD_GATE_SCOPE
+declaration rule, "Read CI status from named status/conclusion fields", and the no-trimming
+paragraph are kept VERBATIM and each is asserted present by its own node on collapsed whitespace, so
+a reflow cannot be mistaken for a moved requirement. The file now also says in plain words that
+whether that enumeration is sufficient is the operator's open question and is under review.
+
 ## v3.66.1522 - the register's own contract paragraph published a three-status vocabulary while its gate read four, and a new cross-check makes the prose and the rows refute each other
 
 Train B2-05, base origin/main d69ffcda (v3.66.1521). ONE reviewed worker patch, cutB, and the

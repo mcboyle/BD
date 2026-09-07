@@ -1,0 +1,44 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ROW 704 -- pagination, sort and category routes are not scenes, and the listing rule is DATA the templates extend rather than a second closed root list (generation f's escape). Every anchor is ZERO-WIDTH and sits on a decision: the template-extension update, the second-segment rule, its depth bound and the listing-keyword precedence. The transform control is in its own file beside this one and MUST escape.",
+  "subject": "a route whose second segment is a listing word refuses whatever its root, at any depth, and templates can extend the word list",
+  "band": [
+    "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_listing_words_in_the_second_route_segment_refuse_at_any_depth",
+    "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_existing_scene_shapes_and_template_short_circuit_stay_accepted",
+    "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_a_template_can_extend_the_listing_words_with_its_own_action"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the template-declared listing words are dropped (the defaults must still refuse the rootless cases)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        listing_words\\.update\\()(?=str\\(word\\)\\.lower\\(\\)\\.strip\\(\"/\"\\)$)",
+      "new": "x for x in () if x or ",
+      "direction": "regression",
+      "catcher": "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_a_template_can_extend_the_listing_words_with_its_own_action"
+    },
+    {
+      "label": "M2 rule B2 is dropped, leaving only the closed keyword list",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        if )(?=len\\(segments\\) >= 2 and segments\\[1\\] in listing_words:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_listing_words_in_the_second_route_segment_refuse_at_any_depth"
+    },
+    {
+      "label": "M3 the rule is restricted to short routes, so a 4-segment listing escapes",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        if len\\(segments\\) )(?=>= 2 and segments\\[1\\] in listing_words:$)",
+      "new": "== 3 and len(segments) ",
+      "direction": "regression",
+      "catcher": "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_listing_words_in_the_second_route_segment_refuse_at_any_depth"
+    },
+    {
+      "label": "M4 the locale-prefix normalisation is skipped, so a localed listing route escapes the second-segment rule",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        if segments and )(?=len\\(segments\\[0\\]\\) == 2 and segments\\[0\\]\\.isalpha\\(\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_listing_words_in_the_second_route_segment_refuse_at_any_depth"
+    }
+  ]
+}

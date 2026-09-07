@@ -4128,6 +4128,66 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 time.sleep(0.5)
         return True
 
+    def _record_no_identity_proof(self, url, best):
+        """Row 701: stamp the RUN RECORD when the winner was admitted without
+        identity proof, and return the note for the job message.
+
+        `_no_identity_proof` marks a selection made from the UNKNOWN fallback
+        tier -- nothing on the page could be attributed to the requested
+        scene. The operator ruling names TWO destinations for that mark: what
+        the gate reports, and the run record. The gate's message only fires
+        below min_resolution, so this is the destination for every admission
+        that proceeds. The stamp goes on the job itself, which later
+        `_update_job` calls merge into rather than replace, so it survives the
+        download overwriting the message.
+        """
+        if best is None or not best.get("_no_identity_proof"):
+            return ""
+        try:
+            with self._lock:
+                self.jobs.setdefault(url, {})["no_identity_proof"] = True
+        except Exception:
+            pass
+        sys.stderr.write(
+            f"  download: {url[-40:]} — admitted without identity proof; "
+            f"no candidate on this page could be attributed to the scene\n")
+        return (" — no identity proof: no candidate on this page could be "
+                "attributed to the scene")
+
+    def _handle_nothing_in_scope(self, page, url, best):
+        """Row 701's distinct outcome: a download control WAS found on this
+        page and every candidate was refused as belonging to another scene.
+
+        Returns True when it has handled the run.  `best` here is
+        `detect._NoInScopeCandidates`, which is falsy on purpose so the four
+        legacy `find_best_download` callers cannot mistake it for a find --
+        which is exactly why this must be consulted BEFORE `if not best:`.
+        The refusal names the outcome and the reason each candidate was
+        refused, so it can never be read as "best is 240p" nor as "no download
+        button found".
+        """
+        if best is None or not best.get("_no_in_scope_candidates"):
+            return False
+        ss = self._screenshot(page, url)
+        excluded = best.get("_excluded_candidates") or []
+        reasons = ", ".join(sorted(
+            {c.get("reason", "unknown") for c in excluded})) or "unknown"
+        saw = " | ".join(
+            f"{res_label(c.get('score', 0))}:{(c.get('text') or '')[:30]}"
+            f"[{c.get('reason', 'unknown')}]"
+            for c in excluded[:6])
+        msg = ("Nothing in scope — no candidate could be attributed to this "
+               f"scene (refused: {reasons})"
+               + (f". Refused: {saw}" if saw else ""))
+        sys.stderr.write(
+            f"  download: skipped {url[-40:]} — nothing in scope; "
+            f"{len(excluded)} candidate(s) refused ({reasons}).\n")
+        self._update_job(url, "needs_review", msg, screenshot=ss)
+        db_log(self.site_id, self.config.get("name", "?"), url,
+               "needs_review", "", 0,
+               f"nothing in scope; refused {len(excluded)}: {reasons}", ss)
+        return True
+
     def _process_one(self,browser,url,persistent_ctx=None):  # INV-002
         """Process a single URL.
 
@@ -4729,6 +4789,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # F9/F10 detect-side: by now the page's fingerprinting (if any)
             # has executed; read back and report what was observed.
             self._flush_fingerprint_observation(page, url)
+            # Row 701: the DISTINCT nothing-in-scope outcome, consulted BEFORE
+            # the `if not best:` guards below. The sentinel is FALSY, so those
+            # guards would consume it and the run would report "No download
+            # button found" — false, and it collapses two distinct failures
+            # into one (CLAUDE.md A7).
+            if self._handle_nothing_in_scope(page, url, best):
+                return
             if best and best.get("_via_learned"):
                 won_sel=best.get("_learned_sel","")
                 sys.stderr.write(f"  download: learned hit via [{won_sel}]\n")
@@ -4812,7 +4879,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # Phase 67: explicit quality preference order. Extracted in v3.43.18.
             qpref = (self.config.get("quality_preference") or "").strip()
             if qpref and not forced:
+                carried = (best.get("_excluded_candidates"),
+                           best.get("_no_identity_proof"))
                 best = self._apply_quality_preference(best, qpref)
+                if carried[0] and "_excluded_candidates" not in best:
+                    best["_excluded_candidates"] = carried[0]
+                if carried[1] and "_no_identity_proof" not in best:
+                    best["_no_identity_proof"] = carried[1]
             if min_res>0 and best["score"]>0 and best["score"]<min_res and not forced:
                 ss=self._screenshot(page,url)
                 avail=res_label(best["score"])
@@ -4822,7 +4895,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"
                     for c in best.get("_all_candidates",[])[:6])
-                msg=f"Best is {avail} (below {min_res}p) — Approve to force. Saw: {seen}"
+                # Row 701: when the admitted population is there by fallback
+                # rather than by proof, say so — an UNKNOWN candidate may not
+                # drive an operator verdict SILENTLY.
+                unproven=(" (no identity proof: no candidate on this page "
+                          "could be attributed to the scene)"
+                          if best.get("_no_identity_proof") else "")
+                msg=(f"Best is {avail} (below {min_res}p){unproven} — "
+                     f"Approve to force. Saw: {seen}")
                 # v3.43.12: log to stderr too so users watching the terminal
                 # can see WHY URLs are sitting in needs_review silently.
                 # Previously only _update_job + db_log were called, both of
@@ -4839,7 +4919,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
             lbl=res_label(best["score"])
             if best.get("size"): lbl+=f" • {fmt_bytes(best['size'])}"
-            self._update_job(url,"running",f"Clicking [{lbl}]...")
+            # Row 701: an admission made WITHOUT identity proof is recorded on
+            # the SUCCESS path too. The min-resolution message below only ever
+            # fires when the winner is BELOW min_resolution, and the motivating
+            # case is a marked 2160 winner against the 1080 default -- above
+            # the bar, so it would otherwise be recorded nowhere at all.
+            note = self._record_no_identity_proof(url, best)
+            self._update_job(url,"running",f"Clicking [{lbl}]...{note}")
             # GCW probe mode (v3.66.274): trigger -> media -> first bytes ->
             # abort. The trigger still fires (so the media URL + session are
             # real), but we fetch only the first bytes and write NO file, so no

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4390,
+  "edge_count": 4394,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4043,6 +4043,14 @@
     "tests/test_row675_minified_js_is_not_a_secret.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_row704_listing_routes_are_not_scenes.py": [
+      "bulk_downloader/playlist_extractor.py"
     ],
     "tests/test_row708_no_nav_login_is_not_success.py": [
       "bulk_downloader/cloak.py",

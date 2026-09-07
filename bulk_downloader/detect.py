@@ -2,6 +2,7 @@
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
 import math, os, re, shutil, sys, uuid
 from pathlib import Path
+from urllib.parse import urlparse
 from .constants import NON_VIDEO_RE, SIZE_RE
 
 
@@ -564,10 +565,88 @@ def _candidate_url_is_a_document(value):
     return True
 
 
+# Row 701: scene affinity is THREE-valued.  "this candidate belongs to another
+# work" and "I cannot tell" were the same value 0, so nothing downstream could
+# distinguish a judgement from an unavailable measurement and an UNKNOWN was
+# silently admitted as if it had been judged (CLAUDE.md A2).  IN_SCOPE and
+# FOREIGN are both POSITIVE findings; UNKNOWN is the absence of either.
+_WORK_IN_SCOPE = 1
+_WORK_UNKNOWN = 0
+_WORK_FOREIGN = -1
+
+
+def _candidate_route_identity(value):
+    """Identity tokens of the work a candidate URL NAMES, or () when it names
+    none.
+
+    The same last-non-numeric-segment rule `page_work_tokens` applies to the
+    page, widened to the relative hrefs a candidate carries.  A control whose
+    href is `#`, `javascript:void(0)` or a one-word route such as `/login`
+    names no work at all: it is UNKNOWN, never FOREIGN.  The `_WORK_MIN_*`
+    bars are the ones `work_affinity` already uses to call a run an identity,
+    so "names a work" and "matches this work" are judged on one scale.
+    """
+    if not value or not isinstance(value, str):
+        return ()
+    try:
+        from urllib.parse import unquote
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.scheme.lower() not in ("http", "https"):
+            return ()
+        path = unquote(parsed.path or "")
+    except Exception:
+        return ()
+    for seg in reversed([s for s in path.split("/") if s]):
+        toks = work_tokens(_PAGE_EXT_RE.sub("", seg))
+        if any(not t.isdigit() for t in toks):
+            if (len(toks) >= _WORK_MIN_TOKENS
+                    and sum(len(t) for t in toks) >= _WORK_MIN_CHARS):
+                return toks
+            return ()
+    return ()
+
+
+def _candidate_names_another_work(page_url, value):
+    """True only when *value* RESOLVES TO A WORK and it is not this page's.
+
+    Called after `work_affinity` has already declined to match, so the only
+    question left is whether the URL identifies a work at all.  A direct media
+    path is deliberately excluded: row 388 measured that download filenames
+    (`TeenSexMania_Adell_3840x2160.mp4`) are studio/performer strings and are
+    not reliable work ids, so a media URL that fails to match is UNKNOWN.
+
+    ANOTHER work is only askable when THIS work is known.  A page whose own
+    identity does not derive -- every `page.set_content` fixture in this tree
+    is one, and so is any route the token bars refuse -- can condemn nothing:
+    the honest answer is UNKNOWN, which the marked fallback already carries.
+    Without this the row 484 and row 399 gates lost their single taught
+    candidate to a FOREIGN stamp that no page had the standing to make.
+    """
+    if not page_work_tokens(page_url):
+        return False
+    try:
+        path = urlparse(value).path.lower()
+    except Exception:
+        return False
+    if _MEDIA_EXT_ANYWHERE_RE.search(path):
+        return False
+    return bool(_candidate_route_identity(value))
+
+
 def _candidate_work_affinity(el, page_url):
-    """Return work affinity from URL-bearing attributes, or 0 if unknown."""
+    """Return `_WORK_IN_SCOPE` (1), `_WORK_FOREIGN` (-1) or `_WORK_UNKNOWN` (0).
+
+    IN_SCOPE when some URL-bearing attribute provably names THIS page's work.
+    FOREIGN only when some attribute resolves to a DIFFERENT work -- never as
+    a default and never on the first attribute alone: the whole attribute list
+    is read before FOREIGN is returned, so a JS control on the requested scene
+    (`href="#"` beside an in-scope `data-download`) is not condemned by its
+    incidental href.  Every unreadable attribute, every media URL that carries
+    no identity and the bare tail are UNKNOWN.
+    """
     if not page_url:
-        return 0
+        return _WORK_UNKNOWN
+    foreign = False
     for attr in _CANDIDATE_URL_ATTRS:
         try:
             value = el.get_attribute(attr)
@@ -577,10 +656,108 @@ def _candidate_work_affinity(el, page_url):
             if value and _candidate_url_is_a_document(value):
                 continue
             if value and work_affinity(page_url, value):
-                return 1
+                return _WORK_IN_SCOPE
+            if value and _candidate_names_another_work(page_url, value):
+                foreign = True
         except Exception:
             continue
-    return 0
+    return _WORK_FOREIGN if foreign else _WORK_UNKNOWN
+
+
+def _candidate_summary(candidate):
+    """Keep candidate evidence separate from candidates allowed to decide."""
+    return {"text": candidate["text"], "score": candidate["score"],
+            "size": candidate["size"], "work": candidate.get("work", 0),
+            "locator": candidate["locator"]}
+
+
+def _candidate_is_in_scope(candidate):
+    """Row 701's population predicate: only a PROVEN member may decide.
+
+    UNKNOWN is refused here rather than sorted below.  Row 388 delivered a
+    TIE-BREAK, so an unattributable candidate merely ranked last and still
+    drove the min-resolution verdict and named itself in the operator's `Saw:`
+    line; scoping is what stops that.
+    """
+    return candidate.get("work", _WORK_UNKNOWN) > _WORK_UNKNOWN
+
+
+def _candidate_is_foreign(candidate):
+    """A POSITIVE finding that this candidate belongs to a different work."""
+    return candidate.get("work", _WORK_UNKNOWN) < _WORK_UNKNOWN
+
+
+def _scoped_candidates(candidates, page_proves_affinity=None):
+    """Return (in_scope, excluded): the population allowed to DECIDE, and the
+    refused evidence with the reason for each.
+
+    `page_proves_affinity` answers "does anything on this PAGE prove
+    affinity".  It is a PAGE-level question, not a per-population one: the
+    learned seam calls this once per `row_selectors` group, and a group that
+    holds no proven candidate must NOT open the UNKNOWN fallback while a
+    different group on the same page holds the scene's own proven tier.  The
+    wide sweep passes None because its population IS the page.
+
+    A FOREIGN candidate is excluded unconditionally -- it is proof of the
+    opposite of membership.  An UNKNOWN candidate is refused whenever ANY
+    candidate on the page PROVES affinity: that is the row-388 related-grid
+    shape and it is exactly where row 701's harm lives, a tile from another
+    scene outranking the scene's own proven tier and then naming itself in the
+    operator's refusal.
+
+    When NOTHING proves affinity the UNKNOWN tier remains the population, and
+    the selection is marked `_no_identity_proof` so the admission is recorded
+    rather than silent.  UNKNOWN there does not mean "this may belong to
+    another scene", it means THIS PROBER CANNOT TELL: the affinity stamp reads
+    only `_CANDIDATE_URL_ATTRS` and only matches on slug tokens, so a scene
+    whose own tiers are signed direct-CDN paths carrying no slug tokens can
+    never be proven in-scope.  Refusing there would turn a prober limitation
+    into a total download outage -- the hazard row 388's docstring names.
+    """
+    in_scope = [c for c in candidates if _candidate_is_in_scope(c)]
+    if page_proves_affinity is None:
+        page_proves_affinity = bool(in_scope)
+    if not in_scope and not page_proves_affinity:
+        in_scope = [c for c in candidates if not _candidate_is_foreign(c)]
+    admitted = {id(c) for c in in_scope}
+    excluded = []
+    for candidate in candidates:
+        if id(candidate) in admitted:
+            continue
+        item = _candidate_summary(candidate)
+        item["reason"] = "foreign" if _candidate_is_foreign(candidate) \
+            else "unknown"
+        excluded.append(item)
+    return in_scope, excluded
+
+
+def _selection_had_identity_proof(in_scope):
+    """True when the admitted population is there on PROOF, not by fallback."""
+    return bool(in_scope) and all(_candidate_is_in_scope(c) for c in in_scope)
+
+
+class _NoInScopeCandidates(dict):
+    """A consumable, falsy no-selection result for every find_best_download
+    caller.
+
+    Falsy so the four callers that only ask `if not best:` cannot mistake it
+    for a found candidate, and keyed (`score`, `size`, `text`, `locator`) so a
+    caller that reads those fields before testing gets 0/None rather than a
+    KeyError.  runner.py tests `_no_in_scope_candidates` BEFORE its own
+    `if not best:` guards, so the named outcome is reached rather than
+    collapsing into "No download button found".
+    """
+    def __bool__(self):
+        return False
+
+
+def _no_in_scope_result(excluded):
+    """The distinct nothing-in-scope outcome, in the one shape every caller
+    reads."""
+    return _NoInScopeCandidates(
+        _no_in_scope_candidates=True, _all_candidates=[],
+        _excluded_candidates=list(excluded), score=0, size=0, text="",
+        locator=None)
 
 
 def _split_selector_list(selector):
@@ -1327,7 +1504,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     """
     if learned and isinstance(learned, dict):
         row_sels = learned.get("row_selectors") or []
-        fallback_group = None
+        learned_excluded = []
+        scored_groups = []
         winning_group = None
         for sel in row_sels:
             try:
@@ -1421,12 +1599,35 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 scored.sort(key=lambda c: (
                     c["work"], c["score"], c["size"]),
                             reverse=True)
-                if scored[0]["work"]:
-                    winning_group = (sel, scored)
-                    break
-                if fallback_group is None:
-                    fallback_group = (sel, scored)
-        selected_group = winning_group or fallback_group
+                scored_groups.append((sel, scored))
+        # Row 701, seam 1.  "Does anything prove affinity" is a question about
+        # the PAGE.  Asked per group it is a different, weaker question: the
+        # UNKNOWN fallback fired inside a group holding no proven candidate
+        # while a LATER selector's group held the scene's own proven tier, and
+        # the loop broke before that group was ever scored -- so an
+        # unattributable tile won over a proven one, which is precisely the
+        # harm row 701 exists to prevent.  Score every group, answer once,
+        # then scope.
+        page_proves_affinity = any(
+            _candidate_is_in_scope(c) for _s, g in scored_groups for c in g)
+        for sel, group in scored_groups:
+            scoped, excluded = _scoped_candidates(
+                group, page_proves_affinity=page_proves_affinity)
+            # EVERY reviewed group contributes its refused evidence, the
+            # admitted one included.  This used to sit after the `break`, so
+            # the winning group's own exclusions were DISCARDED: a link the
+            # page really carried was in neither list and the operator could
+            # not see that anything had been refused at all.  Excluding a
+            # candidate is a finding; deleting it is a lost measurement.
+            learned_excluded.extend(excluded)
+            if scoped:
+                winning_group = (sel, scoped)
+                break
+            # A learned group with NOTHING in scope may not seed `best`.
+            # Retaining it as an unscoped fallback is the defect itself on the
+            # learned path.  Let the next group -- and failing that the wide
+            # sweep -- look at the page instead.
+        selected_group = winning_group
         if selected_group:
             # Work identity is global across the learned chain. The first group
             # with same-work evidence is already the maximum (work is binary);
@@ -1437,11 +1638,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             best_match = dict(winning[0])
             best_match["_via_learned"] = True
             best_match["_learned_sel"] = winning_sel
-            best_match["_all_candidates"] = [
-                {"text": c["text"], "score": c["score"], "size": c["size"],
-                 "work": c["work"], "locator": c["locator"]}
-                for c in winning[:10]
-            ]
+            best_match["_all_candidates"] = [_candidate_summary(c) for c in winning[:10]]
+            best_match["_excluded_candidates"] = learned_excluded
+            if not _selection_had_identity_proof(winning):
+                best_match["_no_identity_proof"] = True
             return best_match
 
     if custom:
@@ -1668,24 +1868,27 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         return None
     # P5-3 operator log — one event summarizing dropped candidates.
     _emit_filter_summary(all_dropped=False)
-    # v3.66.x row 388: SAME WORK FIRST, then score, then size. `work` is the
+    # Row 701 scopes the decision population: preserve foreign/unknown evidence
+    # for diagnostics, but never let it drive a quality verdict.
     # LEADING key and only ever 1 or 0, so this reorders exactly one thing --
     # a candidate that provably belongs to this page now outranks one that
     # cannot be shown to. Nothing is dropped, and on a page where no identity
     # is derivable every work is 0 and this is the old (score,size) sort.
     candidates.sort(key=lambda c:(c.get("work",0),c["score"],c["size"]),
                     reverse=True)
-    winner=candidates[0]
+    scoped, excluded = _scoped_candidates(candidates)
+    if not scoped:
+        return _no_in_scope_result(excluded)
+    winner=scoped[0]
     # v3.65.2: include `locator` so _apply_quality_preference can return
     # a candidate other than `best`. Without it, the guard at the end of
     # that function (`if chosen and chosen.get("locator")`) always fails
     # and the user's quality_preference setting is silently ignored on
     # this path too. Same bug class as the learned-fast-path fix above.
-    winner["_all_candidates"]=[
-        {"text":c["text"],"score":c["score"],"size":c["size"],
-         "locator":c["locator"],"work":c.get("work",0)}
-        for c in candidates[:10]
-    ]
+    winner["_all_candidates"] = [_candidate_summary(c) for c in scoped[:10]]
+    winner["_excluded_candidates"] = excluded
+    if not _selection_had_identity_proof(scoped):
+        winner["_no_identity_proof"] = True
     return winner
 
 def disk_free_gb(path):

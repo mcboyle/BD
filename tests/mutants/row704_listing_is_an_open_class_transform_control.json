@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 704, in its own file. It applies M2's byte-identical transform to the second-segment rule while its only band node reads the listing-word DATA and never drives the classifier. It MUST ESCAPE, which proves the regression spec's CAUGHTs are assertion failures rather than import or syntax breakage.",
+  "subject": "transform control for row 704's second-segment listing rule",
+  "band": [
+    "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_the_listing_rule_is_data_a_template_can_extend"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 rule B2 dropped under a node that never drives the classifier",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        if )(?=len\\(segments\\) >= 2 and segments\\[1\\] in listing_words:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row704_listing_routes_are_not_scenes.py::test_row704_the_listing_rule_is_data_a_template_can_extend"
+    }
+  ]
+}

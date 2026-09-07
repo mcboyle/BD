@@ -18,7 +18,7 @@ authoritative; this file is only a deterministic locality view.
 ## INV-002 — live source tags
 
 - `bulk_downloader/dev_suite/audit_security.py:146` — `_DISPATCH_CHAIN = [  # INV-002`
-- `bulk_downloader/runner.py:4131` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
+- `bulk_downloader/runner.py:4191` — `def _process_one(self,browser,url,persistent_ctx=None):  # INV-002`
 
 ## INV-003 — live source tags
 
@@ -34,8 +34,8 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-005 — live source tags
 
-- `bulk_downloader/detect.py:88` — `_RES_LABEL_PATTERNS=[  # INV-005`
-- `bulk_downloader/detect.py:180` — `def res_label(score):  # INV-005`
+- `bulk_downloader/detect.py:89` — `_RES_LABEL_PATTERNS=[  # INV-005`
+- `bulk_downloader/detect.py:181` — `def res_label(score):  # INV-005`
 - `bulk_downloader/dev_suite/introspection.py:224` — `try:                                            # INV-005`
 - `bulk_downloader/heuristic_scoring.py:122` — `RESOLUTION_TIERS: List[Tuple[re.Pattern, int, str]] = [  # INV-005`
 

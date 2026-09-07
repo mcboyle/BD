@@ -187,7 +187,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (66 entries)
+## `bulk_downloader/runner.py` (68 entries)
 
 ```
 - L0083 `captcha_egress_disclosure_error` — Return a refusal when a paid solver transition lacks acknowledgement.
@@ -255,7 +255,9 @@ Schema version: 2
   - L3749 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
   - L4086 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
   - L4101 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4131 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L4131 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4157 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4191 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -810,4 +812,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 634 across 22 files._
+_Total entries: 636 across 22 files._
