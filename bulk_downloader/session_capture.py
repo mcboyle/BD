@@ -34,6 +34,7 @@ URLs are recorded (with their signing query params redacted) and left for
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -602,14 +603,16 @@ DEFAULT_PASSIVE_BUDGET_S = 20.0
 
 
 def observe_page_for_challenge(page) -> Dict[str, Any]:
-    """Build a ``{text, title, url, markers}`` observation from a live Playwright
+    """Build a bounded ``{text, title, url, markers, frame_urls}`` observation from a live Playwright
     ``page`` for challenge DETECTION. **Strictly read-only**: it reads the page
     title and the body's inner text and the current URL only -- it never executes
     challenge scripts and never touches a challenge widget. Any read that raises
     degrades to an empty value, so a flaky page read can neither crash the capture
     nor falsely trigger a challenge.
     """
-    obs: Dict[str, Any] = {"text": "", "title": "", "url": "", "markers": []}
+    obs: Dict[str, Any] = {
+        "text": "", "title": "", "url": "", "markers": [], "frame_urls": [],
+    }
     try:
         t = page.title()
         obs["title"] = t if isinstance(t, str) else ("" if t is None else str(t))
@@ -625,6 +628,24 @@ def observe_page_for_challenge(page) -> Dict[str, Any]:
     try:
         u = getattr(page, "url", "")
         obs["url"] = u if isinstance(u, str) else ("" if u is None else str(u))
+    except Exception:
+        pass
+    try:
+        frames = getattr(page, "frames", ())
+        frames = frames() if callable(frames) else frames
+        for frame in frames or ():
+            if len(obs["frame_urls"]) >= 8:
+                break
+            try:
+                frame_url = getattr(frame, "url", "")
+                if callable(frame_url):
+                    frame_url = frame_url()
+                if isinstance(frame_url, str) and frame_url:
+                    obs["frame_urls"].append(frame_url[:512])
+                    if re.search(r"cf-turnstile|turnstile|challenges\.cloudflare|hcaptcha|h-captcha|recaptcha|g-recaptcha", frame_url, re.I):
+                        obs["markers"].append("child_frame_url")
+            except Exception:
+                pass
     except Exception:
         pass
     return obs

@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "arm3 LLM boundary. The one-line fold that would ship a frame URL's signed token to a third-party model must be caught. Anchor is ZERO-WIDTH at the start of blob's RHS -- the DECISION of which observation keys feed the model-bound blob -- with the key tuple in the disambiguating lookahead only, because the same join expression appears twice in this module and only the following line separates them.",
+  "subject": "which observation keys reach the advisory LLM prompt",
+  "band": [
+    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt",
+    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_two_blobs_are_built_from_disjoint_observation_keys"
+  ],
+  "mutants": [
+    {
+      "label": "fold frame_urls into the model-bound blob so a signed frame token reaches the prompt",
+      "file": "bulk_downloader/challenge_classify.py",
+      "old_regex": "(?m)(?<=^    blob = )(?=\" \"\\.join\\(str\\(observation\\.get\\(k, \"\"\\)\\) for k in \\(\"text\", \"title\", \"markers\"\\)\\)\\n    ctype = _detect\\(blob\\)$)",
+      "new": "\" \".join(str(observation.get(k, \"\")) for k in (\"text\", \"title\", \"markers\", \"frame_urls\")) if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt"
+    }
+  ]
+}

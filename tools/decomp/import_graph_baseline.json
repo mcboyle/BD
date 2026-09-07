@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4375,
+  "edge_count": 4380,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4078,6 +4078,19 @@
     ],
     "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py": [
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_row763_child_frame_turnstile.py": [
+      "bulk_downloader/challenge_classify.py",
+      "bulk_downloader/session_capture.py"
+    ],
+    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py": [
+      "bulk_downloader/challenge_classify.py"
+    ],
+    "tests/test_row764_turnstile_bypass_verdict.py": [
+      "bulk_downloader/scrapling_adapter.py"
+    ],
+    "tests/test_row765_scrapling_selector_compatibility.py": [
+      "bulk_downloader/scrapling_adapter.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

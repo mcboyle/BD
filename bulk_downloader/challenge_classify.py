@@ -23,9 +23,19 @@ _SIGNATURES = [
     ("login-wall", re.compile(r"\b(sign in|log ?in|password|sign-in|authenticate)\b", re.I)),
 ]
 
+_WIDGET_SIGNATURES = _SIGNATURES[:3]
+
 
 def _detect(text: str) -> str:
     for name, rx in _SIGNATURES:
+        if rx.search(text or ""):
+            return name
+    return "unknown"
+
+
+def _detect_widget(text: str) -> str:
+    """Classify a frame URL without admitting login-wall URL false positives."""
+    for name, rx in _WIDGET_SIGNATURES:
         if rx.search(text or ""):
             return name
     return "unknown"
@@ -38,6 +48,9 @@ def classify(observation: Dict[str, Any], *, model: Optional[str] = None,
     Detection only -- never bypass instructions."""
     blob = " ".join(str(observation.get(k, "")) for k in ("text", "title", "markers"))
     ctype = _detect(blob)
+    if ctype == "unknown":
+        frame_blob = " ".join(str(url) for url in observation.get("frame_urls", ()))
+        ctype = _detect_widget(frame_blob)
 
     summary = f"Detected a {ctype} challenge page (detection only)."
     review_path = ("Route to the manual operator handoff flow for an authenticated "
