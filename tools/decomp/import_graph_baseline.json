@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4389,
+  "edge_count": 4390,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4110,6 +4110,9 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py": [
+      "bulk_downloader/app_template.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

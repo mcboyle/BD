@@ -457,6 +457,34 @@
       }
     },
     {
+      "id": "FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE",
+      "severity": "blocking",
+      "status": "active",
+      "rule": "A REWRITE WHOSE PURPOSE IS TO STOP A GATE REPORTING IS AN UNDECLARED EDGE, AND IS REFUSED AS ONE (COMMON.md heading of that name). A cut that turns a static first-party import into importlib.import_module / __import__ of THE SAME module, in the same file, keeps the dependency executing and makes it invisible to the import-graph gate, which derives edges from ast.Import / ast.ImportFrom only. The honest path is free: declare the edge under OWED TO THE INTEGRATOR -- NEW IMPORT EDGES with a WHY; a red whose ONLY failing check is the import gate is not a bounce and consumes no rung. This is DIFF-SCOPED on purpose: the tree holds ~500 legitimate first-party dynamic imports (circular avoidance, lazy tools, optional deps), so a census cannot tell a long-standing lazy load from one written ten minutes ago -- a dodge is an ACT, not a state, and on a clean tree the population is zero by construction.",
+      "detector": {
+        "kind": "tool",
+        "cmd": [
+          "bd-import-dodge",
+          "--tree",
+          "{tree}"
+        ],
+        "block_on_exit": [
+          1,
+          2
+        ],
+        "cost_hint": 2
+      },
+      "protects": [
+        "tools/decomp/import_graph_baseline.json",
+        "tests/test_import_graph_no_new_edges.py"
+      ],
+      "fix": "Restore the static import, run `venv/bin/python tools/decomp/import_graph_gate.py --check`, and copy each NEW import edge line verbatim into DONE.md under OWED TO THE INTEGRATOR -- NEW IMPORT EDGES with one line of WHY per edge; never run --update, never stage the baseline. If the dynamic form is right on its own merits, write the engineering reason beside the call (a comment on its line, a comment block directly above it, or the enclosing function's docstring; four words or more) WITHOUT naming the gate -- if you cannot write the WHY without naming the gate, it is the dodge. Exit 2 (COULD NOT LOOK: a computed target beside a removed static import, or an unparseable side) blocks too; UNKNOWN is never permission.",
+      "provenance": {
+        "bit_at_cut": "cx-ssrf gen3, 2026-09-07 (test_row771_interstitial_comma.py: `from bulk_downloader import interstitial, templates` -> importlib.import_module of both)",
+        "review_id": "bd-persist/PM-B-RULING-import-dodge-detector-is-diff-scoped-not-tree-wide-20260907T0730Z.md; the worker's own stated purpose was 'avoiding a baseline import-graph expansion'"
+      }
+    },
+    {
       "id": "FG-INSTRUMENT-REPORTS-ITS-OWN-LOAD",
       "severity": "advisory",
       "rule": "A concurrent probe changes what it measures. A finding from it is a HYPOTHESIS: re-confirm serially on a quiesced subject before reporting, and say 'RECOVERED -- our own load' out loud.",

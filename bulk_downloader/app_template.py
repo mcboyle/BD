@@ -155,6 +155,84 @@ def api_template_refine():
     return jsonify(result)
 
 
+def _sandbox_browser_host_pin(host, host_safety):
+    """ROW 779. Resolve HOST once more, classify EVERY answer, and return the
+    Chromium ``--host-resolver-rules`` value that pins it to the literal just
+    vetted.
+
+    ``_is_safe_public_host`` closes the pre-fetch question and nothing more:
+    its own docstring names the TOCTOU window that stays open between that
+    resolution and the client's own resolution at connect time. httpx closes it
+    with ``_SSRFGuardedTransport`` (resolve, classify every address, refuse if
+    any is unsafe, then pin to the vetted literal); this is the same policy for
+    the browser, where the second resolver is Chromium's.
+
+    Returns ``(ok, rules, reason)``:
+      * ``(False, None, reason)`` -- refuse; ``reason`` is the classifier's own
+        structured message. A DNS failure lands here too: an unavailable
+        measurement is not permission to navigate on an unvetted name.
+      * ``(True, None, None)``    -- nothing to pin; the host is an IP literal,
+        so there is no DNS step to rebind on.
+      * ``(True, rules, None)``   -- launch with ``--host-resolver-rules=rules``.
+
+    Loopback keeps the exemption the route grants it at the pre-fetch check, so
+    local selector authoring still works; every other refusal reason stands.
+    """
+    import ipaddress as _ipaddress
+    import socket as _socket
+
+    _classify_ip = getattr(host_safety, "_classify_ip")
+    _message = getattr(host_safety, "_host_safety_message")
+    _Reason = getattr(host_safety, "HostSafetyReason")
+
+    bare = host or ""
+    if bare.startswith("[") and bare.endswith("]"):
+        bare = bare[1:-1]
+    if not bare:
+        return False, None, _message(_Reason.NO_HOST, "no host")
+    try:
+        _ipaddress.ip_address(bare)
+    except ValueError:
+        pass
+    else:
+        return True, None, None
+
+    try:
+        infos = _socket.getaddrinfo(bare, None, type=_socket.SOCK_STREAM)
+    except (_socket.gaierror, OSError, UnicodeError) as ex:
+        return False, None, _message(
+            _Reason.DNS_FAILURE,
+            f"DNS resolution failed: {type(ex).__name__}: {ex}")
+
+    chosen = None
+    for family, _stype, _proto, _canon, sockaddr in infos:
+        if family not in (_socket.AF_INET, _socket.AF_INET6):
+            continue
+        ip_str = sockaddr[0]
+        try:
+            addr = _ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False, None, _message(
+                _Reason.NON_IP_ADDRESS,
+                f"got non-IP from getaddrinfo: {ip_str!r}")
+        _ok, _why = _classify_ip(addr, bare)
+        # Every answer is classified before a verdict is chosen. Pinning the
+        # "first safe one" while a sibling is private would leave the rebind
+        # open on any later navigation or retry.
+        if not _ok and _why.code is not _Reason.LOOPBACK:
+            return False, None, _why
+        if chosen is None:
+            chosen = ip_str
+
+    if chosen is None:
+        return False, None, _message(
+            _Reason.NO_ADDRESSES,
+            "DNS resolution returned no usable addresses")
+
+    literal = f"[{chosen}]" if ":" in chosen else chosen
+    return True, f"MAP {bare} {literal}", None
+
+
 # ── v3.45.1 / v3.46.2 Phase 176: template sandbox ─────────────────────
 # Fetches a URL + applies a draft template's selectors. Two modes:
 #
@@ -243,8 +321,18 @@ def api_template_sandbox():
             }), 200
         ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        # ROW 779: pin the browser to the address just vetted. Without this
+        # Chromium resolves the hostname AGAIN at page.goto, and a host that
+        # answered public at the check above can answer 169.254.169.254 here.
+        _pin_ok, _pin_rules, _pin_why = _sandbox_browser_host_pin(
+            _urlparse(url).hostname or "", _host_safety)
+        if not _pin_ok:
+            return jsonify({"ok": False,
+                            "error": f"url host not allowed: {_pin_why}"}), 400
+        _launch_args = ["--host-resolver-rules=" + _pin_rules] if _pin_rules else None
         try:
-            with _cloak.cloaked_page(headless=True, user_agent=ua) as page:
+            with _cloak.cloaked_page(headless=True, user_agent=ua,
+                                     args=_launch_args) as page:
                 page.goto(url, wait_until="domcontentloaded",
                           timeout=30000)
                 # Extra wait for lazy-loaded content. Operator tunes this.

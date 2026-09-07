@@ -143,6 +143,10 @@ _DECLARED = {
     # rowssrf-loopback. Every canonical host-safety consumer and both template
     # sandbox exemption sites must use the classifier's structured reason.
     "tests/test_rowssrf_loopback_reason_is_structured.py",
+    # Row 779. The template sandbox's browser mode must pin Chromium to the
+    # address it just vetted; the SSRF boundary is a repo-wide safety gate and
+    # rides the same shard as the classifier census it depends on.
+    "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py",
     # Row 664. A pre-download dedup refusal is terminal work and must leave its
     # reason in operator-visible history through the real worker dispatch seam.
     "tests/test_row664_dedup_refusal_reaches_history.py",
@@ -300,6 +304,16 @@ _DECLARED = {
     # ever reached them. This gate has the same property and is declared for
     # the same reason.
     "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
+    # The import-dodge detector (FOOTGUNS.json FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE,
+    # run by bd-precut --gate through bd-footguns). Its subject is the precut
+    # floor over the whole tree: the registry entry, the tool it names, and a
+    # no-op-diff control over a clone of the current tree that must yield zero
+    # findings -- a cut that rewrites a static first-party import as a dynamic
+    # one to keep the import gate quiet is refused there, before a lens sees it.
+    # A diff-derived band would not re-prove the detector when only the registry
+    # or the tool moves, so it is pinned here.
+    # CI-SHARD-CLAIM footgun-import-dodge tree-gates-3 tests/test_import_dodge_is_caught_in_the_cut_diff.py
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py",
     # Row 530, the docs-only lane's classifier. Its subject is which tracked
     # paths of this tree can be proven inert, so it is derived from
     # `git ls-files` and no changed path can select it. A classifier whose

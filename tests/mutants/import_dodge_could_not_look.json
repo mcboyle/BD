@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-dodge detector, seam 3: the third outcome. A computed target beside a removed static import, and a side that does not parse, are COULD NOT LOOK (exit 2), never CLEAN.",
+  "subject": "a computed dynamic target or an unparseable side is UNKNOWN and exits 2",
+  "band": [
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_computed_dynamic_target_beside_a_removed_static_import_is_could_not_look",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_an_unparseable_side_is_could_not_look_not_clean"
+  ],
+  "mutants": [
+    {
+      "label": "U1 a computed target beside a removed static import is ignored",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=            if )(?=len\\(new_unresolved\\) > len\\(old_unresolved\\):)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_computed_dynamic_target_beside_a_removed_static_import_is_could_not_look"
+    },
+    {
+      "label": "U2 an unparseable side is skipped as clean",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=            except Unmeasurable as exc:\\n)(?=                result\\[\"findings\"\\]\\.append\\(\\{\"kind\": \"unparseable\")",
+      "new": "                continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_an_unparseable_side_is_could_not_look_not_clean"
+    }
+  ]
+}

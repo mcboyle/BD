@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-dodge detector, seam 4: scope. A dynamic import of a third-party or stdlib module adds no baseline edge; widening first-party to everything makes the detector loud, which is the failure the PM-B ruling forbids.",
+  "subject": "only first-party modules (bulk_downloader/, tools/, toolchain/) are in scope",
+  "band": [
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_third_party_conversion_is_out_of_scope"
+  ],
+  "mutants": [
+    {
+      "label": "S1 every module is first-party",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=    if )(?=head in FIRST_PARTY:\\n        return name)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_third_party_conversion_is_out_of_scope"
+    }
+  ]
+}
