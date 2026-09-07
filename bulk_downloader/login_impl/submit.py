@@ -772,6 +772,8 @@ def do_login(config, allow_manual_takeover=False):
             dismiss_gates as _dismiss_page_gates,
             first_safety_unknown as _first_gate_unknown,
             safety_unknown_diagnostic as _gate_unknown_diagnostic,
+            first_blocked_after_gate as _first_gate_blocked,
+            blocked_after_gate_diagnostic as _gate_blocked_diagnostic,
         )
 
         def _report_gate_actions(actions):
@@ -800,6 +802,13 @@ def do_login(config, allow_manual_takeover=False):
         _pre_form_unknown = _first_gate_unknown(_pre_form_gate_actions)
         if _pre_form_unknown:
             _reason = _gate_unknown_diagnostic(_pre_form_unknown)
+            _hard_close()
+            return False, _reason, []
+        # Row 721: a cleared gate can be the shell of a block page,
+        # and an unreadable landing is not a clearance either.
+        _pre_form_blocked = _first_gate_blocked(_pre_form_gate_actions)
+        if _pre_form_blocked:
+            _reason = _gate_blocked_diagnostic(_pre_form_blocked)
             _hard_close()
             return False, _reason, []
 
@@ -1019,6 +1028,13 @@ def do_login(config, allow_manual_takeover=False):
             _reason = _gate_unknown_diagnostic(_fill_unknown)
             _hard_close()
             return False, _reason, []
+        # Row 721: a cleared gate can be the shell of a block page,
+        # and an unreadable landing is not a clearance either.
+        _fill_blocked = _first_gate_blocked(_fill_gate_actions)
+        if _fill_blocked:
+            _reason = _gate_blocked_diagnostic(_fill_blocked)
+            _hard_close()
+            return False, _reason, []
         _fill_wall_cleared = any(action.get("outcome") == "cleared"
                                  for action in _fill_gate_actions)
         if _fill_wall_cleared:
@@ -1141,6 +1157,13 @@ def do_login(config, allow_manual_takeover=False):
         _post_unknown = _first_gate_unknown(_post_gate_actions)
         if _post_unknown:
             _reason = _gate_unknown_diagnostic(_post_unknown)
+            _hard_close()
+            return False, _reason, []
+        # Row 721: a cleared gate can be the shell of a block page,
+        # and an unreadable landing is not a clearance either.
+        _post_blocked = _first_gate_blocked(_post_gate_actions)
+        if _post_blocked:
+            _reason = _gate_blocked_diagnostic(_post_blocked)
             _hard_close()
             return False, _reason, []
         _clicked = [action for action in _post_gate_actions

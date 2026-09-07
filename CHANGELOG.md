@@ -4,6 +4,48 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1509 - a vendor age wall can be clicked through, and the three ways that could have gone wrong are closed at the decision
+
+One patch, cut/row721-age-gate-enter, BOARD by bd-lens-L4 verifying its own
+earlier refusal and confirmed independently by bd-w-a2. Row 721 (HIGH) is
+CLOSED on the age-gate half by adjudicator ruling 20260906T232900Z.
+
+- BD now recognises an age-gate interstitial by page CONTENT rather than by URL
+  shape -- 18-plus language together with ENTER and EXIT affordances -- and
+  clicks the ENTER control while the EXIT denylist refusal is unchanged. The
+  measured case is the Gamma Billing template several sites share, where
+  `/login-abused` is the vendor's own age gate rather than an abuse response,
+  so the block page behind it was invisible without clicking through.
+- THE THREE ESCAPES THE CUT WAS PREVIOUSLY REFUSED FOR ARE CLOSED AT THE
+  DECISION, not merely in a fixture. E1: a purchase control on an age wall
+  could be clicked -- the purchase label is now in the DEFAULT fixture, the
+  precondition pins the label set, the click is asserted to happen exactly once
+  with that label absent, and the mutant that widens the vocabulary to admit
+  every label is caught by name. E2: an UNREADABLE landing behind the gate was
+  treated as CLEARED -- the unknown-landing arm now holds the job, with catchers
+  at the unit and at two product routes, the real `_page_gates_are_safe`
+  (not-safe, exactly one job update, state `needs_review`) and `do_login`.
+  E3: the `first_blocked_after_gate` diagnostic had ZERO production callers and
+  now has five -- `runner.py` `_page_gates_are_safe`, `login_impl/manual.py`
+  where autofill is withheld and credentials are never offered to the page
+  behind the wall, and `login_impl/submit.py` at its pre-form, fill and post
+  gates. Mutation: 8 caught, 0 escaped, 0 invalid, transform control in its own
+  spec file escaping as required.
+- FOUR ROWS FILED. One carries the diagnostic residue of this cut, both halves
+  of it: the ENTER vocabulary is pinned against total widening but not against
+  SUBSTRING widening, and three of the five new consumer sites carry no mutant
+  and no test. One carries the clause row 721 folded in but this cut did not
+  build -- the evidence server keys on a directory prefix rather than on
+  SCREENSHOTS_DIR plus suffix. One is ordered by adjudicator ruling 20260906T231002Z: a
+  witness run leaks `BD_HOME`, `live_recorder.is_available` and `sys.path` into
+  the in-process audit, latent and pre-existing on main. The last is a defect
+  in the tool that gates every freeze: `bd-precut` builds its verdict preamble
+  from the literal string "footguns clean, metric ratchets clean" without
+  consulting either detector's result, so a run whose footgun registry was
+  SKIPPED still prints that the footguns are clean, one line above the list
+  naming that check as NOT RUN. It is the same family as row 790 and not a
+  duplicate of it: row 790 is the detector that never reaches the unknown list,
+  this is the sentence printed once it is there.
 ## v3.66.1507 - toolchain receipts count what they actually read, and the Chrome channel fallback reaches the run record
 
 Train A2-03, two independently reviewed patches with disjoint authored paths.

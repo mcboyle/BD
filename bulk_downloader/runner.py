@@ -4106,6 +4106,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             message = _interstitial.safety_unknown_diagnostic(unknown)
             self._update_job(url, "needs_review", message)
             return False
+        # Row 721. A gate that CLEARED is not automatically members content:
+        # the age wall can be the outer shell of an IP block, and the block is
+        # only visible once the wall is pressed. An unreadable landing is the
+        # same verdict -- an unavailable measurement is never permission.
+        blocked = _interstitial.first_blocked_after_gate(actions)
+        if blocked is not None:
+            message = _interstitial.blocked_after_gate_diagnostic(blocked)
+            self._update_job(url, "needs_review", message)
+            return False
         # A re-requested destination is a NEW navigation: the render budget
         # already paid was spent on the upsell page that replaced it. Pay it
         # once more, and only then -- an ordinary URL whose banner was cleared

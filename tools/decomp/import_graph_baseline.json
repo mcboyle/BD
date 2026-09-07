@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4339,
+  "edge_count": 4344,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4007,6 +4007,13 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
+      "bulk_downloader/stealth.py"
+    ],
+    "tests/test_row721_age_gate_enter_affordance.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py",
       "bulk_downloader/stealth.py"
     ],
     "tests/test_row723_chrome_channel_fallback_reaches_run_record.py": [

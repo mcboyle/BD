@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL -- this mutant MUST ESCAPE. It is banded on a node that IMPORTS bulk_downloader.interstitial and reads its tier table WITHOUT driving dismiss_gates, so deleting the EXIT denylist cannot change its verdict. An ESCAPE here proves the CAUGHTs in row721_age_gate_enter_affordance.json are assertion failures and not import or compile breaks.",
+  "subject": "control: bulk_downloader/interstitial.py imported but the gate behaviour not driven",
+  "band": [
+    "tests/test_row721_age_gate_enter_affordance.py::test_precondition_fixture_is_an_age_gate_with_both_affordances"
+  ],
+  "mutants": [
+    {
+      "label": "control: remove the EXIT denylist under a band that never drives it",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^def _deny_term\\(label: str\\) -> Optional\\[str\\]:\\n)(?=    normalized = label\\.casefold\\(\\)$)",
+      "new": "    return None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_precondition_fixture_is_an_age_gate_with_both_affordances"
+    }
+  ]
+}

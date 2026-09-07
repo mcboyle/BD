@@ -326,6 +326,8 @@ class ManualLoginSession:
             dismiss_gates as _dismiss_page_gates,
             first_safety_unknown as _first_gate_unknown,
             safety_unknown_diagnostic as _gate_unknown_diagnostic,
+            first_blocked_after_gate as _first_gate_blocked,
+            blocked_after_gate_diagnostic as _gate_blocked_diagnostic,
         )
         _gate_actions = _dismiss_page_gates(
             page,
@@ -356,6 +358,16 @@ class ManualLoginSession:
             sys.stderr.write(
                 "  manual_login: credential autofill withheld — "
                 f"{_gate_unknown_diagnostic(_gate_unknown)}\n"
+            )
+            return browser, ctx, page, used_pw
+        # Row 721: the page behind a pressed age gate may be a block, or may
+        # not have been readable at all. Neither is the members page these
+        # credentials are for, so autofill is withheld exactly as for UNKNOWN.
+        _gate_blocked = _first_gate_blocked(_gate_actions)
+        if _gate_blocked:
+            sys.stderr.write(
+                "  manual_login: credential autofill withheld — "
+                f"{_gate_blocked_diagnostic(_gate_blocked)}\n"
             )
             return browser, ctx, page, used_pw
         # v3.43.14: pre-fill the saved credentials so the user doesn't
