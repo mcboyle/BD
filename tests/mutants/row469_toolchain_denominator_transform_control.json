@@ -1,0 +1,16 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 469. This spec MUST ESCAPE. The band imports the census module without driving the census decision, so a live mutation of that decision cannot be caught. An escape here proves the CAUGHTs in row469_toolchain_denominator.json are assertion failures, not compile breaks.",
+  "subject": "control: importing bdtools_population without asserting reconciliation",
+  "band": ["tests/test_row469_toolchain_denominator_import_control.py"],
+  "mutants": [
+    {
+      "label": "MUST ESCAPE -- disarm the unknown computation under an import-only band",
+      "file": "toolchain/bin/bdtools_population.py",
+      "old_regex": "(?m)(?<=^        self\\.unknown = )(?=sorted\\(exp - exa - exc\\)$)",
+      "new": "[] or ",
+      "direction": "regression",
+      "catcher": "tests/test_row469_toolchain_denominator_import_control.py::test_module_imports"
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import sys
 # so both copies name the same denominator.
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+import bdtools_population as _pop  # noqa: E402
 
 DEFAULT_BIN = os.path.join(sec.DEFAULT_WORK, "toolchain", "bin")
 
@@ -161,7 +162,7 @@ WHEN = {
  "GUI render / capture": "WHEN making or verifying a FRONTEND/GUI change -- bd-render-env FIRST (it gates the browser), then bd-gui-surface for the denominator, bd-deep-capture for the pixels.",
 }
 NOT_TOOLS = {"bdtools_sec.py", "bdtools_taint.py", "bdtools_cache.py",
-             "bdtools_cli.py",
+             "bdtools_cli.py", "bdtools_population.py",
              "bd-audit-gate.py", "bd-triage.py"}
 
 
@@ -278,8 +279,16 @@ def main():
         return 0
 
 
-    tools = {os.path.basename(p): p for p in glob.glob(os.path.join(a.bin, "bd*"))
-             if os.path.isfile(p)}
+    # ROW 469: one tree-derived denominator, stated, with reasoned exclusions.
+    try:
+        tools = {n: os.path.join(a.bin, n)
+                 for n in _pop.scoped_census(a.bin).examined}
+        _cen = _pop.census_from_examined(a.bin, sorted(tools))
+    except _pop.PopulationUnavailable as e:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNKNOWN (%s)\n" % (a.bin, e))
+        return 2
+    if not _pop.report(_cen, sys.stderr):
+        return 2
     placed = set()
     total = len(tools)
     pat = a.term.lower()

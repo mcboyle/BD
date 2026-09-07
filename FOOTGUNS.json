@@ -105,6 +105,7 @@
         "kind": "tool",
         "cmd": [
           "bd-regen-order",
+          "--check",
           "--work",
           "{tree}"
         ],

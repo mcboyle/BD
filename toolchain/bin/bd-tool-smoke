@@ -57,6 +57,7 @@ G, R, Y, C, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m"
 BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, BIN)
 import bdtools_sec as sec  # noqa: E402
+import bdtools_population as pop  # noqa: E402
 WORK = os.environ.get("BD_WORK", sec.DEFAULT_WORK)
 
 # pyflakes messages that mean "this WILL raise at runtime", vs merely untidy.
@@ -74,19 +75,15 @@ _FATAL = (
 
 
 def _python_tools(bindir):
-    out = []
-    for f in sorted(os.listdir(bindir)):
-        p = os.path.join(bindir, f)
-        if not os.path.isfile(p) or not f.startswith("bd"):
-            continue
-        try:
-            with open(p, "rb") as fh:
-                if b"python" not in fh.readline():
-                    continue          # shell tools: pyflakes cannot read them
-        except OSError:
-            continue
-        out.append(p)
-    return out
+    """The examined tools pyflakes can actually read.
+
+    ROW 469: this narrows ANALYSIS, never MEMBERSHIP. Every examined tool is in
+    the census; the ones pyflakes cannot read are reported by name as
+    unmeasured (POPULATION-UNMEASURED), never counted clean.
+    """
+    cen = pop.scoped_census(bindir, python_analyzer=True)
+    return [os.path.join(bindir, n) for n in cen.examined
+            if n not in cen.unmeasured]
 
 
 def _flake(path):
@@ -151,6 +148,18 @@ def _attribute(traceback_text, tools):
 
 
 def cmd_scan(a):
+    # ROW 469: state the denominator before any verdict.
+    try:
+        _examined = pop.scoped_census(a.bin).examined
+        _analyzed = {os.path.basename(p) for p in _python_tools(a.bin)}
+        _cen = pop.census_from_examined(
+            a.bin, _examined,
+            {n: "not-python-source" for n in _examined if n not in _analyzed})
+    except pop.PopulationUnavailable as e:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNKNOWN (%s)\n" % (a.bin, e))
+        return sec.EXIT_CANNOT_EVALUATE
+    if not pop.report(_cen, sys.stderr):
+        return sec.EXIT_CANNOT_EVALUATE
     tools = _python_tools(a.bin)
     bad = {}
     for p in tools:

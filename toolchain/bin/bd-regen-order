@@ -413,10 +413,18 @@ def main():
     ap.add_argument("--declare-reach", action="store_true",
                     help="re-pin the endpoint-reachability dark_count ratchet "
                          "(an INTENDED wiring change)")
+    ap.add_argument("--check", action="store_true",
+                    help="READ-ONLY: run the verdicts (census expiry, reachability "
+                         "ratchet, verifiers) and SKIP the regeneration chain. This is "
+                         "the mode a GATE or a FOOTGUNS detector asks for -- row 660.")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--tracked-outputs", action="store_true",
                     help="print the tracked CHAIN outputs, one path per line")
     a = ap.parse_args()
+    if a.check and (a.declare_surface or a.declare_edges or a.declare_reach):
+        print("bd-regen-order: --check is READ-ONLY and --declare-* asks for a write; "
+              "choose one.", file=sys.stderr)
+        return 2
     if a.selftest:
         return selftest()
 
@@ -453,18 +461,32 @@ def main():
         print("%sREGEN INCOMPLETE%s -- census expiry" % (R, RST))
         return 1
     failed = []
-    for label, argv, _why in CHAIN:
-        script = os.path.join(work, argv[0])
-        if not os.path.isfile(script):
-            print("  %sXX%s %-18s required generator absent" % (R, RST, label))
-            failed.append(label)
-            continue
-        rc, out = _run(work, argv)
-        if rc == 0:
-            print("  %sOK%s %-18s" % (G, RST, label))
-        else:
-            print("  %sXX%s %-18s %s" % (R, RST, label, out.strip().splitlines()[-1:]))
-            failed.append(label)
+    # ROW 660. A DETECTOR asks for the VERDICT; it never asks for the WRITE. bd-precut's
+    # FG-CENSUS-NEEDS-THE-VENV footgun ran this tool as a read-only probe against the live
+    # worktree, and the chain below rewrote every tracked generated artifact on the way
+    # past -- measured by strace: one O_TRUNC + 42579-byte write to PIN_INDEX.json inside
+    # a `bd-precut --gate` run. Worse when interrupted: the gate abandons this tool at
+    # 150s, and because the chain writes artifacts IN SEQUENCE, the kill leaves an
+    # arbitrary PREFIX of them rewritten, which is why separate sightings named different
+    # files. The verdicts this tool blocks on are all read-only -- census expiry above,
+    # the reachability ratchet and the VERIFY steps below -- so a caller that wants only
+    # a verdict skips the chain and judges exactly the same subject.
+    if a.check:
+        print("  %s-- %-18s read-only: %d generator(s) NOT run%s"
+              % (DIM, "chain skipped", len(CHAIN), RST))
+    else:
+        for label, argv, _why in CHAIN:
+            script = os.path.join(work, argv[0])
+            if not os.path.isfile(script):
+                print("  %sXX%s %-18s required generator absent" % (R, RST, label))
+                failed.append(label)
+                continue
+            rc, out = _run(work, argv)
+            if rc == 0:
+                print("  %sOK%s %-18s" % (G, RST, label))
+            else:
+                print("  %sXX%s %-18s %s" % (R, RST, label, out.strip().splitlines()[-1:]))
+                failed.append(label)
 
     if a.declare_surface:
         good, msg = declare_surface(work)

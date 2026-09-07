@@ -19,6 +19,7 @@ import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
 import bdtools_sec as sec  # noqa: E402
+import bdtools_population as pop  # noqa: E402
 def selftest():
     """DELEGATE: wraps bd-tool-lint. Asserts the target file is present in the tool's own
     bin dir -- if not, FAIL (a wrapper that cannot find what it wraps is broken;
@@ -38,11 +39,18 @@ def main():
     ap.add_argument("--bin",default=os.path.dirname(os.path.realpath(__file__)))
     ap.add_argument("--pk",default=os.path.join(sec.DEFAULT_WORK,"project-knowledge"))
     a=ap.parse_args()
-    tools=sorted(p for p in glob.glob(os.path.join(a.bin,"bd*")) if os.path.isfile(p))
-    if not tools:
-        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=EMPTY (no bd* tools found "
-                         "-- a toolchain check over nothing certifies nothing)\n" % a.bin)
+    # ROW 469: the denominator comes from the tree via the shared census, not
+    # from a private glob, and every file it does not examine carries a reason.
+    try:
+        _tools = pop.scoped_census(a.bin).examined
+        cen = pop.census_from_examined(a.bin, _tools)
+    except pop.PopulationUnavailable as e:
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNKNOWN (%s -- a toolchain "
+                         "check over nothing certifies nothing)\n" % (a.bin, e))
         return sec.EXIT_CANNOT_EVALUATE
+    if not pop.report(cen, sys.stderr):
+        return sec.EXIT_CANNOT_EVALUATE
+    tools=[os.path.join(a.bin,n) for n in _tools]
     noshebang=[]; notexec=[]; parse_err=[]; noentry=[]; drift=[]
     for t in tools:
         b=os.path.basename(t); raw=open(t,"rb").read()

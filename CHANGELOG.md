@@ -4,6 +4,38 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1512 - a check stops rewriting the tree it checks, and the four toolchain auditors state one denominator
+
+Train B2-01, base origin/main f54b811d (v3.66.1511). TWO reviewed worker patches, authored paths
+disjoint apart from the two additive shard lists. Path count is
+`git diff --cached f54b811d --name-only`, against the DECLARED base and never a bare HEAD:
+16 authored paths. The union deletion check over .github/workflows/ci.yml and
+tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py on the assembled tree returns ZERO
+deletion lines; the shard gate was RUN on this tree rather than inherited from either car.
+
+- ROW 660. FOOTGUNS.json's FG-CENSUS-NEEDS-THE-VENV declared its detector as
+  `bd-regen-order --work {tree}`, so `bd-precut --gate` ran the REGENERATOR against the live
+  worktree as a read-only probe: strace showed PIN_INDEX.json opened O_WRONLY|O_CREAT|O_TRUNC
+  in place, and because the chain writes in sequence, a gate abandoned at its 150s budget left
+  an arbitrary PREFIX of the generated artifacts rewritten -- which is why three sightings named
+  three different files. bd-regen-order now takes `--check`, which reports without launching a
+  generator, and the detector declares it. tests/test_row660_gate_is_read_only_over_generated_artifacts.py
+  asserts the check launches zero chain generators and that every tracked generated artifact keeps
+  its bytes, with a mutant that restores the regenerating call.
+
+- ROW 469. bd-selfcheck, bd-tools, bd-tool-lint and bd-tool-smoke each discovered the toolchain
+  through its own private glob and reported four different examined counts against one tree
+  (258 discovered; 257/257/255/250 examined) with no exclusion stated. They now share
+  toolchain/bin/bdtools_population.py, which states ONE denominator and reconciles examined plus
+  unmeasured back to it. This is the second round: the first was pulled from the v3.66.1510 train
+  with cause for colliding with row 745, whose gate pins `reason=UNREADABLE`. The collision was a
+  DIAGNOSTIC COLLAPSE, not a token: one unreadable member raised PopulationUnavailable and aborted
+  the whole population, so a per-member read failure wore the population-wide UNKNOWN vocabulary.
+  Both vocabularies are now kept, each for its own event -- a denominator that cannot be DERIVED
+  still reads UNKNOWN, a MEMBER that cannot be READ reads UNREADABLE by name and stays in the
+  denominator as UNMEASURED. Row 745's assertion is untouched and its gate was re-run on this
+  assembled tree.
+
 ## v3.66.1511 - a host-safety refusal survives copy, deepcopy and pickle, and the two unpinned webhook refusal classes are pinned
 
 Train F-03, base origin/main 70245349 (v3.66.1510). ONE reviewed worker patch; the train was
