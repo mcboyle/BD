@@ -250,10 +250,26 @@ def test_the_file_is_ascii():
 # are absent from the register between 1 and its highest id: 15, 40-42, 236,
 # 270-279, 282, 288, 301-307, 352, 359, 362, 364-365, 369-370, 379, 382-383,
 # 387, 392-396, 398-401, 403-407, 409-410 and 457-462. Only the first four are
-# documented -- by the register's own "FOUR IDS HAVE NEVER EXISTED" section --
-# so 53 absences had no recorded reason at all. Nothing was deleted: a walk of
-# 266 generations of the file found zero removals, and a sweep of 2,626 register
-# blobs (2,271 of them dangling) found that none of the 53 ever existed.
+# documented -- by the register's own "FIFTY-SEVEN IDS HAVE NO ROW" section --
+# so 53 absences had no recorded reason at all. Nothing was deleted FROM MAIN: a
+# walk of 266 generations of the file found zero removals, and re-derived at
+# d69ffcda over the 341 commits that touched this file in main's ancestry -- 341
+# distinct blobs, back to 7a8a5a2 -- none of the 57 ever carried a row. The
+# counter-control ran in the same pass: ids 1, 14 and 16 are found in all 341
+# blobs and 799 in the last 3, so "never present" is a finding, not an empty
+# parse.
+#
+# OFF MAIN IS A DIFFERENT POPULATION AND THE EARLIER SWEEP HERE WAS WRONG ABOUT
+# IT. This note used to say a sweep of 2,626 register blobs (2,271 of them
+# dangling) found that none of the 53 ever existed. Eight of them did: 282, 399
+# and 457-462 carry real rows, with full text, in commits reachable from
+# `git log --all` but from no ancestor of main -- 4b4ce878, 9392a4cb, f5fc0d63
+# and a6c311d6. One command checks it, and it is the denominator that differs
+# rather than the parse:
+#   git show f5fc0d63:project-knowledge/IMPROVEMENT_BACKLOG.md | grep -E '^\| 457 '
+# This changes no verdict below -- a row that was never in main was never
+# removed from it -- but "never existed" and "never landed" are not the same
+# claim, and only the second one is measured.
 #
 # THE MECHANISM. `toolchain/bin/bd-register-append` enforces monotonic increase
 # and uniqueness and never contiguity. Ids were handed to concurrent workers out

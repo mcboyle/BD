@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-07T10:47:13+00:00",
- "version_context": "v3.66.1521",
+ "generated": "2026-09-07T13:27:23+00:00",
+ "version_context": "v3.66.1522",
  "file_count": 94,
  "files": {
   "0_INDEX.md": {
@@ -157,8 +157,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "515f8bc8105844090745ee13d218f04384da1e769ff1062dffcbdf59d7a9af39",
-   "bytes": 1277899
+   "sha256": "fd1cfa4e5f1fd90938c58fe628b90ce32ac43acb01ab5fb514e24cab85b5634e",
+   "bytes": 1281604
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",
@@ -241,7 +241,7 @@
    "bytes": 1292
   },
   "REGISTER_GAP_ALLOWLIST.json": {
-   "sha256": "4549b896aaee8737cb1f1e78a7f1c95964dfda18e304c76ec1e764a87470efeb",
+   "sha256": "def45ed0b9e50d6139f0d6d33ead6d6fc85a05858b05acfa93c1a2770b785131",
    "bytes": 6536
   },
   "RELEASE_DISCIPLINE_TIERS.md": {
