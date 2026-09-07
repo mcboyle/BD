@@ -57,12 +57,21 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+from bulk_downloader import deep_http
+from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
 
 
 # Jellyfin is fast on LAN (similar to Plex). Match polling takes a bit
 # longer because the scan + metadata fetch happen back-to-back.
 QUERY_TIMEOUT_S = 15.0
 MATCH_POLL_TIMEOUT_S = 30.0
+
+
+# Per-site opt-in for a media server on the operator's own LAN.  DEFAULT OFF:
+# a site that does not set it keeps full host classification.  It is read ONCE
+# from the site config when the client is constructed, so nothing the remote
+# end sends -- a redirect, a header, a body -- can turn it on.
+PRIVATE_HOST_SETTING = "jellyfin_allow_private_host"
 
 
 class JellyfinError(Exception):
@@ -83,9 +92,10 @@ class JellyfinClient:
     True on success, False on failure (and never raise). Same
     convention as plex_deep.PlexClient + stash_deep.StashClient."""
 
-    def __init__(self, base_url: str, api_key: str = ""):
+    def __init__(self, base_url: str, api_key: str = "", *, allow_private_hosts: bool = False):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or ""
+        self.allow_private_hosts = allow_private_hosts
 
     @property
     def configured(self) -> bool:
@@ -119,13 +129,15 @@ class JellyfinClient:
                 "Jellyfin URL or API key not set")
         url = self._url(path, params)
         try:
-            req = urllib.request.Request(url, data=body, method=method)
-            req.add_header("Accept", "application/json")
-            req.add_header("X-Emby-Token", self.api_key)
+            headers = {"Accept": "application/json", "X-Emby-Token": self.api_key}
             if body is not None:
-                req.add_header("Content-Type", "application/json")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                headers["Content-Type"] = "application/json"
+            with deep_http.guarded_open(url, data=body, method=method, headers=headers,
+                              timeout=timeout, allow_private_hosts=self.allow_private_hosts) as resp:
                 raw = resp.read()
+        except SSRFBlocked as e:
+            reason = deep_http.refusal_message(e, PRIVATE_HOST_SETTING)
+            raise JellyfinError("blocked", f"blocked: {reason}", {"hint": reason})
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise JellyfinError("auth",
@@ -182,7 +194,10 @@ class JellyfinClient:
             result["ok"] = True
             result["version"] = data.get("Version")
         except JellyfinError as e:
-            if e.kind == "network":
+            if e.kind == "blocked":
+                result["error"] = e.message
+                result["hint"] = e.detail.get("hint")
+            elif e.kind == "network":
                 result["error"] = e.message
                 result["hint"] = e.detail.get("hint") or (
                     "Jellyfin not reachable. Verify the URL and that the "
@@ -359,6 +374,7 @@ def get_client_for_site(cfg: dict) -> JellyfinClient:
     return JellyfinClient(
         base_url=cfg.get("jellyfin_url") or "",
         api_key=cfg.get("jellyfin_api_key") or "",
+        allow_private_hosts=bool(cfg.get(PRIVATE_HOST_SETTING)),
     )
 
 

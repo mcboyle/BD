@@ -29,7 +29,7 @@ _CFG = {"sites": {"demo": {
 
 # Golden invariants captured from Slice 4 (behavior must not change in a presentation slice).
 # v3.66.468: +1 (chromium_extensions joined CFG_FIELDS as a gui-safe editable field).
-_EDITABLE_COUNT = 214  # Row 374: +6 authenticated scene-crawler controls.
+_EDITABLE_COUNT = 217  # Row 374: +6 authenticated scene-crawler controls. Row 713: +3 per-site private-host opt-ins (plex_allow_private_host, jellyfin_allow_private_host, stash_allow_private_host).
 _SAMPLE = {"max_concurrent": 999, "wait": 200, "delay": 3.5, "headless": "true",
            "skip_if_exists": "no", "password": "x", "username": "u",
            "cookie_max_age_hours": 12, "nope": 1, "chunk_size_mb": 2}

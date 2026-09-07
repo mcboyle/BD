@@ -1,0 +1,130 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 713 plex_deep plus the shared helper. Anchors are zero-width positions or structural names; no value sits inside a matched span. M7-M10 pin the four refusals the patch itself adds: the scheme gate, the non-30x re-raise, per-hop re-classification on the SECOND hop, and the hop budget. N1-N3 pin the per-site opt-in (operator ruling): default off, effective when set, and named in the refusal the operator reads.",
+  "subject": "plex_deep sends its token only after classification, never across an origin",
+  "band": [
+    "tests/test_row713_deep_integration_token_egress.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 plex_deep sends through an unguarded, redirect-following open",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^            with )deep_http\\.guarded_open(?=\\(url, data=body, method=method, headers=headers,$)",
+      "new": "(lambda u, *, data=None, method=\"GET\", headers=None, timeout=None, allow_private_hosts=False: urllib.request.urlopen(urllib.request.Request(u, data=data, method=method, headers=headers or {}), timeout=timeout))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_default_client_refuses_before_any_token_egress[plex_deep]"
+    },
+    {
+      "label": "M2 plex_deep lets the catch-all launder the refusal",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^        except )SSRFBlocked(?= as e:$)",
+      "new": "MemoryError",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_refusal_is_structured_and_not_laundered[plex_deep]"
+    },
+    {
+      "label": "M3 PlexClient opts every caller out of classification by default",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^    def __init__\\(self, base_url: str, token: str = \\\"\\\", \\*, allow_private_hosts: bool = )(?=False\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_default_client_refuses_before_any_token_egress[plex_deep]"
+    },
+    {
+      "label": "M4 guarded_open's own default stops classifying",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?<=^                 allow_private_hosts=)(?=False\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_guarded_open_classifies_by_default"
+    },
+    {
+      "label": "M5 the LAN opt-out also skips the redirect policy",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^            if not exc\\.headers\\.get\\(\\\"Location\\\"\\) or _origin\\(target\\) != _origin\\(current\\):$)",
+      "new": "            if allow_private_hosts:\n                current = target\n                continue\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_private_opt_out_never_relaxes_the_redirect_policy"
+    },
+    {
+      "label": "M6 urllib follows redirects again and copies every header to the new host",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?<=^    def redirect_request\\(self, req, fp, code, msg, headers, newurl\\):\\n)(?=        return None$)",
+      "new": "        return super().redirect_request(req, fp, code, msg, headers, newurl)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_cross_origin_redirect_never_carries_the_token[plex_deep]"
+    },
+    {
+      "label": "M7 the non-http(s) scheme refusal is bypassed",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^    if parsed\\.scheme not in \\{\"http\", \"https\"\\}:$)",
+      "new": "    parsed = parsed._replace(scheme=\"https\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_non_http_scheme_is_refused_by_the_scheme_gate"
+    },
+    {
+      "label": "M8 a non-30x HTTP error is handed back as a response instead of re-raised",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^            if exc\\.code not in \\{301, 302, 303, 307, 308\\}:$)",
+      "new": "            if exc.code not in {301, 302, 303, 307, 308}: return exc\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_ordinary_http_error_is_not_laundered_into_a_refusal"
+    },
+    {
+      "label": "M9 only the first hop is classified",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^        _check\\(current, allow_private_hosts\\)$)",
+      "new": "        if _hop: allow_private_hosts = True\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_every_hop_is_reclassified_not_just_the_first"
+    },
+    {
+      "label": "M10 exhausting the hop budget returns instead of refusing",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^    raise SSRFBlocked\\(\"redirect hop limit exhausted\"\\)$)",
+      "new": "    return None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_redirect_hop_limit_is_a_refusal"
+    },
+    {
+      "label": "N1 plex_deep opts every site in regardless of its setting",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\))(?=,$)",
+      "new": " or True",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_without_the_optin_refuses_its_private_server[plex_deep]"
+    },
+    {
+      "label": "N2 plex_deep ignores the per-site opt-in and refuses even when it is set",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\))(?=,$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_with_the_optin_reaches_its_private_server[plex_deep]"
+    },
+    {
+      "label": "N3 plex_deep's refusal stops naming the setting that re-enables it",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^            reason = )deep_http\\.refusal_message(?=\\(e, PRIVATE_HOST_SETTING\\)$)",
+      "new": "(lambda _reason, _setting: str(_reason))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_without_the_optin_refuses_its_private_server[plex_deep]"
+    },
+    {
+      "label": "P1 the shipped default for plex_allow_private_host is no longer OFF",
+      "file": "bulk_downloader/app_kernel.py",
+      "old_regex": "(?m)(?<=^          \"plex_allow_private_host\": )(?=False,$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_the_private_host_optin_is_a_real_site_setting"
+    },
+    {
+      "label": "P2 plex_allow_private_host is dropped from the per-site key allowlist, so a saved site config loses it",
+      "file": "bulk_downloader/app_kernel.py",
+      "old_regex": "(?m)(?=^DEFAULTS=)",
+      "new": "CFG_FIELDS = [_f for _f in CFG_FIELDS if _f != \"plex_allow_private_host\"]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_the_private_host_optin_is_a_real_site_setting"
+    }
+  ]
+}

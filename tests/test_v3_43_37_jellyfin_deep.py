@@ -86,16 +86,36 @@ def _jf_capture_request():
         def __exit__(self, *a): return False
         def read(self): return _json.dumps({"ok": True}).encode()
 
-    real = _ur.urlopen
-    def fake(req, timeout=None):
-        captured["req"] = req
-        return _Resp()
-    _ur.urlopen = fake
+    # Row 713: the send now goes through deep_http.guarded_open, which
+    # classifies the host and only then delegates to the module-level opener.
+    # Swapping urlopen no longer intercepts, so this drives that opener seam
+    # instead -- and because classification runs AHEAD of the seam, the fixture
+    # also has to resolve: jf.demo is given one public address so the REAL
+    # predicate accepts it. Nothing here bypasses the guard; with no stub in
+    # place jf.demo is still refused, which
+    # tests/test_row713_deep_integration_token_egress.py asserts directly.
+    import socket as _socket
+    from bulk_downloader import deep_http
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            captured["req"] = req
+            return _Resp()
+
+    def _resolves_public(host, *_a, **_k):
+        return [(_socket.AF_INET, _socket.SOCK_STREAM, 6, "",
+                 ("93.184.216.34", 443))]
+
+    real_opener = deep_http._OPENER
+    real_getaddrinfo = _socket.getaddrinfo
+    deep_http._OPENER = _FakeOpener()
+    _socket.getaddrinfo = _resolves_public
     try:
         JellyfinClient("https://jf.demo", "SECRETKEY123")._request(
             "GET", "/System/Info")
     finally:
-        _ur.urlopen = real
+        deep_http._OPENER = real_opener
+        _socket.getaddrinfo = real_getaddrinfo
     return captured["req"]
 
 

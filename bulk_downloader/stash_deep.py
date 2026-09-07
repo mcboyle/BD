@@ -51,6 +51,8 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from bulk_downloader import deep_http
+from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
 
 
 # Connection timeouts. GraphQL queries against a typical Stash instance
@@ -58,6 +60,13 @@ import urllib.request
 # which can take 5-15s when it has to hit the source site.
 QUERY_TIMEOUT_S = 15.0
 SCRAPE_TIMEOUT_S = 60.0
+
+
+# Per-site opt-in for a media server on the operator's own LAN.  DEFAULT OFF:
+# a site that does not set it keeps full host classification.  It is read ONCE
+# from the site config when the client is constructed, so nothing the remote
+# end sends -- a redirect, a header, a body -- can turn it on.
+PRIVATE_HOST_SETTING = "stash_allow_private_host"
 
 
 class StashError(Exception):
@@ -80,9 +89,10 @@ class StashClient:
     Stash GraphQL is fast (<500ms) over LAN; the connection-setup
     overhead is negligible compared to the work done per-URL."""
 
-    def __init__(self, base_url: str, api_key: str = ""):
+    def __init__(self, base_url: str, api_key: str = "", *, allow_private_hosts: bool = False):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or ""
+        self.allow_private_hosts = allow_private_hosts
         self._graphql_url = None
         if self.base_url:
             if not self.base_url.endswith("/graphql"):
@@ -107,14 +117,13 @@ class StashClient:
         if self.api_key:
             headers["ApiKey"] = self.api_key
         try:
-            req = urllib.request.Request(
-                self._graphql_url,
-                data=json.dumps(payload).encode("utf-8"),
-                method="POST",
-                headers=headers,
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with deep_http.guarded_open(self._graphql_url, data=json.dumps(payload).encode("utf-8"),
+                              method="POST", headers=headers, timeout=timeout,
+                              allow_private_hosts=self.allow_private_hosts) as resp:
                 body = resp.read().decode("utf-8", "replace")
+        except SSRFBlocked as e:
+            reason = deep_http.refusal_message(e, PRIVATE_HOST_SETTING)
+            raise StashError("blocked", f"blocked: {reason}", {"hint": reason})
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise StashError("auth",
@@ -169,7 +178,10 @@ class StashClient:
             result["ok"] = True
             result["version"] = v
         except StashError as e:
-            if e.kind == "network":
+            if e.kind == "blocked":
+                result["error"] = e.message
+                result["hint"] = e.detail.get("hint")
+            elif e.kind == "network":
                 result["error"] = e.message
                 result["hint"] = e.detail.get("hint") or (
                     "Stash not reachable. Check the URL and that the "
@@ -444,6 +456,7 @@ def get_client_for_site(cfg: dict) -> StashClient:
     return StashClient(
         base_url=cfg.get("stash_url") or "",
         api_key=cfg.get("stash_api_key") or "",
+        allow_private_hosts=bool(cfg.get(PRIVATE_HOST_SETTING)),
     )
 
 

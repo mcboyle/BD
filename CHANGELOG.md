@@ -4,6 +4,33 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1514 - the deep integrations classify the server URL before the token is attached
+
+Train B2-02, base origin/main 98bc6057 (v3.66.1513). ONE reviewed worker patch, re-assembled at
+its FULL declared width: the cut stages TWENTY paths against its declared base e7fa1442, an
+earlier train carried EIGHTEEN, and the two it dropped -- tests/test_rows706_714_test_hygiene.py
+and tests/test_rowssrf_loopback_reason_is_structured.py -- were exactly the two whose census pins
+then failed the lane. Both now carry the CUT's blobs (29c9cc48, a387316d) rather than main's
+(8efd99ea, bf3fc6a2), proven by blob and not by path count. Path count is
+`git diff --cached 98bc6057 --name-only`, against the DECLARED base and never a bare HEAD.
+
+Security: the deep Plex, Jellyfin and Stash integrations now classify the operator-supplied server
+URL before the API token is attached, and refuse a target that resolves to a private, loopback or
+link-local address. BEHAVIOUR CHANGE: a Plex, Jellyfin or Stash server on a LAN or link-local
+address is now REFUSED by default and its site reports kind "blocked". To keep using such a server,
+set the per-site option for that provider -- plex_allow_private_host, jellyfin_allow_private_host or
+stash_allow_private_host -- to true; the refusal message names the option to set. The opt-in applies
+to that one site, does not weaken classification for any other site, and cannot be enabled by a
+redirect or by anything the remote server sends. Cross-origin redirects are refused outright rather
+than followed with the token attached.
+
+The import-graph baseline is re-frozen ONCE here, by the integrator, on merged main -- eleven
+declared edges, every one of them the fix itself: the four deep clients and the shipped
+test_v3_43_37_jellyfin_deep suite reach bulk_downloader/deep_http.py because that is where
+guarded_open now lives, and row 713's own test reaches deep_http, the four clients and app_kernel
+because it drives each shipped client against a loopback recorder and asserts the three per-site
+opt-in keys exist in CFG_FIELDS and default to False.
+
 ## v3.66.1513 - the secret boundary: redaction descends, the signed-URL branch classifies on the credential pair, a minified JS literal is not a secret, and both template-apply seams gate paid captcha egress
 
 Train F-02-redaction, base origin/main f54b811d (v3.66.1511). ONE reviewed worker patch; redaction

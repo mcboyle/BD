@@ -42,11 +42,19 @@ from __future__ import annotations
 
 import sys
 from typing import Optional
+from bulk_downloader import deep_http
+from bulk_downloader.provider_resolve_impl._common import SSRFBlocked, _is_safe_public_host
 
+
+# The SAME per-site key plex_deep uses: both backends serve one site's Plex
+# URL, so one opt-in governs both.  DEFAULT OFF, read once from the site
+# config, never settable by anything the remote end sends.
+PRIVATE_HOST_SETTING = "plex_allow_private_host"
 
 _plexapi = None
 _import_attempted = False
 _import_error = None
+_last_refusal = None
 
 
 def _try_import():
@@ -81,7 +89,7 @@ def import_error() -> Optional[str]:
     return _import_error
 
 
-def connect(cfg: dict, *, timeout: float = 10.0):
+def connect(cfg: dict, *, timeout: float = 10.0, allow_private_hosts: bool = False):
     """Return a connected PlexServer instance, or None on failure.
     Caller is responsible for caching — connect() is moderately
     expensive (handshake + capabilities probe)."""
@@ -92,14 +100,31 @@ def connect(cfg: dict, *, timeout: float = 10.0):
     token = (cfg.get("plex_token") or "").strip()
     if not url or not token:
         return None
+    global _last_refusal
+    allow_private = allow_private_hosts or bool(cfg.get(PRIVATE_HOST_SETTING))
     try:
+        if not allow_private:
+            from urllib.parse import urlsplit
+            safe, reason = _is_safe_public_host(urlsplit(url).hostname or "")
+            if not safe:
+                raise SSRFBlocked(
+                    deep_http.refusal_message(reason, PRIVATE_HOST_SETTING))
         # plexapi.PlexServer accepts timeout via Session config.
         # For simplicity we pass it through; if a future plexapi
         # version drops the kwarg, fall back to default timeout.
+        session = deep_http.guarded_session(allow_private_hosts=allow_private)
         try:
-            return PlexServer(url, token, timeout=timeout)
+            server = PlexServer(url, token, session=session, timeout=timeout)
         except TypeError:
-            return PlexServer(url, token)
+            server = PlexServer(url, token, session=session)
+        # A connect that succeeds retires the refusal the status endpoint
+        # shows: otherwise an operator who corrects their URL keeps being
+        # told the correction did not work.
+        _last_refusal = None
+        return server
+    except SSRFBlocked as e:
+        _last_refusal = str(e)
+        return None
     except Exception as e:
         sys.stderr.write(f"[plex_deep_plexapi] connect failed: {e}\n")
         return None
@@ -218,4 +243,6 @@ def status_dict() -> dict:
         "available": is_available(),
         "import_error": import_error(),
         "module": "bulk_downloader.plex_deep_plexapi",
+        "refused": _last_refusal is not None,
+        "refusal": _last_refusal,
     }

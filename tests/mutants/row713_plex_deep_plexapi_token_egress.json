@@ -1,0 +1,66 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 713 plex_deep_plexapi: the fourth module, whose token rides a requests.Session that follows redirects unless the session is guarded. N4-N5 pin the per-site opt-in on the fourth module.",
+  "subject": "plex_deep_plexapi classifies before constructing, hands plexapi a guarded session, and surfaces the refusal",
+  "band": [
+    "tests/test_row713_deep_integration_token_egress.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 plexapi constructs without classifying the operator URL",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)^        if (?=not allow_private:$)",
+      "new": "        if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_refuses_before_the_constructor"
+    },
+    {
+      "label": "M2 plexapi is handed a stock session that follows redirects",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?<=^        session = )deep_http\\.guarded_session(?=\\(allow_private_hosts=allow_private\\)$)",
+      "new": "(lambda **_k: __import__(\"requests\").Session())",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_session_is_guarded_and_refuses_cross_origin"
+    },
+    {
+      "label": "M3 plexapi lets the catch-all launder the refusal into a bare None",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?<=^    except )SSRFBlocked(?= as e:$)",
+      "new": "MemoryError",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_refuses_before_the_constructor"
+    },
+    {
+      "label": "M4 connect() opts every caller out of classification by default",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?<=^def connect\\(cfg: dict, \\*, timeout: float = 10\\.0, allow_private_hosts: bool = )(?=False\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_refuses_before_the_constructor"
+    },
+    {
+      "label": "M5 a successful connect no longer retires the stale refusal",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?=^        _last_refusal = None$)",
+      "new": "        return server\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_refusal_does_not_outlive_a_later_success"
+    },
+    {
+      "label": "N4 plexapi ignores the per-site opt-in",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?<=^    allow_private = allow_private_hosts or bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\))(?=$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_honours_the_same_per_site_optin"
+    },
+    {
+      "label": "N5 plexapi's refusal stops naming the setting that re-enables it",
+      "file": "bulk_downloader/plex_deep_plexapi.py",
+      "old_regex": "(?m)(?<=^                    )deep_http\\.refusal_message(?=\\(reason, PRIVATE_HOST_SETTING\\)\\)$)",
+      "new": "(lambda _reason, _setting: str(_reason))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_plexapi_honours_the_same_per_site_optin"
+    }
+  ]
+}

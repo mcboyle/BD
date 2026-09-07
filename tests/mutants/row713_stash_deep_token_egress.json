@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 713 stash_deep. Zero-width or structural-name anchors only. N1-N3 pin the per-site opt-in (operator ruling): default off, effective when set, and named in the refusal the operator reads.",
+  "subject": "stash_deep sends its token only after classification, never across an origin",
+  "band": [
+    "tests/test_row713_deep_integration_token_egress.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 stash_deep sends through an unguarded, redirect-following open",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^            with )deep_http\\.guarded_open(?=\\(self\\._graphql_url, data=json\\.dumps\\(payload\\)\\.encode\\(\\\"utf-8\\\"\\),$)",
+      "new": "(lambda u, *, data=None, method=\"GET\", headers=None, timeout=None, allow_private_hosts=False: urllib.request.urlopen(urllib.request.Request(u, data=data, method=method, headers=headers or {}), timeout=timeout))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_default_client_refuses_before_any_token_egress[stash_deep]"
+    },
+    {
+      "label": "M2 stash_deep lets the catch-all launder the refusal",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^        except )SSRFBlocked(?= as e:$)",
+      "new": "MemoryError",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_refusal_is_structured_and_not_laundered[stash_deep]"
+    },
+    {
+      "label": "M3 StashClient opts every caller out of classification by default",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^    def __init__\\(self, base_url: str, api_key: str = \\\"\\\", \\*, allow_private_hosts: bool = )(?=False\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_default_client_refuses_before_any_token_egress[stash_deep]"
+    },
+    {
+      "label": "N1 stash_deep opts every site in regardless of its setting",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\))(?=,$)",
+      "new": " or True",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_without_the_optin_refuses_its_private_server[stash_deep]"
+    },
+    {
+      "label": "N2 stash_deep ignores the per-site opt-in and refuses even when it is set",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\))(?=,$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_with_the_optin_reaches_its_private_server[stash_deep]"
+    },
+    {
+      "label": "N3 stash_deep's refusal stops naming the setting that re-enables it",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^            reason = )deep_http\\.refusal_message(?=\\(e, PRIVATE_HOST_SETTING\\)$)",
+      "new": "(lambda _reason, _setting: str(_reason))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_site_without_the_optin_refuses_its_private_server[stash_deep]"
+    },
+    {
+      "label": "P1 the shipped default for stash_allow_private_host is no longer OFF",
+      "file": "bulk_downloader/app_kernel.py",
+      "old_regex": "(?m)(?<=^          \"stash_allow_private_host\": )(?=False,$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_the_private_host_optin_is_a_real_site_setting"
+    },
+    {
+      "label": "P2 stash_allow_private_host is dropped from the per-site key allowlist, so a saved site config loses it",
+      "file": "bulk_downloader/app_kernel.py",
+      "old_regex": "(?m)(?=^DEFAULTS=)",
+      "new": "CFG_FIELDS = [_f for _f in CFG_FIELDS if _f != \"stash_allow_private_host\"]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_the_private_host_optin_is_a_real_site_setting"
+    }
+  ]
+}

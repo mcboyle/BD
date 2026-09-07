@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL -- BOTH MUTANTS MUST ESCAPE. The band is one node that imports the deep modules and drives no request, so a real send-seam regression cannot be observed there: an ESCAPE proves the CAUGHT verdicts in the four sibling specs are assertion failures and not import or compile breakage. C2 is additionally semantics-preserving, so it must escape every node in the tree.",
+  "subject": "transform control for the row 713 guarded-send seam",
+  "band": [
+    "tests/test_row713_deep_integration_token_egress.py::test_row713_blocked_kind_vocabulary_is_declared_by_every_deep_module"
+  ],
+  "mutants": [
+    {
+      "label": "C1 send-seam regression outside the asserted path",
+      "file": "bulk_downloader/jellyfin_deep.py",
+      "old_regex": "(?m)(?<=^            with )deep_http\\.guarded_open(?=\\(url, data=body, method=method, headers=headers,$)",
+      "new": "(lambda u, *, data=None, method=\"GET\", headers=None, timeout=None, allow_private_hosts=False: urllib.request.urlopen(urllib.request.Request(u, data=data, method=method, headers=headers or {}), timeout=timeout))",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_blocked_kind_vocabulary_is_declared_by_every_deep_module"
+    },
+    {
+      "label": "C2 semantics-preserving edit on the guarded open path",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?=^    current = url$)",
+      "new": "    _seam_control = None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row713_deep_integration_token_egress.py::test_row713_blocked_kind_vocabulary_is_declared_by_every_deep_module"
+    }
+  ]
+}

@@ -64,12 +64,21 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
+from bulk_downloader import deep_http
+from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
 
 
 # Plex's HTTP API is fast on LAN (<100ms typical) but the scan-and-match
 # pipeline takes seconds. Match confirmation polls for up to 30s.
 QUERY_TIMEOUT_S = 15.0
 MATCH_POLL_TIMEOUT_S = 30.0
+
+
+# Per-site opt-in for a media server on the operator's own LAN.  DEFAULT OFF:
+# a site that does not set it keeps full host classification.  It is read ONCE
+# from the site config when the client is constructed, so nothing the remote
+# end sends -- a redirect, a header, a body -- can turn it on.
+PRIVATE_HOST_SETTING = "plex_allow_private_host"
 
 
 class PlexError(Exception):
@@ -91,9 +100,10 @@ class PlexClient:
     PlexError so the caller can surface the reason. Same convention
     as stash_deep.StashClient."""
 
-    def __init__(self, base_url: str, token: str = ""):
+    def __init__(self, base_url: str, token: str = "", *, allow_private_hosts: bool = False):
         self.base_url = (base_url or "").rstrip("/")
         self.token = token or ""
+        self.allow_private_hosts = allow_private_hosts
 
     @property
     def configured(self) -> bool:
@@ -127,15 +137,17 @@ class PlexClient:
             raise PlexError("config", "Plex URL or token not set")
         url = self._url(path, params)
         try:
-            req = urllib.request.Request(url, data=body, method=method)
             # Plex returns XML by default. Setting Accept just to be
             # explicit (some reverse proxies sniff content negotiation).
-            req.add_header("Accept", "application/xml")
+            headers = {"Accept": "application/xml"}
             if body is not None:
-                req.add_header("Content-Type",
-                                "application/x-www-form-urlencoded")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            with deep_http.guarded_open(url, data=body, method=method, headers=headers,
+                              timeout=timeout, allow_private_hosts=self.allow_private_hosts) as resp:
                 raw = resp.read()
+        except SSRFBlocked as e:
+            reason = deep_http.refusal_message(e, PRIVATE_HOST_SETTING)
+            raise PlexError("blocked", f"blocked: {reason}", {"hint": reason})
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise PlexError("auth",
@@ -189,7 +201,10 @@ class PlexClient:
             result["ok"] = True
             result["version"] = root.get("version")
         except PlexError as e:
-            if e.kind == "network":
+            if e.kind == "blocked":
+                result["error"] = e.message
+                result["hint"] = e.detail.get("hint")
+            elif e.kind == "network":
                 result["error"] = e.message
                 result["hint"] = e.detail.get("hint") or (
                     "Plex not reachable. Check the URL and that Plex "
@@ -407,6 +422,7 @@ def get_client_for_site(cfg: dict) -> PlexClient:
     return PlexClient(
         base_url=cfg.get("plex_url") or "",
         token=cfg.get("plex_token") or "",
+        allow_private_hosts=bool(cfg.get(PRIVATE_HOST_SETTING)),
     )
 
 
