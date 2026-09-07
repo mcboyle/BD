@@ -117,6 +117,7 @@ _DECLARED = {
     "tests/test_row751_template_apply_gates_captcha_egress.py",
     "tests/test_row751_template_strip_recurses.py",
     "tests/test_row675_minified_js_is_not_a_secret.py",
+    "tests/test_row713_deep_integration_token_egress.py",  # row 713 token egress
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

@@ -238,9 +238,9 @@ def test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
 ) -> None:
     sites = _dns_adjacent_sites(_REPO)
     nodeids = tuple(sorted({nodeid for _, nodeid in sites}))
-    assert len(sites) == 20 and len(nodeids) == 14, (
+    assert len(sites) == 26 and len(nodeids) == 17, (
         "UNKNOWN: resolver-adjacent census drifted: "
-        "expected sites=20 nodeids=14; "
+        "expected sites=26 nodeids=17; "
         f"observed sites={len(sites)} nodeids={len(nodeids)}"
     )
     hook, sink = _install_dns_tripwire(tmp_path)
@@ -288,13 +288,13 @@ def test_row706_narrowed_census_is_unknown(
 ) -> None:
     sites = _dns_adjacent_sites(_REPO)
     nodeids = {nodeid for _, nodeid in sites}
-    assert len(sites) == 20 and len(nodeids) == 14
+    assert len(sites) == 26 and len(nodeids) == 17
     frequencies = Counter(nodeid for _, nodeid in sites)
     unique_nodeid = next(
         nodeid for nodeid, count in frequencies.items() if count == 1)
     narrowed = tuple(site for site in sites if site[1] != unique_nodeid)
-    assert len(narrowed) == 19
-    assert len({nodeid for _, nodeid in narrowed}) == 13
+    assert len(narrowed) == 25
+    assert len({nodeid for _, nodeid in narrowed}) == 16
     monkeypatch.setattr(
         sys.modules[__name__], "_dns_adjacent_sites", lambda repo: narrowed)
 
@@ -302,7 +302,7 @@ def test_row706_narrowed_census_is_unknown(
         AssertionError,
         match=(
             "UNKNOWN: resolver-adjacent census drifted: "
-            "expected sites=20 nodeids=14; observed sites=19 nodeids=13"
+            "expected sites=26 nodeids=17; observed sites=25 nodeids=16"
         ),
     ):
         test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(

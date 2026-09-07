@@ -219,6 +219,12 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # per-item refresh, match confirmation, collection
             # routing. Basic jellyfin_url/jellyfin_api_key already
             # exist (v3.20); these add the deep flags.
+            # Row 713: per-site opt-in for a media server on a PRIVATE or
+            # link-local address. Default OFF -- without it the deep Plex,
+            # Jellyfin and Stash clients classify the operator-supplied URL
+            # and refuse a private target, naming this setting in the refusal.
+            "plex_allow_private_host", "jellyfin_allow_private_host",
+            "stash_allow_private_host",
             "jellyfin_deep_enabled", "jellyfin_user_id",
             "jellyfin_match_confirm", "jellyfin_collection",
             "jellyfin_auto_create_collection",
@@ -669,6 +675,11 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           "ai_login_assist_enabled": False,
           # v3.43.37: deep Jellyfin integration. Same pattern as Stash
           # and Plex deep — default OFF, opt-in per-site.
+          # Row 713: private/link-local media servers are refused unless the
+          # site opts in here. Default OFF for every site.
+          "plex_allow_private_host": False,
+          "jellyfin_allow_private_host": False,
+          "stash_allow_private_host": False,
           "jellyfin_deep_enabled": False,
           "jellyfin_user_id": "",
           "jellyfin_match_confirm": False,

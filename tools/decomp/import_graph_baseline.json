@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4364,
+  "edge_count": 4375,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1433,6 +1433,9 @@
     "bulk_downloader/interstitial.py": [
       "bulk_downloader/registrable_domain.py"
     ],
+    "bulk_downloader/jellyfin_deep.py": [
+      "bulk_downloader/deep_http.py"
+    ],
     "bulk_downloader/knowledge.py": [
       "bulk_downloader/db.py"
     ],
@@ -1586,6 +1589,12 @@
     ],
     "bulk_downloader/playlist_extractor.py": [
       "bulk_downloader/registrable_domain.py"
+    ],
+    "bulk_downloader/plex_deep.py": [
+      "bulk_downloader/deep_http.py"
+    ],
+    "bulk_downloader/plex_deep_plexapi.py": [
+      "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/plugin_exec.py": [
       "bulk_downloader/plugin_sandbox.py",
@@ -2005,6 +2014,9 @@
     ],
     "bulk_downloader/sse_broker.py": [
       "bulk_downloader/dev_events.py"
+    ],
+    "bulk_downloader/stash_deep.py": [
+      "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/storage_rebalance.py": [
       "bulk_downloader/db.py"
@@ -4028,6 +4040,14 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
     ],
+    "tests/test_row713_deep_integration_token_egress.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/deep_http.py",
+      "bulk_downloader/jellyfin_deep.py",
+      "bulk_downloader/plex_deep.py",
+      "bulk_downloader/plex_deep_plexapi.py",
+      "bulk_downloader/stash_deep.py"
+    ],
     "tests/test_row721_age_gate_enter_affordance.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/interstitial.py",
@@ -4637,6 +4657,7 @@
       "bulk_downloader/account_pool.py"
     ],
     "tests/test_v3_43_37_jellyfin_deep.py": [
+      "bulk_downloader/deep_http.py",
       "bulk_downloader/jellyfin_deep.py"
     ],
     "tests/test_v3_43_37_retry_policy.py": [

@@ -420,9 +420,9 @@
       "sha256": "2002a08c74d1d70402119668ff285f684aaf3c9f1804518e82e1f8ce592aa8fe"
     },
     {
-      "bytes": 12020,
+      "bytes": 12018,
       "key": "tests/test_v3_43_54_resolution.py::test_default_quality_preference_is_safe::src[pos:pos + 12000]::1",
-      "sha256": "cd3c34fe86c5016cecab15cdf861ba4ef0f014b28e5cb9da68216201a3cafe52"
+      "sha256": "ecc3cc4317093a60435e20eb99e8deb9997354a21cc528923bbdda948c074171"
     },
     {
       "bytes": 200,
