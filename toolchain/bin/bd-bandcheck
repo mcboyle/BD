@@ -10,13 +10,17 @@ don't trip the band footguns:
 Usage:
   bd-bandcheck tests/test_foo.py tests/test_bar.py ...
   bd-bandcheck --tree DIR tests/...
-Exit 0 if all targets are safe, 1 for measured unsafe findings, or 2 when a
-target cannot be measured and no measured unsafe finding exists.
+Exit 0 if all targets are safe, 1 for measured unsafe findings, 2 when a
+target cannot be measured, or 3 for command-line usage errors.
 """
 import argparse, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+
+class _UsageParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(3, "%s: usage error: %s\n" % (self.prog, message))
 
 # known-hang / never-band-directly (from KNOWN_FLAKES.md + memory)
 HANG = {
@@ -62,8 +66,12 @@ def check(targets, tree):
     -- "all targets safe" over zero targets is the CLAUDE.md section 0 shape,
     and this function is now a gate."""
     lines = []
+    empty = [t for t in targets if not t.strip()]
+    for t in empty:
+        lines.append("  EMPTY TARGET -- %r names nothing; an empty target is not the tree root." % t)
+    targets = [t for t in targets if t.strip()]
     if not targets:
-        return 2, ["  NO TARGETS -- a band over nothing is not a safe band."]
+        return 2, lines + ["  NO TARGETS -- a band over nothing is not a safe band."]
     unsafe = False
     unmeasurable = False
     names = set()
@@ -104,13 +112,13 @@ def check(targets, tree):
     for setA, setB, why in LEAK_PAIRS:
         if names & setA and names & setB:
             lines.append(f"  LEAK CO-BAND  {sorted(names & setA)} + {sorted(names & setB)} -- {why}. Split into two bands."); unsafe = True
-    return (1 if unsafe else 2 if unmeasurable else 0), lines
+    return (1 if unsafe else 2 if unmeasurable or empty else 0), lines
 
 
 def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
-    ap = argparse.ArgumentParser()
+    ap = _UsageParser()
     ap.add_argument("targets", nargs="+")
     # @876: was "/home/claude/work", a zip-era path absent from any git
     # checkout, so a BARE invocation reported every target MISSING. It failed

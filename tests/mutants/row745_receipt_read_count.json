@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 745, the brief's second 745 mutant: the receipt prints the DISCOVERED count in the READ position, which is the tautology the row exists to remove. Zero-width anchor on the print statement's decision point; `new` is a COMPLETE statement that rebinds read_tools to the discovered count, so the mutant parses instead of reporting INVALID.",
+  "subject": "the lint receipt states how many tools were actually read",
+  "band": [
+    "tests/test_row745_tool_lint_receipt_counts_what_it_read.py"
+  ],
+  "mutants": [
+    {
+      "label": "the receipt prints the discovered count where the read count belongs",
+      "file": "toolchain/bin/bd-tool-lint",
+      "old_regex": "(?m)(?<=^    )(?=print\\(\"linted %d of %d discovered tools)",
+      "new": "res = dict(res, read_tools=res[\"tools\"])\n    ",
+      "direction": "regression",
+      "catcher": "tests/test_row745_tool_lint_receipt_counts_what_it_read.py::test_unreadable_tool_is_cannot_evaluate_and_receipt_counts_reads"
+    }
+  ]
+}

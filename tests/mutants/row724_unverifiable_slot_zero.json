@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 724, the brief's first 724 mutant: restore the LITERAL ZERO in the unverifiable slot. The anchor consumes the NAME `bad`, not a value -- same non-value-bearing shape as row724_bandcheck_receipt, which consumes `ok`.",
+  "subject": "the bandcheck parser reports the failures it measured, never a literal zero",
+  "band": [
+    "tests/test_row724_preflight_bandcheck_counts_failures.py"
+  ],
+  "mutants": [
+    {
+      "label": "the unverifiable slot is a literal zero again, so measured failures vanish from the receipt",
+      "file": "toolchain/bin/bd-cut-preflight",
+      "old_regex": "(?<=return ok \\+ bad, ok, )bad(?=, \"band target\\(s\\)\")",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_row724_preflight_bandcheck_counts_failures.py::test_bandcheck_parser_reports_bad_lines_as_unverifiable"
+    }
+  ]
+}

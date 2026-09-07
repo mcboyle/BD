@@ -312,6 +312,11 @@ jobs:
               tests/test_toolchain_534.py
               tests/test_row698_corpus_guard_execution.py
               tests/test_row678_bandcheck_exclusion_tables.py
+              tests/test_row724_preflight_bandcheck_counts_failures.py
+              tests/test_row744_guard_declare_wording_matches_repin_rule.py
+              tests/test_row745_tool_lint_receipt_counts_what_it_read.py
+              tests/test_row746_bandcheck_empty_target_is_refused.py
+              tests/test_row747_bd_band_delegation_is_guarded.py
               tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
               tests/test_v3_66_1154_the_object_not_the_name.py
               tests/test_v3_66_1145_step0_fails_closed.py

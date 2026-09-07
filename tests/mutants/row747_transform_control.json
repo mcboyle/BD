@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 747, in its own spec file: the M1 mutation is pointed at a test that only SourceFileLoader-imports bd-band and asserts main is callable, never driving a refusal. It must ESCAPE, which proves the M1/M2 CAUGHTs are assertion failures at the named arms and not import or parse breaks. Anchor is ZERO-WIDTH on the decision -- it consumes nothing, so no value-bearing token is inside the matched span, and the mutation is an INSERTION that really executes. Two earlier shapes were measured and rejected: putting the digit in a LOOKAHEAD while substituting `return 0` does not consume it, so the mutant read `return 02`, never parsed, and bd-mutate reported INVALID (never ran) rather than CAUGHT; and CONSUMING `return \\d` does parse but makes the anchor value-bearing, which tests/test_row357_mutant_anchors_are_not_fragile.py REFUSES as UNKNOWN (measured: 'contains value-bearing source text, but no producer or audited stable exception establishes its class'). This shape is the one row667 _transform_control uses: zero-width lookbehind/lookahead on the structure, insertion as `new`.",
+  "subject": "transform control for the bd-band delegation seam",
+  "band": [
+    "tests/test_row747_bd_band_delegation_is_guarded.py::test_row747_transform_control_imports_without_judging_refusal"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the delegating arm returns success outside any asserted path",
+      "file": "toolchain/bin/bd-band",
+      "old_regex": "(?<=            )(?=return \\d\\n\\n    if a\\.from_zip:)",
+      "new": "return 0\n            ",
+      "direction": "regression",
+      "catcher": "tests/test_row747_bd_band_delegation_is_guarded.py::test_row747_transform_control_imports_without_judging_refusal"
+    }
+  ]
+}

@@ -28,6 +28,7 @@ import contextlib
 import os
 import sys
 import threading
+import time
 from typing import Any
 
 # Module-level cache. ``None`` = not yet probed; ``True``/``False`` = result.
@@ -257,6 +258,59 @@ def use_cloak(config: dict | None = None) -> bool:
     """Back-compat bool shim: ``True`` iff the resolved backend is CloakBrowser.
     Prefer :func:`resolve_backend` in new code."""
     return resolve_backend(config) == CLOAKBROWSER
+
+
+# ── row 723: real-Chrome -> bundled-Chromium degradation ledger ──────────────
+# `use_real_chrome` sets Playwright channel="chrome", which ONLY a Google Chrome
+# install satisfies -- bundled Chromium does not. Every launch seam retries
+# without the channel when that fails, and before v3.66 that retry existed only
+# as a stderr line in the SERVICE log. A capability that degrades without
+# telling the SITE'S run record is indistinguishable from one that worked
+# (CLAUDE.md A2), so each seam records the degradation here and whoever owns a
+# run record drains it. Bounded so a long-lived process cannot grow without
+# limit; the oldest note is dropped, never a newer one.
+_CHANNEL_FALLBACKS: list[dict] = []
+_CHANNEL_FALLBACKS_MAX = 200
+_CHANNEL_FALLBACK_LOCK = threading.Lock()
+
+
+def note_channel_fallback(*, site_id: str, flow: str, channel: str,
+                          error: str, recovered: bool) -> dict:
+    """Record ONE real-browser-channel degradation and return the note.
+
+    ``recovered`` is True when the bundled-Chromium retry launched and False
+    when it too failed -- the second is a harder failure, not an absence of
+    one, so it is recorded rather than dropped."""
+    note = {
+        "site_id": str(site_id or ""),
+        "flow": str(flow or ""),
+        "channel": str(channel or ""),
+        "error": str(error or "")[:200],
+        "recovered": bool(recovered),
+        "ts": time.time(),
+    }
+    with _CHANNEL_FALLBACK_LOCK:
+        _CHANNEL_FALLBACKS.append(note)
+        while len(_CHANNEL_FALLBACKS) > _CHANNEL_FALLBACKS_MAX:
+            _CHANNEL_FALLBACKS.pop(0)
+    return note
+
+
+def drain_channel_fallbacks(site_id: str | None = None) -> list[dict]:
+    """Remove and return the recorded degradations, oldest first. With
+    ``site_id`` only that site's notes are taken; notes for other sites stay
+    for their own owner. Destructive by design: a later run must not re-report
+    a degradation that did not happen in it."""
+    with _CHANNEL_FALLBACK_LOCK:
+        if site_id is None:
+            taken = list(_CHANNEL_FALLBACKS)
+            _CHANNEL_FALLBACKS.clear()
+            return taken
+        want = str(site_id)
+        taken = [n for n in _CHANNEL_FALLBACKS if n["site_id"] == want]
+        _CHANNEL_FALLBACKS[:] = [n for n in _CHANNEL_FALLBACKS
+                                 if n["site_id"] != want]
+        return taken
 
 
 def log_choice(flow: str, backend: str, detail: str = "") -> None:
@@ -526,12 +580,24 @@ def persistent_context(
         ctx, pw, backend = open_persistent_context(
             user_data_dir=user_data_dir, headless=headless, args=args,
             user_agent=user_agent, config=config, **extra)
-    except Exception:
+    except Exception as _exc:
         if channel_fallback and "channel" in extra:
+            _ch = extra.get("channel")
             extra = {k: v for k, v in extra.items() if k != "channel"}
-            ctx, pw, backend = open_persistent_context(
-                user_data_dir=user_data_dir, headless=headless, args=args,
-                user_agent=user_agent, config=config, **extra)
+            try:
+                ctx, pw, backend = open_persistent_context(
+                    user_data_dir=user_data_dir, headless=headless, args=args,
+                    user_agent=user_agent, config=config, **extra)
+            except Exception as _e2:
+                note_channel_fallback(
+                    site_id=(config or {}).get("site_id", ""),
+                    flow="persistent_context", channel=str(_ch),
+                    error=f"{type(_e2).__name__}: {_e2}", recovered=False)
+                raise
+            note_channel_fallback(
+                site_id=(config or {}).get("site_id", ""),
+                flow="persistent_context", channel=str(_ch),
+                error=f"{type(_exc).__name__}: {_exc}", recovered=True)
         else:
             raise
     try:
@@ -610,3 +676,5 @@ def reset_cache_for_tests() -> None:
     _IMPORT_ERR = ""
     _CLOAK_LPC = None
     _WARNED_LAUNCH_FALLBACK = False
+    with _CHANNEL_FALLBACK_LOCK:
+        _CHANNEL_FALLBACKS.clear()

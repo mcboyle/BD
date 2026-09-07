@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 724, the escape lens L2 measured: dropping EMPTY TARGET from p_bandcheck's BAD regex does not merely mislabel the refused target, it removes it from the DENOMINATOR (measured: (2,1,1) -> (1,1,0)), so classify() is handed a clean fully-examined tuple. The anchor is ZERO-WIDTH on the alternation decision -- lookbehind on the '|' after MISSING, lookahead on the EMPTY TARGET alternative -- so nothing value-bearing is consumed and row357 can classify it as structural. `new` is (?!), a COMPLETE regex token: an always-failing assertion that makes the alternative dead, which is exactly equivalent to deleting the term. An insertion that ran into the original text would report INVALID instead of CAUGHT; this one parses (verified in-process before running).",
+  "subject": "a bd-bandcheck refusal line stays inside bd-cut-preflight's band denominator",
+  "band": [
+    "tests/test_row724_preflight_bandcheck_counts_failures.py"
+  ],
+  "mutants": [
+    {
+      "label": "EMPTY TARGET stops being a recognised bad state, so the refused target leaves the denominator",
+      "file": "toolchain/bin/bd-cut-preflight",
+      "old_regex": "(?<=\\|NOT A FILE\\|MISSING\\|)(?=EMPTY TARGET\\)\\\\b)",
+      "new": "(?!)",
+      "direction": "regression",
+      "catcher": "tests/test_row724_preflight_bandcheck_counts_failures.py::test_empty_target_keeps_its_place_in_the_operator_receipt_end_to_end"
+    }
+  ]
+}

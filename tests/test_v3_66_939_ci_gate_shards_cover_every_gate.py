@@ -121,6 +121,13 @@ _DECLARED = {
     # tree-wide, so no changed subject can derive this path-existence gate.
     # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
     "tests/test_row678_bandcheck_exclusion_tables.py",
+    # Rows 724/744-747: toolchain receipts must not mint verification.
+    # CI-SHARD-CLAIM receipts toolchain tests/test_row724_preflight_bandcheck_counts_failures.py
+    "tests/test_row724_preflight_bandcheck_counts_failures.py",
+    "tests/test_row744_guard_declare_wording_matches_repin_rule.py",
+    "tests/test_row745_tool_lint_receipt_counts_what_it_read.py",
+    "tests/test_row746_bandcheck_empty_target_is_refused.py",
+    "tests/test_row747_bd_band_delegation_is_guarded.py",
     # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
     # caller instead of being flattened into an accepted login request.
     "tests/test_login_api_refuses_impossible_manual_start.py",
