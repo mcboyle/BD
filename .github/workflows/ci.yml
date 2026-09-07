@@ -484,12 +484,17 @@ jobs:
           # rather than as a template defect.
           # Row 666. Offline candidate inspection resolves relative download
           # links against the caller-supplied page URL, not the login fallback.
+          # Row 670. The verifier carries an operator session into the browser
+          # context (fake browser, fixtures only) so a template can be resolved
+          # against an authenticated page; an unusable session reads UNKNOWN.
           - name: template-selectors
             suites: >-
               tests/test_row362_templates_are_resolvable.py
+              tests/test_row670_verifier_carries_a_session.py
               tests/test_row671_reviewed_template_selectors_are_enumerated.py
               tests/test_row377_installed_template_selftest_states.py
               tests/test_login_session_does_not_cover_the_scene_host.py
+              tests/test_row663_inspect_rung_matches_runner.py
               tests/test_row666_candidates_inspect_prefers_caller_url.py
               tests/test_row_pm_template_gap_matchers_and_corpus.py
           # Row 386. The download chain end to end -- page DOM, candidate
@@ -642,6 +647,7 @@ jobs:
               tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
               tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py
               tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
+              tests/test_row659_witness_run_does_not_leak_capture_state.py
           - name: regen-idempotence-isolation
             suites: >-
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py

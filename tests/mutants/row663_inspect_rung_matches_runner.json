@@ -1,0 +1,82 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 663. Seven seams of the rung decision plus the cross-implementation drift guard. M8 mutates runner_integrity, NOT this cut's own file: the inspector reimplements the runner's preference walk, so a row663 test must go red when the RUNNER's same-work subset is deleted, or the two copies are free to drift again -- which is the condition that created this row. Every anchor is zero-width (lookbehind + lookahead) so it names a DECISION, not a value.",
+  "subject": "dry_run.inspect_candidates / _rung_decision -- the rung the runner would save",
+  "band": [
+    "tests/test_row663_inspect_rung_matches_runner.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 drop resolution_tier from the accepted sort key (the 4K/8K tie falls to document order again)",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    accepted\\.sort\\(key=lambda r: \\(\\(r\\[\"score\"\\] or 0\\),\\n)(?=                                 \\(r\\[\"resolution_tier\"\\] or 0\\),$)",
+      "new": "                                 0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_inspect_winner_is_the_rung_the_runner_saves"
+    },
+    {
+      "label": "M2 never apply quality_preference (always fall through to the top-ranked row)",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    chosen = )(?=_prefer_rung\\(ranked, qpref\\) if qpref else None$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_quality_preference_selects_a_lower_rung_over_the_top_one"
+    },
+    {
+      "label": "M3 invert the min_resolution comparison so a below-floor rung is reported as selected",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    if min_res > 0 and rung > 0 and )(?=rung < min_res:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_min_resolution_above_every_rung_refuses_rather_than_names_one"
+    },
+    {
+      "label": "M4 delete the UNKNOWN branch -- a missing site config silently claims a rung",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    if site_config is )(?=None:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_no_site_config_reports_UNKNOWN_rather_than_claiming_a_rung"
+    },
+    {
+      "label": "M5 stop template_dry_run passing the site config through (seam 2)",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^                                            site_config=)(?=site_config\\)$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_template_dry_run_passes_the_site_config_to_the_inspector"
+    },
+    {
+      "label": "M6 make tier_pixel_height answer 0 for every bucket",
+      "file": "bulk_downloader/heuristic_scoring.py",
+      "old_regex": "(?m)(?<=^        return TIER_PIXEL_HEIGHTS\\.get\\(int\\(tier\\), )(?=0\\)$)",
+      "new": "0) * int(not tier) or (",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_every_row_carries_the_rung_it_names"
+    },
+    {
+      "label": "M7 delete the inspector's same-work subset (the escape the shape lens found)",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    if same_work)(?=:$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_inspector_and_runner_choose_the_same_candidate_on_a_related_card_page"
+    },
+    {
+      "label": "M8 CROSS-IMPLEMENTATION DRIFT: delete the same-work subset from runner_integrity._apply_quality_preference",
+      "file": "bulk_downloader/runner_integrity.py",
+      "old_regex": "(?m)(?<=^        if same_work)(?=:$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_inspector_and_runner_choose_the_same_candidate_on_a_related_card_page"
+    },
+    {
+      "label": "M9 claim 'selected' on a page whose work affinity is unknown",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    if )(?=work_known:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_a_page_with_no_work_signal_qualifies_its_claim"
+    }
+  ]
+}

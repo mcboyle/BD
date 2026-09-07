@@ -2275,6 +2275,7 @@
         "bulk_downloader/takeover_vnc.py",
         "bulk_downloader/template_canary.py",
         "tools/adversarial_probe.py",
+        "tools/audit/witnesses/cap01_witnesses.py",
         "tools/autonomy_center.py",
         "tools/autonomy_held_out_assist.py",
         "tools/autonomy_library_reconcile.py",
@@ -2366,7 +2367,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1705,
+    "edge_count": 1707,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3834,6 +3835,7 @@
       "bulk_downloader/heuristic_scoring.py": [
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/introspection.py",
+        "bulk_downloader/dry_run.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/template_extractor_impl/candidates.py",
         "bulk_downloader/template_multi.py",
@@ -4493,7 +4495,8 @@
         "tools/cockpit_console.py"
       ],
       "bulk_downloader/session_scope.py": [
-        "bulk_downloader/runner_auth.py"
+        "bulk_downloader/runner_auth.py",
+        "bulk_downloader/template_selector_verifier.py"
       ],
       "bulk_downloader/shares.py": [
         "bulk_downloader/app.py",
@@ -6516,6 +6519,7 @@
       ],
       "bulk_downloader/dry_run.py": [
         "bulk_downloader/candidate_filter.py",
+        "bulk_downloader/heuristic_scoring.py",
         "bulk_downloader/selector_lint.py",
         "bulk_downloader/template_assist.py",
         "bulk_downloader/template_extractor.py",
@@ -7256,7 +7260,8 @@
       ],
       "bulk_downloader/template_selector_verifier.py": [
         "bulk_downloader/cloak.py",
-        "bulk_downloader/selector_playground.py"
+        "bulk_downloader/selector_playground.py",
+        "bulk_downloader/session_scope.py"
       ],
       "bulk_downloader/temporal_benchmark.py": [
         "bulk_downloader/capture_synth.py",

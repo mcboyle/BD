@@ -4,6 +4,68 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1510 - the inspector names the rung the runner saves, a witness stops rebinding the store's capture posture, the verifier proves a template only an authenticated page can resolve, and a collapsed reader window stops calling silence an answer
+
+Train A2-04, base origin/main a20e1b34 (v3.66.1509), rebased onto it from cd11d5a1 after PR #814 landed 1509. Four independently reviewed patches with
+disjoint authored paths. Every count below is `git diff --cached a20e1b34`, against the DECLARED
+BASE and never against a bare HEAD. The only surface these patches share is the two additive
+shard-declaration lists, and the assembled tree adds 20 lines to them and DELETES NONE; the shard
+gate was RUN on this train rather than inherited from any car.
+
+CAR 1, cut/row663-inspect-rung (row 663, base 7b67e9ba; T2; PASS by bd-review-b2 on pass 2 after
+a shape REFUTE on pass 1): dry_run._prefer_rung reimplemented
+runner_integrity._apply_quality_preference but omitted the first thing it does, the same-work
+subset (row 388), so on a scene page whose related card outranked the page's own scene the runner
+saved 1080 while candidates-inspect answered 2160. _same_work_subset now mirrors the runner
+exactly, and where the inspector has no work signal at all -- which is every page today, since
+_walk_for_candidates sees only the soup -- the state is selected_work_unknown with the caveat in
+rung_reason, so the rung is still named and the claim that it is the runner's rung is qualified.
+M8 deletes the same-work subset from runner_integrity and a row663 test goes RED, so the two
+copies cannot drift again. Row 663 CLOSES; the work-affinity plumbing is a separate row.
+
+CAR 2, cut/row659-order-dependence (row 659, base 48614e1c; PASS by bd-lens-L1, 4/4 verified): an
+audit witness suite executed in-process rebound capture_bodies.bodies_enabled, and every later
+test on that xdist worker then read the witness's capture posture instead of the store's. cap01's
+witness run restores the process-global state it borrows. Row 659 CLOSES per the 23:10Z ruling.
+
+CAR 3, cut/row670-session (row 670, base 48614e1c; T2; L2 verify-only PASS, E1-E5 closed):
+verify_template_source accepts a session -- a cookie list, a storage-state mapping, or a JSON path
+to either -- and a test proves the template resolves only when authenticated. An unreadable
+session is UNKNOWN and never launches a browser, at eleven shapes rather than six, and the session
+summary reaches the unknown report at the empty-denominator, blocked-URL and parser-unavailable
+arms. Row 670 CLOSES; row 455 stays open, as its acceptance requires.
+
+CAR 4, cut/row753 (row 753, base bc09e062; PASS by bd-lens-L2, narrow verify of bd-review-b round
+1): bd-wedge-hunt's collapsed reader window now yields S:ERROR-LATE / C:UNKNOWN in the owner
+record instead of the S:TIMEOUT / A:0 / C:TIMEOUT an honestly empty channel earns, so a
+measurement that did not happen is no longer indistinguishable from one that found nothing.
+ROW 753 STAYS OPEN: its acceptance clause 3, three runs under the canonical -n 24 --dist loadfile
+schedule on a comparably loaded host, is owed and is outside worker authority.
+
+NOT CARRIED: cut/toolchain-denominator (row 469) was assembled into this train and then REMOVED
+from it by the lane, not by inspection. Its rewrite of bd-tool-lint's refusal changes the wording
+row 745 pinned at v3.66.1507 -- the receipt now says reason=UNKNOWN (unreadable: PATH) where
+tests/test_row745_tool_lint_receipt_counts_what_it_read.py asserts reason=UNREADABLE -- and the
+cut was authored on 48614e1c, before row 745 landed, so nothing in its own worktree could see the
+collision. The band failure text and the patch go back to its worker; row 469 STAYS OPEN.
+
+IMPORT-GRAPH BASELINE, re-frozen once by the integrator at assembly per the amended import
+ruling: tools/decomp/import_graph_baseline.json edge_count 4344 -> 4352, eight edges ADDED and
+NONE REMOVED. Two are the product edges the cars declared --
+bulk_downloader/dry_run.py -> bulk_downloader/heuristic_scoring.py (car 1) and
+bulk_downloader/template_selector_verifier.py -> bulk_downloader/session_scope.py (car 3,
+function-local at three call sites). Six are TEST-to-module edges from the three new test files:
+tests/test_row659_witness_run_does_not_leak_capture_state.py -> capture_bodies.py and
+-> global_config.py; tests/test_row663_inspect_rung_matches_runner.py -> dry_run.py,
+-> heuristic_scoring.py and -> runner_integrity.py; and
+tests/test_row670_verifier_carries_a_session.py -> session_scope.py. Car 2 and car 3 declared
+their test edges; car 1 declared only its product edge, so its three test edges were undeclared,
+and I read each import statement in the tree before accepting it rather than taking the diff on
+trust. No product module outside the two named above gained an edge.
+
+REGISTER: rows 659, 663 and 670 CLOSED at this version. Row 753 amended to PARTIAL LANDING with
+its acceptance clause 3 named as owed, and left OPEN. Row 469 untouched and OPEN.
+
 ## v3.66.1509 - a vendor age wall can be clicked through, and the three ways that could have gone wrong are closed at the decision
 
 One patch, cut/row721-age-gate-enter, BOARD by bd-lens-L4 verifying its own

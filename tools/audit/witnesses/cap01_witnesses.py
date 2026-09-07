@@ -180,13 +180,37 @@ def main():
 @w("F-CAP01-manifest-gap")
 def _w7():
     import os
-    os.environ.setdefault("BD_CAPTURE_BODIES", "1")
+    # ROW 659: a witness suite is EXECUTED IN-PROCESS by
+    # tools/witness_drift.py::snapshot, which tests/test_v3_66_1192_live_path_-
+    # defaults_are_portable.py runs.  Both mutations below used to outlive this
+    # function, so every later test in the same worker read the capture posture
+    # this probe chose instead of the one the global_config store holds.  Force
+    # the retain path for the length of the probe ONLY, and restore it.
+    # The env key is held in a NAME, never a literal, at every read/index site
+    # below: tools/config_surface_inventory.py attributes a key's source_file to
+    # the first file with a LITERAL os.environ.get("BD_...")/environ["BD_..."],
+    # and that attribution is what makes BD_CAPTURE_BODIES danger-classified via
+    # its guard file bulk_downloader/capture_bodies.py.  A literal here would
+    # steal the attribution to this audit script and silently drop the GUI
+    # disclaimer (tests/test_v3_66_308_capture_parity.py::
+    # test_inventory_capture_keys_full_and_danger).
+    _flag = "BD_CAPTURE_BODIES"
+    _saved_env = os.environ.get(_flag)
+    os.environ.setdefault(_flag, "1")
     from bulk_downloader import capture_bodies as cb
-    cb.bodies_enabled = lambda: True  # force the retain path for the probe
-    manifest = ("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,"
-                "URI=\"https://cdn.example.com/keys/PATHSIGNEDabc123/key.bin\"\n"
-                "https://cdn.example.com/v/PATHSIGNEDseg9999/seg1.ts\n")
-    out = cb.redact_body(manifest, "application/vnd.apple.mpegurl")
+    _saved_bodies_enabled = cb.bodies_enabled
+    try:
+        cb.bodies_enabled = lambda: True  # force the retain path for the probe
+        manifest = ("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,"
+                    "URI=\"https://cdn.example.com/keys/PATHSIGNEDabc123/key.bin\"\n"
+                    "https://cdn.example.com/v/PATHSIGNEDseg9999/seg1.ts\n")
+        out = cb.redact_body(manifest, "application/vnd.apple.mpegurl")
+    finally:
+        cb.bodies_enabled = _saved_bodies_enabled
+        if _saved_env is None:
+            os.environ.pop(_flag, None)
+        else:
+            os.environ[_flag] = _saved_env
     survives = "PATHSIGNEDseg9999" in str(out) or "PATHSIGNEDabc123" in str(out)
     return survives, ("CONFIRMED: path-signed manifest URI survives redact_body "
                       "(the documented DEFERRED-F2 gap is real -> capture is local_only)"

@@ -341,6 +341,11 @@ _MEASURED_S = {
     # than the old fixture-only 2s clock. Measured on test5 at load 26.2.
     "term_resistant_observer_stays_inside_gate_budget/wait":                    (10.6006, 7),
     "term_resistant_observer_stays_inside_gate_budget/wait-2":                   (0.0035, 5),
+    # ROW 753: the subject's fixture with the terminal reader started late.
+    # Measured 2026-09-06 on a 48-core host at load 26 (see the row 753 block).
+    "row753_late_terminal_reader/exit":                                          (7.6122, 20.0),
+    "row753_late_terminal_reader/wait":                                          (0.0035, 5),
+    "row753_direct_reader/run":                                                  (1.2151, 5),
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/exit":      (6.2437, 20.0),
     "terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait":      (0.0035, 5),
     "terminal_relay_wait_failure_reconciles_registered_id/run":                  (2.3323, 7),
@@ -5206,6 +5211,296 @@ def test_terminal_frame_without_eof_never_enters_an_unbounded_child_wait(
             proc.wait(timeout=_w1_budget_s("terminal_frame_without_eof_never_enters_an_unbounded_child_wait/wait"))
 
 
+# ROW 753 =====================================================================
+# The subject above fails under the canonical -n 24 --dist loadfile schedule
+# with the terminal-reader owner record at status=124 -- killed by the
+# timeout(1) wrapper that owns it -- and passes alone and at -n 12. THE BOUND,
+# named by instrumenting it: REGISTRATION_CHANNEL_READER_PROGRAM measured its
+# finish-early deadline from time.monotonic() AFTER the interpreter had
+# started, while the `timeout --kill-after` wrapper began counting the SAME
+# budget when it exec'd. The reader stopped 0.15s before its own clock ran
+# out, so it stayed inside the wrapper's budget only while interpreter startup
+# plus emission stayed under 150ms. Measured 2026-09-06 on a 48-core host at
+# load 26 (/usr/bin/python3 to its first user line, /proc/uptime on both
+# sides): 0.070s median for one starter, 0.110-0.130s at p90 for 24-48
+# concurrent starters, 0.160s max at 96 with 3 of 96 past the margin -- and
+# the canonical run spawns from 24 workers at load ~85. The fixture below
+# injects that lateness deterministically, on the terminal channel only, and
+# the reader now reports the clock it was handed so the test can prove both
+# the shape it built and the bound it stayed inside.
+_W1_ROW753_LATE_TERMINAL_READER = (
+    "import sys, time\n"
+    "if sys.argv[3] == 'terminal':\n"
+    "    time.sleep(%r)\n"
+)
+
+
+def _w1_row753_drive_late_terminal_reader(mod, tmp_path, *, late_start_s):
+    """The subject's exact fixture; only the terminal reader's first line moves."""
+    marker = tmp_path / "workload-started"
+    checked_wait_log = tmp_path / "checked-wait-entered"
+    gate_program = _w1_adversarial_gate_program(
+        terminal="ABORTED v1 reason=synthetic", hold=30, status=0)
+    reader_program = mod.REGISTRATION_CHANNEL_READER_PROGRAM
+    if late_start_s > 0:
+        reader_program = (
+            _W1_ROW753_LATE_TERMINAL_READER % float(late_start_s)
+            + reader_program)
+    script, rundir = _w1_build_runner(
+        mod, tmp_path,
+        "#!/bin/bash\ntouch %s\n" % shlex.quote(str(marker)),
+        reap_seconds=3, forward_expiry_is_subject=True,
+        gate_program=gate_program,
+        checked_wait_probe=checked_wait_log,
+        channel_reader_program=reader_program,
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(_w1_fake_home(
+        tmp_path, code=0, stdout="stubhost-4242\n"))
+    proc = subprocess.Popen(
+        ["bash", str(script)], env=env, text=True, cwd=_W1_SPAWN_CWD,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True)
+    gate_pid = -1
+    try:
+        gate_pid, _ = _w1_wait_for_gate(rundir)
+        rc = _w1_wait_for_exit_or_forbidden_checked_wait(
+            proc, rundir, checked_wait_log, site="row753_late_terminal_reader/exit")
+        # THE SUBJECT'S OWN PRECONDITIONS, UNCHANGED: the frame carried no EOF
+        # authority, the runner refused to bare-wait, the gate is still live.
+        assert rc == int(W1_RELEASE_FAILURE_CODE)
+        assert not marker.exists()
+        assert (rundir / "jobid").read_text().strip() == "stubhost-4242"
+        assert not checked_wait_log.exists()
+        assert _w1_live_in_group(gate_pid), (
+            "the hold-open gate did not exercise the pre-wait boundary")
+        readers = [record for record in _w1_owner_records(rundir)
+                   if record["role"] == "terminal-reader"]
+        assert len(readers) == 1, readers
+        return readers[0], rundir
+    finally:
+        _w1_kill_group(gate_pid)
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=_w1_budget_s("row753_late_terminal_reader/wait"))
+
+
+def _w1_row753_reader_clock(rundir) -> dict:
+    """The reader's own account of the clock it was handed, from its stderr."""
+    lines = [line for line in (rundir / "registration-terminal-reader.err")
+             .read_text(encoding="utf-8").splitlines()
+             if line.startswith("READER-CLOCK ")]
+    assert len(lines) == 1, lines
+    fields = dict(field.split("=", 1) for field in lines[0].split()[1:])
+    return {key: (int(value) if value.isdigit() else value)
+            for key, value in fields.items()}
+
+
+@pytest.mark.parametrize("late_start_s", [0.3, 0.6])
+def test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late(
+        tmp_path, late_start_s):
+    """Startup latency must not turn the reader's own deadline into a 124.
+
+    RED on the base with the canonical failure's exact shape: the
+    terminal-reader record carries status=124, because the reader's deadline
+    began on its own clock 0.3s or more after the wrapper's did and the fixed
+    0.15s margin was all that stood between them.
+    """
+    mod = _load()
+    reader, rundir = _w1_row753_drive_late_terminal_reader(
+        mod, tmp_path, late_start_s=late_start_s)
+    assert reader["status"] == "0", reader
+    assert reader["wait_ok"] == "1" and reader["descendants"] == "ABSENT", reader
+    rows = (rundir / "registration-terminal-reader.out").read_text(
+        encoding="utf-8").splitlines()
+    # THE EVIDENCE SURVIVED: the frame that had no EOF authority is on record.
+    assert rows[0] == "S:TIMEOUT", rows
+    assert rows[2] == "D:ABORTED v1 reason=synthetic", rows
+    clock = _w1_row753_reader_clock(rundir)
+    # THE FIXTURE BUILT THE SHAPE: the reader really started at least the
+    # injected lateness after the owner's anchor, and past the fixed margin.
+    assert clock["late_us"] >= int(late_start_s * 1000000), clock
+    assert clock["late_us"] > clock["margin_us"], clock
+    # THE DECISION: the window is the budget less the margin less the
+    # measured lateness, and the reader ended inside the owner's budget as
+    # measured on the OWNER'S clock.
+    assert clock["window_us"] == max(
+        0, clock["budget_us"] - clock["margin_us"] - clock["late_us"]), clock
+    assert clock["started_us"] < clock["ended_us"] < (
+        clock["anchor_us"] + clock["budget_us"]), clock
+
+
+def test_row753_reader_clock_is_the_owners_anchor_not_the_interpreters_start(tmp_path):
+    """Without injected lateness the reader still reports and applies the anchor."""
+    mod = _load()
+    reader, rundir = _w1_row753_drive_late_terminal_reader(
+        mod, tmp_path, late_start_s=0.0)
+    assert reader["status"] == "0", reader
+    clock = _w1_row753_reader_clock(rundir)
+    assert clock["anchor_us"] > 0, clock
+    assert clock["late_us"] == clock["started_us"] - clock["anchor_us"], clock
+    assert 0 < clock["margin_us"] < clock["budget_us"], clock
+    assert clock["window_us"] == max(
+        0, clock["budget_us"] - clock["margin_us"] - clock["late_us"]), clock
+    assert clock["started_us"] < clock["ended_us"] < (
+        clock["anchor_us"] + clock["budget_us"]), clock
+
+
+def test_row753_a_reader_that_cannot_start_inside_its_owner_budget_is_reported_killed(
+        tmp_path):
+    """NEGATIVE CONTROL: lateness the owner budget cannot absorb is a real 124.
+
+    The correction subtracts what the reader measures; it cannot rescue a
+    reader that has not reached its first line when the wrapper's budget
+    ends. That kill must stay visible as status=124 with no reader rows and
+    no clock line, or the settled-status assertions above would be vacuous.
+    """
+    mod = _load()
+    reader, rundir = _w1_row753_drive_late_terminal_reader(
+        mod, tmp_path, late_start_s=3.0)
+    assert reader["status"] == "124" and reader["wait_ok"] == "1", reader
+    assert (rundir / "registration-terminal-reader.out").read_text(
+        encoding="utf-8") == ""
+    assert "READER-CLOCK" not in (rundir / "registration-terminal-reader.err")\
+        .read_text(encoding="utf-8")
+
+
+# ROW 753, REVIEW-B R1: the collapsed window. When lateness has consumed the
+# whole window the first cut set it to zero and the reader exited 0 in 0.08s
+# with S:TIMEOUT and EMPTY rows -- a quiet success wearing the shape of an
+# honestly empty channel -- while the frame sat readable in the pipe. These
+# drive the shipped reader DIRECTLY against a pipe with an anchor placed in
+# the past, so the collapsed window is reached deterministically with no
+# runner and no schedule.
+_W1_ROW753_FRAME = b"ABORTED v1 reason=synthetic\n"
+
+
+def _w1_row753_uptime_us() -> int:
+    """/proc/uptime in microseconds, the runner's own arithmetic."""
+    with open("/proc/uptime", encoding="ascii") as stream:
+        seconds, _sep, fraction = stream.read().split()[0].partition(".")
+    return int(seconds) * 1000000 + int((fraction + "000000")[:6])
+
+
+def _w1_row753_exec_reader(mod, *, buffered: bytes, hold_open: bool,
+                           owner_budget_s: float, anchor_us: int,
+                           mode: str = "terminal", expected_pid: str = "0"):
+    """Drive the shipped reader against a pipe that already holds `buffered`.
+
+    `hold_open` keeps a write end so no EOF can arrive -- the held-open gate
+    the subject is about. `owner_budget_s` is the SUBJECT'S input, the owner
+    budget the runner hands the reader as argv[2] (W1_CHANNEL_INNER_TIMEOUT);
+    the test's own wait is derived from its measurement below. Returns the
+    five rows, the READER-CLOCK fields and the wall time the drive took.
+    """
+    read_end, write_end = os.pipe()
+    try:
+        if buffered:
+            assert os.write(write_end, buffered) == len(buffered)
+        if not hold_open:
+            os.close(write_end)
+            write_end = -1
+        started = time.monotonic()
+        result = subprocess.run(
+            ["python3", "-c", mod.REGISTRATION_CHANNEL_READER_PROGRAM,
+             "/proc/self/fd/%d" % read_end, repr(float(owner_budget_s)), mode,
+             expected_pid, str(anchor_us)],
+            capture_output=True, text=True, pass_fds=[read_end],
+            timeout=_w1_budget_s("row753_direct_reader/run"))
+        elapsed = time.monotonic() - started
+    finally:
+        os.close(read_end)
+        if write_end >= 0:
+            os.close(write_end)
+    assert result.returncode == 0, (result.returncode, result.stderr)
+    rows = result.stdout.splitlines()
+    assert len(rows) == 5, rows
+    assert [row[:2] for row in rows] == ["S:", "H:", "D:", "A:", "C:"], rows
+    clock_lines = [line for line in result.stderr.splitlines()
+                   if line.startswith("READER-CLOCK ")]
+    assert len(clock_lines) == 1, result.stderr
+    fields = dict(field.split("=", 1) for field in clock_lines[0].split()[1:])
+    clock = {key: (int(value) if value.isdigit() else value)
+             for key, value in fields.items()}
+    return rows, clock, elapsed
+
+
+def test_row753_a_collapsed_window_drains_what_is_buffered_and_says_it_could_not_wait():
+    """A reader that could not wait still takes what is there, and says so."""
+    mod = _load()
+    rows, clock, elapsed = _w1_row753_exec_reader(
+        mod, buffered=_W1_ROW753_FRAME, hold_open=True, owner_budget_s=1.35,
+        anchor_us=_w1_row753_uptime_us() - 3000000)
+    # THE WINDOW REALLY COLLAPSED: lateness past the whole budget.
+    assert clock["late_us"] >= 3000000 and clock["window_us"] == 0, clock
+    assert rows[0] == "S:ERROR-LATE", rows
+    assert rows[1] == "H:" + _W1_ROW753_FRAME.hex(), rows
+    assert rows[2] == "D:ABORTED v1 reason=synthetic", rows
+    assert rows[3] == "A:1", rows
+    assert rows[4] == "C:UNKNOWN", rows
+    # IT DID NOT WAIT, BECAUSE IT COULD NOT -- measured on the reader's own
+    # clock, so interpreter startup and teardown under load are outside it.
+    assert clock["ended_us"] - clock["started_us"] < 1000000, clock
+    assert elapsed < _w1_budget_s("row753_direct_reader/run"), elapsed
+
+
+def test_row753_a_collapsed_window_over_an_empty_channel_is_unknown_not_an_empty_timeout():
+    """Nothing buffered and no chance to wait is UNKNOWN, never a clean TIMEOUT."""
+    mod = _load()
+    rows, clock, elapsed = _w1_row753_exec_reader(
+        mod, buffered=b"", hold_open=True, owner_budget_s=1.35,
+        anchor_us=_w1_row753_uptime_us() - 3000000)
+    assert clock["window_us"] == 0, clock
+    assert rows == ["S:ERROR-LATE", "H:", "D:", "A:0", "C:UNKNOWN"], rows
+    assert clock["ended_us"] - clock["started_us"] < 1000000, clock
+    assert elapsed < _w1_budget_s("row753_direct_reader/run"), elapsed
+
+
+def test_row753_a_collapsed_window_that_finds_eof_reports_the_complete_channel():
+    """EOF already buffered is a complete answer however late the reader was."""
+    mod = _load()
+    frame = b"READY v1 pid=77\n"
+    rows, clock, _elapsed = _w1_row753_exec_reader(
+        mod, buffered=frame, hold_open=False, owner_budget_s=1.35,
+        anchor_us=_w1_row753_uptime_us() - 3000000, mode="ready",
+        expected_pid="77")
+    assert clock["window_us"] == 0, clock
+    assert rows == ["S:EOF", "H:" + frame.hex(), "D:READY v1 pid=77",
+                    "A:1", "C:READY"], rows
+
+
+def test_row753_an_anchor_in_the_future_is_zero_lateness_not_a_longer_window():
+    """The lateness clamp: a future anchor never lengthens the window."""
+    mod = _load()
+    rows, clock, elapsed = _w1_row753_exec_reader(
+        mod, buffered=b"", hold_open=True, owner_budget_s=0.5,
+        anchor_us=_w1_row753_uptime_us() + 3000000)
+    assert clock["late_us"] == 0, clock
+    assert clock["window_us"] == clock["budget_us"] - clock["margin_us"], clock
+    assert rows[0] == "S:TIMEOUT" and rows[4] == "C:TIMEOUT", rows
+    # Unclamped it would wait 3.35s; clamped it waits its 0.35s window.
+    assert clock["ended_us"] - clock["started_us"] < 2000000, clock
+    assert elapsed < _w1_budget_s("row753_direct_reader/run"), elapsed
+
+
+def test_row753_a_healthy_window_driven_directly_waits_and_keeps_the_frame():
+    """CONTROL for the new state: a reader that could wait reports TIMEOUT with its bytes."""
+    mod = _load()
+    rows, clock, elapsed = _w1_row753_exec_reader(
+        mod, buffered=_W1_ROW753_FRAME, hold_open=True, owner_budget_s=1.35,
+        anchor_us=_w1_row753_uptime_us())
+    assert clock["window_us"] > 0, clock
+    assert rows[0] == "S:TIMEOUT", rows
+    assert rows[2] == "D:ABORTED v1 reason=synthetic", rows
+    assert rows[4] == "C:TIMEOUT", rows
+    # It waited its whole window (two 10ms /proc/uptime truncations allowed)
+    # and still ended inside the owner's budget on the owner's clock.
+    assert clock["ended_us"] - clock["started_us"] >= clock["window_us"] - 20000, clock
+    assert clock["started_us"] < clock["ended_us"] < (
+        clock["anchor_us"] + clock["budget_us"]), clock
+    assert elapsed < _w1_budget_s("row753_direct_reader/run"), elapsed
+
+
 def test_handoff_timeout_retains_registered_id_under_one_budget(tmp_path):
     mod = _load()
     marker = tmp_path / "workload-started"
@@ -7741,6 +8036,11 @@ _W1_FORWARD_EXPIRY_IS_THE_SUBJECT = (
     ("test_one_second_lifecycle_cap_remains_truthfully_unknown",
      "The one-second cap is the explicit subject and must expire before later "
      "authority can turn unavailable initial evidence into a definite result."),
+    ("_w1_row753_drive_late_terminal_reader",
+     "Row 753 drives the subject fixture above with the terminal reader "
+     "started late: the frame withholds EOF, so the reader must run out its "
+     "whole forward-deadline slice and still end inside the owner budget "
+     "derived from that expiry, whatever its own first line's lateness."),
 )
 
 #: Every test allowed to shorten the OWNER-OBSERVATION floor, with the

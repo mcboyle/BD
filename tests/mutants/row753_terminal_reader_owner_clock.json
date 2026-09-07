@@ -1,0 +1,29 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 753. The channel reader's finish-early deadline is measured on the OWNER'S clock: the runner's /proc/uptime sample its budget was computed from, less the lateness the reader measures at its own first line. Anchors are zero-width execution positions on the two decisions -- the lateness term in the window and the admission of the anchor argument -- with no value inside any matched span.",
+  "subject": "the terminal reader ends inside its timeout(1) owner's budget however late the interpreter starts, so contention cannot turn a settled reader into status 124",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.3]",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.6]",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_reader_clock_is_the_owners_anchor_not_the_interpreters_start",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_reader_that_cannot_start_inside_its_owner_budget_is_reported_killed"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the reader's window ignores the lateness it measured",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=budget_us - MARGIN_US - )(?=late_us\\))",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.6]"
+    },
+    {
+      "label": "M2 the reader never admits the owner's anchor",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?m)(?<=^    if )(?=len\\(sys\\.argv\\) == 6:\\n        anchor_us = int)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.6]"
+    }
+  ]
+}

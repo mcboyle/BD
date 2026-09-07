@@ -1434,11 +1434,24 @@ def safe_display(data):
                    for value in shown)
 
 
+def uptime_us():
+    """/proc/uptime in microseconds: the clock the owning runner samples."""
+    with open("/proc/uptime", encoding="ascii") as stream:
+        seconds, _sep, fraction = stream.read().split()[0].partition(".")
+    return int(seconds) * 1000000 + int((fraction + "000000")[:6])
+
+
+# The finish-early margin under the owner's timeout(1): what the emission of
+# five rows may cost after the read loop stops. It is measured on the OWNER'S
+# clock below, never from this interpreter's own first line.
+MARGIN_US = 150000
 state = "ERROR"
 classification = "IO_ERROR"
 data = bytearray()
+anchor_us = None
+started_us = late_us = budget_us = window_us = 0
 try:
-    if len(sys.argv) != 5:
+    if len(sys.argv) not in (5, 6):
         raise ValueError("argv")
     timeout = float(sys.argv[2])
     mode = sys.argv[3]
@@ -1447,20 +1460,44 @@ try:
         raise ValueError("mode")
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout")
+    if len(sys.argv) == 6:
+        anchor_us = int(sys.argv[5])
+    # ROW 753. THE OWNER'S CLOCK, NOT THIS INTERPRETER'S. The timeout(1)
+    # wrapper that owns this reader began counting `timeout` when it exec'd;
+    # this line runs after interpreter startup, which measured 0.070s median
+    # on a loaded 48-core host and past 0.150s under 96 concurrent starters
+    # (2026-09-06). A deadline taken from here overshot the wrapper by that
+    # startup, and the fixed margin was the only thing absorbing it -- so
+    # under the canonical -n 24 schedule the wrapper killed the reader
+    # (status 124) and the frame it had already read was lost. The runner
+    # hands over the /proc/uptime sample its budget was computed from; the
+    # lateness measured against that sample comes off this reader's window,
+    # so the window ends inside the owner's budget however late it starts.
+    started_us = uptime_us()
+    budget_us = int(round(timeout * 1000000))
+    if anchor_us is not None:
+        late_us = max(0, started_us - anchor_us)
+    window_us = max(0, budget_us - MARGIN_US - late_us)
     fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NONBLOCK)
     try:
-        # The caller's timeout owner is the authority. Finish slightly before
-        # it so partial raw evidence can be emitted without extending that
-        # owner's absolute budget.
-        deadline = time.monotonic() + max(0.0, timeout - 0.15)
+        # The caller's timeout owner is the authority. Finish inside its
+        # budget so partial raw evidence can be emitted without extending
+        # that owner's absolute budget.
+        deadline = time.monotonic() + window_us / 1000000.0
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                state = "TIMEOUT"
-                break
+            # ROW 753 (review-b R1): the WAIT is bounded by the window; the
+            # LOOK is not. A window that has closed, or that lateness
+            # collapsed to nothing, still gets one non-blocking look at what
+            # is already buffered -- evidence that cost nothing to read is
+            # never thrown away.
+            remaining = max(0.0, deadline - time.monotonic())
             readable, _, _ = select.select([fd], [], [], remaining)
             if not readable:
-                state = "TIMEOUT"
+                # A reader whose window was never open did not measure the
+                # channel. ERROR-LATE is "I never got to look"; TIMEOUT is
+                # what an honestly empty channel earns, and the two must
+                # never share a record.
+                state = "TIMEOUT" if window_us > 0 else "ERROR-LATE"
                 break
             chunk = os.read(fd, 4096)
             if not chunk:
@@ -1478,8 +1515,26 @@ except (TypeError, ValueError):
     state = "ERROR-ARG"
 
 raw = bytes(data)
+ended_us = 0
+try:
+    ended_us = uptime_us()
+except (OSError, ValueError):
+    pass
+# The clock this reader was handed and what it did with it, for the owner's
+# forensics: a reader that is killed never writes this line, which is itself
+# the evidence that it did not settle.
+sys.stderr.write(
+    "READER-CLOCK anchor_us=%s started_us=%d late_us=%d budget_us=%d "
+    "margin_us=%d window_us=%d ended_us=%d state=%s\n"
+    % ("ABSENT" if anchor_us is None else anchor_us, started_us, late_us,
+       budget_us, MARGIN_US, window_us, ended_us, state))
+sys.stderr.flush()
 if state == "TIMEOUT":
     classification = "TIMEOUT"
+elif state == "ERROR-LATE":
+    # ROW 753 (review-b R1): an unavailable measurement is UNKNOWN, never
+    # the TIMEOUT that reads as "nothing was there" (CLAUDE.md A7).
+    classification = "UNKNOWN"
 elif state != "EOF":
     classification = "IO_ERROR"
 elif mode == "ready":
@@ -2496,7 +2551,7 @@ registration_read_channel() {{
     local W1_CHANNEL_ROLE="$W1_CHANNEL_MODE-reader"
     local W1_CHANNEL_OUTPUT="$RUNDIR/registration-$W1_CHANNEL_ROLE.out"
     local W1_CHANNEL_ERROR="$RUNDIR/registration-$W1_CHANNEL_ROLE.err"
-    local W1_CHANNEL_INNER_TIMEOUT
+    local W1_CHANNEL_INNER_TIMEOUT W1_CHANNEL_INNER_ANCHOR_US
     local W1_CHANNEL_ROWS=()
     W1_FRAME=""
     W1_FRAME_HEX=""
@@ -2510,10 +2565,16 @@ registration_read_channel() {{
         return 1
     fi
     W1_CHANNEL_INNER_TIMEOUT="$W1_OWNER_TIMEOUT"
+    # ROW 753: the reader's finish-early margin is measured on THIS clock,
+    # from the sample its budget was computed from, not from its own first
+    # line -- interpreter startup under load is what turned that margin into
+    # a timeout(1) kill at status 124.
+    W1_CHANNEL_INNER_ANCHOR_US="$W1_NOW_US"
     if ! registration_owner_run "$W1_CHANNEL_ROLE" "$W1_CHANNEL_OUTPUT" \
             "$W1_CHANNEL_ERROR" python3 -c {registration_channel_reader} \
             "/proc/$$/fd/$W1_CHANNEL_FD" "$W1_CHANNEL_INNER_TIMEOUT" \
-            "$W1_CHANNEL_MODE" "$W1_CHANNEL_EXPECTED_PID"; then
+            "$W1_CHANNEL_MODE" "$W1_CHANNEL_EXPECTED_PID" \
+            "$W1_CHANNEL_INNER_ANCHOR_US"; then
         W1_FRAME_RC=142
         return 1
     fi

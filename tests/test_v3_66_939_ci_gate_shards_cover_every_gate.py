@@ -101,6 +101,14 @@ _DECLARED = {
     "tests/test_row715_installer_refuses_a_foreign_directory.py",
     "tests/test_row718_installer_refuses_an_unwritable_install_dir.py",
     "tests/test_keepalive_default_off.py",
+    # Row 659. BD_GATE_SCOPE is "module" -- its subject is two named resources in
+    # one audit witness, not the tree -- but the leak it pins is PROCESS-GLOBAL:
+    # a witness suite executed in-process rebinds capture_bodies.bodies_enabled,
+    # and every later test in that worker then reads the witness's capture
+    # posture instead of the store's. No single file's own run can see that, so
+    # the gate is pinned into the lane claimed on the next line.
+    # CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",
@@ -192,6 +200,8 @@ _DECLARED = {
     "tests/test_row492_a_release_proves_what_it_frees.py",
     # CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
     "tests/test_login_session_does_not_cover_the_scene_host.py",
+    # CI-SHARD-CLAIM row-663 template-selectors tests/test_row663_inspect_rung_matches_runner.py
+    "tests/test_row663_inspect_rung_matches_runner.py",
     # CI-SHARD-CLAIM row-666 template-selectors tests/test_row666_candidates_inspect_prefers_caller_url.py
     "tests/test_row666_candidates_inspect_prefers_caller_url.py",
     # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
@@ -229,6 +239,10 @@ _DECLARED = {
     # Row 671. Reviewed templates use grouped selector roles outside the legacy
     # corpus, so their independently counted denominator also runs on every PR.
     "tests/test_row671_reviewed_template_selectors_are_enumerated.py",
+    # Row 670. The verifier carries an operator session into the browser
+    # context and refuses one it cannot honour as UNKNOWN; the gate drives the
+    # shipped verifier and CLI against a fake browser, fixtures only.
+    "tests/test_row670_verifier_carries_a_session.py",
     # Row 377. The installed verifier has PASS/FAIL/UNKNOWN outcomes; the CI
     # consumer must preserve UNKNOWN as a distinct refusal, never a pass.
     "tests/test_row377_installed_template_selftest_states.py",

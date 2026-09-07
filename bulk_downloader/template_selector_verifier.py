@@ -10,6 +10,15 @@ Saved HTML is rendered with all network requests blocked. URL subjects use
 BD's canonical ephemeral browser backend and the same public-host guard used by
 the selector playground. No result is called OK when its denominator is empty
 or the subject/parser was unavailable.
+
+Row 670: a URL subject may carry an operator SESSION -- a cookie list, a
+Playwright storage-state mapping, or a path to either saved as JSON -- which is
+injected into the browser context before navigation so a template can be
+resolved against an authenticated page. A session that cannot be loaded, that
+covers no host the subject uses, or that is given with a saved-HTML subject
+(served offline at a fixture origin, where no cookie can apply) is UNKNOWN,
+never a silent logged-out render: a MISS on a login wall looks exactly like a
+real answer about the members page, and that is the shape row 455 left open.
 """
 from __future__ import annotations
 
@@ -210,11 +219,197 @@ def audit_committed_selector_syntax() -> dict[str, Any]:
     }
 
 
+_SESSION_STATE_KEYS = {"cookies", "origins"}
+_SAME_SITE_VALUES = ("Strict", "Lax", "None")
+
+
+def _no_session() -> dict[str, Any]:
+    """The report's session summary when the caller supplied no session."""
+    return {
+        "supplied": False,
+        "source": "",
+        "cookies": 0,
+        "origins": 0,
+        "applicable_cookies": 0,
+        "applicable_origins": 0,
+    }
+
+
+def _default_cookie_path(url_path: str) -> str:
+    """RFC 6265 5.1.4 default-path of a URL path: up to its last slash."""
+    if not url_path.startswith("/") or url_path.count("/") == 1:
+        return "/"
+    return url_path[: url_path.rfind("/")] or "/"
+
+
+def _normalise_session_cookie(raw: Any, index: int) -> dict[str, Any]:
+    """One stored cookie (BD jar, ``add_cookies`` or storage-state shape) ->
+    Playwright ``storage_state`` cookie. Raises ``ValueError`` on anything a
+    browser could not set, because a dropped cookie renders logged-out."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"session cookie [{index}] is not a mapping")
+    name = raw.get("name")
+    value = raw.get("value")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"session cookie [{index}] has no name")
+    if not isinstance(value, str):
+        raise ValueError(f"session cookie {name!r} has no string value")
+    domain = str(raw.get("domain") or "").strip()
+    path = str(raw.get("path") or "").strip()
+    url = str(raw.get("url") or "").strip()
+    if not domain and url:
+        parsed = urlparse(url)
+        domain = (parsed.hostname or "").strip()
+        if not path:
+            path = _default_cookie_path(parsed.path or "/")
+    if not domain:
+        raise ValueError(f"session cookie {name!r} has neither domain nor url")
+    cookie: dict[str, Any] = {
+        "name": name,
+        "value": value,
+        "domain": domain,
+        "path": path or "/",
+    }
+    expires = raw.get("expires", raw.get("expirationDate"))
+    # Playwright and the extension exporters both write -1 for a session
+    # cookie; only a positive timestamp is a real expiry (cookies.py agrees).
+    positive_expiry = (
+        isinstance(expires, (int, float))
+        and not isinstance(expires, bool)
+        and expires > 0
+    )
+    if positive_expiry:
+        cookie["expires"] = float(expires)
+    for flag in ("httpOnly", "secure"):
+        if flag in raw:
+            cookie[flag] = bool(raw[flag])
+    if raw.get("sameSite") in _SAME_SITE_VALUES:
+        cookie["sameSite"] = raw["sameSite"]
+    return cookie
+
+
+def _normalise_session_origin(raw: Any, index: int) -> dict[str, Any]:
+    """One storage-state origin -> Playwright ``SetOriginStorage`` shape."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"session origin [{index}] is not a mapping")
+    origin = str(raw.get("origin") or "").strip()
+    if not urlparse(origin).hostname:
+        raise ValueError(f"session origin [{index}] has no host: {origin!r}")
+    items = raw.get("localStorage")
+    if not isinstance(items, list):
+        raise ValueError(f"session origin {origin!r} has no localStorage list")
+    storage: list[dict[str, str]] = []
+    for position, item in enumerate(items):
+        if (not isinstance(item, dict)
+                or not isinstance(item.get("name"), str)
+                or not isinstance(item.get("value"), str)):
+            raise ValueError(
+                f"session origin {origin!r} localStorage [{position}] "
+                "is not a name/value pair"
+            )
+        storage.append({"name": item["name"], "value": item["value"]})
+    normalised: dict[str, Any] = {"origin": origin, "localStorage": storage}
+    if isinstance(raw.get("indexedDB"), list):
+        # Carried through untouched: a site that authenticates from IndexedDB
+        # would otherwise render logged-out with the report claiming a session.
+        normalised["indexedDB"] = raw["indexedDB"]
+    return normalised
+
+
+def load_session(session: Any) -> tuple[dict[str, Any], str]:
+    """Return ``(storage_state, source)`` for an operator session, or raise
+    ``ValueError`` naming exactly what could not be read.
+
+    ``session`` is one of: a list of cookies (BD's in-memory jar shape, which
+    is Playwright's ``add_cookies`` shape); a storage-state mapping with
+    ``cookies`` and/or ``origins`` (what ``BrowserContext.storage_state()``
+    returns); a BD cookie-file mapping whose list values are cookies; or a
+    path to a UTF-8 JSON file holding any of those. The result is the mapping
+    Playwright's ``new_context(storage_state=...)`` accepts, cookies
+    normalised to the ``SetNetworkCookie`` shape.
+    """
+    source = "mapping"
+    data = session
+    if isinstance(session, (str, os.PathLike)):
+        path = Path(os.fspath(session))
+        source = str(path)
+        if not path.is_file():
+            raise ValueError(f"session file is not a file: {path}")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            raise ValueError(
+                f"session file is not readable JSON: {path}: {exc}"
+            ) from exc
+    if isinstance(data, list):
+        cookies_raw: Any = data
+        origins_raw: Any = []
+        if source == "mapping":
+            source = "cookies"
+    elif isinstance(data, dict):
+        if _SESSION_STATE_KEYS & set(data):
+            cookies_raw = data.get("cookies") or []
+            origins_raw = data.get("origins") or []
+        else:
+            cookies_raw = [
+                cookie
+                for value in data.values() if isinstance(value, list)
+                for cookie in value
+            ]
+            origins_raw = []
+        if not isinstance(cookies_raw, list) or not isinstance(origins_raw, list):
+            raise ValueError("session cookies and origins must be lists")
+    else:
+        raise ValueError(
+            "session must be a cookie list, a storage-state mapping or a "
+            f"file path, not {type(data).__name__}"
+        )
+    cookies = [
+        _normalise_session_cookie(cookie, index)
+        for index, cookie in enumerate(cookies_raw)
+    ]
+    origins = [
+        _normalise_session_origin(origin, index)
+        for index, origin in enumerate(origins_raw)
+    ]
+    if not cookies and not origins:
+        raise ValueError("session carries no cookies and no storage origins")
+    return {"cookies": cookies, "origins": origins}, source
+
+
+def _origin_identity(url: str) -> tuple[str, str, int | None]:
+    """(scheme, host, port) -- what a browser scopes localStorage by."""
+    from .session_scope import host_of
+
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    return (parsed.scheme or "").lower(), host_of(url), port
+
+
+def _session_coverage(storage_state: dict[str, Any], url: str) -> tuple[int, int]:
+    """How many session cookies / origins a browser would offer to ``url``."""
+    from .session_scope import applicable_cookies, host_of
+
+    if not host_of(url):
+        return 0, 0
+    cookies = len(applicable_cookies(storage_state["cookies"], url))
+    subject_origin = _origin_identity(url)
+    origins = sum(
+        1 for origin in storage_state["origins"]
+        if _origin_identity(origin["origin"]) == subject_origin
+    )
+    return cookies, origins
+
+
 def _unknown_report(
     template_id: str,
     entries: list[dict[str, Any]],
     subject: Any,
     error: str,
+    session: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rows = [
         {
@@ -235,6 +430,7 @@ def _unknown_report(
             "source": str(subject),
             "status": "UNKNOWN",
             "error": error,
+            "session": session or _no_session(),
         },
         "interaction": {
             "clicked": False,
@@ -402,8 +598,18 @@ def verify_template_source(
     timeout: float = 10.0,
     headless: bool = True,
     wait_for: str | None = None,
+    session: Any = None,
 ) -> dict[str, Any]:
-    """Render ``subject`` and report count + HIT/MISS/MALFORMED per selector."""
+    """Render ``subject`` and report count + HIT/MISS/MALFORMED per selector.
+
+    ``session`` (row 670) is an operator session in any shape ``load_session``
+    reads. It is injected into the browser context as Playwright storage state
+    before navigation, and ``report["subject"]["session"]`` records how much of
+    it a browser would offer to the subject's host, so an authenticated
+    resolution is distinguishable from a logged-out one in the report itself.
+    """
+    session_info = _no_session()
+    session_info["supplied"] = session is not None
     if isinstance(template, str):
         template_id = template
         template_data = _committed_template(template)
@@ -413,30 +619,47 @@ def verify_template_source(
                 [],
                 subject,
                 f"unknown committed template id: {template_id}",
+                session_info,
             )
     elif isinstance(template, dict):
         template_data = template
         template_id = str(template.get("id", "<missing-id>"))
     else:
         return _unknown_report(
-            "<invalid-template>", [], subject, "template must be an id or mapping"
+            "<invalid-template>",
+            [],
+            subject,
+            "template must be an id or mapping",
+            session_info,
         )
 
     entries = enumerate_template_selectors(template_data)
     if not entries:
         return _unknown_report(
-            template_id, entries, subject, "template has no selector denominator"
+            template_id,
+            entries,
+            subject,
+            "template has no selector denominator",
+            session_info,
         )
     try:
         kind, source, html = _read_subject(subject)
     except Exception as exc:
         return _unknown_report(
-            template_id, entries, subject, f"{type(exc).__name__}: {exc}"
+            template_id,
+            entries,
+            subject,
+            f"{type(exc).__name__}: {exc}",
+            session_info,
         )
 
     if timeout <= 0:
         return _unknown_report(
-            template_id, entries, subject, "timeout must be greater than zero"
+            template_id,
+            entries,
+            subject,
+            "timeout must be greater than zero",
+            session_info,
         )
     timeout_ms = max(1, int(timeout * 1000))
     subject_info: dict[str, Any] = {
@@ -454,8 +677,61 @@ def verify_template_source(
         allowed, reason = _host_public(source)
         if not allowed:
             return _unknown_report(
-                template_id, entries, subject, f"blocked URL subject: {reason}"
+                template_id,
+                entries,
+                subject,
+                f"blocked URL subject: {reason}",
+                session_info,
             )
+
+    storage_state: dict[str, Any] | None = None
+    if session is not None:
+        session_error = ""
+        try:
+            storage_state, session_source = load_session(session)
+        except ValueError as exc:
+            storage_state, session_source = None, ""
+            session_error = f"session unavailable: {exc}"
+        session_info.update({
+            "source": session_source,
+            "cookies": len(storage_state["cookies"]) if storage_state else 0,
+            "origins": len(storage_state["origins"]) if storage_state else 0,
+        })
+        if session_error:
+            return _unknown_report(
+                template_id, entries, subject, session_error, session_info
+            )
+        saved_html = kind == "html"
+        if saved_html:
+            return _unknown_report(
+                template_id,
+                entries,
+                subject,
+                "saved HTML subject cannot carry a session: it is served "
+                "offline at a fixture origin no cookie applies to; pass the "
+                "page URL instead",
+                session_info,
+            )
+        covering_cookies, covering_origins = _session_coverage(storage_state, source)
+        session_info.update({
+            "applicable_cookies": covering_cookies,
+            "applicable_origins": covering_origins,
+        })
+        uncovered = not covering_cookies and not covering_origins
+        if uncovered:
+            from .session_scope import host_of
+
+            return _unknown_report(
+                template_id,
+                entries,
+                subject,
+                "session covers no host the subject uses: "
+                f"{session_info['cookies']} cookie(s) and "
+                f"{session_info['origins']} origin(s), none applicable to "
+                f"{host_of(source)}",
+                session_info,
+            )
+    subject_info["session"] = session_info
 
     parsed = parse_selectors([entry["selector"] for entry in entries])
     rows = [
@@ -470,16 +746,19 @@ def verify_template_source(
     ]
     if any(row["status"] == "UNKNOWN" for row in rows):
         error = next(row["error"] for row in rows if row["status"] == "UNKNOWN")
-        return _unknown_report(template_id, entries, subject, error)
+        return _unknown_report(template_id, entries, subject, error, session_info)
 
     try:
         from .cloak import cloaked_page
 
         browser_config = {"browser_backend": "playwright"} if kind == "html" else None
+        context_options: dict[str, Any] = {"service_workers": "block"}
+        if storage_state is not None:
+            context_options["storage_state"] = storage_state
         with cloaked_page(
             headless=headless,
             config=browser_config,
-            context_options={"service_workers": "block"},
+            context_options=context_options,
         ) as page:
             page.set_default_timeout(timeout_ms)
             if not hasattr(page, "route_web_socket"):
@@ -533,6 +812,7 @@ def verify_template_source(
             entries,
             subject,
             f"subject could not be rendered: {type(exc).__name__}: {exc}"[:700],
+            session_info,
         )
 
     counts = [row.get("count") for row in rows]

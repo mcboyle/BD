@@ -1,0 +1,146 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 670. Every anchor is a zero-width lookbehind/lookahead pair on a DECISION -- the branch predicate, the injection guard, the report assignment, the CLI pass-through -- and the inserted text inverts or disables it; no anchor matches a value. One mutant per seam the patch adds. The transform control for this battery lives in row670_verifier_session_transform_control.json and MUST escape. Shape-lens round: M11-M14 DELETE the four per-element guards the lens found unpinned (E1-E4) exactly as the lens deleted them; M15-M17 drop the session summary in transit at the three early-UNKNOWN sites (E5).",
+  "subject": "verify_template_source carries an operator session into the browser context so a template resolves against an authenticated page, and a session it cannot honour reads UNKNOWN rather than rendering logged-out",
+  "band": [
+    "tests/test_row670_verifier_carries_a_session.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the loaded session is never injected into the browser context",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        if )(?=storage_state is not None:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_members_only_selectors_resolve_when_the_session_is_carried"
+    },
+    {
+      "label": "M2 an unreadable session renders logged-out instead of UNKNOWN",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        if )(?=session_error:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M3 a saved-HTML subject silently discards the session",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        if )(?=saved_html:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_a_saved_html_subject_refuses_a_session"
+    },
+    {
+      "label": "M4 a session covering no subject host renders logged-out instead of UNKNOWN",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        if )(?=uncovered:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_a_session_covering_no_subject_host_is_unknown_not_miss"
+    },
+    {
+      "label": "M5 the OK report claims no session was supplied",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    subject_info\\[\"session\"\\] = )(?=session_info$)",
+      "new": "_no_session() or ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_members_only_selectors_resolve_when_the_session_is_carried"
+    },
+    {
+      "label": "M6 the UNKNOWN report claims no session was supplied",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^            \"session\": )(?=session or _no_session\\(\\),$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M7 a url-scoped cookie never gains its host",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    if not domain and )(?=url:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_cookies_are_normalised_to_the_storage_state_shape"
+    },
+    {
+      "label": "M8 the -1 session-cookie sentinel is injected as an expiry and real expiries are dropped",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    if )(?=positive_expiry:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_cookies_are_normalised_to_the_storage_state_shape"
+    },
+    {
+      "label": "M9 the CLI does not pass the operator's session file through",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?m)(?<=^        session=)(?=args\\.session,$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_cli_forwards_the_session_file_to_the_verifier"
+    },
+    {
+      "label": "M10 an UNKNOWN decided before the session is read claims none was supplied",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    session_info\\[\"supplied\"\\] = )(?=session is not None$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_a_saved_html_subject_refuses_a_session"
+    },
+    {
+      "label": "M11 a cookie that is not a mapping is dereferenced instead of refused (shape lens E1)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    if )(?=not isinstance\\(raw, dict\\):\\n        raise ValueError\\(f\"session cookie \\[\\{index\\}\\] is not a mapping\"\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M12 a non-string cookie value is injected into the storage state (shape lens E2)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    if )(?=not isinstance\\(value, str\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M13 a storage origin that is not a mapping is dereferenced instead of refused (shape lens E3)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^    if )(?=not isinstance\\(raw, dict\\):\\n        raise ValueError\\(f\"session origin \\[\\{index\\}\\] is not a mapping\"\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M14 a localStorage item without string name/value is injected (shape lens E4)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        if \\()(?=not isinstance\\(item, dict\\)$)",
+      "new": "False) and (",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unreadable_session_is_unknown_and_never_launches"
+    },
+    {
+      "label": "M15 the empty-denominator UNKNOWN drops the session summary in transit (shape lens E5)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^            \"template has no selector denominator\",\\n            )(?=session_info,$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unknown_decided_before_the_render_still_records_the_session"
+    },
+    {
+      "label": "M16 the blocked-URL UNKNOWN drops the session summary in transit (shape lens E5)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^                f\"blocked URL subject: \\{reason\\}\",\\n                )(?=session_info,$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unknown_decided_before_the_render_still_records_the_session"
+    },
+    {
+      "label": "M17 the parser-unavailable UNKNOWN drops the session summary in transit (shape lens E5)",
+      "file": "bulk_downloader/template_selector_verifier.py",
+      "old_regex": "(?m)(?<=^        return _unknown_report\\(template_id, entries, subject, error, )(?=session_info\\)$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row670_verifier_carries_a_session.py::test_an_unknown_decided_before_the_render_still_records_the_session"
+    }
+  ]
+}

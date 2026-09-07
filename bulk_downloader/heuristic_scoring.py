@@ -297,6 +297,29 @@ CODEC_TIERS: List[Tuple[re.Pattern, int, str]] = [
 ]
 
 
+# Row 663: RESOLUTION_TIERS values are ORDINAL buckets (80/70/.../2), chosen
+# so a junk 353p preview loses every contest. They are NOT pixel heights, so
+# they cannot be compared against an operator's `min_resolution` or against a
+# `quality_preference` entry like "2160". This maps each bucket to the pixel
+# height the bucket NAMES, which is what those two settings are expressed in.
+# Ranking still uses the bucket (it encodes the preview demotion); only the
+# operator-facing comparisons use the height.
+TIER_PIXEL_HEIGHTS: Dict[int, int] = {
+    80: 4320, 70: 3240, 65: 2880, 60: 2160, 50: 1440, 45: 1200,
+    40: 1080, 32: 900, 25: 720, 18: 540, 10: 480, 6: 360, 3: 240,
+    2: 353,
+}
+
+
+def tier_pixel_height(tier: int) -> int:
+    """Pixel height named by a RESOLUTION_TIERS bucket value, 0 when the
+    bucket is unknown or absent (no resolution was detected at all)."""
+    try:
+        return TIER_PIXEL_HEIGHTS.get(int(tier), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def detect_codec_tier(text: str) -> Tuple[int, str]:
     """Return (bonus, label) for the best codec mentioned in *text*.
 
