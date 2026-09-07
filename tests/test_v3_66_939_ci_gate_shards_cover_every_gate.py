@@ -130,6 +130,9 @@ _DECLARED = {
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",
+    # Row 777. Every emitted literal rendered-page shape failure must select a
+    # terminal schedule instead of silently inheriting the transient ladder.
+    "tests/test_row777_retry_ladder.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
