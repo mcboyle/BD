@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "row732 recursive export decision",
+  "band": [
+    "tests/test_row732_site_editor_redaction_descends.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass recursive export",
+      "file": "bulk_downloader/site_editor.py",
+      "old": "_redact_nested_export_value(v, stripped, k)",
+      "new": "v",
+      "direction": "regression",
+      "catcher": "tests/test_row732_site_editor_redaction_descends.py::test_export_descends_into_nested_config_values"
+    },
+    {
+      "label": "M2 flatten the diff_config walk back to top-level keys",
+      "file": "bulk_downloader/site_editor.py",
+      "old_regex": "(?m)(?<=^def _mask_nested_diff_value\\(value, depth: int = 0\\):\\n)(?=    \\\"\\\"\\\"Mask secret-keyed DESCENDANTS)",
+      "new": "    return value\n",
+      "direction": "regression",
+      "catcher": "tests/test_row732_site_editor_redaction_descends.py::test_diff_config_masks_a_secret_nested_below_the_top_level"
+    }
+  ],
+  "_comment": "Row 732: export_config must descend into nested config values. Bypassing the recursive walk lets userinfo credentials ride out inside a nested dict. M2 covers H77: diff_config is the sibling preview surface, and flattening its walk returns the nested secret raw."
+}

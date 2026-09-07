@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: MUST ESCAPE. The band imports the artifact redactor but does not drive _value_findings, proving caught regressions are assertions rather than syntax failures.",
+  "subject": "transform-only control for the redaction decision seams",
+  "band": [
+    "tests/test_d1_path_signed_urls_are_redacted.py::test_the_signing_vocabulary_denominator_is_nonempty"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL inserting an early value finding return is outside the asserted path",
+      "file": "bulk_downloader/capture_artifact_redact.py",
+      "old_regex": "(?m)(?<=^def _value_findings\\(s: str\\) -> List\\[str\\]:\\n)(?=    \\\"\\\"\\\"Kinds of residual secret detected in one string \\(empty == clean\\)\\.\\\"\\\"\\\"$)",
+      "new": "    return []\n",
+      "direction": "regression",
+      "catcher": "tests/test_d1_path_signed_urls_are_redacted.py::test_the_signing_vocabulary_denominator_is_nonempty"
+    }
+  ]
+}

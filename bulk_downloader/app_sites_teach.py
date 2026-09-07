@@ -14,7 +14,7 @@ import uuid
 from flask import Blueprint, Response, jsonify, request
 from pathlib import Path
 from .constants import SCREENSHOTS_DIR
-from .runner import SiteRunner
+from .runner import CAPTCHA_EGRESS_ACK_FIELD, SiteRunner, captcha_egress_disclosure_error
 from .runner import _ts
 from datetime import datetime
 from .db import db_search
@@ -537,12 +537,17 @@ def api_template_apply(sid):
     tpl = _tpls.get(tpl_id)
     if not tpl: return jsonify({"ok":False,"error":f"unknown template: {tpl_id}"}),400
     cfg = s_cfg.get(sid, {})
+    defaults = dict(tpl.get("config_defaults") or {})
+    defaults.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    refusal = captcha_egress_disclosure_error(defaults, cfg)
+    if refusal:
+        return jsonify({"ok": False, "error": refusal}), 400
     download = (tpl.get("learned") or {}).get("download") or {}
     if download:
         merge_learned(cfg, download, kind="download")
     # v3.43.16: apply config_defaults non-destructively
     applied_defaults = []
-    for key, val in (tpl.get("config_defaults") or {}).items():
+    for key, val in defaults.items():
         existing = cfg.get(key)
         # Only apply if the user hasn't set this. "Unset" = missing,
         # None, empty string, or 0 for numerics.

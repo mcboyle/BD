@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "row751 recursive template strip",
+  "band": [
+    "tests/test_row751_template_strip_recurses.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass recursive strip",
+      "file": "bulk_downloader/user_templates.py",
+      "old": "return walk(t)",
+      "new": "return {k: v for k, v in t.items() if not _is_template_secret_key(k)}",
+      "direction": "regression",
+      "catcher": "tests/test_row751_template_strip_recurses.py::test_template_secret_strip_and_preview_names_descendants"
+    }
+  ],
+  "_comment": "Row 751(b): the template secret strip and its preview must name DESCENDANT secret paths, not only top-level keys."
+}

@@ -103,6 +103,8 @@ _SIGNING_META_ONLY = re.compile(r"(?:expires|policy|hash|x-amz-)", re.I)
 # the floor matches them explicitly -- preserving the original tuple's coverage
 # without widening the query SoT (which would change the gated signed-query pass).
 _KV_CRED_EXTRA = re.compile(r"(?:csrf|xsrf|bearer)", re.I)
+_JS_LITERAL_VALUE = re.compile(
+    r"^(?:null|true|false|undefined|NaN|void|[+-]?\d{1,3})(?![A-Za-z0-9_$.])")
 def _kv_key_is_secret(k: str) -> bool:
     """True if a key=value key marks its value as a CREDENTIAL -- the always-on
     floor scrubs it even under keep_full.
@@ -281,11 +283,13 @@ def _value_findings(s: str) -> List[str]:
         for pair in qs.split("&"):
             if "=" in pair:
                 k, _, v = pair.partition("=")
-                if SENSITIVE_QS_KEY.search(k) and v and v != PLACEHOLDER:
+                if _kv_key_is_secret(k) and v and v != PLACEHOLDER:
                     kinds.append("signed_url")
                     break
     for m in _KV_PAIR_RE.finditer(s):
-        if _kv_key_is_secret(m.group("k")) and m.group("v") != PLACEHOLDER:
+        if (_kv_key_is_secret(m.group("k"))
+                and m.group("v") != PLACEHOLDER
+                and not _JS_LITERAL_VALUE.match(m.group("v"))):
             kinds.append("kv_secret")
             break
     if _looks_like_opaque_token(s):

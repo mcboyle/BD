@@ -5223,10 +5223,15 @@ def _apply_template_by_id(sid, tpl_id):
     if not tpl:
         return False, f"unknown template: {tpl_id}"
     cfg = s_cfg.get(sid, {})
+    defaults = dict(tpl.get("config_defaults") or {})
+    defaults.pop(CAPTCHA_EGRESS_ACK_FIELD, None)
+    refusal = captcha_egress_disclosure_error(defaults, cfg)
+    if refusal:
+        return False, refusal
     download = (tpl.get("learned") or {}).get("download") or {}
     if download:
         merge_learned(cfg, download, kind="download")
-    for key, val in (tpl.get("config_defaults") or {}).items():
+    for key, val in defaults.items():
         if cfg.get(key) in (None, "", 0, 0.0) or key not in cfg:
             cfg[key] = val
     # v3.62.2: record that a template was applied. The runner's
