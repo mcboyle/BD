@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1520 - the import-edge remedy a gate emits is correct wherever it is emitted, and a comma in an interstitial label no longer splits one button into two
+
+Train A2-06, base origin/main aeed01f3 (v3.66.1519), REBASED off 26781387 after #823 landed. TWO
+reviewed worker patches with DISJOINT authored paths, measured not assumed: n7-import-graph-remedy
+(8 paths, BOARD by L1 round 3) and cx-ssrf gen4 (10 paths, BOARD by L3). Their path sets intersect
+in NOTHING -- 8 + 10 = 18 authored paths -- so the constructed ci.yml / 939-shard pair is touched by
+cx-ssrf alone, this train's shared surface is empty, and the union-deletion check is VACUOUS rather
+than passed. Base NAMED, never a bare HEAD. The pair's hunks were RE-DERIVED against aeed01f3 rather
+than replayed, so #823's own row777 declaration survives in both files beside row771's.
+
+N7: the import-graph gate and bd-decomp told a reader to re-freeze the frozen baseline in the SAME
+cut -- which COMMON.md forbids, because the baseline is a whole-tree total and only the integrator
+re-freezes it once on merged main -- and told them to do it with a bare `python3`, which breaks the
+tool pin against the toolchain's own interpreter. Both emitters now print the corrected remedy, and
+a test fails if either FOOTGUNS.json's fix line or bd-decomp's gates_for() entry is reverted to the
+wrong one. The instruction this train follows at assembly is the instruction this train repairs.
+
+cx-ssrf: a comma inside a declared interstitial label was read as a separator, so "No, Thanks" was
+matched as two labels and a declared button went unclicked. Tier matching is a fullmatch, declared
+selectors are taken from the site pass, denied labels stay denied, and the row771 battery pins each
+decision with a transform control that escapes.
+
+cx-ssrf also repins `_LEGACY_ROWS_SHA256` in tests/test_row671_reviewed_template_selectors_are_
+enumerated.py, in its own commit, because the repin is only true in the presence of its hunk: the
+corpus population is unchanged at 95 templates and 565 rows and exactly one row's VALUE moves. That
+gate is BD_GATE_SCOPE repo-wide and the constant is hand-typed with no regenerator, so band
+derivation can never select it and the car shipped red through no fault of its tooling; the
+asymmetry is filed as a harness item. The new digest was RECOMPUTED by the car, with the command and
+its output in its DONE.md, and independently re-derived here before it arrived; the two agree.
+
+Import baseline re-frozen ONCE here, at assembly, on merged main, with the POST-N7 gate -- the
+ordering matters because N7 rewrites the tool that writes this file -- adding exactly the two edges
+cx-ssrf declared and removing none: tests/test_row771_interstitial_comma.py ->
+bulk_downloader/interstitial.py and -> bulk_downloader/templates.py, 4387 edges -> 4389.
+
 ## v3.66.1519 - a rendered-page failure that cannot succeed stops being retried on the ten-minute and one-hour ladder
 
 Train B2-04, base origin/main 26781387 (v3.66.1518). ONE reviewed worker patch, row 777, carried

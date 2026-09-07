@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 771: punctuation-tolerant interstitial matching and the denylist are executable decisions, not label literals.",
+  "subject": "generic interstitial tier accepts comma punctuation while refused controls remain unclickable",
+  "band": [
+    "tests/test_row771_interstitial_comma.py"
+  ],
+  "mutants": [
+    {
+      "label": "S1 generic interstitial match skips every matching label",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^            if not )(?=label_pattern\\.fullmatch\\(label\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_generic_interstitial_accepts_comma_but_not_vague_or_denied_controls"
+    },
+    {
+      "label": "S2 denylist membership is bypassed",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^    for term in )(?=DENIED_CONTROL_TERMS:$)",
+      "new": "() if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_declared_decline_is_refused_before_a_click"
+    },
+    {
+      "label": "clear_gates interstitial tier has no comma-control selectors",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^        \\(\"interstitial\", )(?=INTERSTITIAL\\),$)",
+      "new": "[] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_clear_gates_interstitial_tier_clears_comma_spelling"
+    }
+  ]
+}

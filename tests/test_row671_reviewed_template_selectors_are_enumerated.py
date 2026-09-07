@@ -14,7 +14,8 @@ BD_GATE_SCOPE = "repo-wide"
 _REPO = Path(__file__).resolve().parents[1]
 _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
 # 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
-_LEGACY_ROWS_SHA256 = "20264107a314d55431ea41cb2dd9c67ccb33a0c187347a060ead82be5b1125ac"
+# Row771 updates gamma_kosmos selectors, so the assembled reviewed-selector corpus digest moves.
+_LEGACY_ROWS_SHA256 = "52fdf5ec78c0936266be4c69cde4edb24de411acbc46dde1bd7e25b2b461fbd1"
 _REVIEWED_DIR = _REPO / "templates" / "reviewed"
 _ROW455 = _REPO / "tests" / "test_row455_reviewed_template_against_a_live_dom.py"
 _HAZARD = _REPO / "tests" / "fixtures" / "row671" / "grouped_hazard.template.json"

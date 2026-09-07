@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4387,
+  "edge_count": 4389,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4101,6 +4101,10 @@
     ],
     "tests/test_row765_scrapling_selector_compatibility.py": [
       "bulk_downloader/scrapling_adapter.py"
+    ],
+    "tests/test_row771_interstitial_comma.py": [
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/templates.py"
     ],
     "tests/test_row777_retry_ladder.py": [
       "bulk_downloader/hooks.py",

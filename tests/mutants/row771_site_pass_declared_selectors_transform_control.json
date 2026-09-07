@@ -1,0 +1,16 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: S3 MUST ESCAPE a test that imports interstitial without driving declared-selector visibility.",
+  "subject": "transform control for declared-selector visibility",
+  "band": ["tests/test_row771_interstitial_comma.py::test_import_only_transform_control"],
+  "mutants": [
+    {
+      "label": "CONTROL visible declared selector is skipped outside the driven path",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^                elif )(?=not is_visible\\(\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_import_only_transform_control"
+    }
+  ]
+}

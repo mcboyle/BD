@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 771: declared-selector visibility, exact-label dedupe, and login-wall lookup all decide whether stacked controls clear.",
+  "subject": "gamma_kosmos declared login selectors clear each visible distinct wall",
+  "band": ["tests/test_row771_interstitial_comma.py"],
+  "mutants": [
+    {
+      "label": "S3 a visible declared selector is skipped",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^                elif )(?=not is_visible\\(\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_gamma_kosmos_dismisses_two_ordered_comma_walls"
+    },
+    {
+      "label": "S4 a shared thanks token incorrectly dedupes the second wall",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^            if )(?=label\\.casefold\\(\\) in attempted_labels:\\n                continue\\n            # Recorded on READ)",
+      "new": "\"thanks\" in label.casefold() and attempted_labels or ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_gamma_kosmos_dismisses_two_ordered_comma_walls"
+    }
+  ]
+}

@@ -894,7 +894,7 @@ def regen_flags(changed, fe_mut=None, work=None):
     if any(c.endswith(".py") and (c.startswith("bulk_downloader/")
                                   or c.startswith("tests/")) for c in changed):
         flags.append(("import edges",
-                      "bd-imports (new internal edge -> re-freeze baseline SAME cut)"))
+                      "`./venv/bin/python toolchain/bin/bd-imports` (new internal edge -> re-freeze the baseline ONCE on merged main, NOT in this cut)"))
     if any(("app_" in os.path.basename(c)) or c.endswith("app.py") or "/routes" in c
            for c in changed):
         flags.append(("ROUTE_INDEX/ENDPOINT_CATALOG/route_map",

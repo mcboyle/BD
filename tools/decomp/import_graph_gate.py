@@ -6,14 +6,20 @@ tools/) and asserts a decomposition cut adds no edge outside it. The complement
 to the surface-lock / route_map invariants: those prove *nothing left*, this
 proves *nothing new crept in* (accidental coupling, lazy-accessor sprawl — H-14).
 
-  python3 tools/decomp/import_graph_gate.py --check    # exit 1 on any NEW edge
-  python3 tools/decomp/import_graph_gate.py --update    # re-freeze the baseline
-  python3 tools/decomp/import_graph_gate.py --list      # print edge counts
+  ./venv/bin/python tools/decomp/import_graph_gate.py --check   # exit 1 on any NEW edge
+  ./venv/bin/python tools/decomp/import_graph_gate.py --update  # re-freeze the baseline
+  ./venv/bin/python tools/decomp/import_graph_gate.py --list    # print edge counts
+
+Repo tools are invoked through THIS checkout's interpreter. A bare `python3` (or
+a bare `bd-*` on PATH) can be an entirely different build of the same tool.
 
 A NEW edge present in the live graph but not the baseline FAILS --check. An edge
 removed by a cut (coupling deleted — a good thing) is reported but does not fail;
-re-freeze with --update to keep the baseline tight. Declaring an intended new
-edge = running --update in the same cut, the way a guard-SHA change is declared.
+re-freeze with --update to keep the baseline tight. An intended new edge is
+declared by re-freezing ONCE on MERGED MAIN, not inside the cut that adds it:
+the baseline is a single shared file, so parallel cuts each re-freezing it
+collide, and a baseline frozen against an unmerged tree bakes in edges from work
+that has not landed. Rebase onto merged main, then run --update there.
 
 Fail-closed contract (CLAUDE.md 0). The edge set is produced by
 tools/dependency_graph.py, whose `_parse()` returns None on SyntaxError and whose
@@ -236,7 +242,7 @@ def load_baseline(root: Path | None = None) -> dict:
     p = _baseline_path(root)
     if not p.exists():
         raise FileNotFoundError(
-            f"{p} missing — run `python3 tools/decomp/import_graph_gate.py --update`."
+            f"{p} missing — run `{UPDATE_COMMAND}`."
         )
     return json.loads(p.read_text(encoding="utf-8"))
 
@@ -284,6 +290,19 @@ def write_baseline(root: Path | None = None, allow_shrink: bool = False) -> int:
     content = _serialize(out_map)
     _baseline_path(root).write_text(content, encoding="utf-8")
     return sum(len(v) for v in out_map.values())
+
+
+# The remedy the gate prints is the line an agent copies, so it is written once
+# here and asserted by tests/test_import_graph_no_new_edges.py. Two things it
+# must never say again (N7): "re-freeze in the SAME cut" -- wrong, the baseline
+# is shared and parallel cuts collide on it -- and a bare `python3`, which the
+# TOOL PIN LAW forbids for any repo tool.
+UPDATE_COMMAND = "./venv/bin/python tools/decomp/import_graph_gate.py --update"
+
+NEW_EDGE_REMEDY = (
+    "If the edge is intended, do NOT re-freeze in this cut: rebase onto merged "
+    "main and re-freeze ONCE there -- `%s`" % UPDATE_COMMAND
+)
 
 
 def main(argv=None) -> int:
@@ -357,8 +376,7 @@ def main(argv=None) -> int:
         print(f"FAIL: {len(new)} NEW import edge(s) outside the frozen baseline:")
         for s, d in new:
             print(f"  + {s} -> {d}")
-        print("If intended, re-freeze in the SAME cut: "
-              "`python3 tools/decomp/import_graph_gate.py --update`")
+        print(NEW_EDGE_REMEDY)
         return 1
     print(f"PASS: no new import edges (baseline holds, {live_edges} edges).")
     return 0
