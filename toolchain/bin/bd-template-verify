@@ -82,6 +82,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--wait-for", help="wait for this selector before measuring")
     parser.add_argument(
+        "--session",
+        help="JSON file carrying the operator's authenticated session -- a "
+             "Playwright storage_state() export or a BD cookie file; URL "
+             "subjects only (row 670)",
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=10.0,
@@ -268,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         timeout=args.timeout,
         headless=not args.headed,
         wait_for=args.wait_for,
+        session=args.session,
     )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

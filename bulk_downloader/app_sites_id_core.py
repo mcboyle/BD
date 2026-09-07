@@ -286,7 +286,11 @@ def api_candidates_inspect(sid):
     try:
         from .dry_run import inspect_candidates
         url = body.get("url") or _site_primary_url(cfg) or ""
-        return jsonify(inspect_candidates(html, page_url=url))
+        # Row 663: the site config carries quality_preference and
+        # min_resolution; without it the inspector cannot name the rung
+        # the runner saves.
+        return jsonify(inspect_candidates(html, page_url=url,
+                                          site_config=cfg))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 753: M1 applied against a test that executes the channel reader program without an owner anchor and without ever reaching its deadline. It MUST ESCAPE, proving the CAUGHT verdicts in row753_terminal_reader_owner_clock.json are assertion failures rather than compile breaks.",
+  "subject": "transform control for the reader's owner-clock window",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_channel_reader_close_fault_keeps_read_primary"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the reader's window ignores the lateness it measured, outside the asserted path",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=budget_us - MARGIN_US - )(?=late_us\\))",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_channel_reader_close_fault_keeps_read_primary"
+    }
+  ]
+}

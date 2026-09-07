@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 753. registration_read_channel hands the reader the exact clock sample its inner budget was computed from. Anchored zero-width inside the variable expansion so the mutant substitutes the lifecycle-start sample -- seconds earlier -- and the reader over-corrects its window to nothing, losing the frame it was owed.",
+  "subject": "the anchor the runner hands its channel reader is the sample the reader's budget was computed from",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.3]",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.6]",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_reader_clock_is_the_owners_anchor_not_the_interpreters_start",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_reader_that_cannot_start_inside_its_owner_budget_is_reported_killed"
+  ],
+  "mutants": [
+    {
+      "label": "M3 the runner anchors the reader at lifecycle start instead of the budget's own sample",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=W1_CHANNEL_INNER_ANCHOR_US=\"\\$W1_)(?=NOW_US\"\\n)",
+      "new": "LIFECYCLE_STARTED_US\"; : \"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late[0.6]"
+    }
+  ]
+}

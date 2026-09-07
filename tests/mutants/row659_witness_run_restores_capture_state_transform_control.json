@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row659_witness_run_restores_capture_state.json. This mutant MUST ESCAPE. Its band is a node that loads the witness runner and asserts a nonzero suite denominator WITHOUT executing a witness, so it judges no restoration behaviour. An ESCAPE here proves the sibling spec's CAUGHTs are assertion failures, not import or compile breaks.",
+  "subject": "transform control -- importing the witness runner judges no restoration",
+  "band": [
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_transform_control_imports_the_witness_runner_without_driving_it"
+  ],
+  "mutants": [
+    {
+      "label": "control: drop the read-path restore while only the import-level node runs",
+      "file": "tools/audit/witnesses/cap01_witnesses.py",
+      "old_regex": "(?m)(?<=^        cb\\.bodies_enabled = )(?=_saved_bodies_enabled$)",
+      "new": "cb.bodies_enabled  # ",
+      "direction": "regression",
+      "catcher": "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_transform_control_imports_the_witness_runner_without_driving_it"
+    }
+  ]
+}

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlsplit
 
 from . import candidate_filter as cf
+from . import heuristic_scoring as _hs
 from . import selector_lint as sl
 
 
@@ -55,6 +56,11 @@ def _candidate_row(c: Dict[str, Any], page_host: str, *, page_url: str = "",
         "data_url": c.get("data_url") or "",
         "data_src": c.get("data_src") or "",
         "score": c.get("score"),
+        # Row 663: the heuristic `score` ties 4K and 8K on a real wowgirls
+        # page (both 130), so it alone cannot name a rung. The bucket and
+        # the pixel height it names both travel with the row.
+        "resolution_tier": c.get("resolution_tier") or 0,
+        "rung": _hs.tier_pixel_height(c.get("resolution_tier") or 0),
         "size": c.get("estimated_size_bytes") or c.get("size") or 0,
         "host": _host(resolved_url),
         "signals": list(v.positive_signals),
@@ -64,7 +70,128 @@ def _candidate_row(c: Dict[str, Any], page_host: str, *, page_url: str = "",
     }
 
 
-def inspect_candidates(html: str, page_url: str = "") -> Dict[str, Any]:
+
+# Row 663 — the rung decision. The runner makes it in two steps
+# (runner.py:4800-4807): `_apply_quality_preference` picks among the
+# candidates in the operator's declared order, then the min_resolution gate
+# refuses a winner below the floor. The inspector reported neither, so it
+# named a rung the runner does not save. These two functions mirror that
+# decision over the inspector's row shape, where the comparable quantity is
+# `rung` (a pixel height) rather than the runner's height-valued `score`.
+
+
+# Row 663, second pass. The runner does ONE thing before it applies the
+# preference, and the first version of this file did not copy it
+# (runner_integrity._apply_quality_preference, row 388):
+#
+#     same_work = [c for c in candidates if c.get("work", 0) > 0]
+#     if same_work:
+#         candidates = same_work
+#
+# Without it, a 1080 preference on a scene page matches a RELATED CARD's 1080
+# tier as happily as the page's own -- CLAUDE.md A7's "A RENDERED PAGE IS
+# EVIDENCE", where one scene page carried 159 media links across ~25 related
+# cards. The subset is mirrored below so the two implementations cannot drift.
+#
+# The inspector cannot SUPPLY the signal today: _walk_for_candidates takes the
+# soup and nothing else, so no row carries a "work" key and the affinity is
+# UNKNOWN on every real page. That is reported rather than papered over -- the
+# rung is still named, but the claim that it is the rung the runner saves is
+# qualified, because on a page carrying a higher related-card tier it is not.
+
+_WORK_UNKNOWN_CAVEAT = (
+    "work affinity UNKNOWN: the inspector cannot tell the page's own work from "
+    "a related card, so on a page carrying foreign-scene candidates the runner "
+    "may save a different rung (it subsets to same-work candidates first)"
+)
+
+
+def _same_work_subset(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The runner's first step. When any row is provably the page's own work,
+    the preference chooses only among those."""
+    same_work = [row for row in rows if (row.get("work") or 0) > 0]
+    if same_work:
+        rows = same_work
+    return rows
+
+
+def _work_affinity_known(rows: List[Dict[str, Any]]) -> bool:
+    """Whether ANY row carries a work verdict at all. False means the runner's
+    same-work subset cannot be reproduced here, so the rung is a best effort
+    rather than the runner's answer."""
+    return any("work" in row for row in rows)
+
+
+def _prefer_rung(rows: List[Dict[str, Any]], qpref: str
+                 ) -> Optional[Dict[str, Any]]:
+    """Runner order-and-tolerance semantics over `rung`. Returns the chosen
+    row, or None when no preference entry matched."""
+    for pref in [p.strip() for p in str(qpref or "").split(",") if p.strip()]:
+        if pref.lower() == "best":
+            if rows:
+                return rows[0]     # rows arrive ranked
+            continue
+        try:
+            target = int(pref.rstrip("pP"))
+        except ValueError:
+            continue
+        # Same proportional tolerance as runner_integrity (v3.43.65).
+        tol = max(50, int(target * 0.05))
+        matches = [r for r in rows
+                   if abs((r.get("rung") or 0) - target) <= tol]
+        if matches:
+            return max(matches, key=lambda r: (r.get("rung") or 0))
+    return None
+
+
+def _rung_decision(accepted: List[Dict[str, Any]],
+                   site_config: Optional[Dict[str, Any]]
+                   ) -> Dict[str, Any]:
+    """Decide the winner the runner WOULD save, or report that it cannot be
+    known. Returns {winner, rung_selection, rung_reason}.
+
+    `rung_selection` is UNKNOWN when no site config was supplied: without
+    quality_preference and min_resolution the inspector cannot know which
+    rung the runner saves, and CLAUDE.md A2 says an unavailable measurement
+    is never permission to claim one.
+    """
+    ranked = list(accepted)   # already ranked by the caller; do NOT re-sort
+    work_known = _work_affinity_known(ranked)
+    ranked = _same_work_subset(ranked)
+    if site_config is None:
+        return {"winner": ranked[0] if ranked else None,
+                "rung_selection": "UNKNOWN",
+                "rung_reason": "no site config supplied — quality_preference "
+                               "and min_resolution unknown, so the rung the "
+                               "runner would save cannot be named"}
+    if not ranked:
+        return {"winner": None, "rung_selection": "none",
+                "rung_reason": "no accepted candidate"}
+    qpref = str(site_config.get("quality_preference") or "").strip()
+    chosen = _prefer_rung(ranked, qpref) if qpref else None
+    if chosen is None:
+        chosen = ranked[0]
+    try:
+        min_res = int(float(site_config.get("min_resolution") or 0))
+    except (TypeError, ValueError):
+        min_res = 0
+    rung = chosen.get("rung") or 0
+    if min_res > 0 and rung > 0 and rung < min_res:
+        return {"winner": None, "rung_selection": "refused",
+                "rung_reason": f"best rung {rung}p is below min_resolution "
+                               f"{min_res}p — the runner would hold this for "
+                               f"review, not save it"}
+    reason = (f"quality_preference {qpref or 'best'} selected rung {rung}p")
+    if work_known:
+        return {"winner": chosen, "rung_selection": "selected",
+                "rung_reason": reason}
+    return {"winner": chosen, "rung_selection": "selected_work_unknown",
+            "rung_reason": f"{reason}; {_WORK_UNKNOWN_CAVEAT}"}
+
+
+def inspect_candidates(html: str, page_url: str = "",
+                       site_config: Optional[Dict[str, Any]] = None,
+                       ) -> Dict[str, Any]:
     """#1 — classify every detection candidate found in ``html`` (dry-run).
 
     Returns every candidate with its selector / text / url variants / score /
@@ -106,16 +233,23 @@ def inspect_candidates(html: str, page_url: str = "") -> Dict[str, Any]:
         rows.append(_candidate_row(c, page_host, page_url=page_url, selector=sel))
 
     accepted = [r for r in rows if r["accepted"]]
-    accepted.sort(key=lambda r: ((r["score"] or 0), (r["size"] or 0)),
+    accepted.sort(key=lambda r: ((r["score"] or 0),
+                                 (r["resolution_tier"] or 0),
+                                 (r["size"] or 0)),
                   reverse=True)
-    rows.sort(key=lambda r: ((r["score"] or 0), (r["size"] or 0)),
+    rows.sort(key=lambda r: ((r["score"] or 0),
+                             (r["resolution_tier"] or 0),
+                             (r["size"] or 0)),
               reverse=True)
-    winner = accepted[0] if accepted else None
+    decision = _rung_decision(accepted, site_config)
+    winner = decision["winner"]
     return {
         "ok": True,
         "page_url": page_url,
         "page_host": page_host,
         "winner": winner,
+        "rung_selection": decision["rung_selection"],
+        "rung_reason": decision["rung_reason"],
         "candidates": rows[:40],          # cap for render
         "n_candidates": len(rows),
         "n_accepted": len(accepted),
@@ -195,7 +329,9 @@ def _selector_hit_counts(template: Optional[Dict[str, Any]],
     return counts
 
 
-def template_dry_run(url: str, html: str = "") -> Dict[str, Any]:
+def template_dry_run(url: str, html: str = "",
+                     site_config: Optional[Dict[str, Any]] = None,
+                     ) -> Dict[str, Any]:
     """#5 — static dry-run for a URL (+ optional HTML) against the reviewed
     templates. Reports template match, selector groups, resolutions, redacted
     network patterns, lint warnings, static selector hit-counts, the candidate
@@ -219,7 +355,8 @@ def template_dry_run(url: str, html: str = "") -> Dict[str, Any]:
     candidate_view = None
     hit_counts: Dict[str, Any] = {}
     if isinstance(html, str) and html.strip():
-        candidate_view = inspect_candidates(html, page_url=url)
+        candidate_view = inspect_candidates(html, page_url=url,
+                                            site_config=site_config)
         hit_counts = _selector_hit_counts(template, html)
 
     return {

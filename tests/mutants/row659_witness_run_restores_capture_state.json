@@ -1,0 +1,46 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ROW 659: tools/witness_drift.py::snapshot executes every shipped witness IN-PROCESS. cap01_witnesses.py::_w7 rebinds bulk_downloader.capture_bodies.bodies_enabled and seeds BD_CAPTURE_BODIES to force the retain path. Each mutant below re-introduces one half of the leak the cut fixed; both must be CAUGHT. SEAM 2 is tools/run_witnesses.py::main, which reaches _w7 through the same load_suite().",
+  "subject": "cap01 witness _w7 restores the process state it mutates",
+  "band": [
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_restores_the_capture_read_path_it_rebinds",
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_restores_the_capture_env_seed_it_sets",
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_leaves_the_store_authoritative_over_the_env_seed",
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_the_operator_witness_runner_leaves_the_capture_read_path_intact",
+    "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_gives_back_an_env_seed_the_operator_had_already_set"
+  ],
+  "mutants": [
+    {
+      "label": "the finally arm no longer rebinds capture_bodies.bodies_enabled back (the row-659 read-path leak returns)",
+      "file": "tools/audit/witnesses/cap01_witnesses.py",
+      "old_regex": "(?m)(?<=^        cb\\.bodies_enabled = )(?=_saved_bodies_enabled$)",
+      "new": "cb.bodies_enabled  # ",
+      "direction": "regression",
+      "catcher": "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_restores_the_capture_read_path_it_rebinds"
+    },
+    {
+      "label": "the finally arm reads the env seed instead of removing it (the row-659 env leak returns)",
+      "file": "tools/audit/witnesses/cap01_witnesses.py",
+      "old_regex": "(?m)(?<=^            os\\.environ\\.)(?=pop\\(_flag, None\\)$)",
+      "new": "get",
+      "direction": "regression",
+      "catcher": "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_restores_the_capture_env_seed_it_sets"
+    },
+    {
+      "label": "the saved read path is a fresh probe lambda, so the restore restores the leak (SEAM 2: tools/run_witnesses.py)",
+      "file": "tools/audit/witnesses/cap01_witnesses.py",
+      "old_regex": "(?m)(?<=^    _saved_bodies_enabled = )(?=cb\\.bodies_enabled$)",
+      "new": "(lambda: True) or ",
+      "direction": "regression",
+      "catcher": "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_the_operator_witness_runner_leaves_the_capture_read_path_intact"
+    },
+    {
+      "label": "the restore branch always takes the pop arm, so a pre-existing operator seed is deleted instead of handed back",
+      "file": "tools/audit/witnesses/cap01_witnesses.py",
+      "old_regex": "(?m)(?<=^        if _saved_env is )(?=None:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row659_witness_run_does_not_leak_capture_state.py::test_witness_run_gives_back_an_env_seed_the_operator_had_already_set"
+    }
+  ]
+}

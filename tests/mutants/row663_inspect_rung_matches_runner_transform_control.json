@@ -1,0 +1,16 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 663 TRANSFORM CONTROL. This mutant MUST ESCAPE. It is banded on a test that imports the subject and asserts nothing about the rung decision, so a CAUGHT here would mean the row663 CAUGHTs are compile/import breakage rather than assertion failures.",
+  "subject": "control -- proves the row663 catchers are assertion failures, not import errors",
+  "band": ["tests/test_row663_inspect_rung_matches_runner.py::test_tier_pixel_height_is_zero_for_an_unknown_bucket"],
+  "mutants": [
+    {
+      "label": "CONTROL: invert the min_resolution comparison -- MUST ESCAPE, this test never drives the gate",
+      "file": "bulk_downloader/dry_run.py",
+      "old_regex": "(?m)(?<=^    if min_res > 0 and rung > 0 and )(?=rung < min_res:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row663_inspect_rung_matches_runner.py::test_tier_pixel_height_is_zero_for_an_unknown_bucket"
+    }
+  ]
+}

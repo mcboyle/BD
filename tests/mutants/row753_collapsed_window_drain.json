@@ -1,0 +1,46 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 753, review-b R1. When lateness collapses the reader's window to nothing it still takes ONE non-blocking look at what is already buffered, and it reports ERROR-LATE / UNKNOWN -- never the TIMEOUT an honestly empty channel earns. Four zero-width execution positions: the floor of each max(0, ...) clamp, the look-before-stop, and the state decision. The band drives the shipped reader directly with an anchor placed in the past, so it needs no runner and no schedule.",
+  "subject": "a reader that could not wait drains what is buffered and says it never got to look, so a collapsed window is distinguishable from an empty channel in the owner records",
+  "band": [
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_drains_what_is_buffered_and_says_it_could_not_wait",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_over_an_empty_channel_is_unknown_not_an_empty_timeout",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_that_finds_eof_reports_the_complete_channel",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_an_anchor_in_the_future_is_zero_lateness_not_a_longer_window",
+    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_healthy_window_driven_directly_waits_and_keeps_the_frame"
+  ],
+  "mutants": [
+    {
+      "label": "M4 the lateness clamp loses its floor, so a future anchor lengthens the window",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=late_us = max\\(0)(?=, started_us - anchor_us\\))",
+      "new": " - 10 ** 12",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_an_anchor_in_the_future_is_zero_lateness_not_a_longer_window"
+    },
+    {
+      "label": "M5 the window clamp loses its floor, so a collapsed window goes negative",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=window_us = max\\(0)(?=, budget_us - MARGIN_US - late_us\\))",
+      "new": " - 10 ** 12",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_drains_what_is_buffered_and_says_it_could_not_wait"
+    },
+    {
+      "label": "M6 a closed window stops before it looks, discarding what is buffered",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=remaining = max\\(0\\.0, deadline - time\\.monotonic\\(\\)\\)\\n)(?=            readable, _, _ = select)",
+      "new": "            if remaining <= 0.0:\n                state = \"TIMEOUT\" if window_us > 0 else \"ERROR-LATE\"\n                break\n",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_drains_what_is_buffered_and_says_it_could_not_wait"
+    },
+    {
+      "label": "M7 a reader that never got to look reports the empty channel's TIMEOUT",
+      "file": "toolchain/bin/bd-wedge-hunt",
+      "old_regex": "(?<=state = \"TIMEOUT\" if )(?=window_us > 0 else \"ERROR-LATE\")",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_row753_a_collapsed_window_over_an_empty_channel_is_unknown_not_an_empty_timeout"
+    }
+  ]
+}
