@@ -83,7 +83,7 @@ _GENERIC_TIERS = (
         r"i am (?:18|21)(?: or older)?|"
         r"yes[, ]+i(?: am|'m) (?:18|21)(?: or older)?)$", re.I)),
     ("interstitial", re.compile(
-        r"^(?:no thanks(?:[., ]+continue(?: to (?:members(?: area)?|the site))?)?|"
+        r"^(?:no[ ,.]+thanks(?:[., ]+continue(?: to (?:members(?: area)?|the site))?)?|"
         r"continue to (?:members(?: area)?|the site)|"
         r"skip (?:this page|for now))$", re.I)),
 )
@@ -173,6 +173,8 @@ AGE = [
 INTERSTITIAL = [
     "a:has-text('No Thanks')",
     "button:has-text('No Thanks')",
+    "a:has-text('No, Thanks')",
+    "button:has-text('No, Thanks')",
     "a:has-text('Continue to Members Area')",
     "button:has-text('Skip')",
     "[class*='close' i]:visible",

@@ -442,7 +442,7 @@
       "id": "FG-IMPORT-EDGE-BASELINE",
       "severity": "blocking",
       "status": "active",
-      "rule": "A new INTERNAL import edge must re-freeze the import_graph baseline in the SAME cut.",
+      "rule": "A new INTERNAL import edge must re-freeze the import_graph baseline ONCE on MERGED MAIN -- never inside the cut that adds the edge. The baseline is one shared file: parallel cuts collide on it, and a baseline frozen against an unmerged tree bakes in edges from work that has not landed.",
       "detector": {
         "kind": "insync",
         "test": "tests/test_import_graph_no_new_edges.py",
@@ -451,7 +451,7 @@
       "protects": [
         "test_import_graph_no_new_edges"
       ],
-      "fix": "python3 tools/decomp/import_graph_gate.py --update (then regen DEPENDENCY_GRAPH).",
+      "fix": "Rebase onto merged main, then re-freeze ONCE there: `./venv/bin/python tools/decomp/import_graph_gate.py --update` (then regen DEPENDENCY_GRAPH). Not in the cut that adds the edge.",
       "provenance": {
         "review_id": "footgun-taxonomy #24"
       }

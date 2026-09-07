@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL -- this mutant MUST ESCAPE. Its band loads the gate module and reads the frozen baseline WITHOUT driving either remedy, so restoring the bare `python3` producer cannot change its verdict. An ESCAPE here proves the CAUGHTs in n7_import_graph_remedy.json are assertion failures, not import or compile breaks.",
+  "subject": "control: tools/decomp/import_graph_gate.py imported and its baseline read, but no remedy emitted",
+  "band": [
+    "tests/test_import_graph_no_new_edges.py::test_baseline_present_and_well_formed"
+  ],
+  "mutants": [
+    {
+      "label": "control: restore the bare python3 producer under a band that never emits a remedy",
+      "file": "tools/decomp/import_graph_gate.py",
+      "old_regex": "(?m)(?<=\\n)(?=NEW_EDGE_REMEDY = \\($)",
+      "new": "UPDATE_COMMAND = \"python3 tools/decomp/import_graph_gate.py --update\"\n\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_baseline_present_and_well_formed"
+    }
+  ]
+}

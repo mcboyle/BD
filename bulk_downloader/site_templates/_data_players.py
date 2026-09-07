@@ -276,8 +276,9 @@ ITEMS = [
             # the success_url check read the WALL's url and threw a good
             # login into manual takeover.
             "dismiss_selectors_login": (
-                "a.SkipPageButton-ButtonLink, "
-                "a:has-text('No Thanks. Continue'), "
+                "a.SkipPageButton-ButtonLink\n"
+                "a:has-text('NO, THANKS')\n"
+                "a:has-text('No Thanks. Continue')\n"
                 "a:has-text('Continue to Members Area')"
             ),
             # These stay per-URL on purpose: consent/close controls can appear

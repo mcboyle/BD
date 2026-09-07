@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: S1 MUST ESCAPE a test that imports interstitial without driving a matcher.",
+  "subject": "transform control for the generic interstitial match decision",
+  "band": [
+    "tests/test_row771_interstitial_comma.py::test_import_only_transform_control"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL generic interstitial matcher is bypassed outside the driven path",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^            if not )(?=label_pattern\\.fullmatch\\(label\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row771_interstitial_comma.py::test_import_only_transform_control"
+    }
+  ]
+}

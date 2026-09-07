@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-07T08:20:52+00:00",
- "version_context": "v3.66.1519",
+ "generated": "2026-09-07T09:40:32+00:00",
+ "version_context": "v3.66.1520",
  "file_count": 94,
  "files": {
   "0_INDEX.md": {
@@ -233,8 +233,8 @@
    "bytes": 2617
   },
   "README.md": {
-   "sha256": "eee35a23d248d6bba8479049ba688945f0778c0dc5a556a3579bec195cfe416e",
-   "bytes": 25721
+   "sha256": "24840a58652152a3b64bf80f9dedbbdebe5c3d60a285c8fbf132a855586f99b0",
+   "bytes": 25767
   },
   "README_KB.md": {
    "sha256": "a3433738fbe027390505e6a9a424dc584f4b09e5ec8bbf1446ab1705798e90bc",

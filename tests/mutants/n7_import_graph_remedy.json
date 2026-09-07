@@ -1,0 +1,56 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "N7. The gate's printed remedy is the line an agent copies. Each mutant puts one half of the old wrong remedy back -- 're-freeze in the SAME cut' and the bare `python3` -- as a complete re-assignment statement inserted at a zero-width position, so it parses and reports CAUGHT rather than INVALID. Both must be CAUGHT. ROUND 2: widened to the other three emitters after bd-lens-L1 REFUTED a one-file fix -- bd-decomp prints its remedy BEFORE the edge exists, so it is read first.",
+  "subject": "tools/decomp/import_graph_gate.py: the emitted new-edge and missing-baseline remedies name the pinned interpreter and say rebase-then-refreeze-ONCE, never 'in the SAME cut'",
+  "band": [
+    "tests/test_import_graph_no_new_edges.py::test_the_new_edge_remedy_is_emitted_and_is_the_pinned_interpreter",
+    "tests/test_import_graph_no_new_edges.py::test_the_new_edge_remedy_says_rebase_then_refreeze_once_not_same_cut",
+    "tests/test_import_graph_no_new_edges.py::test_the_missing_baseline_remedy_is_also_the_pinned_interpreter",
+    "tests/test_import_graph_no_new_edges.py::test_no_remedy_anywhere_in_the_gate_source_says_bare_python3",
+    "tests/test_import_graph_no_new_edges.py::test_every_emitted_import_edge_remedy_is_correct",
+    "tests/test_import_graph_no_new_edges.py::test_the_bd_decomp_planning_remedy_is_correct_where_it_is_emitted",
+    "tests/test_import_graph_no_new_edges.py::test_the_footguns_declaration_carries_the_corrected_rule_and_fix"
+  ],
+  "mutants": [
+    {
+      "label": "restore the SAME-cut new-edge remedy the fix removed",
+      "file": "tools/decomp/import_graph_gate.py",
+      "old_regex": "(?m)(?<=\\n)(?=def main\\(argv=None\\) -> int:$)",
+      "new": "NEW_EDGE_REMEDY = (\n    \"If intended, re-freeze in the SAME cut: \"\n    \"`python3 tools/decomp/import_graph_gate.py --update`\"\n)\n\n\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_the_new_edge_remedy_says_rebase_then_refreeze_once_not_same_cut"
+    },
+    {
+      "label": "restore the bare python3 invocation in the single producer",
+      "file": "tools/decomp/import_graph_gate.py",
+      "old_regex": "(?m)(?<=\\n)(?=NEW_EDGE_REMEDY = \\($)",
+      "new": "UPDATE_COMMAND = \"python3 tools/decomp/import_graph_gate.py --update\"\n\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_the_missing_baseline_remedy_is_also_the_pinned_interpreter"
+    },
+    {
+      "label": "restore bd-decomp's SAME-cut planning remedy (the FIRST one an agent reads)",
+      "file": "toolchain/bin/bd-decomp",
+      "old_regex": "(?m)(?<=\\n)(?=    return gates$)",
+      "new": "    gates = [(g, b, \"python3 tools/decomp/import_graph_gate.py --update  (SAME cut)\")\n             if g == \"FG-IMPORT-EDGE-BASELINE\" else (g, b, d)\n             for g, b, d in gates]\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_the_bd_decomp_planning_remedy_is_correct_where_it_is_emitted"
+    },
+    {
+      "label": "restore the SAME-cut wording in the FOOTGUNS declaration's rule",
+      "file": "FOOTGUNS.json",
+      "old_regex": "(?m)(?<=      \"rule\": \")(?=A new INTERNAL import edge must re-freeze)",
+      "new": "In the SAME cut: ",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_the_footguns_declaration_carries_the_corrected_rule_and_fix"
+    },
+    {
+      "label": "restore bd-band-derive's bare bd-imports SAME-cut flag",
+      "file": "toolchain/bin/bd-band-derive",
+      "old_regex": "(?m)(?<=\\n)(?=    if any\\(\\(\"app_\" in os\\.path\\.basename\\(c\\)\\))",
+      "new": "    flags.append((\"import edges\",\n                  \"bd-imports (new internal edge -> re-freeze baseline SAME cut)\"))\n",
+      "direction": "regression",
+      "catcher": "tests/test_import_graph_no_new_edges.py::test_every_emitted_import_edge_remedy_is_correct"
+    }
+  ]
+}

@@ -139,7 +139,7 @@ stale it, not just `requirements-cloak.txt`) · the source zip · `version.zip`
 | bd-ascii | non-ASCII/emoji scan (the gate that hit ×3) | `bd-ascii <file>` |
 | bd-pinscan | `== N` count/parity pins that should be `<= N` | — |
 | bd-bandcheck | validate a band list (real files/no hang/no test-fn-path/no leak co-band) | pass the band list |
-| bd-imports | undeclared import edges vs frozen baseline | `--update` re-freezes (SAME cut) |
+| bd-imports | undeclared import edges vs frozen baseline | `--update` re-freezes ONCE on merged main, never in the cut that adds the edge |
 | bd-regen | derived-doc sync | **`--check` (default, READ-ONLY)** · `--write` regenerates |
 | bd-factcheck | canonical counts from tree vs doc/STATE numbers | — |
 

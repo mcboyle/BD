@@ -16,7 +16,10 @@ their logic -- the G-3 lesson) and turns four lenses into an answer.
 THE VALUE-ADD -- an extraction is a CUT, and a cut has gates:
 
   * A new module is a NEW IMPORT EDGE -> the import-graph baseline MUST be
-    re-frozen in the SAME cut (FG-IMPORT-EDGE-BASELINE).
+    re-frozen ONCE on MERGED MAIN, never inside the cut that adds the edge
+    (FG-IMPORT-EDGE-BASELINE): the baseline is one shared file, so parallel
+    cuts collide on it and a baseline frozen against an unmerged tree bakes in
+    edges from work that has not landed. Rebase first, then re-freeze there.
   * Moving functions SHIFTS LINES -> FUNCTION_INDEX must be regenerated
     (FG-FUNCTION-INDEX-LINESHIFT, which bit at 695).
   * Moving a ROUTE additionally moves route_map / ENDPOINT_CATALOG / gui_parity --
@@ -104,20 +107,23 @@ def gates_for(work, module, moves_route):
     gates = [
         ("FG-IMPORT-EDGE-BASELINE",
          "a new module = a new import edge",
-         "python3 tools/decomp/import_graph_gate.py --update  (SAME cut) + band "
-         "tests/test_import_graph_no_new_edges.py"),
+         "rebase onto merged main, then re-freeze ONCE there -- "
+         "`./venv/bin/python tools/decomp/import_graph_gate.py --update` "
+         "(NOT in this cut) + band tests/test_import_graph_no_new_edges.py"),
         ("FG-FUNCTION-INDEX-LINESHIFT",
          "moving functions shifts lines in a tracked module",
-         "python3 tools/build_function_index.py  + band tests/test_function_index_in_sync.py"),
+         "`./venv/bin/python tools/build_function_index.py` + band "
+         "tests/test_function_index_in_sync.py"),
         ("DEPENDENCY_GRAPH",
          "the moved code's imports change the graph",
-         "python3 tools/dependency_graph.py --check must be clean"),
+         "`./venv/bin/python tools/dependency_graph.py --check` must be clean"),
     ]
     if moves_route:
         gates += [
             ("FG-ROUTE-MAP-BASELINE / FG-ENDPOINT-CATALOG-SYNC",
              "a ROUTE moved modules",
-             "re-freeze route_map_baseline (tools/route_map_snapshot.py, PYTHONPATH=tree) "
+             "re-freeze route_map_baseline "
+             "(`./venv/bin/python tools/route_map_snapshot.py`, PYTHONPATH=tree) "
              "+ ENDPOINT_CATALOG; run gui_parity BEFORE ROUTE_INDEX (ordering footgun)"),
         ]
     return gates
@@ -177,7 +183,8 @@ def report(work, data, top, moves_route, as_json):
     if at_ceiling:
         print("\n%sCOUPLING RATCHET IS AT ITS CEILING (%.3f >= %s).%s" % (R, ratio, ceiling, RST))
         print("  An extraction that increases CROSS-subsystem coupling will make")
-        print("  bd-precut --gate BLOCK THE CUT. Extract toward EXISTING subsystems")
+        print("  `./venv/bin/python toolchain/bin/bd-precut --gate` BLOCKS THE CUT.")
+        print("  Extract toward EXISTING subsystems")
         print("  (a leaf module that only the monolith imports), not a new hub --")
         print("  and re-check with bd-coupling-meter BEFORE bumping.")
 
