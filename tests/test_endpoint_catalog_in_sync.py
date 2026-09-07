@@ -41,6 +41,12 @@ Implementation notes:
     someone touches the on-disk file directly without going through
     the builder.
 """
+
+# Adopted into a CI shard: FOOTGUNS.json points a BLOCKING detector at this
+# file (see tests/test_footgun_detectors_are_executed_by_ci.py), and until
+# now no CI job executed it -- the drift it detects could land unseen.
+BD_GATE_SCOPE = "repo-wide"
+
 import os
 
 # Must set BEFORE importing the catalog builder. The builder defers

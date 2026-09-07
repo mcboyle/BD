@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "CONTROL: a change outside every asserted path must ESCAPE",
+  "_comment": "Its own spec file, and it must ESCAPE. If it is CAUGHT the band is asserting on something it never claimed to judge -- prose, ordering or identity rather than the coverage decision.",
+  "band": [
+    "tests/test_footgun_detectors_are_executed_by_ci.py"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL rewording the module docstring's closing sentence",
+      "file": "tests/test_footgun_detectors_are_executed_by_ci.py",
+      "old": "every summary anyone will look at.",
+      "new": "every summary a reader will look at.",
+      "direction": "regression",
+      "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_every_active_footgun_test_subject_is_executed_by_some_ci_job"
+    }
+  ]
+}

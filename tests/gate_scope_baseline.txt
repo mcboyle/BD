@@ -243,7 +243,6 @@ tests/test_element_pick_bridge.py
 tests/test_element_pick_selector.py
 tests/test_embeddings.py
 tests/test_empty_id_in_selects_nothing.py
-tests/test_endpoint_catalog_in_sync.py
 tests/test_env_example_matches_the_ledger.py
 tests/test_env_parity_sees_the_real_browser_pool.py
 tests/test_env_report_freshness.py
@@ -262,7 +261,6 @@ tests/test_fixture_site2.py
 tests/test_fresh_install_gui_smoke.py
 tests/test_fts_external_content_delete.py
 tests/test_fts_stale_terms_on_update.py
-tests/test_function_index_in_sync.py
 tests/test_fuzz_harness_frontend.py
 tests/test_generated_artifacts_are_not_tracked.py
 tests/test_global_config_defaults.py
@@ -439,7 +437,6 @@ tests/test_replay_validator.py
 tests/test_repos_F2_F9.py
 tests/test_requeue_for_dedup_can_actually_dedup.py
 tests/test_route_index_in_sync.py
-tests/test_route_map_invariant.py
 tests/test_row_selectors_screen_inline_hidden_decoys.py
 tests/test_rrweb_meta_retention.py
 tests/test_run01_numeric_nan_gate.py
@@ -471,7 +468,6 @@ tests/test_session_keeper_persistent_context.py
 tests/test_session_keeper_user_intervals.py
 tests/test_settings_center_secret_classifier.py
 tests/test_settings_center_slice4.py
-tests/test_settings_center_slice5.py
 tests/test_settings_center_wiring.py
 tests/test_shell_python_resolver.py
 tests/test_shim_reexport_completeness.py

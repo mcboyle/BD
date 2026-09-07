@@ -7,6 +7,12 @@ validate sample yields identical accepted/rejected, JSON contract unchanged — 
 keys, no secret value leak, no new persistence). Sandbox-valid; on-stash visual review of the
 rendered page still required.
 """
+
+# Adopted into a CI shard: FOOTGUNS.json points a BLOCKING detector at this
+# file (see tests/test_footgun_detectors_are_executed_by_ci.py), and until
+# now no CI job executed it -- the drift it detects could land unseen.
+BD_GATE_SCOPE = "repo-wide"
+
 import json
 import os
 import re
