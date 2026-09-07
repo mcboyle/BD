@@ -255,7 +255,7 @@ Schema version: 2
   - L3749 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
   - L4086 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
   - L4101 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4122 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L4131 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -733,14 +733,14 @@ Schema version: 2
   - L0183 `ManualLoginSession.ready`
   - L0187 `ManualLoginSession.error`
   - L0190 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0432 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0567 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0586 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0603 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0631 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0648 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0673 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0702 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+  - L0444 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0579 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0598 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0615 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0643 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0660 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0685 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0714 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 

@@ -1,0 +1,83 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 721. Each mutant removes one decision the age-gate cut adds. E1/E2/E3 mutants added after two independent lenses REFUTED the first round: the ENTER vocabulary was unpinned in the WIDENING direction, the gate_landing_unknown arm was unpinned, and the block report had no consumer. All anchors are zero-width on the decision and every inserted fragment is a complete statement so it parses rather than reporting INVALID.",
+  "subject": "bulk_downloader/interstitial.py dismiss_gates: content-recognised age gate admits ENTER, EXIT stays refused, unreadable content is UNKNOWN, a block behind the gate is not a clearance",
+  "band": [
+    "tests/test_row721_age_gate_enter_affordance.py::test_age_gate_enter_is_clicked_exactly_once",
+    "tests/test_row721_age_gate_enter_affordance.py::test_exit_denylist_refusal_is_unchanged_in_the_same_round",
+    "tests/test_row721_age_gate_enter_affordance.py::test_unreadable_body_text_is_unknown_and_refuses_the_control",
+    "tests/test_row721_age_gate_enter_affordance.py::test_abuse_response_behind_the_gate_is_reported_as_a_block",
+    "tests/test_row721_age_gate_enter_affordance.py::test_a_purchase_control_on_an_age_wall_is_never_clicked",
+    "tests/test_row721_age_gate_enter_affordance.py::test_an_unreadable_landing_behind_the_gate_is_unknown_not_cleared",
+    "tests/test_row721_age_gate_enter_affordance.py::test_the_content_worker_holds_the_job_instead_of_extracting[block_behind_gate]",
+    "tests/test_row721_age_gate_enter_affordance.py::test_the_content_worker_holds_the_job_instead_of_extracting[unreadable_landing]",
+    "tests/test_row721_age_gate_enter_affordance.py::test_do_login_refuses_a_gate_landing_it_cannot_call_members_content[block_behind_gate]",
+    "tests/test_row721_age_gate_enter_affordance.py::test_do_login_refuses_a_gate_landing_it_cannot_call_members_content[unreadable_landing]"
+  ],
+  "mutants": [
+    {
+      "label": "remove the ENTER affordance admission (invert the age-tier predicate)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=if not \\(tier == \"age\" and )(?=ENTER_AFFORDANCE\\.fullmatch\\(label\\)\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_age_gate_enter_is_clicked_exactly_once"
+    },
+    {
+      "label": "remove the EXIT denylist (make _deny_term match nothing)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^def _deny_term\\(label: str\\) -> Optional\\[str\\]:\\n)(?=    normalized = label\\.casefold\\(\\)$)",
+      "new": "    return None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_exit_denylist_refusal_is_unchanged_in_the_same_round"
+    },
+    {
+      "label": "remove the UNKNOWN refusal when the body text cannot be read",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=                if age_gate_verdict is )(?=None:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_unreadable_body_text_is_unknown_and_refuses_the_control"
+    },
+    {
+      "label": "remove the post-ENTER block read (never re-judge the landing)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=            if )(?=admitted_by_age_gate and action\\.get\\(\"outcome\"\\) == \"cleared\":$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_abuse_response_behind_the_gate_is_reported_as_a_block"
+    },
+    {
+      "label": "E1 WIDEN the ENTER vocabulary to admit any label",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=\\n)(?=# Read AFTER the ENTER click, never before it: the evilangel)",
+      "new": "ENTER_AFFORDANCE = re.compile(r\"^.*$\", re.I)\n",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_a_purchase_control_on_an_age_wall_is_never_clicked"
+    },
+    {
+      "label": "E2 remove ONLY the gate_landing_unknown arm (unreadable landing reports cleared)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "(?m)(?<=^    text = _body_text\\(page\\)\\n)(?=    if text is None:\\n        return \\{)",
+      "new": "    if text is None:\n        return action\n",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_an_unreadable_landing_behind_the_gate_is_unknown_not_cleared"
+    },
+    {
+      "label": "E3 runner: stop consuming the block/unknown gate report",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=        blocked = )(?=_interstitial\\.first_blocked_after_gate\\(actions\\)$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_the_content_worker_holds_the_job_instead_of_extracting[block_behind_gate]"
+    },
+    {
+      "label": "E3 login submit: stop consuming the block/unknown gate report pre-form",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=        _pre_form_blocked = )(?=_first_gate_blocked\\(_pre_form_gate_actions\\)$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_do_login_refuses_a_gate_landing_it_cannot_call_members_content[block_behind_gate]"
+    }
+  ]
+}

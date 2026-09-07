@@ -93,6 +93,41 @@ DENIED_CONTROL_TERMS = (
     "opt-out", "cancel", "under-18",
 )
 
+# Row 721. The Gamma Billing age wall ("ACCESS BEYOND THIS PAGE IS RESTRICTED
+# TO ADULTS", EXIT HERE / ENTER) is an interstitial to click through, and the
+# product handled only its safety half: EXIT is refused, ENTER had no
+# affordance, so the wall was neither dismissed nor reported as dismissible.
+#
+# A bare "ENTER" is exactly the vague single word the generic tiers refuse on
+# purpose, so it is NOT admitted on its own. It is admitted only when the PAGE
+# CONTENT corroborates an age gate -- 18-plus language together with BOTH an
+# ENTER and an EXIT affordance. Recognition is by content, never by URL shape:
+# /login-abused is the same path whether it serves a gate or an abuse response,
+# and the operator screenshot that filed this row is the proof that the URL
+# cannot tell the two apart.
+AGE_GATE_LANGUAGE = re.compile(
+    r"(?:restricted to adults|adults only|adult content|age verification|"
+    r"\b(?:18|21)\s*\+|"
+    r"\b(?:you\s+)?(?:must|have to) be (?:at least )?(?:18|21)\b|"
+    r"\b(?:18|21) years? (?:of age )?or older\b|"
+    r"\bover (?:18|21) years?\b)", re.I)
+
+ENTER_AFFORDANCE = re.compile(
+    r"^(?:enter|enter (?:site|here|the site)|enter this site)$", re.I)
+
+# Read AFTER the ENTER click, never before it: the evilangel measurement shows
+# the block page sitting BEHIND the gate, invisible until the gate is cleared.
+# Clicking through is what makes the true state observable; reporting it as a
+# block is what keeps it from being presented as members content.
+BLOCK_LANGUAGE = re.compile(
+    r"(?:\byour ip (?:address )?(?:was|has been|is) blocked\b|"
+    r"\bip (?:address )?blocked\b|\baccess denied\b|"
+    r"\btoo many (?:failed )?(?:login )?attempts\b|"
+    r"\baccount (?:has been )?(?:locked|suspended)\b|"
+    r"\btemporarily blocked\b)", re.I)
+
+BODY_TEXT_SELECTOR = "body"
+
 SAFETY_UNKNOWN_OUTCOMES = frozenset({
     "label_unknown",
     "origin_unknown",
@@ -100,6 +135,13 @@ SAFETY_UNKNOWN_OUTCOMES = frozenset({
     "destination_re_request_unknown",
     "click_unknown",
     "measurement_unknown",
+})
+
+# A block page behind a cleared gate is a KNOWN state, so it is deliberately
+# NOT in SAFETY_UNKNOWN_OUTCOMES (that frozenset is pinned as the fail-closed
+# set). It is reported on its own so no caller can read it as members content.
+BLOCKED_AFTER_GATE_OUTCOMES = frozenset({
+    "blocked_after_gate", "gate_landing_unknown",
 })
 
 # Generic controls that accept/continue, in the order a person encounters the
@@ -657,6 +699,91 @@ def _click_gate(page: Any, locator: Any, *, source: str, tier: str,
     }
 
 
+def _body_text(page: Any) -> Optional[str]:
+    """The page's visible body text, or ``None`` when it is unmeasurable.
+
+    ``None`` is UNKNOWN, not "no language": callers must refuse the control
+    rather than read an unavailable measurement as permission (A2).
+    """
+    reader = getattr(page, "inner_text", None)
+    if not callable(reader):
+        return None
+    try:
+        text = reader(BODY_TEXT_SELECTOR, timeout=DEFAULT_TIMEOUT_MS)
+    except TypeError:
+        try:
+            text = reader(BODY_TEXT_SELECTOR)
+        except Exception:
+            return None
+    except Exception:
+        return None
+    return text if isinstance(text, str) else None
+
+
+def _age_gate_recognised(page: Any, records: Any) -> Optional[bool]:
+    """Whether this page is an age gate. ``None`` means it could not be told.
+
+    Both affordances must be present -- an ENTER with no EXIT beside it is a
+    plain continue button, not an age wall -- and the body text must carry
+    18-plus language. The affordance census is a complete measurement of the
+    visible controls already enumerated for this tier, so its ``False`` is a
+    verdict; only an unreadable body text is UNKNOWN.
+    """
+    surfaces = [surface for record in records
+                for surface in record.get("labels", [])]
+    has_enter = any(ENTER_AFFORDANCE.fullmatch(surface) for surface in surfaces)
+    has_exit = any(_deny_term(surface) is not None for surface in surfaces)
+    if not (has_enter and has_exit):
+        return False
+    text = _body_text(page)
+    if text is None:
+        return None
+    return AGE_GATE_LANGUAGE.search(text) is not None
+
+
+def _age_gate_landing(page: Any, action: dict) -> dict:
+    """Re-judge a cleared age gate by what is BEHIND it.
+
+    The evilangel measurement: "Your IP was blocked!" is only visible once the
+    gate is clicked through, so the block cannot be a pre-click refusal. An
+    unreadable landing is not a clearance either -- it is reported rather than
+    handed on as members content.
+    """
+    text = _body_text(page)
+    if text is None:
+        return {
+            **action,
+            "outcome": "gate_landing_unknown",
+            "reason": ("age gate cleared but the landing content is UNKNOWN; "
+                       "not reported as members content"),
+        }
+    found = BLOCK_LANGUAGE.search(text)
+    if found is None:
+        return action
+    return {
+        **action,
+        "outcome": "blocked_after_gate",
+        "reason": ("age gate cleared onto a blocked page (%r); the site is "
+                   "blocked, not members content" % found.group(0)),
+    }
+
+
+def first_blocked_after_gate(actions: Any) -> Optional[dict]:
+    """Return the first gate action that landed on a block page, if any."""
+    if not isinstance(actions, list):
+        return None
+    return next((action for action in actions
+                 if isinstance(action, dict)
+                 and action.get("outcome") in BLOCKED_AFTER_GATE_OUTCOMES), None)
+
+
+def blocked_after_gate_diagnostic(action: dict) -> str:
+    """Operator-facing diagnostic for a block page found behind a gate."""
+    reason = (action.get("reason", "blocked after gate")
+              if isinstance(action, dict) else "blocked after gate")
+    return f"Gate cleared onto a block page, not members content: {reason}"
+
+
 def dismiss_gates(page: Any, raw: Any, *,
                   destination_url: str = "",
                   timeout_ms: int = DEFAULT_TIMEOUT_MS,
@@ -922,6 +1049,10 @@ def dismiss_gates(page: Any, raw: Any, *,
             if enumeration_failed:
                 return actions
 
+        # Row 721: judged once per tier, from the controls already enumerated
+        # plus the page's own content. ``missing`` means "not yet asked".
+        age_gate_verdict = missing
+
         for record in records:
             labels = record["labels"]
             label = labels[0] if labels else ""
@@ -944,8 +1075,27 @@ def dismiss_gates(page: Any, raw: Any, *,
                         "destination_re_requested": False,
                     })
                 continue
-            if not label or not label_pattern.fullmatch(label):
+            if not label:
                 continue
+            admitted_by_age_gate = False
+            if not label_pattern.fullmatch(label):
+                # A bare "ENTER" is exactly the vague single word the tiers
+                # refuse on purpose. It becomes authority ONLY on a page whose
+                # content says age gate, which is what stops a genuine abuse
+                # response at the same URL from being clicked through.
+                if not (tier == "age" and ENTER_AFFORDANCE.fullmatch(label)):
+                    continue
+                if age_gate_verdict is missing:
+                    age_gate_verdict = _age_gate_recognised(page, records)
+                if age_gate_verdict is None:
+                    actions.append(_measurement_unknown(
+                        "generic", tier, GENERIC_CONTROL_SELECTOR,
+                        "age gate content UNKNOWN: body text unreadable; "
+                        "control not used"))
+                    return actions
+                if not age_gate_verdict:
+                    continue
+                admitted_by_age_gate = True
             locator = record["locator"]
             if locator is None:
                 try:
@@ -1030,6 +1180,8 @@ def dismiss_gates(page: Any, raw: Any, *,
                 destination_url=destination_url, timeout_ms=timeout_ms,
                 navigation_timeout_ms=navigation_timeout_ms,
                 settle_s=settle_s, sleep=sleep)
+            if admitted_by_age_gate and action.get("outcome") == "cleared":
+                action = _age_gate_landing(page, action)
             actions.append(action)
             if action.get("outcome") in SAFETY_UNKNOWN_OUTCOMES:
                 return actions
@@ -1052,6 +1204,9 @@ __all__ = [
     "first_safety_unknown", "safety_unknown_diagnostic",
     "SAFETY_UNKNOWN_OUTCOMES", "DENIED_CONTROL_TERMS",
     "GENERIC_CONTROL_SELECTOR", "DEFAULT_TIMEOUT_MS",
+    "AGE_GATE_LANGUAGE", "ENTER_AFFORDANCE", "BLOCK_LANGUAGE",
+    "BLOCKED_AFTER_GATE_OUTCOMES", "first_blocked_after_gate",
+    "blocked_after_gate_diagnostic",
     "DEFAULT_NAVIGATION_TIMEOUT_MS", "DEFAULT_SITE_APPEAR_MS",
     "DEFAULT_SETTLE_S",
 ]
