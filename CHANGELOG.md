@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1511 - a host-safety refusal survives copy, deepcopy and pickle, and the two unpinned webhook refusal classes are pinned
+
+Train F-03, base origin/main 70245349 (v3.66.1510). ONE reviewed worker patch; the train was
+assembled as two and BISECTED down to one. Path count is `git diff --cached 70245349 --name-only`,
+against the DECLARED base and never a bare HEAD: 9 paths. This car touches neither
+.github/workflows/ci.yml nor tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py, and the
+union deletion check over both files on the assembled tree returns ZERO deletion lines; the shard
+gate was RUN on this tree rather than inherited.
+
+- CX-HOSTSAFETY (rows 727 and 748). _HostSafetyMessage is a str subclass carrying a structured
+  .code, and str.__getnewargs__ rebuilt it from its text alone, so copy, deepcopy and pickle each
+  raised TypeError. It now declares __getnewargs__ returning (str(self), self.code), and
+  tests/test_v3_66_24_phase4_ssrf_hardening.py asserts the type, the text and the code all survive
+  all three round trips over two reasons, with two negative controls -- one proving the code is not
+  merely the text, one proving the enum's own protocol is unchanged. Separately,
+  bulk_downloader/hooks.py _host_ok_for_hook refuses ten host classes and
+  tests/test_hooks_webhook_ssrf.py pinned only some of them: the IPv6 cloud-metadata endpoint and
+  RESERVED had no executed assertion. Every refusal class is now executed and named against a
+  nonzero denominator that is asserted equal to the pinned set, with a control that detects an
+  added unpinned return.
+
+ROW 748 IS CLOSED. ROW 727 STAYS OPEN and is amended to say why: its own half is shipped here, but
+the 727+730 split is not complete -- bulk_downloader/app_scrape_listing.py api_scrape_listing still
+catches only httpx.HTTPError and contains zero references to SSRFBlocked, measured with a probe
+proved positive against five other modules. Row 730's handler is all that remains.
+
 ## v3.66.1510 - the inspector names the rung the runner saves, a witness stops rebinding the store's capture posture, the verifier proves a template only an authenticated page can resolve, and a collapsed reader window stops calling silence an answer
 
 Train A2-04, base origin/main a20e1b34 (v3.66.1509), rebased onto it from cd11d5a1 after PR #814 landed 1509. Four independently reviewed patches with

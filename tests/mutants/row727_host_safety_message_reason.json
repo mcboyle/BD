@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 727: _HostSafetyMessage must carry its HostSafetyReason as identity, not as text. M2 makes construction drop the caller's reason and stamp a constant, which the round-trip test catches because the reconstructed message reports the wrong class. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row727_host_safety_message_reason.json",
+  "subject": "_HostSafetyMessage construction keeps the original reason identity for reconstruction",
+  "band": [
+    "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_round_trip_preserves_text_and_reason",
+    "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_reason_is_not_just_its_text"
+  ],
+  "mutants": [
+    {
+      "label": "M2 construction drops the original reason",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^        value\\.code = )code$",
+      "new": "HostSafetyReason.PUBLIC",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::test_host_safety_message_round_trip_preserves_text_and_reason[copy-cgnat-refusing cgnat]"
+    }
+  ]
+}

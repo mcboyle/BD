@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 748: the IPv6 cloud-metadata refusal (fd00:ec2::254) must stay reachable. The mutant rebinds the compared endpoint so the branch can never fire, and the per-class execution test catches it by its distinctive diagnostic. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row748_webhook_ipv6_metadata.json",
+  "subject": "webhook IPv6 metadata refusal remains reachable",
+  "band": [
+    "tests/test_hooks_webhook_ssrf.py::test_every_webhook_refusal_class_is_executed_and_named[IPV6_METADATA]"
+  ],
+  "mutants": [
+    {
+      "label": "metadata branch deleted",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^        if a == _\\w+:$)",
+      "new": "        _v6_imds = None\n",
+      "direction": "regression",
+      "catcher": "tests/test_hooks_webhook_ssrf.py::test_every_webhook_refusal_class_is_executed_and_named[IPV6_METADATA]"
+    }
+  ]
+}

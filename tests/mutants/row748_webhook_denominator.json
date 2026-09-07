@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 748: the webhook refusal denominator must be DERIVED from the classifier's own `return False, ...` sites, never typed in. The mutant makes the counter stop deriving; the negative-control test that adds a refusal to the source is what notices. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row748_webhook_denominator.json",
+  "subject": "the webhook refusal denominator is derived from classifier returns",
+  "band": [
+    "tests/test_hooks_webhook_ssrf.py::test_webhook_refusal_denominator_is_nonzero_and_fully_pinned",
+    "tests/test_hooks_webhook_ssrf.py::test_webhook_refusal_denominator_detects_an_added_unpinned_return"
+  ],
+  "mutants": [
+    {
+      "label": "refusal denominator no longer derives from returns",
+      "file": "tests/test_hooks_webhook_ssrf.py",
+      "old_regex": "(?m)(?=^    return sum\\($)",
+      "new": "    return 0\n",
+      "direction": "regression",
+      "catcher": "tests/test_hooks_webhook_ssrf.py::test_webhook_refusal_denominator_detects_an_added_unpinned_return"
+    }
+  ]
+}

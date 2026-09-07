@@ -21,9 +21,101 @@ and the redirect handler re-validates hops.
 
 Convention: zero-arg fns; literal-IP assertions (resolve locally, no network).
 """
+import ast
+import inspect
+import socket
+
 import pytest
 
 import bulk_downloader.hooks as hooks
+
+
+_HOOK_REFUSAL_CASES = (
+    ("NO_HOST", "", "no host", None),
+    ("DNS_FAILURE", "dns-failure.test", "DNS resolution failed:", "dns_failure"),
+    ("NON_IP_DNS", "non-ip.test", "got non-IP from getaddrinfo:", "non_ip"),
+    ("NO_DNS_ADDRESSES", "empty-dns.test", "DNS resolution returned no addresses", "empty"),
+    ("CGNAT", "100.64.0.1", "refusing CGNAT/shared address", None),
+    ("LINK_LOCAL", "169.254.10.5", "refusing link-local/metadata address", None),
+    ("IPV6_METADATA", "[fd00:ec2::254]", "refusing IPv6 cloud-metadata address", None),
+    ("RESERVED", "240.0.0.1", "refusing reserved address", None),
+    ("MULTICAST", "224.0.0.1", "refusing multicast address", None),
+    ("UNSPECIFIED", "0.0.0.0", "refusing unspecified address", None),
+)
+_PINNED_HOOK_REFUSAL_CLASSES = frozenset(case[0] for case in _HOOK_REFUSAL_CASES)
+
+
+def _host_refusal_return_count(source):
+    """Count ``return False, reason`` sites in the real webhook classifier."""
+    tree = ast.parse(source)
+    return sum(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Tuple)
+        and len(node.value.elts) == 2
+        and isinstance(node.value.elts[0], ast.Constant)
+        and node.value.elts[0].value is False
+        for node in ast.walk(tree)
+    )
+
+
+def test_webhook_refusal_denominator_is_nonzero_and_fully_pinned():
+    """Every refusal return needs one independently named behavioral pin."""
+    source = inspect.getsource(hooks._host_ok_for_hook)
+    refusal_count = _host_refusal_return_count(source)
+    assert refusal_count == 10
+    assert refusal_count > 0
+    assert refusal_count == len(_PINNED_HOOK_REFUSAL_CLASSES), (
+        f"{refusal_count} webhook refusal returns, but "
+        f"{len(_PINNED_HOOK_REFUSAL_CLASSES)} named pins")
+
+
+def test_webhook_refusal_denominator_detects_an_added_unpinned_return():
+    """Negative control: an added classifier refusal changes the denominator."""
+    source = inspect.getsource(hooks._host_ok_for_hook)
+    baseline = _host_refusal_return_count(source)
+    expanded = source + '\n    return False, "test-only added refusal"\n'
+    assert baseline == 10
+    assert _host_refusal_return_count(expanded) == baseline + 1
+
+
+def _refusal_result(host, resolver_kind, monkeypatch):
+    if resolver_kind == "dns_failure":
+        def raise_gaierror(*_args, **_kwargs):
+            raise socket.gaierror("zero-entropy fixture DNS failure")
+        monkeypatch.setattr(socket, "getaddrinfo", raise_gaierror)
+    elif resolver_kind == "non_ip":
+        monkeypatch.setattr(
+            socket, "getaddrinfo",
+            lambda *_args, **_kwargs: [(socket.AF_INET, 0, 0, "", ("not-an-ip", 0))])
+    elif resolver_kind == "empty":
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *_args, **_kwargs: [])
+    return hooks._host_ok_for_hook(host)
+
+
+@pytest.mark.parametrize(
+    "refusal_class,host,reason_prefix,resolver_kind", _HOOK_REFUSAL_CASES,
+    ids=[case[0] for case in _HOOK_REFUSAL_CASES],
+)
+def test_every_webhook_refusal_class_is_executed_and_named(
+        refusal_class, host, reason_prefix, resolver_kind, monkeypatch):
+    """Every classifier refusal has an input and a distinctive diagnostic."""
+    ok, reason = _refusal_result(host, resolver_kind, monkeypatch)
+    assert refusal_class in _PINNED_HOOK_REFUSAL_CLASSES
+    assert ok is False, f"{refusal_class} unexpectedly allowed {host!r}"
+    assert str(reason).startswith(reason_prefix), (
+        f"{refusal_class} produced {reason!r}, not {reason_prefix!r}")
+
+
+@pytest.mark.parametrize("host", ["93.184.216.34", "192.168.1.50", "127.0.0.1"])
+def test_webhook_host_guard_keeps_public_lan_and_loopback_allowed(host):
+    """Negative control: webhook integrations intentionally include LAN/localhost."""
+    assert hooks._host_ok_for_hook(host) == (True, "")
+
+
+def test_webhook_refusal_transform_control_imports_subject():
+    """Mutation transform control: import alone cannot judge a refusal branch."""
+    import importlib
+    assert importlib.import_module("bulk_downloader.hooks") is hooks
 
 
 def _ok(url):
