@@ -4,6 +4,43 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1522 - the register's own contract paragraph published a three-status vocabulary while its gate read four, and a new cross-check makes the prose and the rows refute each other
+
+Train B2-05, base origin/main d69ffcda (v3.66.1521). ONE reviewed worker patch, cutB, and the
+fourth of its four paths was applied by the integrator by hand because a worker may never author
+the register.
+
+- cutB register status reconciliation (bd-w-a3, BOARD bd-persist/verdicts/cutB-register-status-VERDICT-b1.md).
+  IMPROVEMENT_BACKLOG.md's Format section listed OPEN, CLOSED and MOOT as the status vocabulary.
+  tests/test_v3_66_1052_the_backlog_is_machine_visible.py has read a FOUR-value VALID_STATUS for
+  some time, and five rows -- 120, 122, 124, 126 and 127 -- are PARKED. The gate passed only
+  because its set was the wider one, so a reader following the published prose builds a
+  three-status triage and silently drops those five rows. The contract now states the vocabulary
+  the rows actually use.
+  tests/test_register_status_contract_matches_the_rows.py is the new cross-check and it is
+  two-sided: it refuses a status the rows use that the prose omits, AND a status the prose
+  declares that no row uses. Its row-count precondition runs in front of every verdict, and it
+  asserts the file's own rows= marker rather than a literal, so a parse matching nothing or a
+  subset fails while an appended row does not read as a contract defect.
+  The register's gap heading is corrected from four ids to FIFTY-SEVEN, which is what the file's
+  own enumerated list has always contained; REGISTER_GAP_ALLOWLIST.json's four reason strings are
+  updated to cite the heading that now exists. The one remaining occurrence of the old heading is
+  a historical CHANGELOG entry describing what v3.66.1052 shipped, and rewriting a release record
+  to satisfy a citation check would falsify it.
+
+NO ROW WAS ADDED, CLOSED OR REWORDED. All 742 row lines are byte-identical to the base and the
+rows=742 open=75 ids-sha256=b05d81a4 marker is unchanged -- proved by extracting the row lines from
+both blobs and diffing them, which is the test the digest cannot do, since the digest covers the id
+sequence and is invariant to prose by construction.
+
+THE FOURTH PATH WAS APPLIED BY HAND, BEFORE THE HEAD WAS FINAL. bd-train.sh's FORBID and
+bd-review-prep.sh's REFUSE both name project-knowledge/IMPROVEMENT_BACKLOG.md, and the assembler's
+own header reserves it to the integrator. The FORBID was not widened and no exception was written:
+the three collectable paths went through the assembler and the register was applied with
+git apply --index from the cut's own blob, so the blob CI grades is the blob the lens judged.
+Nineteen register-reading gates are named in ci.yml and run; had the register been applied after
+CI, those nineteen would have certified a tree without the deliverable.
+
 ## v3.66.1521 - a rebinding host can no longer reach the metadata address through the template sandbox, and an import rewritten to dodge the graph gate is caught in the diff that does it
 
 Train A2-07, base origin/main da748288 (v3.66.1520, #826). TWO reviewed worker patches, and NEITHER

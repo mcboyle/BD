@@ -57,13 +57,33 @@ place to file or close work. When citing a task, say "backlog N".
 
 One row per item: `| <id> | <status>[ @<evidence>] | <text> |`
 
-`OPEN` carries no evidence. `CLOSED` and `MOOT` must carry it -- a version
-(`@1049`) or a commit -- because a close nobody can check is a claim, not a
-record. Status is one of `OPEN`, `CLOSED`, `MOOT`.
+Status is one of `OPEN`, `CLOSED`, `PARKED`, `MOOT`.
+
+Evidence is required for `CLOSED`, `MOOT` and `PARKED`, and forbidden for `OPEN`.
+Evidence is a version (`@1049`) or a commit, because a close nobody can check is
+a claim rather than a record -- and neither is a park.
 
 `MOOT` is deliberately distinct from `CLOSED`: it means the SUBJECT went away
 rather than the work being done. Collapsing the two would let a disappeared
 problem read as a solved one.
+
+`PARKED` is deliberately distinct from both: the work was SUSPENDED BY A
+DECISION, rather than not yet started (`OPEN`) or overtaken by its subject
+disappearing (`MOOT`). Its evidence names the version at which that decision was
+taken -- rows 120, 122, 124 and 126 carry `@1253`, and row 127 carries `@1195`
+and says so in its text. The evidence requirement is not a formality here: a
+park is the class most likely to be forgotten, because by definition nobody is
+working on it, and a parked row nobody can trace to a decision is
+indistinguishable from an abandoned one.
+
+`PARKED` was in use from v3.66.1195 and this section did not name it for the
+326 versions that followed. It is not new, and it is not a typo the other gates would catch: the
+status is already read by tests/test_v3_66_1052_the_backlog_is_machine_visible.py,
+tests/test_v3_66_1171_backlog_truth_is_current.py and
+tests/mutants/v3_66_1228_register_reconciliation.json. The rows were right and
+this paragraph was stale, which is the worse direction -- a reader who trusted
+the three-status enum wrote a triage that silently dropped five operator-parked
+items.
 
 A `CLOSED` row MAY carry an unfinished remainder, but it must say so in the
 status: `CLOSED @NNNN -- PARTIAL, and the remainder is named`. Rows 3, 89, 90,
@@ -71,14 +91,62 @@ status: `CLOSED @NNNN -- PARTIAL, and the remainder is named`. Rows 3, 89, 90,
 reads, so a remainder living in a row's TEXT under a bare `CLOSED` is invisible
 to every count and every triage -- see row 143.
 
-## FOUR IDS HAVE NEVER EXISTED, and the table is not contiguous
+## FIFTY-SEVEN IDS HAVE NO ROW, and the table is not contiguous
 
-**15, 40, 41 and 42 are absent and their content is unrecoverable.** This is not
-a deletion: the birth commit `7a8a5a2` (v3.66.1052) already lacks them, and the
-untracked pre-tracking source it was built from called itself "77 items" while
-listing 73. Recorded here because a table that runs 14, 16 and 39, 43 reads as
-damaged, and the next session to notice would otherwise spend the same hour
-proving nothing was lost. Nothing was lost here that any commit ever held.
+**No row has ever been removed from this register.** That is what this section
+exists to establish, and it is now measured rather than asserted: over the 341
+commits that touched this file in `d69ffcda`'s ancestry -- 341 distinct blobs,
+back to the birth commit `7a8a5a2` (v3.66.1052) -- not one of the ids below ever
+carried a row. The counter-control ran in the same pass: ids that DO have rows
+are found in the blobs where they belong (1, 14 and 16 in all 341 blobs, 799 in
+the last 3), so "never present" here is a finding and not an empty parse.
+
+THE FIFTY-SEVEN, as ranges:
+
+    15, 40-42
+    236, 270-279, 282, 288
+    301-307
+    352, 359, 362, 364-365, 369-370, 379, 382-383, 387
+    392-396, 398-401, 403-407, 409-410
+    457-462
+
+They are also enumerated one id per entry, machine-readably, in
+`project-knowledge/REGISTER_GAP_ALLOWLIST.json`, which is the authority a gate
+reads; this section is the prose beside it and the two must not drift.
+
+THE ORIGINAL FOUR.
+**15, 40, 41 and 42 are absent and their content is unrecoverable.**
+This is not a deletion: the birth commit `7a8a5a2` (v3.66.1052) already lacks
+them, and the untracked pre-tracking source it was built from called itself
+"77 items" while listing 73.
+
+THE OTHER FIFTY-THREE ARE A DIFFERENT POPULATION, and the allowlist marks every
+one of them UNADJUDICATED -- measured absent, never explained. They are ids
+CONSUMED WITHOUT A ROW LANDING, and they cluster -- 270-279, 301-307, 392-410,
+457-462 -- which is the shape of reserved blocks and abandoned batches rather
+than 53 independent events. Two sub-populations are known and both are
+recoverable, which is why "unrecoverable" must not be read across all 57:
+
+  * NAMED BY LANDED WORK UNDER THE SAME NUMBER. Nine of the 53 are cited by
+    tracked files in this tree: 236 (CHANGELOG, "filed as row 236"), 282
+    (`tests/test_row_282_bd_opv_isolates_every_store.py`), 362 (`ci.yml`), 379,
+    387, 395, 399, 407 and 409. For these the SUBJECT is recoverable from the
+    citing artifact even though the register has no row.
+  * A ROW EXISTED ON A BRANCH THAT NEVER LANDED. 282, 399 and 457-462 carried a
+    real row in commits reachable from `git log --all` but from no ancestor of
+    main (`4b4ce878`, `9392a4cb`, `f5fc0d63`, `a6c311d6`). Those rows are
+    recoverable verbatim from git, and they were never in main, so nothing was
+    removed from it.
+
+RECONCILING EITHER SUB-POPULATION INTO ROWS IS OPEN WORK AND IS NOT A
+DOCUMENTATION QUESTION. Only a human may change an UNADJUDICATED entry, so this
+section records what was measured and changes no status.
+
+Recorded here, as before, because a table that runs 14, 16 and 39, 43 reads as
+damaged and the next session to notice would otherwise spend the same hour. The
+earlier wording named four and was silent about the other 53, which cost that
+hour anyway: a reader who checked the four and found fifty-three more concluded
+the note was unreliable, which is the opposite of what it is for.
 
 | id | status | item |
 | --- | --- | --- |
