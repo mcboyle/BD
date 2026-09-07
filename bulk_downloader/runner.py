@@ -5025,6 +5025,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     # retry at all; rate limits get long delays; network gets quick retries.
     _RETRY_DELAYS_BY_KIND={
         "permanent": [],                  # don't retry, fail immediately
+        "page_shape": [],                 # rendered page lacks download control
         "rate_limit": [3600, 7200, 14400],# 1h, 2h, 4h
         "network":   [30, 120, 600],      # 30s, 2m, 10m
         "transient": [600, 3600],         # 10m, 1h (legacy default)

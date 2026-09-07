@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1519 - a rendered-page failure that cannot succeed stops being retried on the ten-minute and one-hour ladder
+
+Train B2-04, base origin/main 26781387 (v3.66.1518). ONE reviewed worker patch, row 777, carried
+alone. Path count is `git diff 26781387 --name-only`, against the DECLARED base and never a bare
+HEAD. The cx-ssrf car was assembled onto this train twice and came off twice: first on the importlib
+dodge, then on its own exact-head CI at 846eeb39, and both removals are recorded rather than tidied
+away.
+
+- row 777 (T2): `_classify_error` treated "No download button found" as transient, so the schedule
+  seam booked a 10m rung and then a 1h rung against a page that renders the same way every time --
+  measured at ~71 minutes per URL for zero bytes against 70-90 seconds for a healthy download. The
+  page-shape failure population is now classified as terminal at that seam, and the gate that says
+  so is declared in the application-safety shard and in the 939 shard-coverage list.
+- The integrator re-froze `tools/decomp/import_graph_baseline.json` once on the assembled tree:
+  three edges added and zero removed, all three the new test importing the modules it drives. A
+  re-freeze that DROPS an edge is how a frozen baseline launders a coupling out of existence; this
+  one drops nothing.
+
 ## v3.66.1518 - the blocking footgun detectors are executed by CI, and the two registries are linked so a detector cannot rest on a test nothing runs
 
 Train F-08, base origin/main 142133f5 (v3.66.1517). TWO reviewed worker patches with DISJOINT authored paths --

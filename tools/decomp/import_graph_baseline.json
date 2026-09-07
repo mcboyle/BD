@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4384,
+  "edge_count": 4387,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4101,6 +4101,11 @@
     ],
     "tests/test_row765_scrapling_selector_compatibility.py": [
       "bulk_downloader/scrapling_adapter.py"
+    ],
+    "tests/test_row777_retry_ladder.py": [
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_telemetry.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

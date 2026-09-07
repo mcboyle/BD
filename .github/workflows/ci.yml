@@ -488,6 +488,7 @@ jobs:
               tests/test_row751_template_strip_recurses.py
               tests/test_row675_minified_js_is_not_a_secret.py
               tests/test_test2d_1_persistent_profile_cookie_jar.py
+              tests/test_row777_retry_ladder.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

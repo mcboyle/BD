@@ -363,12 +363,14 @@ class TelemetryMixin:
         return out
     def _classify_error(self,message):
         """Phase 6.3: classify a failure message into a retry category.
-        Returns one of: 'permanent', 'rate_limit', 'transient', 'network'.
+        Returns one of: 'permanent', 'page_shape', 'rate_limit', 'transient',
+        'network'.
         Each category has its own retry policy in RETRY_DELAYS_BY_KIND.
 
         Heuristics (case-insensitive substring match):
           - permanent: 404, 403, 'not found', 'forbidden', 'auth required',
             'invalid url', 'expired link', 'gone', '410'
+          - page_shape: a rendered page lacks the expected download control
           - rate_limit: 429, 'rate limit', 'too many requests', 'try again'
           - network: 'connect', 'timeout', 'reset', 'dns', 'unreachable',
             'connection', 'eof'
@@ -378,6 +380,8 @@ class TelemetryMixin:
         if any(k in m for k in ("404","403","not found","forbidden","auth required",
                                  "invalid url","expired","410"," gone")):
             return "permanent"
+        if any(k in m for k in ("no download button found",)):
+            return "page_shape"
         if any(k in m for k in ("429","rate limit","too many request","try again later")):
             return "rate_limit"
         if any(k in m for k in ("connect","timeout","reset","dns","unreachable",
@@ -410,7 +414,7 @@ class TelemetryMixin:
 
     def _handle_failure_current(self,url,message,screenshot="",_run_generation=None):
         """Central failure handler. Classifies the error message into one of
-        four categories (permanent/rate_limit/network/transient) via
+        five categories (permanent/page_shape/rate_limit/network/transient) via
         _classify_error, then either:
           • marks the job failed (permanent errors, or retries exhausted)
             and fires the 'failed' webhook event, OR

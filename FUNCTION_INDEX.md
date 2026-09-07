@@ -449,9 +449,9 @@ Schema version: 2
   - L0244 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
   - L0323 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
   - L0364 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
-  - L0387 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
-  - L0411 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
-  - L0458 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
+  - L0391 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
+  - L0415 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
+  - L0462 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
 ```
 
 

@@ -1,0 +1,48 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 777: each zero-width anchor names a retry classification or schedule decision, never a policy value.",
+  "subject": "rendered-page shape failures are terminal and cannot silently inherit the transient 10m/1h ladder",
+  "band": ["tests/test_row777_retry_ladder.py"],
+  "mutants": [
+    {
+      "label": "S1 page-shape membership falls through to transient",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?m)(?<=^        if )(?=any\\(k in m for k in \\(\"no download button found\",\\)\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_page_shape_failure_population_is_terminal_at_the_schedule_seam"
+    },
+    {
+      "label": "S2 permanent ordering is bypassed before its first branch",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?m)(?=^        if any\\(k in m for k in \\(\"404\",\"403\",\"not found\",\"forbidden\",\"auth required\",$)",
+      "new": "        if \"not found\" in m: return \"rate_limit\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_existing_classifier_categories_keep_their_exact_population[Page not found-permanent]"
+    },
+    {
+      "label": "S3 unmapped kinds lose the .get legacy default",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?<=\\.get\\(kind,)(?=RETRY_DELAYS\\))",
+      "new": "[] if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_unmapped_kind_keeps_the_legacy_default_ladder_at_the_schedule_seam"
+    },
+    {
+      "label": "S4 an empty page-shape schedule no longer terminates",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?<= or )(?=not schedule:)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_page_shape_failure_population_is_terminal_at_the_schedule_seam"
+    },
+    {
+      "label": "S5 page-shape mapping lookup key no longer resolves",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^        \")(?=page_shape\": \\[\\],)",
+      "new": "missing_",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_page_shape_failure_population_is_terminal_at_the_schedule_seam"
+    }
+  ]
+}

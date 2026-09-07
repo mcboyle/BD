@@ -1,0 +1,16 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 777 transform control: this MUST ESCAPE because its sole band imports the subject without driving retry behaviour.",
+  "subject": "transform control for the page-shape classifier decision",
+  "band": ["tests/test_row777_retry_ladder.py::test_runner_telemetry_import_transform_control"],
+  "mutants": [
+    {
+      "label": "control page-shape membership falls through",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?m)(?<=^        if )(?=any\\(k in m for k in \\(\"no download button found\",\\)\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row777_retry_ladder.py::test_runner_telemetry_import_transform_control"
+    }
+  ]
+}
