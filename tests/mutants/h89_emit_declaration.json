@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 6: --emit-spec. The declaration travels into the emitted document, and a control-suffixed name is refused for a run that was not a control.",
+  "subject": "an emitted spec keeps or refuses the control declaration consistently with the run",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_emit_spec_carries_a_control_declaration_into_the_emitted_document",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_emit_spec_refuses_a_control_suffix_for_a_run_that_was_not_a_control"
+  ],
+  "mutants": [
+    {
+      "label": "E1 the emitted document drops control_spec",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=control_spec:\\n        document\\[\\\"control_spec\\\"\\] = True$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_emit_spec_carries_a_control_declaration_into_the_emitted_document"
+    },
+    {
+      "label": "E2 a control-suffixed emit name is accepted for a non-control run",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=name\\.endswith\\(_CONTROL_SUFFIX\\) and not control_spec:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_emit_spec_refuses_a_control_suffix_for_a_run_that_was_not_a_control"
+    }
+  ]
+}

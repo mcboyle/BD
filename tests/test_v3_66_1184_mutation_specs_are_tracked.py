@@ -27,6 +27,9 @@ _REPO = Path(__file__).resolve().parent.parent
 _TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
 _SCHEMA = "bd-mutate-spec/1"
 _TOP_LEVEL_FIELDS = {"schema", "_comment", "subject", "band", "mutants"}
+# H89: the one optional top-level field. A spec that is a transform control
+# declares it, and the only value a tracked spec may declare is a literal true.
+_OPTIONAL_TOP_LEVEL_FIELDS = {"control_spec"}
 _COMMON_MUTANT_FIELDS = {"label", "file", "new", "direction"}
 _REGRESSION_FIELDS = _COMMON_MUTANT_FIELDS | {"catcher"}
 _OVERCORRECTION_FIELDS = _COMMON_MUTANT_FIELDS | {"control", "preserves"}
@@ -177,9 +180,16 @@ def _collection_worker_count(spec_count: int) -> int:
 def _validate_one_tracked_spec(path: Path, tracked: set[str]) -> None:
     document = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(document, dict), f"{path}: tracked specs use object form"
-    assert set(document) == _TOP_LEVEL_FIELDS, (
-        f"{path}: fields {sorted(document)} != {sorted(_TOP_LEVEL_FIELDS)}"
+    assert _TOP_LEVEL_FIELDS <= set(document) <= (
+            _TOP_LEVEL_FIELDS | _OPTIONAL_TOP_LEVEL_FIELDS), (
+        f"{path}: fields {sorted(document)} are not {sorted(_TOP_LEVEL_FIELDS)} "
+        f"plus optional {sorted(_OPTIONAL_TOP_LEVEL_FIELDS)}"
     )
+    if "control_spec" in document:
+        assert document["control_spec"] is True, (
+            f"{path}: control_spec must be true when present, got "
+            f"{document['control_spec']!r}"
+        )
     assert document["schema"] == _SCHEMA, path
     assert isinstance(document["_comment"], str) and document["_comment"].strip(), path
     assert isinstance(document["subject"], str) and document["subject"].strip(), path
@@ -295,6 +305,33 @@ def _validate_tracked_specs_concurrently(specs: list[Path], tracked: set[str]) -
         + "\n".join(f"{path}: {error}" for path, error in failures)
     )
     return processed
+
+
+def test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else(tmp_path):
+    """H89: the only optional top-level field is a literal true control declaration."""
+    template = _tracked_specs()[0]
+    tracked = set(_git_paths())
+    document = json.loads(template.read_text(encoding="utf-8"))
+    assert "control_spec" not in document, template
+    _validate_one_tracked_spec(template, tracked)
+
+    declared = tmp_path / "declared_control.json"
+    declared.write_text(
+        json.dumps({**document, "control_spec": True}), encoding="utf-8")
+    _validate_one_tracked_spec(declared, tracked)
+
+    for bad in (False, "yes", 1):
+        path = tmp_path / "bad_control.json"
+        path.write_text(
+            json.dumps({**document, "control_spec": bad}), encoding="utf-8")
+        with pytest.raises(AssertionError, match="control_spec must be true"):
+            _validate_one_tracked_spec(path, tracked)
+
+    stray = tmp_path / "stray_field.json"
+    stray.write_text(
+        json.dumps({**document, "controls": True}), encoding="utf-8")
+    with pytest.raises(AssertionError, match="plus optional"):
+        _validate_one_tracked_spec(stray, tracked)
 
 
 def test_a_tracked_mutation_spec_exists_at_all():

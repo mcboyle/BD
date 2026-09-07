@@ -1,0 +1,43 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 2: a declared control's measurement is read the other way up at ONE site and the envelope says the spec was a control. Zero-width anchors on the mapping return, the grading-site guard and the envelope field.",
+  "subject": "CONTROL-ESCAPED and CONTROL-CAUGHT replace ESCAPED and CAUGHT inside a declared control",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_NEGATIVE_a_declared_control_that_is_caught_is_a_failure_and_exits_1[suffix]"
+  ],
+  "mutants": [
+    {
+      "label": "V1 ESCAPED stays ESCAPED inside a declared control",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    return )(?=\\{ESCAPED: CONTROL_ESCAPED, CAUGHT: CONTROL_CAUGHT\\}\\.get\\(verdict, verdict\\)$)",
+      "new": "verdict if verdict == ESCAPED else ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]"
+    },
+    {
+      "label": "V2 CAUGHT stays CAUGHT inside a declared control",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    return )(?=\\{ESCAPED: CONTROL_ESCAPED, CAUGHT: CONTROL_CAUGHT\\}\\.get\\(verdict, verdict\\)$)",
+      "new": "verdict if verdict == CAUGHT else ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_NEGATIVE_a_declared_control_that_is_caught_is_a_failure_and_exits_1[suffix]"
+    },
+    {
+      "label": "V3 the grading site never applies the control mapping",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^                if )(?=control_spec:\\n                    row\\[\\\"verdict\\\"\\] = _control_verdict\\(row\\[\\\"verdict\\\"\\]\\)$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]"
+    },
+    {
+      "label": "V4 the JSON envelope always reports control_spec false",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^            \\\"control_spec\\\": )(?=control_spec,$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 5: the human report. Controls are counted apart from caught/escaped, the verdict line names the control outcome, and the display carries (expected)/(FAILURE).",
+  "subject": "the report keeps controls out of the regression counts and prints verdict: CONTROL-...",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+  ],
+  "mutants": [
+    {
+      "label": "R1 control rows are folded into the escaped count",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?<=c\\[CAUGHT\\], c\\[ESCAPED\\])(?=, c\\[INDISCRIMINATE\\], c\\[UNKNOWN\\],\\n {17}c\\[INVALID\\], c\\[ERROR\\]\\)\\))",
+      "new": " + c[CONTROL_ESCAPED]",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+    },
+    {
+      "label": "R2 the control counts clause is never appended",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=control_spec:\\n        # H89: controls sit OUTSIDE)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+    },
+    {
+      "label": "R3 the CONTROL-CAUGHT verdict line is never printed",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    if )(?=control_spec and c\\[CONTROL_CAUGHT\\]:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+    },
+    {
+      "label": "R4 the CONTROL-ESCAPED verdict line is never printed",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    elif )(?=control_spec and rows and c\\[CONTROL_ESCAPED\\] == len\\(rows\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+    },
+    {
+      "label": "R5 the display drops (expected)/(FAILURE)",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?m)(?<=^    return )(?=_CONTROL_DISPLAY\\.get\\(verdict, verdict\\)$)",
+      "new": "verdict or ",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_the_report_prints_the_control_verdict_outside_the_regression_counts"
+    }
+  ]
+}

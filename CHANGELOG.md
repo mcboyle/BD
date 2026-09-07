@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1524 - bd-mutate can DECLARE a control, so a correct transform control is no longer byte-identical in shape to a real escape
+
+Train F-09, base origin/main 98bb7d90 (v3.66.1523). ONE reviewed worker patch plus a register
+commit authored by the integrator. The trio was written 1523 first and RENUMBERED to 1524 after
+PR #829 took 1523 against the same base -- the sixth version collision of the day; the number is
+re-derived from origin/main at the moment it is written, because reading the current maximum is not
+a reservation.
+
+- h89-mutate-control (worker bd-f-f1, account A; HARNESS_BACKLOG H89): a mutation spec may now
+  DECLARE itself a control -- basename ending _transform_control.json, or top-level
+  "control_spec": true -- and inside a declared control the grading is read the other way up:
+  ESCAPED becomes CONTROL-ESCAPED and exits 0, CAUGHT becomes CONTROL-CAUGHT and exits 1. Before
+  this, a control that behaved exactly as designed printed direction regression, a named catcher,
+  verdict ESCAPED and exit 1 -- indistinguishable from a genuine uncaught mutant, which is the
+  condition H89 was filed for. The exit code is now VERSION-PINNED: pre-H89 exit 1, post-H89
+  CONTROL-ESCAPED exit 0. tests/test_row243_... and tests/test_v3_66_1184_... are updated to the
+  new rule, 1184's field-set assertion tightened to strict so a declared control cannot smuggle an
+  unknown key past it, and eight new specs plus
+  tests/test_h89_bd_mutate_declares_a_control.py cover the declaration, the verdict, the report
+  counts, the band membership and the tracked-spec gate.
+- register: row 800 filed OPEN -- three tracked specs announce a transform control in a mutant
+  LABEL while declaring none, and two of them are MIXED and must be SPLIT rather than declared.
+  It is scoped against row 788, which owns the one inline case already known and whose "only one"
+  wording this row's measurement falsifies.
+
+It boards as a PARTIAL and DONE.md names the part it leaves: the suffix is load-bearing for grading
+and nothing validates it -- a hand-written spec carrying that name alone graded a real
+authorization bypass CONTROL-ESCAPED at exit 0 when a verify lens RAN it rather than reasoning about
+it. Those residuals are routed to harness rows H140 and H138, not fixed here.
+
+CI blast radius of the exit-code flip is ZERO by measurement: no tracked gate executes a tracked
+control battery, and ci.yml invokes bd-mutate zero times. Hand runs are sampled -- 6 of the 160
+suffix-named specs at dd959706 all return CONTROL-ESCAPED at rc 0, and the remaining 154 (plus the
+8 that landed after that base) are recorded UNKNOWN rather than assumed.
+
 ## v3.66.1523 - a quality scan decides from the scene's own candidates, and CLAUDE.md A5 states CI's pytest denominator as it is
 
 Train A2-08, base origin/main dbff6581 (v3.66.1522, #828). TWO reviewed worker patches whose

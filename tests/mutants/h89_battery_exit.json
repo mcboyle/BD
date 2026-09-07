@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "H89 seam 3: the exit code. A control's escape is the success case and its catch is the failure; both directions are pinned on the one success set.",
+  "subject": "exit 0 iff every row is CAUGHT or CONTROL-ESCAPED; CONTROL-CAUGHT exits 1",
+  "band": [
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]",
+    "tests/test_h89_bd_mutate_declares_a_control.py::test_NEGATIVE_a_declared_control_that_is_caught_is_a_failure_and_exits_1[suffix]"
+  ],
+  "mutants": [
+    {
+      "label": "X1 CONTROL-ESCAPED is not a success",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?<=in \\{CAUGHT, CONTROL_ESCAPED\\})(?= for row in rows\\) else 1\\n)",
+      "new": " - {CONTROL_ESCAPED}",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_a_declared_control_that_escapes_is_CONTROL_ESCAPED_and_exits_0[suffix]"
+    },
+    {
+      "label": "X2 CONTROL-CAUGHT is a success",
+      "file": "toolchain/bin/bd-mutate",
+      "old_regex": "(?<=in \\{CAUGHT, CONTROL_ESCAPED\\})(?= for row in rows\\) else 1\\n)",
+      "new": " | {CONTROL_CAUGHT}",
+      "direction": "regression",
+      "catcher": "tests/test_h89_bd_mutate_declares_a_control.py::test_NEGATIVE_a_declared_control_that_is_caught_is_a_failure_and_exits_1[suffix]"
+    }
+  ]
+}
