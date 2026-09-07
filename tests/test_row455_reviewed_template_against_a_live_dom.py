@@ -135,31 +135,13 @@ def _probe() -> dict:
 
     Identical construction to row 126's ``_probe_template``, deliberately: the
     live numbers and the recorded numbers must be about the same selectors, or
-    the comparison between them means nothing.
+    the comparison between them means nothing. Row 673 made that identity
+    STRUCTURAL rather than a promise -- both gates now call the one shipped
+    adapter instead of each keeping its own copy of the composition.
     """
-    from bulk_downloader.template_assist import (
-        selector_group,
-        template_to_learned_download,
-    )
+    from bulk_downloader.template_assist import template_to_selector_probe
 
-    template = _template()
-    learned = template_to_learned_download(template)
-    login = selector_group(template, "login")
-    player = selector_group(template, "player")
-    return {
-        "id": "row455_reptyle_live_dom",
-        "learned": {
-            "download": learned,
-            "login": {
-                "user_field": login["email"],
-                "pass_field": login["password"],
-                "submit_btn": login["submit"],
-            },
-            "player": {
-                "player_selectors": [player["container"], player["play_button"]],
-            },
-        },
-    }
+    return template_to_selector_probe(_template(), "row455_reptyle_live_dom")
 
 
 @functools.lru_cache(maxsize=None)

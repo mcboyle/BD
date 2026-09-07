@@ -130,30 +130,16 @@ def _fixture_text(name: str) -> str:
 
 
 def _probe_template() -> dict:
-    """The committed template in the shape the production adapter emits."""
-    from bulk_downloader.template_assist import (
-        selector_group,
-        template_to_learned_download,
-    )
+    """The committed template in the shape the production adapter emits.
 
-    template = _template()
-    learned = template_to_learned_download(template)
-    login = selector_group(template, "login")
-    player = selector_group(template, "player")
-    return {
-        "id": "row126_reptyle_recorded_dom",
-        "learned": {
-            "download": learned,
-            "login": {
-                "user_field": login["email"],
-                "pass_field": login["password"],
-                "submit_btn": login["submit"],
-            },
-            "player": {
-                "player_selectors": [player["container"], player["play_button"]],
-            },
-        },
-    }
+    Row 673: the composition used to be DEFINED here, and row 455 and row 671
+    each carried their own copy of it. It now ships in
+    ``bulk_downloader.template_assist`` and this gate imports it, so the
+    numbers below are measured against the adapter the product actually runs.
+    """
+    from bulk_downloader.template_assist import template_to_selector_probe
+
+    return template_to_selector_probe(_template(), "row126_reptyle_recorded_dom")
 
 
 @functools.lru_cache(maxsize=None)

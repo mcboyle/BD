@@ -258,6 +258,16 @@ _DECLARED = {
     # context and refuses one it cannot honour as UNKNOWN; the gate drives the
     # shipped verifier and CLI against a fake browser, fixtures only.
     "tests/test_row670_verifier_carries_a_session.py",
+    # Rows 672/673/674: the reviewed template has a supported route in and a
+    # supported route out. All three judge tree-wide denominators -- the
+    # committed corpus, every file under tests/, and the one fixture generator
+    # -- so they run on every PR rather than on a changed path.
+    # CI-SHARD-CLAIM row-672 template-selectors tests/test_row672_reviewed_template_is_reachable.py
+    "tests/test_row672_reviewed_template_is_reachable.py",
+    # CI-SHARD-CLAIM row-673 template-selectors tests/test_row673_reviewed_probe_adapter_ships_once.py
+    "tests/test_row673_reviewed_probe_adapter_ships_once.py",
+    # CI-SHARD-CLAIM row-674 template-selectors tests/test_row674_live_state_round_trips.py
+    "tests/test_row674_live_state_round_trips.py",
     # Row 377. The installed verifier has PASS/FAIL/UNKNOWN outcomes; the CI
     # consumer must preserve UNKNOWN as a distinct refusal, never a pass.
     "tests/test_row377_installed_template_selftest_states.py",

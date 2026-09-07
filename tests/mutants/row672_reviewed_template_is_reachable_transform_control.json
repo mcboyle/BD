@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Standalone transform control: a behaviour-preserving parenthesisation of the local passed to the reviewed loader. Nothing observable changes, and the band is the SINGLE import-only test, so it MUST ESCAPE. A CAUGHT control would mean the row 672 battery is anchored on source identifiers rather than behaviour -- repair the battery, never delete the control.",
+  "subject": "CONTROL bd-template-verify: parenthesise the reviewed path local",
+  "band": [
+    "tests/test_row672_reviewed_template_is_reachable.py::test_row672_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL bd-template-verify: parenthesise the reviewed path local",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?m)(?<=^        return _load_reviewed\\()path(?=\\)$)",
+      "new": "(path)",
+      "direction": "regression",
+      "catcher": "tests/test_row672_reviewed_template_is_reachable.py::test_row672_transform_control_import_only"
+    }
+  ]
+}

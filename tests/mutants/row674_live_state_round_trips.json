@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 674. M6 removes the empty-rrweb-log classification, M7 collapses it back into the not-a-capture diagnostic, M8 drops every attribute on the page-state route so a fixture is still written but the page's identity is gone, M9 puts the no-elements refusal back to asking whether the child list is empty -- the shipped defect, which never fired because a TEXT node is a childNode. Every anchor is zero-width or consumes a bare identifier on the decision. The transform control lives in row674_live_state_round_trips_transform_control.json and MUST ESCAPE.",
+  "subject": "a saved page state round-trips into a committed fixture, and an empty rrweb log is reported as UNKNOWN distinguishably from a file that is not a capture",
+  "band": [
+    "tests/test_row674_live_state_round_trips.py"
+  ],
+  "mutants": [
+    {
+      "label": "M6 the empty rrweb log is no longer classified at all",
+      "file": "tools/build_recorded_dom_fixture.py",
+      "old_regex": "(?m)^    if (?=not dom_log:$)",
+      "new": "    if False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row674_live_state_round_trips.py::test_an_empty_rrweb_log_reports_unknown_and_writes_no_fixture"
+    },
+    {
+      "label": "M7 an empty rrweb log and a file that is not a capture collapse into one answer",
+      "file": "tools/build_recorded_dom_fixture.py",
+      "old_regex": "(?m)(?<=^        raise )CaptureUnknown(?=\\(\\n            f\"rrweb recorded nothing)",
+      "new": "ValueError",
+      "direction": "regression",
+      "catcher": "tests/test_row674_live_state_round_trips.py::test_an_empty_rrweb_log_is_distinguishable_from_a_file_that_is_not_a_capture"
+    },
+    {
+      "label": "M8 the page-state route writes the fixture without the page's attributes",
+      "file": "tools/build_recorded_dom_fixture.py",
+      "old_regex": "(?m)(?<=^            \"attributes\": )(?=\\{name: \\(\"\" if value is None else value\\)$)",
+      "new": "{} if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row674_live_state_round_trips.py::test_a_saved_page_state_round_trips_into_a_committed_fixture"
+    },
+    {
+      "label": "M9 the no-elements refusal asks whether the child list is empty instead",
+      "file": "tools/build_recorded_dom_fixture.py",
+      "old_regex": "(?m)(?<=^    if not )(?=_carries_an_element\\(root\\):$)",
+      "new": "root[\"childNodes\"] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row674_live_state_round_trips.py::test_a_page_state_that_rendered_only_text_is_reported_unknown"
+    }
+  ]
+}

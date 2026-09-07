@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1516 - the reviewed template has a supported route in and a supported route out
+
+Train B2-03, base origin/main a8267e5d (v3.66.1515). ONE reviewed worker patch, cut
+reviewed-template-route, rows 672/673/674. Path count is `git diff a8267e5d --name-only`,
+against the DECLARED base and never a bare HEAD.
+
+row 672: bd-template-verify could not reach the reviewed-template corpus at all. Its first
+argument was a site_templates.TEMPLATES id, and that corpus is generic engine templates with no
+host-keyed or reptyle entry, so the reviewed corpus had no route in from the CLI. The CLI now
+accepts a reviewed-template path or id and one reviewed template is verified end to end.
+
+row 673: the reviewed-to-learned adapter shipped only inside a test. The template_assist
+composition that makes a reviewed template measurable lived in test_row126's _probe_template and
+nowhere in shipped code, so the capability was unavailable to the product and untestable outside
+that one test. The adapter moves into shipped code, the test imports it, and the test no longer
+carries its own copy.
+
+row 674: there was no supported route to save a live state as a fixture. The only generator
+required an rrweb dom_log, and the capture path that produced run 1's WACZ armed rrweb and
+recorded ZERO events. There is now a supported path to a committed fixture with a round-trip
+test, and rrweb recording nothing is reported as UNKNOWN rather than producing an empty fixture.
+
+The import baseline was re-frozen ONCE on the merged tree, 4380 -> 4384 edges, and the four new
+edges are the three new tests reaching template_selector_verifier, template_assist, dom_serialize
+and tools/build_recorded_dom_fixture.
+
 ## v3.66.1515 - a challenge served in a child frame is detected, a still-challenged bypass stops reporting success, the retired Adaptor symbol stops making Scrapling read unavailable, and the frame URLs are held out of the model prompt
 
 Train F-05, base origin/main 3f5cb0e7 (v3.66.1514). ONE reviewed worker patch (cx-challenge arm 3

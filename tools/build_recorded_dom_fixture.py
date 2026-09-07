@@ -23,11 +23,26 @@ operator-only live instrument -- but it is not a gate either: the capture store
 lives outside the repository, so this runs once to MAKE a fixture that tests
 then read.
 
+TWO ROUTES IN, ONE FIXTURE OUT (row 674).  The rrweb route above is the only
+one that existed, and it cannot be fed at all when the capture path armed rrweb
+and recorded ZERO events -- which is exactly what run 1's WACZ did.  A page
+state that a browser can hand over as HTML (``page.content()`` on a live page, a
+page record lifted out of a WACZ) now takes the SAME pipeline: it is parsed into
+the same node tree, pruned and stripped by the same passes, and written with the
+same provenance sidecar, so a fixture built either way is the same kind of
+evidence and says which route made it.
+
 Usage:
     python3 tools/build_recorded_dom_fixture.py CAPTURE.wacz --out FIXTURE.html \
         [--snapshot-index N] [--stop-seq N] [--provenance SIDECAR.json]
+    python3 tools/build_recorded_dom_fixture.py PAGE.html --out FIXTURE.html \
+        [--source-url URL] [--provenance SIDECAR.json]
 
-Exit: 0 = fixture written, 2 = usage/IO error, 3 = replay integrity failure.
+Exit: 0 = fixture written, 2 = usage/IO error (including "this file is not a
+capture"), 3 = replay integrity failure, 4 = UNKNOWN -- the file IS a capture
+and rrweb recorded nothing in it, so there is no page state to rebuild.  4 is
+its own code on purpose: those two answers lead to opposite actions, and
+CLAUDE.md A7 costs an investigation every time a diagnostic collapses them.
 """
 from __future__ import annotations
 
@@ -37,14 +52,47 @@ import hashlib
 import json
 import sys
 import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bulk_downloader.dom_serialize import nodes_to_html  # noqa: E402
 
 _INERT_TAGS = {"script", "noscript"}
+
+# rrweb NodeType, the same numbers ``dom_serialize`` reads back.
+_NT_DOCUMENT = 0
+_NT_ELEMENT = 2
+_NT_TEXT = 3
+
+# Inputs the page-state route claims. Everything else is a capture and goes
+# through the rrweb replay; the ROUTE is decided by the input, and it is
+# recorded in the provenance so a fixture never has to be guessed about.
+_PAGE_SUFFIXES = {".html", ".htm"}
+
+# HTML void elements never take children, so a parser that pushed them onto the
+# open-element stack would swallow the whole rest of the document into an
+# ``<img>``. Kept equal to the serializer's own set by
+# ``test_row674_...::test_the_void_element_set_matches_the_serializer``, because
+# two copies of a denominator drift in silence.
+_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "param", "source", "track", "wbr",
+})
+
+
+class CaptureUnknown(Exception):
+    """The file IS a capture, and the recording it should carry is absent.
+
+    Not the same question as "this file is not a capture", and never the same
+    answer: that one is a usage error the operator fixes by naming a different
+    file, while this one says the capture RAN and rrweb recorded nothing, which
+    is CLAUDE.md A2's failing third state and is repaired at the capture path
+    (or routed around by saving the page state and building from that).
+    """
 
 
 def load_capture(path: Path) -> dict[str, Any]:
@@ -250,18 +298,156 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+class _PageStateNodes(HTMLParser):
+    """Parse a page's rendered HTML into the node tree a full snapshot carries.
+
+    The output is the SAME shape ``replay_dom`` produces, so the page-state
+    route and the rrweb route converge before anything is pruned, stripped,
+    serialized or digested -- one pipeline, one provenance record, two ways in.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root: dict[str, Any] = {"type": _NT_DOCUMENT, "id": 0, "childNodes": []}
+        self._open: list[dict[str, Any]] = [self.root]
+        self._next_id = 1
+
+    def _adopt(self, node: dict[str, Any]) -> dict[str, Any]:
+        node["id"] = self._next_id
+        self._next_id += 1
+        self._open[-1]["childNodes"].append(node)
+        return node
+
+    def _element(self, tag: str, attrs: list) -> dict[str, Any]:
+        return self._adopt({
+            "type": _NT_ELEMENT,
+            "tagName": tag,
+            # Every recorded attribute is carried across. Dropping any of them
+            # would keep the fixture's SHAPE while losing the page's identity --
+            # the ids and classes every selector claim is actually about.
+            "attributes": {name: ("" if value is None else value)
+                           for name, value in attrs},
+            "childNodes": [],
+        })
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        node = self._element(tag, attrs)
+        if tag not in _VOID_ELEMENTS:
+            self._open.append(node)
+
+    def handle_startendtag(self, tag: str, attrs: list) -> None:
+        self._element(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        for depth in range(len(self._open) - 1, 0, -1):
+            if self._open[depth].get("tagName") == tag:
+                del self._open[depth:]
+                return
+        # An unmatched close tag closes nothing, exactly as a browser treats it.
+
+    def handle_data(self, data: str) -> None:
+        if data:
+            self._adopt({"type": _NT_TEXT, "textContent": data})
+
+
+def _carries_an_element(node: Any) -> bool:
+    """Does this subtree contain a rendered ELEMENT, and not merely text?
+
+    ``childNodes`` counts TEXT nodes too, so a page state of bare words -- a
+    saved page that rendered nothing -- has a NON-EMPTY child list with no
+    element in it.  Asking "is the child list empty" therefore answers a
+    different question from the one the refusal below is about, and answers it
+    wrongly for exactly the input that refusal names, so the question is asked
+    directly here instead.
+    """
+    if not isinstance(node, dict):
+        return False
+    for child in node.get("childNodes") or []:
+        if isinstance(child, dict) and child.get("tagName"):
+            return True
+        if _carries_an_element(child):
+            return True
+    return False
+
+
+def page_html_to_capture(html: str, source_url: str = "") -> dict[str, Any]:
+    """Wrap a saved page state as a capture carrying one full snapshot."""
+    parser = _PageStateNodes()
+    parser.feed(html)
+    parser.close()
+    root = parser.root
+    if not _carries_an_element(root):
+        raise CaptureUnknown(
+            "page state carries no elements: nothing was rendered to rebuild"
+        )
+    return {
+        "url": source_url,
+        "host": urlsplit(source_url).hostname if source_url else None,
+        "capture_route": "page_html",
+        "dom_log": [{"type": "full_snapshot", "dom_seq": 0, "data": {"node": root}}],
+    }
+
+
+# The surrounding record every capture writer emits. ``dom_log`` is the key
+# this tool consumes and is required on its own; the rest keep a bare
+# ``{"dom_log": []}`` from being read as a capture that recorded nothing.
+_CAPTURE_KEYS = ("network_log", "captured_at", "url", "host", "capture_version")
+
+
+def is_capture(data: Any) -> bool:
+    """Does this parsed file have the SHAPE of a capture at all?
+
+    "This is not a capture" and "this capture recorded nothing" are DIFFERENT
+    ANSWERS leading to opposite actions -- name a different file, or re-arm the
+    recorder -- so they are decided here, separately, and reported separately.
+    """
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("dom_log"), list)
+        and sum(1 for key in _CAPTURE_KEYS if key in data) >= 2
+    )
+
+
+def route_for(path: Path) -> str:
+    """Which supported route this input takes into the one fixture pipeline."""
+    return "page_html" if path.suffix.lower() in _PAGE_SUFFIXES else "rrweb_replay"
+
+
+def _read_route(capture_path: Path, source_url: str) -> tuple[str, dict[str, Any]]:
+    """Return ``(route, capture)`` for either supported input."""
+    route = route_for(capture_path)
+    if route == "page_html":
+        raw = capture_path.read_bytes()
+        if not raw.strip():
+            raise ValueError(f"page state is empty: {capture_path}")
+        return route, page_html_to_capture(
+            raw.decode("utf-8"), source_url=source_url
+        )
+    return route, load_capture(capture_path)
+
+
 def build(
     capture_path: Path,
     out_path: Path,
     snapshot_index: int | None,
     stop_seq: int | None,
     provenance_path: Path | None,
+    source_url: str = "",
 ) -> dict[str, Any]:
     raw = capture_path.read_bytes()
-    capture = load_capture(capture_path)
+    route, capture = _read_route(capture_path, source_url)
+    if route == "rrweb_replay" and not is_capture(capture):
+        raise ValueError(
+            f"not a capture: {capture_path} carries no capture record "
+            f"(a capture has a dom_log list and a capture header)"
+        )
     dom_log = capture.get("dom_log") or []
     if not dom_log:
-        raise ValueError(f"capture has an empty dom_log: {capture_path}")
+        raise CaptureUnknown(
+            f"rrweb recorded nothing in this capture: {capture_path} is a capture "
+            "and its dom_log is empty, so no page state exists to rebuild; re-arm "
+            "the recorder, or save the page state and build from PAGE.html"
+        )
     snapshots = [
         i for i, e in enumerate(dom_log)
         if isinstance(e, dict) and e.get("type") == "full_snapshot"
@@ -291,6 +477,7 @@ def build(
 
     provenance = {
         "generator": "tools/build_recorded_dom_fixture.py",
+        "route": route,
         "source_capture": capture_path.name,
         "source_sha256": _digest(raw),
         "source_bytes": len(raw),
@@ -317,7 +504,10 @@ def build(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("capture", help="path to a .wacz (or capture .json)")
+    parser.add_argument(
+        "capture",
+        help="a .wacz/capture .json, or a saved PAGE.html page state",
+    )
     parser.add_argument("--out", required=True, help="HTML fixture to write")
     parser.add_argument("--snapshot-index", type=int, default=None,
                         help="dom_log index of the full snapshot to start from "
@@ -326,6 +516,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="apply mutations up to and including this dom_seq")
     parser.add_argument("--provenance", default=None,
                         help="write a provenance JSON sidecar here")
+    parser.add_argument("--source-url", default="",
+                        help="URL the page state came from (page-state route)")
     args = parser.parse_args(argv)
 
     try:
@@ -335,7 +527,11 @@ def main(argv: list[str] | None = None) -> int:
             args.snapshot_index,
             args.stop_seq,
             Path(args.provenance) if args.provenance else None,
+            args.source_url,
         )
+    except CaptureUnknown as exc:
+        print(f"UNKNOWN: {exc}", file=sys.stderr)
+        return 4
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2

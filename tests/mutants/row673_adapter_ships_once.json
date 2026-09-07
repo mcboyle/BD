@@ -1,0 +1,35 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 673. M3 and M4 restore an inline probe copy in ONE test file each, so a gate that hard-coded a single path instead of deriving its population from the tree would let one of them escape; M5 empties the shipped adapter's download block, which row 126's own reconciliation catches. Every anchor is zero-width or consumes a bare identifier. The transform control lives in row673_adapter_ships_once_transform_control.json and MUST ESCAPE.",
+  "subject": "the reviewed-to-learned probe adapter ships once in bulk_downloader, and no test under tests/ carries its own copy",
+  "band": [
+    "tests/test_row673_reviewed_probe_adapter_ships_once.py",
+    "tests/test_row126_reptyle_selectors_resolve_on_recorded_dom.py"
+  ],
+  "mutants": [
+    {
+      "label": "M3 test_row126 carries its own copy of the probe adapter again",
+      "file": "tests/test_row126_reptyle_selectors_resolve_on_recorded_dom.py",
+      "old_regex": "(?m)(?<=^    return )(?=template_to_selector_probe\\(_template\\(\\), \"row126)",
+      "new": "{\"id\": \"row126_reptyle_recorded_dom\", \"learned\": {\"download\": {}, \"login\": {}, \"player\": {}}} if False else ",
+      "direction": "regression",
+      "catcher": "tests/test_row673_reviewed_probe_adapter_ships_once.py::test_no_file_under_tests_carries_its_own_copy_of_the_probe_adapter"
+    },
+    {
+      "label": "M4 test_row455 alone carries its own copy of the probe adapter again",
+      "file": "tests/test_row455_reviewed_template_against_a_live_dom.py",
+      "old_regex": "(?m)(?<=^    return )(?=template_to_selector_probe\\(_template\\(\\), \"row455)",
+      "new": "{\"id\": \"row455_reptyle_live_dom\", \"learned\": {\"download\": {}, \"login\": {}, \"player\": {}}} if False else ",
+      "direction": "regression",
+      "catcher": "tests/test_row673_reviewed_probe_adapter_ships_once.py::test_no_file_under_tests_carries_its_own_copy_of_the_probe_adapter"
+    },
+    {
+      "label": "M5 the shipped adapter composes a learned block with no reviewed download selectors",
+      "file": "bulk_downloader/template_assist.py",
+      "old_regex": "(?m)(?<=^            \"download\": )template_to_learned_download(?=\\(template\\),$)",
+      "new": "(lambda _t: {\"row_selectors\": [], \"trigger_selectors\": []})",
+      "direction": "regression",
+      "catcher": "tests/test_row126_reptyle_selectors_resolve_on_recorded_dom.py::test_no_committed_selector_escapes_measurement"
+    }
+  ]
+}

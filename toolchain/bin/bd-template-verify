@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Resolve one site template's selectors against a URL or saved HTML page."""
+"""Resolve one site template's selectors against a URL or saved HTML page.
+
+The template is a committed corpus id, a reviewed-template PATH, or a reviewed
+template id under templates/reviewed/.  Exit: 0 HIT, 1 MISS/MALFORMED,
+2 UNKNOWN (the instrument could not measure), 3 the template argument was
+REFUSED -- which is a different question from an unmeasurable subject.
+"""
 from __future__ import annotations
 
 import argparse
@@ -67,7 +73,11 @@ except ImportError as exc:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("template_id", nargs="?", help="committed template id")
+    parser.add_argument(
+        "template_id",
+        nargs="?",
+        help="committed template id, or a reviewed template path or id",
+    )
     parser.add_argument(
         "subject", nargs="?", help="live http(s) URL or saved UTF-8 HTML"
     )
@@ -114,6 +124,102 @@ def _print_human(report: dict[str, Any]) -> None:
 
 _STATE_EXIT = {"PASS": 0, "FAIL": 1, "UNKNOWN": 2}
 _CONTROL_CENSUS = "controls=2 unknown=0 missing_subject=1"
+
+# Row 672: the positional named the COMMITTED corpus and nothing else, so an
+# operator holding a reviewed template had no way to name it -- the reviewed
+# corpus was unreachable from this tool.
+_REVIEWED_DIR = WORK / "templates" / "reviewed"
+_REVIEWED_SUFFIX = ".template.json"
+# A REFUSED ARGUMENT is neither a failed measurement nor an unmeasurable one.
+# 0/1/2 already mean PASS/FAIL/UNKNOWN, so folding a refusal into 2 would make
+# "this reviewed path is not a template" indistinguishable from "the corpus
+# could not be measured" -- the collapsed diagnostic CLAUDE.md A7 names, which
+# leads the operator to repair the instrument instead of fixing the argument.
+_REFUSED_EXIT = 3
+
+
+def _names_a_file_argument(name: str) -> bool:
+    """Does this positional name a FILE rather than a committed corpus id?
+
+    Committed corpus ids are bare identifiers -- ``video_js``, ``jw_player``,
+    ``html5_native`` -- carrying neither a separator nor a suffix, so the two
+    namespaces are separable by shape. The decision answers on the SHAPE OF THE
+    NAME and deliberately not on whether a file happens to exist: a path that is
+    missing must be refused AS A MISSING PATH, never quietly reinterpreted as a
+    corpus id that also does not exist.
+    """
+    return name.endswith(".json") or "/" in name or os.sep in name
+
+
+def _corpus_carries(name: str) -> bool:
+    """Does the committed corpus resolve this id exactly once?
+
+    Read off ``site_templates.TEMPLATES`` rather than off the verifier's own
+    resolver, so the collision question is answered against an independent
+    denominator (CLAUDE.md A7); the exactly-one rule is the resolver's.
+    """
+    from bulk_downloader.site_templates import TEMPLATES
+
+    return sum(1 for item in TEMPLATES if item.get("id") == name) == 1
+
+
+def _reviewed_by_id(name: str) -> Path | None:
+    """The reviewed template a bare id selects, or ``None``."""
+    candidate = _REVIEWED_DIR / f"{name}{_REVIEWED_SUFFIX}"
+    return candidate if candidate.is_file() else None
+
+
+def _load_reviewed(path: Path) -> tuple[Any, str]:
+    """Compose a reviewed template file into the shape the verifier measures.
+
+    Returns ``(template, "")`` or ``(None, refusal)``; exactly one is set.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, (
+            f"reviewed template is unreadable: {path}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+    if not isinstance(data, dict) or not isinstance(data.get("selectors"), dict):
+        return None, f"reviewed template carries no selectors block: {path}"
+    from bulk_downloader.template_assist import template_to_selector_probe
+
+    try:
+        probe = template_to_selector_probe(data, str(data.get("host") or path.name))
+    except (KeyError, TypeError) as exc:
+        return None, (
+            f"reviewed template is missing a selector group: {path}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+    return probe, ""
+
+
+def _resolve_template_argument(name: str) -> tuple[Any, str]:
+    """Resolve the positional into a corpus id or a composed reviewed template.
+
+    THE ORDER IS THE FAIL-CLOSED DECISION, and it is written here because the
+    silent version of it is worse than the row this closes. A value that NAMES A
+    FILE is a reviewed template and may never fall back to the corpus: a
+    fallback would verify a DIFFERENT template and report it green. A bare name
+    is a COMMITTED CORPUS ID FIRST, exactly as it has always been, so every
+    invocation that worked before this row resolves to the same template after
+    it; the reviewed directory is consulted only when the corpus does not carry
+    the name. A reviewed template whose bare id collides with a corpus id is
+    therefore still reachable -- by its PATH, which cannot collide, because a
+    corpus id never contains a separator or a suffix.
+    """
+    if _names_a_file_argument(name):
+        path = Path(name)
+        if not path.is_file():
+            return None, f"reviewed template path is not a file: {path}"
+        return _load_reviewed(path)
+    if _corpus_carries(name):
+        return name, ""
+    reviewed = _reviewed_by_id(name)
+    if reviewed is not None:
+        return _load_reviewed(reviewed)
+    return name, ""
 
 
 def _selftest_verdict(state: str, detail: str) -> int:
@@ -268,8 +374,12 @@ def main(argv: list[str] | None = None) -> int:
         _parser().error(
             "template_id and subject are required unless --audit-corpus is used"
         )
+    resolved, refusal = _resolve_template_argument(args.template_id)
+    if refusal:
+        print(f"BD-TEMPLATE-VERIFY-REFUSED: {refusal}", file=sys.stderr)
+        return _REFUSED_EXIT
     report = verify_template_source(
-        args.template_id,
+        resolved,
         args.subject,
         timeout=args.timeout,
         headless=not args.headed,

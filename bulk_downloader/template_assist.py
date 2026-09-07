@@ -195,3 +195,37 @@ def merge_template_download_hints(page, learned_dl, override_template=None):
     merged["_template_file"] = template.get("_template_file")
 
     return merged, template
+
+
+def template_to_selector_probe(template, probe_id):
+    """Compose a reviewed template into the shape the selector verifier measures.
+
+    ``verify_template_source`` measures a ``learned`` block; a reviewed template
+    carries a ``selectors`` block. This is the ONE adapter between the two, and
+    row 673 is what happens when it is not: the composition existed only inside
+    ``tests/``, so every new caller copied it, and three copies drifted apart
+    where one shipped function would have been measured once.
+
+    Fail closed on the reviewed groups. ``login["email"]`` and
+    ``player["container"]`` are direct lookups on purpose: a reviewed template
+    missing one of those is a defect IN THE TEMPLATE, and substituting an empty
+    selector for it would hand the verifier something that resolves nothing
+    while the report still counts the group as measured -- a false denominator
+    (CLAUDE.md A7) wearing a green verdict.
+    """
+    login = selector_group(template, "login")
+    player = selector_group(template, "player")
+    return {
+        "id": probe_id,
+        "learned": {
+            "download": template_to_learned_download(template),
+            "login": {
+                "user_field": login["email"],
+                "pass_field": login["password"],
+                "submit_btn": login["submit"],
+            },
+            "player": {
+                "player_selectors": [player["container"], player["play_button"]],
+            },
+        },
+    }

@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 672. Both anchors are zero-width and sit on the RESOLUTION DECISION in bd-template-verify: M1 on the branch that reads the positional as a reviewed file at all, M2 on the refusal that keeps an unresolvable reviewed path from falling through to the corpus. Nothing value-bearing is consumed. The transform control lives in row672_reviewed_template_is_reachable_transform_control.json and MUST ESCAPE.",
+  "subject": "bd-template-verify can name the reviewed template corpus, and refuses an unresolvable reviewed path instead of silently verifying a different template",
+  "band": [
+    "tests/test_row672_reviewed_template_is_reachable.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the positional resolves against the committed corpus and nothing else",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?m)(?=^    if _names_a_file_argument\\(name\\):$)",
+      "new": "    return name, \"\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row672_reviewed_template_is_reachable.py::test_a_reviewed_template_path_verifies_end_to_end_through_the_cli"
+    },
+    {
+      "label": "M2 an unresolvable reviewed path falls back to the corpus instead of refusing",
+      "file": "toolchain/bin/bd-template-verify",
+      "old_regex": "(?m)(?<=^        if not path\\.is_file\\(\\):\\n)(?=            return None, f\")",
+      "new": "            return name, \"\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row672_reviewed_template_is_reachable.py::test_an_absent_reviewed_path_is_refused_and_never_falls_back_to_the_corpus"
+    }
+  ]
+}

@@ -509,6 +509,9 @@ jobs:
               tests/test_row663_inspect_rung_matches_runner.py
               tests/test_row666_candidates_inspect_prefers_caller_url.py
               tests/test_row_pm_template_gap_matchers_and_corpus.py
+              tests/test_row672_reviewed_template_is_reachable.py
+              tests/test_row673_reviewed_probe_adapter_ships_once.py
+              tests/test_row674_live_state_round_trips.py
           # Row 386. The download chain end to end -- page DOM, candidate
           # discovery, ranking, direct-URL resolution, filename, a real
           # loopback transfer, and the history/library rows a completion
