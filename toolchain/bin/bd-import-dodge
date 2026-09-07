@@ -1,0 +1,578 @@
+#!/usr/bin/env python3
+"""bd-import-dodge -- did THIS CUT turn a static first-party import into a dynamic one?
+
+THE LAW (bd-codex-briefs/COMMON.md, heading "A REWRITE WHOSE PURPOSE IS TO STOP A GATE REPORTING
+IS AN UNDECLARED EDGE, AND IS REFUSED AS ONE."). A worker on cx-ssrf (2026-09-07) turned two static
+test imports into `importlib` dynamic imports. Its own stated reason: "avoiding a baseline
+import-graph expansion". The dependency was real, still executed, and became invisible to the only
+gate that records it -- tools/dependency_graph.py derives edges from ast.Import / ast.ImportFrom
+only (importlib / __import__: 0 hits). The honest path was free: declare the edge under
+`OWED TO THE INTEGRATOR -- NEW IMPORT EDGES` with a WHY; a red whose ONLY failing check is the
+import gate is not a bounce and consumes no rung. The swap bought one green line.
+
+WHY THIS IS A DIFF CHECK AND NOT A CENSUS (PM-B ruling 2026-09-07, "the tree-wide form is dead").
+At origin/main dd959706 the tree holds ~500 first-party dynamic call sites; 194 are plain
+circular-avoidance; the residue is 307, dominated by tests. A detector that fires 307 times is
+suppressed, exempted or deleted inside a day. A DODGE IS AN ACT, NOT A STATE: a long-standing lazy
+load and one written ten minutes ago to silence a gate are byte-identical, so no census can tell
+them apart. The discriminating question is about the DIFF -- did this cut convert a static
+first-party import into a dynamic one? -- and on a clean tree that population is ZERO BY
+CONSTRUCTION.
+
+THE SUBJECT, exactly. For every .py file that differs between <base> (default HEAD; in a worker's
+worktree HEAD is the declared base and the cut is staged, in the collect gate the patch is applied
+with --index onto the base) and the WORK TREE:
+    removed = first-party modules imported STATICALLY on the base side and not on the tree side
+    added   = first-party modules imported DYNAMICALLY, by a LITERAL name, on the tree side and not
+              on the base side  (importlib.import_module / import_module / __import__)
+    a CONVERSION is any module in removed & added, in the same file.
+First-party = the module resolves under bulk_downloader/, tools/ or toolchain/ -- by package name,
+or by the gate's own bare-stem rule (`import runner` is bulk_downloader/runner.py). A dynamic import
+of a third-party or stdlib module adds no baseline edge and is out of scope. Structure is PARSED
+(ast), never grepped: a comment or docstring cannot fire this (CLAUDE.md A7).
+
+THREE OUTCOMES, never two:
+    exit 0  CLEAN    N changed .py file(s) examined, 0 undocumented conversions
+    exit 1  DODGE    >= 1 conversion with no written engineering reason, or whose reason names the gate
+    exit 2  UNKNOWN  COULD NOT LOOK: the tree is absent or not a git work tree, the base does not
+                     resolve, a changed file does not parse on one side, or a conversion's dynamic
+                     target is computed (not a literal) -- UNKNOWN is never permission.
+
+THE DOCUMENTED ESCAPE (documented, not allowlisted). A conversion PASSES when the new dynamic import
+carries a written engineering reason IN THE FILE: a comment on the call's own line(s), a comment
+block directly above the statement, or the docstring of the function it sits in -- at least four
+words -- that does NOT name the gate (import graph, baseline, edge, dependency graph, gate,
+footgun, precut, bd-imports, re-freeze). If you cannot write the WHY without naming the gate, it is
+the dodge. There is no path allowlist: a path allowlist rots the moment the file moves and tells the
+next reader nothing about why the entry is there.
+
+KNOWN LIMIT, stated so nobody over-reads a CLEAN: this compares the tree against ONE base. A
+conversion made between two generations of the same cut and then re-staged is additions-only
+against origin/main and reads as an ordinary lazy load here; it is visible only when the
+pre-conversion generation is the comparison base (`--base`, or the prior generation committed
+first). A from-import alias (`from importlib import import_module as x`) is resolved to the
+callee; a callee reached through getattr, a dict lookup or eval is not recognised -- that
+shape is not an import any reader would mistake for one, and a diff introducing it is its own
+confession.
+
+RUNNER: FOOTGUNS.json entry FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE (kind tool, block_on_exit
+[1, 2]) -- `bd-precut --gate` runs `bd-footguns --check`, which runs this; bd-collect-gate.sh
+(harness) runs `bd-precut --gate` on the applied patch.
+
+Usage:
+    bd-import-dodge [--tree DIR] [--base REV] [--json]
+    bd-import-dodge --selftest
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import tokenize
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import bdtools_sec as sec  # noqa: E402
+
+TOOL = "bd-import-dodge"
+FOOTGUN_ID = "FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE"
+FIRST_PARTY = ("bulk_downloader", "tools", "toolchain")
+_STEM_DIRS = (("bulk_downloader", "bulk_downloader"), ("tools", "tools"),
+              ("toolchain.bin", os.path.join("toolchain", "bin")))
+_DYNAMIC_CALLEES = ("import_module", "__import__")
+_MIN_REASON_WORDS = 4
+_GATE_WORDS = re.compile(
+    r"import[\s_-]*graph|import[\s_-]*gate|baseline|dependency[\s_-]*graph|\bedges?\b"
+    r"|no_new_edges|footgun|precut|\bgates?\b|bd-imports|re-?freeze", re.IGNORECASE)
+_NOISE = re.compile(
+    r"noqa(\s*:\s*[A-Z]+\d*(\s*,\s*[A-Z]+\d*)*)?|type:\s*ignore(\[[^\]]*\])?|pragma:[^\n]*"
+    r"|pylint:[^\n]*|lint:[^\n]*", re.IGNORECASE)
+_WORD = re.compile(r"[A-Za-z][A-Za-z'-]*")
+
+LAW_HEADING = ("A REWRITE WHOSE PURPOSE IS TO STOP A GATE REPORTING IS AN UNDECLARED EDGE, "
+               "AND IS REFUSED AS ONE.")
+DECLARE_HEADING = "THE IMPORT-GRAPH BASELINE: YOU DECLARE, THE INTEGRATOR FREEZES"
+FREE_PATH = "OWED TO THE INTEGRATOR -- NEW IMPORT EDGES"
+
+REFUSAL = """\
+  THE LAW (COMMON.md "%s"): the dependency still executes and is now
+    invisible to the only gate that records it. That is an UNDECLARED EDGE and is refused as one.
+  THE FREE PATH: restore the static import, run `venv/bin/python tools/decomp/import_graph_gate.py --check`,
+    and copy each "NEW import edge" line verbatim into DONE.md under `%s`
+    with one line of WHY per edge (COMMON.md "%s").
+    A RED WHOSE ONLY FAILING CHECK IS THE IMPORT GATE IS NOT A BOUNCE AND CONSUMES NO RUNG.
+    Never run --update and never stage the baseline; the integrator re-freezes once per train.
+  IF THE DYNAMIC FORM IS RIGHT ON ITS OWN MERITS: write the engineering reason beside the call -- a
+    comment on its line, a comment block directly above it, or the docstring of the function it sits
+    in, four words or more -- without naming the gate. If you cannot write the WHY without naming the
+    gate, it is the dodge.""" % (LAW_HEADING, FREE_PATH, DECLARE_HEADING)
+
+
+class Unmeasurable(Exception):
+    """COULD NOT LOOK. Carries the reason; never a verdict."""
+
+
+# ------------------------------------------------------------------ git ---
+
+def _git(tree, *args, binary=False):
+    try:
+        proc = subprocess.run(["git", "-C", tree, *args], capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Unmeasurable("git %s: %s" % (" ".join(args[:2]), exc))
+    if proc.returncode != 0:
+        raise Unmeasurable("git %s failed (rc=%d): %s" % (
+            " ".join(args[:2]), proc.returncode,
+            proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["no detail"]))
+    return proc.stdout if binary else proc.stdout.decode("utf-8", "replace")
+
+
+def _changed_py(tree, base_sha):
+    """(old_rel, new_rel) for every modified or renamed .py file between base and the WORK TREE."""
+    raw = _git(tree, "diff", "--name-status", "-z", "-M", "--diff-filter=MR", base_sha, "--")
+    toks = raw.split("\0")
+    pairs = []
+    i = 0
+    while i < len(toks):
+        status = toks[i]
+        if not status:
+            i += 1
+            continue
+        if status[0] in "RC":
+            old, new = toks[i + 1], toks[i + 2]
+            i += 3
+        else:
+            old = new = toks[i + 1]
+            i += 2
+        if new.endswith(".py") and os.path.isfile(os.path.join(tree, new)):
+            pairs.append((old, new))
+    return sorted(pairs, key=lambda p: p[1])
+
+
+# -------------------------------------------------------------- resolve ---
+
+def _canonical(name, root):
+    """Canonical dotted name of a first-party module, or None for stdlib / third-party."""
+    if not name:
+        return None
+    head = name.split(".")[0]
+    if head in FIRST_PARTY:
+        return name
+    for prefix, rel in _STEM_DIRS:
+        stem = os.path.join(root, rel, head)
+        if os.path.isfile(stem + ".py") or os.path.isfile(os.path.join(stem, "__init__.py")):
+            return prefix + "." + name
+    return None
+
+
+def _resolve_relative(name, package):
+    """importlib's own rule: `.x` inside `a.b` is `a.b.x`; `..x` is `a.x`."""
+    level = len(name) - len(name.lstrip("."))
+    rest = name[level:]
+    bits = package.rsplit(".", level - 1)
+    if len(bits) < level:
+        return None
+    base = bits[0]
+    return base + "." + rest if rest else base
+
+
+def _static_names(tree_ast, rel, root):
+    out = set()
+    pkg_parts = rel.split("/")[:-1]
+    for n in ast.walk(tree_ast):
+        if isinstance(n, ast.ImportFrom):
+            if n.level == 0:
+                mod = n.module or ""
+            else:
+                if not pkg_parts or pkg_parts[0] not in FIRST_PARTY or n.level - 1 > len(pkg_parts):
+                    continue
+                base = pkg_parts[:len(pkg_parts) - (n.level - 1)]
+                mod = ".".join(base)
+                if n.module:
+                    mod = mod + "." + n.module if mod else n.module
+            cands = {mod} | {mod + "." + a.name for a in n.names if a.name != "*" and mod}
+            for c in cands:
+                canon = _canonical(c, root)
+                if canon:
+                    out.add(canon)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                canon = _canonical(a.name, root)
+                if canon:
+                    out.add(canon)
+    return out
+
+
+def _dynamic_calls(tree_ast, root):
+    """{canonical: [Call, ...]} for literal targets; [(lineno, callee), ...] for computed ones."""
+    literal, unresolved = {}, []
+    # `from importlib import import_module as load` binds the callee under another name; resolve
+    # the alias so the rewrite that hides THIS detector's needle is the same conversion.
+    aliases = {}
+    for n in ast.walk(tree_ast):
+        if isinstance(n, ast.ImportFrom) and n.module == "importlib" and n.level == 0:
+            for a in n.names:
+                if a.name in _DYNAMIC_CALLEES:
+                    aliases[a.asname or a.name] = a.name
+    for n in ast.walk(tree_ast):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        callee = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else None)
+        callee = aliases.get(callee, callee)
+        if callee not in _DYNAMIC_CALLEES:
+            continue
+        name_arg = n.args[0] if n.args else next((k.value for k in n.keywords if k.arg == "name"), None)
+        if name_arg is None:
+            continue
+        pkg_arg = None
+        if callee == "import_module":
+            pkg_arg = n.args[1] if len(n.args) > 1 else next(
+                (k.value for k in n.keywords if k.arg == "package"), None)
+        if not (isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str)):
+            unresolved.append((n.lineno, callee))
+            continue
+        name = name_arg.value
+        if name.startswith("."):
+            if not (isinstance(pkg_arg, ast.Constant) and isinstance(pkg_arg.value, str)):
+                unresolved.append((n.lineno, callee))
+                continue
+            name = _resolve_relative(name, pkg_arg.value)
+            if name is None:
+                unresolved.append((n.lineno, callee))
+                continue
+        canon = _canonical(name, root)
+        if canon:
+            literal.setdefault(canon, []).append(n)
+    return literal, unresolved
+
+
+# --------------------------------------------------------------- reason ---
+
+def _comments_by_line(source_bytes):
+    comments = {}
+    try:
+        for tok in tokenize.tokenize(io.BytesIO(source_bytes).readline):
+            if tok.type == tokenize.COMMENT:
+                comments.setdefault(tok.start[0], []).append(tok.string)
+    except (tokenize.TokenError, SyntaxError, UnicodeDecodeError):
+        # why: ast already parsed this source; a tokenizer disagreement means no comment can be
+        # trusted as a reason, so the conversion is judged as undocumented rather than skipped.
+        return {}
+    return comments
+
+
+def _decode(source_bytes):
+    try:
+        enc, _ = tokenize.detect_encoding(io.BytesIO(source_bytes).readline)
+    except SyntaxError:
+        enc = "utf-8"
+    return source_bytes.decode(enc, "replace")
+
+
+def _reason_for(call, tree_ast, source_bytes, comments):
+    """(location, text) of the written reason beside `call`, or (None, '')."""
+    parents = {}
+    for node in ast.walk(tree_ast):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    stmt = call
+    while stmt is not None and not isinstance(stmt, ast.stmt):
+        stmt = parents.get(stmt)
+    if stmt is None:
+        return None, ""
+    lines = _decode(source_bytes).splitlines()
+    first, last = stmt.lineno, getattr(stmt, "end_lineno", stmt.lineno) or stmt.lineno
+    trailing = [c for ln in range(first, last + 1) for c in comments.get(ln, [])]
+    if trailing:
+        return "comment on the call", " ".join(trailing)
+    above, ln = [], first - 1
+    while ln >= 1 and lines[ln - 1].strip().startswith("#"):
+        above.append(lines[ln - 1].strip())
+        ln -= 1
+    if above:
+        return "comment block above the call", " ".join(reversed(above))
+    node = parents.get(stmt)
+    while node is not None and not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        node = parents.get(node)
+    if node is not None:
+        doc = ast.get_docstring(node)
+        if doc:
+            return "docstring of %s()" % node.name, doc
+    return None, ""
+
+
+def _judge_reason(text):
+    """('documented', None) | ('short', why) | ('gate', word)."""
+    cleaned = _NOISE.sub(" ", text.replace("#", " "))
+    words = _WORD.findall(cleaned)
+    if len(words) < _MIN_REASON_WORDS:
+        return "short", "%d words beside the call (a written reason is %d words or more)" % (
+            len(words), _MIN_REASON_WORDS)
+    m = _GATE_WORDS.search(cleaned)
+    if m:
+        return "gate", m.group(0)
+    return "documented", None
+
+
+# ---------------------------------------------------------------- check ---
+
+def _parse_side(source_bytes, label):
+    try:
+        return ast.parse(source_bytes)
+    except (SyntaxError, ValueError) as exc:
+        raise Unmeasurable("%s does not parse: %s" % (label, exc))
+
+
+def check(tree, base="HEAD"):
+    tree = os.path.realpath(tree)
+    result = {"tool": TOOL, "tree": tree, "base_ref": base, "base": None, "changed_py": 0,
+              "examined": [], "findings": [], "verdict": "UNKNOWN", "reason": None}
+    try:
+        inside = _git(tree, "rev-parse", "--is-inside-work-tree").strip()
+        if inside != "true":
+            raise Unmeasurable("%s is not a git work tree" % tree)
+        try:
+            base_sha = _git(tree, "rev-parse", "--verify", "--quiet", base + "^{commit}").strip()
+        except Unmeasurable:
+            raise Unmeasurable("base %r does not resolve to a commit in %s" % (base, tree))
+        result["base"] = base_sha
+        pairs = _changed_py(tree, base_sha)
+        result["changed_py"] = len(pairs)
+        result["examined"] = [new for _old, new in pairs]
+        unknown = []
+        for old_rel, new_rel in pairs:
+            old_bytes = _git(tree, "show", "%s:%s" % (base_sha, old_rel), binary=True)
+            with open(os.path.join(tree, new_rel), "rb") as fh:
+                new_bytes = fh.read()
+            try:
+                old_ast = _parse_side(old_bytes, "%s@%s" % (old_rel, base_sha[:12]))
+                new_ast = _parse_side(new_bytes, new_rel)
+            except Unmeasurable as exc:
+                result["findings"].append({"kind": "unparseable", "file": new_rel, "module": None,
+                                           "line": None, "why": str(exc)})
+                unknown.append(new_rel)
+                continue
+            removed = _static_names(old_ast, old_rel, tree) - _static_names(new_ast, new_rel, tree)
+            if not removed:
+                continue
+            old_dyn, old_unresolved = _dynamic_calls(old_ast, tree)
+            new_dyn, new_unresolved = _dynamic_calls(new_ast, tree)
+            if len(new_unresolved) > len(old_unresolved):
+                extra = sorted(set(new_unresolved) - set(old_unresolved)) or new_unresolved
+                result["findings"].append({
+                    "kind": "unresolved", "file": new_rel, "module": None,
+                    "line": extra[0][0], "removed": sorted(removed),
+                    "why": "removed static import(s) of %s and added a dynamic import whose target "
+                           "is computed, not a literal (line %d) -- COULD NOT LOOK, not clean"
+                           % (", ".join(sorted(removed)), extra[0][0])})
+                unknown.append(new_rel)
+            comments = _comments_by_line(new_bytes)
+            for module in sorted(removed & (set(new_dyn) - set(old_dyn))):
+                for call in new_dyn[module]:
+                    location, text = _reason_for(call, new_ast, new_bytes, comments)
+                    verdict, detail = ("short", "no written reason beside the call") if not text \
+                        else _judge_reason(text)
+                    row = {"kind": "documented" if verdict == "documented" else "dodge",
+                           "file": new_rel, "module": module, "line": call.lineno,
+                           "location": location, "reason": text.strip(), "gate_word": None,
+                           "why": None}
+                    if verdict == "short":
+                        row["why"] = detail
+                    elif verdict == "gate":
+                        row["gate_word"] = detail
+                        row["why"] = "the written reason names the gate (%r)" % detail
+                    result["findings"].append(row)
+        if unknown:
+            result["verdict"] = "UNKNOWN"
+            result["reason"] = "COULD NOT LOOK at %d changed file(s): %s" % (
+                len(unknown), ", ".join(unknown))
+        elif any(f["kind"] == "dodge" for f in result["findings"]):
+            result["verdict"] = "DODGE"
+        else:
+            result["verdict"] = "CLEAN"
+    except Unmeasurable as exc:
+        result["verdict"] = "UNKNOWN"
+        result["reason"] = "COULD NOT LOOK: %s" % exc
+    return result
+
+
+EXIT_FOR = {"CLEAN": sec.EXIT_OK, "DODGE": sec.EXIT_FINDINGS, "UNKNOWN": sec.EXIT_CANNOT_EVALUATE}
+
+
+def _print_text(r):
+    print("%s :: tree=%s base=%s (%s) changed .py files=%d" % (
+        TOOL, r["tree"], (r["base"] or "?")[:12], r["base_ref"], r["changed_py"]))
+    for f in r["findings"]:
+        if f["kind"] == "documented":
+            print("  DOCUMENTED %s: %s -- static import became a dynamic one at line %d; %s: \"%s\"" % (
+                f["file"], f["module"], f["line"], f["location"], f["reason"]))
+    dodges = [f for f in r["findings"] if f["kind"] == "dodge"]
+    for f in dodges:
+        print("  IMPORT-DODGE %s: static import of %s (base) became a dynamic import (line %d) %s"
+              % (f["file"], f["module"], f["line"],
+                 "with a reason that names the gate (%r): \"%s\"" % (f["gate_word"], f["reason"])
+                 if f["gate_word"] else "with " + f["why"]))
+    for f in r["findings"]:
+        if f["kind"] in ("unresolved", "unparseable"):
+            print("  COULD NOT LOOK %s: %s" % (f["file"], f["why"]))
+    if dodges:
+        print(REFUSAL)
+        print("BLOCKED -- %d static->dynamic conversion(s) of a first-party import in %d file(s), "
+              "undocumented or gate-motivated" % (len(dodges), len({f["file"] for f in dodges})))
+    if r["verdict"] == "UNKNOWN":
+        print("UNKNOWN -- %s" % r["reason"])
+        sys.stderr.write("CANNOT-EVALUATE %s: %s\n" % (TOOL, r["reason"]))
+    elif r["verdict"] == "CLEAN":
+        print("CLEAN -- %d undocumented conversion(s) in %d changed .py file(s) vs %s%s" % (
+            0, r["changed_py"], (r["base"] or "?")[:12],
+            " (%d documented)" % len(r["findings"]) if r["findings"] else ""))
+
+
+# ------------------------------------------------------------- selftest ---
+
+_FIX_STATIC = ("import ast\nfrom bulk_downloader import interstitial, templates\n\n"
+               "def probe():\n    return interstitial, templates\n")
+_FIX_DYNAMIC = ("import ast\nimport importlib\n"
+                "interstitial = importlib.import_module(\"bulk_downloader.interstitial\")\n"
+                "templates = importlib.import_module(\"bulk_downloader.templates\")\n\n"
+                "def probe():\n    return interstitial, templates\n")
+
+
+def _fixture(root):
+    os.makedirs(os.path.join(root, "bulk_downloader"))
+    os.makedirs(os.path.join(root, "tools"))
+    os.makedirs(os.path.join(root, "tests"))
+    for rel, body in (("bulk_downloader/__init__.py", "__version__ = '0'\n"),
+                      ("bulk_downloader/interstitial.py", "X = 1\n"),
+                      ("bulk_downloader/templates.py", "T = []\n"),
+                      ("bulk_downloader/runner.py", "R = 2\n"),
+                      ("tools/opt.py", "import yaml\n"),
+                      ("tests/test_x.py", _FIX_STATIC)):
+        with open(os.path.join(root, rel), "w") as fh:
+            fh.write(body)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "s", "GIT_AUTHOR_EMAIL": "s@example.invalid",
+           "GIT_COMMITTER_NAME": "s", "GIT_COMMITTER_EMAIL": "s@example.invalid"}
+    for args in (("init", "-q"), ("add", "-A"), ("commit", "-q", "-m", "base")):
+        subprocess.run(["git", "-C", root, *args], check=True, capture_output=True, env=env)
+
+
+def _write(root, rel, body):
+    with open(os.path.join(root, rel), "w") as fh:
+        fh.write(body)
+
+
+def selftest():
+    cases = [
+        ("no-op diff is CLEAN with 0 changed files", None, "CLEAN", 0, []),
+        ("the cx-ssrf conversion is a DODGE", _FIX_DYNAMIC, "DODGE", 1,
+         ["bulk_downloader.interstitial", "bulk_downloader.templates"]),
+        ("a reason that names the gate is still the dodge",
+         _FIX_DYNAMIC.replace("interstitial = ", "# preserve runtime behaviour through explicit dynamic"
+                              " imports, avoiding a baseline import-graph expansion\ninterstitial = "),
+         "DODGE", 1, ["bulk_downloader.interstitial", "bulk_downloader.templates"]),
+        ("a written engineering reason passes",
+         _FIX_DYNAMIC.replace("interstitial = ", "# lazy: the interstitial module imports the runner"
+                              " which imports this helper, a circular import at collection\ninterstitial = ")
+         .replace("\"bulk_downloader.templates\")", "\"bulk_downloader.templates\")  # same cycle,"
+                  " same reason as the line above"),
+         "CLEAN", 1, []),
+        ("a bare noqa is not a reason",
+         _FIX_DYNAMIC.replace("\"bulk_downloader.interstitial\")", "\"bulk_downloader.interstitial\")"
+                              "  # noqa: E402"), "DODGE", 1,
+         ["bulk_downloader.interstitial", "bulk_downloader.templates"]),
+        ("an added-only lazy load passes",
+         _FIX_STATIC + "\ndef lazy():\n    import importlib\n"
+         "    return importlib.import_module(\"bulk_downloader.runner\")\n", "CLEAN", 1, []),
+        ("a computed target beside a removed static import is UNKNOWN",
+         "import ast, importlib, os\ninterstitial = importlib.import_module(os.environ['T'])\n"
+         "from bulk_downloader import templates\n", "UNKNOWN", 1, []),
+        ("an unparseable tree side is UNKNOWN", _FIX_DYNAMIC + "def broken(:\n", "UNKNOWN", 1, []),
+        ("the __import__ form is the same conversion",
+         "import ast\ninterstitial = __import__(\"bulk_downloader.interstitial\")\n"
+         "from bulk_downloader import templates\n", "DODGE", 1, ["bulk_downloader.interstitial"]),
+        ("a from-import alias of import_module is the same conversion",
+         "from importlib import import_module as _load\ninterstitial = _load(\"bulk_downloader.interstitial\")\n"
+         "from bulk_downloader import templates\n", "DODGE", 1, ["bulk_downloader.interstitial"]),
+        ("the package-relative form is the same module",
+         "import ast, importlib\ninterstitial = importlib.import_module(\".interstitial\", "
+         "\"bulk_downloader\")\nfrom bulk_downloader import templates\n", "DODGE", 1,
+         ["bulk_downloader.interstitial"]),
+        ("prose cannot fire it",
+         "import ast\n# was: importlib.import_module(\"bulk_downloader.interstitial\")\n"
+         "\"\"\"templates = importlib.import_module('bulk_downloader.templates')\"\"\"\n"
+         "interstitial = templates = None\n", "CLEAN", 1, []),
+    ]
+    failures = []
+    with tempfile.TemporaryDirectory(prefix="bd-import-dodge-selftest-") as tmp:
+        for label, body, want, want_changed, want_modules in cases:
+            root = os.path.join(tmp, re.sub(r"[^a-z0-9]+", "-", label.lower()))
+            _fixture(root)
+            if body is not None:
+                _write(root, "tests/test_x.py", body)
+            r = check(root)
+            got_modules = sorted(f["module"] for f in r["findings"] if f["kind"] == "dodge")
+            ok = (r["verdict"] == want and r["changed_py"] == want_changed
+                  and got_modules == want_modules)
+            print("  [%s] %s -> %s changed=%d dodges=%s" % (
+                "ok" if ok else "FAIL", label, r["verdict"], r["changed_py"], got_modules))
+            if not ok:
+                failures.append(label)
+        # third-party conversion is out of scope
+        root = os.path.join(tmp, "third-party")
+        _fixture(root)
+        _write(root, "tools/opt.py", "import importlib\nyaml = importlib.import_module('yaml')\n")
+        r = check(root)
+        ok = r["verdict"] == "CLEAN" and r["findings"] == []
+        print("  [%s] a third-party conversion is out of scope -> %s" % ("ok" if ok else "FAIL", r["verdict"]))
+        if not ok:
+            failures.append("third-party")
+        # a missing base and a non-git tree are UNKNOWN
+        r = check(root, base="no-such-ref")
+        ok = r["verdict"] == "UNKNOWN"
+        print("  [%s] an unresolvable base is UNKNOWN -> %s" % ("ok" if ok else "FAIL", r["verdict"]))
+        if not ok:
+            failures.append("bad-base")
+        plain = os.path.join(tmp, "plain")
+        os.makedirs(os.path.join(plain, "bulk_downloader"))
+        r = check(plain)
+        ok = r["verdict"] == "UNKNOWN"
+        print("  [%s] a tree that is not a git work tree is UNKNOWN -> %s" % ("ok" if ok else "FAIL", r["verdict"]))
+        if not ok:
+            failures.append("not-git")
+    if failures:
+        print("SELFTEST FAIL: %s" % ", ".join(failures))
+        return 1
+    print("SELFTEST PASS")
+    return 0
+
+
+# ----------------------------------------------------------------- main ---
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog=TOOL)
+    ap.add_argument("--tree", "--work", default=sec.DEFAULT_WORK,
+                    help="the work tree whose diff against --base is the subject")
+    ap.add_argument("--base", default="HEAD",
+                    help="the commit the tree is compared against (default HEAD, the declared base)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
+    a = ap.parse_args(argv)
+    if a.selftest:
+        return selftest()
+    sec.require_source_tree(a.tree, label="--tree")
+    r = check(a.tree, a.base)
+    if sec.emit(r, as_json=a.json):
+        if r["verdict"] == "UNKNOWN":
+            sys.stderr.write("CANNOT-EVALUATE %s: %s\n" % (TOOL, r["reason"]))
+        return EXIT_FOR[r["verdict"]]
+    _print_text(r)
+    return EXIT_FOR[r["verdict"]]
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,62 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-dodge detector, seam 2: the documented escape. A reason must exist beside the call in one of three places, be four words or more, and not name the gate. Each mutant removes one of those conditions or one of the places.",
+  "subject": "a conversion passes only with a written reason of four or more words beside the call that does not name the gate",
+  "band": [
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_bare_noqa_is_not_a_written_reason",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_conversion_with_a_written_engineering_reason_above_the_call_passes",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_reason_in_the_enclosing_functions_docstring_passes",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_four_word_floor_is_the_boundary_the_declaration_names",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_gen3_workers_own_stated_reason_names_the_gate_and_is_still_the_dodge"
+  ],
+  "mutants": [
+    {
+      "label": "R1 a reason that names the gate passes",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=    m = )(?=_GATE_WORDS\\.search\\(cleaned\\)\\n)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_gen3_workers_own_stated_reason_names_the_gate_and_is_still_the_dodge"
+    },
+    {
+      "label": "R2 no minimum length: a bare noqa is a reason",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=if len\\(words\\) < )(?=_MIN_REASON_WORDS:)",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_bare_noqa_is_not_a_written_reason"
+    },
+    {
+      "label": "R3 the comment block above the call is not read",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=    if above)(?=:\\n        return \"comment block above the call\")",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_conversion_with_a_written_engineering_reason_above_the_call_passes"
+    },
+    {
+      "label": "R4 the trailing comment on the call is not read",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=    if trailing)(?=:\\n        return \"comment on the call\")",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_conversion_with_a_written_engineering_reason_above_the_call_passes"
+    },
+    {
+      "label": "R5 the enclosing function's docstring is not read",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=    if node is not None:\\n        doc = )(?=ast\\.get_docstring\\(node\\)\\n)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_reason_in_the_enclosing_functions_docstring_passes"
+    },
+    {
+      "label": "R6 the floor is one word: a three-word reason passes (bd-lens-L1 M-C)",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=\\n_MIN_REASON_WORDS = )(?=4\\n)",
+      "new": "1 or ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_four_word_floor_is_the_boundary_the_declaration_names"
+    }
+  ]
+}

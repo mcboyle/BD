@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-dodge transform control. FIRST_PARTY is rewritten to an equal tuple by a different expression while the band member only loads the tool and compares the constant, so it MUST ESCAPE. This spec DECLARES itself a control by its suffix: bd-mutate reports CONTROL-ESCAPED (expected) and exits 0; CONTROL-CAUGHT, exit 1, would mean the loader sees the rewrite.",
+  "subject": "an equal-value rewrite of FIRST_PARTY escapes a band member that only loads the tool",
+  "band": [
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_transform_control_only_loads_the_tool_without_judging_a_conversion"
+  ],
+  "mutants": [
+    {
+      "label": "FIRST_PARTY rebuilt as () + the same tuple, judged by a load-only node",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=FIRST_PARTY = )(?=\\(\"bulk_downloader\", \"tools\", \"toolchain\"\\)\\n)",
+      "new": "() + ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_transform_control_only_loads_the_tool_without_judging_a_conversion"
+    }
+  ]
+}

@@ -4,6 +4,63 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1521 - a rebinding host can no longer reach the metadata address through the template sandbox, and an import rewritten to dodge the graph gate is caught in the diff that does it
+
+Train A2-07, base origin/main da748288 (v3.66.1520, #826). TWO reviewed worker patches, and NEITHER
+boarded at this train's base: row779-sandbox-rebinding (7 paths, L2 correctness and L1 shape r2, both
+issued at 26781387) and import-gate-blindspot (13 paths, L2 at 142133f5 and L1 shape r2 at 26781387).
+BOTH SHAPE BOARDS ARE ROUND TWO AND BOTH FOLLOW THAT SAME LENS'S OWN REFUTE -- the strongest form of
+review this fleet produces, a refusing lens clearing its own refusal on the tree it refused.
+Both cars were then restacked onto da748288, so the clearance was EARNED and not free.
+It was earned twice over: by intersecting each car's declared paths with 26781387..da748288 -- row779
+returns 2 paths and both are the constructed pair, against a control of 32 paths moved overall -- and,
+where that intersection was NOT confined to the pair, by comparing THIS BLOB for every declared path
+against the index tree the lens recorded reading. blindspot at boarded tree 015d6fbe: SAME 9, DIFFERS
+4, MISSING 0, and the two non-pair differences are FOOTGUNS.json and project-knowledge/README.md text
+that `git log -S` attributes to 986767c1 -- train A2-06, already landed, pulled forward by the restack
+rather than authored here. NO UNREAD AUTHORED CONTENT REACHED THIS TRAIN AT ASSEMBLY, and the one
+authored line added after it -- row 705's pin, below -- is named in its own paragraph rather than
+folded into the eight mechanical paths. The derivation is in bd-persist/GATE-827-clearance.md; read it
+before trusting this sentence. Their authored path sets intersect
+in EXACTLY TWO files and both are the constructed ci.yml / 939-shard pair, which every gate-adding
+cut must declare itself in and which no car owns -- 7 + 13 - 2 = 18 authored paths. The pair's hunks
+were RE-DERIVED on the assembled tree, never replayed: zero deletion lines on both pair files against
+the named base with a positive control of 15 elsewhere in the same diff, and each car's gate asserted
+PRESENT in both files separately, because a deletion count cannot see a hunk that was dropped.
+
+row779, T3 SECURITY: POST /api/template/sandbox with mode=browser classified the host once and then
+handed the NAME to Chromium, which resolved it again -- so a host that answered public at the check
+and 169.254.169.254 at navigation reached the metadata address, and the response said ok:true.
+`_sandbox_browser_host_pin()` now resolves once more, classifies EVERY resolved address through the
+single canonical `_classify_ip` predicate rather than a second copy of the policy, refuses on any
+non-loopback address, on a DNS failure and on a non-IP answer, and pins what it vetted by passing
+Chromium `--host-resolver-rules=MAP <host> <vetted literal>`. The refusal carries the classifier's
+own structured reason instead of a shared code, so a rebinding refusal is distinguishable from a
+resolution failure.
+
+import-gate-blindspot: the import graph derives its edges from ast.Import and ast.ImportFrom only, so
+rewriting a static first-party import into importlib makes a real, still-executed dependency invisible
+to the one gate that records it. That is not hypothetical -- a worker did it on 2026-09-07 and said
+why: "avoiding a baseline import-graph expansion". `bd-import-dodge` asks the question in the form
+that can be answered: not a tree-wide census, which would fire ~307 times and be exempted within a
+day, but a DIFF check -- did THIS cut convert a static first-party import into a dynamic one? On a
+clean tree that population is zero by construction. A conversion refuses unless the call site carries
+a documented reason of four words or more, and the four-word floor is now a tested boundary rather
+than a declared intention.
+
+MECHANISM. Row 705's published-denominator pin moved 50 -> 52 because bd-import-dodge's `_git` joins
+argv[:2] in two refusal messages, so a failure names the git subcommand rather than "git". EXACT-HEAD
+CI FOUND THAT, NOT THE LOCAL FLOOR: the gate censuses the whole tools + toolchain/bin population, so
+bd-band-derive cannot select it and bd-precut's _UNDERIVED_GATES list -- which exists for exactly this
+class -- does not name it. Both new sites were read before the number moved; neither renders a
+population with a hidden tail, which is the defect row 705 exists to catch, and the file's second
+assertion is untouched. The import baseline moved 4389 -> 4390: one entry added, row779's own new gate
+file, and ZERO removed. It is re-frozen in this cut, which is what --finish does and what keeps the tree green;
+N7's remedy text, landed one train ago, prefers a re-freeze on merged main and that gap is filed as a
+harness item rather than worked around silently. Row 779 is closed in the canonical backlog.
+blindspot files no row: the work is complete in this train, and a row for finished work is one the
+next reader has to disprove.
+
 ## v3.66.1520 - the import-edge remedy a gate emits is correct wherever it is emitted, and a comma in an interstitial label no longer splits one button into two
 
 Train A2-06, base origin/main aeed01f3 (v3.66.1519), REBASED off 26781387 after #823 landed. TWO

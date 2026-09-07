@@ -37,7 +37,7 @@ CATEGORY = {
         "bd-preflight", "bd-state", "bd-status", "bd-doctor",
         "bd-fetch"],
     "Cut readiness / gates": ["bd-ready", "bd-guardcheck", "bd-guard-declare", "bd-versync",
-        "bd-changelog", "bd-ascii", "bd-pinscan", "bd-bandcheck", "bd-imports", "bd-regen",
+        "bd-changelog", "bd-ascii", "bd-pinscan", "bd-bandcheck", "bd-imports", "bd-import-dodge", "bd-regen",
         "bd-factcheck", "bd-treecheck", "bd-smoke", "bd-selfcheck", "bd-fullsuite",
         "bd-regen-order", "bd-lost-symbol"],
     "Inspect / search": ["bd-route", "bd-deps", "bd-pin", "bd-envscan",

@@ -92,7 +92,9 @@ def test_guards_json_is_the_only_embedded_guard_hash_authority():
     )
 
 
-def test_footgun_runtime_and_package_share_one_42_row_registry(tmp_path):
+def test_footgun_runtime_and_package_share_one_43_row_registry(tmp_path):
+    # 43 = the 42 rows adjudicated at v3.66.1167 + FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE
+    # (the diff-scoped import-dodge detector). Bump this pin with every registry row.
     tracked = _tracked()
     canonical = "FOOTGUNS.json"
     assert canonical in tracked
@@ -100,7 +102,7 @@ def test_footgun_runtime_and_package_share_one_42_row_registry(tmp_path):
     payload = _strict_json((ROOT / canonical).read_text())
     rows = payload["footguns"]
     ids = [row["id"] for row in rows]
-    assert len(ids) == len(set(ids)) == 42
+    assert len(ids) == len(set(ids)) == 43
     assert {"FG-OVERLAY-ORPHAN-ON-DELETE", "FG-SPA-WIRING-ROUTE-INDEX"} <= set(ids)
     allowed_status = {"active", "retired"}
     allowed_severity = {"blocking", "advisory"}

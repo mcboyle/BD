@@ -1,0 +1,90 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "ROW 779. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/row779_template_sandbox_browser_pin.json --work <a detached scratch clone OUTSIDE this repository>. Every anchor is zero-width or value-free so the matched span carries no assignment (tests/test_row357_mutant_anchors_are_not_fragile.py). The paired transform control tests/mutants/row779_template_sandbox_browser_pin_transform_control.json must ESCAPE.",
+ "subject": "the template sandbox's browser mode resolves the host again, classifies EVERY answer, refuses on any non-loopback refusal or on an unavailable measurement, and pins Chromium to the literal it just vetted",
+ "band": [
+  "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py"
+ ],
+ "mutants": [
+  {
+   "label": "R779-M1 the pin-time refusal fails OPEN -- a rebound private address is pinned instead of refused",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=if not _ok and )(?=_why\\.code is not _Reason\\.LOOPBACK:)",
+   "new": "False and ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_host_that_rebinds_to_a_private_address_before_launch_is_refused"
+  },
+  {
+   "label": "R779-M2 only the FIRST resolved address is classified -- a rebind that adds a private sibling is admitted",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=_canon, sockaddr in infos)(?=:\\n        if family not in)",
+   "new": "[:1]",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_rebind_that_adds_a_private_sibling_is_refused"
+  },
+  {
+   "label": "R779-M3 a pin-time DNS failure fails OPEN -- an unavailable measurement becomes permission to navigate",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=OSError, UnicodeError\\) as ex:\\n        return )(?=False, None, _message\\(\\n            _Reason\\.DNS_FAILURE)",
+   "new": "not ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_rebind_into_dns_failure_is_refused_rather_than_ignored"
+  },
+  {
+   "label": "R779-M4 the pin is computed and then not plumbed to the browser launch",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=user_agent=ua,\\n                                     args=)(?=_launch_args\\) as page:)",
+   "new": "None and ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_the_browser_is_launched_pinned_to_the_address_that_was_vetted"
+  },
+  {
+   "label": "R779-M5 the rule maps the host to ITSELF, leaving Chromium to resolve the name again",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=return True, f\"MAP \\{bare\\} \\{)literal(?=\\}\", None)",
+   "new": "bare",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_host_that_rebinds_at_navigation_cannot_reach_the_metadata_address"
+  },
+  {
+   "label": "R779-M6 the loopback exemption is dropped at the pin -- local selector authoring is refused",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=if not _ok and _why\\.code is not )_Reason\\.LOOPBACK(?=:)",
+   "new": "_Reason.NO_HOST",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_loopback_is_still_permitted_in_browser_mode"
+  },
+  {
+   "label": "R779-M7 the IPv6 pin loses its brackets -- MAP host 2001:db8::1 instead of MAP host [2001:db8::1] (bd-lens-L1 U4)",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=    literal = f\"\\[\\{chosen\\}\\]\" if )(?=\":\" in chosen else chosen\\n)",
+   "new": "False and ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_an_aaaa_host_is_pinned_to_the_bracketed_ipv6_literal"
+  },
+  {
+   "label": "R779-M8 the empty-host refusal is dropped -- an empty name is sent to the resolver and pinned (bd-lens-L1 U1)",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=    if )(?=not bare:\\n        return False, None, _message\\(_Reason\\.NO_HOST)",
+   "new": "False and ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_the_pin_refuses_an_empty_host_before_any_resolution"
+  },
+  {
+   "label": "R779-M9 a non-IP resolver answer is skipped instead of refused (bd-lens-L1 U2)",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=        except ValueError:\\n)(?=            return False, None, _message\\(\\n                _Reason\\.NON_IP_ADDRESS)",
+   "new": "            continue\n",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_rebind_into_a_non_ip_answer_is_refused_with_its_own_reason"
+  },
+  {
+   "label": "R779-M10 the no-usable-address guard is defeated -- the name is pinned to ITSELF (bd-lens-L1 U3)",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=    chosen = None)(?=\\n    for family, _stype, _proto, _canon, sockaddr in infos)",
+   "new": " or bare",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_a_rebind_into_no_usable_address_is_refused_not_pinned_to_the_name"
+  }
+ ]
+}

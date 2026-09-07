@@ -1,0 +1,63 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Import-dodge detector, seam 1: the conversion itself -- a removed static first-party import meeting an added literal dynamic import of the same module. Each mutant blinds one recognised form; the named control must go RED.",
+  "subject": "removed-static & added-dynamic of the same first-party module is a DODGE, in every recognised dynamic form, and exits 1",
+  "band": [
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_conversion_inside_a_product_module_with_a_bare_stem_import_is_caught",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_an_aliased_from_import_of_import_module_is_the_same_conversion",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_json_and_text_exit_codes_agree",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_cx_ssrf_conversion_is_caught_with_the_law_and_the_free_path_named",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_dunder_import_form_is_the_same_conversion",
+    "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_package_relative_import_module_form_is_the_same_module"
+  ],
+  "mutants": [
+    {
+      "label": "C1 the conversion set is always empty",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=for module in sorted\\()(?=removed & \\(set\\(new_dyn\\) - set\\(old_dyn\\)\\)\\):)",
+      "new": "set() & ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_cx_ssrf_conversion_is_caught_with_the_law_and_the_free_path_named"
+    },
+    {
+      "label": "C2 a DODGE exits 0",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=\"DODGE\": )(?=sec\\.EXIT_FINDINGS,)",
+      "new": "sec.EXIT_OK if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_json_and_text_exit_codes_agree"
+    },
+    {
+      "label": "C3 __import__ is not a dynamic import",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=        if callee not in _DYNAMIC_CALLEES)(?=:\\n)",
+      "new": "[:1]",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_dunder_import_form_is_the_same_conversion"
+    },
+    {
+      "label": "C4 the package-relative form is not resolved",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=        if )(?=name\\.startswith\\(\"\\.\"\\):\\n            if not \\(isinstance\\(pkg_arg)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_the_package_relative_import_module_form_is_the_same_module"
+    },
+    {
+      "label": "C5 the gate's bare-stem rule is dropped",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=for prefix, rel in )(?=_STEM_DIRS:)",
+      "new": "() and ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_a_conversion_inside_a_product_module_with_a_bare_stem_import_is_caught"
+    },
+    {
+      "label": "C6 a from-import alias of import_module is not resolved",
+      "file": "toolchain/bin/bd-import-dodge",
+      "old_regex": "(?<=        callee = )(?=aliases\\.get\\(callee, callee\\)\\n)",
+      "new": "callee or ",
+      "direction": "regression",
+      "catcher": "tests/test_import_dodge_is_caught_in_the_cut_diff.py::test_an_aliased_from_import_of_import_module_is_the_same_conversion"
+    }
+  ]
+}

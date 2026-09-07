@@ -650,6 +650,7 @@ jobs:
               tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
               tests/test_rowssrf_loopback_reason_is_structured.py
+              tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py
               tests/test_row531_denominators_are_derived_not_pinned.py
               tests/test_v3_66_1189_bd_mutate_durable_contract.py
           - name: isolation
@@ -708,6 +709,7 @@ jobs:
               tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py
               tests/test_v3_66_1239_precut_runs_the_underived_gates.py
               tests/test_row463_precut_derives_its_baseline.py
+              tests/test_import_dodge_is_caught_in_the_cut_diff.py
               tests/test_row530_docs_only_lane_fails_closed.py
               tests/test_verify_lane_state_naming.py
               tests/test_history_file_size_is_the_size_on_disk.py

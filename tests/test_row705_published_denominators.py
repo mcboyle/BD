@@ -163,7 +163,12 @@ def _bounded_join_sites() -> list[tuple[str, str]]:
 
 def test_the_tool_display_cap_population_is_measured():
     sites = _bounded_join_sites()
-    assert len(sites) == 50
+    # 50 -> 52 at v3.66.1521: toolchain/bin/bd-import-dodge `_git` joins argv[:2]
+    # in TWO Unmeasurable messages, so a refusal names the git subcommand that
+    # failed rather than "git". Both were read before this pin moved: neither
+    # renders a POPULATION with a hidden tail -- which is what this gate is for --
+    # and each carries the subprocess rc and git's own last stderr line beside it.
+    assert len(sites) == 52
     assert sites.count(("toolchain/bin/bd-freshcheck", "check_anchors")) == 2
 
 

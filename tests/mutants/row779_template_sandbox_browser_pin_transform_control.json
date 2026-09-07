@@ -1,0 +1,18 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for row779_template_sandbox_browser_pin.json. It must exit 1 with the mutant ESCAPED. The banded test IMPORTS bulk_downloader.app_template and asserts its __name__; it never issues a sandbox request, so a real regression in the pin decision cannot make it fail. A CAUGHT here would mean the mutation breaks import or parsing rather than behaviour, and every CAUGHT in the main battery would be worthless.",
+ "subject": "transform control -- the pin-time refusal can be made to fail open and remains importable and executable, and is NOT caught by a test that only imports the subject",
+ "band": [
+  "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_app_template_import_transform_control"
+ ],
+ "mutants": [
+  {
+   "label": "TC R779-M1 the pin-time refusal fails OPEN",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=if not _ok and )(?=_why\\.code is not _Reason\\.LOOPBACK:)",
+   "new": "False and ",
+   "direction": "regression",
+   "catcher": "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py::test_app_template_import_transform_control"
+  }
+ ]
+}
