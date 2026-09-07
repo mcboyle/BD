@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "test2D-1. Each structural mutant removes or misroutes one persistent-context cookie-jar seam; catchers execute the real BrowserMixin launch decision with exact context, launch and cookie counts.",
+  "subject": "persistent profiles apply usable imported cookie jars without changing non-persistent launches",
+  "band": [
+    "tests/test_test2d_1_persistent_profile_cookie_jar.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 primary persistent launch omits the configured jar",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)^                self\\._apply_persistent_cookie_file[(]ctx[)]$",
+      "new": "                pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "label": "M2 fallback persistent launch omits the configured jar",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)^                        self\\._apply_persistent_cookie_file[(]ctx[)]$",
+      "new": "                        pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_fallback_also_applies_imported_cookies"
+    },
+    {
+      "label": "M3 loaded jar is not applied to its context",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "            ctx.add_cookies(jar)",
+      "new": "            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "label": "M4 configured cookie files are refused",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "        if not cookie_file:",
+      "new": "        if cookie_file:",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "label": "M5 nonempty jars are skipped",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "        if jar:",
+      "new": "        if not jar:",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "label": "M6 persistent and nonpersistent launch routing is inverted",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "        if use_persistent:",
+      "new": "        if not use_persistent:",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_nonpersistent_launch_does_not_read_the_cookie_file"
+    },
+    {
+      "label": "M7 usable cookie files are treated as unavailable",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)^            if not cookie_path\\.is_file[(][)](?= or cookie_path\\.stat)",
+      "new": "            if cookie_path.is_file()",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "label": "M8 cookie application failure is swallowed",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "            ctx.add_cookies(jar)",
+      "new": "            try:\n                ctx.add_cookies(jar)\n            except Exception:\n                pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_application_failure_cannot_return_a_cookieless_context"
+    }
+  ]
+}

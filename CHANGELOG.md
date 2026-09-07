@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1517 - a persistent-profile browser that cannot apply its cookie jar is disposed of instead of handed back, and the four callers that launch one are pinned
+
+Train G-03, base origin/main dd959706 (v3.66.1516). ONE reviewed worker patch, rowtest2D-1b-cx-d,
+carried alone. Path count is `git diff dd959706 --name-only`, against the DECLARED base and never a
+bare HEAD.
+
+- rowtest2D-1b-cx-d (T2): `_apply_persistent_cookie_file` applies the jar OUTSIDE its try, so a
+  failed `add_cookies` propagates to the launch owner rather than being swallowed while the caller
+  keeps a context whose cookies were never installed; an unreadable or empty file still leaves the
+  existing profile usable and returns early. The three cookie-failure paths in `_launch_browser`
+  (no channel, real-Chrome first attempt, bundled Chromium) each used to RETURN A WORKING BROWSER
+  while leaving the context and Playwright instance they gave up on OPEN -- abandoned cleanup was
+  measured 0/0 where 1/1 is expected -- and each now closes the context and stops Playwright by
+  identity. The four launch callers -- the worker loop, manual-persistent, manual-fresh and the
+  scene crawler -- gained assertions on the call's observable consequence with exact nonzero
+  counts, because each could previously be deleted with the row gate still green.
+  This carries the mutation battery for both halves: 11 cleanup/caller mutants caught, the 8
+  retained cookie-jar mutants caught, 0 escaped, 0 invalid, and an import-only transform control
+  that escapes on purpose. The predecessor cut rowtest2D-1-cx-c was REFUTED for exactly these
+  seven escapes and is superseded by this one.
+
 ## v3.66.1516 - the reviewed template has a supported route in and a supported route out
 
 Train B2-03, base origin/main a8267e5d (v3.66.1515). ONE reviewed worker patch, cut

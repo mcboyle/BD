@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 127,
+    "total": 132,
     "version": 1,
-    "count_dict": 126,
-    "test_files_scanned": 1649,
+    "count_dict": 131,
+    "test_files_scanned": 1650,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -44,6 +44,7 @@
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
+      "tests/test_test2d_1_persistent_profile_cookie_jar.py": 5,
       "tests/test_toolchain_534.py": 1,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_42_storage_tier.py": 2,
@@ -504,7 +505,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1516",
+      "value": "3.66.1517",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -554,6 +555,56 @@
         "root_check": 1
       },
       "gates_what": "test_real_asset_gate_invokes_one_fresh_build — The behavioral gate cannot silently regress to reading shipped dist."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+      "line": 114,
+      "value": {
+        "persistent": 1,
+        "nonpersistent": 0
+      },
+      "gates_what": "test_persistent_profile_applies_all_imported_cookies"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+      "line": 142,
+      "value": {
+        "persistent": 2,
+        "nonpersistent": 0
+      },
+      "gates_what": "test_persistent_fallback_also_applies_imported_cookies"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+      "line": 169,
+      "value": {
+        "persistent": 1,
+        "nonpersistent": 0
+      },
+      "gates_what": "test_persistent_profile_without_usable_cookie_file_is_unchanged"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+      "line": 194,
+      "value": {
+        "persistent": 0,
+        "nonpersistent": 1
+      },
+      "gates_what": "test_nonpersistent_launch_does_not_read_the_cookie_file"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_test2d_1_persistent_profile_cookie_jar.py",
+      "line": 213,
+      "value": {
+        "persistent": 1,
+        "nonpersistent": 1
+      },
+      "gates_what": "test_cookie_application_failure_cannot_return_a_cookieless_context"
     },
     {
       "form": "count_dict",
