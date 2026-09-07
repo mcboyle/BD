@@ -189,11 +189,16 @@ class BrowserMixin:
             if not cookie_path.is_file() or cookie_path.stat().st_size == 0:
                 return
             loaded, _detail = self.set_cookies_from_file(str(cookie_path))
-            if loaded and self.cookies:
-                ctx.add_cookies(self.cookies)
         except Exception as e:
             sys.stderr.write(
                 f"  persistent cookie file load failed: {str(e)[:100]}\n")
+            return
+        # An unreadable file leaves the existing profile usable. Failure to
+        # apply a loaded jar instead invalidates this newly opened context;
+        # let the launch owner dispose of it and choose the fallback.
+        jar = self.cookies if loaded else ()
+        if jar:
+            ctx.add_cookies(jar)
     def _record_channel_fallback(self,flow,channel,error,recovered):
         """Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
         SITE'S RUN RECORD, not only in the service log. The site asked for a
@@ -355,6 +360,7 @@ class BrowserMixin:
             args_val=extra.pop("args",None)
             ua_val=extra.pop("user_agent",None)
             detail="persistent "+("manual profile" if profile_override else "profile")
+            ctx = used_pw = None
             try:
                 ctx,used_pw,backend=_cloak.open_persistent_context(
                     user_data_dir=str(user_data_dir),headless=headless,
@@ -373,6 +379,17 @@ class BrowserMixin:
                 _cloak.log_choice(flow,backend,detail)
                 return None,ctx,used_pw,backend
             except Exception as e:
+                # A successful launch can still fail during cookie/stealth
+                # setup. Release that pair before opening its replacement.
+                try:
+                    try:
+                        if ctx is not None:
+                            ctx.close()
+                    finally:
+                        if used_pw is not None:
+                            used_pw.stop()
+                except Exception:
+                    pass  # Cleanup failure must not prevent the fallback.
                 # Common on the playwright backend: "Chrome channel not
                 # installed". Retry without channel (bundled Chromium for THIS
                 # site only) rather than letting the whole worker die.
@@ -381,6 +398,7 @@ class BrowserMixin:
                 if channel and "channel" in extra:
                     sys.stderr.write("  retrying without system Chrome channel\n")
                     extra.pop("channel",None)
+                    ctx = used_pw = None
                     try:
                         ctx,used_pw,backend=_cloak.open_persistent_context(
                             user_data_dir=str(user_data_dir),headless=headless,
@@ -392,6 +410,15 @@ class BrowserMixin:
                         self._record_channel_fallback(flow,channel,msg,True)
                         return None,ctx,used_pw,backend
                     except Exception as e2:
+                        try:
+                            try:
+                                if ctx is not None:
+                                    ctx.close()
+                            finally:
+                                if used_pw is not None:
+                                    used_pw.stop()
+                        except Exception:
+                            pass
                         sys.stderr.write(f"  launch persistent fallback failed: {str(e2)[:100]}\n")
                         self._record_channel_fallback(flow,channel,str(e2)[:100],False)
                 # Persistent failed entirely — fall through to non-persistent

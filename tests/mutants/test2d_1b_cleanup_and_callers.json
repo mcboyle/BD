@@ -1,0 +1,98 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Abandoned pairs close and stop by identity; four real consumers must deliver cookie-bearing contexts. Only value-free call structure is matched; keyword values are lookahead context.",
+  "subject": "persistent launch cleanup and production caller reachability",
+  "band": [
+    "tests/test_test2d_1_persistent_profile_cookie_jar.py"
+  ],
+  "mutants": [
+    {
+      "label": "cleanup no-channel omits close",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                            ctx.close()",
+      "new": "\n                            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-no-channel]"
+    },
+    {
+      "label": "cleanup no-channel omits stop",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                            used_pw.stop()",
+      "new": "\n                            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-no-channel]"
+    },
+    {
+      "label": "cleanup chrome omits close",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                            ctx.close()",
+      "new": "\n                            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-chrome]"
+    },
+    {
+      "label": "cleanup chrome omits stop",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                            used_pw.stop()",
+      "new": "\n                            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-chrome]"
+    },
+    {
+      "label": "cleanup bundled omits close",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                                    ctx.close()",
+      "new": "\n                                    pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-bundled]"
+    },
+    {
+      "label": "cleanup bundled omits stop",
+      "file": "bulk_downloader/runner_browser.py",
+      "old": "\n                                    used_pw.stop()",
+      "new": "\n                                    pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_cookie_failure_releases_abandoned_pair[False-bundled]"
+    },
+    {
+      "label": "caller worker omits launch",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "self\\._launch_browser\\((?=\\s*worker_idx=worker_idx, netns=netns)",
+      "new": "(lambda *args, **kwargs: (None, None, None, None))(",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_worker_caller_delivers_cookie_jar"
+    },
+    {
+      "label": "caller manual persistent omits launch",
+      "file": "bulk_downloader/runner_manual.py",
+      "old_regex": "runner\\._launch_browser\\((?=\\s*headless=False, use_persistent=True)",
+      "new": "(lambda *args, **kwargs: (None, None, None, None))(",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_manual_persistent_caller_delivers_cookie_jar"
+    },
+    {
+      "label": "caller manual fresh omits launch",
+      "file": "bulk_downloader/runner_manual.py",
+      "old_regex": "runner\\._launch_browser\\((?=headless=False, use_persistent=False)",
+      "new": "(lambda *args, **kwargs: (None, None, None, None))(",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_manual_fresh_caller_delivers_cookie_jar"
+    },
+    {
+      "label": "caller crawler omits launch",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "runner\\._launch_browser\\((?=\\s*headless=True, use_persistent=False, worker_idx=None)",
+      "new": "(lambda *args, **kwargs: (None, None, None, None))(",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_crawler_caller_delivers_cookie_jar"
+    },
+    {
+      "label": "unavailable cookie loader falls into failed context setup",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)^            return(?=\\n        # An unreadable file)",
+      "new": "            pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_unavailable_cookie_loader_preserves_existing_profile"
+    }
+  ]
+}

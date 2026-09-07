@@ -123,6 +123,10 @@ _DECLARED = {
     "tests/test_row763_child_frame_turnstile.py",
     "tests/test_row764_turnstile_bypass_verdict.py",
     "tests/test_row765_scrapling_selector_compatibility.py",
+    # test2D-1. Persistent-profile workers must apply a configured imported
+    # cookie jar before their first page uses the context.
+    # CI-SHARD-CLAIM test2D-1 application-safety tests/test_test2d_1_persistent_profile_cookie_jar.py
+    "tests/test_test2d_1_persistent_profile_cookie_jar.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "test2D-1 transform control. Removing the primary injection call must ESCAPE when the selected node imports BrowserMixin without launching it or asserting cookie behavior.",
+  "subject": "transform control -- importing BrowserMixin does not judge persistent cookie injection",
+  "band": [
+    "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_transform_control_only_imports_the_browser_mixin"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 omitted persistent jar escapes import-only control",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)^                self\\._apply_persistent_cookie_file[(]ctx[)]$",
+      "new": "                pass",
+      "direction": "regression",
+      "catcher": "tests/test_test2d_1_persistent_profile_cookie_jar.py::test_transform_control_only_imports_the_browser_mixin"
+    }
+  ]
+}
