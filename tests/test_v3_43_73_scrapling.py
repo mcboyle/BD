@@ -247,9 +247,9 @@ class TestCandidateScore:
     def test_tag_match_scores(self):
         el = self._mock_el(tag="a", text="")
         fp = {"tag": "a", "text_hash": "", "attrs": {}, "ancestor_tags": []}
-        # Just tag match gets 0.15
+        # The tag satisfies all supplied evidence.
         score = s._candidate_score(el, fp)
-        assert score >= 0.15
+        assert score == 1.0
 
     def test_text_hash_match_scores_high(self):
         el = self._mock_el(tag="a", text="Hello World")
@@ -259,8 +259,7 @@ class TestCandidateScore:
             "attrs": {}, "ancestor_tags": [],
         }
         score = s._candidate_score(el, fp)
-        # tag (0.15) + text_hash (0.40) = 0.55
-        assert score >= 0.55
+        assert score == 1.0
 
     def test_text_preview_partial_credit(self):
         """If hash doesn't match exactly but preview is contained,
@@ -273,8 +272,9 @@ class TestCandidateScore:
             "attrs": {}, "ancestor_tags": [],
         }
         score = s._candidate_score(el, fp)
-        # tag (0.15) + text_preview (0.20) = 0.35
-        assert 0.30 <= score <= 0.40
+        # Preview earns half the supplied hash signal's weight:
+        # (tag 0.15 + preview 0.20) / (tag 0.15 + hash 0.40).
+        assert score == pytest.approx(7 / 11)
 
     def test_class_overlap_scores(self):
         el = self._mock_el(tag="a", attrib={"class": "btn btn-primary"})
@@ -284,8 +284,7 @@ class TestCandidateScore:
             "ancestor_tags": [],
         }
         score = s._candidate_score(el, fp)
-        # tag (0.15) + class_set full overlap (0.15) = 0.30
-        assert score >= 0.25
+        assert score == 1.0
 
     def test_no_match_zero(self):
         el = self._mock_el(tag="span", text="completely different")
@@ -294,8 +293,7 @@ class TestCandidateScore:
             "attrs": {}, "ancestor_tags": [],
         }
         score = s._candidate_score(el, fp)
-        # Tag doesn't match, text doesn't match → very low score
-        assert score < 0.10
+        assert score == 0.0
 
 
 # ─── _build_new_selector ─────────────────────────────────────────

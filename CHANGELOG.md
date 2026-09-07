@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1515 - a challenge served in a child frame is detected, a still-challenged bypass stops reporting success, the retired Adaptor symbol stops making Scrapling read unavailable, and the frame URLs are held out of the model prompt
+
+Train F-05, base origin/main 3f5cb0e7 (v3.66.1514). ONE reviewed worker patch (cx-challenge arm 3
+round 2, rows 763/764/765) plus the LLM-boundary gate authored against it and BOARDed separately.
+Path count is `git diff 3f5cb0e7 --name-only`, against the DECLARED base and never a bare HEAD.
+THE TRIO IS SET LAST, immediately before the exact-head CI that lands it: this cut paid the full
+renumber three times (1513, 1514, 1515) because the number was written at composition, and a trio
+set early is a claim about a slot the train does not hold (PM-B-RULING-version-trio-last).
+
+- ROWS 763, 764 AND 765 (cx-challenge arm 3 round 2). observe_page_for_challenge now reads each
+  child frame's URL -- page.frames and frame.url, nothing else -- keeps at most 8 of them
+  truncated to 512 characters, and appends the constant marker "child_frame_url" when a URL
+  matches the same three widget signatures the classifier owns, so a Cloudflare turnstile served
+  inside a child frame stops routing as unknown while the parent page's title and text read clean
+  (763). bypass_turnstile passes solve_cloudflare to StealthyFetcher and stops reporting ok=True
+  on a page that is still challenged merely because a cookie was present (764). scrapling_adapter
+  resolves Scrapling's modern Selector with the legacy Adaptor as a fallback, so adaptive_selectors
+  stops reading unavailable on Scrapling 0.4 (765).
+- CONFIDENCE NORMALISATION, and the two facts that are NOT one fact. The recovery score is now
+  normalised over the signals ACTUALLY SUPPLIED rather than over every weight in the table, and
+  the 0.6 default threshold is UNCHANGED with both enforcement gates intact. Verified after the
+  rebase, not carried: a rich fingerprint whose strongest signal mismatches scores 7/15, passes an
+  explicit 0.45 and FAILS the default 0.6 on both the original-selector and the fallback path;
+  a missing element returns ok=false with candidates_considered=0 and
+  no_candidates_above_threshold; conflicting supplied class and id stay IN the denominator and
+  remain a miss at 3/7.
+- THE LLM BOUNDARY IS NOW DEFENDED BY A TEST, not by a promise. challenge_classify builds two
+  blobs and only one is safe to send outward: blob (text, title, markers) reaches the advisory
+  model as blob[:1000], while frame_blob -- the frame URLs, where a signed token rides in a query
+  string -- reaches only _detect_widget. tests/test_row763_frame_urls_never_reach_the_model_prompt.py
+  drives classify() with the call captured, asserts the captured prompt carries neither the
+  zero-entropy fixture token nor the URL, and carries a positive control so an empty capture
+  cannot pass. Its mutant is CAUGHT and its transform control ESCAPES by design.
+- GUARD PIN DECLARED, NOT BUMPED SILENTLY. bulk_downloader/session_capture.py is one of the seven
+  SHA-pinned release guards, so the pin moves to
+  7344e0f0619fc7c21bc07ba456b16708249f92e1ce939a4ce47b269e4e6c798e under a lens-authored reason
+  stated in the PRESENT TENSE -- as of 7344e0f0 the frame URLs reach only _detect_widget -- and
+  bd-guardcheck reports 7 ok, 0 drifted on the assembled tree.
+
+ROWS 763, 764 AND 765 ARE CLOSED BY THIS TRAIN AND ARE THE ONLY ROWS IT CLOSES: a closure rides
+with its code, and the code for rows 675, 731, 732 and 751 shipped in v3.66.1513 under a
+different train, so their closures are owed there and not here (PM-B-RULING-F05-strip-all-four).
+This train files no rows either: row 675 stays OPEN on its scrubber residual, and the row that
+carries that residual is filed separately, so this register edit is the three closures alone.
+
 ## v3.66.1514 - the deep integrations classify the server URL before the token is attached
 
 Train B2-02, base origin/main 98bc6057 (v3.66.1513). ONE reviewed worker patch, re-assembled at

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "CONTROL. It MUST ESCAPE. A REAL behavioural change to challenge_classify.py -- the manual-review routing text -- banded on the boundary test. If it were CAUGHT, the regression spec's catch would prove only that the boundary test notices ANY edit to this module, not that it sees the prompt. The escape is what makes the CAUGHT next door mean something. bd-mutate exits 1 on this spec BY DESIGN.",
+  "subject": "control -- a real change this gate must NOT claim to catch",
+  "band": [
+    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL replace the manual-review routing text, which no boundary assertion reads",
+      "file": "bulk_downloader/challenge_classify.py",
+      "old_regex": "(?m)(?<=^    review_path = \\()(?=\"Route to the manual operator handoff flow for an authenticated \"$)",
+      "new": "\"CONTROL routing text\" if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt"
+    }
+  ]
+}

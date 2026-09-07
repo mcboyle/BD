@@ -118,6 +118,11 @@ _DECLARED = {
     "tests/test_row751_template_strip_recurses.py",
     "tests/test_row675_minified_js_is_not_a_secret.py",
     "tests/test_row713_deep_integration_token_egress.py",  # row 713 token egress
+    # Rows 763/764/765. Child-frame challenge detection, challenge verdicts,
+    # and adaptive-selector compatibility protect the shared challenge boundary.
+    "tests/test_row763_child_frame_turnstile.py",
+    "tests/test_row764_turnstile_bypass_verdict.py",
+    "tests/test_row765_scrapling_selector_compatibility.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",
@@ -236,6 +241,7 @@ _DECLARED = {
     # unless its fetcher capability imports. This runtime gate proves the
     # absent, probe-unknown, recovery-only, and fully available states.
     "tests/test_row360_turnstile_bypass_is_installed.py",
+    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py",
     "tests/test_rows706_714_test_hygiene.py",
     # Row 334. The library integrity route is a second consumer of the bitrot
     # issue census. Its runtime gate refuses to call a locked inventory clean.

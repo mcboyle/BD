@@ -466,6 +466,10 @@ jobs:
               tests/test_row363_affordance_learning.py
               tests/test_row356_cookie_quality_reports_unknown.py
               tests/test_row360_turnstile_bypass_is_installed.py
+              tests/test_row763_child_frame_turnstile.py
+              tests/test_row764_turnstile_bypass_verdict.py
+              tests/test_row765_scrapling_selector_compatibility.py
+              tests/test_row763_frame_urls_never_reach_the_model_prompt.py
               tests/test_rows706_714_test_hygiene.py
               tests/test_row713_deep_integration_token_egress.py
               tests/test_row346_plugin_sandbox_is_truthful.py

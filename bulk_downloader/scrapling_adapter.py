@@ -75,9 +75,18 @@ log = logging.getLogger(__name__)
 # ─── Availability ──────────────────────────────────────────────────
 
 
+def _adaptive_selector_from_module(module):
+    """Return Scrapling's preferred modern selector, or its legacy fallback."""
+    for symbol in ("Selector", "Adaptor"):
+        capability = getattr(module, symbol, None)
+        if callable(capability):
+            return capability
+    raise AttributeError("scrapling exposes neither Selector nor Adaptor")
+
+
 def _probe_capability(symbol: str, *, available_reason: str,
                       unavailable_reason: str,
-                      required_callable: str = "") -> dict:
+                      required_callable: str = "", resolver=None) -> dict:
     """Measure one Scrapling symbol without turning probe failure into OK.
 
     A missing package, transitive dependency, or expected symbol is a measured
@@ -87,7 +96,7 @@ def _probe_capability(symbol: str, *, available_reason: str,
     """
     try:
         module = importlib.import_module("scrapling")
-        capability = getattr(module, symbol)
+        capability = resolver(module) if resolver is not None else getattr(module, symbol)
         if not callable(capability):
             raise AttributeError(f"{symbol} is not callable")
         if required_callable and not callable(
@@ -121,9 +130,10 @@ def capability_status() -> dict:
     """Return independently measured adaptive-selector and bypass states."""
     return {
         "adaptive_selectors": _probe_capability(
-            "Adaptor",
+            "Selector",
             available_reason="adaptor_available",
             unavailable_reason="adaptor_unavailable",
+            resolver=_adaptive_selector_from_module,
         ),
         "turnstile_bypass": _probe_capability(
             "StealthyFetcher",
@@ -137,9 +147,10 @@ def capability_status() -> dict:
 def is_available() -> bool:
     """True if Scrapling's adaptive-selector capability imports cleanly."""
     return bool(_probe_capability(
-        "Adaptor",
+        "Selector",
         available_reason="adaptor_available",
         unavailable_reason="adaptor_unavailable",
+        resolver=_adaptive_selector_from_module,
     )["available"])
 
 
@@ -262,6 +273,15 @@ def _text_hash(text: str) -> str:
 # ─── Fingerprint capture + recovery ────────────────────────────────
 
 
+def _css_first(page, selector: str):
+    """Select one element across Scrapling's legacy and modern APIs."""
+    css_first = getattr(page, "css_first", None)
+    if callable(css_first):
+        return css_first(selector)
+    matches = page.css(selector)
+    return matches[0] if matches else None
+
+
 def build_fingerprint(html: str, selector: str) -> Optional[dict]:
     """Build a content-based fingerprint of the element matched by
     `selector` in `html`. Returns None if Scrapling unavailable OR
@@ -275,12 +295,13 @@ def build_fingerprint(html: str, selector: str) -> Optional[dict]:
     if not html or not selector:
         return None
     try:
-        from scrapling import Adaptor
+        selector_module = importlib.import_module("scrapling")
+        Adaptor = _adaptive_selector_from_module(selector_module)
         # Scrapling's Adaptor wraps HTML and provides CSS/XPath
         # selection. auto_save=True makes the resulting element
         # carry the metadata we'll later use for recovery.
         page = Adaptor(html, auto_match=True, debug=False)
-        el = page.css_first(selector)
+        el = _css_first(page, selector)
         if el is None:
             return None
         # Build the fingerprint manually so it doesn't depend on
@@ -345,25 +366,36 @@ def build_fingerprint(html: str, selector: str) -> Optional[dict]:
 
 
 def _candidate_score(el, fingerprint: dict) -> float:
-    """Score how well an element matches the fingerprint. 1.0 = perfect
-    match; 0.0 = nothing matches. Used by recover_selector to pick the
-    best candidate."""
+    """Return the fraction of supplied evidence matched by the element.
+
+    Nonempty tag, text, class and id signals contribute their existing weights.
+    Preview is a fallback for the hash's text signal, not a second vote.
+    Supplied mismatches (including unreadable candidate values) keep their
+    weight in the denominator. Stored structural metadata is not scored.
+    """
     score = 0.0
+    supplied_weight = 0.0
     weights = {
         "tag": 0.15,
         "text_hash": 0.40,
         "text_preview": 0.20,  # partial credit when hash doesn't match
         "class_set": 0.15,
         "id": 0.05,
-        "ancestor_tags": 0.05,
     }
     # Tag match
+    fp_tag = fingerprint.get("tag", "")
+    if fp_tag:
+        supplied_weight += weights["tag"]
     try:
-        if (getattr(el, "tag", "") or "").lower() == fingerprint.get("tag", ""):
+        if fp_tag and (getattr(el, "tag", "") or "").lower() == fp_tag:
             score += weights["tag"]
     except Exception:
         pass
     # Text hash match (exact) — this is the strongest signal
+    if fingerprint.get("text_hash"):
+        supplied_weight += weights["text_hash"]
+    elif fingerprint.get("text_preview"):
+        supplied_weight += weights["text_preview"]
     try:
         el_text_hash = _text_hash(el.text or "")
         if el_text_hash and el_text_hash == fingerprint.get("text_hash"):
@@ -379,6 +411,7 @@ def _candidate_score(el, fingerprint: dict) -> float:
     try:
         fp_classes = set(fingerprint.get("attrs", {}).get("class", []))
         if fp_classes:
+            supplied_weight += weights["class_set"]
             raw = getattr(el, "attrib", None) or getattr(el, "attrs", None) or {}
             el_classes_raw = raw.get("class", "") if hasattr(raw, "get") else ""
             el_classes = set(el_classes_raw.split()) if isinstance(el_classes_raw, str) else set()
@@ -391,13 +424,14 @@ def _candidate_score(el, fingerprint: dict) -> float:
     try:
         fp_id = fingerprint.get("attrs", {}).get("id", "")
         if fp_id:
+            supplied_weight += weights["id"]
             raw = getattr(el, "attrib", None) or getattr(el, "attrs", None) or {}
             el_id = raw.get("id", "") if hasattr(raw, "get") else ""
             if el_id == fp_id:
                 score += weights["id"]
     except Exception:
         pass
-    return score
+    return score / supplied_weight if supplied_weight else 0.0
 
 
 @dataclass
@@ -435,13 +469,14 @@ def recover_selector(
         return RecoveryResult(ok=False, error="fingerprint_missing_tag")
     _bump("recoveries_attempted")
     try:
-        from scrapling import Adaptor
+        selector_module = importlib.import_module("scrapling")
+        Adaptor = _adaptive_selector_from_module(selector_module)
         page = Adaptor(html, auto_match=False, debug=False)
         # Try the original selector first (cheapest path)
         orig_sel = fingerprint.get("original_selector", "")
         if orig_sel:
             try:
-                el = page.css_first(orig_sel)
+                el = _css_first(page, orig_sel)
                 if el is not None:
                     score = _candidate_score(el, fingerprint)
                     if score >= min_score:
@@ -605,6 +640,7 @@ def bypass_turnstile(
             "headless": headless,
             "network_idle": True,
             "timeout": int(timeout_s * 1000),  # most versions expect ms
+            "solve_cloudflare": True,
         }
         if user_agent:
             kwargs["useragent"] = user_agent
@@ -645,9 +681,9 @@ def bypass_turnstile(
     except Exception as e:
         log.debug("scrapling: bypass result parse raised %s", e)
     elapsed = time.monotonic() - start
-    # If we got HTML but no cookies AND the HTML still looks like a
+    # If we got HTML and it still looks like a
     # challenge page, the bypass didn't actually work.
-    if final_html and is_turnstile_page(final_html) and not cookies:
+    if final_html and is_turnstile_page(final_html):
         _bump("turnstile_failed")
         return BypassResult(
             ok=False, error="bypass_completed_but_still_challenged",
