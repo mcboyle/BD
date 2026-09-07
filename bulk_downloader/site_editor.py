@@ -86,6 +86,33 @@ def is_secret_config_key(k) -> bool:
     kl = k.lower()
     return any(marker in kl for marker in _CONFIG_SECRET_FLOOR)
 
+
+_EXPORT_WALK_DEPTH = 500
+
+
+def _redact_nested_export_value(value, stripped: list[str], path: str,
+                                depth: int = 0):
+    """Redact nested portable-config values without changing clean structure."""
+    if depth > _EXPORT_WALK_DEPTH:
+        return "<redacted>"
+    if isinstance(value, dict):
+        out = {}
+        for key, child in value.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if is_secret_config_key(key):
+                if child:
+                    stripped.append(child_path)
+                continue
+            out[key] = _redact_nested_export_value(child, stripped, child_path, depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_redact_nested_export_value(child, stripped, f"{path}[{i}]", depth + 1)
+                for i, child in enumerate(value)]
+    if isinstance(value, str):
+        from .capture_redact import redact_media_url
+        return redact_media_url(value)
+    return value
+
 # Fields that must be non-empty for ANY usable site config.
 REQUIRED_FIELDS = ("name",)
 
@@ -412,7 +439,7 @@ def export_config(cfg: dict, *, include_secrets: bool = False) -> dict:
                     stripped.append(k)
                 continue
         else:
-            out_cfg[k] = v
+            out_cfg[k] = _redact_nested_export_value(v, stripped, k)
 
     envelope = {
         "schema": EXPORT_SCHEMA,
@@ -489,6 +516,35 @@ def import_config(payload: Any, *, known_fields: set | None = None) -> dict:
             "errors": errors, "warnings": warnings}
 
 
+_DIFF_WALK_DEPTH = 500
+
+
+def _mask_nested_diff_value(value, depth: int = 0):
+    """Mask secret-keyed DESCENDANTS of a value the diff reports verbatim.
+
+    diff_config's own loop tests only TOP-LEVEL keys against SECRET_FIELDS,
+    so a secret nested inside a non-secret container -- learned.download.
+    password -- was returned RAW to the "preview changes" affordance, while
+    export_config on the same input redacts it. Same file, same class of
+    surface, one fixed and one not; this applies the walk export_config
+    already does. Values are masked, never removed: the preview's job is to
+    say WHICH field changed, and dropping the key would say nothing changed.
+    """
+    if depth > _DIFF_WALK_DEPTH:
+        return "(set)"
+    if isinstance(value, dict):
+        out = {}
+        for key, child in value.items():
+            if is_secret_config_key(key):
+                out[key] = "(set)" if child else "(empty)"
+                continue
+            out[key] = _mask_nested_diff_value(child, depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_mask_nested_diff_value(child, depth + 1) for child in value]
+    return value
+
+
 def diff_config(old: dict, new: dict) -> list[dict]:
     """Field-by-field diff for the 'preview changes' affordance.
 
@@ -535,14 +591,17 @@ def diff_config(old: dict, new: dict) -> list[dict]:
         nb = _is_blank(nv)
         if ob and nb:
             continue
+        # Compare RAW values (behaviour unchanged); REPORT masked ones.
         if ob and not nb:
-            diffs.append({"field": k, "old": "", "new": nv,
+            diffs.append({"field": k, "old": "",
+                          "new": _mask_nested_diff_value(nv),
                           "kind": "added"})
         elif nb and not ob:
-            diffs.append({"field": k, "old": ov, "new": "",
-                          "kind": "removed"})
+            diffs.append({"field": k, "old": _mask_nested_diff_value(ov),
+                          "new": "", "kind": "removed"})
         elif ov != nv:
-            diffs.append({"field": k, "old": ov, "new": nv,
+            diffs.append({"field": k, "old": _mask_nested_diff_value(ov),
+                          "new": _mask_nested_diff_value(nv),
                           "kind": "changed"})
     return diffs
 

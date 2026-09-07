@@ -477,6 +477,11 @@ jobs:
               tests/test_login_api_refuses_impossible_manual_start.py
               tests/test_row667_login_attempt_accounting.py
               tests/test_keepalive_default_off.py
+              tests/test_row731_signed_url_branch_uses_pair_predicate.py
+              tests/test_row732_site_editor_redaction_descends.py
+              tests/test_row751_template_apply_gates_captcha_egress.py
+              tests/test_row751_template_strip_recurses.py
+              tests/test_row675_minified_js_is_not_a_secret.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

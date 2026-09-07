@@ -4,6 +4,41 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1513 - the secret boundary: redaction descends, the signed-URL branch classifies on the credential pair, a minified JS literal is not a secret, and both template-apply seams gate paid captcha egress
+
+Train F-02-redaction, base origin/main f54b811d (v3.66.1511). ONE reviewed worker patch; redaction
+rides alone by PM ruling, because its baseline re-freeze was the one that was always going to
+fight. Path count is `git diff --cached f54b811d --name-only`, against the DECLARED base and never
+a bare HEAD: 24 paths, 18 authored plus 6 regenerated. VERSION DERIVATION, stated because it skips
+a number: origin/main was f54b811d at v3.66.1511 when this trio was written, and PR #818 (train 1,
+rows 660/469) was committed claiming v3.66.1512 with exact-head CI green and mergeStateStatus
+CLEAN. This train took 1513 rather than collide; if #818 never lands, 1512 is a hole, and the
+v3.66.1508 hole is the standing precedent that version contiguity is not an invariant.
+
+REBASED FIRST, THEN FROZEN ONCE. The cut was authored on 48614e1c and main moved 21 import-graph
+edges under it while it sat there, so the baseline was rebased onto f54b811d BEFORE any
+declaration and re-frozen exactly once: 4352 -> 4364, 12 edges ADDED and 0 REMOVED, re-derived
+from the gate rather than carried out of the cut's own twelve-against-4343. One is production --
+bulk_downloader/site_editor.py -> bulk_downloader/capture_redact.py, the nested export walk
+importing redact_media_url -- and eleven are the five new gate files reaching their own subjects.
+The union deletion check over .github/workflows/ci.yml and
+tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py on the assembled tree returns ZERO
+deletion lines against 13 additions, with a positive control at 12 deletions over the full staged
+diff, so the probe can say yes. The shard gate was RUN on this tree rather than inherited.
+
+- CX-REDACTION ARM 2 (rows 731, 732, 751, 675). The secret boundary now descends and classifies
+  on the right predicate. capture_artifact_redact._kv_key_is_secret decides the signed-URL branch
+  on the credential PAIR predicate instead of a bare query key (731), and _JS_LITERAL_VALUE stops
+  calling a minified JS literal value a kv secret (675). site_editor gains
+  _redact_nested_export_value so export_config descends, and _mask_nested_diff_value so the
+  sibling diff_config preview surface stops returning the raw nested value (732 and H77).
+  user_templates names DESCENDANT secret paths in both the strip and the preview (751b). Both
+  template-apply seams -- app._apply_template_by_id and app_sites_teach.api_template_apply -- gate
+  paid captcha egress BEFORE persistence and strip the acknowledgement a template tries to
+  smuggle through (751a). Five new gate files carry the row tests and six mutant specs carry the
+  battery, including a transform control.
+
+ROWS 731, 732, 751 AND 675 ARE CLOSED BY THIS TRAIN.
 ## v3.66.1512 - a check stops rewriting the tree it checks, and the four toolchain auditors state one denominator
 
 Train B2-01, base origin/main f54b811d (v3.66.1511). TWO reviewed worker patches, authored paths

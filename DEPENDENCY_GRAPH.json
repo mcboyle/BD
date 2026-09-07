@@ -2367,7 +2367,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1707,
+    "edge_count": 1708,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3204,6 +3204,7 @@
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/inspect_pick.py",
         "bulk_downloader/runner_telemetry.py",
+        "bulk_downloader/site_editor.py",
         "bulk_downloader/temporal_harness.py",
         "tools/gen_frontend_secret_keys.py",
         "tools/scrub_recon.py"
@@ -7178,6 +7179,7 @@
         "bulk_downloader/error_fingerprint.py"
       ],
       "bulk_downloader/site_editor.py": [
+        "bulk_downloader/capture_redact.py",
         "bulk_downloader/login_templates_data.py",
         "bulk_downloader/secrets_store.py"
       ],

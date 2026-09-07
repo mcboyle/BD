@@ -109,6 +109,14 @@ _DECLARED = {
     # the gate is pinned into the lane claimed on the next line.
     # CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
     "tests/test_row659_witness_run_does_not_leak_capture_state.py",
+    # Rows 731/732/751/675: the secret boundary. Redaction, export descent and
+    # the paid-egress acknowledgement are repo-wide safety gates, not gates over
+    # the handful of files this cut edits.
+    "tests/test_row731_signed_url_branch_uses_pair_predicate.py",
+    "tests/test_row732_site_editor_redaction_descends.py",
+    "tests/test_row751_template_apply_gates_captcha_egress.py",
+    "tests/test_row751_template_strip_recurses.py",
+    "tests/test_row675_minified_js_is_not_a_secret.py",
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",

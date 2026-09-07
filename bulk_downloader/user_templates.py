@@ -410,7 +410,22 @@ def _is_template_secret_key(k) -> bool:
 def _secret_keys_in(t) -> list[str]:
     if not isinstance(t, dict):
         return []
-    return sorted(k for k in t if _is_template_secret_key(k))
+    found = []
+    def walk(value, path="", depth=0):
+        if depth > 500:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = f"{path}.{key}" if path else key
+                if _is_template_secret_key(key):
+                    found.append(child_path)
+                else:
+                    walk(child, child_path, depth + 1)
+        elif isinstance(value, list):
+            for i, child in enumerate(value):
+                walk(child, f"{path}[{i}]", depth + 1)
+    walk(t)
+    return sorted(found)
 
 
 def _strip_secrets(t):
@@ -420,7 +435,16 @@ def _strip_secrets(t):
     them, not just report them. REDACT-SOT: secret decision via the shared SoT."""
     if not isinstance(t, dict):
         return t
-    return {k: v for k, v in t.items() if not _is_template_secret_key(k)}
+    def walk(value, depth=0):
+        if depth > 500:
+            return {}
+        if isinstance(value, dict):
+            return {k: walk(v, depth + 1) for k, v in value.items()
+                    if not _is_template_secret_key(k)}
+        if isinstance(value, list):
+            return [walk(v, depth + 1) for v in value]
+        return value
+    return walk(t)
 
 
 def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:

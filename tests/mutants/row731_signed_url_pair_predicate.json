@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "row731 signed URL pair decision",
+  "band": [
+    "tests/test_row731_signed_url_branch_uses_pair_predicate.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass pair predicate",
+      "file": "bulk_downloader/capture_artifact_redact.py",
+      "old": "_kv_key_is_secret(k)",
+      "new": "SENSITIVE_QS_KEY.search(k)",
+      "direction": "regression",
+      "catcher": "tests/test_row731_signed_url_branch_uses_pair_predicate.py::test_signed_url_branch_uses_credential_pair_predicate"
+    }
+  ],
+  "_comment": "Row 731: the signed-URL branch must classify on the credential PAIR predicate, not on a bare query key. Bypassing the predicate re-flags a clean expiring CDN URL."
+}

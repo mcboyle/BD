@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "row751 captcha gate at both template apply seams",
+  "band": [
+    "tests/test_row751_template_apply_gates_captcha_egress.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass bulk captcha gate",
+      "file": "bulk_downloader/app.py",
+      "old": "captcha_egress_disclosure_error(defaults, cfg)",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row751_template_apply_gates_captcha_egress.py::test_bulk_template_apply_refuses_before_persistence"
+    },
+    {
+      "label": "M2 bypass route captcha gate",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old": "captcha_egress_disclosure_error(defaults, cfg)",
+      "new": "\"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row751_template_apply_gates_captcha_egress.py::test_route_template_apply_refuses_before_persistence"
+    },
+    {
+      "label": "M3 bulk apply keeps a smuggled ack field",
+      "file": "bulk_downloader/app.py",
+      "old": "defaults.pop",
+      "new": "defaults.get",
+      "direction": "regression",
+      "catcher": "tests/test_row751_template_apply_gates_captcha_egress.py::test_bulk_apply_strips_an_ack_smuggled_inside_config_defaults"
+    },
+    {
+      "label": "M4 route apply keeps a smuggled ack field",
+      "file": "bulk_downloader/app_sites_teach.py",
+      "old": "defaults.pop",
+      "new": "defaults.get",
+      "direction": "regression",
+      "catcher": "tests/test_row751_template_apply_gates_captcha_egress.py::test_route_apply_strips_an_ack_smuggled_inside_config_defaults"
+    }
+  ],
+  "_comment": "Row 751(a): both template apply seams gate paid captcha egress BEFORE persistence, and neither may let a template acknowledge its own transition -- M3/M4 neutralise the ack strip at each site independently."
+}
