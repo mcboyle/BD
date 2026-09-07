@@ -17,8 +17,8 @@
     {
       "label": "M1 the document guard is skipped, restoring the pre-fix stamp",
       "file": "bulk_downloader/detect.py",
-      "old": "            if value and _candidate_url_is_a_document(value):\n                continue\n            if value and work_affinity(page_url, value):",
-      "new": "            if value and _candidate_url_is_a_document(value) and False:  # mutant: restore the pre-fix stamp\n                continue\n            if value and work_affinity(page_url, value):",
+      "old": "            if value and _candidate_url_is_a_document(value):\n                continue",
+      "new": "            if value and _candidate_url_is_a_document(value) and bool():  # mutant: restore the pre-fix stamp\n                continue",
       "direction": "regression",
       "catcher": "tests/test_best_must_not_pick_a_page_link_over_4k.py::test_a_document_url_is_not_evidence_that_a_candidate_is_the_work"
     },

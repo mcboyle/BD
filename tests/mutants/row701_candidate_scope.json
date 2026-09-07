@@ -1,0 +1,100 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ROW 701 -- the quality scan must score only candidates that belong to the requested scene. Every anchor is ZERO-WIDTH and sits on a DECISION: the population predicate, the two assembly-seam branches, the affinity verdict, the fallback-tier predicate, the no-identity-proof mark and the fifth caller's guard. No anchor carries a value, so row357 can classify them. The transform control lives in its OWN file beside this one and MUST escape.",
+  "subject": "candidates that cannot be shown to belong to the requested scene never enter the population that decides quality, and an UNKNOWN admission is never silent",
+  "band": [
+    "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py",
+    "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py::test_an_underivable_page_falls_back_to_todays_ordering",
+    "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py::test_the_winner_belongs_to_the_scene_on_the_page"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the population predicate admits everything (UNKNOWN is silently admitted again)",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    return )(?=candidate\\.get\\(\"work\", _WORK_UNKNOWN\\) > _WORK_UNKNOWN$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_an_unknown_candidate_is_refused_when_anything_proves_affinity"
+    },
+    {
+      "label": "M2 seam 1: an unscoped learned group seeds `best` again",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^            scoped, excluded = )(?=_scoped_candidates\\($)",
+      "new": "(group, []) if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_learned_fast_path_is_scoped_at_its_own_assembly_seam"
+    },
+    {
+      "label": "M3 seam 2: the emptied population no longer produces the distinct outcome",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    if not )(?=scoped:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_a_page_whose_every_candidate_is_foreign_is_a_distinct_outcome"
+    },
+    {
+      "label": "M4 FOREIGN and UNKNOWN collapse back to one value",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    return _WORK_FOREIGN if )(?=foreign else _WORK_UNKNOWN$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_three_affinity_values_are_distinct_and_measured"
+    },
+    {
+      "label": "M5 the fallback tier admits FOREIGN candidates too",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^        in_scope = \\[c for c in candidates if )(?=not _candidate_is_foreign\\(c\\)\\]$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_a_page_whose_every_candidate_is_foreign_is_a_distinct_outcome"
+    },
+    {
+      "label": "M6 an UNKNOWN admission stops being marked -- it becomes silent",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    if not _selection_had_identity_proof\\()(?=scoped\\):$)",
+      "new": "scoped) and not (",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_unknown_is_admitted_only_when_nothing_proves_affinity_and_is_marked"
+    },
+    {
+      "label": "M7 the fifth caller stops recognising the sentinel, so the named outcome is dead code again",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^        if best is None or )(?=not best\\.get\\(\"_no_in_scope_candidates\"\\):$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_named_outcome_is_reached_and_says_what_actually_happened"
+    },
+    {
+      "label": "M8 the affinity question is asked of one learned group instead of the PAGE",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^        page_proves_affinity = )(?=any\\($)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_unknown_fallback_is_a_page_question_not_a_learned_group_one"
+    },
+    {
+      "label": "M9 an unproven admission stops reaching the run record on the success path",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)(?<=^        if best is None or )(?=not best\\.get\\(\"_no_identity_proof\"\\):$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_an_unproven_admission_is_recorded_when_the_run_proceeds"
+    },
+    {
+      "label": "M10 an anonymous page condemns candidates as FOREIGN again",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^    if not page_work_tokens\\(page_url\\))(?=:$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_a_page_that_names_no_work_cannot_condemn_anything_as_foreign"
+    },
+    {
+      "label": "M11 the admitted group's excluded evidence is discarded again",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "(?m)(?<=^            )(?=learned_excluded\\.extend\\(excluded\\)\\n            if scoped:)",
+      "new": "if not scoped: ",
+      "direction": "regression",
+      "catcher": "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py::test_the_admitted_group_carries_its_excluded_evidence_too"
+    }
+  ]
+}

@@ -241,8 +241,16 @@ def _page(url, html):
 
 
 def _hrefs(best):
+    """Every candidate the wide sweep HARVESTED, whichever population it
+    landed in.
+
+    Row 701 splits one list into two: `_all_candidates` is the population
+    allowed to DECIDE, `_excluded_candidates` is the evidence kept for the
+    operator.  A precondition about what the sweep saw is a claim about the
+    harvest, not about the decision, so it reads both."""
     out = []
-    for c in (best.get("_all_candidates") or []):
+    for c in ((best.get("_all_candidates") or [])
+              + (best.get("_excluded_candidates") or [])):
         loc = c.get("locator")
         h = ""
         if loc is not None:
@@ -332,9 +340,16 @@ def test_the_already_correct_page_stays_correct():
 
 # ── Negative control: no identity anywhere -> today's ordering, unchanged ──
 def test_an_underivable_page_falls_back_to_todays_ordering():
-    """teenmegaworld shape.  Refusing every candidate here would turn one
-    wrong file into a total outage; the correct answer is to rank nothing and
-    let (score, size) decide exactly as it does today."""
+    """Rows 388/701.  teenmegaworld shape.  Refusing every candidate here
+    would turn one wrong file into a total outage; the correct answer is to
+    rank nothing and let (score, size) decide exactly as it does today.
+
+    Row 701 scopes the DECIDING population, and on this page nothing proves
+    affinity in either direction -- the tiers are direct-CDN paths carrying
+    none of the page slug, so the stamp cannot tell rather than judging them
+    foreign.  Row 701's "refused rather than SILENTLY admitted" is therefore
+    honoured by MARKING the admission `_no_identity_proof`, not by emptying
+    the population."""
     with _page(_URL_TMW, _FIX_TMW) as pg:
         best = find_best_download(pg, "", learned=None, runner=None)
         assert best is not None, "every candidate was refused -- OUTAGE"
@@ -342,6 +357,10 @@ def test_an_underivable_page_falls_back_to_todays_ordering():
         assert cands
         assert all(c.get("work", 0) == 0 for c in cands), (
             "no identity is derivable on this page, so nothing may claim one")
+        assert best.get("_no_identity_proof"), (
+            "rows 388/701: row 388 keeps this page's ordering, and row 701 "
+            "requires the admission to be MARKED rather than silent "
+            "(operator ruling on ASK-701-population-predicate)")
         href = _winner_href(best)
         assert "TeenSexMania_Adell_3840x2160" in href, (
             "the biggest/highest tier must still win; href=%s" % href)

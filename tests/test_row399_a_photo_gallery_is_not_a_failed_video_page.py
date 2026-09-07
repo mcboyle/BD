@@ -217,9 +217,20 @@ def test_learned_candidates_use_same_work_before_resolution():
         assert best is not None
         assert "target-work" in (
             best["locator"].get_attribute("href") or "")
+        # Row 701 split ONE list into a DECIDING population and the evidence
+        # it refused, so `_all_candidates` no longer means "everything the
+        # sweep harvested".  This row's claim is unchanged and is re-expressed
+        # over the harvest: both links are still accounted for, still in this
+        # order, still with these work values -- and the unattributable 4320p
+        # tier is now EXCLUDED rather than merely ranked below, which is
+        # strictly stronger than what this node originally asserted.
         candidates = best.get("_all_candidates") or []
-        assert len(candidates) == 2
-        assert [candidate.get("work") for candidate in candidates] == [1, 0]
+        excluded = best.get("_excluded_candidates") or []
+        harvest = candidates + excluded
+        assert len(harvest) == 2
+        assert [candidate.get("work") for candidate in harvest] == [1, 0]
+        assert [candidate.get("work") for candidate in candidates] == [1]
+        assert [candidate.get("reason") for candidate in excluded] == ["unknown"]
 
 
 def test_learned_work_affinity_is_global_across_selector_chain():

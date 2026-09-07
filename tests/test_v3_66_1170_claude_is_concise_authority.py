@@ -216,3 +216,212 @@ def test_helpers_fail_closed_on_duplicate_missing_renamed_and_dangling(tmp_path:
         assert "duplicate final section IDs" in str(exc)
     else:
         raise AssertionError("duplicate final section was accepted")
+
+
+# --------------------------------------------------------------------------
+# A5 said "CI is a tree-wide denominator independent of the diff". Measured,
+# that was false: ci.yml hands pytest an ENUMERATED LIST of file paths and
+# hands it a directory zero times, so most tracked test files are named by
+# nothing. This gate re-derives the two populations and constrains the prose
+# to whichever of them is true -- it is not a string pin. If CI is ever taught
+# to run the tree, the measurement flips and the gate demands the opposite
+# sentence.
+# --------------------------------------------------------------------------
+
+CI_WORKFLOW = ".github/workflows/ci.yml"
+_TEST_PATH = re.compile(r"tests/[A-Za-z0-9_/]+\.py")
+# A bare `tests` or `tests/` standing alone as an argument. The lookarounds
+# keep `tests/foo.py` and `${{ ... }}` from matching.
+_DIRECTORY_ARG = re.compile(r"(?<![\w/.${-])tests/?(?![\w/.-])")
+
+
+def _ci_pytest_denominator(root: Path = ROOT) -> tuple[set[str], int]:
+    """What ci.yml actually hands pytest: (named test files, directory args).
+
+    PyYAML is a declared test dependency (requirements-test.txt), so an import
+    failure here is an unavailable measurement and must fail the gate rather
+    than skip it -- an unread workflow is UNKNOWN, and UNKNOWN is not
+    permission (CLAUDE.md A2).
+    """
+    import yaml
+
+    workflow = yaml.safe_load((root / CI_WORKFLOW).read_text(encoding="utf-8"))
+    named: set[str] = set()
+    directory_args = 0
+
+    # (a) the gate-suite matrix: every `suites` value is a whitespace list of
+    #     paths handed to pytest through ${{ matrix.suites }}.
+    for job in (workflow.get("jobs") or {}).values():
+        include = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or []
+        for entry in include:
+            if "suites" in entry:
+                for token in str(entry["suites"]).split():
+                    (named.add(token) if token.endswith(".py") else None)
+                    directory_args += len(_DIRECTORY_ARG.findall(token))
+
+    # (b) every `run:` step that invokes pytest directly. Shell comment lines
+    #     inside the block scalar are NOT arguments and are excluded here --
+    #     the whole defect this gate exists for is a needle that cannot tell an
+    #     argument from a comment.
+    runs: list[str] = []
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("run"), str):
+                runs.append(node["run"])
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                _walk(value)
+
+    _walk(workflow)
+    for body in runs:
+        if not re.search(r"\bpytest\b", body):
+            continue
+        code = "\n".join(
+            line for line in body.splitlines() if not line.strip().startswith("#")
+        )
+        for match in re.finditer(r"\bpytest\b(?P<args>.*)", code, re.S):
+            args = match.group("args")
+            named |= set(_TEST_PATH.findall(args))
+            directory_args += len(_DIRECTORY_ARG.findall(args))
+    return named, directory_args
+
+
+def _tracked_test_modules(root: Path = ROOT) -> set[str]:
+    return {
+        rel for rel in _tracked_paths(root)
+        if rel.startswith("tests/") and rel.endswith(".py")
+    }
+
+
+# Normalised before matching: the claim is prose and reflows, and "tree-wide"
+# has three natural house spellings. This family is the gate's declared
+# EVASION SURFACE -- a wording outside it (say "CI sees everything") would pass
+# the scan, which is why the CI half of this gate is a structural PARSE of the
+# workflow and only the CLAUDE.md half is a text match. CUT_TIERING's gate-
+# subject rule exempts documentation-content checks and structural CI parsing;
+# this node is one of each, and the blind spot is stated rather than implied.
+_TREE_WIDE_CLAIM = re.compile(r"ci is a tree[- ]?wide denominator")
+
+
+def test_a5_describes_cis_pytest_denominator_as_it_is_actually_measured():
+    named, directory_args = _ci_pytest_denominator()
+    tracked = _tracked_test_modules()
+    # Preconditions before the verdict: both populations must be real.
+    assert len(named) > 100, f"CI names implausibly few test files: {len(named)}"
+    assert len(tracked) > 1000, f"tests/ denominator collapsed: {len(tracked)}"
+    assert not (named - tracked), f"CI names untracked paths: {sorted(named - tracked)}"
+
+    enumerated = directory_args == 0 and len(named) < len(tracked)
+    a5 = _section_bodies((ROOT / "CLAUDE.md").read_text(encoding="utf-8"))["A5"]
+    flat = " ".join(a5.split()).casefold()
+    if enumerated:
+        assert not _TREE_WIDE_CLAIM.search(flat), (
+            "A5 claims CI is a tree-wide denominator, but ci.yml hands pytest "
+            f"{len(named)} named files out of {len(tracked)} tracked test "
+            f"modules and hands it a directory {directory_args} times: "
+            f"{len(tracked) - len(named)} are named by nothing"
+        )
+        assert "enumerat" in flat, (
+            "CI's pytest denominator is enumerated and A5 does not say so"
+        )
+    else:
+        assert "enumerat" not in flat, (
+            "A5 calls CI's denominator enumerated, but ci.yml hands pytest "
+            f"{directory_args} directory argument(s) over {len(named)} names"
+        )
+
+
+def test_a5_leaves_the_requirement_standing_and_says_it_is_under_review():
+    a5 = _section_bodies((ROOT / "CLAUDE.md").read_text(encoding="utf-8"))["A5"]
+    # Compared on collapsed whitespace: these sentences are line-wrapped prose,
+    # and a requirement must not be judged moved because a reflow put a newline
+    # inside it.
+    flat = " ".join(a5.split())
+    # The BAR. Correcting the fact must not soften, strengthen or delete any of
+    # these; the operator reserved the policy question ("Leave it -- I'll decide
+    # later"), so the file must also say the question is open.
+    for requirement in (
+        "A gate CI does not run does not exist.",
+        "Every new `tests/test*.py` file declares `BD_GATE_SCOPE` or is",
+        "must be directly present in a shard and `_DECLARED`",
+        "Read CI status from named status/conclusion fields, not positional CLI columns.",
+        "Never trim a slow CI shard or omit a required test to regain green.",
+    ):
+        assert requirement in flat, f"A5 requirement was moved or lost: {requirement!r}"
+    assert re.search(r"(?i)operator has reserved|under review by the operator", flat), (
+        "A5 corrects the fact but does not record that the requirement is the "
+        "operator's open question"
+    )
+
+
+def test_a_name_in_a_comment_is_not_an_argument_to_pytest():
+    """The control for the parse above, and the reason it is a parse.
+
+    A regex over ci.yml's raw text counts every `tests/*.py` it can see,
+    including names that appear only in prose comments. Those files are not
+    handed to pytest. This asserts the two counts can only differ in that one
+    direction, and that every extra the text needle finds is comment-only.
+    """
+    named, _ = _ci_pytest_denominator()
+    raw = (ROOT / CI_WORKFLOW).read_text(encoding="utf-8")
+    text_needle = set(_TEST_PATH.findall(raw))
+    assert named <= text_needle, (
+        f"parse found arguments the text needle cannot see: {sorted(named - text_needle)}"
+    )
+    comment_only = text_needle - named
+    code_lines = [
+        line for line in raw.splitlines() if not line.strip().startswith("#")
+    ]
+    for rel in sorted(comment_only):
+        assert not any(rel in line for line in code_lines), (
+            f"{rel} appears on a non-comment line but the parse did not "
+            "collect it as an argument"
+        )
+
+
+def test_the_ci_denominator_helper_fails_closed_on_an_unreadable_workflow(tmp_path):
+    root = tmp_path / "repo"
+    (root / CI_WORKFLOW).parent.mkdir(parents=True)
+    (root / CI_WORKFLOW).write_text("jobs: [unclosed\n", encoding="utf-8")
+    try:
+        _ci_pytest_denominator(root)
+    except Exception:
+        pass
+    else:
+        raise AssertionError("a malformed workflow was accepted as a measurement")
+
+
+def test_the_tree_wide_claim_matcher_catches_its_natural_respellings():
+    """EVASION FIXTURE for the text half of the A5 fact gate.
+
+    The hazard is the sentence coming back in a house respelling. Three are
+    natural here -- the hyphen dropped, the hyphen spaced, and a reflow putting
+    a newline mid-claim -- and the matcher normalises whitespace and case, so it
+    must catch all three. It does NOT claim to catch a paraphrase: a wording
+    outside this family ("CI sees the whole tree") evades it, which is the
+    declared blind spot and the reason the CI side of the gate is a structural
+    parse rather than a scan.
+    """
+    corrected = " ".join(
+        _section_bodies((ROOT / "CLAUDE.md").read_text(encoding="utf-8"))["A5"].split()
+    ).casefold()
+    assert not _TREE_WIDE_CLAIM.search(corrected), "the shipped A5 already matches"
+
+    for respelling in (
+        "CI is a tree-wide denominator independent of the diff.",
+        "CI is a treewide denominator independent of the diff.",
+        "CI is a tree wide denominator independent of the diff.",
+        "CI is a tree-wide\ndenominator independent of the diff.",
+    ):
+        evaded = " ".join((corrected + " " + respelling).split()).casefold()
+        assert _TREE_WIDE_CLAIM.search(evaded), f"respelling evaded the gate: {respelling!r}"
+
+    # Negative control: the matcher must not fire on the corrected prose merely
+    # because it discusses tree-wideness and denominators in other sentences.
+    assert not _TREE_WIDE_CLAIM.search(
+        " ".join("CI's pytest denominator is not the tree; a tree-wide gate is "
+                 "a different thing entirely.".split()).casefold()
+    )

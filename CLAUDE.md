@@ -319,8 +319,19 @@ is not coverage evidence until the exercised path and mutation catcher are
 identified. A schedule-sensitive failure is not retired by one green sample;
 preserve failures, establish causation, and compare matched environments.
 
-CI is a tree-wide denominator independent of the diff. A gate CI does not run
-does not exist. Every new `tests/test*.py` file declares `BD_GATE_SCOPE` or is
+CI's pytest denominator is an ENUMERATED LIST OF NAMED FILES, not the tree.
+`.github/workflows/ci.yml` hands pytest explicit paths -- the gate-suite shard
+`suites` values plus the integration job's own named files -- and hands it a
+directory zero times, so most tracked `.py` files under `tests/` are named by
+nothing and no CI job would notice their absence. Derive both populations
+before relying on either: parse the `suites` values out of the workflow, and
+take the tree from `git ls-files tests/`. Do not count the named side by
+scanning the workflow as text, because it also names files in prose comments,
+and a comment is not an argument. What CI does run is independent of the diff.
+A gate CI does not run does not exist. WHETHER THAT ENUMERATION IS SUFFICIENT
+IS THE OPERATOR'S OPEN QUESTION AND IS UNDER REVIEW BY THE OPERATOR; nothing
+required here is relaxed, tightened or withdrawn while he decides. Every new
+`tests/test*.py` file declares `BD_GATE_SCOPE` or is
 explicitly classified by the frozen legacy mechanism; repo-wide/safety gates
 must be directly present in a shard and `_DECLARED`. Read CI status from named
 status/conclusion fields, not positional CLI columns.
