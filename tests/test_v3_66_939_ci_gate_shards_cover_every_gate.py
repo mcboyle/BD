@@ -887,6 +887,18 @@ _DECLARED = {
     # CLOSED for a cut that did not touch it, one closed without the PARTIAL
     # its own text needed, and four ids that never existed.
     "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
+    # Cut D. Its subject is the PAIR of register files: the register and the
+    # archive the closed rows were moved into. No diff selects it -- a cut
+    # that touches neither file invalidates it by appending a row whose id
+    # the archive already holds.
+    "tests/test_register_archive_holds_the_moved_rows.py",
+    # Cut D residual. The gate above is defeated by a SWAP whose gap allowlist
+    # is co-edited -- one id changed in one JSON entry and a row can leave the
+    # repo entirely with the module green. This one freezes the pre-move id set
+    # in git history at cut D's base commit instead of deriving it from a file
+    # the same edit can launder, and asserts membership element-wise. Repo-wide
+    # for the same reason as its sibling: no diff selects a pair of files.
+    "tests/test_register_archive_frozen_pre_move_set.py",
     # @1082, backlog 99. Twenty-four suites that enumerate the tree and
     # ran on no PR -- tombstones, anti-duplication ratchets and
     # denominator gates, several named by CLAUDE.md section 4's own

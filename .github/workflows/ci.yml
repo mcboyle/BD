@@ -339,6 +339,8 @@ jobs:
               tests/test_row496_deferral_intake_reconciles_backlog.py
               tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
               tests/test_v3_66_1052_the_backlog_is_machine_visible.py
+              tests/test_register_archive_holds_the_moved_rows.py
+              tests/test_register_archive_frozen_pre_move_set.py
               tests/test_frontend_secret_keys_in_sync.py
           - name: toolchain-deep
             suites: >-

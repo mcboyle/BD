@@ -18,6 +18,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKLOG = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+ARCHIVE = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md"
 
 _ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*(.*?)\s*\|$")
 _ROW_LINE = re.compile(r"^\|\s*\d+\s*\|")
@@ -135,7 +136,12 @@ def _missing_reference_errors(rows: dict[int, BacklogRow]) -> list[str]:
 
 
 def test_every_backlog_reference_resolves_over_the_exact_row_population() -> None:
-    text = BACKLOG.read_text(encoding="ascii")
+    # THE ROW POPULATION IS THE UNION OF THE REGISTER AND ITS ARCHIVE. The 608
+    # CLOSED rows moved into the archive at v3.66.1525 still carry references in
+    # their prose, and a reference is only dangling if it resolves against
+    # NEITHER file. Reading both makes this gate strictly stronger than it was:
+    # it now judges 743 rows of prose where it judged 135.
+    text = BACKLOG.read_text(encoding="ascii") + "\n" + ARCHIVE.read_text(encoding="ascii")
     rows = _parse_rows(text)
     physical_rows = _physical_row_count(text)
     assert len(rows) == physical_rows > 0, (

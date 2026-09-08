@@ -21,9 +21,18 @@ derived from the other, so a drift in either direction fails: a status the rows
 use and the contract omits, a status the contract declares and no row uses, an
 evidence rule the rows disobey.
 
-BD_GATE_SCOPE IS "module", DELIBERATELY. Its subject is the internal consistency
-of ONE tracked document. It makes no `git ls-files` call and asserts nothing about
-the tree, so it is not a repo-wide gate and does not belong in the CI shard union.
+THE ROWS ARE THE UNION OF TWO FILES SINCE v3.66.1525. The 608 terminal rows
+nothing pins were MOVED into project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md, so
+the population this contract describes no longer lives in one file. The CONTRACT
+prose is still the register's, and the published `rows=` marker is still checked
+against the REGISTER'S OWN table -- its readers write into that file. Only the row
+population widens, and it must: a contract compared against 135 of 743 rows would
+declare `MOOT` unused the day the last MOOT row was archived.
+
+BD_GATE_SCOPE IS "module", DELIBERATELY, AND THE ARCHIVE DOES NOT CHANGE THAT. Its
+subject is the internal consistency of a named pair of tracked documents. It still
+makes no `git ls-files` call and still asserts nothing about the tree, so it is not
+a repo-wide gate and does not belong in the CI shard union.
 The three sibling register gates are repo-wide because they assert about retired
 surfaces and tracked paths across the whole tree; this one does not. Per
 tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py the scope call is the
@@ -46,6 +55,7 @@ BD_GATE_SCOPE = "module"
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKLOG = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+ARCHIVE = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md"
 
 # The row grammar is the one test_v3_66_1164_one_task_authority.py parses with.
 # Copied rather than imported so a change there cannot silently redefine what
@@ -79,7 +89,13 @@ _ROWS_AT_BASE = 742
 
 
 def _text() -> str:
+    """The REGISTER alone: the contract prose and the published marker live here."""
     return BACKLOG.read_text(encoding="ascii")
+
+
+def _population_text() -> str:
+    """The register AND its archive: the rows the contract has to describe."""
+    return BACKLOG.read_text(encoding="ascii") + "\n" + ARCHIVE.read_text(encoding="ascii")
 
 
 def _rows(text: str) -> list[tuple[int, str, str, str]]:
@@ -129,19 +145,31 @@ def _declared_evidence_rule(section: str) -> tuple[set[str], set[str]]:
 def _parsed_rows_or_fail() -> list[tuple[int, str, str, str]]:
     """Every verdict below runs behind this precondition, never in front of it."""
     text = _text()
-    rows = _rows(text)
-    assert rows, "the register row parser matched zero rows, so it measures nothing"
+    register_rows = _rows(text)
+    rows = _rows(_population_text())
+    assert register_rows, "the register row parser matched zero rows, so it measures nothing"
+    assert len(rows) > len(register_rows), (
+        f"the archive contributed no rows: {len(rows)} in the union against "
+        f"{len(register_rows)} in the register alone. Either it stopped being parsed "
+        "or it stopped holding rows, and both make every verdict below narrower "
+        "than it reads."
+    )
     marker = _META.search(text)
     assert marker, "the register publishes no machine-visible rows= denominator"
-    assert len(rows) == int(marker.group("rows")), (
-        f"parsed {len(rows)} rows but the published marker says "
+    assert len(register_rows) == int(marker.group("rows")), (
+        f"parsed {len(register_rows)} register rows but the published marker says "
         f"{marker.group('rows')}; one of the two is wrong and neither may be "
         "trusted until they agree"
     )
+    # THE FLOOR IS OVER THE UNION AND THAT IS THE WHOLE POINT OF STATING IT HERE:
+    # rows do not disappear, they MOVE, and a floor read against one file would
+    # turn the move into a lost deferral -- or, once weakened to 135, would stop
+    # noticing a real one.
     assert len(rows) >= _ROWS_AT_BASE, (
-        f"the register carries {len(rows)} rows, fewer than the {_ROWS_AT_BASE} "
-        "measured at d69ffcda: rows do not disappear, so this is a lost deferral "
-        "or a broken parse, and either way no verdict below is meaningful"
+        f"the register and its archive carry {len(rows)} rows between them, fewer "
+        f"than the {_ROWS_AT_BASE} measured at d69ffcda: rows do not disappear, so "
+        "this is a lost deferral or a broken parse, and either way no verdict below "
+        "is meaningful"
     )
     return rows
 

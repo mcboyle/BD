@@ -27,6 +27,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKLOG = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+ARCHIVE = ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
 CLOSE_TOOL = ROOT / "toolchain" / "bin" / "bd-register-close"
 PARSER = ROOT / "project-knowledge" / "build_current_overlay.py"
@@ -214,10 +215,29 @@ def test_restamping_preserves_a_closed_rows_status_annotation(tmp_path: Path) ->
 
 
 def test_every_closed_row_names_a_version_that_exists_in_the_changelog() -> None:
+    """THE CLOSED POPULATION IS THE UNION OF THE REGISTER AND ITS ARCHIVE.
+
+    608 CLOSED rows were MOVED into
+    `project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md` at v3.66.1525. Reading the
+    register alone would drop this gate's denominator from 652 CLOSED rows to 44
+    and it would still be green -- a gate that keeps passing while it stops
+    looking at 93% of its subject. The floor below is stated in absolute terms
+    for that reason: `> 0` cannot tell 652 from 44.
+    """
     audit = _assert_closed_versions(
-        BACKLOG.read_text(encoding="ascii"), CHANGELOG.read_text(encoding="utf-8")
+        BACKLOG.read_text(encoding="ascii") + "\n" + ARCHIVE.read_text(encoding="ascii"),
+        CHANGELOG.read_text(encoding="utf-8"),
     )
     assert audit.checked_rows == audit.closed_rows > 0
+    register_only = _audit_closed_versions(
+        BACKLOG.read_text(encoding="ascii"), CHANGELOG.read_text(encoding="utf-8")
+    )
+    assert audit.closed_rows > register_only.closed_rows, (
+        "the archive contributed no CLOSED rows to this gate's denominator: "
+        f"union {audit.closed_rows}, register alone {register_only.closed_rows}. "
+        "Either the archive stopped being parsed or its rows stopped being CLOSED, "
+        "and both make this gate quietly narrower than it reads."
+    )
 
 
 def test_a_closed_tag_for_an_absent_version_fails_the_gate() -> None:
