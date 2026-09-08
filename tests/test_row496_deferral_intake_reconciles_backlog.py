@@ -292,9 +292,17 @@ def test_deleted_row_is_the_one_failure_the_existing_four_predicates_miss(
     monkeypatch.setattr(visible, "BACKLOG", subject)
     visible.test_the_parser_finds_at_least_one_row()
     closed = _load_module("_row496_closed", "tests/test_register_closed_versions_exist.py")
-    closed._assert_closed_versions(modified, closed.CHANGELOG.read_text(encoding="utf-8"))
     references = _load_module("_row496_refs", "tests/test_v3_66_1255_backlog_references_resolve.py")
-    assert references._missing_reference_errors(references._parse_rows(modified)) == []
+    # THE FOUR PREDICATES NOW SPAN TWO FILES. 608 terminal rows moved to
+    # `project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md` at v3.66.1525, so the
+    # population those predicates read is the union. Handing them the register
+    # alone would make them fire on 84 references into the archive -- a failure
+    # about the SPLIT, not about the deleted row -- and this test's whole claim
+    # is that the deleted row is the ONE failure they miss. The archive is
+    # appended unmodified: the row this control deletes is a register row.
+    union = modified + "\n" + references.ARCHIVE.read_text(encoding="ascii")
+    closed._assert_closed_versions(union, closed.CHANGELOG.read_text(encoding="utf-8"))
+    assert references._missing_reference_errors(references._parse_rows(union)) == []
 
     errors = _reconciliation_errors([entry], modified)
     assert errors == [

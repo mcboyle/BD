@@ -45,6 +45,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 REPO = Path(__file__).resolve().parents[1]
 BACKLOG = REPO / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+ARCHIVE = REPO / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md"
 GAP_ALLOWLIST_REL = "project-knowledge/REGISTER_GAP_ALLOWLIST.json"
 GAP_ALLOWLIST = REPO / GAP_ALLOWLIST_REL
 
@@ -70,9 +71,37 @@ _ROW = re.compile(
 )
 
 
+# THE ROW POPULATION IS THE UNION OF THE REGISTER AND ITS ARCHIVE.
+#
+# At v3.66.1525 the 608 CLOSED rows nothing pins were MOVED out of the register
+# into `project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md`, verbatim. Every
+# assertion in this file that derives a POPULATION -- ids, holes, uniqueness,
+# status vocabulary -- is about the rows this project has ever filed, not about
+# the rows one file currently holds, so it reads both files with the same regex.
+#
+# THE ALTERNATIVE WAS TO WEAKEN THE FLOOR, AND IT WAS REFUSED. This gate refuses
+# a register that has silently shrunk; that is what it was built to do, and the
+# archive is exactly the shape it should refuse if the rows were really gone.
+# Teaching it where they went makes it pass honestly and makes its population
+# LARGER than a register-only read, never smaller.
+def _register_and_archive_text() -> str:
+    """Both files, one grammar, one population.
+
+    Read through the module globals rather than the constants directly, so a
+    control that redirects the register redirects the archive with it. A control
+    that silently kept reading the real archive would be asserting over 608 rows
+    it did not write.
+    """
+    return (
+        BACKLOG.read_text(encoding="utf-8")
+        + "\n"
+        + ARCHIVE.read_text(encoding="utf-8")
+    )
+
+
 def _rows():
     rows = []
-    for line in BACKLOG.read_text(encoding="utf-8").splitlines():
+    for line in _register_and_archive_text().splitlines():
         m = _ROW.match(line)
         if not m:
             continue
@@ -175,10 +204,23 @@ def test_parked_is_a_state_the_register_can_hold_and_must_evidence(monkeypatch):
     """
     import textwrap
 
+    # THE EMPTY ARCHIVE IS NAMED ONCE, FROM THE REAL ARCHIVE, BEFORE ANY
+    # REDIRECTION. `_with` redirects BACKLOG, so a name derived from BACKLOG
+    # inside it would be derived from the PREVIOUS temp on the second call and
+    # leave a second file behind. Naming it from ARCHIVE here means one control
+    # file exists however many times `_with` is called, and the finally removes
+    # exactly it.
+    empty = Path(str(ARCHIVE) + ".parked-control")
+    empty.write_text("", encoding="utf-8")
+
     def _with(body):
         f = tmp = Path(str(BACKLOG) + ".parked-control")
         f.write_text(textwrap.dedent(body), encoding="utf-8")
         monkeypatch.setattr(sys.modules[__name__], "BACKLOG", f)
+        # The archive is redirected TOO, and to an empty file: the population is
+        # the union of the two, so a control that left the real archive in place
+        # would be asserting over 608 rows it never wrote.
+        monkeypatch.setattr(sys.modules[__name__], "ARCHIVE", empty)
         return f
 
     good = _with("""\
@@ -211,6 +253,11 @@ def test_parked_is_a_state_the_register_can_hold_and_must_evidence(monkeypatch):
             "is indistinguishable from an item that was quietly dropped")
     finally:
         good.unlink(missing_ok=True)
+        empty.unlink(missing_ok=True)
+        assert not empty.exists() and not good.exists(), (
+            "the parked control left a file beside the register; an uncleaned "
+            "control file is an untracked path a collector would take"
+        )
 
 
 def test_open_rows_carry_no_evidence_marker():
@@ -235,12 +282,16 @@ def test_every_row_has_text():
 
 
 def test_the_file_is_ascii():
-    """The canonical backlog is ASCII-only for every machine reader."""
-    raw = BACKLOG.read_bytes()
-    try:
-        raw.decode("ascii")
-    except UnicodeDecodeError as exc:
-        raise AssertionError(f"{BACKLOG} is not ASCII-only: {exc}") from exc
+    """The canonical backlog is ASCII-only for every machine reader.
+
+    BOTH halves of the population, because a non-ASCII byte in the archive
+    breaks the same readers -- this file's own gap tests decode it as ASCII.
+    """
+    for path in (BACKLOG, ARCHIVE):
+        try:
+            path.read_bytes().decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise AssertionError(f"{path} is not ASCII-only: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +573,7 @@ def test_every_register_gap_is_declared_and_no_declaration_is_stale():
     It is not vacuous and asserts so: this register HAS holes today, so a gate
     that could not tell a declared hole from an undeclared one would fail here.
     """
-    text = BACKLOG.read_text(encoding="ascii")
+    text = _register_and_archive_text()
     register_ids = _measured_register_ids(text)
     assert len(register_ids) == len(set(register_ids)) > 0, (
         f"{len(register_ids)} parsed ids, {len(set(register_ids))} distinct"
@@ -551,7 +602,7 @@ def test_the_seeded_declaration_quotes_the_register_and_invents_nothing():
     explained must keep saying so.
     """
     entries = _load_gap_allowlist(GAP_ALLOWLIST)
-    register_text = BACKLOG.read_text(encoding="ascii")
+    register_text = _register_and_archive_text()
     assert _DOCUMENTED_QUOTE in register_text, (
         "the register no longer contains the sentence the DOCUMENTED entries quote; "
         "the citation has gone stale and must be re-derived, not left standing"

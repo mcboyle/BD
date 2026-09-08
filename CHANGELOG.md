@@ -4,6 +4,51 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1525 - the register's closed history moves to an archive, and the gates that count rows now count both files
+
+CUT D, base origin/main aa386213 (v3.66.1524). `project-knowledge/IMPROVEMENT_BACKLOG.md`
+had reached 1,285,144 bytes and 743 rows, 652 of them CLOSED, and every reader of the live
+work paid for the whole file. **608 terminal rows are MOVED -- not copied -- into
+`project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md`, verbatim.** The register keeps every
+OPEN, MOOT and PARKED row plus the 44 CLOSED rows that a gate, a mutant spec or a tool pins
+BY ID OR BY LITERAL, and falls to 237,172 bytes and 135 rows: it sheds 1,047,972 bytes,
+81.5% of itself, and the archive holds 608 CLOSED rows and no other status. Ruled in
+bd-persist/RULING-archive-shape-MOVE-with-44-row-carveout-20260907T115411Z.md.
+
+**COPY WAS THE COMFORTABLE ANSWER AND IT WAS REFUSED: a change no gate notices has not
+changed the thing the gates measure.** A move is also the one register edit that can lose a
+row silently -- the register still parses, and its header marker is RECOMPUTED FROM the
+shrunken table, so it certifies that the register describes itself and never that the
+register still describes everything it once held. `tests/test_register_archive_holds_the_moved_rows.py`
+is the check the marker cannot make: it spans both files and asserts that the union still
+holds every id the register held before the move, stated over the closed window 1..800 so
+later appends cannot dilute it. Its controls are synthetic pairs -- a row that falls out of
+both files, a row copied into both, an OPEN row in the history.
+
+**NO GATE IS WEAKENED TO LET THE ARCHIVE THROUGH, AND FIVE COME OUT STRICTLY STRONGER.**
+Five gates derived a population from the register alone and would have kept passing over a
+denominator that had silently shrunk, which is exactly what they were built to refuse:
+test_v3_66_1052_the_backlog_is_machine_visible, test_v3_66_1171_backlog_truth_is_current,
+test_v3_66_1255_backlog_references_resolve, test_register_closed_versions_exist and
+row 496's four-predicate control. Each now parses the archive with the SAME row regex it
+parses the register with. The closed-versions gate would have fallen from 652 CLOSED rows
+to 44 while staying green, so its floor is no longer `> 0`: it asserts the union
+denominator EXCEEDS the register-alone one, because `> 0` cannot tell 652 from 44.
+
+THE ARCHIVE IS NOT A SECOND TASK REGISTER. It holds zero OPEN rows, it does not carry the
+canonical-task-register marker, and the gate asserts both -- that is the reading of
+CLAUDE.md A1 the shape preserves. The register's own header is restamped by
+`bd-register-append`'s own derivation rather than by hand (rows=135 open=76,
+ids-sha256 16d89f63 -> f3940a9f), and the tool's `_assert_canonical_header` accepts it.
+
+MEASURED, NOT INHERITED. Three of the four edits the ruling called mandatory turned out to
+be no-ops against the archive that actually exists: it carries zero occurrences of the
+retired sandbox home, zero of `/cockpit/home`, and zero of the twelve retired tool names,
+so the sandbox_home allowlist, 1117's `_EXEMPT` and 1172's retired-consumer filter need no
+change. All twelve register-anchored mutants still resolve EXACTLY ONCE in the register and
+zero times in the archive. Row 175 was pinned by 1171 and was NOT in the ruling's list of
+54 -- the union teaching covers it, and the omission is recorded rather than patched over.
+
 ## v3.66.1524 - bd-mutate can DECLARE a control, so a correct transform control is no longer byte-identical in shape to a real escape
 
 Train F-09, base origin/main 98bb7d90 (v3.66.1523). ONE reviewed worker patch plus a register

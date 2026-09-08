@@ -13,6 +13,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKLOG = ROOT / "project-knowledge/IMPROVEMENT_BACKLOG.md"
+ARCHIVE = ROOT / "project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md"
 LEDGER = ROOT / "project-knowledge/AUDIT_COMPLETION_LEDGER.json"
 DISCOVERY_SHA = "3e8de4ff763a4c0942547ca39322e54ae2cc14c8"
 DISCOVERY_TREE = "058af611c010dbadef926468db2c3d2daef37969"
@@ -54,9 +55,27 @@ def _strict_json(path: Path) -> object:
     return json.loads(path.read_text(), object_pairs_hook=pairs)
 
 
+# THE ROW POPULATION IS THE UNION OF THE REGISTER AND ITS ARCHIVE.
+#
+# At v3.66.1525 the 608 CLOSED rows nothing pins were MOVED out of the register
+# into `project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md`, verbatim. Every
+# assertion in this file that derives a POPULATION -- ids, holes, uniqueness,
+# status vocabulary -- is about the rows this project has ever filed, not about
+# the rows one file currently holds, so it reads both files with the same regex.
+#
+# THE ALTERNATIVE WAS TO WEAKEN THE FLOOR, AND IT WAS REFUSED. This gate refuses
+# a register that has silently shrunk; that is what it was built to do, and the
+# archive is exactly the shape it should refuse if the rows were really gone.
+# Teaching it where they went makes it pass honestly and makes its population
+# LARGER than a register-only read, never smaller.
+def _register_and_archive_text() -> str:
+    """Both files, one grammar, one population. See the note above."""
+    return BACKLOG.read_text() + "\n" + ARCHIVE.read_text()
+
+
 def _rows(text: str | None = None) -> dict[int, tuple[str, str]]:
     found: dict[int, tuple[str, str]] = {}
-    for line in (BACKLOG.read_text() if text is None else text).splitlines():
+    for line in (_register_and_archive_text() if text is None else text).splitlines():
         match = _ROW.match(line)
         if not match or not match.group(1).isdigit():
             continue
