@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1528 - Measured tool-suite count and runtime budgets
+
+- Validate collected tool-suite populations and refresh timing records from isolated measurements.
+- Preserve elapsed-time enforcement below the subprocess timeout floor with discriminating controls.
+- Isolate docs-only test worktrees in a private clone with exact registry ownership checks.
+
 ## v3.66.1527 - a repo-wide gate is selected by its own marker, not by the hand list that happened to name it
 
 TRAIN B2B-01, base origin/main 138a8bff (v3.66.1526). One reviewed patch.
