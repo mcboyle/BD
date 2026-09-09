@@ -779,6 +779,12 @@ _DECLARED = {
     # CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
     "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
     "tests/test_v3_66_1044_run_context_and_chains.py",
+    # Row 753, acceptance clause 3. The run-context record is what a
+    # reproduction attempt is read from, and its subject is every run of this
+    # tree rather than a module -- so it runs on every PR beside 1044, the gate
+    # for the same recorder.
+    # CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
+    "tests/test_row753_a_run_records_its_own_outcome.py",
     # Row 289. SigIgn/SigBlk changed six test verdicts without appearing in
     # the run context. This gate compares both masks with the current process,
     # so every PR records and exercises that environment-identity boundary.

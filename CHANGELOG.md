@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1526 - a run record says what the run did, and a partial closure names its remainder
+
+TRAIN G-01, base origin/main 03748ab8 (v3.66.1525). One reviewed patch, plus the
+register commit this train carries.
+
+- row753-clause3 (T2, BOARD on both legs by two seats, neither the author):
+  `tests/_run_context.py` and `tests/conftest.py` stop letting a run whose outcome
+  could not be measured record itself as a clean run in which nothing failed.
+  `outcome()` now distinguishes UNKNOWN from empty-and-clean: a stats mapping that
+  never arrived, an error laundered as a non-failure, pytest's outcome-less bucket
+  and a None nodeid are each recorded as what they are. Gated by
+  `tests/test_row753_a_run_records_its_own_outcome.py` with
+  `tests/mutants/row753_run_record_says_what_the_run_did.json` and a control in its
+  own file; the shape lens ran that battery at 9 caught / 0 escaped / 0 invalid.
+  `.github/workflows/ci.yml` and
+  `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py` declare the new gate so
+  CI actually runs it. Residual, recorded and not hidden: `outcome()` collapsing on a
+  zero-denominator stats mapping is reachable only outside the production seam and is
+  filed as its own row rather than asserted here.
+
+- register: rows 801-806 appended, and row 736 closed at this version. The 736
+  closure is PARTIAL and its remainder is named in the row itself -- deploy.sh now
+  reports the cloak state in its own summaries, but the `/api/health` payload still
+  does not carry it, so the fleet health column can still read green on a degraded
+  host. That half is row 806.
+
 ## v3.66.1525 - the register's closed history moves to an archive, and the gates that count rows now count both files
 
 CUT D, base origin/main aa386213 (v3.66.1524). `project-knowledge/IMPROVEMENT_BACKLOG.md`
