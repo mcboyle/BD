@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1530 - Redact listing fetch policy refusals
+
+- Return a fixed, non-sensitive error when listing fetches are refused by SSRF policy, preserving distinct transport and generic failure handling.
+
 ## v3.66.1529 - Report automatic relogin refusals separately
 
 - Expose the automatic relogin refusal count in site-health status without inflating failures or successes.
