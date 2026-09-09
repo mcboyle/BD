@@ -4,6 +4,59 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1527 - a repo-wide gate is selected by its own marker, not by the hand list that happened to name it
+
+TRAIN B2B-01, base origin/main 138a8bff (v3.66.1526). One reviewed patch.
+
+- precut-marker (T2, BOARD on both legs -- a correctness lens that ran the code and
+  a shape lens that mutated it -- neither seat the author): `toolchain/bin/bd-precut`
+  now selects the underived/tree-wide gate population by CENSUSING the declared
+  module-level `BD_GATE_SCOPE` marker across `git ls-files -- tests/test*.py`, and
+  runs the UNION of that census with the existing hand list, which stays as a pinned
+  floor. Measured on the base of this work: 208 tracked test files declare the marker
+  repo-wide, the hand list named 7, and 2 of those 7 carried no marker at all -- so a
+  repo-wide gate that landed without being added to the list was invisible to the
+  worker's floor, to collect, and to prep, and first failed at assembly. The marker is
+  read through the AST at module scope only, the same rule CI's shard gate applies, so
+  a docstring or a comment naming the marker declares nothing. The union is run in one
+  subprocess with 16 xdist workers under `--dist loadfile`, because the whole CI gate
+  lane does not fit the 1800s undertow budget serially. An unreadable file or a
+  SyntaxError propagates as UNKNOWN rather than being counted as unmarked.
+  Gated by `tests/test_precut_selects_repo_wide_gates_by_marker.py` with
+  `tests/mutants/precut_repo_wide_marker.json` (15 zero-width mutants) and a DECLARED
+  transform control in `tests/mutants/precut_repo_wide_marker_transform_control.json`.
+  `tests/mutants/v3_66_1239_precut_underived_gates.json` and
+  `tests/mutants/v3_66_1452_shuffle_lane_containment.json` are re-anchored on the text
+  this patch moved. `.github/workflows/ci.yml` and
+  `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py` enroll the new gate in
+  shard tree-gates-3, because a gate CI does not run does not exist.
+
+CHANGED IN THE SAME CHANGE OF STATE, BUT NOT IN THIS DIFF, BECAUSE IT IS NOT TRACKED.
+The operator harness that collects this gate carried a timeout tighter than the gate's
+own internal deadline: bd-precut budgets 1800s for the undertow pytest alone, while
+the collector allowed 600s, so a gate still entitled to work was killed and the answer
+recorded as UNKNOWN. Both copies of the collector script bd-collect-gate.sh -- the one
+in the operator home and the mirror under the bd-persist harness directory -- move
+T_PRECUT from 600 to 2400 and MAXRETRY from 2 to 1, applied immediately before this
+landing with sha256 recorded before and after each. The retry was buying re-runs of a
+gate that had TIMED OUT, spending two more full budgets to re-ask a question the first
+attempt could not answer; dropping it pays for the larger budget and lowers the
+worst-case hold from 142 minutes to 95.
+
+THE NUMBERS THE BUDGET RESTS ON, WITH THEIR AUTHORS. The observed range for this
+gate's wall is 706-1097s. Its low end, 706-891s at load 100-340 on 48 cores, was
+measured by the patch author and restated in the correctness lens's second note; it
+is recorded here as theirs and is not a measurement of mine. Its high end, 1097s, is
+mine: the freeze run of this train on test5, 48 cores, 16 workers, dist=loadfile, at
+load 51 rising. Those two are NOT matched environments and the range is a union of
+what has been observed rather than a single experiment. 2400 is about 2.2x the
+highest wall anyone has actually observed. That multiplier is not the reason for the
+number: 2400 was chosen to clear bd-precut's own _UNDERIVED_BUDGET_S of 1800, so a
+collector no longer kills a gate twenty minutes before one of the gate's own steps is
+entitled to fail. A post-landing wall above 2400 is a REAL failure and is reported as
+one: this is a budget derived from measurement, not a ceiling chosen to make a gate
+green, and if the timeout RATE rises after it the retry comes back.
+
 ## v3.66.1526 - a run record says what the run did, and a partial closure names its remainder
 
 TRAIN G-01, base origin/main 03748ab8 (v3.66.1525). One reviewed patch, plus the

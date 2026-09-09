@@ -25,8 +25,8 @@
     {
       "label": "M3 the merge path starts invoking the advisory lane",
       "file": "toolchain/bin/bd-precut",
-      "old": "import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile\n",
-      "new": "import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile\n_SHUFFLE_LANE_GATE = [sys.executable, \"toolchain/bin/bd-shuffle-lane\"]\n",
+      "old": "import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile\n",
+      "new": "import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile\n_SHUFFLE_LANE_GATE = [sys.executable, \"toolchain/bin/bd-shuffle-lane\"]\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py::test_the_lane_is_not_wired_into_any_merge_gate"
     },

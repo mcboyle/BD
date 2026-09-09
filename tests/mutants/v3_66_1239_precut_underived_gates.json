@@ -44,8 +44,8 @@
     {
       "label": "M5 a PARTIALLY vanished population is no longer reported",
       "file": "toolchain/bin/bd-precut",
-      "old": "        if len(present) < len(_UNDERIVED_GATES):",
-      "new": "        if False:",
+      "old": "    elif len(present) < len(_UNDERIVED_GATES):",
+      "new": "    elif False:",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1239_precut_runs_the_underived_gates.py::test_an_absent_population_is_UNKNOWN_and_not_OK"
     }

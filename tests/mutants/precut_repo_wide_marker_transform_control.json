@@ -1,0 +1,20 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for precut_repo_wide_marker.json: a semantics-preserving edit (`text = fh.read() or \"\"` reads identically for every file) that the band must NOT catch. It lives in its own file so the battery's CAUGHT count is never padded by it; the expected verdict is ESCAPED.",
+  "subject": "control: an equivalent transform of the marker census escapes the band",
+  "band": [
+    "tests/test_precut_selects_repo_wide_gates_by_marker.py",
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
+    "tests/test_verify_lane_state_naming.py"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL equivalent transform: fh.read() or \"\" in _marker_text",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        text = fh\\.read\\(\\))(?=$)",
+      "new": " or \"\"",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
+    }
+  ]
+}
