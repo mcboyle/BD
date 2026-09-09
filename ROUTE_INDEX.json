@@ -7480,7 +7480,7 @@
       "endpoint": "scrape_listing.api_scrape_listing",
       "function": "api_scrape_listing",
       "file": "bulk_downloader/app_scrape_listing.py",
-      "line": 31,
+      "line": 32,
       "csrf": true,
       "spa_wired": true,
       "operator_facing": true,

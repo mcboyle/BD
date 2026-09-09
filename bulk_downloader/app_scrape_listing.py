@@ -19,6 +19,7 @@ from __future__ import annotations
 import httpx
 
 from flask import Blueprint, jsonify, request
+from bulk_downloader.provider_resolve_impl._common import SSRFBlocked
 
 scrape_listing_bp = Blueprint("scrape_listing", __name__)
 
@@ -75,6 +76,8 @@ def api_scrape_listing():
             html = r.text
             if len(html) > 5 * 1024 * 1024:
                 html = html[: 5 * 1024 * 1024]
+    except SSRFBlocked:
+        return jsonify({"ok": False, "error": "fetch blocked by SSRF policy"}), 502
     except httpx.HTTPError as e:
         return jsonify({"ok": False, "error": f"fetch failed: {type(e).__name__}: {e}"}), 502
     # Extract <a href="..."> values
