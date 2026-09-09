@@ -276,12 +276,14 @@ class ChallengeMixin:
         self.log_event("captcha", f"Submitting Turnstile sitekey {sitekey[:20]}… to {provider}")
         try:
             import httpx as _httpx
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             if provider == "2captcha":
                 # Submit job
-                r = _httpx.post("https://2captcha.com/in.php", data={
-                    "key": api_key, "method": "turnstile",
-                    "sitekey": sitekey, "pageurl": page_url, "json": "1",
-                }, timeout=20)
+                with _httpx.Client(timeout=20, transport=guarded_transport(PINNED)) as client:
+                    r = client.post("https://2captcha.com/in.php", data={
+                        "key": api_key, "method": "turnstile",
+                        "sitekey": sitekey, "pageurl": page_url, "json": "1",
+                    })
                 d = r.json()
                 if d.get("status") != 1:
                     msg = f"2captcha submit failed: {d.get('request')}"
@@ -291,10 +293,11 @@ class ChallengeMixin:
                 deadline = time.time() + 180
                 while time.time() < deadline:
                     time.sleep(5)
-                    r = _httpx.get("https://2captcha.com/res.php", params={
-                        "key": api_key, "action": "get",
-                        "id": request_id, "json": "1",
-                    }, timeout=15)
+                    with _httpx.Client(timeout=15, transport=guarded_transport(PINNED)) as client:
+                        r = client.get("https://2captcha.com/res.php", params={
+                            "key": api_key, "action": "get",
+                            "id": request_id, "json": "1",
+                        })
                     d = r.json()
                     if d.get("status") == 1:
                         token = d["request"]
@@ -307,11 +310,12 @@ class ChallengeMixin:
                     self.log_event("captcha", msg); _captcha_record_timeout(msg); return False
             elif provider == "capsolver":
                 # CapSolver — simpler /createTask + /getTaskResult flow
-                r = _httpx.post("https://api.capsolver.com/createTask", json={
-                    "clientKey": api_key,
-                    "task": {"type": "AntiTurnstileTaskProxyLess",
-                             "websiteURL": page_url, "websiteKey": sitekey},
-                }, timeout=20)
+                with _httpx.Client(timeout=20, transport=guarded_transport(PINNED)) as client:
+                    r = client.post("https://api.capsolver.com/createTask", json={
+                        "clientKey": api_key,
+                        "task": {"type": "AntiTurnstileTaskProxyLess",
+                                 "websiteURL": page_url, "websiteKey": sitekey},
+                    })
                 d = r.json()
                 task_id = d.get("taskId")
                 if not task_id:
@@ -320,8 +324,9 @@ class ChallengeMixin:
                 deadline = time.time() + 180
                 while time.time() < deadline:
                     time.sleep(5)
-                    r = _httpx.post("https://api.capsolver.com/getTaskResult",
-                                    json={"clientKey": api_key, "taskId": task_id}, timeout=15)
+                    with _httpx.Client(timeout=15, transport=guarded_transport(PINNED)) as client:
+                        r = client.post("https://api.capsolver.com/getTaskResult",
+                                        json={"clientKey": api_key, "taskId": task_id})
                     d = r.json()
                     if d.get("status") == "ready":
                         token = d.get("solution", {}).get("token")

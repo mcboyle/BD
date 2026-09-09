@@ -296,7 +296,8 @@ class TelemetryMixin:
                 proxy_url = self._download_proxy_url()
                 client_kwargs = {"timeout": httpx.Timeout(5.0, connect=3.0)}
                 if proxy_url: client_kwargs["proxy"] = proxy_url
-                with httpx.Client(**client_kwargs) as cl:
+                from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
+                with httpx.Client(**client_kwargs, transport=guarded_transport(PUBLIC_ONLY)) as cl:
                     # follow_redirects=False (F-RUN03-04): a public mirror could 302 us
                     # to an internal host; the winner logic already treats 301/302 as a
                     # live mirror, so not following loses nothing and closes the amplifier.

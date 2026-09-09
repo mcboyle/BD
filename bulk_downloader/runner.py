@@ -1177,8 +1177,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             raise
         try:
             # AUDIT FIX: no redirect following — same reasoning as Phase 71.
+            from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
             with httpx.Client(timeout=30.0, follow_redirects=False,
-                              proxy=_cp_proxy) as cl:
+                              proxy=_cp_proxy,
+                              transport=guarded_transport(PUBLIC_ONLY)) as cl:
                 r = cl.get(listing_url, headers=headers)
                 if r.status_code in (301, 302, 303, 307, 308):
                     raise RuntimeError(f"got {r.status_code} redirect — set subscription URL to the final destination")

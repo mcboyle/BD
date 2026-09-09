@@ -4,6 +4,44 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1527 - the DNS-rebinding guard reaches every HTTP client, and a census can prove it
+
+TRAIN G-02, base origin/main 138a8bff (v3.66.1526). One reviewed patch, plus the
+register commit this train carries.
+
+- row703 (T3 security, by bd-adjudicator-B's ruling; 4 of 4 lenses BOARD on one
+  object -- correctness, two independent shape lenses and a panel, none of them
+  the builder, all against patch sha256 2555706a): the SSRF/DNS-rebinding guard
+  was installed at a minority of call sites. `bulk_downloader/ssrf_transport.py`
+  is now used by every httpx client that reaches an untrusted host: 22 further
+  constructions across runner_transport.py, tg_bot.py, app_sites_auth.py,
+  captcha_resolver.py, runner_challenge.py and the extractor/VPN paths are built
+  as `httpx.Client(..., transport=guarded_transport(PINNED))`, with the streaming
+  sites keeping their `with client, client.stream(...)` shape so the client still
+  closes on exit. Policy is PINNED for all 22; none of those sites had a reason
+  to resolve a name twice.
+  `tools/ssrf_client_census.py` is the denominator: it counts httpx module-level
+  helpers as well as Client constructions, under the same import bindings, so a
+  helper call cannot hide from the count the way it did before.
+  Gated by tests/test_row703_ssrf_transport_is_installed_everywhere.py,
+  tests/test_row703_a_proxy_shadows_the_guarded_transport.py and
+  tests/test_row703_the_site_to_policy_map_is_asserted.py, with an unpin mutant
+  per construction in tests/mutants/row703_ssrf_transport_installation.json,
+  a seam spec, and a declared transform control in its own file.
+  The secret-scan boundary was measured rather than asserted: gitleaks 8.24.3
+  over the 3072 added lines of the staged diff, rc=0, zero findings.
+
+- register: rows 807 and 808 appended. 807 is the named residual of row753-clause3,
+  which landed at v3.66.1526 -- outcome() still returns a clean-looking record for
+  an empty stats mapping, reachable only outside the production seam. 808 is a
+  regression this fleet shipped at v3.66.1507 and has been running blind on since:
+  bd-cut-preflight cannot report FAIL for bd-bandcheck, because p_bandcheck's
+  return moved `bad` into classify()'s `unverifiable` slot -- inspected-and-failed
+  into could-not-be-measured -- so UNKNOWN returns before the exit code is read,
+  and in the all-bad case the tool states it examined 0 of 2 targets it fully
+  examined. Re-measured on this train's own base with a passing positive control
+  before filing.
+
 ## v3.66.1526 - a run record says what the run did, and a partial closure names its remainder
 
 TRAIN G-01, base origin/main 03748ab8 (v3.66.1525). One reviewed patch, plus the

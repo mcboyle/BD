@@ -182,9 +182,11 @@ def probe(
         return ProbeResult(ok=False, error=f"ssrf_blocked:{reason}"[:200])
     try:
         import httpx
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
                           cookies=cookies or None, proxy=proxy,
-                          event_hooks={"response": [_redirect_guard_hook]}
+                          event_hooks={"response": [_redirect_guard_hook]},
+                          transport=guarded_transport(PUBLIC_ONLY)
                           ) as client:
             # First try HEAD
             try:
@@ -512,9 +514,11 @@ def download(
             chunk_results[chunk.index] = (False, 0, "cancelled")
             return
         try:
+            from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
             with httpx.Client(timeout=timeout_s, follow_redirects=True,
                               cookies=cookies or None, proxy=proxy,
-                              event_hooks={"response": [_redirect_guard_hook]}
+                              event_hooks={"response": [_redirect_guard_hook]},
+                              transport=guarded_transport(PUBLIC_ONLY)
                               ) as client:
                 ok, bw, err = _download_chunk(
                     client, url, chunk, output_path,

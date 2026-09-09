@@ -166,8 +166,10 @@ def probe_site(
 
     outcome = ProbeOutcome(ok=False)
     try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
-                          cookies=cookies, headers=headers) as client:
+                          cookies=cookies, headers=headers,
+                          transport=guarded_transport(PINNED)) as client:
             for host in hosts:
                 for path in DEFAULT_PROBE_PATHS:
                     full = host + path
@@ -362,8 +364,10 @@ def fetch_scene(
     if user_agent:
         headers["User-Agent"] = user_agent
     try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
-                          cookies=cookies or {}, headers=headers) as client:
+                          cookies=cookies or {}, headers=headers,
+                          transport=guarded_transport(PINNED)) as client:
             r = client.get(full_url)
             if r.status_code != 200:
                 log.debug("jsonapi: %s returned %d", full_url, r.status_code)

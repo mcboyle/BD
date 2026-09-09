@@ -415,8 +415,10 @@ class _ManualDownloadSession:
                                 continue
                             raise
                         try:
+                            from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
                             with httpx.Client(timeout=30.0, follow_redirects=True,
-                                              proxy=_cp_proxy) as cl:
+                                              proxy=_cp_proxy,
+                                              transport=guarded_transport(PUBLIC_ONLY)) as cl:
                                 r = cl.get(extracted_url, headers=headers, cookies=cookie_jar)
                                 result["http_status"] = r.status_code
                                 result["content_type"] = r.headers.get("Content-Type","")

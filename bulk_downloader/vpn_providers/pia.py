@@ -102,7 +102,8 @@ def test_credentials(credentials: dict) -> tuple[bool, str]:
 
     try:
         import httpx
-        with httpx.Client(timeout=PIA_API_TIMEOUT_S) as c:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=PIA_API_TIMEOUT_S, transport=guarded_transport(PINNED)) as c:
             r = c.post(
                 f"{PIA_API_BASE}/api/client/v2/token",
                 data={"username": user, "password": pw},
@@ -199,7 +200,8 @@ def generate_keypair() -> tuple[str, str]:
 def _pia_token(user: str, pw: str) -> str:
     """Exchange username+password for a short-lived PIA bearer token."""
     import httpx
-    with httpx.Client(timeout=PIA_API_TIMEOUT_S) as c:
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+    with httpx.Client(timeout=PIA_API_TIMEOUT_S, transport=guarded_transport(PINNED)) as c:
         r = c.post(f"{PIA_API_BASE}/api/client/v2/token",
                    data={"username": user, "password": pw})
         if r.status_code == 200:
@@ -213,7 +215,9 @@ def _pia_addkey(region_host: str, token: str, pubkey: str) -> dict:
     import httpx
     # PIA's manual-connections WG endpoint lives on the region host, :1337.
     url = f"https://{region_host}:1337/addKey"
-    with httpx.Client(timeout=PIA_API_TIMEOUT_S, verify=False) as c:
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+    with httpx.Client(timeout=PIA_API_TIMEOUT_S, verify=False,
+                      transport=guarded_transport(PINNED, verify=False)) as c:
         r = c.get(url, params={"pt": token, "pubkey": pubkey})
         if r.status_code == 200:
             return r.json() or {}

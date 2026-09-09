@@ -664,6 +664,18 @@ class _ShimOrigin:
         if cb is not None:
             cb(idx)
 
+    # row703: the parallel worker streams through a pinned ``httpx.Client``
+    # now, so the shim hands itself out as the client and owns the ``with``
+    # it is used in; the Range/206/iteration protocol below is unchanged.
+    def Client(self, **_kw):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
     def stream(self, method, url, headers=None, cookies=None,
                follow_redirects=True, **_kw):
         rng = (headers or {}).get("Range")

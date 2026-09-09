@@ -620,8 +620,10 @@ def probe_badoink_candidates(
     if referer:
         headers["Referer"] = referer
     try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
-                          cookies=cookies or None) as client:
+                          cookies=cookies or None,
+                          transport=guarded_transport(PINNED)) as client:
             for i, cand in enumerate(candidates):
                 if i >= max_attempts:
                     break

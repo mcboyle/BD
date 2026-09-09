@@ -54,6 +54,18 @@ class _FakeHttpx:
         self.calls.append((method, url, kw))
         return self._resp
 
+    # row703: the probe streams through a pinned ``httpx.Client`` now, so the
+    # fake hands itself out as the client and owns the ``with`` it is used in;
+    # the recorded call shape (method, url, kw) is unchanged.
+    def Client(self, **kw):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
     class Timeout:  # _do_probe_fetch constructs httpx.Timeout(...)
         def __init__(self, *a, **k):
             pass

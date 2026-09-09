@@ -313,7 +313,8 @@ def fetch_cover(url: str, *, timeout: float = 10.0,
     if referer:
         headers["Referer"] = referer
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout, follow_redirects=True, transport=guarded_transport(PINNED)) as client:
             with client.stream("GET", url, headers=headers) as r:
                 if r.status_code != 200:
                     log.info("mp4_metadata: cover fetch HTTP %s for %s",
