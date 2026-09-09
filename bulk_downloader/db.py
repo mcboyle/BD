@@ -2877,6 +2877,7 @@ def session_lifetime_observations(site_id, account_idx=None, lookback_days=30):
 # Failure event types in session_history (see session_event_record):
 _SESSION_FAILURE_EVENTS = ("heartbeat_fail", "auto_relogin_fail", "needs_takeover")
 _SESSION_SUCCESS_EVENTS = ("login", "heartbeat_ok", "auto_relogin_ok")
+_SESSION_REFUSAL_EVENTS = ("auto_relogin_refused",)
 
 
 def db_session_failure_clusters(lookback_days=7):
@@ -2888,7 +2889,8 @@ def db_session_failure_clusters(lookback_days=7):
           "lookback_days": N,
           "since_ts": <unix>,
           "clusters": [ {site_id, event_type, count, last_ts}, ... ]   # desc by count
-          "per_site": { site_id: {failures, successes, by_type{...},
+          "per_site": { site_id: {failures, successes, auto_relogin_refused,
+                                  by_type{...},
                                   last_failure_ts} },
           "total_failures": int,
         }
@@ -2910,14 +2912,15 @@ def db_session_failure_clusters(lookback_days=7):
         # rather than 500-ing the cockpit panel.
         rows = []
     clusters = {}          # (site_id, event_type) -> {count, last_ts}
-    per_site = {}          # site_id -> {failures, successes, by_type{}, last_failure_ts}
+    per_site = {}          # site_id -> failure/success/refusal counters
     total_failures = 0
     for r in rows:
         sid = r["site_id"]
         et = r["event_type"]
         ts = r["ts"]
         ps = per_site.setdefault(
-            sid, {"failures": 0, "successes": 0, "by_type": {},
+            sid, {"failures": 0, "successes": 0, "auto_relogin_refused": 0,
+                  "by_type": {},
                   "last_failure_ts": None})
         if et in _SESSION_FAILURE_EVENTS:
             key = (sid, et)
@@ -2932,6 +2935,8 @@ def db_session_failure_clusters(lookback_days=7):
             total_failures += 1
         elif et in _SESSION_SUCCESS_EVENTS:
             ps["successes"] += 1
+        elif et in _SESSION_REFUSAL_EVENTS:
+            ps["auto_relogin_refused"] += 1
     cluster_list = [
         {"site_id": k[0], "event_type": k[1],
          "count": v["count"], "last_ts": v["last_ts"]}
