@@ -1,0 +1,132 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "PM-B row: bd-precut selects repo-wide gates BY MARKER, not by its hand list. Every anchor is a zero-width lookbehind/lookahead pair on a DECISION the patch adds -- the scope predicate, the COULD-NOT-LOOK arm, the UNKNOWN arms, the union wiring, the module-scope walk, the xdist arm -- and the inserted text inverts, disables or drops it; no anchor matches a value. The transform control lives in precut_repo_wide_marker_transform_control.json and MUST escape.",
+  "subject": "bd-precut --gate selects every tracked tests/test*.py declaring BD_GATE_SCOPE = \"repo-wide\" beside its hand-listed floor, reports what it could not classify as UNKNOWN by name, and runs the union in one xdist subprocess",
+  "band": [
+    "tests/test_precut_selects_repo_wide_gates_by_marker.py",
+    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
+    "tests/test_verify_lane_state_naming.py"
+  ],
+  "mutants": [
+    {
+      "label": "S1 the repo-wide predicate is inverted: module gates are selected and repo-wide ones are not",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        elif )(?=scope == _REPO_WIDE_SCOPE:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
+    },
+    {
+      "label": "S2 a git that answered is treated as COULD NOT LOOK, so only the floor runs",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=run\\.returncode != 0:\\n        census\\[\\\"error\\\"\\])",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
+    },
+    {
+      "label": "S3 an unclassifiable file is silently dropped instead of reported UNKNOWN",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        if )(?=census\\[\\\"unclassified\\\"\\]:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_file_the_census_cannot_classify_is_UNKNOWN_by_name_not_dropped"
+    },
+    {
+      "label": "S4 the marker-selected gates never reach the underived run (dropped in transit)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    gates = present \\+ )(?=derived$)",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
+    },
+    {
+      "label": "S5 a marker assigned inside a function declares a gate (module scope only is lost)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    for node in )(?=tree\\.body:$)",
+      "new": "ast.walk(tree) or ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
+    },
+    {
+      "label": "S6 an empty selection reads as clean instead of UNKNOWN",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        if )(?=not census\\[\\\"selected\\\"\\]:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_tree_with_no_repo_wide_marker_is_UNKNOWN_not_clean"
+    },
+    {
+      "label": "S7 main() takes the COULD-NOT-LOOK arm on a healthy census",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=census\\[\\\"error\\\"\\]:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_census_that_cannot_look_says_so_and_the_floor_still_runs"
+    },
+    {
+      "label": "S8 the underived run loses its xdist arguments while xdist is installed",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=importlib\\.util\\.find_spec\\(\\\"xdist\\\"\\) is None:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_the_underived_run_keeps_every_file_whole_in_one_worker"
+    },
+    {
+      "label": "S9 an unparsable marked file crashes the census instead of reading UNKNOWN",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        except )(?=\\(SyntaxError, ValueError\\) as exc:$)",
+      "new": "() if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_file_the_census_cannot_classify_is_UNKNOWN_by_name_not_dropped"
+    },
+    {
+      "label": "S10 an unreadable tracked file crashes the census instead of reading UNKNOWN",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        except )(?=\\(OSError, UnicodeDecodeError\\) as exc:$)",
+      "new": "() if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_file_the_census_cannot_classify_is_UNKNOWN_by_name_not_dropped"
+    },
+    {
+      "label": "S11 a scope value that is neither repo-wide nor module is excluded as if it were module",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        elif scope == )(?=_MODULE_SCOPE:$)",
+      "new": "scope and scope != ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_file_the_census_cannot_classify_is_UNKNOWN_by_name_not_dropped"
+    },
+    {
+      "label": "S12 the mentions-only receipt stops counting (the census line lies about prose markers)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^            census\\[\\\"mentions\\\"\\] \\+= )(?=1$)",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_the_selection_reconciles_to_the_census_by_count"
+    },
+    {
+      "label": "S13 the marked receipt stops counting (the reconciliation identity breaks silently)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        census\\[\\\"marked\\\"\\] \\+= )(?=1$)",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_the_selection_reconciles_to_the_census_by_count"
+    },
+    {
+      "label": "S14 the excluded receipt stops counting (module gates vanish from the census line)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^            census\\[\\\"excluded\\\"\\] \\+= )(?=1$)",
+      "new": "0 * ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_the_selection_reconciles_to_the_census_by_count"
+    },
+    {
+      "label": "S15 a floor gate that also carries the marker is handed to pytest twice (the union stops de-duplicating)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    return \\[\\(rel, _MARKER_WHY\\) for rel in census\\[\"selected\"\\] if )(?=rel not in on_floor\\]$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_floor_gate_that_also_carries_the_marker_runs_once"
+    }
+  ]
+}

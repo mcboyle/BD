@@ -18,7 +18,7 @@ Usage:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
-import argparse, atexit, glob, os, pathlib, re, shutil, subprocess, sys, tempfile
+import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -292,6 +292,144 @@ def _underived_detail(rc, junit, present, argv, timed_out_after=None):
             % (len(cases), len(files), len(present), "; ".join(parts), tail))
 
 
+# --- REPO-WIDE MARKER CENSUS -------------------------------------------------
+# PRECUT WAS BLIND TO REPO-WIDE GATES: IT RAN A HAND LIST, NOT THE MARKER.
+# Rows 46/99/133 shipped `BD_GATE_SCOPE = "repo-wide"` and made CI's shards
+# consume it. Nothing BEFORE assembly did: this tool ran only _UNDERIVED_GATES,
+# and bd-collect-gate.sh runs own-tests plus this tool, so a repo-wide census
+# gate outside that hand list was invisible to the worker's floor, to collect
+# and to prep, and first failed at assembly (row713; cx-hostsafety at law
+# 23:40:46Z). The hand list grew one incident at a time -- row 315 is the one
+# its own comment records. MEASURED 2026-09-07 on origin/main a8267e5d: 208
+# tracked tests/test*.py declare the marker repo-wide, the hand list names 7,
+# and 2 of those 7 carry no marker at all. So the marker is the denominator,
+# the hand list stays as a pinned floor, and the UNION runs, in one subprocess.
+_SCOPE_MARKER = "BD_GATE_SCOPE"
+_REPO_WIDE_SCOPE = "repo-wide"
+_MODULE_SCOPE = "module"
+_MARKER_WHY = 'declares BD_GATE_SCOPE = "repo-wide", a gate over the whole tree'
+# xdist workers for the underived run. The marker-selected population is the
+# whole CI gate lane, which CI runs as 36 shards; serially it does not fit the
+# 1800s budget below, let alone bd-collect-gate.sh's 600s. `--dist loadfile`
+# keeps every file whole inside one worker, the shape CI already runs them in.
+_UNDERIVED_WORKERS_CAP = 16
+
+
+def _marker_text(path):
+    """The file's text when it carries the marker anywhere, else None.
+
+    OSError and UnicodeDecodeError PROPAGATE: an unreadable file is the
+    caller's UNKNOWN, never a silent 'unmarked'."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    return text if _SCOPE_MARKER in text else None
+
+
+def _module_scope_literal(text):
+    """The MODULE-LEVEL BD_GATE_SCOPE value assigned in text, or None.
+
+    Module scope only, via the AST, the same rule CI's shard gate applies: a
+    docstring, a comment or an assignment inside a function names the marker
+    and declares nothing, because a comment is inside the denominator of every
+    gate that reads source text (CLAUDE.md section 0). SyntaxError PROPAGATES.
+    """
+    tree = ast.parse(text)
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == _SCOPE_MARKER for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Constant):
+            return value.value
+        return "<non-literal: %s>" % type(value).__name__
+    return None
+
+
+def _repo_wide_marker_census(root):
+    """Census every TRACKED tests/test*.py under root for its scope marker.
+
+    The denominator is `git ls-files -- tests/test*.py`, enumerated from the
+    checkout and never from a list; an untracked file is outside it. Buckets:
+      selected       module-level "repo-wide"        -> run beside the floor
+      excluded       module-level "module"           -> not a tree gate
+      mentions       carries the marker text and declares nothing
+      unclassified   unreadable, unparsable, or a scope value that is neither
+                     -> NAMED and reported UNKNOWN, never silently dropped
+    marked counts every readable file carrying the marker text, so a reader can
+    check marked == selected + excluded + mentions + (unclassified that were
+    read) rather than trust it. error names a census that COULD NOT LOOK (git
+    did not answer); every other field is then empty.
+    """
+    census = {"tracked": 0, "marked": 0, "selected": [], "excluded": 0,
+              "mentions": 0, "unclassified": [], "error": ""}
+    try:
+        run = subprocess.run(["git", "ls-files", "--", "tests/test*.py"],
+                             cwd=root, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        census["error"] = "git ls-files did not run: %s" % _one_line(exc)
+        return census
+    if run.returncode != 0:
+        census["error"] = "git ls-files exited rc=%d: %s" % (
+            run.returncode, _one_line(run.stderr or "no stderr", 160))
+        return census
+    tracked = sorted(set(run.stdout.split()))
+    census["tracked"] = len(tracked)
+    for rel in tracked:
+        try:
+            text = _marker_text(os.path.join(root, rel))
+        except (OSError, UnicodeDecodeError) as exc:
+            census["unclassified"].append(
+                (rel, "unreadable: %s" % _one_line(exc, 120)))
+            continue
+        if text is None:
+            continue
+        census["marked"] += 1
+        try:
+            scope = _module_scope_literal(text)
+        except (SyntaxError, ValueError) as exc:
+            census["unclassified"].append(
+                (rel, "unparsable: %s" % _one_line(exc, 120)))
+            continue
+        if scope is None:
+            census["mentions"] += 1
+        elif scope == _REPO_WIDE_SCOPE:
+            census["selected"].append(rel)
+        elif scope == _MODULE_SCOPE:
+            census["excluded"] += 1
+        else:
+            census["unclassified"].append(
+                (rel, "BD_GATE_SCOPE = %r is neither %r nor %r"
+                 % (scope, _REPO_WIDE_SCOPE, _MODULE_SCOPE)))
+    return census
+
+
+def _census_line(census):
+    """One reconciliation line: the counts a reader checks against each other."""
+    return ("  [repo-wide marker census] tracked=%d expected=%d (marked) selected=%d "
+            "(repo-wide) excluded=%d (module) mentions-only=%d unclassified=%d"
+            % (census["tracked"], census["marked"], len(census["selected"]),
+               census["excluded"], census["mentions"], len(census["unclassified"])))
+
+
+def _marker_selected_gates(census, floor):
+    """(rel, why) for every marker-selected gate not already on the floor."""
+    on_floor = {rel for rel, _ in floor}
+    return [(rel, _MARKER_WHY) for rel in census["selected"] if rel not in on_floor]
+
+
+def _underived_parallelism():
+    """xdist arguments for the underived run, or [] when xdist is absent."""
+    if importlib.util.find_spec("xdist") is None:
+        return []
+    workers = max(1, min(_UNDERIVED_WORKERS_CAP, os.cpu_count() or 1))
+    return ["-n", str(workers), "--dist", "loadfile"]
+
+
 def _run_underived_gates(root, present, env):
     """Run the underived gates once; return (rc, detail). detail is "" on rc 0.
 
@@ -304,7 +442,7 @@ def _run_underived_gates(root, present, env):
     junit = os.path.join(scratch, "underived.xml")
     argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
             "--timeout=240", "--timeout-method=signal",
-            "--junitxml=" + junit] + [rel for rel, _ in present]
+            "--junitxml=" + junit] + _underived_parallelism() + [rel for rel, _ in present]
     try:
         try:
             rc = subprocess.run(argv, cwd=root, env=env,
@@ -597,19 +735,48 @@ def main(argv=None):
                if os.path.isfile(os.path.join(root, rel))]
     if not present:
         unknown.append("underived gates (none of the seven are present in this tree)")
-    else:
+    elif len(present) < len(_UNDERIVED_GATES):
         # ASSERT THE POPULATION BEFORE THE VERDICT. A list that silently shrank
         # to one would still print a green line, which is the shape these gates
         # exist to refuse.
-        if len(present) < len(_UNDERIVED_GATES):
-            missing = [rel for rel, _ in _UNDERIVED_GATES
-                       if not os.path.isfile(os.path.join(root, rel))]
-            unknown.append("underived gates: %d of %d absent (%s)"
-                           % (len(missing), len(_UNDERIVED_GATES), ", ".join(missing)))
+        missing = [rel for rel, _ in _UNDERIVED_GATES
+                   if not os.path.isfile(os.path.join(root, rel))]
+        unknown.append("underived gates: %d of %d absent (%s)"
+                       % (len(missing), len(_UNDERIVED_GATES), ", ".join(missing)))
+
+    # THE MARKER THE TREE ALREADY CARRIES (see the census block above). Every
+    # tracked tests/test*.py declaring BD_GATE_SCOPE = "repo-wide" is selected
+    # beside the floor with NO edit to _UNDERIVED_GATES; a file the census could
+    # not classify is UNKNOWN by name, never a silent drop.
+    census = _repo_wide_marker_census(root)
+    if census["error"]:
+        derived = []
+        unknown.append("repo-wide marker census COULD NOT LOOK (%s), so only "
+                       "the hand-listed floor ran" % census["error"])
+    else:
+        # flush: stdout is block-buffered under redirection, and the pytest
+        # child below writes straight to the fd -- without it the census line
+        # lands AFTER the run, or nowhere if a collector timeout kills us first.
+        print(_census_line(census), flush=True)
+        derived = _marker_selected_gates(census, present)
+        if census["unclassified"]:
+            named = ["%s (%s)" % item for item in census["unclassified"][:6]]
+            tail = ("" if len(named) == len(census["unclassified"])
+                    else "; +%d more" % (len(census["unclassified"]) - len(named)))
+            unknown.append("repo-wide marker census: %d tracked test file(s) could "
+                           "not be classified, so the selection is INCOMPLETE, not "
+                           "clean: %s%s" % (len(census["unclassified"]),
+                                            "; ".join(named), tail))
+        if not census["selected"]:
+            unknown.append("repo-wide marker census selected NO gate among %d "
+                           "tracked tests/test*.py -- the population is absent, "
+                           "which is UNKNOWN, not clean" % census["tracked"])
+    gates = present + derived
+    if gates:
         env = dict(os.environ)
         env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
         env["BD_DISABLE_KEEPALIVE"] = "1"
-        rc, detail = _run_underived_gates(root, present, env)
+        rc, detail = _run_underived_gates(root, gates, env)
         if rc != 0:
             blocking.append(
                 "underived gate(s) FAILED -- these judge the whole tree, so "

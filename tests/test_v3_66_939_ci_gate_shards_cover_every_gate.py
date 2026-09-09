@@ -318,6 +318,12 @@ _DECLARED = {
     # or the tool moves, so it is pinned here.
     # CI-SHARD-CLAIM footgun-import-dodge tree-gates-3 tests/test_import_dodge_is_caught_in_the_cut_diff.py
     "tests/test_import_dodge_is_caught_in_the_cut_diff.py",
+    # PM-B row (2026-09-07): bd-precut selects repo-wide gates BY THIS MARKER,
+    # not by its hand list. The file's last test reconciles the tool's live
+    # selection against every tracked tests/test*.py, so its subject is the
+    # whole tree and it must reach a shard in its own right -- and, being
+    # repo-wide, precut now selects it too.
+    "tests/test_precut_selects_repo_wide_gates_by_marker.py",
     # Row 530, the docs-only lane's classifier. Its subject is which tracked
     # paths of this tree can be proven inert, so it is derived from
     # `git ls-files` and no changed path can select it. A classifier whose
