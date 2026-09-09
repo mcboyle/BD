@@ -26,6 +26,7 @@ import os
 import pathlib
 import platform
 import socket
+import sys
 import tempfile
 import time
 
@@ -112,9 +113,57 @@ def context(config):
         "dist": dist_mode(config),
         "load_at_start": loadavg(),
         "started": time.time(),
+        # THE EXACT COMMAND, because a schedule is half of a comparison and the
+        # other half is what was actually typed. Two runs can agree on cores,
+        # workers and dist and still be different experiments -- a -k, a -p, a
+        # different file set -- and row 753's acceptance asks a reproduction
+        # attempt to be recorded WITH ITS EXACT COMMAND for exactly that reason.
+        # The interpreter is beside it because `venv/bin/python -m pytest` and a
+        # system pytest are not the same run either.
+        "command": list(sys.argv),
+        "executable": sys.executable,
     }
     ctx.update(signal_masks())
     return ctx
+
+
+def outcome(terminalreporter):
+    """What the run DID, or UNKNOWN -- never a clean-looking empty record.
+
+    THE RECORD USED TO CARRY ONLY THE MACHINE. A run where a named test failed
+    and a run where it passed wrote the same assignment.json, so a reproduction
+    attempt -- row 753's acceptance clause 3, "either reproduces it ... or fails
+    to and that negative result is recorded" -- could not be read afterwards at
+    all: the conditions were in the artifact and the answer was in somebody's
+    terminal scrollback.
+
+    THE THIRD STATE IS THE POINT, and it follows `signal_masks` above rather
+    than inventing a second convention: a reporter that cannot tell us what
+    happened yields ``recorded: False`` with counts and failures NULL, never an
+    empty list. "I looked and nothing failed" and "I never got to look" lead to
+    opposite actions, and an empty list says the first while meaning the second.
+    """
+    stats = getattr(terminalreporter, "stats", None)
+    if not isinstance(stats, dict):
+        return {"recorded": False,
+                "why": "the terminal reporter exposed no stats mapping (%s), so "
+                       "this run's result was never observed"
+                       % type(stats).__name__,
+                "counts": None,
+                "failed": None}
+    counts = {}
+    failed = []
+    for key, reports in stats.items():
+        # pytest files reports with no outcome under "", and counting them
+        # would put a number in this record that no summary line ever shows.
+        if not key:
+            continue
+        counts[key] = len(reports)
+        if key in ("failed", "error"):
+            for report in reports:
+                nodeid = getattr(report, "nodeid", None)
+                failed.append(nodeid if nodeid else "UNKNOWN")
+    return {"recorded": True, "counts": counts, "failed": sorted(failed)}
 
 
 def advise(ctx):
@@ -183,10 +232,23 @@ def read_chains(directory):
     return out
 
 
-def write_assignment(directory, chains, ctx):
+def write_assignment(directory, chains, ctx, run_outcome=None):
+    """Write this run's record: what it ran on, where, and what happened.
+
+    ``run_outcome`` is optional so that every existing caller keeps working,
+    but its DEFAULT IS UNKNOWN rather than a clean run -- a record written by a
+    caller that never supplied an outcome must not read like a record of a run
+    in which nothing failed.
+    """
     path = pathlib.Path(directory) / "assignment.json"
+    if run_outcome is None:
+        run_outcome = {"recorded": False,
+                       "why": "this record was written without an outcome",
+                       "counts": None,
+                       "failed": None}
     path.write_text(json.dumps(
         {"context": ctx,
+         "outcome": run_outcome,
          "assignment": {f: w for w, files in chains.items() for f in files},
          "chains": chains}, indent=1), encoding="utf-8")
     return path

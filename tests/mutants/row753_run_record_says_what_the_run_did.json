@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 753 clause 3. The run record has to carry the exact command and what the run DID, and an unmeasurable run has to be UNKNOWN rather than a clean one. M1 empties the recorded command, M2 lets a reporter that exposed no stats write the clean run's record, M3 stops the record from naming which tests failed, M4 is the conftest seam -- the one caller -- no longer handing the outcome to the recorder at all, M5 drops the guard that keeps pytest's un-outcomed bucket out of the counts, and M6 turns a report with no nodeid into a nameless empty string instead of UNKNOWN. Every anchor is a zero-width execution position on a decision; no value is inside any matched span. The transform control lives in row753_run_record_says_what_the_run_did_transform_control.json and MUST ESCAPE.",
+  "subject": "a run's own record says what it ran on, what command started it, and what happened -- so a reproduction attempt that comes back green is distinguishable from one that never looked",
+  "band": [
+    "tests/test_row753_a_run_records_its_own_outcome.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the record carries an empty command instead of the one that started the run",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?m)(?<=^        \"command\": )(?=list\\(sys\\.argv\\),$)",
+      "new": "[] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_the_run_record_carries_the_exact_command_it_was_started_with"
+    },
+    {
+      "label": "M2 a reporter that exposed no stats writes the record of a run in which nothing failed",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?m)(?<=^    if not isinstance\\(stats, dict\\):\\n)(?=        return \\{\"recorded\": False,)",
+      "new": "        return {\"recorded\": True, \"counts\": {}, \"failed\": []}\n",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_a_reporter_that_cannot_supply_stats_records_unknown_not_a_clean_run"
+    },
+    {
+      "label": "M3 the record counts the failures but never names them",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?m)(?<=^        if key in )(?=\\(\"failed\", \"error\"\\):$)",
+      "new": "() and ",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_the_record_of_a_run_that_failed_is_not_the_record_of_a_clean_one"
+    },
+    {
+      "label": "M4 the one caller stops handing the outcome to the recorder",
+      "file": "tests/conftest.py",
+      "old_regex": "(?m)(?<=^            directory, chains, ctx, )(?=_run_context\\.outcome\\(terminalreporter\\)\\)$)",
+      "new": "None if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_the_record_of_a_run_that_failed_is_not_the_record_of_a_clean_one"
+    },
+    {
+      "label": "M5 the un-outcomed bucket is counted, so the record's denominators are not the summary's",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?m)(?<=^        if not key)(?=:$)",
+      "new": " and False",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_the_recorded_counts_are_the_reporters_own_and_are_nonzero"
+    },
+    {
+      "label": "M6 a report with no nodeid is recorded as a nameless blank instead of UNKNOWN",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?<=failed\\.append\\()(?=nodeid if nodeid else \"UNKNOWN\"\\))",
+      "new": "nodeid or \"\" if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_an_error_is_a_failure_in_the_record_and_a_nameless_report_is_unknown"
+    }
+  ]
+}

@@ -1634,7 +1634,8 @@ def _write_run_context(terminalreporter, config):
     directory = _run_context_dir(config)
     chains = _run_context.read_chains(directory)
     if chains:
-        path = _run_context.write_assignment(directory, chains, ctx)
+        path = _run_context.write_assignment(
+            directory, chains, ctx, _run_context.outcome(terminalreporter))
         write("  %d worker chain(s), %d file(s): %s"
               % (len(chains), sum(len(v) for v in chains.values()), directory))
         write("  replay one worker exactly: "

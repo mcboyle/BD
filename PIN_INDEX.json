@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 133,
+    "total": 134,
     "version": 1,
-    "count_dict": 132,
-    "test_files_scanned": 1661,
+    "count_dict": 133,
+    "test_files_scanned": 1662,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -41,6 +41,7 @@
       "tests/test_row363_affordance_learning.py": 1,
       "tests/test_row439_segmented_transfers_honor_the_egress_gate.py": 1,
       "tests/test_row667_login_attempt_accounting.py": 1,
+      "tests/test_row753_a_run_records_its_own_outcome.py": 1,
       "tests/test_row777_retry_ladder.py": 1,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
@@ -449,6 +450,17 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row753_a_run_records_its_own_outcome.py",
+      "line": 207,
+      "value": {
+        "passed": 3,
+        "failed": 2,
+        "skipped": 1
+      },
+      "gates_what": "test_the_recorded_counts_are_the_reporters_own_and_are_nonzero — EXACT COUNTS: the denominators clause 3 asks the record to carry."
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_row777_retry_ladder.py",
       "line": 90,
       "value": {
@@ -515,7 +527,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1525",
+      "value": "3.66.1526",
       "gates_what": "test_containment_routes_and_version"
     },
     {

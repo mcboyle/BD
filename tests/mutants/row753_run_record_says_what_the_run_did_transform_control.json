@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 753 clause 3: M1 applied against the one test in the gate that imports the recorder without asserting what it records. It MUST ESCAPE, proving the CAUGHT verdicts in row753_run_record_says_what_the_run_did.json are assertion failures rather than a module that stopped importing.",
+  "subject": "transform control for the run record's command field",
+  "band": [
+    "tests/test_row753_a_run_records_its_own_outcome.py::test_row753_transform_control_import_only"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL the recorded command is emptied, outside any asserted path",
+      "file": "tests/_run_context.py",
+      "old_regex": "(?m)(?<=^        \"command\": )(?=list\\(sys\\.argv\\),$)",
+      "new": "[] and ",
+      "direction": "regression",
+      "catcher": "tests/test_row753_a_run_records_its_own_outcome.py::test_row753_transform_control_import_only"
+    }
+  ]
+}
