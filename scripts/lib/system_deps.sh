@@ -383,6 +383,12 @@ bd_playwright_engines() {
 
 # bd_start_display [display] -> echoes the usable DISPLAY value on stdout.
 #
+# When BD_STARTED_DISPLAY_PID_FILE names a caller-created writable file, a
+# successful NEW server also records "<display> <Xvfb-pid>" there.  Existing
+# servers deliberately produce no receipt: their lifecycle belongs to whoever
+# started them.  A file is used because every consumer captures stdout in $( )
+# and an exported variable would be lost with that subshell.
+#
 # Idempotent by contract: if an X server already owns the display, this does NOT
 # start a second one and does NOT fail - it echoes the display and returns 0.
 # Returns non-zero (with a reason on stderr) when no display can be provided.
@@ -402,10 +408,12 @@ bd_start_display() {
         disp="$1"
     fi
 
-    local num tries comm
+    local num tries comm started_pid_file started_pid pidfile
     local sink="/dev/null"
     local errlog=""
     local xvfb_pid=""
+    local started_pid_file="${BD_STARTED_DISPLAY_PID_FILE:-}"
+    local started_pid=""
     local inherited_close_fd=""
 
     # Accept ":99" and "99" alike - the two spellings would otherwise pick
@@ -454,6 +462,12 @@ bd_start_display() {
     if [ -n "$errlog" ]; then
         sink="$errlog"
     fi
+    pidfile="$(mktemp "${TMPDIR:-/tmp}/bd-xvfb-pid-${num}-XXXXXX" 2>/dev/null)" || pidfile=""
+    if [ -z "$pidfile" ]; then
+        printf 'bd_start_display: UNKNOWN - cannot create an ownership receipt for %s\n' "$disp" >&2
+        rm -f "$errlog"
+        return 1
+    fi
 
     # setsid detaches the server from this shell's process group so a Ctrl-C or
     # a SIGHUP at the end of the provisioning run does not take the display with
@@ -466,20 +480,21 @@ bd_start_display() {
             ;;
         *) inherited_close_fd="$BD_HEARTBEAT_CLOSE_FD" ;;
     esac
-    if [ -n "$inherited_close_fd" ]; then
-        if command -v setsid >/dev/null 2>&1; then
-            setsid bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
-                bd-close-fd-exec "$inherited_close_fd" \
-                Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
-        else
-            bash -c 'fd=$1; shift; exec {fd}>&-; exec "$@"' \
-                bd-close-fd-exec "$inherited_close_fd" \
-                Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
-        fi
-    elif command -v setsid >/dev/null 2>&1; then
-        setsid Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
+    # The small bash wrapper publishes its own pid immediately before exec.
+    # That pid becomes Xvfb's pid even when setsid forks, unlike the parent's
+    # $!, which can name the short-lived setsid process.
+    if command -v setsid >/dev/null 2>&1; then
+        setsid bash -c 'pidfile=$1; fd=$2; shift 2
+            if [ -n "$fd" ]; then exec {fd}>&-; fi
+            printf "%s\n" "$$" > "$pidfile"
+            exec "$@"' bd-start-display-exec "$pidfile" "$inherited_close_fd" \
+            Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
     else
-        Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
+        bash -c 'pidfile=$1; fd=$2; shift 2
+            if [ -n "$fd" ]; then exec {fd}>&-; fi
+            printf "%s\n" "$$" > "$pidfile"
+            exec "$@"' bd-start-display-exec "$pidfile" "$inherited_close_fd" \
+            Xvfb "$disp" -screen 0 1024x768x24 </dev/null >"$sink" 2>&1 &
     fi
     xvfb_pid="$!"
 
@@ -489,8 +504,17 @@ bd_start_display() {
     tries=0
     while [ "$tries" -lt 20 ]; do
         if _bd_display_active "$disp"; then
+            if [ -r "$pidfile" ]; then
+                read -r started_pid < "$pidfile" || started_pid=""
+            fi
+            if [ -n "$started_pid" ] && [ -r "/proc/$started_pid/comm" ]; then
+                read -r comm < "/proc/$started_pid/comm" 2>/dev/null || comm=""
+                if [ "$comm" = "Xvfb" ] && [ -n "$started_pid_file" ]; then
+                    printf '%s %s\n' "$disp" "$started_pid" > "$started_pid_file"
+                fi
+            fi
             printf '%s\n' "$disp"
-            rm -f "$errlog"
+            rm -f "$errlog" "$pidfile"
             return 0
         fi
         sleep 0.25
@@ -505,8 +529,17 @@ bd_start_display() {
     # usable display, not for a process it owns, so ask once more before
     # reporting a failure that is not one.
     if _bd_display_active "$disp"; then
+        if [ -r "$pidfile" ]; then
+            read -r started_pid < "$pidfile" || started_pid=""
+        fi
+        if [ -n "$started_pid" ] && [ -r "/proc/$started_pid/comm" ]; then
+            read -r comm < "/proc/$started_pid/comm" 2>/dev/null || comm=""
+            if [ "$comm" = "Xvfb" ] && [ -n "$started_pid_file" ]; then
+                printf '%s %s\n' "$disp" "$started_pid" > "$started_pid_file"
+            fi
+        fi
         printf '%s\n' "$disp"
-        rm -f "$errlog"
+        rm -f "$errlog" "$pidfile"
         return 0
     fi
 
@@ -548,7 +581,7 @@ bd_start_display() {
             "$num" >&2
     fi
 
-    rm -f "$errlog"
+    rm -f "$errlog" "$pidfile"
     return 1
 }
 

@@ -707,10 +707,28 @@ release_capture_singleton() {
 # teardown is reached: a second `trap ... EXIT` further down would REPLACE
 # this one rather than add to it. cleanup_live_seed is defined much later, so
 # it is called only once it exists -- an interrupt before that point has no
-# seed state to remove, but may well have a drop-in to clear. Ordering is
+# seed state to remove, but may well have a drop-in to clear.
+capture_owned_pid_is_valid() {
+  [[ "${1:-}" =~ ^[0-9]*[1-9][0-9]*$ ]]
+}
+
 # load-bearing: the seed teardown talks to the app over HTTP, and
 # cleanup_capture_vault restarts the service, so the seed half must go first.
 cleanup_all() {
+  if [ -n "${CAPTURE_DISPLAY_PID_FILE:-}" ] && [ -r "$CAPTURE_DISPLAY_PID_FILE" ]; then
+    read -r _cap_owned_display _cap_owned_pid < "$CAPTURE_DISPLAY_PID_FILE" || true
+    if [[ "${_cap_owned_display:-}" =~ ^:[0-9]+$ ]] \
+      && capture_owned_pid_is_valid "${_cap_owned_pid:-}" \
+      && [ -r "/proc/$_cap_owned_pid/comm" ]; then
+      read -r _cap_owned_comm < "/proc/$_cap_owned_pid/comm" || _cap_owned_comm=""
+      if [ "$_cap_owned_comm" = "Xvfb" ] \
+        && tr '\0' '\n' < "/proc/$_cap_owned_pid/cmdline" 2>/dev/null | grep -Fx -- "$_cap_owned_display" >/dev/null; then
+        kill "$_cap_owned_pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$CAPTURE_DISPLAY_PID_FILE"
+    CAPTURE_DISPLAY_PID_FILE=""
+  fi
   if declare -F cleanup_live_seed >/dev/null 2>&1; then
     cleanup_live_seed
   fi
@@ -1619,7 +1637,8 @@ elif [ -r "$BD_HOME/scripts/lib/system_deps.sh" ]; then
   # shellcheck source=scripts/lib/system_deps.sh
   . "$BD_HOME/scripts/lib/system_deps.sh" 2>/dev/null || true
   if declare -F bd_start_display >/dev/null 2>&1; then
-    if _cap_display="$(bd_start_display :99 2>/tmp/bd_display.err)"; then
+    CAPTURE_DISPLAY_PID_FILE="$(mktemp "${TMPDIR:-/tmp}/bd-capture-display-XXXXXX")" || CAPTURE_DISPLAY_PID_FILE=""
+    if _cap_display="$(BD_STARTED_DISPLAY_PID_FILE="$CAPTURE_DISPLAY_PID_FILE" bd_start_display :99 2>/tmp/bd_display.err)"; then
       export DISPLAY="$_cap_display"
       echo "  DISPLAY=$DISPLAY (headed-browser checks can run)"
     else

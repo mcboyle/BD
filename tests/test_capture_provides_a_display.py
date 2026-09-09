@@ -35,6 +35,7 @@ from typing import Iterator
 
 import pytest
 
+BD_GATE_SCOPE = "repo-wide"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CAPTURE_SH = REPO_ROOT / "capture.sh"
@@ -382,6 +383,178 @@ def test_bd_start_display_really_yields_a_usable_display():
             "bd_start_display returned success but no X socket exists -- it "
             "reported a display nothing is serving"
         )
+
+
+@pytest.mark.skipif(shutil.which("Xvfb") is None, reason="Xvfb not installed")
+def test_bd_start_display_publishes_the_actual_started_xvfb_pid(tmp_path):
+    """A successful new server must leave an ownership handle for its caller.
+
+    The pid is written through a caller-provided file rather than exported:
+    every real caller captures ``bd_start_display`` in ``$(...)``, so an export
+    would disappear with that subshell.  The receipt is checked against both
+    the process identity and the display argument; a bare ``$!`` can name the
+    setsid wrapper instead of the Xvfb process.
+    """
+    real_xvfb = shutil.which("Xvfb")
+    assert real_xvfb is not None
+    claim = _claim_unused_display()
+    receipt = tmp_path / "started-xvfb.pid"
+    pidfd = -1
+    try:
+        script = (
+            f'cd "{REPO_ROOT}"; . scripts/lib/system_deps.sh; '
+            f'BD_STARTED_DISPLAY_PID_FILE="{receipt}" '
+            f"bd_start_display :{claim.number}"
+        )
+        result = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, timeout=60
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == f":{claim.number}\n", result.stdout
+        fields = receipt.read_text(encoding="ascii").split()
+        assert len(fields) == 2 and fields[0] == f":{claim.number}", fields
+        assert fields[1].isdigit() and int(fields[1]) > 1, fields
+        pid = int(fields[1])
+        pidfd = os.pidfd_open(pid, 0)
+        assert Path(f"/proc/{pid}/comm").read_text(encoding="ascii").strip() == "Xvfb"
+        assert f":{claim.number}".encode("ascii") in Path(
+            f"/proc/{pid}/cmdline"
+        ).read_bytes().split(b"\0")
+    finally:
+        if pidfd >= 0:
+            signal.pidfd_send_signal(pidfd, signal.SIGTERM)
+            poller = select.poll()
+            poller.register(pidfd, select.POLLIN)
+            assert poller.poll(5000), "started Xvfb did not exit during test cleanup"
+            os.close(pidfd)
+        _release_display_claim(claim)
+
+
+def test_capture_exit_cleanup_uses_the_helper_ownership_receipt():
+    """The aggregate EXIT trap must own and reap only its helper-started Xvfb.
+
+    This guards both halves of the handoff: capture supplies a receipt path to
+    the helper before its command substitution, and its one aggregate cleanup
+    consumes that receipt.  An already-running :99 never creates a receipt,
+    so it cannot be selected for cleanup.
+    """
+    code = _strip_comments(_capture_source())
+    cleanup_start = code.find("cleanup_all()")
+    cleanup_end = code.find("trap cleanup_all EXIT", cleanup_start)
+    assert cleanup_start != -1 and cleanup_end != -1, "capture EXIT cleanup is missing"
+    cleanup = code[cleanup_start:cleanup_end]
+    display_start = code.find("bd_start_display")
+    display_end = code.find('phase_end "5b/9"', display_start)
+    display = code[display_start:display_end]
+    assert "BD_STARTED_DISPLAY_PID_FILE" in display, (
+        "capture calls bd_start_display in a command substitution but supplies "
+        "no durable ownership receipt path"
+    )
+    assert "CAPTURE_DISPLAY_PID_FILE" in cleanup, (
+        "capture's aggregate EXIT cleanup never consumes the display receipt; "
+        "a helper-started Xvfb can outlive the capture"
+    )
+
+
+def test_capture_owned_pid_guard_accepts_one_prefixed_positive_pid():
+    """The cleanup guard must treat a PID as a number, not its first digit.
+
+    Replacing the numeric check with ``^[2-9]`` makes this fail: ``1001`` is
+    a valid positive PID but is rejected before cleanup can inspect /proc.
+    Empty and zero remain invalid so the kill path cannot receive its default.
+    """
+    code = _strip_comments(_capture_source())
+    match = re.search(
+        r"(capture_owned_pid_is_valid\(\)\s*\{.*?^\})", code, re.M | re.S
+    )
+    assert match is not None, "cleanup has no numeric owned-PID guard helper"
+    script = (
+        "set -eu\n"
+        + match.group(1)
+        + "\ncapture_owned_pid_is_valid 1001\n"
+        + "if capture_owned_pid_is_valid ''; then exit 31; fi\n"
+        + "if capture_owned_pid_is_valid 0; then exit 32; fi\n"
+    )
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(shutil.which("Xvfb") is None, reason="Xvfb not installed")
+@pytest.mark.parametrize("case", ["normal", "late_ready", "preexisting"])
+def test_capture_exit_reaps_only_its_owned_display(tmp_path, case):
+    """Missing either success receipt or the EXIT kill leaks our exact server.
+
+    A pre-existing server must survive the same production cleanup. The test's
+    independent spawn receipt and pidfd recover only its own server on failure.
+    """
+    functions = []
+    for name in ("capture_owned_pid_is_valid", "cleanup_all"):
+        matches = re.findall(r"^" + name + r"\(\) \{.*?^\}", _capture_source(), re.M | re.S)
+        assert len(matches) == 1, (name, len(matches))
+        functions.append(matches[0])
+    cleanup = "\n".join(functions) + """
+cleanup_capture_instance() { :; }
+cleanup_capture_vault() { :; }
+release_capture_singleton() { :; }
+bd_capture_release_ports() { :; }
+trap cleanup_all EXIT
+"""
+    claim = _claim_unused_display()
+    independent_receipt = tmp_path / "spawn.receipt"
+    owned = None
+    wrapper = tmp_path / "Xvfb"
+    _write_xvfb_wrapper(wrapper, shutil.which("Xvfb"))
+    wrapper.write_text(wrapper.read_text().replace(
+        "set -eu\n", 'set -eu\nprintf "%s\\n" "$$" >> "$ROW694_SPAWN_LOG"\n', 1))
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}",
+               ROW300_XVFB_RECEIPT=str(independent_receipt), TMPDIR=str(tmp_path),
+               ROW694_SPAWN_LOG=str(tmp_path / "spawns.log"))
+    env.pop("BD_STARTED_DISPLAY_PID_FILE", None)
+    shell = f". {shlex.quote(str(FRAGMENT))}\n"
+    if case == "late_ready":
+        shell += """attempts=0
+_bd_display_active() {
+  attempts=$((attempts+1))
+  if [ "$attempts" -le 21 ]; then return 1; fi
+  xdpyinfo -display "$1" >/dev/null 2>&1
+}
+"""
+    if case == "preexisting":
+        shell += f'first="$(bd_start_display :{claim.number})" || exit 71\n'
+    startup = re.findall(
+        r'^    CAPTURE_DISPLAY_PID_FILE="\$\(mktemp .*?^    rm -f /tmp/bd_display.err$',
+        _capture_source(), re.M | re.S)
+    assert len(startup) == 1, "capture display startup block is missing or ambiguous"
+    shell += startup[0].replace(
+        "bd_start_display :99", f"bd_start_display :{claim.number}").replace(
+        "/tmp/bd_display.err", str(tmp_path / "display.err"))
+    receipt_path = tmp_path / "capture-receipt-path"
+    shell += f'\nprintf "%s\\n" "$CAPTURE_DISPLAY_PID_FILE" > {shlex.quote(str(receipt_path))}\n'
+    try:
+        launched = subprocess.run(["bash", "-c", shell], env=env,
+                                  capture_output=True, text=True, timeout=20)
+        assert launched.returncode == 0, launched.stderr
+        owned = _identity_from_receipt(independent_receipt, claim.number)
+        assert (tmp_path / "spawns.log").read_text().splitlines() == [str(owned.pid)]
+        assert _owned_process_alive(owned)
+        receipt = Path(receipt_path.read_text().strip())
+        expected = [] if case == "preexisting" else [f":{claim.number}", str(owned.pid)]
+        assert receipt.read_text().split() == expected
+        cleaned = subprocess.run(
+            ["bash", "-c", cleanup + f"\nCAPTURE_DISPLAY_PID_FILE={shlex.quote(str(receipt))}\n"],
+            env=env, capture_output=True, text=True, timeout=10)
+        assert cleaned.returncode == 0, cleaned.stderr
+        poller = select.poll()
+        poller.register(owned.pidfd, select.POLLIN)
+        exited = bool(poller.poll(100 if case == "preexisting" else 5000))
+        assert exited == (case != "preexisting")
+        assert _owned_process_alive(owned) == (case == "preexisting")
+    finally:
+        if owned is None and independent_receipt.exists():
+            owned = _identity_from_receipt(independent_receipt, claim.number)
+        if owned is not None:
+            _terminate_owned_display(owned)
+        _release_display_claim(claim)
 
 
 def test_the_fragment_is_the_only_place_that_launches_xvfb():

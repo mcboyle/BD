@@ -505,6 +505,7 @@ _DECLARED = {
     # foreign-process race, proves the atomic claim, and verifies exact owned
     # teardown on every PR independently of which test files a diff touches.
     "tests/test_row300_parallel_display_cleanup_owns_process.py",
+    "tests/test_capture_provides_a_display.py",
     # F31. This gate measures every child-test launch that used to forward an
     # operator BD_INSTALL_DIR, drives a real nested bd-band against a
     # sacrificial database root, and proves the central autouse pop plus the
