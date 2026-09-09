@@ -95,7 +95,6 @@ tests/test_capture_model_golden.py
 tests/test_capture_multitab.py
 tests/test_capture_path_redos.py
 tests/test_capture_pick_api.py
-tests/test_capture_provides_a_display.py
 tests/test_capture_redact_deep_dom.py
 tests/test_capture_redact_nested.py
 tests/test_capture_reports_the_seed_failure_reason.py

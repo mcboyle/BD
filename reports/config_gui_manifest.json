@@ -518,6 +518,7 @@
     "BD_CAPTURE_SIGNAL_REEXEC": "display-only",
     "BD_CAPTURE_APP_DIR": "display-only",
     "BD_CAPTURE_INSTANCE": "display-only",
-    "BD_CAPTURE_PYTHON": "display-only"
+    "BD_CAPTURE_PYTHON": "display-only",
+    "BD_STARTED_DISPLAY_PID_FILE": "display-only"
   }
 }
