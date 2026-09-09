@@ -1302,3 +1302,13 @@ def test_a_self_refusal_is_not_counted_as_a_site_failure(monkeypatch, tmp_path):
         f"{per_site['row667-cluster-rejected']}")
     assert clusters["total_failures"] == 3, (
         f"expected 3 site failures across both drives; got {clusters}")
+    assert per_site["row667-cluster-refused"]["auto_relogin_refused"] == 1, (
+        "the cap refusal is excluded from the failure rate but invisible to "
+        f"the cockpit payload: {per_site['row667-cluster-refused']}")
+    assert per_site["row667-cluster-rejected"].get("auto_relogin_refused", 0) == 0
+    site_health = importlib.import_module("bulk_downloader.app_data_layer")
+    payload = site_health.collect_site_health(lookback_days=1)
+    refused_payload = next(
+        site for site in payload["sites"]
+        if site["site_id"] == "row667-cluster-refused")
+    assert refused_payload["auto_relogin_refused"] == 1, refused_payload

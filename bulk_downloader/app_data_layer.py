@@ -499,6 +499,7 @@ def collect_site_health(lookback_days=7):
             "color": color,
             "failures": failures,
             "successes": successes,
+            "auto_relogin_refused": int(ps.get("auto_relogin_refused", 0)),
             "fail_rate": fail_rate,
             "by_type": ps.get("by_type", {}),
             "median_lifetime_sec": median_lifetime,
