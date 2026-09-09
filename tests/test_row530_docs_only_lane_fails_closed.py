@@ -112,6 +112,12 @@ def _git(cwd, *args, check=True):
     return result.stdout
 
 
+def _worktree_paths(porcelain):
+    """Exact, canonical paths from NUL-delimited Git porcelain records."""
+    return {Path(record.removeprefix("worktree ")).resolve()
+            for record in porcelain.split("\0") if record.startswith("worktree ")}
+
+
 def _classify(repo, base, head):
     result = _run([_python(), str(TOOL), "classify", "--repo", str(repo),
                    "--base", base, "--head", head, "--json"])
@@ -138,6 +144,17 @@ def _tracked():
     return paths
 
 
+def test_worktree_registry_paths_are_exact_not_prefixes():
+    candidate = Path("/tmp/row530/candidate")
+    shadow = Path("/tmp/row530/candidate-shadow")
+    records = "worktree %s\0HEAD deadbeef\0\0worktree %s\0HEAD deadbeef\0" % (shadow, shadow)
+    paths = _worktree_paths(records)
+    assert candidate not in paths, "candidate-shadow must not match candidate"
+    assert shadow in paths
+    assert Path("/tmp/row530/a path") in _worktree_paths(
+        "worktree /tmp/row530/a path\0HEAD deadbeef\0")
+
+
 @pytest.fixture(scope="module")
 def replayed():
     """One disposable exact-HEAD worktree carrying a passing docs-only candidate
@@ -150,11 +167,39 @@ def replayed():
     """
     if not TOOL.is_file():
         pytest.fail("bd-docs-only is absent; this gate's subject does not exist")
-    root = Path(tempfile.mkdtemp(prefix="bd-row530-"))
+    root = Path(tempfile.mkdtemp(prefix="bd-row530-")).resolve()
+    fixture_clone = root / "fixture-clone"
     checkout = root / "candidate"
-    _git(REPO, "worktree", "add", "--quiet", "--detach", str(checkout), "HEAD")
+    source_head = _git(REPO, "rev-parse", "HEAD").strip()
+    cloned = _run(["git", "clone", "--shared", "--no-checkout", str(REPO),
+                   str(fixture_clone)], cwd=root, timeout=_GIT_BUDGET_S)
+    assert cloned.returncode == 0, "the private fixture clone could not be made: %s" % cloned.stderr
+    assert _git(fixture_clone, "cat-file", "-e", source_head + "^{commit}") == ""
+    _git(fixture_clone, "worktree", "add", "--quiet", "--detach", str(checkout), source_head)
     try:
+        live_common = _git(REPO, "rev-parse", "--path-format=absolute",
+                           "--git-common-dir").strip()
+        fixture_common = _git(checkout, "rev-parse", "--path-format=absolute",
+                              "--git-common-dir").strip()
+        assert fixture_common != live_common, (
+            "the fixture checkout registered in REPO's live Git common store")
+        fixture_common_path = Path(fixture_common).resolve()
+        candidate_path = checkout.resolve()
+        assert fixture_common_path == (fixture_clone / ".git").resolve(), (
+            "the fixture checkout common store is not its private clone: %s" % fixture_common)
+        assert fixture_common_path.is_relative_to(root), (
+            "the fixture checkout common store escaped its private root: %s" % fixture_common)
+        assert candidate_path not in _worktree_paths(
+            _git(REPO, "worktree", "list", "--porcelain", "-z")), (
+            "the live worktree registry contains the fixture checkout")
+        assert candidate_path in _worktree_paths(
+            _git(fixture_clone, "worktree", "list", "--porcelain", "-z")), (
+            "the private clone registry does not contain its fixture checkout")
         base = _git(checkout, "rev-parse", "HEAD").strip()
+        assert base == source_head, "the fixture base is not REPO's pinned HEAD object"
+        assert _git(checkout, "rev-parse", "HEAD^{tree}").strip() == \
+            _git(fixture_clone, "rev-parse", source_head + "^{tree}").strip(), (
+                "the fixture base tree is not its pinned HEAD tree")
         venv = REPO / "venv"
         if venv.is_dir() and not (checkout / "venv").exists():
             os.symlink(str(venv), str(checkout / "venv"))
@@ -203,7 +248,7 @@ def replayed():
         _git(checkout, "checkout", "-q", good)
         yield {"repo": checkout, "base": base, "good": good, "heads": heads}
     finally:
-        _run(["git", "-C", str(REPO), "worktree", "remove", "--force", "--", str(checkout)])
+        _run(["git", "-C", str(fixture_clone), "worktree", "remove", "--", str(checkout)])
         shutil.rmtree(root, ignore_errors=True)
 
 

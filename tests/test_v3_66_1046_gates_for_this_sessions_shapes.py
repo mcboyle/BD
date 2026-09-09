@@ -26,6 +26,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -402,12 +403,22 @@ def test_bd_jobs_diff_does_not_trust_a_log_outside_the_registry(tmp_path):
 # Full chain: fleet-run-artifacts/2026-08-24/xdist-wedge/FINDING.md, and the
 # xdist side is written up in upstream/xdist-drain-livelock/README.md.
 #
-# MEASURED per suite, one subprocess each, idle test5, v3.66.1218:
+# Measured 2026-09-09 on fresh-1 (10.0.70.149), isolated repository-venv
+# subprocesses; values are math.ceil of process wall seconds in MEASUREMENT.md.
 _SUITE_BASELINE_S = {
-    "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 168,   # 51 tests
-    "tests/test_v3_66_1040_remote_job_registry.py": 50,            # 364 tests
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 196,   # 55 tests
+    "tests/test_v3_66_1040_remote_job_registry.py": 37,            # 375 tests
     "tests/test_v3_66_1044_run_context_and_chains.py": 2,          # 11 tests
-    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 7,  # 6
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 5,  # 6
+}
+
+# Measured 2026-09-09 on fresh-1 (10.0.70.149), repository venv with isolated
+# state: collections 55/375/13/6; runs 55/375/11/6, including two 1044 skips.
+_SUITE_BASELINE_COUNTS = {
+    "tests/test_v3_66_1043_measurement_and_fleet_tools.py": 55,
+    "tests/test_v3_66_1040_remote_job_registry.py": 375,
+    "tests/test_v3_66_1044_run_context_and_chains.py": 13,
+    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py": 6,
 }
 
 # One suite per physical file is the scheduling contract.  Capture's parallel
@@ -643,19 +654,14 @@ def test_every_suite_budget_is_below_the_bound_that_governs_it():
 
 
 def test_no_suite_budget_can_fire_on_healthy_work():
-    """OVER-SENSITIVITY CONTROL. A bound low enough to fire on a correct run is
-    a soundness bug, not a safe default (CLAUDE.md A5), and it is the failure
-    row 230 names explicitly: "do NOT simply raise the numbers" cuts both ways.
+    """A changed collected population invalidates its recorded timing evidence.
 
-    Every budget must clear its MEASURED baseline by a real margin, so the only
-    way to make one fire is for the suite to become genuinely slower or hang.
+    Comparing a derived budget to its own stored baseline cannot detect drift.
+    Collect the real items instead. Equal-count runtime regressions remain
+    subject to the existing timeout and elapsed-time checks in the runner.
     """
-    for suite, baseline in _SUITE_BASELINE_S.items():
-        inner = _inner_budget_s(suite)
-        assert inner >= baseline * 1.5, (
-            "%s: budget %ds is under 1.5x its measured baseline %ds, so "
-            "ordinary contention would fail a correct suite"
-            % (suite, inner, baseline))
+    for suite in _SUITE_BASELINE_S:
+        _check_tool_state_population(suite)
     assert _CONTENTION_FACTOR > 1.1, (
         "the 2026-08-24 wedge needed only a 1.09x stretch (221s against a 240s "
         "bound), so a contention factor at or below that reproduces it")
@@ -691,7 +697,136 @@ def _tool_state_shard_timeout(shard_path):
 
 
 def _run_tool_state_shard(shard_path):
-    _run_tool_state_suite(_suite_for_tool_state_shard(shard_path))
+    suite = _suite_for_tool_state_shard(shard_path)
+    _check_tool_state_population(suite)
+    _run_tool_state_suite(suite)
+
+
+def _check_tool_state_population(suite):
+    """Collect the actual items before spending the suite's measured budget."""
+    assert set(_SUITE_BASELINE_COUNTS) == set(_SUITE_BASELINE_S), (
+        "COLLECTION-UNKNOWN: timing and recorded population keys differ")
+    recorded = _SUITE_BASELINE_COUNTS[suite]
+    assert isinstance(recorded, int) and recorded > 0, (
+        "COLLECTION-UNKNOWN: recorded population must be positive")
+    env = {key: value for key, value in os.environ.items() if key != "FORCE_COLOR"}
+    env.update(BD_DISABLE_KEEPALIVE="1", NO_COLOR="1", BD_NESTED_PYTEST="1",
+               LC_ALL="C.UTF-8")
+    # Collection shares the existing reserve with setup/teardown. Neither the
+    # execution budget nor its governing item timeout is enlarged.
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", suite, "--collect-only", "-q",
+             "--color=no", "-p", "no:randomly"],
+            capture_output=True, text=True, cwd=str(_REPO), env=env,
+            timeout=_ITEM_RESERVE_S / 2)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AssertionError("COLLECTION-UNKNOWN: %s: %s" % (suite, exc)) from exc
+    body = result.stdout + result.stderr
+    counts = re.findall(r"(?m)^(\d+) tests? collected(?: in [\d.]+s)?$", body)
+    assert result.returncode == 0 and len(counts) == 1 and int(counts[0]) > 0, (
+        "COLLECTION-UNKNOWN: %s rc=%s; no single positive collected population. "
+        "Log: %s" % (suite, result.returncode, _persist_inner_log(suite, body)))
+    collected = int(counts[0])
+    assert collected == recorded, (
+        "STALE-BASELINE: %s recorded=%d collected=%d. Re-measure this population "
+        "on a quiet host with load recorded; do not change the count or timing "
+        "to clear the gate." % (suite, recorded, collected))
+
+
+def _population_fixture(tmp_path, monkeypatch, count):
+    suite = _A_SUITE
+    subject = tmp_path / suite
+    subject.parent.mkdir()
+    subject.write_text(
+        "import pytest\n"
+        "@pytest.mark.parametrize('item', range(%d))\n"
+        "def test_item(item):\n"
+        "    raise AssertionError('collection must not execute test bodies')\n"
+        % count, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "_REPO", tmp_path)
+    executed = []
+    monkeypatch.setattr(sys.modules[__name__], "_run_tool_state_suite",
+                        lambda name: executed.append(name))
+    return subject, executed
+
+
+@pytest.mark.parametrize("count", [5, 7])
+def test_tool_state_population_drift_refuses_before_execution(tmp_path, monkeypatch, count):
+    """Removing the count check must admit both a smaller and a larger suite."""
+    _, executed = _population_fixture(tmp_path, monkeypatch, count)
+    with pytest.raises(AssertionError, match="STALE-BASELINE.*recorded=6.*collected=%d" % count):
+        _run_tool_state_shard("test_v3_66_1046_tool_state_1054.py")
+    assert executed == []
+
+
+def test_tool_state_matching_nonzero_population_reaches_execution(tmp_path, monkeypatch):
+    _, executed = _population_fixture(tmp_path, monkeypatch, 6)
+    _run_tool_state_shard("test_v3_66_1046_tool_state_1054.py")
+    assert executed == [_A_SUITE]
+
+
+def test_tool_state_failed_collection_is_unknown_before_execution(tmp_path, monkeypatch):
+    subject, executed = _population_fixture(tmp_path, monkeypatch, 6)
+    subject.write_text("def invalid syntax\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="COLLECTION-UNKNOWN"):
+        _run_tool_state_shard("test_v3_66_1046_tool_state_1054.py")
+    assert executed == []
+
+
+def test_tool_state_empty_collection_is_unknown_before_execution(tmp_path, monkeypatch):
+    subject, executed = _population_fixture(tmp_path, monkeypatch, 6)
+    subject.write_text("# no tests\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="COLLECTION-UNKNOWN"):
+        _run_tool_state_shard("test_v3_66_1046_tool_state_1054.py")
+    assert executed == []
+
+
+def test_budget_soundness_control_itself_refuses_a_changed_population(tmp_path, monkeypatch):
+    _population_fixture(tmp_path, monkeypatch, 7)
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_BASELINE_S", {_A_SUITE: 7})
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_BASELINE_COUNTS", {_A_SUITE: 6})
+    with pytest.raises(AssertionError, match="STALE-BASELINE.*recorded=6.*collected=7"):
+        test_no_suite_budget_can_fire_on_healthy_work()
+
+
+def test_floor_governed_runtime_baseline_still_refuses_a_slow_run(tmp_path, monkeypatch):
+    """A 60s subprocess floor must not hide a stale 7s runtime baseline."""
+    monkeypatch.setattr(sys.modules[__name__], "_REAL_STATE", (tmp_path / "state",))
+    monkeypatch.setattr(sys.modules[__name__], "_PER_RUN_STATE", tmp_path / "runs")
+    monkeypatch.setattr(sys.modules[__name__], "_REPO", pathlib.Path(__file__).resolve().parents[1])
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_BASELINE_S", {_A_SUITE: 7})
+    calls = []
+    run_dir = tmp_path / "runs" / "mine"
+    def complete(*args, **kwargs):
+        calls.append(kwargs)
+        run_dir.mkdir(parents=True)
+        return subprocess.CompletedProcess(args[0], 0, "1 passed\n1 worker chain(s): %s" % run_dir, "")
+    monkeypatch.setattr(subprocess, "run", complete)
+    ticks = iter((100.0, 115.0))
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    with pytest.raises(AssertionError, match="took 15.0s against a recorded baseline of 7s"):
+        _run_tool_state_suite(_A_SUITE)
+    assert calls[0]["timeout"] == 60
+
+
+def test_floor_governed_runtime_baseline_allows_an_honest_run(tmp_path, monkeypatch):
+    """A successful 13s run reaches the normal downstream success path."""
+    monkeypatch.setattr(sys.modules[__name__], "_REAL_STATE", (tmp_path / "state",))
+    monkeypatch.setattr(sys.modules[__name__], "_PER_RUN_STATE", tmp_path / "runs")
+    monkeypatch.setattr(sys.modules[__name__], "_REPO", pathlib.Path(__file__).resolve().parents[1])
+    monkeypatch.setattr(sys.modules[__name__], "_SUITE_BASELINE_S", {_A_SUITE: 7})
+    calls = []
+    run_dir = tmp_path / "runs" / "mine"
+    def complete(*args, **kwargs):
+        calls.append(kwargs)
+        run_dir.mkdir(parents=True)
+        return subprocess.CompletedProcess(args[0], 0, "1 passed\n1 worker chain(s): %s" % run_dir, "")
+    monkeypatch.setattr(subprocess, "run", complete)
+    ticks = iter((100.0, 113.0))
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    _run_tool_state_suite(_A_SUITE)
+    assert calls[0]["timeout"] == 60
 
 
 _TOOL_STATE_NO_WRITES = "REAL-TOOL-STATE: no entry attributable to this run"
