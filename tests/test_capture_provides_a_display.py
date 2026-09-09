@@ -176,7 +176,8 @@ def _terminate_owned_display(owned: _OwnedDisplayProcess) -> None:
     """Signal the non-reusable pidfd, never a PID recovered from an X lock."""
     try:
         if _owned_process_alive(owned):
-            signal.pidfd_send_signal(owned.pidfd, signal.SIGTERM)
+            with contextlib.suppress(ProcessLookupError):
+                signal.pidfd_send_signal(owned.pidfd, signal.SIGTERM)
             poller = select.poll()
             poller.register(owned.pidfd, select.POLLIN)
             events = poller.poll(5000)
@@ -622,3 +623,25 @@ def test_shared_display_helper_rejects_malicious_close_fd_without_eval(tmp_path,
     pid = int(pid_file.read_text().strip())
     try: os.kill(pid, 0)
     finally: os.kill(pid, signal.SIGTERM)
+
+
+def test_owned_display_cleanup_handles_exit_before_signal(monkeypatch):
+    """A real pidfd can become unsignalable after the liveness observation."""
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import sys; sys.stdin.read()"],
+        stdin=subprocess.PIPE,
+    )
+    pidfd = os.pidfd_open(child.pid, 0)
+    owned = _OwnedDisplayProcess(0, child.pid, 0, pidfd)
+    try:
+        child.communicate(timeout=10)
+        observations = iter((True, False))
+        monkeypatch.setattr(
+            sys.modules[__name__], "_owned_process_alive",
+            lambda _owned: next(observations),
+        )
+        _terminate_owned_display(owned)
+        assert owned.pidfd == -1
+    finally:
+        if owned.pidfd >= 0:
+            os.close(owned.pidfd)
