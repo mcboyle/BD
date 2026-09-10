@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "row739 shape-return decision regressions",
+  "band": [
+    "tests/test_row667_login_attempt_accounting.py",
+    "tests/test_d3_u3_dashboard.py"
+  ],
+  "mutants": [
+    {
+      "label": "manual_unknown_fails_open",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^        if )not(?= _reservation\\[)",
+      "new": "_reservation[\"status\"] == \"OK\" and not",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_manual_login_unknown_reservation_refuses_before_browser"
+    },
+    {
+      "label": "manual_invalid_cap_defaults",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^            _daily_cap = )int(?=\\(_cap_raw\\))",
+      "new": "(lambda value: 3 if isinstance(value, str) and not value.isdigit() else int(value))",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_manual_login_invalid_cap_refuses_before_reservation_or_browser"
+    },
+    {
+      "label": "manual_default_cap_inflated",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^            _sk.LOGIN_CAP_KEY, )_sk\\.DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY",
+      "new": "100",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_default_auto_teach_manual_login_spends_daily_cap_before_browser"
+    },
+    {
+      "label": "manual_configured_cap_replaced_by_default",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?<=self.site_id, \"runner_auth.start_manual_login\", )_daily_cap",
+      "new": "_sk.DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_configured_manual_cap_bounds_browser_opens_before_default_cap"
+    },
+    {
+      "label": "dashboard_success_ok_false",
+      "file": "bulk_downloader/app_dashboard.py",
+      "old_regex": "(?m)(?<=^                    \"ok\": )ok(?=,)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_d3_u3_dashboard.py::test_d3_u3_captcha_resolve_propagates_manual_login_success"
+    }
+  ]
+}

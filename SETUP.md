@@ -242,9 +242,10 @@ that profile mid-copy. Watch for:
 ### Daily login attempt cap
 
 Every credential login BD makes against a site -- the background session keeper
-re-logging in on its own timer, and the Login button in the UI (and the same
-worker/scheduler path behind it) -- records one `login_attempt` row and spends
-one unit of the same per-site, per-local-day budget.
+re-logging in on its own timer, the Login button in the UI (and the same
+worker/scheduler path behind it), and a Manual Login browser (including the
+default first-run auto-teach route) -- records one `login_attempt` row and
+spends one unit of the same per-site, per-local-day budget.
 
 - The knob is the per-site config key `login_attempt_cap_per_day`.
 - It ships as `3`. It is not a knob you have to set; it is a knob you have to

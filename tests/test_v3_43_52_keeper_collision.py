@@ -21,6 +21,7 @@ its torn-down state on the next heartbeat and relaunches.
 """
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from unittest import mock
 
@@ -38,6 +39,17 @@ def _bd_runner_src():
     _pd = _P(_R.__file__).parent
     return "\n".join(q.read_text(encoding="utf-8")
                      for q in [_pd / "runner.py"] + sorted(_pd.glob("runner_*.py")))
+
+
+def _start_manual_login_src():
+    src = _bd_runner_src()
+    methods = [node for node in ast.walk(ast.parse(src))
+               if isinstance(node, ast.FunctionDef)
+               and node.name == "start_manual_login"]
+    assert len(methods) == 1, "expected one start_manual_login method"
+    body = ast.get_source_segment(src, methods[0])
+    assert body is not None
+    return body
 
 
 # ── pause_site_keepers helper ────────────────────────────────────
@@ -153,10 +165,7 @@ def test_verify_pauses_site_keepers():
 def test_manual_login_pauses_site_keepers():
     """Starting a manual takeover also conflicts with keeper
     Playwright contexts on the same profile."""
-    src = _bd_runner_src()
-    pos = src.find("def start_manual_login")
-    assert pos > 0
-    body = src[pos:pos + 3000]
+    body = _start_manual_login_src()
     pause_pos = body.find("pause_site_keepers")
     open_pos = body.find("open_manual_login_browser(")
     assert pause_pos > 0, "manual_login doesn't pause keepers"
@@ -181,9 +190,7 @@ def test_verify_continues_when_keeper_pause_raises():
 
 
 def test_manual_login_continues_when_keeper_pause_raises():
-    src = _bd_runner_src()
-    pos = src.find("def start_manual_login")
-    body = src[pos:pos + 3000]
+    body = _start_manual_login_src()
     pause_pos = body.find("pause_site_keepers")
     # Look for the surrounding try/except
     # Find the try BEFORE pause_pos
