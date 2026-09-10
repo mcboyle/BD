@@ -30,6 +30,11 @@ from capture_lanes import classify_capture_path
 
 pytest_plugins = ("_row_census_pin",)
 
+# Make sure the package is importable regardless of where pytest is invoked.
+# This must precede the row703 package preloads below.
+PKG_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PKG_ROOT))
+
 # IMPORTED FOR ITS PRESENCE IN sys.modules, NOT FOR ITS API -- do not remove as
 # "unused". `unittest.mock.patch.dict` restores sys.modules to the snapshot it
 # took on entry, so a module FIRST IMPORTED inside such a block is DELETED on
@@ -83,11 +88,6 @@ import bulk_downloader.provider_resolve_impl._common  # noqa: F401
 import encodings.idna  # noqa: F401
 import importlib.readers  # noqa: F401
 import stringprep  # noqa: F401
-
-# Make sure the package is importable regardless of where pytest is invoked
-PKG_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PKG_ROOT))
-
 
 def _canonicalize_package_children(package_name, modules=None):
     """Make direct package-child attributes agree with the module table.
