@@ -334,11 +334,11 @@ def api_dashboard_v2_resolve():
             # back to /api/sites/<sid>/manual_login — saves a request,
             # avoids CSRF re-check, identical effect.
             try:
-                runner.start_manual_login()
+                ok, detail = runner.start_manual_login()
                 return jsonify({
-                    "ok": True,
-                    "action": "manual_login_started",
-                    "detail": "Login window opened — solve the captcha there.",
+                    "ok": ok,
+                    "action": "manual_login_started" if ok else "manual_login_refused",
+                    "detail": "Login window opened — solve the captcha there." if ok else detail,
                 })
             except AttributeError:
                 # Older runner without start_manual_login — fall back to

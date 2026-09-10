@@ -519,6 +519,35 @@ class AuthMixin:
         if not login_url or not login_url.startswith("http"):
             return False, "Site has no valid login_url configured"
 
+        # Manual and automatic credential routes share one site/day budget.
+        try:
+            from . import session_keeper as _sk
+        except Exception as _e:
+            return False, (
+                "login accounting unavailable: session_keeper is not "
+                f"importable ({type(_e).__name__}: {_e})")
+        _cap_raw = self.config.get(
+            _sk.LOGIN_CAP_KEY, _sk.DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY)
+        try:
+            _daily_cap = int(_cap_raw)
+        except (TypeError, ValueError):
+            _daily_cap = None
+        if _daily_cap is None or _daily_cap < 1:
+            return False, (
+                "daily login attempt cap is invalid: "
+                f"{_sk.LOGIN_CAP_KEY}={_cap_raw!r}")
+        _reservation = _sk.reserve_login_attempt(
+            self.site_id, "runner_auth.start_manual_login", _daily_cap,
+            getattr(self, "_active_account_idx", None))
+        if not _reservation["granted"]:
+            return False, (
+                "daily login attempt cap unavailable: "
+                f"{_reservation['reason']}"
+                if _reservation["status"] != "OK" else
+                "daily login attempt cap reached "
+                f"({_reservation['count']}/{_daily_cap}); raise "
+                f"{_sk.LOGIN_CAP_KEY} for this site to log in again today")
+
         from .login import open_manual_login_browser
         # Phase 41.6: persistent profile for password manager extensions
         manual_profile = (self._manual_profile_dir()
@@ -531,7 +560,6 @@ class AuthMixin:
         # crashes with "Sync API inside asyncio loop" or browser
         # launch errors.
         try:
-            from . import session_keeper as _sk
             _sk.pause_site_keepers(self.site_id)  # INV-001
         except Exception as e:
             sys.stderr.write(f"  manual_login: keeper pause failed "

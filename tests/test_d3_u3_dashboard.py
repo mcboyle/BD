@@ -8,11 +8,13 @@ Covers:
 """
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 from pathlib import Path
 
 import pytest
+from flask import Flask
 
 
 
@@ -88,6 +90,69 @@ def test_d3_u3_resolve_returns_json():
         # 403 from CSRF returns JSON in this codebase per the global
         # CSRF hook contract. 400 from our handler is explicitly JSON.
         assert body is not None, f"non-JSON response: {r.data[:200]!r}"
+
+
+def test_d3_u3_captcha_resolve_returns_manual_login_cap_refusal(monkeypatch):
+    """A capped manual login must not be rendered as a browser launch."""
+    app_dashboard = importlib.import_module("bulk_downloader.app_dashboard")
+
+    cap_message = (
+        "daily login attempt cap reached (2/2); raise "
+        "login_attempt_cap_per_day for this site to log in again today"
+    )
+
+    class CappedRunner:
+        browser_opens = 0
+        calls = 0
+
+        def start_manual_login(self):
+            self.calls += 1
+            return False, cap_message
+
+    runner = CappedRunner()
+    monkeypatch.setattr(app_dashboard, "_app_runners", lambda: {"capped": runner})
+    app = Flask(__name__)
+    app.register_blueprint(app_dashboard.dashboard_bp)
+    response = app.test_client().post(
+        "/api/dashboard/v2/resolve",
+        json={"site_id": "capped", "kind": "captcha_pending"},
+    )
+
+    assert runner.calls == 1
+    assert runner.browser_opens == 0
+    assert response.get_json() == {
+        "ok": False,
+        "action": "manual_login_refused",
+        "detail": cap_message,
+    }
+
+
+def test_d3_u3_captcha_resolve_propagates_manual_login_success(monkeypatch):
+    """The dashboard must preserve a granted manual-login result."""
+    app_dashboard = importlib.import_module("bulk_downloader.app_dashboard")
+
+    class GrantedRunner:
+        calls = 0
+
+        def start_manual_login(self):
+            self.calls += 1
+            return True, "fixture browser opened"
+
+    runner = GrantedRunner()
+    monkeypatch.setattr(app_dashboard, "_app_runners", lambda: {"granted": runner})
+    app = Flask(__name__)
+    app.register_blueprint(app_dashboard.dashboard_bp)
+    response = app.test_client().post(
+        "/api/dashboard/v2/resolve",
+        json={"site_id": "granted", "kind": "captcha_pending"},
+    )
+
+    assert runner.calls == 1
+    assert response.get_json() == {
+        "ok": True,
+        "action": "manual_login_started",
+        "detail": "Login window opened — solve the captcha there.",
+    }
 
 
 # ── Frontend files ──────────────────────────────────────────────────────

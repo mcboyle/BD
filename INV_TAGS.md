@@ -10,9 +10,9 @@ authoritative; this file is only a deterministic locality view.
 - `bulk_downloader/runner.py:3323` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:3385` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:338` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:535` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:643` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:997` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:563` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:671` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1025` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/session_keeper.py:1376` — `def pause_site_keepers(site_id: str) -> int:  # INV-001`
 
 ## INV-002 — live source tags

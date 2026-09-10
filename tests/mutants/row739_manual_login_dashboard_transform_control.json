@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row739 transform control; behavior-preserving change must escape the recorded regression band.",
+  "control_spec": true,
+  "subject": "transform control for dashboard manual-login refusal propagation",
+  "band": [
+    "tests/test_d3_u3_dashboard.py::test_d3_u3_resolve_route_registered"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL dashboard detail mutation outside asserted path",
+      "file": "bulk_downloader/app_dashboard.py",
+      "old": "if ok else detail",
+      "new": "if True else detail",
+      "direction": "regression",
+      "catcher": "tests/test_d3_u3_dashboard.py::test_d3_u3_resolve_route_registered"
+    }
+  ]
+}

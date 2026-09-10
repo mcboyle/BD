@@ -948,6 +948,127 @@ def test_runner_login_reads_the_same_cap_it_spends(monkeypatch, tmp_path):
     assert keeper_contacts == [], "the refused keeper attempt contacted the site"
 
 
+def test_default_auto_teach_manual_login_spends_daily_cap_before_browser(
+        monkeypatch, tmp_path):
+    """The shipped default bounds manual attempts at three per site/day."""
+    db = importlib.import_module("bulk_downloader.db")
+    login = importlib.import_module("bulk_downloader.login")
+    runner_auth = importlib.import_module("bulk_downloader.runner_auth")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "row739-manual-cap.db"))
+    db.db_init()
+    opened = []
+    monkeypatch.setattr(login, "open_manual_login_browser",
+                        lambda config, **_kwargs: opened.append(config["login_url"]) or object())
+    statuses = []
+    for _ in range(4):
+        runner = _Runner(runner_auth.AuthMixin)
+        runner.config.update({"auto_teach_first_run": True,
+                              "manual_use_persistent_profile": False})
+        runner._start_owned_auxiliary_thread = lambda *_args: True
+        outcomes = []
+        runner.login_async(on_done=outcomes.append)
+        statuses.append((runner._login_status, outcomes))
+
+    assert "login_attempt_cap_per_day" not in runner.config
+    assert session_keeper.DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY == 3
+    assert opened == ["https://invalid.test/login"] * 3, (
+        "manual credential login opened a browser after its daily cap")
+    measured = session_keeper.login_attempts_for_day("row667-site")
+    assert measured["status"] == "OK" and measured["count"] == 3, measured
+    assert statuses[3] == (
+        "✗ daily login attempt cap reached (3/3); raise "
+        "login_attempt_cap_per_day for this site to log in again today", [False])
+
+
+def test_configured_manual_cap_bounds_browser_opens_before_default_cap(
+        monkeypatch, tmp_path):
+    """An explicit cap=2 still overrides the shipped default of three."""
+    db = importlib.import_module("bulk_downloader.db")
+    login = importlib.import_module("bulk_downloader.login")
+    runner_auth = importlib.import_module("bulk_downloader.runner_auth")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "row739-configured-cap.db"))
+    db.db_init()
+    opened = []
+    monkeypatch.setattr(login, "open_manual_login_browser",
+                        lambda config, **_kwargs: opened.append(config["login_url"]) or object())
+    outcomes = []
+    for _ in range(3):
+        runner = _Runner(runner_auth.AuthMixin)
+        runner.config.update({"login_attempt_cap_per_day": 2,
+                              "manual_use_persistent_profile": False})
+        runner._start_owned_auxiliary_thread = lambda *_args: True
+        outcomes.append(runner.start_manual_login())
+
+    assert opened == ["https://invalid.test/login"] * 2
+    measured = session_keeper.login_attempts_for_day("row667-site")
+    assert measured["status"] == "OK" and measured["count"] == 2, measured
+    assert outcomes[2] == (
+        False, "daily login attempt cap reached (2/2); raise "
+        "login_attempt_cap_per_day for this site to log in again today")
+
+
+def test_manual_login_unknown_reservation_refuses_before_browser(monkeypatch):
+    """UNKNOWN accounting is never permission to open a login browser."""
+    login = importlib.import_module("bulk_downloader.login")
+    runner_auth = importlib.import_module("bulk_downloader.runner_auth")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+    opened = []
+    monkeypatch.setattr(login, "open_manual_login_browser",
+                        lambda *_args, **_kwargs: opened.append(True))
+    monkeypatch.setattr(session_keeper, "reserve_login_attempt", lambda *_a, **_k: {
+        "granted": False, "status": "UNKNOWN", "count": None, "cap": 3,
+        "reason": "fixture accounting unavailable",
+    })
+
+    runner = _Runner(runner_auth.AuthMixin)
+    runner.config["manual_use_persistent_profile"] = False
+    runner._start_owned_auxiliary_thread = lambda *_args: True
+    assert runner.start_manual_login() == (
+        False, "daily login attempt cap unavailable: fixture accounting unavailable")
+    assert opened == []
+
+
+def test_manual_login_invalid_cap_refuses_before_reservation_or_browser(
+        monkeypatch, tmp_path):
+    """A malformed manual cap cannot silently become a permissive default."""
+    db = importlib.import_module("bulk_downloader.db")
+    login = importlib.import_module("bulk_downloader.login")
+    runner_auth = importlib.import_module("bulk_downloader.runner_auth")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "row739-invalid-cap.db"))
+    db.db_init()
+    opened = []
+    monkeypatch.setattr(login, "open_manual_login_browser",
+                        lambda *_args, **_kwargs: opened.append(True))
+    monkeypatch.setattr(session_keeper, "reserve_login_attempt",
+                        lambda *_a, **_k: pytest.fail("invalid cap reserved an attempt"))
+
+    runner = _Runner(runner_auth.AuthMixin)
+    runner.config["login_attempt_cap_per_day"] = "not-an-integer"
+    assert runner.start_manual_login() == (
+        False, "daily login attempt cap is invalid: "
+        "login_attempt_cap_per_day='not-an-integer'")
+    assert opened == []
+
+
+def test_manual_login_without_a_credential_route_does_not_spend_the_cap(
+        monkeypatch, tmp_path):
+    """Negative control: an invalid login URL cannot reserve a credential try."""
+    db = importlib.import_module("bulk_downloader.db")
+    runner_auth = importlib.import_module("bulk_downloader.runner_auth")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "row739-invalid-url.db"))
+    db.db_init()
+    runner = _Runner(runner_auth.AuthMixin)
+    runner.config["login_url"] = "not-a-login-url"
+    assert runner.start_manual_login() == (False, "Site has no valid login_url configured")
+    measured = session_keeper.login_attempts_for_day("row667-site")
+    assert measured["status"] == "OK" and measured["count"] == 0, measured
+
+
 def test_runner_refuses_when_reservation_write_makes_count_unknown(
         monkeypatch, tmp_path):
     db = importlib.import_module("bulk_downloader.db")
