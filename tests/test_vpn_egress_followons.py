@@ -91,15 +91,17 @@ def test_multi_conn_every_client_carries_proxy():
         f"{len(missing)} construction(s) omit it")
 
 
-def test_multi_conn_probe_threads_proxy_to_client():
-    """Behavioral: probe(url, proxy=X) hands proxy=X to the httpx.Client it builds."""
+def test_multi_conn_probe_threads_proxy_to_guarded_transport():
+    """Behavioral: probe delegates proxy=X through the guarded factory."""
     try:
         import httpx
     except Exception:
         return  # httpx unavailable in this band -> structural tests still cover it
-    from bulk_downloader import multi_conn
+    from bulk_downloader import multi_conn, ssrf_transport
 
     seen = {}
+    factory_calls = []
+    transport_marker = object()
 
     class _FakeResp:
         status_code = 200
@@ -125,8 +127,14 @@ def test_multi_conn_probe_threads_proxy_to_client():
             return _FakeClient()
 
     orig = httpx.Client
+    original_factory = ssrf_transport.guarded_transport
     httpx.Client = _FakeClient
     try:
+        def fake_guarded_transport(policy, **kwargs):
+            factory_calls.append((policy, kwargs))
+            return transport_marker
+
+        ssrf_transport.guarded_transport = fake_guarded_transport
         # public literal IP: passes the F-RUN03-02 SSRF host guard (no DNS,
         # classified global) so the proxy-threading path is exercised. A
         # non-resolvable hostname would now be refused before client build.
@@ -134,9 +142,13 @@ def test_multi_conn_probe_threads_proxy_to_client():
                          proxy="socks5://127.0.0.1:9050")
     finally:
         httpx.Client = orig
+        ssrf_transport.guarded_transport = original_factory
 
-    assert seen.get("proxy") == "socks5://127.0.0.1:9050", (
-        f"probe did not thread proxy into httpx.Client; saw {seen!r}")
+    assert seen.get("proxy") is None, (
+        "client-level proxy would mount a transport that bypasses the guard")
+    assert seen.get("transport") is transport_marker
+    assert factory_calls == [(
+        ssrf_transport.PUBLIC_ONLY, {"proxy": "socks5://127.0.0.1:9050"})]
 
 
 # ---- VPN-MULTICONN: runner gate + threading --------------------------------
@@ -191,11 +203,16 @@ def test_runner_controlplane_marked_three_sites():
 def test_manual_download_session_delegates_proxy_resolution_to_runner():
     """The standalone manual session must resolve its proxy via its owner."""
     import bulk_downloader
+    import pytest
     from bulk_downloader import runner_manual
+    from bulk_downloader import ssrf_transport
 
     proxy_sentinel = "socks5://manual-session-sentinel.invalid:1080"
     proxy_resolutions = []
     client_proxies = []
+    client_transports = []
+    factory_calls = []
+    transport_marker = object()
 
     class _FakeRunner:
         site_id = "manual-proxy-test"
@@ -236,6 +253,7 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     class _FakeClient:
         def __init__(self, *args, **kwargs):
             client_proxies.append(kwargs.get("proxy"))
+            client_transports.append(kwargs.get("transport"))
 
         def __enter__(self):
             return self
@@ -269,6 +287,7 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
         for name in fake_modules
     }
     original_client = runner_manual.httpx.Client
+    original_factory = ssrf_transport.guarded_transport
     response_q = queue.Queue()
     cancel_q = queue.Queue()
     session = object.__new__(runner_manual._ManualDownloadSession)
@@ -284,6 +303,25 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     session._cmd_q.put(("cancel", None, cancel_q))
 
     try:
+        # CI omits optional socksio.  A real SOCKS transport correctly refuses
+        # there; this unit fixture must observe the factory arguments instead
+        # of constructing that optional dependency.
+        saved_socksio = sys.modules.get("socksio", missing_import)
+        sys.modules["socksio"] = None
+        try:
+            with pytest.raises(ImportError, match="socksio"):
+                original_factory(
+                    ssrf_transport.PUBLIC_ONLY, proxy=proxy_sentinel)
+        finally:
+            if saved_socksio is missing_import:
+                sys.modules.pop("socksio", None)
+            else:
+                sys.modules["socksio"] = saved_socksio
+
+        def fake_guarded_transport(policy, **kwargs):
+            factory_calls.append((policy, kwargs))
+            return transport_marker
+
         # Simulate arbitrary import order: a previously imported app remains
         # cached on the package even when its sys.modules entry is replaced.
         bulk_downloader.app = types.SimpleNamespace(
@@ -291,10 +329,12 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
         sys.modules.update(fake_modules)
         for name, module in fake_modules.items():
             setattr(bulk_downloader, name.rsplit(".", 1)[1], module)
+        ssrf_transport.guarded_transport = fake_guarded_transport
         runner_manual.httpx.Client = _FakeClient
         session._run()
     finally:
         runner_manual.httpx.Client = original_client
+        ssrf_transport.guarded_transport = original_factory
         for name, module in saved_modules.items():
             if module is missing_import:
                 sys.modules.pop(name, None)
@@ -310,7 +350,12 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     response = response_q.get_nowait()
     assert response[0] == "ok", response
     assert proxy_resolutions == [proxy_sentinel]
-    assert client_proxies == [proxy_sentinel]
+    assert client_proxies == [None], (
+        "proxy belongs to the guarded transport; a client-level proxy would "
+        "mount its own transport and bypass the guard")
+    assert client_transports == [transport_marker]
+    assert factory_calls == [(
+        ssrf_transport.PUBLIC_ONLY, {"proxy": proxy_sentinel})]
 
 
 def test_manual_proxy_test_setup_failure_does_not_leak_import_state():

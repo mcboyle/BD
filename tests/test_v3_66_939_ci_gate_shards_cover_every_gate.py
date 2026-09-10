@@ -140,6 +140,23 @@ _DECLARED = {
     # Row 771. A comma-bearing post-login wall must clear through the declared
     # selector and generic safety paths without widening authority to decline.
     "tests/test_row771_interstitial_comma.py",
+    # Row 703. Every httpx client construction in the application package is
+    # pinned through the guarded transport; the population is derived from the
+    # tree by tools/ssrf_client_census.py, so the gate judges the whole package.
+    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_ssrf_transport_is_installed_everywhere.py
+    "tests/test_row703_ssrf_transport_is_installed_everywhere.py",
+    # Row 703 gate 1. Nine of those constructions also pass proxy=, and in httpx
+    # 0.28.1 a proxied client is served by its own mount -- the guarded transport
+    # is installed and INERT while the census still reports it pinned. The set is
+    # pinned here so a tenth is red; repo-wide because the population is the whole
+    # package.
+    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_a_proxy_shadows_the_guarded_transport.py
+    "tests/test_row703_a_proxy_shadows_the_guarded_transport.py",
+    # Row 703 gate 2. The PUBLIC_ONLY/PINNED choice at each of the 53 sites is
+    # asserted site by site, so a one-token flip -- which converts "refuses a
+    # hostname resolving to RFC1918" into "admits it" -- turns something red.
+    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
+    "tests/test_row703_the_site_to_policy_map_is_asserted.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py

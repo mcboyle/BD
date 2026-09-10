@@ -927,6 +927,7 @@ def _build_default_http_client(timeout: float = 5.0):
         import httpx
     except ImportError:
         return None
+    from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
     return httpx.Client(
         timeout=timeout,
         follow_redirects=True,
@@ -941,6 +942,12 @@ def _build_default_http_client(timeout: float = 5.0):
                 "BulkDownloader/3.66 deep_detect probe "
                 "(+offline static analysis with header sniffing)"),
         },
+        # limits= is applied by the transport once one is installed, so the
+        # pool bounds above are handed to the guarded transport as well.
+        transport=guarded_transport(
+            PUBLIC_ONLY,
+            limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
+        ),
     )
 
 

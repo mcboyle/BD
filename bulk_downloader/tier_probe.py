@@ -295,9 +295,11 @@ def probe_higher_tiers(
     error = ""
 
     try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
         with httpx.Client(timeout=timeout_s, follow_redirects=True,
                           cookies=cookies or None,
-                          event_hooks={"request": [_ssrf_guard_hook]}) as client:
+                          event_hooks={"request": [_ssrf_guard_hook]},
+                          transport=guarded_transport(PUBLIC_ONLY)) as client:
             for i, (tier, candidate) in enumerate(candidates):
                 if i >= max_attempts:
                     error = f"max_attempts={max_attempts}_exhausted"

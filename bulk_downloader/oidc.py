@@ -53,7 +53,8 @@ def discover(issuer: str) -> dict:
     if issuer in _DISCO_CACHE:
         return _DISCO_CACHE[issuer]
     import httpx
-    with httpx.Client(timeout=10) as c:
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+    with httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as c:
         r = c.get(issuer + "/.well-known/openid-configuration")
         r.raise_for_status()
         doc = r.json()
@@ -92,7 +93,8 @@ def exchange_code(code: str, *, disco: Optional[dict] = None) -> dict:
     if not ep:
         raise ValueError("provider has no token_endpoint")
     import httpx
-    with httpx.Client(timeout=10) as c:
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+    with httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as c:
         r = c.post(ep, data={
             "grant_type": "authorization_code",
             "code": code,
@@ -118,7 +120,8 @@ def verify_id_token(id_token: str, *, nonce: Optional[str] = None,
     jwks_uri = disco.get("jwks_uri")
     if not jwks_uri:
         raise ValueError("provider has no jwks_uri")
-    with httpx.Client(timeout=10) as c:
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+    with httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as c:
         jwks = c.get(jwks_uri).json()
     claims = _jwt.decode(id_token, jwks)
     claims.validate()  # exp / iat / nbf

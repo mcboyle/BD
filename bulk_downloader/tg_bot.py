@@ -158,7 +158,9 @@ def _http_get_json(url: str, timeout_s: float = _DIRECT_API_TIMEOUT_S) -> Option
         return None
     try:
         import httpx
-        r = httpx.get(url, timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.get(url)
         if r.status_code != 200:
             log.debug("tg_bot: GET %s -> %d", url[:60], r.status_code)
             return None
@@ -179,7 +181,9 @@ def _http_post_json(url: str, payload: dict,
         return None
     try:
         import httpx
-        r = httpx.post(url, json=payload, timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.post(url, json=payload)
         if r.status_code != 200:
             log.debug("tg_bot: POST %s -> %d", url[:60], r.status_code)
             return None

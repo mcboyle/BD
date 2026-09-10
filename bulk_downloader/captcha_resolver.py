@@ -240,6 +240,7 @@ def submit_2captcha(api_key: str, captcha_type: str, sitekey: str,
     if captcha_type not in _2CAPTCHA_METHODS:
         raise _ProviderError(f"unsupported captcha type: {captcha_type}")
     import httpx as _httpx
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
     submit_data = {
         "key": api_key,
         "method": _2CAPTCHA_METHODS[captcha_type],
@@ -253,8 +254,8 @@ def submit_2captcha(api_key: str, captcha_type: str, sitekey: str,
             submit_data["action"] = action
         submit_data["min_score"] = "0.5"
     try:
-        r = _httpx.post("https://2captcha.com/in.php",
-                        data=submit_data, timeout=20)
+        with _httpx.Client(timeout=20, transport=guarded_transport(PINNED)) as client:
+            r = client.post("https://2captcha.com/in.php", data=submit_data)
         d = r.json()
     except Exception as e:
         raise _ProviderError(f"submit failed: {type(e).__name__}: {e}")
@@ -267,10 +268,11 @@ def submit_2captcha(api_key: str, captcha_type: str, sitekey: str,
     while time.time() < deadline:
         time.sleep(5)
         try:
-            r = _httpx.get("https://2captcha.com/res.php", params={
-                "key": api_key, "action": "get",
-                "id": request_id, "json": "1",
-            }, timeout=15)
+            with _httpx.Client(timeout=15, transport=guarded_transport(PINNED)) as client:
+                r = client.get("https://2captcha.com/res.php", params={
+                    "key": api_key, "action": "get",
+                    "id": request_id, "json": "1",
+                })
             d = r.json()
         except Exception as e:
             raise _ProviderError(f"poll failed: {type(e).__name__}: {e}")
@@ -302,6 +304,7 @@ def submit_capsolver(api_key: str, captcha_type: str, sitekey: str,
     if captcha_type not in _CAPSOLVER_TASK_TYPES:
         raise _ProviderError(f"unsupported captcha type: {captcha_type}")
     import httpx as _httpx
+    from bulk_downloader.ssrf_transport import guarded_transport, PINNED
     task = {
         "type": _CAPSOLVER_TASK_TYPES[captcha_type],
         "websiteURL": page_url,
@@ -311,9 +314,9 @@ def submit_capsolver(api_key: str, captcha_type: str, sitekey: str,
         task["pageAction"] = action or "verify"
         task["minScore"] = 0.5
     try:
-        r = _httpx.post("https://api.capsolver.com/createTask",
-                        json={"clientKey": api_key, "task": task},
-                        timeout=20)
+        with _httpx.Client(timeout=20, transport=guarded_transport(PINNED)) as client:
+            r = client.post("https://api.capsolver.com/createTask",
+                            json={"clientKey": api_key, "task": task})
         d = r.json()
     except Exception as e:
         raise _ProviderError(f"submit failed: {type(e).__name__}: {e}")
@@ -327,9 +330,9 @@ def submit_capsolver(api_key: str, captcha_type: str, sitekey: str,
     while time.time() < deadline:
         time.sleep(5)
         try:
-            r = _httpx.post("https://api.capsolver.com/getTaskResult",
-                            json={"clientKey": api_key, "taskId": task_id},
-                            timeout=15)
+            with _httpx.Client(timeout=15, transport=guarded_transport(PINNED)) as client:
+                r = client.post("https://api.capsolver.com/getTaskResult",
+                                json={"clientKey": api_key, "taskId": task_id})
             d = r.json()
         except Exception as e:
             raise _ProviderError(f"poll failed: {type(e).__name__}: {e}")

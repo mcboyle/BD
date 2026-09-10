@@ -95,7 +95,8 @@ def test_credentials(credentials: dict) -> tuple[bool, str]:
     # Try a live API check.
     try:
         import httpx
-        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S) as c:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S, transport=guarded_transport(PINNED)) as c:
             r = c.get(
                 f"{MULLVAD_API_BASE}/accounts/v1/accounts/me",
                 headers={"Authorization": f"Bearer {acct}"},
@@ -116,7 +117,8 @@ def list_locations(credentials: dict) -> list[dict]:
     """Return Mullvad's WG relay list. Falls back to cached snapshot offline."""
     try:
         import httpx
-        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S) as c:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S, transport=guarded_transport(PINNED)) as c:
             r = c.get(f"{MULLVAD_API_BASE}/public/relays/wireguard/v1/")
             if r.status_code == 200:
                 return _parse_relay_list(r.json())
@@ -198,7 +200,8 @@ def register_device(account_number: str, public_key: str, name: str = "bulk-down
         raise RuntimeError("invalid WireGuard public key for device registration")
     try:
         import httpx
-        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S) as c:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=MULLVAD_API_TIMEOUT_S, transport=guarded_transport(PINNED)) as c:
             r = c.post(
                 f"{MULLVAD_API_BASE}/accounts/v1/devices",
                 headers={

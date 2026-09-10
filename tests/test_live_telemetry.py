@@ -1454,7 +1454,7 @@ def test_direct_http_progress_reports_cumulative_file_size(monkeypatch, tmp_path
     updates = []
     runner._update_job = lambda *args, **extra: updates.append(extra["file_size"])
     response = _StreamResponse([b"ab", b"cde", b"f"])
-    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: response)
+    monkeypatch.setattr(httpx.Client, "stream", lambda self, *args, **kwargs: response)
     monkeypatch.setattr(transport.time, "time", _tick_clock())
     monkeypatch.setattr(transport, "_SUPERVISOR_AVAILABLE", False)
 
@@ -1503,7 +1503,7 @@ def test_sequential_resume_progress_reports_absolute_file_size(monkeypatch, tmp_
     assert part_path.stat().st_size == 4
     response = _StreamResponse(
         [b"ef", b"gh"], status_code=206, content_length=4)
-    monkeypatch.setattr(httpx, "stream", lambda *args, **kwargs: response)
+    monkeypatch.setattr(httpx.Client, "stream", lambda self, *args, **kwargs: response)
     monkeypatch.setattr(transport.time, "time", _tick_clock())
     monkeypatch.setattr(transport, "record_bandwidth", lambda delta: None)
     slot = type("Slot", (), {"release": lambda self: None})()

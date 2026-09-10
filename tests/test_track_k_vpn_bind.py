@@ -98,11 +98,16 @@ def test_effective_download_proxy_vpn_unavailable():
 # --- structural fail-closed guard: library-direct payload stream is proxied --
 def test_direct_http_download_payload_stream_is_proxied():
     body = _ddhd_body(_runner_src())
-    assert "httpx.stream(" in body, "expected an httpx.stream payload fetch in _do_direct_http_download"
-    for call in re.finditer(r"httpx\.stream\((.*?)\)", body, re.S):
+    # row703: the payload streams through a pinned httpx.Client owned by
+    # owning_stream(...); the proxy is threaded into that Client (the
+    # module-level httpx.stream helper is gone from the package).
+    assert "httpx.stream(" not in body, "the payload fetch must not use the module-level httpx.stream helper"
+    calls = list(re.finditer(r"owning_stream\(\s*httpx\.Client\((.*?)\)", body, re.S))
+    assert calls, "expected an owning_stream(httpx.Client(...)) payload fetch in _do_direct_http_download"
+    for call in calls:
         assert "proxy" in call.group(1), (
-            "payload httpx.stream must pass a proxy (fail-closed VPN binding); "
-            "found an unproxied payload stream in _do_direct_http_download")
+            "payload httpx.Client must pass a proxy (fail-closed VPN binding); "
+            "found an unproxied payload stream client in _do_direct_http_download")
 
 
 # --- structural fail-closed guard: multi-conn gated off under a tunnel proxy -

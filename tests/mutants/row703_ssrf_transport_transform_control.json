@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 703: the S2 mutation (the unspecified arm of never_admissible is switched off) MUST ESCAPE a test that imports the seam and calls never_admissible on a mapped private address only, never on an unspecified one. An ESCAPE here proves the CAUGHT verdicts in row703_ssrf_transport_seam.json are assertion failures, not compile breaks.",
+  "subject": "transform control for the never-admissible refusal seam",
+  "band": [
+    "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_embedded_ipv4_views_are_all_classified"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL unspecified is admitted outside the asserted path",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=view\\.is_unspecified:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_embedded_ipv4_views_are_all_classified"
+    }
+  ]
+}

@@ -1488,7 +1488,7 @@ def test_do_download_http_then_timeout_exit_drops_its_empty_owned_claim(
             return False
 
     monkeypatch.setattr(rate_limit, "acquire", lambda url: _Slot())
-    monkeypatch.setattr(rt.httpx, "stream", lambda *args, **kwargs: _Response())
+    monkeypatch.setattr(rt.httpx.Client, "stream", lambda self, *args, **kwargs: _Response())
     runner = _row523_runner()
     runner._do_download(
         _Row523Page("https://cdn.invalid/scene.mp4"), _Ctx(), page_url,
@@ -1783,8 +1783,8 @@ def test_unmeasurable_ramdisk_ownership_refuses_before_any_write(
 
     monkeypatch.setattr(rd, "reserve_staging_path", _unknown)
     monkeypatch.setattr(
-        rt.httpx, "stream",
-        lambda *args, **kwargs: pytest.fail(
+        rt.httpx.Client, "stream",
+        lambda self, *args, **kwargs: pytest.fail(
             "HTTP opened after RAM ownership became UNKNOWN"))
     page_url = "https://example.invalid/ramdisk-unknown"
     runner._do_download(

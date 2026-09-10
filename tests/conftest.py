@@ -30,6 +30,11 @@ from capture_lanes import classify_capture_path
 
 pytest_plugins = ("_row_census_pin",)
 
+# Make sure the package is importable regardless of where pytest is invoked.
+# This must precede the row703 package preloads below.
+PKG_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PKG_ROOT))
+
 # IMPORTED FOR ITS PRESENCE IN sys.modules, NOT FOR ITS API -- do not remove as
 # "unused". `unittest.mock.patch.dict` restores sys.modules to the snapshot it
 # took on entry, so a module FIRST IMPORTED inside such a block is DELETED on
@@ -61,6 +66,16 @@ import httpcore  # noqa: F401
 # census.
 import httpx  # noqa: F401
 
+# AND the guarded-transport seam (row 703), for the same reason: every httpx
+# client construction in the package now imports it LAZILY at the call site,
+# so a test that constructs a client inside a patch.dict(sys.modules) block
+# would otherwise be the seam's first importer and evict it on exit; the
+# @1095 guard measured 17 such evictions across six fixture files.
+import bulk_downloader.ssrf_transport  # noqa: F401
+# The seam's PUBLIC_ONLY policy pulls the established guard from _common
+# lazily for the same reason, so it gets the same preload.
+import bulk_downloader.provider_resolve_impl._common  # noqa: F401
+
 # The last three, pulled in LAZILY by machinery rather than by any import
 # statement anyone wrote: encodings.idna and stringprep by IDNA hostname
 # encoding, importlib.readers by importlib.resources. Measured as the remainder
@@ -73,11 +88,6 @@ import httpx  # noqa: F401
 import encodings.idna  # noqa: F401
 import importlib.readers  # noqa: F401
 import stringprep  # noqa: F401
-
-# Make sure the package is importable regardless of where pytest is invoked
-PKG_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PKG_ROOT))
-
 
 def _canonicalize_package_children(package_name, modules=None):
     """Make direct package-child attributes agree with the module table.

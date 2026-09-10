@@ -66,7 +66,8 @@ def api_scrape_listing():
         # AUDIT FIX: disable redirect-following so we don't get bounced
         # at internal services via 302. If a user needs redirects they
         # can pass the final URL.
-        with httpx.Client(timeout=30.0, follow_redirects=False) as cl:
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
+        with httpx.Client(timeout=30.0, follow_redirects=False, transport=guarded_transport(PUBLIC_ONLY)) as cl:
             r = cl.get(url, headers=headers)
             if r.status_code in (301, 302, 303, 307, 308):
                 return jsonify({"ok": False,

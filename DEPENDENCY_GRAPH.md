@@ -10,8 +10,8 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1712**
-- tools: 228 · with internal edge: 133 · with tool→package edge: 74
+- internal import edges: **1738**
+- tools: 229 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 161 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
@@ -19,6 +19,7 @@ Graph version: 1
 - `bulk_downloader/db.py`: 113
 - `bulk_downloader/global_config.py`: 55
 - `bulk_downloader/constants.py`: 33
+- `bulk_downloader/ssrf_transport.py`: 26
 - `bulk_downloader/app.py`: 24
 - `bulk_downloader/plugins.py`: 23
 - `bulk_downloader/cookies.py`: 19
@@ -35,7 +36,6 @@ Graph version: 1
 - `bulk_downloader/app_dev.py`: 12
 - `bulk_downloader/session_keeper.py`: 12
 - `tools/autonomy_oracle.py`: 12
-- `bulk_downloader/detect.py`: 11
 
 ## Blueprints → providers
 
@@ -151,7 +151,7 @@ Graph version: 1
 - **scene_score** (`app_scene_score.py`) — routes 3, providers 1
 - **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 1
 - **schedules** (`app_schedules.py`) — routes 4, providers 1
-- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 0
+- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 1
 - **scrapling** (`app_scrapling.py`) — routes 4, providers 0
 - **search** (`app_search.py`) — routes 5, providers 1
 - **secrets** (`app_secrets.py`) — routes 17, providers 5
