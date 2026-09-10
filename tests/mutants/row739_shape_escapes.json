@@ -1,5 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
+  "_comment": "Row739 decision regressions retained from the independent shape review.",
   "subject": "row739 shape-return decision regressions",
   "band": [
     "tests/test_row667_login_attempt_accounting.py",

@@ -67,7 +67,9 @@ sys.path.insert(0, str(ROOT))
 # transfer and counts rate_limit.acquire. Lower it whenever a cut converts
 # some; never raise it. Raising it is the switch-it-off move this gate exists
 # to prevent.
-_MAX_WINDOWS = 104
+# Re-measured 2026-09-10 at 102 after both keeper collision tests
+# switched to complete-method AST extraction.
+_MAX_WINDOWS = 102
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming

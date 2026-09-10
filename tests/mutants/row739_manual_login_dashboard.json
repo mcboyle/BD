@@ -1,5 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
+  "_comment": "Row739 regression controls for shared manual-login accounting and dashboard decisions.",
   "subject": "manual login accounting and dashboard decisions preserve refusal and success",
   "band": [
     "tests/test_row667_login_attempt_accounting.py",

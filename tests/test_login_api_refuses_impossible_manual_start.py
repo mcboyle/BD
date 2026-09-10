@@ -72,6 +72,10 @@ class _Runner(AuthMixin):
 
 
 def _client(monkeypatch, runner):
+    db = importlib.import_module("bulk_downloader.db")
+    monkeypatch.setattr(
+        db, "DB_PATH", str(Path(runner.config["cookie_file"]).with_suffix(".sqlite3")))
+    db.db_init()
     monkeypatch.setattr(app_sites_auth, "_app_runners",
                         lambda: {runner.site_id: runner})
     app = Flask(__name__)

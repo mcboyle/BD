@@ -1,5 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
+  "_comment": "Row739 transform control; behavior-preserving change must escape the recorded regression band.",
   "control_spec": true,
   "subject": "transform control for dashboard manual-login refusal propagation",
   "band": [
