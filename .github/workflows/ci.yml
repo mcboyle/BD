@@ -493,6 +493,9 @@ jobs:
               tests/test_test2d_1_persistent_profile_cookie_jar.py
               tests/test_row777_retry_ladder.py
               tests/test_row771_interstitial_comma.py
+              tests/test_row703_ssrf_transport_is_installed_everywhere.py
+              tests/test_row703_a_proxy_shadows_the_guarded_transport.py
+              tests/test_row703_the_site_to_policy_map_is_asserted.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

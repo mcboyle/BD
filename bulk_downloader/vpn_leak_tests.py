@@ -654,11 +654,12 @@ def _http_get(url: str, proxy_url: str, timeout_s: int = DEFAULT_PROBE_TIMEOUT_S
         sys.stderr.write("[vpn-leak] httpx not installed — leak probes degraded\n")
         return None
     try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(
-            proxy=proxy_url,
             timeout=timeout_s,
             follow_redirects=True,
             headers={"User-Agent": "Mozilla/5.0 (BulkDownloader leak-check)"},
+            transport=guarded_transport(PINNED, proxy=proxy_url),
         ) as c:
             r = c.get(url)
             if r.status_code < 400:

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4395,
+  "edge_count": 4427,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -673,6 +673,9 @@
     "bulk_downloader/app_schedules.py": [
       "bulk_downloader/capture_schedules.py"
     ],
+    "bulk_downloader/app_scrape_listing.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/app_search.py": [
       "bulk_downloader/db.py"
     ],
@@ -731,7 +734,8 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py",
       "bulk_downloader/learn.py",
-      "bulk_downloader/runner.py"
+      "bulk_downloader/runner.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/app_sites_collection.py": [
       "bulk_downloader/app_sites.py",
@@ -1034,6 +1038,9 @@
       "bulk_downloader/runtime_flags.py",
       "bulk_downloader/takeover.py"
     ],
+    "bulk_downloader/captcha_resolver.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/capture_artifact_redact.py": [
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/redaction_profile.py"
@@ -1093,13 +1100,17 @@
     "bulk_downloader/cluster_rate.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/community_scrapers.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/content_rights.py": [
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/cookie_health.py": [
       "bulk_downloader/app_state.py",
       "bulk_downloader/cookies.py",
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/cookie_quality.py": [
       "bulk_downloader/constants.py",
@@ -1151,7 +1162,8 @@
     ],
     "bulk_downloader/deep_detect/orchestrate.py": [
       "bulk_downloader/login.py",
-      "bulk_downloader/provider_resolve.py"
+      "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/detect.py": [
       "bulk_downloader/candidate_filter.py",
@@ -1373,7 +1385,11 @@
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/extractors_dl8.py": [
-      "bulk_downloader/registrable_domain.py"
+      "bulk_downloader/registrable_domain.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/extractors_jsonapi.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/extractors_vixen.py": [
       "bulk_downloader/registrable_domain.py"
@@ -1392,6 +1408,9 @@
     ],
     "bulk_downloader/ffmpeg_bin.py": [
       "bulk_downloader/global_config.py"
+    ],
+    "bulk_downloader/flaresolverr_client.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/gamification.py": [
       "bulk_downloader/db.py"
@@ -1432,6 +1451,9 @@
     ],
     "bulk_downloader/interstitial.py": [
       "bulk_downloader/registrable_domain.py"
+    ],
+    "bulk_downloader/jd_bridge.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/jellyfin_deep.py": [
       "bulk_downloader/deep_http.py"
@@ -1555,6 +1577,12 @@
     "bulk_downloader/model_registry.py": [
       "bulk_downloader/aiassist.py"
     ],
+    "bulk_downloader/mp4_metadata.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/multi_conn.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/multi_site_benchmark.py": [
       "bulk_downloader/capture_synth.py",
       "bulk_downloader/capture_workbench.py"
@@ -1564,6 +1592,7 @@
     ],
     "bulk_downloader/oidc.py": [
       "bulk_downloader/global_config.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/user_accounts.py"
     ],
     "bulk_downloader/ollama_boot_probe.py": [
@@ -1648,6 +1677,9 @@
     ],
     "bulk_downloader/push.py": [
       "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/qb_bridge.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/queue_priority.py": [
       "bulk_downloader/circuit_breaker.py",
@@ -1752,6 +1784,7 @@
       "bulk_downloader/session_keeper.py",
       "bulk_downloader/smart_wakeup.py",
       "bulk_downloader/sse_broker.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/subtitles.py",
       "bulk_downloader/tags.py",
       "bulk_downloader/takeover_vnc.py",
@@ -1801,6 +1834,7 @@
       "bulk_downloader/captcha_resolver.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_extractors.py": [
@@ -1819,6 +1853,7 @@
       "bulk_downloader/plugins.py",
       "bulk_downloader/provider_resolve.py",
       "bulk_downloader/runner_util.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/tier_probe.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/website_title.py",
@@ -1850,6 +1885,7 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/plugins.py",
       "bulk_downloader/runner_util.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/runner_queue.py": [
@@ -1884,6 +1920,7 @@
       "bulk_downloader/notify_apprise.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/sse_broker.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/tg_bot.py"
     ],
     "bulk_downloader/runner_transport.py": [
@@ -1907,6 +1944,7 @@
       "bulk_downloader/resume.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/sse_broker.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/staging_claim.py",
       "bulk_downloader/stash_deep.py",
       "bulk_downloader/vpn_runtime.py",
@@ -1984,6 +2022,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/shares.py": [
@@ -2098,11 +2137,17 @@
       "bulk_downloader/capture_synth.py",
       "bulk_downloader/capture_workbench.py"
     ],
+    "bulk_downloader/tg_bot.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/thumbnail_gen.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/thumbnail_sheets.py": [
       "bulk_downloader/ffmpeg_bin.py"
+    ],
+    "bulk_downloader/tier_probe.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/timeline.py": [
       "bulk_downloader/db.py"
@@ -2128,6 +2173,7 @@
       "bulk_downloader/vpn.py"
     ],
     "bulk_downloader/vpn_leak_tests.py": [
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_kill_switch.py"
     ],
@@ -2135,6 +2181,12 @@
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/vpn_socks.py"
+    ],
+    "bulk_downloader/vpn_providers/mullvad.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/vpn_providers/pia.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/vpn_runtime.py": [
       "bulk_downloader/vpn.py",
@@ -2169,6 +2221,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/macro_recorder.py",
       "bulk_downloader/plugins.py",
+      "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn_config.py"
     ],
     "tests/rate_limit_seam.py": [
@@ -4048,6 +4101,17 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_row703_a_proxy_shadows_the_guarded_transport.py": [
+      "tools/ssrf_client_census.py"
+    ],
+    "tests/test_row703_ssrf_transport_is_installed_everywhere.py": [
+      "bulk_downloader/ssrf_transport.py",
+      "tools/ssrf_client_census.py"
+    ],
+    "tests/test_row703_the_site_to_policy_map_is_asserted.py": [
+      "bulk_downloader/ssrf_transport.py",
+      "tools/ssrf_client_census.py"
     ],
     "tests/test_row704_listing_routes_are_not_scenes.py": [
       "bulk_downloader/playlist_extractor.py"

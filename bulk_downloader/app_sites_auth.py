@@ -392,11 +392,12 @@ def api_captcha_test(sid):
         return jsonify({"ok": False, "error": "no API key configured for this site"})
     try:
         import httpx as _httpx
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         if provider == "2captcha":
             # 2captcha balance: GET /res.php?key=KEY&action=getbalance
-            r = _httpx.get("https://2captcha.com/res.php",
-                params={"key": api_key, "action": "getbalance", "json": "1"},
-                timeout=10)
+            with _httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as client:
+                r = client.get("https://2captcha.com/res.php",
+                    params={"key": api_key, "action": "getbalance", "json": "1"})
             d = r.json()
             if d.get("status") == 1:
                 bal = float(d.get("request", 0))
@@ -408,8 +409,9 @@ def api_captcha_test(sid):
                                 "error": f"API rejected key: {d.get('request','unknown')}"})
         elif provider == "capsolver":
             # CapSolver balance: POST /getBalance with clientKey
-            r = _httpx.post("https://api.capsolver.com/getBalance",
-                json={"clientKey": api_key}, timeout=10)
+            with _httpx.Client(timeout=10, transport=guarded_transport(PINNED)) as client:
+                r = client.post("https://api.capsolver.com/getBalance",
+                    json={"clientKey": api_key})
             d = r.json()
             if d.get("errorId") == 0:
                 bal = float(d.get("balance", 0))

@@ -172,7 +172,9 @@ def run_sequential_transfer(monkeypatch, tmp_path, *, page_url,
                                 raise_after=raise_after, events=run.events)
 
     monkeypatch.setattr(rate_limit, "acquire", _acquire)
-    monkeypatch.setattr(httpx, "stream", lambda *a, **k: response)
+    # row703: the transfer streams through a pinned httpx.Client now, so the
+    # injection point is Client.stream; the scripted response is unchanged.
+    monkeypatch.setattr(httpx.Client, "stream", lambda self, *a, **k: response)
     monkeypatch.setattr(transport, "record_bandwidth", lambda delta: None)
     monkeypatch.setattr(transport.time, "time", _clock())
 

@@ -110,7 +110,9 @@ def ping(endpoint: str, timeout_s: float = 5.0) -> dict:
         root = root[:-3]
     try:
         import httpx
-        r = httpx.get(root + "/", timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.get(root + "/")
         if r.status_code != 200:
             return {"ok": False, "error": f"http_{r.status_code}"}
         data = r.json() if r.headers.get("content-type", "").startswith(
@@ -345,7 +347,9 @@ def solve_cloudflare(
 
     try:
         import httpx
-        r = httpx.post(endpoint, json=payload, timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.post(endpoint, json=payload)
     except Exception as e:
         err = f"request_failed:{type(e).__name__}:{str(e)[:120]}"
         _bump_failure(err)
@@ -435,7 +439,9 @@ def create_session(
         payload["session"] = session_id
     try:
         import httpx
-        r = httpx.post(endpoint, json=payload, timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.post(endpoint, json=payload)
         if r.status_code != 200:
             return {"ok": False, "error": f"http_{r.status_code}"}
         d = r.json()
@@ -455,9 +461,10 @@ def destroy_session(
         return False
     try:
         import httpx
-        r = httpx.post(endpoint,
-                       json={"cmd": "sessions.destroy", "session": session_id},
-                       timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.post(endpoint,
+                            json={"cmd": "sessions.destroy", "session": session_id})
         return r.status_code == 200
     except Exception:
         return False
@@ -472,8 +479,9 @@ def list_sessions(
         return []
     try:
         import httpx
-        r = httpx.post(endpoint, json={"cmd": "sessions.list"},
-                       timeout=timeout_s)
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, transport=guarded_transport(PINNED)) as client:
+            r = client.post(endpoint, json={"cmd": "sessions.list"})
         if r.status_code != 200:
             return []
         d = r.json()

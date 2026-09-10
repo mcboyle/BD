@@ -256,7 +256,8 @@ def fetch_index(
     try:
         import httpx
         url = GITHUB_API_BASE + SCRAPERS_API_PATH
-        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, transport=guarded_transport(PINNED)) as client:
             r = client.get(url, headers=headers)
         if r.status_code != 200:
             # Rate limit?
@@ -335,7 +336,8 @@ def _fetch_raw_file(
     try:
         import httpx
         url = f"{GITHUB_RAW_BASE}/{rel_path}"
-        with httpx.Client(timeout=timeout_s, follow_redirects=True) as client:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout_s, follow_redirects=True, transport=guarded_transport(PINNED)) as client:
             r = client.get(url, headers=headers)
         if r.status_code != 200:
             return (b"", f"http_{r.status_code}")

@@ -255,12 +255,14 @@ def check_site(site_id: str, site_cfg: dict) -> dict:
     # Perform request
     try:
         import httpx
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
         with httpx.Client(
                 timeout=_DEFAULT_TIMEOUT_S,
                 follow_redirects=True,
                 cookies=cj,
                 headers={"User-Agent":
                     "Mozilla/5.0 BD-cookie-health-check/1.0"},
+                transport=guarded_transport(PINNED),
         ) as client:
             r = client.get(check_url)
             http_code = r.status_code

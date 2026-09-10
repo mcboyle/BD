@@ -158,10 +158,12 @@ class QBittorrentClient:
         if _HAS_HTTPX:
             # cookies=True enables cookie persistence across calls,
             # which is how qB tracks the SID after /auth/login.
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             self._client = httpx.Client(
                 base_url=self._base,
                 timeout=httpx.Timeout(POLL_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
                 follow_redirects=False,
+                transport=guarded_transport(PINNED),
             )
 
     def close(self):

@@ -625,13 +625,14 @@ class ExtractorsMixin:
                             "skipping clear-interface probe\n")
                         return None
                     raise
+                from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
                 with _httpx.Client(
                         timeout=_httpx.Timeout(
                             connect=5.0, read=8.0,
                             write=5.0, pool=5.0),
                         cookies=cookies_dict,
-                        proxy=_cp_proxy,
-                        follow_redirects=True) as http:
+                        follow_redirects=True,
+                        transport=guarded_transport(PUBLIC_ONLY, proxy=_cp_proxy)) as http:
                     # v3.66.15 (P5): read learned.deep_detect from
                     # the site config so deep_detect can apply its
                     # site-memory bias. Lazy import keeps the runner

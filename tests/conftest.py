@@ -61,6 +61,16 @@ import httpcore  # noqa: F401
 # census.
 import httpx  # noqa: F401
 
+# AND the guarded-transport seam (row 703), for the same reason: every httpx
+# client construction in the package now imports it LAZILY at the call site,
+# so a test that constructs a client inside a patch.dict(sys.modules) block
+# would otherwise be the seam's first importer and evict it on exit; the
+# @1095 guard measured 17 such evictions across six fixture files.
+import bulk_downloader.ssrf_transport  # noqa: F401
+# The seam's PUBLIC_ONLY policy pulls the established guard from _common
+# lazily for the same reason, so it gets the same preload.
+import bulk_downloader.provider_resolve_impl._common  # noqa: F401
+
 # The last three, pulled in LAZILY by machinery rather than by any import
 # statement anyone wrote: encodings.idna and stringprep by IDNA hostname
 # encoding, importlib.readers by importlib.resources. Measured as the remainder

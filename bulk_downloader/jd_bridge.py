@@ -180,9 +180,11 @@ class JDClient:
         # submits — usually 50-200ms per call on Windows loopback.
         self._client = None
         if _HAS_HTTPX:
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             self._client = httpx.Client(
                 base_url=self._base,
                 timeout=httpx.Timeout(POLL_TIMEOUT_S, connect=CONNECT_TIMEOUT_S),
+                transport=guarded_transport(PINNED),
             )
 
     def close(self):

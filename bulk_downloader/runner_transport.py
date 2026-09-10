@@ -486,9 +486,11 @@ class TransportMixin:
         # Use a generous timeout per chunk (CDNs can throttle)
         timeout = httpx.Timeout(connect=15.0, read=60.0, write=60.0, pool=15.0)
         try:
-            with httpx.stream(
+            from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
+            with owning_stream(
+                httpx.Client(transport=guarded_transport(PINNED, proxy=proxy_url)),
                 "GET", file_url, headers=headers, timeout=timeout,
-                follow_redirects=True, proxy=proxy_url,
+                follow_redirects=True,
             ) as r:
                 if r.status_code != 200:
                     sys.stderr.write(
@@ -1024,9 +1026,11 @@ class TransportMixin:
                 return
             raise
         try:
-            with httpx.stream("GET", file_url, cookies=cookies, headers=headers,
-                              follow_redirects=True, proxy=proxy_url,
-                              timeout=httpx.Timeout(30.0, connect=15.0, read=60.0)) as resp:
+            from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
+            with owning_stream(httpx.Client(transport=guarded_transport(PINNED, proxy=proxy_url)),
+                               "GET", file_url, cookies=cookies, headers=headers,
+                               follow_redirects=True,
+                               timeout=httpx.Timeout(30.0, connect=15.0, read=60.0)) as resp:
                 status = resp.status_code
                 ctype = resp.headers.get("Content-Type","")
                 try: total = int(resp.headers.get("Content-Length",0) or 0)
@@ -2199,8 +2203,11 @@ class TransportMixin:
                 # name would raise TypeError on those installs.
                 client_kwargs = {"timeout": httpx.Timeout(30.0, connect=15.0, read=300.0)}
                 if proxy_url: client_kwargs["proxy"] = proxy_url
-                resp_ctx = httpx.stream("GET", file_url, cookies=cookies, headers=headers,
-                                        follow_redirects=True, **client_kwargs)
+                transport_proxy = client_kwargs.pop("proxy", None)
+                from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
+                resp_ctx = owning_stream(
+                    httpx.Client(transport=guarded_transport(PINNED, proxy=transport_proxy), **client_kwargs),
+                    "GET", file_url, cookies=cookies, headers=headers, follow_redirects=True)
             with resp_ctx as resp:
                 if resp.status_code==416:
                     # Range not satisfiable. Row 428: this proves only that
@@ -2564,8 +2571,11 @@ class TransportMixin:
                 # v3.36.8: httpx 0.28+ uses `proxy` (singular).
                 kw = {"timeout": 10}
                 if proxy_url: kw["proxy"] = proxy_url
-                r = httpx.head(file_url, headers=headers, cookies=cookies,
-                               follow_redirects=True, **kw)
+                transport_proxy = kw.pop("proxy", None)
+                from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+                with httpx.Client(transport=guarded_transport(PINNED, proxy=transport_proxy), **kw) as client:
+                    r = client.head(file_url, headers=headers, cookies=cookies,
+                                    follow_redirects=True)
             except Exception: return 0
         accept = (r.headers.get("Accept-Ranges") or "").lower()
         cl = r.headers.get("Content-Length")
@@ -2642,7 +2652,8 @@ class TransportMixin:
         # Failure is non-fatal — we just skip resume and start fresh.
         try:
             import httpx as _hx
-            with _hx.Client(timeout=15.0, follow_redirects=True) as _hc:
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+            with _hx.Client(timeout=15.0, follow_redirects=True, transport=guarded_transport(PINNED)) as _hc:
                 _head = _resume.head_probe(_hc, file_url,
                                             headers=headers_base,
                                             cookies=cookies)
@@ -2790,8 +2801,12 @@ class TransportMixin:
                         # v3.36.8: httpx 0.28+ uses `proxy` (singular).
                         kw = {"timeout": httpx.Timeout(30.0, connect=15.0, read=300.0)}
                         if proxy_url: kw["proxy"] = proxy_url
-                        resp_ctx = httpx.stream("GET", file_url, headers=req_headers,
-                                                cookies=cookies, follow_redirects=True, **kw)
+                        transport_proxy = kw.pop("proxy", None)
+                        from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
+                        resp_ctx = owning_stream(
+                            httpx.Client(transport=guarded_transport(PINNED, proxy=transport_proxy), **kw),
+                            "GET", file_url, headers=req_headers, cookies=cookies,
+                            follow_redirects=True)
                     with resp_ctx as resp:
                         if resp.status_code != 206:
                             worker_errors[idx] = f"chunk {idx}: HTTP {resp.status_code} (no Range support?)"; return

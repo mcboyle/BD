@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1532 - Pin HTTP client transports
+
+- Route application HTTP clients through the shared guarded transport and enforce the declared transport and destination policy at every construction site.
+
 ## v3.66.1531 - Reap capture-owned virtual displays
 
 - Publish the actual started Xvfb PID through a capture-owned receipt and reap that display on exit, preserving pre-existing and persistent installer displays.

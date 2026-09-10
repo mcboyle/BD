@@ -1,0 +1,434 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 703. One mutant per tracked httpx client construction, from the gate's tree-derived census. Anchors are zero-width insertions at a transport decision; the two runner_transport proxy forms retain PINNED/proxy only in lookaround context, so row357 sees structural spans while _unpinned makes the transport expression non-seam.",
+  "subject": "every httpx client construction is pinned through the guarded transport seam",
+  "band": [
+    "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+  ],
+  "mutants": [
+    {
+      "label": "unpin bulk_downloader/app_scrape_listing.py::api_scrape_listing",
+      "file": "bulk_downloader/app_scrape_listing.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/app_sites_auth.py::api_captcha_test",
+      "file": "bulk_downloader/app_sites_auth.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ 2captcha\\ balance:\\ GET\\ /res\\.php\\?key=KEY\\&action=getbalance\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/app_sites_auth.py::api_captcha_test #2",
+      "file": "bulk_downloader/app_sites_auth.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ CapSolver\\ balance:\\ POST\\ /getBalance\\ with\\ clientKey\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/captcha_resolver.py::submit_2captcha",
+      "file": "bulk_downloader/captcha_resolver.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ submit_data\\[\"min_score\"\\]\\ =\\ \"0\\.5\"\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/captcha_resolver.py::submit_2captcha #2",
+      "file": "bulk_downloader/captcha_resolver.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\#\\ on\\ type\\.\\ Turnstile\\ is\\ fastest;\\ hCaptcha\\ slowest\\.\\\n\\ \\ \\ \\ deadline\\ =\\ time\\.time\\(\\)\\ \\+\\ timeout_s\\\n\\ \\ \\ \\ while\\ time\\.time\\(\\)\\ <\\ deadline:\\\n\\ \\ \\ \\ \\ \\ \\ \\ time\\.sleep\\(5\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=15,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/captcha_resolver.py::submit_capsolver",
+      "file": "bulk_downloader/captcha_resolver.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ task\\[\"minScore\"\\]\\ =\\ 0\\.5\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/captcha_resolver.py::submit_capsolver #2",
+      "file": "bulk_downloader/captcha_resolver.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ raise\\ _ProviderError\\(\"submit\\ returned\\ no\\ taskId\"\\)\\\n\\ \\ \\ \\ deadline\\ =\\ time\\.time\\(\\)\\ \\+\\ timeout_s\\\n\\ \\ \\ \\ while\\ time\\.time\\(\\)\\ <\\ deadline:\\\n\\ \\ \\ \\ \\ \\ \\ \\ time\\.sleep\\(5\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=15,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/community_scrapers.py::fetch_index",
+      "file": "bulk_downloader/community_scrapers.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ url\\ =\\ GITHUB_API_BASE\\ \\+\\ SCRAPERS_API_PATH\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ follow_redirects=True,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/community_scrapers.py::_fetch_raw_file",
+      "file": "bulk_downloader/community_scrapers.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ url\\ =\\ f\"\\{GITHUB_RAW_BASE\\}/\\{rel_path\\}\"\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ follow_redirects=True,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/cookie_health.py::check_site",
+      "file": "bulk_downloader/cookie_health.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/deep_detect/orchestrate.py::_build_default_http_client",
+      "file": "bulk_downloader/deep_detect/orchestrate.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/extractors_dl8.py::probe_badoink_candidates",
+      "file": "bulk_downloader/extractors_dl8.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/extractors_jsonapi.py::probe_site",
+      "file": "bulk_downloader/extractors_jsonapi.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ cookies=cookies,\\ headers=headers,\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/extractors_jsonapi.py::fetch_scene",
+      "file": "bulk_downloader/extractors_jsonapi.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ cookies=cookies\\ or\\ \\{\\},\\ headers=headers,\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/flaresolverr_client.py::ping",
+      "file": "bulk_downloader/flaresolverr_client.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ root\\ =\\ root\\[:\\-3\\]\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/flaresolverr_client.py::solve_cloudflare",
+      "file": "bulk_downloader/flaresolverr_client.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ payload\\[\"cookies\"\\]\\ =\\ sane_cookies\\\n\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/flaresolverr_client.py::create_session",
+      "file": "bulk_downloader/flaresolverr_client.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ payload\\[\"session\"\\]\\ =\\ session_id\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/flaresolverr_client.py::destroy_session",
+      "file": "bulk_downloader/flaresolverr_client.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ return\\ False\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/flaresolverr_client.py::list_sessions",
+      "file": "bulk_downloader/flaresolverr_client.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ return\\ \\[\\]\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/jd_bridge.py::__init__",
+      "file": "bulk_downloader/jd_bridge.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/mp4_metadata.py::fetch_cover",
+      "file": "bulk_downloader/mp4_metadata.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/multi_conn.py::probe",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ event_hooks=\\{\"response\":\\ \\[_redirect_guard_hook\\]\\},\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/multi_conn.py::_worker",
+      "file": "bulk_downloader/multi_conn.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ event_hooks=\\{\"response\":\\ \\[_redirect_guard_hook\\]\\},\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/oidc.py::discover",
+      "file": "bulk_downloader/oidc.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ return\\ _DISCO_CACHE\\[issuer\\]\\\n\\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/oidc.py::exchange_code",
+      "file": "bulk_downloader/oidc.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ raise\\ ValueError\\(\"provider\\ has\\ no\\ token_endpoint\"\\)\\\n\\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/oidc.py::verify_id_token",
+      "file": "bulk_downloader/oidc.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ raise\\ ValueError\\(\"provider\\ has\\ no\\ jwks_uri\"\\)\\\n\\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=10,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/provider_resolve_impl/_common.py::_http_get",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?<=^            )(?=transport=transport,$)",
+      "new": "_unpinned_",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/qb_bridge.py::__init__",
+      "file": "bulk_downloader/qb_bridge.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner.py::_scrape_listing_urls",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_challenge.py::_try_turnstile_solve_LEGACY",
+      "file": "bulk_downloader/runner_challenge.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ Submit\\ job\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_challenge.py::_try_turnstile_solve_LEGACY #2",
+      "file": "bulk_downloader/runner_challenge.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ Poll\\ for\\ result\\.\\ Typical\\ solve\\ time\\ 15\\-45s\\.\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ deadline\\ =\\ time\\.time\\(\\)\\ \\+\\ 180\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ while\\ time\\.time\\(\\)\\ <\\ deadline:\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ time\\.sleep\\(5\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=15,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_challenge.py::_try_turnstile_solve_LEGACY #3",
+      "file": "bulk_downloader/runner_challenge.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ CapSolver\\ \u2014\\ simpler\\ /createTask\\ \\+\\ /getTaskResult\\ flow\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_challenge.py::_try_turnstile_solve_LEGACY #4",
+      "file": "bulk_downloader/runner_challenge.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ self\\.log_event\\(\"captcha\",\\ msg\\);\\ _captcha_record_failure\\(msg\\);\\ return\\ False\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ deadline\\ =\\ time\\.time\\(\\)\\ \\+\\ 180\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ while\\ time\\.time\\(\\)\\ <\\ deadline:\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ time\\.sleep\\(5\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=15,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_extractors.py::_try_deep_detect_fallback",
+      "file": "bulk_downloader/runner_extractors.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_manual.py::_run",
+      "file": "bulk_downloader/runner_manual.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_telemetry.py::probe",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_do_direct_http_download",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=with owning_stream\\(\\n                httpx\\.Client\\(transport=)(?=guarded_transport\\(PINNED, proxy=proxy_url\\))",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_do_probe_fetch",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=with owning_stream\\(httpx\\.Client\\(transport=)(?=guarded_transport\\(PINNED, proxy=proxy_url\\))",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_http_download_claimed",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ resp_ctx\\ =\\ owning_stream\\(\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ httpx\\.Client\\(transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_probe_size",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_http_download_parallel",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _hx\\.Client\\(timeout=15\\.0,\\ follow_redirects=True,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::worker",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ resp_ctx\\ =\\ owning_stream\\(\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ httpx\\.Client\\(transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/session_keeper.py::_heartbeat_httpx_fallback",
+      "file": "bulk_downloader/session_keeper.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/tg_bot.py::_http_get_json",
+      "file": "bulk_downloader/tg_bot.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ log\\.info\\(\"tg_bot:\\ httpx\\ not\\ installed;\\ bot\\ disabled\"\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ return\\ None\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/tg_bot.py::_http_post_json",
+      "file": "bulk_downloader/tg_bot.py",
+      "old_regex": "(?<=\\ \\ \\ \\ if\\ not\\ _is_httpx_available\\(\\):\\\n\\ \\ \\ \\ \\ \\ \\ \\ return\\ None\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/tier_probe.py::probe_higher_tiers",
+      "file": "bulk_downloader/tier_probe.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_leak_tests.py::_http_get",
+      "file": "bulk_downloader/vpn_leak_tests.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/mullvad.py::test_credentials",
+      "file": "bulk_downloader/vpn_providers/mullvad.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\#\\ Try\\ a\\ live\\ API\\ check\\.\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=MULLVAD_API_TIMEOUT_S,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/mullvad.py::list_locations",
+      "file": "bulk_downloader/vpn_providers/mullvad.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \"\"\"Return\\ Mullvad's\\ WG\\ relay\\ list\\.\\ Falls\\ back\\ to\\ cached\\ snapshot\\ offline\\.\"\"\"\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=MULLVAD_API_TIMEOUT_S,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/mullvad.py::register_device",
+      "file": "bulk_downloader/vpn_providers/mullvad.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ raise\\ RuntimeError\\(\"invalid\\ WireGuard\\ public\\ key\\ for\\ device\\ registration\"\\)\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=MULLVAD_API_TIMEOUT_S,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/pia.py::test_credentials",
+      "file": "bulk_downloader/vpn_providers/pia.py",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=PIA_API_TIMEOUT_S,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/pia.py::_pia_token",
+      "file": "bulk_downloader/vpn_providers/pia.py",
+      "old_regex": "(?<=\\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=PIA_API_TIMEOUT_S,\\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/vpn_providers/pia.py::_pia_addkey",
+      "file": "bulk_downloader/vpn_providers/pia.py",
+      "old_regex": "(?<=\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=PIA_API_TIMEOUT_S,\\ verify=False,\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    }
+  ]
+}

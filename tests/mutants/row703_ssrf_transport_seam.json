@@ -1,0 +1,290 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 703. Every anchor is a zero-width position on a DECISION (a branch predicate, a call, a return, a dispatch) so no value-bearing text is inside a matched span. S* mutate the seam's refusal, pin and dispatch decisions; C* mutate the census the drift gate derives its population from, including the arms that must return UNKNOWN rather than OK.",
+  "subject": "the pinned transport's refusal and pin decisions, and the gate's tree-derived denominator",
+  "band": [
+    "tests/test_row703_ssrf_transport_is_installed_everywhere.py"
+  ],
+  "mutants": [
+    {
+      "label": "S1 handle_request delegates without pinning",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        )(?=self\\.pin\\(request\\)$)",
+      "new": "None and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_resolves_once_and_the_socket_layer_sees_the_vetted_literal"
+    },
+    {
+      "label": "S2 unspecified is admitted",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=view\\.is_unspecified:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S3 multicast is admitted",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=view\\.is_multicast:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S4 link-local is admitted",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=view\\.is_link_local:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S5 IPv4 reserved is admitted",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if isinstance\\(view, ipaddress\\.IPv4Address\\) and )(?=view\\.is_reserved:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S6 embedded IPv4 views are not classified",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=\\*embedded_ipv4\\(addr\\))(?=\\):)",
+      "new": "[:0]",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S7 a literal host is never classified",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=            reason = never_admissible\\(literal\\)\\n            if )(?=reason is not None:)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S8 a resolved never-admissible address is admitted",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=            reason = never_admissible\\(addr\\)\\n            if )(?=reason is not None:)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_a_never_admissible_resolution_before_any_socket[answer0-unspecified]"
+    },
+    {
+      "label": "S9 the socket connects to the name, not the vetted literal",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=request\\.url = request\\.url\\.copy_with\\(host=chosen\\))(?=$)",
+      "new": ".copy_with(host=host)",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_resolves_once_and_the_socket_layer_sees_the_vetted_literal"
+    },
+    {
+      "label": "S10 SNI is not preserved",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=request\\.extensions\\[\\\"sni_hostname)(?=\\\"\\] = host)",
+      "new": "_off",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_resolves_once_and_the_socket_layer_sees_the_vetted_literal"
+    },
+    {
+      "label": "S11 resolution failure falls open",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=UnicodeError\\) as exc:\\n            )(?=raise GuardedTransportRefused\\()",
+      "new": "return None\n            ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_fails_closed_on_resolution_failure_with_the_class_httpcore_uses"
+    },
+    {
+      "label": "S12 an empty answer falls open",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=        if chosen is None:\\n            )(?=raise GuardedTransportRefused\\()",
+      "new": "return None\n            ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_a_never_admissible_resolution_before_any_socket[answer3-no-address]"
+    },
+    {
+      "label": "S13 PUBLIC_ONLY is not dispatched to the established guard",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^    if )(?=policy == PUBLIC_ONLY:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_public_only_policy_is_the_unchanged_guard"
+    },
+    {
+      "label": "S14 PUBLIC_ONLY opts out of the guard",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?<=allow_private_hosts=)(?=False, \\*\\*transport_kwargs\\))",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_public_only_policy_is_the_unchanged_guard"
+    },
+    {
+      "label": "S15 PINNED is not dispatched",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^    if )(?=policy == PINNED:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_only_what_can_never_be_a_peer"
+    },
+    {
+      "label": "S16 a poisoned sibling after the first answer is ignored",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^                chosen = sockaddr\\[0\\])(?=$)",
+      "new": "\n                break",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_pinned_transport_refuses_a_never_admissible_resolution_before_any_socket[answer1-link-local]"
+    },
+    {
+      "label": "S17 the factory runs against whatever stands in for httpx",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=standing_in is not httpx:$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_the_established_guard_is_built_against_the_real_httpx_under_a_stand_in[magicmock]"
+    },
+    {
+      "label": "S18 a mock memoized as the guard is handed out",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^        if )(?=not \\(isinstance\\(cls, type\\) and issubclass\\(cls, httpx\\.HTTPTransport\\)\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_a_guard_memoized_under_a_stand_in_is_refused_not_handed_out"
+    },
+    {
+      "label": "C1 the tree-side denominator is deleted",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=PACKAGE_PATHSPEC = \\\"bulk_downloader/\\*)(?=\\.py\\\")",
+      "new": "_nothing_",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "C2 UNKNOWN is laundered to OK",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=    except CensusUnavailable as exc:\\n        return )(?=UNKNOWN, str\\(exc\\), None)",
+      "new": "OK if True else ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_an_unmeasurable_population_is_UNKNOWN_and_never_OK[no-git]"
+    },
+    {
+      "label": "C3 an empty population is OK",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=    if )(?=not result\\.constructions:)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_an_unmeasurable_population_is_UNKNOWN_and_never_OK[empty-population]"
+    },
+    {
+      "label": "C4 a construction without transport= is pinned",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=    if transport is None:\\n        return )(?=False, \\\"\\\", \\\"no transport= keyword)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_the_gate_names_an_unpinned_construction_added_to_a_clean_tree"
+    },
+    {
+      "label": "C5 the seam factory is not what pins",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=        if )(?=via is not None:)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "C6 the builder rule accepts any binding",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?m)(?<=^    return )(?=cls_bound and transport_bound$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_the_builder_rule_needs_the_factory_binding_not_just_the_name"
+    },
+    {
+      "label": "C7 the builder rule applies to any file",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=            and )(?=rel == SHARED_BUILDER_FILE and builder)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C8 the plain httpx import is not a client binding",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=httpx_aliases\\.add\\(alias\\.asname or \\\"httpx\\\")(?=\\))",
+      "new": "[:0]",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_the_unpin_spec_reconciles_to_the_tree_derived_population"
+    },
+    {
+      "label": "C9 the from-import client binding is dropped",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=                        client_names\\.add\\(alias\\.asname or alias\\.name)(?=\\))",
+      "new": "[:0]",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C10 a factory call without a policy is pinned",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=            if policy is None:\\n                return )(?=False, \\\"\\\", f\\\"transport=\\{via\\}\\(\\.\\.\\.\\) names no recognised policy\\\")",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C11 a non-seam transport call is pinned",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=        return )(?=False, \\\"\\\", \\\"transport= is a call that is not the seam factory\\\")",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C12 an unparseable file is silently empty",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=    except SyntaxError as exc:\\n        )(?=raise CensusUnavailable\\(f\\\"\\{rel\\} does not parse)",
+      "new": "return ()\n        ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_an_unmeasurable_population_is_UNKNOWN_and_never_OK[unparseable]"
+    },
+    {
+      "label": "C13 the attribute helper arm is switched off",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=            and func\\.value\\.id in httpx_aliases and )(?=func\\.attr in HELPER_NAMES\\):)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_a_module_level_helper_added_to_a_clean_tree_fails_the_gate_naming_it"
+    },
+    {
+      "label": "C14 the from-import helper binding is dropped",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=                    elif )(?=alias\\.name in HELPER_NAMES:)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C15 the rebound helper binding is dropped",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=                    and value\\.value\\.id in httpx_aliases and )(?=value\\.attr in HELPER_NAMES\\):)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_bare_form_is_named_and_no_pinned_form_is"
+    },
+    {
+      "label": "C16 a module-level helper is counted as pinned",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?<=found\\.append\\(Construction\\(rel, child\\.lineno, helper, )(?=False, \\\"\\\", HELPER_EVIDENCE\\)\\))",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_a_module_level_helper_added_to_a_clean_tree_fails_the_gate_naming_it"
+    },
+    {
+      "label": "S19 owning_stream does not own the client",
+      "file": "bulk_downloader/ssrf_transport.py",
+      "old_regex": "(?m)(?<=^    with )(?=client, client\\.stream\\(method, url, \\*\\*request_kwargs\\) as response:$)",
+      "new": "contextlib.nullcontext() or ",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_owning_stream_streams_through_the_client_and_closes_it"
+    }
+  ]
+}

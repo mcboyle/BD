@@ -1212,8 +1212,10 @@ class SessionKeeper:
             except _vpnrt.VPNRequiredError as _pe:
                 return DEAD, (f"VPN required, tunnel unavailable -- "
                               f"failing closed: {_pe}")
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             with httpx.Client(timeout=20.0, follow_redirects=False,
-                              cookies=cookies, proxy=proxy_url) as cli:
+                              cookies=cookies,
+                              transport=guarded_transport(PINNED, proxy=proxy_url)) as cli:
                 resp = cli.get(check_url)
             if 300 <= resp.status_code < 400:
                 loc = resp.headers.get("location", "")

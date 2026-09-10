@@ -58,11 +58,15 @@ def test_probe_fetch_fails_closed_on_vpn_required():
 
 def test_probe_fetch_stream_is_proxied():
     body = _body(_runner_src(), "_do_probe_fetch")
-    streams = list(re.finditer(r"httpx\.stream\((.*?)\)", body, re.S))
-    assert streams, "expected an httpx.stream in the probe body"
+    # row703: the probe streams through a pinned httpx.Client owned by
+    # owning_stream(...); the proxy is threaded into that Client (the
+    # module-level httpx.stream helper is gone from the package).
+    assert "httpx.stream(" not in body, "the probe must not use the module-level httpx.stream helper"
+    streams = list(re.finditer(r"owning_stream\(\s*httpx\.Client\((.*?)\)", body, re.S))
+    assert streams, "expected an owning_stream(httpx.Client(...)) in the probe body"
     for m in streams:
         assert "proxy=" in m.group(1), \
-            "probe httpx.stream must pass proxy= (fail-closed VPN binding); found unproxied stream"
+            "probe httpx.Client must pass proxy= (fail-closed VPN binding); found unproxied stream client"
 
 
 # ---- F-RUN02-03: heartbeat fallback (session_keeper) ----------------------
