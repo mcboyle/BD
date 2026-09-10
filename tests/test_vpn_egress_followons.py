@@ -196,6 +196,7 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     proxy_sentinel = "socks5://manual-session-sentinel.invalid:1080"
     proxy_resolutions = []
     client_proxies = []
+    client_transports = []
 
     class _FakeRunner:
         site_id = "manual-proxy-test"
@@ -236,6 +237,7 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     class _FakeClient:
         def __init__(self, *args, **kwargs):
             client_proxies.append(kwargs.get("proxy"))
+            client_transports.append(kwargs.get("transport"))
 
         def __enter__(self):
             return self
@@ -310,7 +312,13 @@ def test_manual_download_session_delegates_proxy_resolution_to_runner():
     response = response_q.get_nowait()
     assert response[0] == "ok", response
     assert proxy_resolutions == [proxy_sentinel]
-    assert client_proxies == [proxy_sentinel]
+    assert client_proxies == [None], (
+        "proxy belongs to the guarded transport; a client-level proxy would "
+        "mount its own transport and bypass the guard")
+    assert len(client_transports) == 1
+    proxy_url = client_transports[0]._pool._proxy_url
+    assert (proxy_url.scheme, proxy_url.host, proxy_url.port) == (
+        b"socks5", b"manual-session-sentinel.invalid", 1080)
 
 
 def test_manual_proxy_test_setup_failure_does_not_leak_import_state():
