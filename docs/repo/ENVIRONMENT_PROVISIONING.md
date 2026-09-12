@@ -434,3 +434,5 @@ egress proof work.
   portability measurements remain available in Git history. Re-run any tool
   whose verdict you depend on; porting is separate from provisioning.
 - **Anything about the host.** Provisioning here tells you nothing about stash.
+
+<!-- lane-parallelism probe a 2026-09-12 -->
