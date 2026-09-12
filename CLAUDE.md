@@ -405,8 +405,9 @@ extensionless tools, `frontend/` the SPA, `scripts/` install/deploy/service,
 decision time.
 
 Before a broad scan, name the population and use `rg`/`git ls-files` or the
-purpose-built tool. CAPTURE WHOLE TO DISK, READ A SLICE; a second hand-rolled
-heredoc is a missing `bd-*` tool. Generated remote source is transport data:
+purpose-built tool. CAPTURE WHOLE TO DISK, READ A SLICE. A SECOND HAND-ROLLED HEREDOC IS A MISSING `bd-*` TOOL.
+And measure before optimising: use the complete captured denominator, then inspect bounded
+slices and promote repeated logic into the toolchain. Generated remote source is transport data:
 send its UTF-8 bytes through an ASCII-safe decoder and verify a digest before
 publication; never embed it in a bootstrap heredoc. Parallel read-only
 discovery is fine when authorized, but one integrator and one writer remain.
