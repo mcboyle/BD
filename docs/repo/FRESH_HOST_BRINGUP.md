@@ -550,3 +550,5 @@ the only `gethostname` / `platform.node` hit in tracked sources is
 `live_tests/harness.py`, interpolated into a report string), so the two boxes
 differ only in their state and their environment — which is exactly what makes
 the old one a useful control while the new one is being proven.
+
+<!-- lane-parallelism probe b 2026-09-12 -->
