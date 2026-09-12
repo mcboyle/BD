@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4428,
+  "edge_count": 4430,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4148,6 +4148,10 @@
     "tests/test_row732_site_editor_redaction_descends.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_row749_deep_client_handler_paths.py": [
+      "bulk_downloader/app_sites_integrations.py",
+      "bulk_downloader/deep_http.py"
     ],
     "tests/test_row751_template_apply_gates_captcha_egress.py": [
       "bulk_downloader/app.py",

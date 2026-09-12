@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1535 - Verify deep client destination guards
+
+- Exercise the Jellyfin, Plex and Stash diagnosis handler paths through real destination classification, including private refusal and public/LAN success controls.
+
 ## v3.66.1534 - Reconcile register dispositions
 
 - Preserve supported installation coverage as open work, record the retired Windows packaging subject as moot, and file the existing diagnostic and SOCKS dependency findings.
