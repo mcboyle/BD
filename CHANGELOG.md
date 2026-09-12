@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1537 - Compact the CLAUDE.md operating contract
+
+- Compact CLAUDE.md from 34,638 to 24,288 bytes: same eight sections, every pinned requirement, lesson literal and obligation kept (lens rounds r1-r3 verified against the contract tests); no product, test or tool change.
+
 ## v3.66.1536 - Compact the canonical backlog
 
 - Compact project-knowledge/IMPROVEMENT_BACKLOG.md from 263,453 to 113,533 bytes: 77 OPEN rows rewritten tersely via bd-register-amend with ids, statuses, evidence and acceptance intact; 12 terminal rows (50, 86, 116, 280, 694, 703, 710, 730, 736, 739, 749, 808) moved verbatim to the archive; 55 gate-pinned terminal rows and all 608 archived rows byte-identical to the base. No product or test change.
