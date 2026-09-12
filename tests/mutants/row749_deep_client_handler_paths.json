@@ -1,0 +1,43 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 749. Each mutation removes the site-configured LAN opt-in from one actual diagnose handler path. The parametrized positive route must catch it; the companion transform control runs the refusal-only route and must escape.",
+  "subject": "each routed deep client preserves destination classification and the configured LAN opt-in",
+  "band": [
+    "tests/test_row749_deep_client_handler_paths.py::test_row749_site_optin_reaches_legitimate_destination",
+    "tests/test_row749_deep_client_handler_paths.py::test_row749_public_destination_without_optin_reaches_transport"
+  ],
+  "mutants": [
+    {
+      "label": "M1 jellyfin handler no longer passes its configured destination opt-in",
+      "file": "bulk_downloader/jellyfin_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=)bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\)(?=,$)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row749_deep_client_handler_paths.py::test_row749_site_optin_reaches_legitimate_destination[jellyfin-jellyfin_url-jellyfin_api_key-jellyfin_allow_private_host-api_jellyfin_diagnose]"
+    },
+    {
+      "label": "M2 plex handler no longer passes its configured destination opt-in",
+      "file": "bulk_downloader/plex_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=)bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\)(?=,$)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row749_deep_client_handler_paths.py::test_row749_site_optin_reaches_legitimate_destination[plex-plex_url-plex_token-plex_allow_private_host-api_plex_diagnose]"
+    },
+    {
+      "label": "M3 stash handler no longer passes its configured destination opt-in",
+      "file": "bulk_downloader/stash_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=)bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\)(?=,$)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row749_deep_client_handler_paths.py::test_row749_site_optin_reaches_legitimate_destination[stash-stash_url-stash_api_key-stash_allow_private_host-api_stash_diagnose]"
+    },
+    {
+      "label": "M4 public classifier refuses every host",
+      "file": "bulk_downloader/deep_http.py",
+      "old_regex": "(?m)(?<=from bulk_downloader.provider_resolve_impl._common import SSRFBlocked, )_is_safe_public_host$",
+      "new": "_is_safe_public_host as _original_is_safe_public_host\n\n_is_safe_public_host = lambda host: (False, 'synthetic all-host refusal')",
+      "direction": "regression",
+      "catcher": "tests/test_row749_deep_client_handler_paths.py::test_row749_public_destination_without_optin_reaches_transport[jellyfin-jellyfin_url-jellyfin_api_key-jellyfin_allow_private_host-api_jellyfin_diagnose]"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 749 transform control. Applies the byte-identical Jellyfin opt-in removal while judging only the no-opt-in refusal path. It must report one valid ESCAPED mutant, proving the primary catch comes from the reachable destination contract rather than a malformed transform or collection error.",
+  "subject": "the valid opt-in removal escapes a refusal-only handler assertion",
+  "band": [
+    "tests/test_row749_deep_client_handler_paths.py::test_row749_handler_reaches_classification_and_refusal[jellyfin-jellyfin_url-jellyfin_api_key-jellyfin_allow_private_host-api_jellyfin_diagnose]"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 jellyfin opt-in removal remains valid under the refusal-only route",
+      "file": "bulk_downloader/jellyfin_deep.py",
+      "old_regex": "(?m)(?<=^        allow_private_hosts=)bool\\(cfg\\.get\\(PRIVATE_HOST_SETTING\\)\\)(?=,$)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row749_deep_client_handler_paths.py::test_row749_handler_reaches_classification_and_refusal[jellyfin-jellyfin_url-jellyfin_api_key-jellyfin_allow_private_host-api_jellyfin_diagnose]"
+    }
+  ]
+}
