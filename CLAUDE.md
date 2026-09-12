@@ -1,181 +1,136 @@
 # CLAUDE.md — operating contract for BulkDownloader
 
 Read this file fully before editing. It is the sole agent-facing contract for
-BulkDownloader. Historical incidents remain in Git and the changelog; this file
-contains standing authority, safety boundaries, required commands, and links to
-focused owners.
+BulkDownloader: standing authority, safety boundaries, required commands, and
+links to focused owners. Incidents live in Git and `CHANGELOG.md`, not here.
 
 ## A1 | Authority and scope
 
 BulkDownloader (BD) is a self-hosted Flask, Playwright, and React/TypeScript
-batch downloader operated by Matthew. The authoritative repository is
-`/home/mboyle/BulkDownloader`, with official origin `mcboyle/BD`. The deployed
-tree and the working tree may be the same directory, especially on `test5`.
+batch downloader operated by Matthew. Authoritative repository:
+`/home/mboyle/BulkDownloader`, official origin `mcboyle/BD`. Deployed tree and
+working tree may be the same directory (`test5`).
 
 This is the sole agent-facing contract. Do not create or revive a second
 bootstrap prompt, handoff prompt, session contract, promise ledger, task
 register, casebook, or authority. Current product work lives only in
-`project-knowledge/IMPROVEMENT_BACKLOG.md`. Git history and `CHANGELOG.md` are
-evidence, not current task queues.
+`project-knowledge/IMPROVEMENT_BACKLOG.md`; Git history and `CHANGELOG.md` are
+evidence, not task queues.
 
-Treat every reading as a claim about both a commit and a host. Before relying
-on a result, record or verify:
+Every reading is a claim about a commit AND a host. Before relying on a result,
+record or verify: IP address and hostname TOGETHER (hostnames are not unique on
+this fleet -- the IP is the identity); repository path and origin; branch, HEAD,
+tree SHA, base, ahead/behind; clean tracked/untracked/index state; interpreter,
+environment and exact command; the service or fleet boundary touched. A finding
+without host, commit and tree identity is not transferable. A stale checkout's
+green tests are about that checkout. Fetch, resolve the exact object, prove
+ancestry and containment before comparing.
 
-- IP address and self-reported hostname TOGETHER. On this fleet hostnames are
-  NOT unique -- bd4 and 10.0.70.83 both answer `test`, while bd2 and 10.0.70.149
-  both answer `fresh-1` -- so the IP is the identity and the hostname is a label.
-  A claim carrying only a hostname does not name a machine;
-- repository path and official origin;
-- branch, HEAD commit, tree SHA, parent/base, and ahead/behind state;
-- clean tracked/untracked/index state;
-- interpreter, environment, and exact command;
-- service or fleet boundary touched by the work.
-
-A finding without host, commit, and tree identity is not transferable evidence.
-An observation from a stale checkout is about that checkout, even when its
-tests pass. Fetch normally, resolve the exact object, and prove ancestry and
-containment before comparing results.
-
-Measure volatile facts from the current tree. Do not copy counts from prose.
-Use `git ls-files`, parsers, tool output, CI APIs, service probes, or generated
-manifests appropriate to the question. A glob is a denominator choice: include
-extensionless scripts, frontend source, fixtures, generated inputs, deleted
-paths, and other populations when the claim covers them. Verify what a tool
-executes, not only what its docstring says.
-
-Documents go stale silently. Re-derive backlog status and source facts before
-acting; preserve explicit uncertainty when current evidence cannot decide.
+Measure volatile facts from the current tree (`git ls-files`, parsers, tool
+output, CI APIs, probes, manifests) -- never copy counts from prose. A glob is a
+denominator choice: include extensionless scripts, frontend source, fixtures,
+generated inputs and deleted paths when the claim covers them. Verify what a
+tool executes, not its docstring. Re-derive backlog status before acting;
+preserve explicit uncertainty when current evidence cannot decide.
 
 ## A2 | Authorization and state
 
-Matthew's terse directives such as `go`, `continue`, `cut`, or a bare artifact
-authorize routine work within the already established scope. They do not grant
-authority over unrelated repositories, hosts, data, people, costs, credentials,
-or destructive targets.
-
-`hold`, `wait`, `pause`, or `stop` means stop immediately at the next safe
-point. Read-only inspection may continue only when it cannot affect active
-evidence or external state. `resume` restores the previously authorized scope;
-it does not silently broaden it.
+Matthew's terse directives (`go`, `continue`, `cut`, a bare artifact) authorize
+routine work within the established scope -- never unrelated repositories,
+hosts, data, people, costs, credentials or destructive targets. `hold`, `wait`,
+`pause`, `stop` mean stop at the next safe point; read-only inspection may
+continue only when it cannot affect active evidence or external state. `resume`
+restores the previous scope without broadening it.
 
 PASS and FAIL are not exhaustive. UNKNOWN is a failing third state whenever a
-required claim cannot be measured. Missing, malformed, truncated, stale,
-wrong-SHA, wrong-tree, wrong-host, zero-denominator, digest-mismatched,
-unobserved, or transport-failed evidence is UNKNOWN/HOLD, never permission.
+required claim cannot be measured: missing, malformed, truncated, stale,
+wrong-SHA/tree/host, zero-denominator, digest-mismatched, unobserved or
+transport-failed evidence is UNKNOWN/HOLD, never permission.
 
-Keep task, merge, and deployment authority separate:
+Keep authorities separate: implementation permits scoped source/test/doc
+changes; merge requires the reviewed exact head, terminal required tests,
+exact-head CI, current PR metadata and clean state; deployment requires the
+exact merged tree and the sanctioned deploy path; infrastructure, package,
+fleet or external-service actions stay inside the operator's explicit scope and
+cost/license limits.
 
-- implementation authority permits scoped source/test/doc changes;
-- merge requires the reviewed exact head, terminal required tests, exact-head
-  CI, current PR metadata, and clean state;
-- deployment requires the exact merged tree and the sanctioned deploy path;
-- infrastructure, package, fleet, or external-service actions remain bounded
-  by the operator's explicit scope and cost/license limits.
-
-If work is intentionally deferred, record it as a machine-visible row in the canonical
-backlog with a unique row, status, evidence, acceptance criteria, and dependency.
-Prose such as "later" or an unchecked historical checklist is not a deferral.
-Do not invent a row for work that is completed, obsolete, or already represented.
-
-Any train may carry a register commit -- bd-register-append, bd-register-close,
-bd-register-amend -- filing the rows its patches close and the defects they met
-on the way. A dedicated register cut is for corrections. Workers PROPOSE row
-text and never assign ids; the integrator assigns them, because two workers
-filing concurrently choose the same number. Register rows are documentation:
-they never gate a runtime lane.
+Deferred work is a machine-visible row in the canonical backlog (unique id,
+status, evidence, acceptance criteria, dependency). Prose such as "later" is not
+a deferral. Do not file a row for completed, obsolete or already-represented
+work. Any train may carry a register commit (bd-register-append/close/amend);
+workers PROPOSE row text and never assign ids -- the integrator assigns them.
+Register rows never gate a runtime lane.
 
 When a meaningful choice would change the product or expand authority, present
-the evidence and ask. Routine, reversible, in-scope implementation and
-verification should continue without confirmation.
+the evidence and ask; routine, reversible, in-scope work continues without
+confirmation. Landing authority sits with the integrator: it lands a train once
+the required lenses BOARD, the lane is green and exact-head CI is green. The
+adjudicator rules on refusals, lane failures and lens disagreement and verifies
+every landing by blob. A routine choice takes the recommended default, is logged
+in OPERATOR_DECISIONS.md with the word DEFAULT, and reaches the operator in a
+digest; only a blocker interrupts. Every TIMED hold names its EXPIRY ACTION
+(resume, escalate or stop) -- a duration alone is not one. A bare `hold` stands
+until `resume`. Never narrow an ambiguous objective to obtain a green result.
 
-Landing authority sits with the integrator: it lands a train on its own once the
-required lenses BOARD, the lane is green, and exact-head CI is green. The
-adjudicator rules on refusals, lane failures, and lens disagreement, and
-verifies every landing by blob afterwards. A routine choice takes the
-recommended default, is logged in OPERATOR_DECISIONS.md with the word DEFAULT,
-and reaches the operator in a periodic digest; only a blocker interrupts. Any
-TIMED hold carries an EXPIRY ACTION -- what happens when the clock runs out --
-because a timed hold with no stated expiry is indistinguishable from a stall and
-cost nine hours once. A bare `hold` is not timed: it stands until `resume`, and
-inventing an expiry for it is resuming work the operator stopped. A DURATION IS
-NOT AN EXPIRY ACTION: "hold 15 min" says when, never what, and the instruction
-is complete only when it also says what happens at the end -- resume, escalate,
-or stop for good. Never convert ambiguity
-into a narrower or easier objective merely to obtain a green result.
-
-Know which host you are changing. Never edit a checkout while an authoritative
-capture or formal timing run uses it. Never test against the live service or an
-authenticated site unless that exact contact is authorized and isolated.
+Know which host you are changing. Never edit a checkout during an authoritative
+capture or timing run. Never test against the live service or an authenticated
+site unless that exact contact is authorized and isolated.
 
 ## A3 | Change lifecycle
 
-Carry one coherent feature per cut, or one coherent safety contract. Do not fold unrelated
-cleanup or a second backlog item into it. If the work cannot fit one coherent
-cut, split it or ask; do not weaken acceptance criteria.
+Carry one coherent feature per cut, or one coherent safety contract; do not
+fold unrelated cleanup or a second backlog item in. If it cannot fit one cut,
+split or ask.
 
-A TRAIN is the second sanctioned shape: N independently reviewed patches whose
-authored paths are DISJOINT, carried under one version trio, one lane, and one
-exact-head CI, up to sixteen patches. Because the trio forces landings to be
-serial, WIDTH is the throughput lever and the number of cuts is not. A lane
-failure on a train is BISECTED by patch with `bd-train.sh --bisect`, which
-applies each patch exactly as the assembler does, and the offending patch goes
-back to its worker with the lane log; a train is never debugged whole. Two
-patches sharing a path ride different trains and are never merged by hand. A
-train's changelog entry names every patch it carries.
+A TRAIN is the second sanctioned shape: up to sixteen independently reviewed
+patches with DISJOINT authored paths under one version trio, one lane and one
+exact-head CI. Width is the throughput lever, because the trio serializes
+landings. A lane failure is bisected by patch with `bd-train.sh --bisect`; the
+offending patch returns to its worker with the lane log. Two patches sharing a
+path ride different trains. A train's changelog entry names every patch.
 
-Use this lifecycle in order:
+Lifecycle, in order:
 
-1. Read this contract and the exact canonical backlog row/roadmap section.
+1. Read this contract and the exact backlog row / roadmap section.
 2. Record starting identity, clean state, locks/processes, PR state, service
-   boundary, scope, permitted paths, rollback, and evidence destination.
+   boundary, scope, permitted paths, rollback and evidence destination.
 3. Enumerate readers, writers, tests, CI, generated artifacts, packaging,
-   deployment consumers, documentation, and external/operator dependencies.
-4. Write a meaningful RED-first test against the defective base. Prove its
-   preconditions and nonzero seam; record the precise expected failure.
-5. Implement the smallest coherent correction. Do not weaken assertions,
-   suppress failures, add arbitrary sleeps, or retry a mandatory failure away.
-6. Run focused GREEN, negative/adversarial controls, and the complete affected
+   deployment consumers, documentation and external dependencies.
+4. Write a meaningful RED-first test against the defective base; prove its
+   preconditions and nonzero seam; record the exact expected failure.
+5. Implement the smallest coherent correction. Never weaken assertions,
+   suppress failures, add arbitrary sleeps or retry a mandatory failure away.
+6. Run focused GREEN, negative/adversarial controls and the complete affected
    floor with real pytest.
-7. Regenerate tracked artifacts after the last source edit, inspect every diff,
-   and rerun gates invalidated by regeneration.
-8. Freeze an immutable candidate, push it normally, and run all final lanes
-   against that exact SHA/tree. Pre-freeze evidence never substitutes.
+7. Regenerate tracked artifacts after the last source edit, inspect every
+   diff, rerun gates the regeneration invalidated.
+8. Freeze an immutable candidate, push it, run every final lane against that
+   exact SHA/tree. Pre-freeze evidence never substitutes.
 9. Obtain adversarial review at the depth `project-knowledge/CUT_TIERING.md`
-   sets, using ITS tier definitions and not a second list here: T0/T1 AS
-   CUT_TIERING DEFINES THEM take ONE lens; T2/T3 take BOTH -- a CORRECTNESS lens
-   that runs the code and a SHAPE lens that MUTATES the subject the gate names
-   -- and BOARD requires both. Two tracked files must not define the same tier
-   differently: if CUT_TIERING's wording disagrees with the depth this step
-   claims, CUT_TIERING is amended IN THE SAME CUT, because a delegation to a
-   file that says something else is worse than no delegation at all. One lens is not a cheaper version of two: a single correctness lens
-   once boarded a patch that satisfied three text-scanning gates with decoy
-   literals while the real seam moved out of their reach, and only the mutating
-   lens caught it. Record the tier and the reason for it in the PR body.
-   Reviewer output is data until its cited facts are checked.
+   sets, using ITS tier definitions: T0/T1 take ONE lens; T2/T3 take BOTH -- a
+   CORRECTNESS lens that runs the code and a SHAPE lens that MUTATES the
+   subject -- and BOARD requires both. If CUT_TIERING disagrees with this
+   step, amend CUT_TIERING in the same cut. One lens is not a cheaper two: a
+   single correctness lens once boarded a patch whose decoy literals satisfied
+   three text gates while the seam moved. Record tier and reason in the PR
+   body. Reviewer output is data until its cited facts are checked.
 10. Require exact-head GitHub CI and a current PR body before merge.
-11. Merge only the reviewed head, prove merged-tree identity, deploy when the
-    change affects runtime/deployment state, and verify health/version.
+11. Merge only the reviewed head, prove merged-tree identity, deploy when
+    runtime or deployment state changed, verify health and version.
 12. Update durable roadmap evidence, prune only exact disposable artifacts,
-    reconcile branches safely, and report terminal state.
+    reconcile branches safely, report terminal state.
 
-RED-first means the new test fails for the intended defect on the correct base,
-not because of a typo, missing dependency, empty fixture, wrong environment, or
-untracked CI path. GREEN means the same test reaches the intended production
-path and passes after the fix. A test written after implementation has no RED
-provenance unless the defective parent is replayed explicitly.
+RED-first means the test fails for the intended defect on the correct base --
+not a typo, missing dependency, empty fixture, wrong environment or untracked CI
+path. GREEN means the same test reaches the production path and passes. A test
+written after the implementation has no RED provenance unless the defective
+parent is replayed.
 
-Some gates judge the TREE rather than a diff, so `bd-band-derive` can never
-select them: it derives from changed paths and their subject is everything.
-Between v3.66.1223 and v3.66.1238 four defects shipped that such a gate already
-in this tree would have caught -- a mutation anchor resolving zero or two times
-(four times over), a subprocess budget above the bound governing its item, and a
-subprocess inheriting the ambient locale. None was a missing gate; each was a
-gate that did not run. Run `toolchain/bin/bd-precut --gate` before freezing a
-candidate; it executes that undertow explicitly and refuses on failure.
-
-The affected band is necessary but not sufficient. A green band is not proof
-that no regression exists; adversarial review, schedule interactions, generated
-state, packaging, and full-suite behavior are separate questions.
+Some gates judge the TREE, not a diff, so `bd-band-derive` can never select
+them. Run `toolchain/bin/bd-precut --gate` before freezing; it runs that
+undertow and refuses on failure. A green band is necessary, not sufficient:
+adversarial review, schedule interactions, generated state, packaging and the
+full suite are separate questions.
 
 Before packaging or final review, regenerate deterministically from the root:
 
@@ -183,88 +138,69 @@ Before packaging or final review, regenerate deterministically from the root:
 venv/bin/python toolchain/bin/bd-regen-order --work "$PWD"
 ```
 
-Run regeneration after the last relevant edit. Never re-freeze an intent
-baseline merely to make a gate green. Read generated diffs and explain them.
+Never re-freeze an intent baseline merely to make a gate green. Read generated
+diffs and explain them.
 
 ## A4 | Writer and Git safety
 
 There is one authoritative integrator and sole writer for the candidate. Other
-workers may inspect immutable checkouts and return proposals or evidence; they
-do not push, merge, deploy, or silently edit the integrator's tree.
+workers inspect immutable checkouts and return proposals or evidence; they do
+not push, merge, deploy or edit the integrator's tree.
 
-Every worker result must identify its exact base/candidate/tree/host. A worker
-checkout may start at the session base rather than the branch tip; fetch the
-named branch or commit, detach at the exact object, then assert a change-specific
+Every worker result identifies its exact base/candidate/tree/host. Fetch the
+named branch or commit, detach at the exact object, assert a change-specific
 symbol exists before measuring. A green old test on old source is not evidence.
 
-Declare path ownership before concurrent work. Never use `git add -A`, `git add
-.`, broad globs, or regeneration staging while another writer can modify the
-tree. Stage only inspected paths. Recheck `git status`, staged names, and staged
-diff immediately before every commit.
+Declare path ownership before concurrent work. Never use `git add -A`,
+`git add .`, broad globs or regeneration staging while another writer can
+modify the tree. Stage only inspected paths; recheck `git status`, staged names
+and staged diff immediately before every commit.
 
-Do not use `git reset --hard`, `git checkout --`, broad recursive deletion, or
-other destructive recovery unless the exact target and authority are proven.
-The sanctioned `scripts/deploy.sh` reset and an explicitly authorized recovery
-are narrow exceptions. Prefer additive fixes or exact `apply_patch` restoration.
+No `git reset --hard`, `git checkout --`, broad recursive deletion or other
+destructive recovery unless the exact target and authority are proven; the
+sanctioned `scripts/deploy.sh` reset and an explicitly authorized recovery are
+the only exceptions. Preserve the user's unrelated dirty work. Never amend or
+rewrite a merged commit; GitHub merge commits are GitHub's records.
 
-Preserve the user's unrelated dirty work. Do not amend or rewrite an already
-merged commit. GitHub-generated merge commits are GitHub's records; never
-re-author them to change attribution or signature state.
+After merge: fetch and prune origin; prove the candidate is contained in
+`origin/main` and the merged tree is the reviewed tree; fast-forward the
+authoritative `main`; delete a local topic branch only after proving no unique
+content remains; verify zero unpushed commits and clean tracked state. Remote
+branch replacement is exceptional: prove the two-dot diff from the remote
+branch to `origin/main` is empty, then force-with-lease, never bare force.
 
-After merge:
+Secret scanning is a release boundary: run gitleaks/CI on the exact candidate;
+never hide a finding by editing a baseline or moving a realistic secret into a
+fixture. Fixtures use documented zero-entropy values; a touched baseline line
+is newly evaluated.
 
-- fetch and prune the official origin;
-- prove the candidate is contained in `origin/main` and the merged tree is the
-  reviewed candidate tree;
-- fast-forward the authoritative `main` checkout;
-- delete a local topic branch only after proving no unique content remains;
-- verify zero unpushed commits and clean tracked state.
-
-Remote branch replacement is exceptional. First fetch `main`, prove a two-dot
-diff from the remote branch to `origin/main` is empty, and stop on any nonempty
-result. If replacement is still needed, use force-with-lease, never bare force.
-
-Secret scanning is a release boundary. Run gitleaks/CI on the exact candidate;
-do not hide a new finding by editing a baseline or moving a realistic-looking
-secret into a fixture. Security fixtures use explicitly documented zero-entropy
-values. Treat a touched baseline line as newly evaluated.
-
-Evidence and commits use exact immutable identity. A result from an earlier
-candidate becomes stale when applicable source, tests, workflow, generated
-artifacts, or review premises change. Documentation-only changes may transfer
-only when they provably cannot affect the claimed behavior or denominator.
+Evidence uses exact immutable identity. A result from an earlier candidate is
+stale once applicable source, tests, workflow, generated artifacts or review
+premises change; documentation-only changes transfer only when they provably
+cannot affect the claimed behavior or denominator.
 
 ## A5 | Verification
 
-Before a worker reports `VERDICT: PATCH` on a T2 or T3 patch it runs the
-correctness lens's own checklist against itself: the RED command with its EXACT
-failure text, the GREEN command and result, a negative control, an exact-count
-assertion, the bd-mutate result, and both required tree-gate lines. A DONE.md
-missing any of these is BOUNCED BY THE REVIEW DISPATCHER before a lens is
-spent on it -- a review round costs more than the worker minute that would have
-prevented it. Note precisely what this is NOT, because the first draft of this
-paragraph claimed it and was wrong: bd-review-prep checks that DONE.md exists and
-that its first line is exactly `VERDICT: PATCH`, and nothing more. It does not
-look for a RED text, a GREEN result, a negative control, an exact count, a
-mutation result, or the tree-gate lines. Making it do so is a separate cut with
-its own RED, filed as a harness item; until then the floor is enforced by the
-dispatcher, not by the tool, and a contract that says otherwise teaches an agent
-to trust a guard that is not there. A
-T0/T1 patch owes only what its tier owes; do not demand a mutation result from a
-docs cut that has no runtime subject to mutate.
+Before reporting `VERDICT: PATCH` on a T2/T3 patch, a worker runs the
+correctness lens's checklist on itself: the RED command with its EXACT failure
+text, the GREEN command and result, a negative control, an exact-count
+assertion, the bd-mutate result, and both tree-gate lines. A DONE.md missing
+any of these is bounced by the review dispatcher before a lens is spent.
+`bd-review-prep` itself checks only that DONE.md exists with line 1 exactly
+`VERDICT: PATCH`; the floor is enforced by the dispatcher, not the tool. A
+T0/T1 patch owes only what its tier owes.
 
 Use real pytest through the repository interpreter. Derive affected tests with
-`toolchain/bin/bd-band-derive`; its output is a floor, never a ceiling. Add
-tree-wide denominators, deleted-file consumers, docs/freshness gates, generated
-gates, release gates, and adversarial tests that the changed subject requires.
-For a documentation or canonical-backlog edit, run the repository freshness
-gate directly as well:
+`toolchain/bin/bd-band-derive`; its output is a floor, never a ceiling -- add
+tree-wide denominators, deleted-file consumers, docs/freshness, generated,
+release and adversarial tests the subject requires. For a documentation or
+backlog edit also run:
 
 ```bash
 venv/bin/python toolchain/bin/bd-freshcheck --repo-only
 ```
 
-For ordinary focused/affected pytest, remove ambient install-directory state:
+For focused/affected pytest, remove ambient install-directory state:
 
 ```bash
 env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/test_target.py -q'
@@ -276,275 +212,176 @@ The only sanctioned canonical local full-suite command is:
 env -u BD_INSTALL_DIR BD_DISABLE_KEEPALIVE=1 PYTHONUNBUFFERED=1 venv/bin/python -m pytest tests/ -n 24 --dist loadfile --timeout=240 --timeout-method=signal --max-worker-restart=0 -p no:randomly
 ```
 
-Every token is load-bearing. `-n 24` is fixed; host capacity does not rewrite
-the experiment. `--dist loadfile` preserves the qualified scheduling contract.
-The timeout names hangs. `signal` mode raises inside the test's own thread so
-the offending test is REPORTED BY NAME; `thread` mode called `os._exit(1)` and
-killed the worker instead, and wrote its stack dump to a worker stdout that
-xdist points at /dev/null -- measured 0 dumps under xdist against 2 serially, so
-it named nothing in the only shape this command uses.
-`--max-worker-restart=0` turns any surviving worker death into an immediate
-abort rather than the drain livelock that once span 11.6 hours. No `-q` keeps
-xdist worker crash narration visible, and `PYTHONUNBUFFERED=1` preserves output
-from a run that never exits. A different worker count, scheduler, plugin,
-interpreter, or environment is a different experiment and cannot authorize
-merge.
+Every token is load-bearing: `-n 24` is fixed; `--dist loadfile` preserves the
+scheduling contract; `signal` reports a hung test BY NAME where `thread` killed
+the worker and dumped nowhere; `--max-worker-restart=0` turns a worker death
+into an abort instead of an 11.6-hour drain livelock; no `-q` keeps crash
+narration; `PYTHONUNBUFFERED=1` preserves output from a run that never exits.
+A different worker count, scheduler, plugin, interpreter or environment is a
+different experiment and cannot authorize merge. Never export `BD_INSTALL_DIR`
+into pytest (`BD_HOME` is a different resource); pop it with `env -u`.
 
-Do not export `BD_INSTALL_DIR` into pytest. `BD_HOME` does not govern the same
-resources. Pop inherited values with `env -u BD_INSTALL_DIR`; merely omitting an
-assignment still inherits the caller's shell state.
+A wait that greps a log for completion must gate on a line that exists ONLY
+when the current run succeeded -- gate on the verdict, seed the seen-set, or
+read only past the pre-run line count.
 
-A wait or monitor that greps a log for a completion marker must gate on a line
-that exists ONLY when the current run succeeded. Logs are appended across
-attempts, so an earlier failed run's completion line satisfies the wait and the
-caller proceeds against stale evidence. Gate on the verdict itself, seed the
-seen-set before arming, or record the line count before the run and read only
-past it.
+Every selected lane records nonzero expected/collected/executed denominators;
+pass/fail/error/skip/xfail/xpass/deselected identities; raw status; timeout
+state; exact command and digest; environment identity; start/end UTC; pre/post
+repository state; complete log; result hashes; an atomic completion marker. A
+partial JUnit file never defines its own denominator.
 
-Every selected test lane records a nonzero expected, collected, and executed
-denominator; pass/fail/error/skip/xfail/xpass/deselected identities; raw process
-status; timeout state; exact command and digest; environment identity; start/end
-UTC; pre/post repository state; complete persistent log; result hashes; and an
-atomic completion marker. A partial JUnit file must not define its own expected
-denominator.
+Test the seam, not only components: assert fixtures built the intended shape,
+callbacks fired exact nonzero counts, negative controls fail for the intended
+reason; when refusals share an exit code, assert the distinctive diagnostic.
+Prove each outcome of a multi-outcome function is reachable; a green battery is
+not coverage until the exercised path and mutation catcher are identified. A
+schedule-sensitive failure is not retired by one green sample.
 
-Test the seam, not only components. Assert fixtures actually built the intended
-shape, callbacks/branches fired exact nonzero counts, and negative controls fail
-for the intended reason. When several refusals share an exit code, assert the
-distinctive diagnostic and make later refusal conditions pass so they cannot
-launder the result.
+CI's pytest denominator is an ENUMERATED LIST OF NAMED FILES: `.github/workflows/ci.yml`
+hands pytest explicit paths (gate-suite shard `suites` values plus the
+integration job's files) and never a directory, so most tracked `tests/*.py`
+are named by nothing. Derive both populations -- parse `suites` from the
+workflow (not by scanning it as text; comments name files too) and take the
+tree from `git ls-files tests/`. A gate CI does not run does not exist. Whether
+that enumeration is sufficient is under review by the operator; nothing here is
+relaxed or tightened while he decides. Every new `tests/test*.py` file declares
+`BD_GATE_SCOPE` or is explicitly classified by the frozen legacy mechanism;
+repo-wide/safety gates must be directly present in a shard and `_DECLARED`.
+Read CI status from named status/conclusion fields, not positional CLI columns.
+Never trim a slow CI shard or omit a required test to regain green. Split or
+ask when a shard exceeds its budget. Do not cancel independent lanes because
+one fails.
 
-When a function has several outcomes, prove each is reachable. A green battery
-is not coverage evidence until the exercised path and mutation catcher are
-identified. A schedule-sensitive failure is not retired by one green sample;
-preserve failures, establish causation, and compare matched environments.
-
-CI's pytest denominator is an ENUMERATED LIST OF NAMED FILES, not the tree.
-`.github/workflows/ci.yml` hands pytest explicit paths -- the gate-suite shard
-`suites` values plus the integration job's own named files -- and hands it a
-directory zero times, so most tracked `.py` files under `tests/` are named by
-nothing and no CI job would notice their absence. Derive both populations
-before relying on either: parse the `suites` values out of the workflow, and
-take the tree from `git ls-files tests/`. Do not count the named side by
-scanning the workflow as text, because it also names files in prose comments,
-and a comment is not an argument. What CI does run is independent of the diff.
-A gate CI does not run does not exist. WHETHER THAT ENUMERATION IS SUFFICIENT
-IS THE OPERATOR'S OPEN QUESTION AND IS UNDER REVIEW BY THE OPERATOR; nothing
-required here is relaxed, tightened or withdrawn while he decides. Every new
-`tests/test*.py` file declares `BD_GATE_SCOPE` or is
-explicitly classified by the frozen legacy mechanism; repo-wide/safety gates
-must be directly present in a shard and `_DECLARED`. Read CI status from named
-status/conclusion fields, not positional CLI columns.
-
-Never trim a slow CI shard or omit a required test to regain green. Preserve the
-denominator and split or ask when a shard exceeds its budget. Do not cancel
-independent lanes merely because one fails; complete failure information reduces
-refreeze cycles.
-
-Report completed measurements, not estimated percentages. Verify summary and
-verdict lines against raw evidence. Say what was not run and why. Claims of
-READY, merged, deployed, clean, or complete require current exact SHA/tree/host
-evidence; otherwise report UNKNOWN/HOLD.
+Report completed measurements, not estimates. Verify summary lines against raw
+evidence. Say what was not run and why. READY, merged, deployed, clean or
+complete require current exact SHA/tree/host evidence; otherwise UNKNOWN/HOLD.
 
 ## A6 | Release and deployment
 
-A version bump is three source edits together:
+A version bump is three source edits together: `bulk_downloader/__init__.py`
+sets `__version__`; `tests/test_settings_center_slice4.py` pins that exact
+value; an ASCII-only `CHANGELOG.md` entry is prepended, anchored on the previous
+release header. Then regenerate and inspect `PIN_INDEX.json`; do not assume the
+number or location of pins. Run version, changelog, generated, release,
+frontend and packaging gates against the final candidate.
 
-1. `bulk_downloader/__init__.py` sets `__version__`;
-2. `tests/test_settings_center_slice4.py` pins that exact value;
-3. an ASCII-only `CHANGELOG.md` entry is prepended and anchored on the previous
-   release header.
+The environment is `venv` (not `.venv`); use `venv/bin/python` and never fall
+through to a system interpreter.
 
-Then regenerate and inspect `PIN_INDEX.json`; do not assume the number or
-location of version pins. Run version, changelog, generated, release, frontend,
-and packaging gates against the final candidate.
+Release packaging includes required gitignored generated artifacts and
+`frontend/dist`, proves the archive member set matches the source tree,
+excludes runtime/private/retired residue and retains raw verifier status.
+Missing artifacts are failures, not permission to omit them.
 
-The repository environment is `venv`, not the dot-prefixed `.venv`; use
-`venv/bin/python` and do not fall through to a different system interpreter.
+A FETCH EXITING 0 IS NOT DELIVERY. Some hosts fetch from a per-host bare mirror
+nothing pushes into; deploy.sh refuses with INTENDED-COMMIT-ABSENT and names the
+remedy. Prove the intended commit is PRESENT on the host before deploying; read
+`docs/repo/FLEET_TOPOLOGY.md` for which hosts fetch from where.
 
-Release packaging must include required gitignored generated artifacts and
-`frontend/dist`, prove the archive member set matches the intended source tree,
-exclude runtime/private/retired residue, and retain raw verifier status. Missing
-generated or frontend artifacts are failures, not permission to omit them.
-
-A FETCH EXITING 0 IS NOT DELIVERY. Two hosts fetch from a per-host bare mirror
-rather than the official origin, and nothing in the release path pushes into it,
-so v3.66.1378 refused on both with INTENDED-COMMIT-ABSENT -- the second time
-that shape had fired in two days. deploy.sh is right to refuse and names the
-remedy; the fleet is not right to need it. Three more hosts pointed at their own
-mirrors and sat 18 to 29 releases behind while every fetch exited 0, which is a
-stale checkout reporting itself current. Prove the intended commit is PRESENT on
-the host before deploying it, and read `docs/repo/FLEET_TOPOLOGY.md` for which
-hosts fetch from where.
-
-Git moves tracked files; it does not update a running process, clear bytecode,
-regenerate gitignored artifacts, rebuild the SPA, or restart the service. Use
-`scripts/deploy.sh` for an existing host and
-`docs/repo/FRESH_HOST_BRINGUP.md` for a new host. Do not hand-recreate either
-sequence.
-
-A failed deploy is not a no-op. It can leave the service down after stop/cache
-steps, so preserve the failing step, inspect system state, and remediate before
-claiming health. The deploy script itself has a special inode boundary: after
-`git reset --hard`, the running shell continues executing the pre-reset script
-inode while the path names the new file. Changes to later deploy steps therefore
-take effect on the following invocation unless an explicit handoff is designed.
+Git moves files; it does not restart a process, clear bytecode, regenerate
+artifacts or rebuild the SPA. Use `scripts/deploy.sh` for an existing host and
+`docs/repo/FRESH_HOST_BRINGUP.md` for a new one; never hand-recreate either.
+A failed deploy is not a no-op -- it can leave the service down; preserve the
+failing step, inspect state, remediate before claiming health. deploy.sh runs
+the pre-reset script inode after its own `git reset --hard`, so edits to later
+steps take effect on the following invocation.
 
 After merge, deploy the exact merged main tree when runtime, source delivery,
-generated artifacts, or deployment state changed, at the cadence the operator
-sets -- per train, per batch of trains, or per session. Whatever the cadence,
-the canonical suite runs on the exact tree that is DEPLOYED: prove
-`main^{tree}` equality after the final landing rather than assuming a suite
-transfers. The fleet is never left carrying two different versions across
-role=runner hosts. Verify the script reports the
-merged SHA, health endpoint version, and `GET / = 200`. There is no general
-`/api/version`; use `/api/health` for deployment verification.
+generated artifacts or deployment state changed, at the operator's cadence;
+the canonical suite runs on the tree that is DEPLOYED (prove `main^{tree}`
+equality after the final landing). role=runner hosts never carry two versions.
+Verify the script reports the merged SHA, `/api/health` version and
+`GET / = 200` (there is no `/api/version`).
 
-Do not run formal tests against the live service or authenticated sites. Test
-lanes use isolated HOME/TMPDIR/cache/state/ports/databases and persistent
-filesystem semantics appropriate to the feature. Do not run capture on a host
-whose tree is being edited, and do not edit it during capture.
-
-Host timezone and load are part of evidence. A UTC host cannot prove local-time
-behavior; force `TZ` in the relevant test. Formal timing runs need recorded load
-and no competing local-model/full-suite work.
+Test lanes use isolated HOME/TMPDIR/cache/state/ports/databases; never formal
+tests against the live service or authenticated sites; never capture on a host
+whose tree is being edited. Host timezone and load are evidence: force `TZ`
+where local time matters; record load for timing runs.
 
 ## A7 | Engineering invariants
 
-A gate must see the subject it claims to judge. Define the complete denominator,
-assert it is nonzero, reconcile collection to execution, and make unavailable
-measurement return UNKNOWN rather than OK. Do not derive an expected set solely
-from the artifact under test; retain an independent exact denominator or
-mechanical completeness proof.
+A gate must see the subject it claims to judge: define the complete
+denominator, assert it nonzero, reconcile collection to execution, return
+UNKNOWN for unavailable measurement, and never derive the expected set solely
+from the artifact under test. The inverse holds: identity, timestamps, mutable
+paths, comments or unrelated text must not fail an unchanged subject -- strip
+comments or parse structure when prose must not count.
 
-The inverse matters too: do not let identity, timestamps, mutable paths, comments,
-or unrelated text make an unchanged subject fail. If a gate scans source text,
-remember its comments and examples are inside that denominator. Strip comments
-or parse structure when prose must not count.
+Every fix reproduces the defect's shape: audit the new implementation, harness,
+artifact, cleanup and recorder for the same missing denominator, stale
+identity, ordering, path, environment or fail-open condition.
 
-Every fix tends to reproduce the defect's shape. Audit the new implementation,
-test harness, generated artifact, cleanup, and evidence recorder for the same
-missing denominator, stale identity, ordering, path, environment, or fail-open
-condition it is intended to prevent.
+Tests prove preconditions before verdicts: assert the precondition explicitly
+(the fixture created the file/process/identity/row/race); assert exact fired
+counts; include a negative control; assert the distinctive outcome. Empty iterables, unrelated early
+refusal or teardown restoration must not manufacture green.
 
-Tests prove preconditions before verdicts: assert the precondition explicitly.
-Assert the fixture created the file,
-process, identity, callback, row, link, collision, or race; assert exact fired
-counts; include a negative control; and assert the distinctive outcome. Empty
-iterables, unrelated early refusal, or teardown restoration must not manufacture
-green.
+A process probe matches every command line containing its pattern, including
+the shell that wrote the script (the `[b]racket` trick does not hide it).
+Anchor on the invocation (`^bash /path/to/script`) or a known PID; a count
+uniform across hosts is the tell.
 
-A process probe matches every command line containing its pattern, including the
-shell that WROTE the script being searched for -- which the `[b]racket` trick
-does not hide, because there the pattern is data rather than argv. Anchor on the
-invocation (`^bash /path/to/script`) or match a known PID. A count that is
-suspiciously uniform across hosts is the tell that the probe is counting itself;
-print the matching lines once and read them before trusting any such number.
+A RENDERED PAGE IS EVIDENCE; A CANDIDATE LIST IS A CLAIM ABOUT IT. BD once
+saved 5 GB of the wrong scene under the right title because a Related Videos
+grid exposed 159 media links; one screenshot answered it, and the same
+screenshot later proved three "mis-filed" rows were correct. Capture what the
+browser sees before theorising. The operator harness carries `bd-shoot.py`
+(site id, URL, destination) for this; it drives a real browser against an
+authenticated site, so it is an operator instrument, never a gate.
 
-A RENDERED PAGE IS EVIDENCE; A CANDIDATE LIST IS A CLAIM ABOUT IT. On
-2026-08-29 BD chose a download link, saved 5,102,802,950 bytes, and recorded it
-under the requested scene's title -- and the file was a different scene. The
-history row said `done`, the library title read correctly, the candidate
-ranking looked sane, and all three were wrong. One screenshot answered it: below
-the scene's own six download tiers sat a Related Videos grid of ~25 scenes, each
-card exposing its own direct .mp4 links -- 159 media links on one page, six of
-them the requested work. Capture what the browser sees BEFORE theorising,
-whenever a result looks wrong or looks right for a reason you cannot name. The
-same rule works in the other direction and did within the hour: a filename audit
-called three teenmegaworld rows mis-filed, and the page showed the performer and
-studio that the filename encodes, so the files were correct and the comparison
-was wrong. The operator harness carries `bd-shoot.py` for this: a site id, a
-URL and a destination, printing the page title and every media link it can see.
-It is harness rather than `toolchain/bin` deliberately -- it drives a real
-browser against an authenticated site, which A6 forbids a repository test from
-doing, so it is an operator instrument and never a gate.
+A CONTAINMENT TEST IS A DENOMINATOR CHOICE. SHA ancestry decided zero of 24
+tagged candidates (every cut is rebased); patch-id misreported three landed
+tags (trio collisions change the patch); only comparing THIS BLOB for every
+touched file answered correctly. Pick the test that answers the question and
+say which one you used.
 
-A CONTAINMENT TEST IS A DENOMINATOR CHOICE, exactly as a glob is. Asking whether
-a candidate has shipped has three answers of increasing strength, and the weak
-ones fail in one direction only. SHA ancestry decided ZERO of 24 tagged
-candidates because every cut is rebased before it lands. Patch-id then reported
-three fully-landed tags as unmerged, because resolving a trio collision changes
-the patch. Only comparing THIS BLOB for every file the candidate touched
-answered correctly -- and that is the check whose absence let four rows be
-reported merged when they were only tagged, and let a fifth release be reported
-as shipped when its version number never reached main. Pick the test that can
-answer the question asked, and say which one you used.
+A DIAGNOSTIC THAT COLLAPSES DISTINCT FAILURES COSTS THE INVESTIGATION: name the
+step that failed and carry the server's own words (a 401 and a broken pairing
+endpoint lead to opposite actions).
 
-A DIAGNOSTIC THAT COLLAPSES DISTINCT FAILURES COSTS THE INVESTIGATION, not just
-the message. `bd-vault-unlock` once wrapped a four-request flow in one
-`except Exception` that printed "pairing fallback failed", so an unlock returning
-401 incorrect password was indistinguishable from a broken pairing endpoint.
-Those two diagnoses lead to opposite actions -- repair the service, or find the
-right password -- and the wrong one was pursued first. Name the step that
-failed and carry the server's own words; a refusal that cannot be acted on is
-barely better than a silent one.
+Environment-changing tests remove inherited values rather than declining to
+set them. To ask whether importing code touches a resource, instrument the
+boundary; source reading is not runtime evidence. Isolate HOME, TMPDIR, cache,
+database, ports, cwd, module globals, logging, subprocesses and services.
+SQLite: `immutable=1` only for surveying; normal open to assert writes;
+preserve WAL/SHM during recovery. The requirements gate evaluates specifiers or
+returns UNKNOWN. In shallow clones only `git merge-base --is-ancestor` exit 0
+proves ancestry; fetching by SHA may obtain the object without its history.
 
-Environment-changing tests remove inherited values rather than merely declining
-to set them. To ask whether importing code touches a resource, instrument the
-resource boundary and exercise relevant flag states; source reading is not
-runtime evidence. Isolate HOME, TMPDIR, cache, database, ports, current directory,
-module globals, logging, subprocesses, and services where applicable.
+A row, document or commit message cites a TRACKED path plus a function or
+anchor NAME; line numbers go stale and the doc anchor gate resolves
+`file:line` against tracked paths only, so a harness script is cited BY NAME
+ALONE (an earlier draft of this paragraph used the colon form as its example
+and refused the whole tree).
 
-For SQLite evidence, `immutable=1` is for surveying a file that must not be
-touched; use a normal open to assert what was written, and preserve WAL/SHM
-companions during recovery. Package-name resolution is not version satisfaction;
-the requirements gate must evaluate specifiers or return UNKNOWN.
+Any source rewriter or mutation harness asserts the old anchor occurs exactly
+once; mutates in memory and writes once; proves bytes changed by exact
+arithmetic; parses the result; restores the original and aborts on malformed
+output; separates invalid mutants from caught/escaped; proves RED with the
+mutant and GREEN without; records recovery state before the first irreversible
+write; inspects `git status` after interruption. Never `sed -i` as an applied
+check; locate exact text with `rg` and patch explicitly. Use
+`toolchain/bin/bd-mutate` rather than rebuilding it.
 
-In shallow clones, only `git merge-base --is-ancestor` exit 0 proves ancestry.
-Nonzero is UNKNOWN until history is deepened. Fetching a commit by SHA may obtain
-the object without connecting its history and can manufacture a false negative.
-
-A row, a document, or a commit message cites a TRACKED path plus a function or
-anchor NAME. A line number is a courtesy that goes stale on the first edit above
-it, and the repository's doc anchor gate resolves `file:line` against tracked
-paths only -- so citing an operator-harness script in the `file` colon `line`
-form can never resolve and refuses the whole tree. Harness scripts live outside
-the tracked denominator and are cited BY NAME ALONE, with the line number in
-words if it is worth keeping at all. This paragraph is written that way on
-purpose: an earlier draft of it used a real harness path in the colon form as
-its own EXAMPLE, and the gate refused the tree for the example.
-
-Any source rewriter or mutation harness must:
-
-- assert the old anchor occurs exactly once;
-- mutate in memory and write once at the end;
-- prove bytes changed with exact length/count arithmetic;
-- parse the result and check name/runtime semantics where parsing is insufficient;
-- restore the original and abort on malformed output;
-- treat invalid mutants separately from caught/escaped mutants;
-- prove RED with the mutant and GREEN without it;
-- record durable recovery state before the first irreversible write;
-- inspect `git status` and diff after interruption before rerunning.
-
-Do not use `sed -i` as an applied check or retype punctuation-sensitive anchors;
-locate exact current text with `rg` and patch it explicitly. Use
-`toolchain/bin/bd-mutate` for mutation batteries instead of rebuilding its
-semantics.
-
-An action with an irreversible side effect must prove its evidence record is
-writable before acting. Create conditional artifacts lazily and remove only
+An action with an irreversible side effect proves its evidence record is
+writable before acting. Create conditional artifacts lazily; remove only
 targets whose identity and ownership are proven. Missing cleanup evidence is a
 failure, not a successful no-op.
 
 ## A8 | Focused authorities and commands
 
-Keep this routing table small. It is a starting point, not a complete tool
-denominator; inspect `toolchain/bin` and read the nearest tool's implementation
-and selftest before hand-writing a replacement.
+This table is a starting point, not the tool denominator. Inspect
+`toolchain/bin` and read the nearest tool's implementation and selftest before
+hand-writing a replacement. The denominator also includes operator harness
+scripts outside the repository. Before creating a file at any path, prove the
+name is unused in both the harness directory and the repository: a name that
+exists belongs to its caller, and writing new logic under it silently changed
+an argument contract once.
 
-A Codex worker session is addressed by host IP and session name, never by
-hostname. A host may carry two workers while it runs no lane and no suite; a
-capacity host carrying a lane or the canonical suite takes none, because worker
-load moves the very timings the lane exists to measure.
-
-The tool denominator is not only `toolchain/bin`. Operator harness scripts live
-outside the repository and are equally load-bearing. Before creating a file at
-any path, prove that exact name is unused: list the target and search the harness
-directory as well as the repository. A name that already exists belongs to its
-existing caller, so read that caller's invocation to learn the real interface and
-choose a different name for new logic. Writing new logic under an existing tool's
-name changed its argument contract silently and every integrate refused until the
-original was reconstructed from its caller.
+A Codex worker is addressed by host IP and session name, never hostname. A
+host may carry two workers while it runs no lane; a capacity host carrying a
+lane or the canonical suite takes none.
 
 | Question | Focused authority |
 | --- | --- |
@@ -561,32 +398,21 @@ original was reconstructed from its caller.
 | How is a cut's robustness tier chosen? | `project-knowledge/CUT_TIERING.md` |
 | How does CI classify gates? | `.github/workflows/ci.yml` and `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py` |
 
-Repository populations are distinct: `bulk_downloader/` is application Python,
-`tests/` contains pytest files plus fixtures/corpus, `tools/` contains Python
-build/analysis code, `toolchain/bin` contains extensionless operational tools,
-`frontend/` is the React/TypeScript SPA, `scripts/` owns install/deploy/service
-operations, and `project-knowledge/` holds generated/current knowledge. Measure
-membership at decision time; do not put volatile counts here.
+Populations are distinct: `bulk_downloader/` application Python, `tests/`
+pytest plus fixtures/corpus, `tools/` build/analysis Python, `toolchain/bin`
+extensionless tools, `frontend/` the SPA, `scripts/` install/deploy/service,
+`project-knowledge/` generated/current knowledge. Measure membership at
+decision time.
 
-Before a broad scan, identify the exact population and use `rg`/`git ls-files`
-or the existing purpose-built tool. Preserve complete logs outside the repository
-and summarize results rather than flooding the working context. This does not
-permit skimming: read every instruction or source needed for the current claim.
+Before a broad scan, name the population and use `rg`/`git ls-files` or the
+purpose-built tool. CAPTURE WHOLE TO DISK, READ A SLICE; a second hand-rolled
+heredoc is a missing `bd-*` tool. Generated remote source is transport data:
+send its UTF-8 bytes through an ASCII-safe decoder and verify a digest before
+publication; never embed it in a bootstrap heredoc. Parallel read-only
+discovery is fine when authorized, but one integrator and one writer remain.
+Local-model or worker classifications are proposals, never tests, reviews,
+absence proofs, merge approval or deployment authority.
 
-CAPTURE WHOLE TO DISK, READ A SLICE. A SECOND HAND-ROLLED HEREDOC IS A MISSING `bd-*` TOOL.
-Generated remote source is transport data, not nested shell grammar: send its
-UTF-8 bytes through an ASCII-safe decoder and verify an integrity digest before
-publication. Never embed generated remote source in a bootstrap heredoc; test a
-delimiter-collision payload and a decodable-corruption refusal at the real
-transport seam.
-And measure before optimising: use the complete captured denominator,
-then inspect bounded slices and promote repeated logic into the existing toolchain.
-
-Prefer parallel read-only discovery for independent populations when explicitly
-authorized, but retain one integrator and one writer. Local-model or worker
-classifications are proposals, not tests, reviews, absence proofs, merge approval,
-or deployment authority.
-
-Before claiming completion, audit the actual objective requirement by
-requirement against current files, tests, CI, PR, merge, deployment, and roadmap
-evidence. Do not redefine completion around the work already performed.
+Before claiming completion, audit the objective requirement by requirement
+against current files, tests, CI, PR, merge, deployment and roadmap evidence.
+Do not redefine completion around the work already performed.
