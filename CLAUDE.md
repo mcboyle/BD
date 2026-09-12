@@ -297,7 +297,8 @@ Verify the script reports the merged SHA, `/api/health` version and
 Test lanes use isolated HOME/TMPDIR/cache/state/ports/databases; never formal
 tests against the live service or authenticated sites; never capture on a host
 whose tree is being edited. Host timezone and load are evidence: force `TZ`
-where local time matters; record load for timing runs.
+where local time matters; a formal timing run records load and runs with no competing
+local-model or full-suite work on the host.
 
 ## A7 | Engineering invariants
 
@@ -409,7 +410,8 @@ purpose-built tool. CAPTURE WHOLE TO DISK, READ A SLICE. A SECOND HAND-ROLLED HE
 And measure before optimising: use the complete captured denominator, then inspect bounded
 slices and promote repeated logic into the toolchain. Generated remote source is transport data:
 send its UTF-8 bytes through an ASCII-safe decoder and verify a digest before
-publication; never embed it in a bootstrap heredoc. Parallel read-only
+publication; never embed it in a bootstrap heredoc; test a delimiter-collision payload and a
+decodable-corruption refusal at the real transport seam. Parallel read-only
 discovery is fine when authorized, but one integrator and one writer remain.
 Local-model or worker classifications are proposals, never tests, reviews,
 absence proofs, merge approval or deployment authority.
