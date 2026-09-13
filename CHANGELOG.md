@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1539 - register: close 11 ALREADY-DONE rows; 795 stays OPEN
+
+Register commit (rule 31, O321 register cut): closes ALREADY-DONE rows 471, 701, 704, 720, 725, 726, 727, 729, 767, 771 and 801 with evidence re-verified at 900c08fc (cited commits are ancestors, cited tests present). Row 795 is NOT closed: its cited test tests/test_v3_66_1517* is absent from the tree. No runtime path changed; no deploy owed.
+
 ## v3.66.1538 - version-at-land: land-time trio stamping via bd-land-trio
 
 Adds toolchain/bin/bd-land-trio: the integrator stamps the release trio at land (bd-bump + bd-regen-order, NEXT=max(origin/main,tree)+1, exactly five paths staged, no implicit commit; refuses DIRTY-TREE, TRIO-AHEAD, BASE-NOT-ANCESTOR, NON-ASCII-CHANGELOG). CUT_TIERING and CLAUDE.md assign stamping to the integrator; worker patches never carry trio or PIN_INDEX.json edits.
