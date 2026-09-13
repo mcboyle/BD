@@ -259,6 +259,9 @@ complete require current exact SHA/tree/host evidence; otherwise UNKNOWN/HOLD.
 
 ## A6 | Release and deployment
 
+The integrator stamps the release trio at land with `toolchain/bin/bd-land-trio`.
+Worker patches and `DONE.md` never carry trio or `PIN_INDEX.json` edits; the
+assembler refuses a worker patch touching those paths.
 A version bump is three source edits together: `bulk_downloader/__init__.py`
 sets `__version__`; `tests/test_settings_center_slice4.py` pins that exact
 value; an ASCII-only `CHANGELOG.md` entry is prepended, anchored on the previous

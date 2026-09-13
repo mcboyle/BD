@@ -93,6 +93,9 @@ BD_GATE_SCOPE = "repo-wide"
 # repo-wide gate to CI is a three-part change: its scope marker, this independent
 # declaration, and one workflow shard entry all land together.
 _DECLARED = {
+    # The release stamp judges the reviewed Git tree and runs the real regen chain.
+    # CI-SHARD-CLAIM version-at-land version-at-land tests/test_row_version_at_land.py
+    "tests/test_row_version_at_land.py",
     # PM-handoff 2026-09-06 template gap report. The matcher and the committed
     # template corpus are a tree-wide denominator: the gate judges every
     # template, not the four files this cut edited.
