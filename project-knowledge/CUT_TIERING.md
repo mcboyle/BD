@@ -150,8 +150,10 @@ of confirmed proxies, not a measured fraction of the suite.
 
 ## Deciding a tier — worked examples
 
-- A backlog adjudication that only edits register text and the version trio: T1.
-  Its mandatory gate is number-re-derivation, not fleet lanes.
+- A backlog adjudication that only edits register text: T1. The integrator
+  stamps the version trio at land with `toolchain/bin/bd-land-trio`; the worker
+  patch carries no trio edits. Its mandatory gate is number-re-derivation,
+  not fleet lanes.
 - Renaming a mislabeled test fixture and adding a name-vs-content gate: T2
   (fixture + new gate + secret-scan region).
 - Wiring a resume decision into `tools/capture_session.py` with a new cockpit

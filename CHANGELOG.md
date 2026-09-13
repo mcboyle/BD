@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1538 - version-at-land: land-time trio stamping via bd-land-trio
+
+Adds toolchain/bin/bd-land-trio: the integrator stamps the release trio at land (bd-bump + bd-regen-order, NEXT=max(origin/main,tree)+1, exactly five paths staged, no implicit commit; refuses DIRTY-TREE, TRIO-AHEAD, BASE-NOT-ANCESTOR, NON-ASCII-CHANGELOG). CUT_TIERING and CLAUDE.md assign stamping to the integrator; worker patches never carry trio or PIN_INDEX.json edits.
+
 ## v3.66.1537 - Compact the CLAUDE.md operating contract
 
 - Compact CLAUDE.md from 34,638 to 24,288 bytes: same eight sections, every pinned requirement, lesson literal and obligation kept (lens rounds r1-r3 verified against the contract tests); no product, test or tool change.

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Land-time stamp refuses unreviewed dirt and double-ahead release claims",
+  "band": [
+    "tests/test_row_version_at_land.py::test_transform_control_imports_generator_without_judging_a_stamp"
+  ],
+  "mutants": [
+    {
+      "label": "DIRTY refusal removed",
+      "file": "toolchain/bin/bd-land-trio",
+      "old": "    if dirty:\n",
+      "new": "    if False and dirty:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_version_at_land.py::test_transform_control_imports_generator_without_judging_a_stamp"
+    },
+    {
+      "label": "AHEAD refusal removed",
+      "file": "toolchain/bin/bd-land-trio",
+      "old": "    if tree_patch > main_patch",
+      "new": "    if False and tree_patch > main_patch",
+      "direction": "regression",
+      "catcher": "tests/test_row_version_at_land.py::test_transform_control_imports_generator_without_judging_a_stamp"
+    }
+  ],
+  "control_spec": true,
+  "_comment": "Repeat both regression transforms byte-for-byte while the named import-only catcher remains green; declared transform controls must CONTROL-ESCAPE."
+}

@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "subject": "Land-time stamp refuses unreviewed dirt and double-ahead release claims",
+  "band": [
+    "tests/test_row_version_at_land.py::test_dirty_tree_refuses_before_any_release_write[unstaged]",
+    "tests/test_row_version_at_land.py::test_two_versions_ahead_refuses_with_exact_diagnostic"
+  ],
+  "mutants": [
+    {
+      "label": "DIRTY refusal removed",
+      "file": "toolchain/bin/bd-land-trio",
+      "old": "    if dirty:\n",
+      "new": "    if False and dirty:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row_version_at_land.py::test_dirty_tree_refuses_before_any_release_write[unstaged]"
+    },
+    {
+      "label": "AHEAD refusal removed",
+      "file": "toolchain/bin/bd-land-trio",
+      "old": "    if tree_patch > main_patch",
+      "new": "    if False and tree_patch > main_patch",
+      "direction": "regression",
+      "catcher": "tests/test_row_version_at_land.py::test_two_versions_ahead_refuses_with_exact_diagnostic"
+    }
+  ],
+  "_comment": "Disable dirty-tree and double-ahead refusals; each named behavioral catcher must fail. Re-run with bd-mutate against an independent disposable candidate copy."
+}

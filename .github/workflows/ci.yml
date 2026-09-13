@@ -307,6 +307,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: version-at-land
+            suites: >-
+              tests/test_row_version_at_land.py
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
