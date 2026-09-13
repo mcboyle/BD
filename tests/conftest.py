@@ -1481,14 +1481,28 @@ def _socket_recorder_attributes_the_test(request):
         _sys_modules_guard.set_nodeid(None)
 
 
+def _should_emit_session_banners(terminalreporter, exitstatus):
+    """Keep actionable session diagnostics for failures or explicit requests."""
+    return bool(
+        terminalreporter.stats.get("failed")
+        or terminalreporter.stats.get("error")
+        or exitstatus
+        or os.environ.get("BD_RUN_BANNERS") == "1"
+    )
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Always print one line; expand only when something was recorded.
+    """Print session diagnostics only when they can be acted on.
 
     The unconditional line is the point. A recorder that prints nothing when it
     finds nothing is indistinguishable from one that was never armed -- section
     0's own subject -- so the line states the observed count and names the blind
     spots even on a clean run.
     """
+    if not _should_emit_session_banners(terminalreporter, exitstatus):
+        _write_run_context(terminalreporter, config, emit=False)
+        return
+
     by_test = _socket_recorder.summarize(_socket_record_run_dir(config))
     seen = _socket_recorder.observed
     total = sum(len(v) for v in by_test.values())
@@ -1615,7 +1629,7 @@ def pytest_runtest_logfinish(nodeid, location):
     _run_context.clear_current(_run_context_dir(config), worker_id)
 
 
-def _write_run_context(terminalreporter, config):
+def _write_run_context(terminalreporter, config, *, emit=True):
     """State the machine beside the result, and where the chains are.
 
     NOT a second `pytest_terminal_summary`. Defining that name twice in one
@@ -1630,7 +1644,7 @@ def _write_run_context(terminalreporter, config):
         return
     ctx = getattr(config, "_bd_run_context", None) or _run_context.context(config)
     ctx["load_at_end"] = _run_context.loadavg()
-    write = terminalreporter.write_line
+    write = terminalreporter.write_line if emit else lambda *_args: None
     write("")
     write("run context: %s, %d cores, %s worker(s) via %s, dist=%s, "
           "SigIgn=%s, SigBlk=%s, load %s -> %s"
