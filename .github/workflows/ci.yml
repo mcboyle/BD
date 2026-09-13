@@ -557,6 +557,7 @@ jobs:
               tests/test_v3_66_1046_tool_state_1044.py
               tests/test_v3_66_1046_tool_state_1054.py
               tests/test_v3_66_1220_a_timeout_names_its_test.py
+              tests/test_row_pytest_banners_only_on_failure.py
           - name: jobs-registration
             suites: >-
               tests/test_v3_66_1040_remote_job_registry.py

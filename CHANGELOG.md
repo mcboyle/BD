@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1539 - pytest-banners: emit session diagnostics only on failure
+
+pytest terminal diagnostics (banners) are emitted only when the session has a failure/error, a nonzero exit status, or BD_RUN_BANNERS=1; the terminal-summary write path keeps the existing stream, order and bytes. Adds tests/test_row_pytest_banners_only_on_failure.py and its CI shard registration.
+
 ## v3.66.1538 - version-at-land: land-time trio stamping via bd-land-trio
 
 Adds toolchain/bin/bd-land-trio: the integrator stamps the release trio at land (bd-bump + bd-regen-order, NEXT=max(origin/main,tree)+1, exactly five paths staged, no implicit commit; refuses DIRTY-TREE, TRIO-AHEAD, BASE-NOT-ANCESTOR, NON-ASCII-CHANGELOG). CUT_TIERING and CLAUDE.md assign stamping to the integrator; worker patches never carry trio or PIN_INDEX.json edits.

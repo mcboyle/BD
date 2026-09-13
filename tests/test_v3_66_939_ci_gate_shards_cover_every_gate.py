@@ -376,6 +376,10 @@ _DECLARED = {
     # to obtain. Its negative arm stops it passing vacuously and fails loudly
     # if pytest-timeout or xdist ever change underneath it.
     "tests/test_v3_66_1220_a_timeout_names_its_test.py",
+    # The terminal-summary hooks serve every pytest session. This nested
+    # regression proves their diagnostic banners stay available for failures
+    # without adding noise to successful fleet lanes.
+    "tests/test_row_pytest_banners_only_on_failure.py",
     # @1208, the capture execution signal contract. These three judge the
     # heartbeat boundary that made all seven fleet captures fail at once:
     # 1208 RUNS the wrapper and reads the wrapped process's own signal
