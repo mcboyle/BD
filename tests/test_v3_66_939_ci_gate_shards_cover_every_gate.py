@@ -181,6 +181,15 @@ _DECLARED = {
     # Row 665. Every terminal queue outcome must remain addressable by URL;
     # the gate also pins the bounded additive response shape.
     "tests/test_row665_terminal_jobs_are_visible.py",
+    # Row 665, second arc, declaring BD_GATE_SCOPE = "repo-wide" beside the
+    # first arc and riding the same shard, because the two halves are ONE
+    # contract: the first says a terminal job stays addressable while it is in
+    # runner.jobs, the second says the API never answers ABSENCE about a job it
+    # cannot classify or no longer holds. Split across two files, a diff-derived
+    # band that touches neither would run neither, and a band that touches only
+    # one would run half a contract and report green.
+    # CI-SHARD-CLAIM row665 db-prune-safety tests/test_row665_absence_is_not_an_answer.py
+    "tests/test_row665_absence_is_not_an_answer.py",
     # Row 678. The bd-bandcheck exclusion population is hand-maintained and
     # tree-wide, so no changed subject can derive this path-existence gate.
     # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py

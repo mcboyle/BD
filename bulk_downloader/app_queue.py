@@ -28,6 +28,14 @@ def _runners_generation(mapping):
 
 queue_bp = Blueprint("queue", __name__)
 
+# Row 665. The third value the per-job lookup reports when it does not hold the
+# job at all, named once so that the one place which decides it is the one place
+# a reader has to check. It is not a sentinel standing in for a better answer
+# later: runner.jobs is not a durable census (a replace-import clears it, a
+# restart loses it, the v2 terminal view is capped at 200), so "I do not know"
+# is the strongest true statement the server can make about an absent URL.
+_UNKNOWN_STATE = "unknown"
+
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -212,6 +220,13 @@ def api_queue_v2():
         running = []
         waiting = []
         terminal = []
+        # Row 665. A job whose status matches none of the three arms below used
+        # to match nothing at all and leave the payload entirely, which is the
+        # one answer that is wrong twice over: it reads as "no such job" to a
+        # caller polling for a job that is right there in runner.jobs. The
+        # bucket is normally empty; it is not decoration, it is the difference
+        # between "I don't recognise this state" and silence.
+        unclassified = []
         per_site_acc = []
         done_today = 0
         for sid, runner in _runners_generation(runners):
@@ -267,6 +282,25 @@ def api_queue_v2():
                                 ts = j.get("ts_iso", "") or ""
                                 if ts.startswith(today_iso):
                                     done_today += 1
+                        else:
+                            unclassified.append({
+                                "site_id": sid, "site_name": name,
+                                "avatar_color": color,
+                                "url": url,
+                                "filename": j.get("filename", ""),
+                                "message": j.get("message", ""),
+                                # `status` last on purpose. The terminal record
+                                # above spells "status" immediately before
+                                # "message", and the first arc's mutant spec
+                                # (tests/mutants/row665_terminal_queue_
+                                # visibility.json, M10) anchors on exactly that
+                                # adjacency. Repeating the pair here makes that
+                                # anchor resolve twice, which the row357 gate
+                                # refuses -- and which would otherwise cost the
+                                # first arc its mutation coverage silently.
+                                "status": s,
+                                "ts_iso": j.get("ts_iso", ""),
+                            })
             except Exception:
                 continue
             if site_running or site_waiting:
@@ -295,6 +329,17 @@ def api_queue_v2():
             "waiting_truncated_count": truncated,
             "terminal": terminal[:200],
             "terminal_truncated_count": terminal_truncated,
+            # The list is capped like its siblings, but the COUNT is the total.
+            # A capped list that also capped its count would hide the overflow
+            # in the one bucket whose whole purpose is to stop hiding things --
+            # and one renamed status upstream is enough to put the whole queue
+            # in here at once, which is exactly when the real size matters.
+            # Pinned, not merely asserted here: tests/test_row665_absence_is_
+            # not_an_answer.py seeds 201 and requires len(list) == 200 with
+            # count == 201, and mutant MA in tests/mutants/row665_absence_is_
+            # not_an_answer.json is that reintroduction.
+            "unclassified": unclassified[:200],
+            "unclassified_count": len(unclassified),
             "done_today_count": done_today,
             "per_site": per_site_acc,
             "ts": int(_t.time()),
@@ -368,11 +413,28 @@ def api_queue_v2_job_log():
     # the most recent terminal state even if it predates the event log
     # window.
     with runner._lock:
-        job = runner.jobs.get(url) or {}
+        job = runner.jobs.get(url)
+        known = job is not None
+        job = job or {}
+        state = job.get("status", "") if known else _UNKNOWN_STATE
         current = {
             "status": job.get("status", ""),
             "message": (job.get("message") or "")[:500],
             "filename": job.get("filename", ""),
+            # Row 665. `status` alone cannot answer the question a poller is
+            # actually asking. An empty string here used to mean BOTH "this job
+            # finished and its record is gone" and "no such URL was ever
+            # queued", and those lead to opposite actions. `runner.jobs` is not
+            # a durable census -- a replace-import clears it (app_sites_queue),
+            # a restart loses it, and the v2 terminal view is capped at 200 --
+            # so absence from it is not evidence of never having existed.
+            # `state` therefore reports what the server can actually support:
+            # the job's own status when the job is here, and the explicit third
+            # value "unknown" when it is not. "unknown" is not a placeholder
+            # for a better answer later; it is the true answer, and rendering
+            # it as absence was the defect.
+            "known": known,
+            "state": state,
         }
     return jsonify({
         "ok": True,

@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row809_socks_capability_declared.json. This spec must ESCAPE. It applies the IDENTICAL M1 transform -- dropping the socks extra from the httpx pin -- while running only the two in-process SOCKS construction controls, neither of which reads requirements.txt at all: they mask or unmask socksio in a child interpreter and assert on httpx's own behaviour. So the transform is valid and really applied, and the thing that catches M1 in the main battery is the declaration assertion specifically, not some incidental collapse of the whole file. If this control were ever CAUGHT, the construction probes would have grown a hidden dependency on the manifest and the main battery's M1 verdict would no longer mean what it says. ANCHOR SHAPE: every mutant below anchors on the bare substring \"httpx[socks]\" rather than the whole pinned line. That substring occurs exactly once in requirements.txt, which is what bd-mutate's _apply requires, and it carries no digit, no quote and no '=' -- so tests/test_row357_mutant_anchors_are_not_fragile.py classifies it STABLE as structural, instead of refusing it as value-bearing source text with no producer. Anchoring on the version bounds would have made this spec fragile against any future bump of those bounds, which is the very coupling row357 exists to prevent.",
+  "subject": "transform-only control proving the dropped-extra edit is valid while the manifest-independent construction probes stay green",
+  "band": [
+    "tests/test_row809_httpx_socks_extra_is_declared.py::test_negative_control_socks_construction_fails_without_socksio",
+    "tests/test_row809_httpx_socks_extra_is_declared.py::test_positive_control_socks_construction_succeeds_when_socksio_present"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the socks extra is dropped while the construction probes stay green",
+      "file": "requirements.txt",
+      "old": "httpx[socks]",
+      "new": "httpx",
+      "direction": "regression",
+      "catcher": "tests/test_row809_httpx_socks_extra_is_declared.py::test_negative_control_socks_construction_fails_without_socksio"
+    }
+  ]
+}

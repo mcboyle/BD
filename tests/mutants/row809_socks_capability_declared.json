@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 809. requirements.txt pinned httpx with no SOCKS capability declaration, so a clean env built from the shipped manifest alone cannot construct a socks5/socks5h httpx.Client -- httpx raises ImportError inside HTTPTransport.__init__ at CONSTRUCTION time. socksio reaches this tree only through an optional extra (measured on this interpreter: httpx -> socksio==1.*; extra == 'socks'; httpcore -> same; cloakbrowser -> socksio>=1.0; extra == 'geoip' -- and none of those extras is requested by requirements.txt at 900c08fc), so nothing else supplies it. WHICH ASSERTION EACH MUTANT REACHES: M1 and M2 are caught by test_requirements_declares_the_socks_capability_httpx_needs, the declaration assertion -- M1 removes the capability outright, M2 proves the gate reads THE socks extra and not merely the presence of some extra, which is the mutation a naive `'[' in line` check would let escape. M3 is caught by test_httpx_requirement_line_is_singular, the exact-count positive control that proves the extraction found exactly one line before anything is asserted about its content; without it a second httpx line would let a stale unextra'd pin sit in the manifest unnoticed. The subject is a .txt manifest, which bd-mutate's _TEXT_SUFFIXES registers as valid by construction -- there is no parse contract for a mutant here to break, so every verdict below is CAUGHT or ESCAPED, never INVALID. ANCHOR SHAPE: every mutant below anchors on the bare substring \"httpx[socks]\" rather than the whole pinned line. That substring occurs exactly once in requirements.txt, which is what bd-mutate's _apply requires, and it carries no digit, no quote and no '=' -- so tests/test_row357_mutant_anchors_are_not_fragile.py classifies it STABLE as structural, instead of refusing it as value-bearing source text with no producer. Anchoring on the version bounds would have made this spec fragile against any future bump of those bounds, which is the very coupling row357 exists to prevent.",
+  "subject": "requirements.txt -- the shipped manifest's httpx SOCKS capability declaration",
+  "band": [
+    "tests/test_row809_httpx_socks_extra_is_declared.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the socks extra is dropped from the httpx pin",
+      "file": "requirements.txt",
+      "old": "httpx[socks]",
+      "new": "httpx",
+      "direction": "regression",
+      "catcher": "tests/test_row809_httpx_socks_extra_is_declared.py::test_requirements_declares_the_socks_capability_httpx_needs"
+    },
+    {
+      "label": "M2 some other extra is declared instead of socks",
+      "file": "requirements.txt",
+      "old": "httpx[socks]",
+      "new": "httpx[http2]",
+      "direction": "regression",
+      "catcher": "tests/test_row809_httpx_socks_extra_is_declared.py::test_requirements_declares_the_socks_capability_httpx_needs"
+    },
+    {
+      "label": "M3 a second, unextra'd httpx requirement line joins the manifest",
+      "file": "requirements.txt",
+      "old": "httpx[socks]",
+      "new": "httpx[socks]>=0.25,<1.0\nhttpx",
+      "direction": "regression",
+      "catcher": "tests/test_row809_httpx_socks_extra_is_declared.py::test_httpx_requirement_line_is_singular"
+    }
+  ]
+}
