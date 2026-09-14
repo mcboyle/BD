@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "control_spec": true,
+  "_comment": "Transform control: this imports bd-cut-preflight and exercises only an all-ok p_bandcheck receipt, so replacing the unreadable count with zero MUST ESCAPE.",
+  "subject": "bd-cut-preflight p_bandcheck import path transform control",
+  "band": [
+    "tests/test_row724_preflight_bandcheck_counts_failures.py::test_bandcheck_parser_keeps_all_ok_receipts_verified"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL p_bandcheck drops unreadable targets outside the all-ok import path",
+      "file": "toolchain/bin/bd-cut-preflight",
+      "old_regex": "(?<=return ok \\+ bad, ok, )bad(?=, \"band target\\(s\\)\")",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_row724_preflight_bandcheck_counts_failures.py::test_bandcheck_parser_keeps_all_ok_receipts_verified"
+    }
+  ]
+}

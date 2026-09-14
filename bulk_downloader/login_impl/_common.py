@@ -84,10 +84,161 @@ def _all_visible(page,selectors):
     return None,None
 
 
+_MATCH_WAIT_MS = 2500
+
+
+def _wait_attached(loc):
+    """Wait for ATTACHMENT. The only thing attached may be the decoy, and
+    we still need it in order to walk past it to the real field behind."""
+    loc.wait_for(state="attached", timeout=_MATCH_WAIT_MS)
+
+
+def _wait_visible(loc):
+    """Wait for VISIBILITY, which is what a field must be before we fill
+    it -- but never what a whole selector's match set is judged on."""
+    loc.wait_for(state="visible", timeout=_MATCH_WAIT_MS)
+
+
+def _signal_tabindex(loc):
+    """For a form input ``tabindex="-1"`` is a STANDALONE trap signal."""
+    if loc.get_attribute("tabindex") == "-1":
+        return "tabindex=-1"
+    return ""
+
+
+def _signal_aria_hidden(loc):
+    """A field announced as hidden to assistive tech is not for a human."""
+    if (loc.get_attribute("aria-hidden") or "").lower() == "true":
+        return 'aria-hidden="true"'
+    return ""
+
+
+def _signal_css_hidden(loc):
+    """The SHIPPED style vocabulary, consulted rather than restated."""
+    from ..deep_detect.login import HONEYPOT_CSS_HIDDEN
+    # Same normalisation as deep_detect.login._is_visible_input: the
+    # vocabulary is stored whitespace-stripped and lowercase.
+    style = (loc.get_attribute("style") or "").lower().replace(" ", "")
+    for pat in HONEYPOT_CSS_HIDDEN:
+        if pat in style:
+            return f"style~{pat}"
+    return ""
+
+
+def _signal_hidden_attr(loc):
+    """The ``hidden`` attribute: no shipped equivalent, browser-only fact."""
+    if loc.get_attribute("hidden") is not None:
+        return "hidden-attr"
+    return ""
+
+
+def _signal_type_hidden(loc):
+    """``type=hidden``: likewise browser-only."""
+    if (loc.get_attribute("type") or "").lower() == "hidden":
+        return "type=hidden"
+    return ""
+
+
+def _signal_offscreen_box(loc):
+    """A negative bounding box -- the ``left:-9999px`` decoy whose inline
+    style was moved to a stylesheet, so only layout can still see it."""
+    box = loc.bounding_box()
+    if box and (box.get("x", 0) < 0 or box.get("y", 0) < 0):
+        return "off-screen box"
+    return ""
+
+
+# Row 770: THE SIGNAL SET IS A MEMBERSHIP, not a run of inline branches.
+# Membership order is the reported-reason precedence and is part of the
+# contract the row's tests assert; adding a signal is adding one member.
+# Each member returns the REASON STRING it fires on, or "" for "not mine",
+# and each is dispatched under its own fail-open guard below, so one
+# uninspectable signal cannot cost the caller the other five.
+_HONEYPOT_SIGNALS = (
+    _signal_tabindex,
+    _signal_aria_hidden,
+    _signal_css_hidden,
+    _signal_hidden_attr,
+    _signal_type_hidden,
+    _signal_offscreen_box,
+)
+
+
+def _is_honeypot_field(loc):
+    """Return ``(is_decoy, reason)`` for a Playwright input locator.
+
+    Row 770: real sites plant a spare ``input[type=text]`` ahead of the real
+    field in DOM order specifically to catch scripts that grab the first
+    match instead of the field a human would actually see and use.
+
+    This is the PLAYWRIGHT-side counterpart of the SHIPPED input rule in
+    ``deep_detect.login._is_visible_input`` — it reuses that module's
+    ``HONEYPOT_CSS_HIDDEN`` vocabulary rather than restating one, so an
+    addition there propagates here. The signal set is deliberately the
+    input-side set: for form inputs ``tabindex="-1"`` is a STANDALONE
+    trigger (``dom_honeypot``'s module docstring pins this, and contrasts
+    it with links, where it is only contributing).
+
+    What is deliberately NOT copied from the shipped rule is
+    ``HONEYPOT_NAMES``: ``_input_is_honeypot`` fires a suspicious name only
+    on a field that is ALREADY hidden, and every such field is caught here
+    by a hiding signal. Firing on the name alone would reject a legitimate
+    visible field (a real "company" or "website" input on a signup form).
+
+    Two signals have no shipped equivalent because they are layout facts
+    only a live browser can see: an off-screen bounding box (negative x/y —
+    the ``left:-9999px`` decoy whose inline style was moved to a
+    stylesheet), and the ``hidden`` attribute / ``type=hidden``.
+
+    THE EVASION SURFACE — what this ENUMERATION DOES NOT CATCH. The six
+    signals are an enumeration of spellings, not a visibility oracle, so a
+    decoy spelled outside them is FILLED, silently, with ``skipped`` empty
+    and no diagnostic. Measured against the shipped code, not assumed;
+    ``tests/test_login_honeypot.py`` ships a fixture per case asserting the
+    decoy IS filled today, so widening a signal breaks that fixture and the
+    enumeration's edge cannot drift unrecorded:
+
+    * HIDING BORNE BY A CLASS OR STYLESHEET, with no inline ``style``
+      attribute. ``_signal_css_hidden`` reads ``get_attribute("style")`` —
+      the inline attribute only — so ``opacity:0``, ``height:0`` or
+      ``clip-path`` applied through a class leaves a positive, non-negative
+      box and fires nothing. This is the widest gap of the three: the
+      shipped rule at ``deep_detect.login`` also reads class and id hints,
+      and this Playwright-side rule does not.
+    * A ZERO-SIZE BOX AT NON-NEGATIVE COORDINATES — ``0x0`` at the origin,
+      or ``1x1`` at positive x/y. ``_signal_offscreen_box`` tests the SIGN
+      of x/y, never the extent, so only a decoy pushed to negative
+      coordinates is caught.
+    * A ``tabindex`` OTHER THAN ``"-1"`` — ``"-2"``, or any other negative
+      value. The comparison is against the literal ``"-1"`` that the sites
+      in the fixtures actually ship, not against "negative".
+
+    Closing any of these is a row of its own with its own controls: each
+    widening trades a caught decoy against the risk of rejecting a real
+    field, which is the failure mode the fail-open below exists for.
+
+    Fail-open on any introspection error: a field we cannot inspect must
+    not be treated as a trap, or a real field would go unfilled.
+    """
+    for signal in _HONEYPOT_SIGNALS:
+        try:
+            why = signal(loc)
+        except Exception:
+            continue
+        if why:
+            return True, why
+    return False, ""
+
+
 def _try_fill(page,selectors,value,what):
-    """Walk the candidate list; fill the first visible element, return
-    (True, used_selector). On total failure return (False, summary_error)
-    that lists which selectors were tried.
+    """Walk the candidate list; fill the first visible, non-honeypot
+    element, return (True, used_selector). On total failure return
+    (False, summary_error) that lists which selectors were tried.
+
+    Row 770: a selector can match MORE than one element in DOM order — a
+    decoy field planted ahead of the real one — so each selector's full
+    match set is walked (not just `.first`), skipping any match that
+    trips ``_is_honeypot_field``.
 
     Phase 15.5 — Human-like typing: instead of `loc.fill(value)` (which
     sets the value via DOM in one shot — no keyboard events, trivially
@@ -97,37 +248,63 @@ def _try_fill(page,selectors,value,what):
     don't. Many enterprise WAFs key on this gap exclusively."""
     import random
     tried=[]
+    skipped=[]
     for sel in selectors:
         if not sel: continue
         tried.append(sel)
         try:
-            loc=page.locator(sel).first
-            loc.wait_for(state="visible",timeout=2500)
-            # Clear any existing value, then click to focus, then type.
-            # We use loc.fill('') for the clear (DOM-set is fine for blanking)
-            # and only switch to keyboard.type for the new value.
-            try: loc.fill('')
-            except Exception: pass
-            try: loc.click(timeout=1500)
-            except Exception:
-                # Fallback: just call fill if click is intercepted (e.g.
-                # sneaky overlay). Less stealthy but the login still works.
-                loc.fill(value)
-                return True,sel
-            # Type with per-character delay drawn from a uniform distribution.
-            # Real human typing has ~80-200ms gaps; we land in the middle of
-            # that range. v3.65.2: keyboard.type's `delay` parameter is sampled
-            # ONCE per call and reused between every keystroke — so a single
-            # call with delay=random.uniform(50,150) produces a perfectly
-            # periodic signal (e.g. exactly 87ms between every char), which
-            # a WAF looking at keystroke variance scores as MORE bot-like
-            # than no delay at all. Loop one char at a time, fresh sample
-            # each iteration, so the inter-keystroke gaps are actually
-            # non-uniform across the value.
-            for ch in value:
-                page.keyboard.type(ch, delay=random.uniform(50, 150))
-            return True,sel
+            matches=page.locator(sel)
+            # Row 770: the pre-fix code resolved `.first` and then waited on
+            # IT for 2500ms, so a form that had not rendered yet still got
+            # filled. `count()` resolves IMMEDIATELY and would return 0 for
+            # exactly that page, silently skipping the selector -- so the
+            # wait is kept, on ATTACHMENT rather than visibility: the only
+            # thing attached may be the decoy, and we still need to see it
+            # in order to walk past it to the real field behind it.
+            _wait_attached(matches.first)
+            count=matches.count()
         except Exception: continue
+        for idx in range(count):
+            try:
+                loc=matches.nth(idx)
+                decoy,why=_is_honeypot_field(loc)
+                if decoy:
+                    skipped.append(f"{sel}[{idx}]:{why}")
+                    continue
+                _wait_visible(loc)
+                # Clear any existing value, then click to focus, then type.
+                # We use loc.fill('') for the clear (DOM-set is fine for blanking)
+                # and only switch to keyboard.type for the new value.
+                try: loc.fill('')
+                except Exception: pass
+                try: loc.click(timeout=1500)
+                except Exception:
+                    # Fallback: just call fill if click is intercepted (e.g.
+                    # sneaky overlay). Less stealthy but the login still works.
+                    loc.fill(value)
+                    return True,sel
+                # Type with per-character delay drawn from a uniform distribution.
+                # Real human typing has ~80-200ms gaps; we land in the middle of
+                # that range. v3.65.2: keyboard.type's `delay` parameter is sampled
+                # ONCE per call and reused between every keystroke — so a single
+                # call with delay=random.uniform(50,150) produces a perfectly
+                # periodic signal (e.g. exactly 87ms between every char), which
+                # a WAF looking at keystroke variance scores as MORE bot-like
+                # than no delay at all. Loop one char at a time, fresh sample
+                # each iteration, so the inter-keystroke gaps are actually
+                # non-uniform across the value.
+                for ch in value:
+                    page.keyboard.type(ch, delay=random.uniform(50, 150))
+                return True,sel
+            except Exception: continue
+    # Row 770: "nothing matched" and "every match was a decoy" are opposite
+    # situations -- the first wants a better selector list, the second says
+    # the filter is doing its job (or is over-firing) -- and the pre-fix
+    # message collapsed them into one string. Name the decoys and why.
+    if skipped:
+        return False,(f"could not fill {what}; tried {len(tried)} selectors, "
+                      f"skipped {len(skipped)} honeypot field(s): "
+                      f"{', '.join(skipped[:5])}")
     return False,f"could not fill {what}; tried {len(tried)} selectors"
 
 

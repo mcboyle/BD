@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4431,
+  "edge_count": 4434,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4352,6 +4352,11 @@
     ],
     "tests/test_settings_center_wiring.py": [
       "bulk_downloader/app_settings_center.py"
+    ],
+    "tests/test_single_use_url_fallback.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_sites_config_honours_the_install_dir.py": [
       "bulk_downloader/app.py",

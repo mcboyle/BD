@@ -695,6 +695,12 @@ _DECLARED = {
     # than rewriting generated artifacts beneath sibling workers.
     "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
     "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+    # Row 797. The three login seams are pinned by named mutant specs, and a
+    # spec whose anchor has drifted reports invalid -- neither a catch nor an
+    # escape. The binding below places the gate beside the schema gate that
+    # validates the same corpus.
+    # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
+    "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",
     # Row 649. These recovered module contracts had never reached main; their
     # explicit declarations are paired with the recovered-contracts CI shard.
     "tests/test_row089_capture_corpus_backup_restore.py",
@@ -1144,6 +1150,7 @@ _CONFIRMED_SAFETY_GATE_FLOOR = 7
 _NON_DERIVABLE_DECLARED = {
     "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
+    "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module

@@ -650,6 +650,7 @@ jobs:
             suites: >-
               tests/test_row705_published_denominators.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
+              tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
               tests/test_v3_66_1188_bd_mutate_review_controls.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py

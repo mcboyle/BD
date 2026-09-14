@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 770's honeypot filter. This spec must report exactly one VALID ESCAPED mutant: it applies M1's real, behaviour-disabling transform (the tabindex=-1 signal is switched off) while its only band node is the negative control, whose fixture contains NO decoy at all and therefore cannot observe the signal. The escape proves the primary CAUGHT results in row770_login_honeypot_filter.json are assertion failures rather than a SyntaxError, an import failure, a collection failure, or a transform that never applied. Row 770b: re-anchored on the SET MEMBERSHIP together with M1, so the control applies the identical transform to the identical decision site and differs only in the band it is judged on.",
+  "subject": "transform control for the login fill path's honeypot-decoy filter",
+  "band": [
+    "tests/test_login_honeypot.py::test_negative_control_no_decoy_fills_the_only_field"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the tabindex=-1 signal is disabled under a node whose fixture has no decoy",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_tabindex,",
+      "new": "    # mutant: the tabindex=-1 signal is not a member of the set",
+      "direction": "regression",
+      "catcher": "tests/test_login_honeypot.py::test_negative_control_no_decoy_fills_the_only_field"
+    }
+  ]
+}

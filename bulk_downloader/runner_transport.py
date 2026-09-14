@@ -92,6 +92,11 @@ def _finite_config_float(raw, default):
     return v
 
 
+def _is_click_only_download_grant(href):
+    """Whether the browser event, rather than a static URL, issued the grant."""
+    return not isinstance(href, str) or not href.strip()
+
+
 def _closeable_response_context(response):
     """Turn a closeable HTTP response into a context manager.
 
@@ -1206,6 +1211,7 @@ class TransportMixin:
         # four days, each a wasted minute of the capture. The href is available
         # right here, so the decision happens here.
         is_stream = False
+        click_only_grant = False
         if not direct_url:
             try:
                 _href = best["locator"].get_attribute("href") or ""
@@ -1231,6 +1237,7 @@ class TransportMixin:
                     sys.stderr.write(
                         f"  download: direct media href -> {_dname} "
                         f"({_durl[:90]})\n")
+            click_only_grant = _is_click_only_download_grant(_href)
 
         # ── Standard path: click and let Playwright capture the download ──
         if not direct_url:
@@ -1654,6 +1661,12 @@ class TransportMixin:
                            "needs_review", "", 0, f"integrity: {e}")
                     return
                 except _HTTPDownloadFailed as e:
+                    if click_only_grant:
+                        self._handle_failure(
+                            page_url,
+                            f"HTTP failed after single-use browser grant; "
+                            f"not re-clicking: {e}")
+                        return
                     # Fall back to Playwright save_as. We need a fresh download
                     # event; click again. Some sites won't let us do this twice
                     # in quick succession, so this fallback is best-effort.

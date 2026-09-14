@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1542 - row797 three login seams carry durable mutant pins and the pinned CI declaration agrees with ci.yml; row724 bd-cut-preflight p_bandcheck gets its own transform control; row786 a spent single-use download grant is not re-offered to the click fallback; row770 the login honeypot evasion surface is declared with fixtures
+
+Train of four independently reviewed, path-disjoint cuts (bd-train.sh, base 661fbc818ee3b3798fe8e29028011dfa33eae38c = v3.66.1541).
+
+row797 round b (THREE-LOGIN-SEAMS-LACK-DURABLE-PINS, T1, no product change): tests/test_row797_three_login_seams_carry_durable_mutant_pins.py tracks three specs under tests/mutants/ -- test2b_do_login_keeper_seam.json, test2b_do_login_runner_seam.json and test2b_cookie_delta_diagnostic_seam.json -- each CAUGHT by a named catcher, with test2b_cookie_delta_transform_control.json ESCAPING. The rebase declares BOTH `_NON_DERIVABLE_DECLARED` entries (row740's kept and row797's added) in tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py so the pinned declaration and .github/workflows/ci.yml agree.
+
+row724 (BANDCHECK-OWN-TRANSFORM-CONTROL-OWED, T1, toolchain only): tests/mutants/row724_bandcheck_transform_control.json declares p_bandcheck's own transform control against an importing, non-refusing all-ok receipt, so the unreadable-count-to-zero transform must ESCAPE. The three existing row724 specs stay CAUGHT; tests/mutants/row747_transform_control.json targets toolchain/bin/bd-band and was inadequate here.
+
+row786 round e (SINGLE-USE-URL-FALLBACK-RE-SPENDS-TOKEN, T2): bulk_downloader/runner_transport.py gains `_is_click_only_download_grant`, so `_do_download`'s `_HTTPDownloadFailed` fallback no longer re-clicks a locator whose single-use grant the first attempt already spent. tests/test_single_use_url_fallback.py's fixture refuses the same token's second issue, and tests/mutants/row786_single_use_url_fallback.json is CAUGHT at the new call site. The static-URL browser fallback is unchanged.
+
+row770 round d (LOGIN-FILL-SELECTS-FIRST-LOCATOR-WITHOUT-HONEYPOT-CHECK, T3, O554): `_is_honeypot_field` in bulk_downloader/login_impl/_common.py declares the evasion surface in its docstring -- class- or stylesheet-borne hiding, a non-negative zero-size box, a tabindex other than -1 -- and tests/test_login_honeypot.py records each defeat as a fixture. The signal set itself is UNCHANGED: six signals, same order, same membership tuple; tests/mutants/row770_login_honeypot_filter.json is CAUGHT and row770_login_honeypot_filter_transform_control.json ESCAPES.
+
+The row703 gates pin bulk_downloader/runner_transport.py by LINE, so row786e's insertion moves them: tests/test_row703_the_site_to_policy_map_is_asserted.py and tests/test_row703_a_proxy_shadows_the_guarded_transport.py carry the shifted anchors (+5 above the insertion point, +13 below it). No policy value and no membership changes -- only the line numbers.
+
 ## v3.66.1541 - row784 no-nav login submit checks member state once and carries the evidence; row793 evidence-server screenshots guard matches by suffix; H377/H361 toolchain fixes; row1184 mutation-spec validator admits an empty `new` (deletion mutant)
 
 Train of five independently reviewed, path-disjoint cuts (bd-train.sh, base c9dd4176 = v3.66.1540). A sixth boarded cut, H389 (bd-precut names failing underived gates), was BOUNCED to its owner at the train's whole-tree precut gate: its in-flight recorder plugin calls builtins.open inside pytest_runtest_logreport and tests/test_row_286_laundered_failures_hold.py monkeypatches builtins.open to raise, so the gate dies with INTERNALERROR deterministically (bd-persist/landing/BOUNCED-h389-*.md).
