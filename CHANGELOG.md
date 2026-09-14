@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1541 - row784 no-nav login submit checks member state once and carries the evidence; row793 evidence-server screenshots guard matches by suffix; H377/H361 toolchain fixes; row1184 mutation-spec validator admits an empty `new` (deletion mutant)
+
+Train of five independently reviewed, path-disjoint cuts (bd-train.sh, base c9dd4176 = v3.66.1540). A sixth boarded cut, H389 (bd-precut names failing underived gates), was BOUNCED to its owner at the train's whole-tree precut gate: its in-flight recorder plugin calls builtins.open inside pytest_runtest_logreport and tests/test_row_286_laundered_failures_hold.py monkeypatches builtins.open to raise, so the gate dies with INTERNALERROR deterministically (bd-persist/landing/BOUNCED-h389-*.md).
+row784 (NO-NAV-LOGIN-LOSES-EVIDENCE, T1 follow-up to 708/708b): bulk_downloader/login_impl/replay.py's no-success_url/no-indicator refusal now writes login evidence and returns its path (and the final URL) instead of None; tests/test_no_nav_login_evidence.py pins the submit path to exactly one member_state_check call carrying evidence, RED under a delete-the-call mutant.
+row793 round b (EVIDENCE-SERVER-GUARD-USES-DIRECTORY-PREFIX-INSTEAD-OF-SUFFIX): the screenshots route guard in bulk_downloader/app.py tests the path suffix, not a directory prefix; tests/test_row793_screenshots_suffix_guard.py plus two mutant specs under tests/mutants/ (guard and transform control); tests/test_row357_mutant_anchors_are_not_fragile.py anchors updated for the new specs.
+H377 (toolchain): toolchain/bin/bd-mutate accepts a DELETION mutant (`"new": ""`); tests/test_bd_mutate_deletion_mutant.py.
+H361 (toolchain): toolchain/bin/bd-band-derive prints the complete copy-paste `bd-band ...` command line instead of the first 3 of N files; tests/test_h361_band_derive_command_line_is_complete.py.
+row1184: tests/test_v3_66_1184_mutation_specs_are_tracked.py's tracked-spec validator ADMITS an empty `new` (a deletion mutant, as bd-mutate plants since H377) while still refusing an absent or non-string `new`.
+Register: rows 784 and 793 CLOSED @3.66.1541, and row 795 (IMPORT-GRAPH-REMEDY-VIOLATES-CONTRACT) CLOSED @3.66.1541 as ALREADY-DONE (fixed by 986767c1 in v3.66.1520; evidence bd-local-wt/row795-B8-B/DONE.md REFUTED) (rule 31, filed by bd-integrator-B). FUNCTION_INDEX.md regenerated for row784 (O544); import-graph baseline re-frozen for the one edge 793b's test adds to bulk_downloader/app.py.
+
 ## v3.66.1540 - row740 public login writer delegates to the shared cap reservation; row802 pins every bd-bandcheck message to exactly one occurrence
 
 Train of two independently reviewed, path-disjoint cuts.

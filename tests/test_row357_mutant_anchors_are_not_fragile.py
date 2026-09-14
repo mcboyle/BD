@@ -332,8 +332,41 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_729_body_contract_fixtures.py",
             r"(?m)^def _secrets_store_state_is_test_owned\(monkeypatch\):$",
         ),
+    # Row 793 round b: the suffix guard's own literal source text, each audited
+    # by the specific test in test_row793_screenshots_suffix_guard.py that
+    # proves the mutant it names is a real regression against that decision.
+    "d4c188e1a4b4e3c91f8da42a361f4abf147f2f05626b6a4b15333c5440e177e6":
+        StableValueException(
+            "M1: the guard's exact predicate text is audited by the nested-PNG-vs-non-PNG test",
+            "tests/test_row793_screenshots_suffix_guard.py",
+            r"(?m)^def test_screenshots_route_rejects_non_png_but_serves_nested_png\(evidence_client\):$",
+        ),
+    "a188127585f20e641039812e7073600f4570bd2898ecca15682b1fbf0863a105":
+        StableValueException(
+            "M2: the guard's exact predicate text is audited by the nested-PNG-vs-non-PNG test",
+            "tests/test_row793_screenshots_suffix_guard.py",
+            r"(?m)^def test_screenshots_route_rejects_non_png_but_serves_nested_png\(evidence_client\):$",
+        ),
+    "29551f0c90386d89fe186673741d7abe0adae659c8133818aa1d7d921ff91020":
+        StableValueException(
+            "M3: the guard's exact predicate text is audited by the upper-case-extension test",
+            "tests/test_row793_screenshots_suffix_guard.py",
+            r"(?m)^def test_upper_case_png_extension_is_still_served_as_an_image\(evidence_client\):$",
+        ),
+    "f4e1fc4a6cedba1cece8fbfc9f460753f475ecea159b879752b9098074744671":
+        StableValueException(
+            "M4: the guard's exact predicate text is audited by the double-extension test",
+            "tests/test_row793_screenshots_suffix_guard.py",
+            r"(?m)^def test_double_extension_is_rejected_by_suffix_not_substring\(evidence_client\):$",
+        ),
+    "dab984a469a2a60ad098f2d67525819cb4548a2567620cbefd26bde916dab592":
+        StableValueException(
+            "M5 CONTROL: the meaning-preserving rewrite shares the guard's exact predicate text, audited by the same double-extension test",
+            "tests/test_row793_screenshots_suffix_guard.py",
+            r"(?m)^def test_double_extension_is_rejected_by_suffix_not_substring\(evidence_client\):$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 26
+_STABLE_VALUE_EXCEPTION_MAX = 31
 
 
 def _family(

@@ -53,7 +53,7 @@ THE CONTRACT
     old     exactly one of old/old_regex; literal text that MUST occur once
     old_regex
             exactly one of old/old_regex; Python regex that MUST match once
-    new     required  what to replace it with
+    new     required  what to replace it with; may be EMPTY = delete the span
     direction         regression (default) or overcorrection
     catcher required for durable/emitted regression; optional for legacy scratch
     control  required for overcorrection; this nodeid must fail
@@ -1522,9 +1522,21 @@ def _normalise_spec(document: object, cli_band: list[str]) -> tuple[list[dict], 
                 f"mutant {index} must supply exactly one of 'old' or "
                 f"'old_regex'; got {state}")
         anchor_field = "old_regex" if has_old_regex else "old"
-        for field in ("file", anchor_field, "new"):
+        for field in ("file", anchor_field):
             if not isinstance(mutant.get(field), str) or not mutant[field]:
                 raise ValueError(f"mutant {index} field {field!r} must be a non-empty string")
+        # H377: `new` MAY be the empty string -- that is how a deletion mutant is
+        # written, and _apply's length arithmetic is exact for len(new) == 0.
+        # ABSENT is still refused: a missing key is a spec the author did not
+        # finish writing, not a deliberate deletion.
+        if "new" not in mutant:
+            raise ValueError(
+                f"mutant {index} field 'new' is required "
+                "(absent is not the same as empty)")
+        if not isinstance(mutant["new"], str):
+            raise ValueError(
+                f"mutant {index} field 'new' must be a string "
+                "(it may be empty = delete the span)")
         if has_old_regex:
             try:
                 re.compile(mutant["old_regex"])
@@ -1697,10 +1709,16 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
         if set(mutant) != required:
             raise ValueError(
                 f"emitted mutant {index} fields must be exactly {sorted(required)}")
-        for field in required - {"preserves"}:
+        for field in required - {"preserves", "new"}:
             if not isinstance(mutant[field], str) or not mutant[field]:
                 raise ValueError(
                     f"emitted mutant {index} field {field!r} must be a non-empty string")
+        # H377: the writer must accept what the runner accepts, or a seat could
+        # RUN a deletion battery and then be refused when promoting it.
+        if not isinstance(mutant["new"], str):
+            raise ValueError(
+                f"emitted mutant {index} field 'new' must be a string "
+                "(it may be empty = delete the span)")
         subject_path = _mutation_subject(work, mutant["file"])
         if mutant["file"] not in tracked:
             raise ValueError(f"emitted mutant {index} has untracked subject: {mutant['file']}")

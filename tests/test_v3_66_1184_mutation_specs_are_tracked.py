@@ -223,10 +223,18 @@ def _validate_one_tracked_spec(path: Path, tracked: set[str]) -> None:
         assert set(mutant) == expected_fields, (
             f"{path}: mutant fields {sorted(mutant)} != {sorted(expected_fields)}"
         )
-        for field in ("label", "file", anchor_field, "new"):
+        for field in ("label", "file", anchor_field):
             assert isinstance(mutant[field], str) and mutant[field], (
                 f"{path}: {field} must be a non-empty string"
             )
+        # ROW1184: `new` MAY be the empty string -- that is how a spec expresses a
+        # DELETION mutant, and bd-mutate has planted one since h377. It is checked
+        # apart from the three above because empty and absent are different things:
+        # ABSENT is still refused, by the exact-field-set assertion above, which
+        # is what guarantees the subscript below cannot raise KeyError.
+        assert isinstance(mutant["new"], str), (
+            f"{path}: new must be a string (it may be empty = delete the span)"
+        )
         if anchor_field == "old_regex":
             try:
                 re.compile(mutant[anchor_field])
@@ -332,6 +340,57 @@ def test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else(tmp_path)
         json.dumps({**document, "controls": True}), encoding="utf-8")
     with pytest.raises(AssertionError, match="plus optional"):
         _validate_one_tracked_spec(stray, tracked)
+
+
+def test_a_deletion_mutant_declares_an_EMPTY_new_and_the_validator_admits_it(tmp_path):
+    """ROW1184: `"new": ""` is how a spec says DELETE THE SPAN, so this gate must admit it.
+
+    bd-mutate accepts an empty ``new`` as of h377; until this row the tracked-spec
+    validator did not, so a deletion battery could be RUN and EMITTED but never
+    CHECKED IN. The relaxation is only a measurement if the controls still refuse,
+    so the limbs are: EMPTY passes, ABSENT refuses, NON-STRING refuses.
+    """
+    template = _tracked_specs()[0]
+    tracked = set(_git_paths())
+    document = json.loads(template.read_text(encoding="utf-8"))
+    first = document["mutants"][0]
+    assert isinstance(first.get("new"), str) and first["new"], (
+        f"{template}: fixture precondition -- this test rewrites the template's "
+        f"first `new`, which must start out a non-empty string, got {first.get('new')!r}"
+    )
+
+    def _spec_whose_first_mutant_is(mutant: object, name: str) -> Path:
+        path = tmp_path / name
+        path.write_text(
+            json.dumps({**document, "mutants": [mutant, *document["mutants"][1:]]}),
+            encoding="utf-8",
+        )
+        return path
+
+    # POSITIVE -- the deletion mutant. `new` is the only field that differs from a
+    # spec this gate already accepts, so a failure here can only be the empty string.
+    deletion = {**first, "new": ""}
+    _validate_one_tracked_spec(
+        _spec_whose_first_mutant_is(deletion, "deletion_mutant.json"), tracked)
+
+    # CONTROL 1 -- ABSENT IS NOT EMPTY. A missing key is a spec its author did not
+    # finish writing. The exact-field-set assertion refuses it before the field
+    # loop is reached, so the message matched is deliberately that one: naming the
+    # per-field message here would assert a refusal that does not happen.
+    absent = {field: value for field, value in first.items() if field != "new"}
+    with pytest.raises(AssertionError, match=r"mutant fields \[.*\] != \[.*'new'.*\]"):
+        _validate_one_tracked_spec(
+            _spec_whose_first_mutant_is(absent, "absent_new.json"), tracked)
+
+    # CONTROL 2 -- present but not a string. This is the check this row rewrites,
+    # and the one a careless fix (deleting "new" from the tuple and stopping) drops.
+    for not_a_string in (None, 0, 1, [], {}, ["", ""]):
+        with pytest.raises(AssertionError, match="new must be a string"):
+            _validate_one_tracked_spec(
+                _spec_whose_first_mutant_is(
+                    {**first, "new": not_a_string}, "non_string_new.json"),
+                tracked,
+            )
 
 
 def test_a_tracked_mutation_spec_exists_at_all():

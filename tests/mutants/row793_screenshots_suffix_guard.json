@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 793 round b. The correctness lens (bd-review-wt/row793-cx9-local/.review/VERDICT-correctness.md) ran these five by hand against round a's gate: M1/M2 CAUGHT, M3 ESCAPED (case-fold unpinned), M4 ESCAPED (a real arbitrary-file-serve bypass), M5 PASS. This battery is the durable form of M1-M4; M5, the meaning-preserving rewrite that MUST escape, lives in row793_screenshots_suffix_guard_transform_control.json so it can never pad the CAUGHT count. Every anchor targets the DECISION serve_ss's guard makes about a filename, never a value. M1 expresses deletion as a never-firing predicate (bd-mutate refuses an empty 'new': BD-MUTATE-UNRUNNABLE, field 'new' must be a non-empty string); `if False:` leaves the route with exactly the base's behaviour -- every file under the evidence root is served.",
+  "subject": "serve_ss refuses any evidence file whose name does not END in .png, case-insensitively, wherever it sits under the evidence root",
+  "band": [
+    "tests/test_row793_screenshots_suffix_guard.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 guard neutered (predicate forced False): the route is back to serving anything inside the evidence root",
+      "file": "bulk_downloader/app.py",
+      "old": "target.suffix.lower() != \".png\"",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_screenshots_route_rejects_non_png_but_serves_nested_png"
+    },
+    {
+      "label": "M2 guard inverted (!= becomes ==): only non-PNGs are served",
+      "file": "bulk_downloader/app.py",
+      "old": "target.suffix.lower() != \".png\"",
+      "new": "target.suffix.lower() == \".png\"",
+      "direction": "regression",
+      "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_screenshots_route_rejects_non_png_but_serves_nested_png"
+    },
+    {
+      "label": "M3 .lower() dropped: EVIDENCE.PNG is refused -- a denial of real evidence, not a hole",
+      "file": "bulk_downloader/app.py",
+      "old": "target.suffix.lower() != \".png\"",
+      "new": "target.suffix != \".png\"",
+      "direction": "regression",
+      "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_upper_case_png_extension_is_still_served_as_an_image"
+    },
+    {
+      "label": "M4 suffix test widened to a SUBSTRING test: secret.png.txt is served (the bypass the lens demonstrated)",
+      "file": "bulk_downloader/app.py",
+      "old": "target.suffix.lower() != \".png\"",
+      "new": "\".png\" not in str(target).lower()",
+      "direction": "regression",
+      "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_double_extension_is_rejected_by_suffix_not_substring"
+    }
+  ]
+}
