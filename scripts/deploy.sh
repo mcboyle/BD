@@ -633,13 +633,17 @@ cloak_manifest_present() {
 # Both are now NAMED, NON-FATAL degradations that set CLOAK_STATE and let the
 # deploy of everything else finish.
 #
-# CLOAK_STATE starts UNKNOWN because an UNMEASURED optional capability is not
-# OK, and nothing below can reach OK by falling through: only a rendered marker
-# assigns it. An absent manifest or an unresolved specifier is ABSENT; anything
-# measured and failed stays UNKNOWN. Steps [12] and [13] and the deployed
-# capability record all read this one variable, so a degradation here is never
-# silent on the three durable surfaces a later operator reads.
-CLOAK_STATE=UNKNOWN
+# CLOAK_STATE starts UNMEASURED because an optional capability nothing has
+# probed yet is not OK, and nothing below can reach OK by falling through: only
+# a rendered marker assigns it. The seed is deliberately a literal no branch
+# below can produce: UNKNOWN is the MEASURED could-not-evaluate outcome, so
+# seeding UNKNOWN would make "the probe never ran" indistinguishable from "the
+# probe ran and could not resolve". An absent manifest or an unresolved
+# specifier is ABSENT; anything measured and failed stays UNKNOWN. Steps [12]
+# and [13] and the deployed capability record all read this one variable, so a
+# degradation here is never silent on the three durable surfaces a later
+# operator reads.
+CLOAK_STATE=UNMEASURED
 CLOAK_READY=0
 CAP_MISSING=""
 CAP_RC=0

@@ -1,0 +1,30 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 709. The gate refuses a shell state seed whose literal a later measurement in the same file also produces, because such a seed makes 'never ran' indistinguishable from 'measured and unresolved' on every surface that later reads the variable. M1 deletes the seed-equals-outcome check, so no finding can ever be raised; M2 narrows the stated population to its first root, so a whole half of the denominator disappears silently. Both are caught by the restored-defect fixture, which is the only node that proves the census can say YES. Every anchor matches structural source text -- a bare branch keyword line and a bare return statement -- and carries no number, quoted value or assignment, so nothing here freezes a re-derived value (row 357).",
+  "subject": "row 709 - a state seed that equals a later measured outcome is found by file and line, over a stated nonzero population",
+  "band": [
+    "tests/test_row709_state_seed_is_not_a_verdict.py::test_restored_row709_defect_names_its_seed_and_location",
+    "tests/test_row709_state_seed_is_not_a_verdict.py::test_a_distinct_seed_is_not_a_measured_outcome",
+    "tests/test_row709_state_seed_is_not_a_verdict.py::test_a_state_nothing_reads_is_not_a_verdict",
+    "tests/test_row709_state_seed_is_not_a_verdict.py::test_unmeasurable_population_is_unknown_not_clean",
+    "tests/test_row709_state_seed_is_not_a_verdict.py::test_live_shell_population_seeds_no_measured_outcome"
+  ],
+  "mutants": [
+    {
+      "label": "M1 delete the seed-equals-outcome check, so the census can never raise a finding",
+      "file": "tests/test_row709_state_seed_is_not_a_verdict.py",
+      "old_regex": "(?m)^            if seed not in outcomes:$",
+      "new": "            if True:  # mutant: skip every seed",
+      "direction": "regression",
+      "catcher": "tests/test_row709_state_seed_is_not_a_verdict.py::test_restored_row709_defect_names_its_seed_and_location"
+    },
+    {
+      "label": "M2 narrow the stated population to a single root, so half the denominator vanishes",
+      "file": "tests/test_row709_state_seed_is_not_a_verdict.py",
+      "old_regex": "(?m)^    return _POPULATION_ROOTS$",
+      "new": "    return _POPULATION_ROOTS[:1]  # mutant: single-root population",
+      "direction": "regression",
+      "catcher": "tests/test_row709_state_seed_is_not_a_verdict.py::test_restored_row709_defect_names_its_seed_and_location"
+    }
+  ]
+}

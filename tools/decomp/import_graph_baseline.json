@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4437,
+  "edge_count": 4442,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4062,6 +4062,9 @@
       "bulk_downloader/capture_bodies.py",
       "bulk_downloader/global_config.py"
     ],
+    "tests/test_row661_low_disk_return_releases_egress.py": [
+      "bulk_downloader/live_recorder.py"
+    ],
     "tests/test_row663_inspect_rung_matches_runner.py": [
       "bulk_downloader/dry_run.py",
       "bulk_downloader/heuristic_scoring.py",
@@ -4197,6 +4200,12 @@
     ],
     "tests/test_row793_screenshots_suffix_guard.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row806_health_payload_names_the_deployed_cloak_state.py": [
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/auth_throttle.py",
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

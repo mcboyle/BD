@@ -799,6 +799,8 @@ def _spawn_recording(rid: str, rec: Recording,
                     "Live recording skipped",
                     f"{rec.site}/{rec.room}: only {free_gb:.1f}GB free",
                 )
+                if prepared_egress is not None:
+                    prepared_egress.close()
                 return
         except Exception as e:
             sys.stderr.write(f"[live-recorder] disk check failed: {e}\n")

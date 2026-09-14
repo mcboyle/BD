@@ -364,6 +364,97 @@ def _check_bitrot() -> dict:
             "details": s}
 
 
+
+# ─── Deployed cloak capability (row 806) ──────────────────────────────
+
+# scripts/deploy.sh records the cloak browser disposition beside the graph
+# pin, in its OWN file, because capture.sh's graph gate reads
+# ``<pin>.deploy-tree`` with ``tr -d '\r\n'`` and compares the whole result to
+# a tree SHA -- an appended cloak line there would concatenate into
+# "<tree>cloak=OK" and report every host NOT-APPLICABLE. This default MUST
+# stay byte-identical to deploy.sh's, capture.sh's and provision_test_host.sh's:
+# a reader watching a path the deploy never writes reports UNKNOWN on a
+# perfectly measured host, and that reads as "nobody looked" forever.
+# tests/test_row806_health_payload_names_the_deployed_cloak_state.py parses
+# both halves back out of scripts/deploy.sh and fails if they drift.
+_GRAPH_PIN_DEFAULT = "/var/lib/bulkdownloader/validation/KNOWLEDGE_GRAPH.content.sha256"
+_CLOAK_RECORD_SUFFIX = ".deploy-capabilities"
+
+CLOAK_OK = "OK"
+CLOAK_ABSENT = "ABSENT"
+CLOAK_UNKNOWN = "UNKNOWN"
+
+# The states deploy.sh can write. UNKNOWN is one of them: an optional
+# capability that was probed and could not be confirmed is a MEASURED
+# unknown, which is not the same fact as a host nothing ever measured.
+_CLOAK_RECORDED_STATES = (CLOAK_OK, CLOAK_ABSENT, CLOAK_UNKNOWN)
+
+
+def cloak_record_path() -> str:
+    """Where scripts/deploy.sh writes the deployed cloak disposition."""
+    pin = os.environ.get("BD_GRAPH_HASH_PIN") or _GRAPH_PIN_DEFAULT
+    return pin + _CLOAK_RECORD_SUFFIX
+
+
+def cloak_capability(path: Optional[str] = None) -> dict:
+    """The ``cloak`` block for /api/health -- one field, four dispositions.
+
+    Row 806 (residual of 736, follow-up of 686). deploy.sh degrades the cloak
+    browser capability NAMED and continues -- exiting 0 on a WARN is
+    compliance under row 686, so the qualifier beside the result is what has
+    to carry the truth. Until now that qualifier existed only in deploy.sh's
+    stdout, read once by whoever watched the deploy, and nowhere durable that
+    a later reader could consult: /api/health, the one machine-readable
+    surface the fleet does poll, carried no cloak field at all, so a host with
+    no browser reach was green there. MEASURED, so the claim stays honest:
+    today's readers consume a NAMED subset of this payload, not all of it --
+    bd-fleet-audit-cmd.sh:14 takes only the status code; bd-fleet-deploy.sh
+    takes the code plus ``version`` (:438-440) and, in its 503 branch only,
+    ``degraded``/``credentials.state``/``version`` (:477-487); deploy.sh's own
+    health gate takes the code and ``version``. Naming the cloak here is
+    therefore the PREREQUISITE for a fleet reader that wants it, not by itself
+    a change to what any current reader prints.
+
+    THE FOUR DISPOSITIONS ARE KEPT DISTINCT (CLAUDE.md A7), because they lead
+    to different operator actions:
+
+      recorded OK / ABSENT / UNKNOWN -> ``recorded: True``, source
+        ``deploy_record``: a deploy ran on this host and said so.
+      no record at all               -> ``recorded: False``, source
+        ``no_record``: this host has not been deployed by a deploy.sh that
+        records capabilities. NOT the same as a probe that ran and failed.
+      a record that is not a cloak line -> ``recorded: True``, source
+        ``unrecognized_record``: something wrote the file and we cannot read
+        it, which is a different repair from "nobody wrote it".
+      the file exists but cannot be read -> ``recorded: True``, source
+        ``unreadable_record``: a permissions or IO fault on a file that IS
+        there.
+
+    NEVER RAISES, AND THE CALLER NEVER FAILS HEALTH ON IT. /api/health is what
+    scripts/deploy.sh polls to verify its own restart; a cloak degradation
+    that turned the probe 503 would report row 686's compliant WARN as a
+    failed deploy, and an unmeasured capability would take the host down.
+    """
+    record = path if path is not None else cloak_record_path()
+    try:
+        with open(record, encoding="utf-8") as fh:
+            raw = fh.read()
+    except FileNotFoundError:
+        return {"state": CLOAK_UNKNOWN, "recorded": False,
+                "source": "no_record", "record_path": record}
+    except (OSError, UnicodeDecodeError) as e:
+        return {"state": CLOAK_UNKNOWN, "recorded": True,
+                "source": "unreadable_record", "record_path": record,
+                "detail": f"{type(e).__name__}"}
+    token = raw.strip()
+    state = token[len("cloak="):] if token.startswith("cloak=") else ""
+    if state not in _CLOAK_RECORDED_STATES:
+        return {"state": CLOAK_UNKNOWN, "recorded": True,
+                "source": "unrecognized_record", "record_path": record}
+    return {"state": state, "recorded": True,
+            "source": "deploy_record", "record_path": record}
+
+
 # ─── Public entry ─────────────────────────────────────────────────────
 
 def _check_supervisor() -> dict:

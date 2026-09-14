@@ -388,6 +388,38 @@ def _attach_sites_config_health(payload: dict) -> None:
         payload.setdefault("degraded", "sites_config_unknown")
 
 
+
+def _attach_cloak_capability(payload: dict) -> None:
+    """Row 806: NAME the deployed cloak browser reach, in exactly one field.
+
+    scripts/deploy.sh has recorded this disposition beside the graph pin since
+    row 736 and printed it at three of its own stdout surfaces -- but nothing
+    durable read it back, and /api/health, the machine-readable surface the
+    fleet does poll, carried no cloak field, so an ABSENT cloak was green
+    there. That is A7's absent-looks-green shape and is the half row 736's
+    closure explicitly left open. What the current readers actually take off
+    this payload is a NAMED subset, not the whole of it -- see
+    healthcheck.cloak_capability's docstring for the measured list.
+
+    IT NEVER TOUCHES ``ok``, and that is deliberate -- it is the one thing
+    separating this attachment from ``_attach_download_hold`` beside it. Row
+    686 ruled the cloak an OPTIONAL capability that degrades NAMED while the
+    deploy CONTINUES and exits 0; deploy.sh then polls this very endpoint to
+    verify its own restart. A cloak degradation that flipped the payload to
+    503 would turn row 686's compliant WARN into a failed deploy on every
+    host it correctly reported, which is the opposite of what the row asks
+    for. The state is named in the payload; the status code stays the
+    property of things that really are broken.
+    """
+    from . import healthcheck as _hc
+    try:
+        payload["cloak"] = _hc.cloak_capability()
+    except Exception as e:  # pinned: see row 806 test ..._probe_itself_raises
+        payload["cloak"] = {"state": "UNKNOWN", "recorded": False,
+                            "source": "health_probe_failed",
+                            "record_path": None,
+                            "detail": f"{type(e).__name__}"}
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
@@ -435,6 +467,7 @@ def api_health():
     _attach_credential_health(payload, s_cfg)
     _attach_download_hold(payload)
     _attach_sites_config_health(payload)
+    _attach_cloak_capability(payload)
     # B1.3 (post-365): build identity. Read build_info.json from the install
     # dir so the Dashboard can compare the FE-loaded VITE_BUILD_STAMP against
     # the backend build sha. Absent file -> no `build` key (graceful: dev tree
@@ -506,6 +539,7 @@ def api_health_v2():
     _attach_credential_health(payload, s_cfg)
     _attach_download_hold(payload)
     _attach_sites_config_health(payload)
+    _attach_cloak_capability(payload)
     # Disk free per download dir — first 5 only (mockup shows
     # aggregate, not per-dir; this is for the Settings → Health pane).
     disks = []
