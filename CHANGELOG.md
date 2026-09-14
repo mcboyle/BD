@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1543 - 809 httpx socks extra declared, 792 age-gate enter-substring consumers, 665 absence is not an answer
+
+Train: 3 refute-first-reviewed worker patches.
+
+- Row 809: `requirements.txt` now declares `httpx[socks]` instead of bare `httpx`, so the SOCKS transport the code already reaches for is actually installed. The version bounds `>=0.25,<1.0` are byte-identical before and after -- no pin is added, moved or relaxed.
+- Row 792: test-only. The age-gate ENTER affordance is pinned so a card control whose label merely *contains* "enter" is never clicked, together with its three consumers. The product was already correct; four mutants of the affordance pattern previously escaped uncaught.
+- Row 665: `bulk_downloader/app_queue.py` no longer reports absence as an answer. A queue job the server cannot find now carries the explicit state `unknown` rather than falling through to one of the three status arms, which is the strongest true statement it can make.
+
 ## v3.66.1542 - row797 three login seams carry durable mutant pins and the pinned CI declaration agrees with ci.yml; row724 bd-cut-preflight p_bandcheck gets its own transform control; row786 a spent single-use download grant is not re-offered to the click fallback; row770 the login honeypot evasion surface is declared with fixtures
 
 Train of four independently reviewed, path-disjoint cuts (bd-train.sh, base 661fbc818ee3b3798fe8e29028011dfa33eae38c = v3.66.1541).

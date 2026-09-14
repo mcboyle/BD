@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4434,
+  "edge_count": 4437,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4189,6 +4189,11 @@
     ],
     "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py": [
       "bulk_downloader/app_template.py"
+    ],
+    "tests/test_row792_age_gate_enter_substring_and_three_consumers.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/secrets_store.py"
     ],
     "tests/test_row793_screenshots_suffix_guard.py": [
       "bulk_downloader/app.py"

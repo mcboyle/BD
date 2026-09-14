@@ -1,0 +1,61 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Backlog row 665, second arc (API-QUEUE-V2-HIDES-TERMINAL-JOBS). The seam is bulk_downloader/app_queue.py: the fourth arm of the /api/queue/v2 classifier and the known/state pair on /api/queue/v2/job_log. Remote lane: BD_WORKER_MODE=mutate /home/mboyle/bd-worker-precut.sh <wt> <base> --spec tests/mutants/row665_absence_is_not_an_answer.json. EVERY ANCHOR HERE IS STRUCTURAL ON PURPOSE -- no quoted string, no literal, no '=' inside any matched span -- so that tests/test_row357_mutant_anchors_are_not_fragile.py can classify it without a producer record and without growing the capped stable-exception census; that is also why the seam names _UNKNOWN_STATE and lifts `state` out of the dict literal. M5 is the over-correction, because answering 'unknown' for EVERY job would also make every absent job unknown and would look like a pass to the four regression mutants alone. MA is the escape that refuted this cut's first generation (VERDICT: REFUTE, row665-B1-B-local): M2 alone (len(unclassified) -> 0) is caught for free by any test asserting a nonzero count, so it never exercised the cap-versus-count distinction the seam comment claims. MA reintroduces exactly that distinction and is caught only by the 201-seed test, which is why that test exists.",
+  "subject": "absence from the v2 snapshot and from the per-job lookup is reported as an explicit state, never as silence",
+  "band": [
+    "tests/test_row665_absence_is_not_an_answer.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the fourth arm is dead: an unrecognised status falls out of the payload again",
+      "file": "bulk_downloader/app_queue.py",
+      "old": "                        else:\n                            unclassified.append({",
+      "new": "                        elif False:\n                            unclassified.append({",
+      "direction": "regression",
+      "catcher": "tests/test_row665_absence_is_not_an_answer.py::test_an_unrecognised_status_is_reported_not_dropped"
+    },
+    {
+      "label": "M2 the bucket is reported but its count no longer counts",
+      "file": "bulk_downloader/app_queue.py",
+      "old": "len(unclassified)",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_row665_absence_is_not_an_answer.py::test_an_unrecognised_status_is_reported_not_dropped"
+    },
+    {
+      "label": "MA the count is capped along with its list, so an overflow hides behind the number",
+      "file": "bulk_downloader/app_queue.py",
+      "old": "len(unclassified)",
+      "new": "len(unclassified[:200])",
+      "direction": "regression",
+      "catcher": "tests/test_row665_absence_is_not_an_answer.py::test_the_unclassified_bucket_is_capped_but_its_count_is_the_whole_truth"
+    },
+    {
+      "label": "M3 the lookup drops the third value: an absent job reads as empty status again",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?<=if known else )_UNKNOWN_STATE",
+      "new": "job.get(\"status\", \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row665_absence_is_not_an_answer.py::test_a_job_absent_from_the_queue_is_unknown_not_never_existed"
+    },
+    {
+      "label": "M4 the lookup claims every url is known",
+      "file": "bulk_downloader/app_queue.py",
+      "old_regex": "(?<=            \"known\": )known(?=,\\n)",
+      "new": "True",
+      "direction": "regression",
+      "catcher": "tests/test_row665_absence_is_not_an_answer.py::test_a_job_absent_from_the_queue_is_unknown_not_never_existed"
+    },
+    {
+      "label": "M5 OVER-CORRECTION the lookup answers unknown for every job, present or not",
+      "file": "bulk_downloader/app_queue.py",
+      "old": "if known else",
+      "new": "if False else",
+      "direction": "overcorrection",
+      "control": "tests/test_row665_absence_is_not_an_answer.py::test_a_present_job_is_known_and_keeps_its_own_state",
+      "preserves": [
+        "tests/test_row665_absence_is_not_an_answer.py::test_a_job_absent_from_the_queue_is_unknown_not_never_existed"
+      ]
+    }
+  ]
+}

@@ -16,7 +16,11 @@ Werkzeug==3.1.8
 playwright>=1.61,<2.0
 # httpx is used for direct HTTP downloads (faster, with progress and resume).
 # If unavailable, the worker falls back to Playwright's save_as.
-httpx>=0.25,<1.0
+# [socks] pulls in socksio, which httpx's own HTTPTransport requires at
+# construction time for any socks5/socks5h proxy (row 809: a plain
+# `pip install -r requirements.txt` without this extra raises ImportError
+# the moment a SOCKS-proxied client is constructed).
+httpx[socks]>=0.25,<1.0
 
 # Template discovery and deep-detection paths parse captured HTML with
 # BeautifulSoup. These paths fail open when bs4 is absent, but that silently
