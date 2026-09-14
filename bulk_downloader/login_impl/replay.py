@@ -113,12 +113,15 @@ def member_state_check(page, config, *, tag="login"):
     success_url = config.get("success_url", "") or ""
     learned_login = (config.get("learned") or {}).get("login") or {}
     indicator = learned_login.get("member_indicator") or ""
-    if not success_url and not indicator:
-        return False, "no success_url and no member indicator declared", None
     try:
         final_url = page.url
     except Exception as e:
         return False, f"final URL unreadable ({e}); member state UNKNOWN", None
+    if not success_url and not indicator:
+        evidence_path = write_login_evidence(page, config, final_url, tag)
+        return (False,
+                f"no success_url and no member indicator declared ({final_url})",
+                evidence_path)
     evidence_path = write_login_evidence(page, config, final_url, tag)
     if success_url and _success_url_matches(success_url, final_url):
         return (True,

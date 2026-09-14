@@ -169,21 +169,21 @@ Schema version: 2
 - L6253 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
 - L6321 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
 - L6463 `serve_ss` `GET /screenshots/<path:filename>`
-- L7754 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7761 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7772 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7787 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7851 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7880 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7888 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7905 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7917 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7940 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7956 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7972 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7989 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L8042 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L8163 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L7756 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7763 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7774 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7789 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7853 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7882 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7890 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7907 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7919 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7942 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7958 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7974 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7991 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L8044 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L8165 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -758,14 +758,14 @@ Schema version: 2
 - L0069 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
 - L0075 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
 - L0099 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
-- L0161 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0173 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0236 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0291 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0332 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0562 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0607 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0667 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0164 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0176 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0239 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0294 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0335 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0565 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0610 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0670 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 

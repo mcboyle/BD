@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row793_screenshots_suffix_guard.json -- the correctness lens's M5. `not str(target).lower().endswith(\".png\")` reaches the same decision as `target.suffix.lower() != \".png\"` for every name this route can be asked for, so the band MUST NOT catch it: a gate that rejects a correct reimplementation is brittle, not complete. Expected verdict: CONTROL-ESCAPED.",
+  "subject": "control: a meaning-preserving rewrite of the suffix guard escapes the band",
+  "band": [
+    "tests/test_row793_screenshots_suffix_guard.py"
+  ],
+  "mutants": [
+    {
+      "label": "M5 CONTROL meaning-preserving rewrite: endswith() in place of Path.suffix",
+      "file": "bulk_downloader/app.py",
+      "old": "target.suffix.lower() != \".png\"",
+      "new": "not str(target).lower().endswith(\".png\")",
+      "direction": "regression",
+      "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_double_extension_is_rejected_by_suffix_not_substring"
+    }
+  ]
+}

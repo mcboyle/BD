@@ -1028,8 +1028,20 @@ def report(work, changed, rows, label, deps=None, as_json=False, emit_only=False
     for b in band[:24]:
         print("    %s" % b)
     if len(band) > 24:
-        print("    ... +%d more" % (len(band) - 24))
-    print("  %s" % emit_band(band)[:160])
+        # A cap on a HUMAN LIST is fine as long as it says so and points at
+        # something complete. @H361: it now names both complete sources.
+        print("    ... +%d more  # TRUNCATED %d of %d -- the complete set is "
+              "the bd-band line below, or --json .band"
+              % (len(band) - 24, len(band) - 24, len(band)))
+    # @H361: NEVER slice this line. It printed emit_band(band)[:160], so a band
+    # of 90 ended mid-path at `tests/test_ca` -- no ellipsis, no marker, and no
+    # count in the line to reconcile against the `band (N)` header above it.
+    # Pasted, it ran 3 of 90 files and exited 0: the partial token is not a
+    # file, so pytest's own "file or directory not found" never fired. A band
+    # is a denominator (FLEET_RULE 8) and a silently truncated one that still
+    # reports GREEN is UNKNOWN read as permission (FLEET_RULE 6). This is a
+    # command; a command is never abbreviated.
+    print("  %s" % emit_band(band))
     if deps:
         print("  dependents: %s" % ", ".join(deps))
     if selecting_signals:

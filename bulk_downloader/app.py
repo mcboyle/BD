@@ -6475,6 +6475,8 @@ def serve_ss(filename):
         target_s = str(target)
         if not (target_s == ss_root or target_s.startswith(ss_root + os.sep)):
             return jsonify({"error":"path traversal"}),400
+        if target.suffix.lower() != ".png":
+            return jsonify({"error":"invalid screenshot type"}),400
         if not target.is_file():
             return jsonify({"error":"not found","path":str(filename)}),404
         return send_file(target)
