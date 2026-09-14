@@ -25,7 +25,7 @@
     {
       "label": "M3 appended attempts use an event the query does not count",
       "file": "bulk_downloader/session_keeper.py",
-      "old_regex": "(?<=db\\.session_event_record\\(site_id, account_idx, )_LOGIN_ATTEMPT_EVENT(?=, detail\\))",
+      "old_regex": "(?m)(?<=^            \"event_type\": )_LOGIN_ATTEMPT_EVENT(?=,$)",
       "new": "_SIGNIN_WORD",
       "direction": "regression",
       "catcher": "tests/test_row667_login_attempt_accounting.py::test_durable_site_day_query_counts_attempts_and_preserves_attribution"
@@ -250,7 +250,7 @@
       "label": "M31 the keeper reverts to an unlocked read-then-write",
       "file": "bulk_downloader/app.py",
       "old_regex": "(?m)(?<=^            reservation = )_sk\\.reserve_login_attempt(?=\\($)",
-      "new": "(lambda _site, _source, _cap, _idx: (_sk.record_login_attempt(_site, _source, _idx), {\"granted\": True, \"status\": \"OK\", \"count\": 0, \"cap\": _cap, \"reason\": None})[-1])",
+      "new": "(lambda _site, _source, _cap, _idx: (_sk.db.session_event_record(_site, _idx, _sk._LOGIN_ATTEMPT_EVENT, _sk.json.dumps({\"source\": _source}, sort_keys=True, separators=(\",\", \":\"))), {\"granted\": True, \"status\": \"OK\", \"count\": 0, \"cap\": _cap, \"reason\": None})[-1])",
       "direction": "regression",
       "catcher": "tests/test_row667_login_attempt_accounting.py::test_two_account_site_cannot_exceed_the_cap_under_concurrent_keepers"
     },

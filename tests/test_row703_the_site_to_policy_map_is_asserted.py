@@ -108,7 +108,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_transport.py:2576": PINNED,
     "bulk_downloader/runner_transport.py:2656": PINNED,
     "bulk_downloader/runner_transport.py:2807": PINNED,
-    "bulk_downloader/session_keeper.py:1216": PINNED,
+    "bulk_downloader/session_keeper.py:1226": PINNED,
     "bulk_downloader/tg_bot.py:162": PINNED,
     "bulk_downloader/tg_bot.py:185": PINNED,
     "bulk_downloader/tier_probe.py:299": PUBLIC_ONLY,
