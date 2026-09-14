@@ -141,6 +141,12 @@ _DECLARED = {
     # reservation reserve_login_attempt uses, so a same-process direct writer
     # cannot exceed the cap a reserve_login_attempt caller would have hit.
     "tests/test_row740_login_cap_writer_atomicity.py",
+    # Row 806. The /api/health payload must NAME the cloak browser capability
+    # scripts/deploy.sh recorded beside the graph pin: the fleet health column
+    # is a curl of that payload and nothing else, so an omitted field reads as
+    # GREEN on a host with no browser reach (CLAUDE.md A7).
+    # CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
+    "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -164,10 +170,23 @@ _DECLARED = {
     # hostname resolving to RFC1918" into "admits it" -- turns something red.
     # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
     "tests/test_row703_the_site_to_policy_map_is_asserted.py",
+    # Row 785. The login evidence a verdict is read from is named from the
+    # verdict tag, and the tag carries an English phase with spaces. The
+    # name is asserted to stay in a restricted character class while the
+    # human phase moves inside the file, in login_impl/replay.py.
+    # CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
+    "tests/test_row785_login_evidence_filenames_are_shell_safe.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
     "tests/test_row705_published_denominators.py",
+    # Row 709. A shell state seed must not be a literal a later measurement in
+    # the same file also produces, or "the probe never ran" is indistinguishable
+    # from "the probe ran and could not resolve" on every surface that reads it.
+    # The population is every tracked POSIX-shell file under scripts and
+    # toolchain/bin, so the gate judges the tree, not a changed file.
+    # CI-SHARD-CLAIM row-709 safety-censuses tests/test_row709_state_seed_is_not_a_verdict.py
+    "tests/test_row709_state_seed_is_not_a_verdict.py",
     # rowssrf-loopback. Every canonical host-safety consumer and both template
     # sandbox exemption sites must use the classifier's structured reason.
     "tests/test_rowssrf_loopback_reason_is_structured.py",
@@ -389,6 +408,11 @@ _DECLARED = {
     # to obtain. Its negative arm stops it passing vacuously and fails loudly
     # if pytest-timeout or xdist ever change underneath it.
     "tests/test_v3_66_1220_a_timeout_names_its_test.py",
+    # The terminal-summary hooks serve every pytest session. This nested
+    # regression holds the line between the two kinds of banner they emit: the
+    # socket-recorder and run-context MEASUREMENTS print on every run, and the
+    # replay POINTERS print only for a session somebody would investigate.
+    "tests/test_row_pytest_banners_only_on_failure.py",
     # @1208, the capture execution signal contract. These three judge the
     # heartbeat boundary that made all seven fleet captures fail at once:
     # 1208 RUNS the wrapper and reads the wrapped process's own signal
@@ -644,6 +668,10 @@ _DECLARED = {
     # resolve against the complete parsed row population. This is tree-wide:
     # a stale reference can be introduced by editing any backlog row.
     "tests/test_v3_66_1255_backlog_references_resolve.py",
+    # Row 661: _spawn_recording's low-disk return must release prepared_egress
+    # like its no-backend sibling branch does -- a resource leak the tree-wide
+    # gate must catch on any future asymmetric early return, not just this one.
+    "tests/test_row661_low_disk_return_releases_egress.py",
     "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
     "tests/test_v3_66_1173_gate_scope_debt_is_paid.py",
     "tests/test_row469_toolchain_auditor_denominators_reconcile.py",
@@ -1159,7 +1187,9 @@ _CONFIRMED_SAFETY_GATE_FLOOR = 7
 _NON_DERIVABLE_DECLARED = {
     "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
+    "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
+    "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module

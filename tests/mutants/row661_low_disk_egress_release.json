@@ -1,0 +1,21 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 661: revert the low-disk branch's egress release. The catcher must be exactly test_low_disk_return_releases_the_caller_supplied_egress; the other three tests in the file exercise different branches (no-backend, build-cmd-refusal, and the positive control) and must not be perturbed by this mutant.",
+ "subject": "_spawn_recording's low-disk return drops the prepared_egress.close() call this row added",
+ "band": [
+  "tests/test_row661_low_disk_return_releases_egress.py::test_low_disk_return_releases_the_caller_supplied_egress",
+  "tests/test_row661_low_disk_return_releases_egress.py::test_positive_control_disk_check_hook_actually_fires",
+  "tests/test_row661_low_disk_return_releases_egress.py::test_negative_control_no_backend_branch_already_releases_once",
+  "tests/test_row661_low_disk_return_releases_egress.py::test_negative_control_build_cmd_refusal_already_releases_once"
+ ],
+ "mutants": [
+  {
+   "label": "row661_drop_low_disk_close",
+   "file": "bulk_downloader/live_recorder.py",
+   "old": "                    prepared_egress.close()",
+   "new": "                    pass",
+   "direction": "regression",
+   "catcher": "tests/test_row661_low_disk_return_releases_egress.py::test_low_disk_return_releases_the_caller_supplied_egress"
+  }
+ ]
+}

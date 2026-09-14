@@ -62,7 +62,15 @@ _HOST_MANAGED = {"DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
                  "FLASK_DEBUG", "BULK_DOWNLOADER_DEBUG", "BD_ENVFILE",
                  # MOD-1 C-5/C-7: the vnc-takeover browser BINARY pin -- host/
                  # deploy-managed like PLAYWRIGHT_BROWSERS_PATH, not a .env knob.
-                 "BD_VNC_CHROME"}
+                 "BD_VNC_CHROME",
+                 # row 806: the knowledge-graph pin. scripts/deploy.sh computes
+                 # PIN from its OWN environment and writes the cloak-capability
+                 # record beside it; bulk_downloader/healthcheck.py reads the
+                 # record from the SERVICE's environment. A `.env` write moves
+                 # only the reader, so health would report no_record forever
+                 # while deploy kept reporting cloak=OK -- two different states
+                 # collapsed into one word (CLAUDE.md A7). Host/deploy-managed.
+                 "BD_GRAPH_HASH_PIN"}
 
 
 # ── 1. boot loader: parse + setdefault (real env wins) ───────────────────────

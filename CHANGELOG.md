@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1544 - 785 login evidence filenames shell-safe, 806 health payload names deployed cloak state, 661 low-disk return releases egress, 709 state seed is not a verdict, pytest banners only on failure
+
+Train: 5 refute-first-reviewed worker patches (rows 785, 806, 661, 709, pytest-banners r10).
+
+- row785 (bulk_downloader/login_impl/replay.py): write_login_evidence names its files through a new _evidence_slug(tag), so a login phase tag with spaces or shell metacharacters yields a shell-safe evidence filename. Register row 785 closed.
+- row806 (bulk_downloader/app_health.py, healthcheck.py, tools/config_surface_inventory.py): the health payload names the deployed cloak browser state in one field, read from the cloak record scripts/deploy.sh writes; an absent record is reported as absent and an undecodable one as unreadable_record, never as a probe failure. Register row 806 closed.
+- row661 (bulk_downloader/live_recorder.py): the low-disk early return in the recording spawn path now closes the prepared egress carrier instead of leaking it; mutant pin tests/mutants/row661_low_disk_egress_release.json. Register row 661 closed.
+- row709 (scripts/deploy.sh): CLOAK_STATE is seeded UNMEASURED instead of UNKNOWN, so a measurement that never ran is distinguishable from one that ran and stayed unresolved; all readers are report-only. Register row 709 closed.
+- pytest-banners r10 (tests/conftest.py): the optional session pointer banners are emitted only for an actionable session (any failure, collection error, nonzero exit or explicit arming); a missing stats object keeps the banners (fails closed).
+- Register: rows 665 (landed on v3.66.1543), 675 (refuted: the base already satisfies it) and 705 (landed earlier) closed at this version on the PM's order.
+
 ## v3.66.1543 - 809 httpx socks extra declared, 792 age-gate enter-substring consumers, 665 absence is not an answer
 
 Train: 3 refute-first-reviewed worker patches.

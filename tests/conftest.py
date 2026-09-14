@@ -1481,6 +1481,40 @@ def _socket_recorder_attributes_the_test(request):
         _sys_modules_guard.set_nodeid(None)
 
 
+def _should_emit_session_banners(terminalreporter, exitstatus):
+    """True when this session's OPTIONAL pointers are worth their bytes.
+
+    The predicate is the row's whole content and it is evaluated once, here, so
+    that every gated banner agrees about what an actionable session is: any
+    failure, any collection error, any nonzero exit status, or an explicit
+    BD_RUN_BANNERS=1.
+
+    WHAT THIS DOES NOT GATE, AND WHY. The socket recorder's stage-1 summary and
+    the run-context line are MEASUREMENTS, not pointers: a recorder that prints
+    nothing when it finds nothing is indistinguishable from one that was never
+    armed, and the context line qualifies the failure count everybody reads.
+    Both are pinned on a CLEAN run by pre-existing CI-sharded gates -- 1044's
+    test_the_run_context_and_the_socket_recorder_both_still_print and 1256's
+    four green-session assertions -- so gating them would delete a measurement,
+    not noise. Only the replay pointers below are gated.
+
+    UNMEASURABLE IS NOT QUIET. A reporter that cannot say what happened is the
+    third state row753 names: "I never got to look" and "I looked and nothing
+    failed" lead to opposite actions, so a missing ``stats`` must never read as
+    a clean run. The predicate fails CLOSED -- it keeps the pointers -- on the
+    one session whose reader has the least to go on.
+    """
+    stats = getattr(terminalreporter, "stats", None)
+    if stats is None:
+        return True
+    return bool(
+        stats.get("failed")
+        or stats.get("error")
+        or exitstatus
+        or os.environ.get("BD_RUN_BANNERS") == "1"
+    )
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """Always print one line; expand only when something was recorded.
 
@@ -1506,14 +1540,14 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
               "The recorder measurements do not reconcile; a clean zero is "
               "not available. Cannot see: %s."
               % (total, seen, "; ".join(_socket_recorder.BLIND_SPOTS)))
-        _write_run_context(terminalreporter, config)
+        _write_run_context(terminalreporter, config, exitstatus)
         return
 
     if not by_test:
         write("socket recorder [stage 1]: 0 non-loopback attempts recorded "
               "(%d connects observed in this process). Cannot see: %s."
               % (seen, "; ".join(_socket_recorder.BLIND_SPOTS)))
-        _write_run_context(terminalreporter, config)
+        _write_run_context(terminalreporter, config, exitstatus)
         return
 
     # Split by whether a packet actually leaves. A SOCK_DGRAM connect is a
@@ -1540,7 +1574,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         if frames:
             write("      via %s" % " <- ".join(reversed(frames[-3:])))
     write("  NOT covered by the above: %s." % "; ".join(_socket_recorder.BLIND_SPOTS))
-    _write_run_context(terminalreporter, config)
+    _write_run_context(terminalreporter, config, exitstatus)
 
 
 # ── run context and per-worker chains (batch E) ──────────────────────────────
@@ -1615,21 +1649,30 @@ def pytest_runtest_logfinish(nodeid, location):
     _run_context.clear_current(_run_context_dir(config), worker_id)
 
 
-def _write_run_context(terminalreporter, config):
+def _write_run_context(terminalreporter, config, exitstatus=0):
     """State the machine beside the result, and where the chains are.
 
     NOT a second `pytest_terminal_summary`. Defining that name twice in one
     module silently REPLACES the first -- the socket recorder's summary
     vanished from a clean run and the only evidence was a missing line. Called
-    from the one hook instead. Printed unconditionally and on the MASTER only:
-    a context line that appears only when something looks wrong is a line
-    nobody learns to read, and the number it qualifies -- the failure count --
-    is the one everybody reads.
+    from the one hook instead. The context line itself is printed
+    unconditionally and on the MASTER only: a context line that appears only
+    when something looks wrong is a line nobody learns to read, and the number
+    it qualifies -- the failure count -- is the one everybody reads.
+
+    THE REPLAY POINTERS ARE GATED. `replay one worker exactly:` and
+    `assignment: ... RECORDED` are instructions for investigating a session
+    that went wrong; on a green run nobody replays anything, and the two lines
+    cost every lane log ~250 bytes per invocation. They print only when
+    `_should_emit_session_banners` says the session is actionable. The
+    assignment RECORD is still WRITTEN either way -- suppressing the pointer
+    must not suppress the evidence it points at.
     """
     if hasattr(config, "workerinput"):
         return
     ctx = getattr(config, "_bd_run_context", None) or _run_context.context(config)
     ctx["load_at_end"] = _run_context.loadavg()
+    emit_pointers = _should_emit_session_banners(terminalreporter, exitstatus)
     write = terminalreporter.write_line
     write("")
     write("run context: %s, %d cores, %s worker(s) via %s, dist=%s, "
@@ -1648,12 +1691,13 @@ def _write_run_context(terminalreporter, config):
             directory, chains, ctx, _run_context.outcome(terminalreporter))
         write("  %d worker chain(s), %d file(s): %s"
               % (len(chains), sum(len(v) for v in chains.values()), directory))
-        write("  replay one worker exactly: "
-              "bd-ladder --chain %s --guard <the test that fails>"
-              % _run_context.chain_path(directory, sorted(chains)[0]))
-        write("  assignment: %s -- RECORDED, not pinned: --dist loadfile hands "
-              "files to whichever worker is free, and nothing here changes that."
-              % path.name)
+        if emit_pointers:
+            write("  replay one worker exactly: "
+                  "bd-ladder --chain %s --guard <the test that fails>"
+                  % _run_context.chain_path(directory, sorted(chains)[0]))
+            write("  assignment: %s -- RECORDED, not pinned: --dist loadfile "
+                  "hands files to whichever worker is free, and nothing here "
+                  "changes that." % path.name)
 
     # A MARKER THAT OUTLIVED ITS TEST NAMES A WORKER THAT DID NOT FINISH ONE.
     # This is the line that would have ended the 2026-08-24 investigation in a

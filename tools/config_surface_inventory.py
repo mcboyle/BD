@@ -743,6 +743,14 @@ _DEPLOY_ONLY = {
     # and a GUI write is meaningless -> host/bootstrap-managed, display-only. NOT
     # in the .env editor's editable set for the same reason.
     "BD_ENVFILE",
+    # row 806: the deploy-time PATH PIN for the knowledge-graph content hash.
+    # scripts/deploy.sh sets it (`PIN="${BD_GRAPH_HASH_PIN:-...}"`) and writes the
+    # cloak-capability record beside it; bulk_downloader/healthcheck.py now READS
+    # the same pin so /api/health can name the recorded cloak state. Both sides are
+    # bound before the service handles a request -- a GUI write could not move a
+    # record deploy.sh already placed -> display-only (effective-value panel), the
+    # same disposition as BD_SITES_CONFIG_PATH and the other path pins above.
+    "BD_GRAPH_HASH_PIN",
 }
 # v3.66.319 (Phase 4.3a): legacy back-compat ALIASES of an env var whose canonical
 # control is ALREADY gui_exposure=full. resolve_backend()'s _ENV_KEYS triple is

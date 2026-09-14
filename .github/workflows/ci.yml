@@ -374,6 +374,7 @@ jobs:
               tests/test_v3_66_1157_build_output_is_from_this_attempt.py
               tests/test_v3_66_1159_fleet_prune_is_object_bound.py
               tests/test_v3_66_1255_backlog_references_resolve.py
+              tests/test_row661_low_disk_return_releases_egress.py
           # v3.66.1363 row 420. parity-graph was the CI critical path: 425s of a
           # 497s total wall clock, measured at run 33344209740. Its Vitest
           # delegators are split across TWO node-provisioned shards (the
@@ -488,6 +489,7 @@ jobs:
               tests/test_login_api_refuses_impossible_manual_start.py
               tests/test_row667_login_attempt_accounting.py
               tests/test_row740_login_cap_writer_atomicity.py
+              tests/test_row806_health_payload_names_the_deployed_cloak_state.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py
@@ -500,6 +502,7 @@ jobs:
               tests/test_row703_ssrf_transport_is_installed_everywhere.py
               tests/test_row703_a_proxy_shadows_the_guarded_transport.py
               tests/test_row703_the_site_to_policy_map_is_asserted.py
+              tests/test_row785_login_evidence_filenames_are_shell_safe.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -558,6 +561,7 @@ jobs:
               tests/test_v3_66_1046_tool_state_1044.py
               tests/test_v3_66_1046_tool_state_1054.py
               tests/test_v3_66_1220_a_timeout_names_its_test.py
+              tests/test_row_pytest_banners_only_on_failure.py
           - name: jobs-registration
             suites: >-
               tests/test_v3_66_1040_remote_job_registry.py
@@ -769,6 +773,7 @@ jobs:
           - name: safety-censuses
             suites: >-
               tests/test_row532_a_mutant_anchor_must_resolve_into_code.py
+              tests/test_row709_state_seed_is_not_a_verdict.py
               tests/test_capture_csrf_diag_redacts_cookies.py
               tests/test_home_config_stores_are_guarded.py
               tests/test_v3_66_1009_live_results_are_bundled.py

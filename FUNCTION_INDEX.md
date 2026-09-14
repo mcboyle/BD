@@ -756,26 +756,27 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (17 entries)
+## `bulk_downloader/login_impl/replay.py` (18 entries)
 
 ```
-- L0030 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
-  - L0042 `LoginOutcome.__init__` `[dunder]`
-  - L0048 `LoginOutcome.__bool__` `[dunder]`
-  - L0051 `LoginOutcome.__eq__` `[dunder]`
-  - L0061 `LoginOutcome.__hash__` `[dunder]`
-  - L0064 `LoginOutcome.__repr__` `[dunder]`
-- L0069 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
-- L0075 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
-- L0099 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
-- L0164 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0176 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0239 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0294 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0335 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0565 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0610 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0670 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0032 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
+  - L0044 `LoginOutcome.__init__` `[dunder]`
+  - L0050 `LoginOutcome.__bool__` `[dunder]`
+  - L0053 `LoginOutcome.__eq__` `[dunder]`
+  - L0063 `LoginOutcome.__hash__` `[dunder]`
+  - L0066 `LoginOutcome.__repr__` `[dunder]`
+- L0071 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
+- L0094 `_evidence_slug` `[private]` — A filename-safe, nonempty, tag-unique slug for an evidence tag.
+- L0118 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
+- L0143 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
+- L0208 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0220 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0283 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0338 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0379 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0609 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0654 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0714 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
@@ -822,4 +823,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 646 across 22 files._
+_Total entries: 647 across 22 files._

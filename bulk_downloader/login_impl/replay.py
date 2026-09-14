@@ -1,6 +1,8 @@
 """login_impl.replay -- verbatim cluster from login.py @v447 (DECOMP-LEAF cut 3)."""
 
+import hashlib
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -72,6 +74,47 @@ def _login_evidence_dir(config):
     return Path(configured) if configured else Path(INSTALL_DIR) / "login_evidence"
 
 
+# ── row 785: the evidence FILENAME is not the place for prose ───────────
+#
+# Row 708 named the kept page after the tag the verdict carried, and the tag
+# is built at the seam as f"login-{phase}" where every phase the tree passes
+# is an English fragment with spaces ("page closed mid-submit", "no nav
+# signal", "page closed post-submit"). The write succeeded; what it produced
+# was `login-page closed mid-submit-STAMP-PID.html`, a name every later shell
+# command, archive entry and log line has to quote.
+#
+# The name becomes an explicit slug in a RESTRICTED CLASS -- ASCII letters,
+# digits, dot, dash, underscore -- and the operator-readable phase moves
+# INSIDE the file, where it needs no quoting to survive. Nothing is deleted:
+# the phase is still reported in the verdict message, and now also in the
+# evidence itself.
+_EVIDENCE_NAME_SEPARATORS = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _evidence_slug(tag):
+    """A filename-safe, nonempty, tag-unique slug for an evidence tag.
+
+    Runs of characters outside the class collapse to a single dash. That is
+    LOSSY -- "no nav signal" and "no-nav-signal" transliterate alike, and a
+    phase made only of punctuation transliterates to nothing at all -- so
+    whenever anything was lost a short digest of the ORIGINAL tag is appended.
+    Two different tags therefore never name the same file, which matters
+    because the rest of the name (stamp and pid) is shared by every verdict a
+    single process reaches in the same second: without this, the row's
+    punctuation-only case would trade a quoting burden for one verdict's
+    evidence silently overwriting another's.
+
+    A tag that is already a name is returned unchanged, so the common case
+    reads as itself rather than as a hash.
+    """
+    text = str(tag)
+    slug = _EVIDENCE_NAME_SEPARATORS.sub("-", text).strip("-").lower()
+    if slug and slug == text:
+        return slug
+    digest = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:12]
+    return f"{slug}-{digest}" if slug else f"phase-{digest}"
+
+
 def write_login_evidence(page, config, final_url, tag):
     """Keep the page the run ACTUALLY read: its HTML and its final URL.
 
@@ -87,8 +130,9 @@ def write_login_evidence(page, config, final_url, tag):
         directory = _login_evidence_dir(config)
         directory.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        path = directory / f"{tag}-{stamp}-{os.getpid()}.html"
-        path.write_text(f"<!-- final_url: {final_url} -->\n{html}",
+        path = directory / f"{_evidence_slug(tag)}-{stamp}-{os.getpid()}.html"
+        path.write_text(f"<!-- phase: {tag} -->\n"
+                        f"<!-- final_url: {final_url} -->\n{html}",
                         encoding="utf-8", errors="replace")
         return str(path)
     except Exception as e:
