@@ -545,46 +545,47 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (37 entries)
+## `bulk_downloader/runner_transport.py` (38 entries)
 
 ```
 - L0075 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0095 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
-- L0107 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
-- L0129 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
-- L0151 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0154 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0160 `_ParallelDailyByteAccounting.add`
-  - L0164 `_ParallelDailyByteAccounting.flush`
-  - L0168 `_ParallelDailyByteAccounting.worker_finished`
-- L0176 `TransportMixin` `[class]`
-  - L0177 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L0201 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L0212 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L0229 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L0238 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L0247 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L0267 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L0275 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0329 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L0417 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L0546 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L0731 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L0764 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L0788 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L0861 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L0916 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L0941 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L0951 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L0980 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L1104 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L1926 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L1982 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L2536 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L2586 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L2990 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L3023 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L3047 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+- L0095 `_is_click_only_download_grant` `[private]` — Whether the browser event, rather than a static URL, issued the grant.
+- L0100 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0112 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
+- L0134 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
+- L0156 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0159 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0165 `_ParallelDailyByteAccounting.add`
+  - L0169 `_ParallelDailyByteAccounting.flush`
+  - L0173 `_ParallelDailyByteAccounting.worker_finished`
+- L0181 `TransportMixin` `[class]`
+  - L0182 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L0206 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L0217 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L0234 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L0243 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L0252 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L0272 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L0280 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0334 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
+  - L0422 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L0551 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L0736 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L0769 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L0793 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L0866 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L0921 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L0946 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L0956 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L0985 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L1109 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L1939 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L1995 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L2549 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L2599 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L3003 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L3036 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L3060 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
 ```
 
 
@@ -709,18 +710,27 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/_common.py` (9 entries)
+## `bulk_downloader/login_impl/_common.py` (18 entries)
 
 ```
 - L0006 `_selector_text` `[private]` — Return the CSS selector carried by a plain or structured chain step.
 - L0015 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
 - L0043 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
 - L0073 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
-- L0087 `_try_fill` `[private]` — Walk the candidate list; fill the first visible element, return
-- L0134 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0174 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0233 `_css_escape_for_id` `[private]`
-- L0242 `_ms_since` `[private]`
+- L0090 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
+- L0096 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
+- L0102 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
+- L0109 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
+- L0116 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
+- L0128 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
+- L0135 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
+- L0142 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
+- L0167 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
+- L0233 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
+- L0311 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0351 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0410 `_css_escape_for_id` `[private]`
+- L0419 `_ms_since` `[private]`
 ```
 
 
@@ -812,4 +822,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 636 across 22 files._
+_Total entries: 646 across 22 files._

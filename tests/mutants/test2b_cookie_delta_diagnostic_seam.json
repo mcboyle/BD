@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 797. The D-29 cookie diagnostic is the only place the measured jar is judged; handing the classifier an empty jar instead of the measured one would turn the diagnostic into a constant. The anchor is bare call structure with no policy value in it.",
+  "subject": "the cookie diagnostic still classifies its measured standalone jar",
+  "band": [
+    "tests/test_u17_cookies.py::test_auth_cookie_test_accepts_several_substantial_cookies"
+  ],
+  "mutants": [
+    {
+      "label": "M1 discard the diagnostic cookie jar",
+      "file": "bulk_downloader/dev_suite/capture_diag.py",
+      "old": "_login._looks_authenticated(cookies)",
+      "new": "_login._looks_authenticated([])",
+      "direction": "regression",
+      "catcher": "tests/test_u17_cookies.py::test_auth_cookie_test_accepts_several_substantial_cookies"
+    }
+  ]
+}

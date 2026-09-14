@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 797. The runner's own login entry point must still reach the login implementation, and it must spend the same denominator the keeper does. The regex matches only the bare callable name; the arguments stay in a lookahead so no policy value is frozen into the anchor.",
+  "subject": "runner authentication still invokes the login implementation",
+  "band": [
+    "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass do_login in runner authentication",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "do_login(?=\\(self\\.config,allow_manual_takeover=allow_manual\\))",
+      "new": "(lambda *_a, **_k: (False, \"mutant\", []))",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 797 transform control. This is the SAME mutation as test2b_cookie_delta_diagnostic_seam.json, aimed at a test that imports the diagnostic module but drives cookie_jar_inspect rather than auth_cookie_test. It must ESCAPE: if it were caught, the seam spec's catch would not be evidence about auth_cookie_test at all, only evidence that importing capture_diag is enough to fail something.",
+  "control_spec": true,
+  "subject": "the cookie diagnostic seam escapes a test that does not judge the jar",
+  "band": [
+    "tests/test_u17_cookies.py::test_cookie_jar_inspect_lists_cookies_without_values"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL discard the diagnostic cookie jar outside the asserted path",
+      "file": "bulk_downloader/dev_suite/capture_diag.py",
+      "old": "_login._looks_authenticated(cookies)",
+      "new": "_login._looks_authenticated([])",
+      "direction": "regression",
+      "catcher": "tests/test_u17_cookies.py::test_cookie_jar_inspect_lists_cookies_without_values"
+    }
+  ]
+}

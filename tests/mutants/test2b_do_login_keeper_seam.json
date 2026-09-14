@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 797. The session keeper's authentication callback must still reach the login implementation: if the callback stops calling do_login, no attempt is spent and the accounting denominator silently shrinks. The regex matches only the dotted callable name; the arguments stay in a lookahead so no policy value is frozen into the anchor.",
+  "subject": "session keeper authentication still invokes the login implementation",
+  "band": [
+    "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+  ],
+  "mutants": [
+    {
+      "label": "M1 bypass do_login in the keeper callback",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "_login\\.do_login(?=\\(login_cfg, allow_manual_takeover=False\\))",
+      "new": "(lambda *_a, **_k: (False, \"mutant\", []))",
+      "direction": "regression",
+      "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
+    }
+  ]
+}

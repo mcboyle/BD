@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 786 single-use browser grant battery. Re-run from a detached scratch copy: ./venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row786_single_use_url_fallback.json --work DETACHED_SCRATCH --timeout 240. What it proves: when a download grant came only from a browser click (no static href), an HTTP failure must NOT re-click for a second download event, because the grant is single-use and the second click is spent for nothing. The mutant disables the guard (if click_only_grant: -> if False:), restoring the unconditional Playwright fallback, and the named catcher must go red. The band is the whole test file so the baseline also holds the static-href negative control green: a mutant that reddened everything would not be evidence for this guard.",
+  "subject": "row 786 click-only browser grants are never re-issued after HTTP failure",
+  "band": [
+    "tests/test_single_use_url_fallback.py"
+  ],
+  "mutants": [
+    {
+      "label": "fallback re-clicks a single-use browser grant",
+      "file": "bulk_downloader/runner_transport.py",
+      "old": "                    if click_only_grant:\n",
+      "new": "                    if False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_single_use_url_fallback.py::test_http_failure_does_not_reissue_a_click_only_single_use_grant"
+    }
+  ]
+}

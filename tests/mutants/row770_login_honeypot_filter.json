@@ -1,0 +1,104 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 770: honeypot filter in _try_fill's fill-candidate walk. One mutant per decision site the patch adds -- the six decoy signals, the restored attach-wait, and the split failure diagnostic -- plus two overcorrections (the filter fires on everything; the walk runs backwards). The backward-walk overcorrection is controlled by test_walk_fills_the_first_of_two_real_fields and NOT by the decoy-behind-the-real-field order control: that fixture's second element is a decoy, so a backward walk skips it and lands on the real field anyway, and the test passes under the mutant. M7 was first anchored on a decoy fixture and ESCAPED: Playwright calls tabindex=-1, aria-hidden, an off-screen box and opacity:0 all VISIBLE, so every decoy fixture is visible=True and none of them can observe a wait weakened from attached to visible. The band member that does observe it is the not-yet-visible non-decoy field, whose whole selector is skipped under the mutant; M7 is anchored there and its label says what it actually breaks. The TRANSFORM CONTROL is a separate spec, row770_login_honeypot_filter_transform_control.json, per the shipped convention: a comment-only edit cannot fail anything and so proves nothing, whereas a real transform banded on a node that cannot observe it proves the harness applied it.  ROW 770b RE-ANCHORING (OPERATOR_DECISIONS rule 5, 2026-09-06; row357 anchor gate refused the generation-1 anchors): every anchor now names a DECISION and its matched span carries no value. The six decoy signals became MEMBERS of _HONEYPOT_SIGNALS, so M1/M2/M3/M5/M12 delete a membership line instead of quoting an attribute name and its value; M4 keeps its structural `if pat in style:` predicate inside the extracted _signal_css_hidden; the attach-wait became the named call _wait_attached(matches.first), so M6 drops the CALL and M7 swaps it for the equally real _wait_visible, which is the same weakening expressed structurally; M9's overcorrection is anchored on the dispatch over the set. No mutant was deleted and no catcher changed: the transforms are the same behaviour changes as generation 1, moved off the values they used to freeze.",
+  "subject": "the login fill path walks every match for a selector and skips tabindex=-1 / aria-hidden / hiding-style / hidden-attr / type=hidden / off-screen decoy fields before filling the first real one, without dropping the pre-fix wait",
+  "band": [
+    "tests/test_login_honeypot.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 tabindex=-1 signal disabled",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_tabindex,",
+      "new": "    # mutant: the tabindex=-1 signal is not a member of the set",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_tabindex-alice-tabindex=-1]",
+      "direction": "regression"
+    },
+    {
+      "label": "M2 aria-hidden=true signal disabled",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_aria_hidden,",
+      "new": "    # mutant: the aria-hidden signal is not a member of the set",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_aria_hidden-bob-aria-hidden=\"true\"]",
+      "direction": "regression"
+    },
+    {
+      "label": "M3 off-screen bounding-box signal disabled",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_offscreen_box,",
+      "new": "    # mutant: the off-screen-box signal is not a member of the set",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_offscreen-carol-off-screen box]",
+      "direction": "regression"
+    },
+    {
+      "label": "M4 shipped HONEYPOT_CSS_HIDDEN style vocabulary no longer consulted",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "        if pat in style:",
+      "new": "        if False:",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_style_opacity-dana-style~opacity:0]",
+      "direction": "regression"
+    },
+    {
+      "label": "M5 hidden-attribute signal disabled",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_hidden_attr,",
+      "new": "    # mutant: the hidden-attribute signal is not a member of the set",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_hidden_attr-erin-hidden-attr]",
+      "direction": "regression"
+    },
+    {
+      "label": "M12 type=hidden signal disabled",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    _signal_type_hidden,",
+      "new": "    # mutant: the type=hidden signal is not a member of the set",
+      "catcher": "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_type_hidden-fran-type=hidden]",
+      "direction": "regression"
+    },
+    {
+      "label": "M6 attach-wait dropped -- the pre-fix wait regression the walk must not reintroduce",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "            _wait_attached(matches.first)",
+      "new": "            pass",
+      "catcher": "tests/test_login_honeypot.py::test_candidate_walk_keeps_the_wait_for_a_late_rendering_form",
+      "direction": "regression"
+    },
+    {
+      "label": "M7 attach-wait weakened to visible -- a selector whose FIRST match is not yet visible is skipped whole instead of walked",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "            _wait_attached(matches.first)",
+      "new": "            _wait_visible(matches.first)",
+      "catcher": "tests/test_login_honeypot.py::test_invisible_non_decoy_field_is_skipped_without_a_honeypot_reason",
+      "direction": "regression"
+    },
+    {
+      "label": "M8 failure diagnostic collapsed back to one string for both refusals",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    if skipped:",
+      "new": "    if False:",
+      "catcher": "tests/test_login_honeypot.py::test_failure_message_distinguishes_decoys_from_no_match",
+      "direction": "regression"
+    },
+    {
+      "label": "M9 overcorrection -- the filter fires on every field, so the real-only fixture loses its field",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "    for signal in _HONEYPOT_SIGNALS:",
+      "new": "    return True, \"always\"\n    for signal in _HONEYPOT_SIGNALS:",
+      "direction": "overcorrection",
+      "control": "tests/test_login_honeypot.py::test_negative_control_no_decoy_fills_the_only_field",
+      "preserves": [
+        "tests/test_login_honeypot.py::test_all_candidates_are_honeypots_reports_failure"
+      ]
+    },
+    {
+      "label": "M10 overcorrection -- the walk runs backwards and takes the LAST match",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old": "        for idx in range(count):",
+      "new": "        for idx in reversed(range(count)):",
+      "direction": "overcorrection",
+      "control": "tests/test_login_honeypot.py::test_walk_fills_the_first_of_two_real_fields",
+      "preserves": [
+        "tests/test_login_honeypot.py::test_decoy_before_real_field_is_skipped[_decoy_tabindex-alice-tabindex=-1]"
+      ]
+    }
+  ]
+}
