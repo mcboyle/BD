@@ -35,8 +35,8 @@ def test_missing_target_is_unknown_and_names_unmeasurable_input():
     output = result.stdout + result.stderr
 
     assert result.returncode == 2, output
-    assert f"MISSING '{_MISSING}'" in output
-    assert "could not be measured" in output
+    assert output.count(f"MISSING '{_MISSING}'") == 1, output
+    assert output.count("could not be measured") == 1, output
 
 
 def test_unsafe_directory_remains_a_measured_finding():
@@ -46,8 +46,8 @@ def test_unsafe_directory_remains_a_measured_finding():
     output = result.stdout + result.stderr
 
     assert result.returncode == 1, output
-    assert "UNSAFE" in output
-    assert "whole tests/ dir" in output
+    assert output.count("UNSAFE") == 1, output
+    assert output.count("whole tests/ dir") == 1, output
 
 
 def test_present_safe_file_remains_safe():
@@ -58,7 +58,7 @@ def test_present_safe_file_remains_safe():
     output = result.stdout + result.stderr
 
     assert result.returncode == 0, output
-    assert "all targets safe to band" in output
+    assert output.count("all targets safe to band") == 1, output
 
 
 def test_row677_transform_control_imports_without_judging_exit_code():

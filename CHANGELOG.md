@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1540 - row740 public login writer delegates to the shared cap reservation; row802 pins every bd-bandcheck message to exactly one occurrence
+
+Train of two independently reviewed, path-disjoint cuts.
+row740 (PUBLIC-LOGIN-WRITER-BYPASSES-CAP): record_login_attempt delegates to reserve_login_attempt and enters the shared single-statement count/decision/insert, so a same-process direct writer cannot exceed the day cap and a refusal writes no row; an unavailable reservation raises RuntimeError naming the reason. The row667 mutant corpus is repaired in the same cut (M3 anchor follows the writer to the reservation event_type; M31 inlines the unlocked uncapped write at the app seam). Row 738 still owns the multi-process case.
+row802 (THREE-BD-BANDCHECK-TESTS-ALLOW-DUPLICATE-MESSAGES): all five bd-bandcheck message assertions pin their own needle to exactly one occurrence, with a new module-scope guard deriving the denominator from row677's source and duplicating each needle individually.
+
 ## v3.66.1539 - register: close 11 ALREADY-DONE rows; 795 stays OPEN
 
 Register commit (rule 31, O321 register cut): closes ALREADY-DONE rows 471, 701, 704, 720, 725, 726, 727, 729, 767, 771 and 801 with evidence re-verified at 900c08fc (cited commits are ancestors, cited tests present). Row 795 is NOT closed: its cited test tests/test_v3_66_1517* is absent from the tree. No runtime path changed; no deploy owed.

@@ -487,6 +487,7 @@ jobs:
               tests/test_row634_live_registry_iteration_is_snapshotted.py
               tests/test_login_api_refuses_impossible_manual_start.py
               tests/test_row667_login_attempt_accounting.py
+              tests/test_row740_login_cap_writer_atomicity.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py

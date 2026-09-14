@@ -256,14 +256,24 @@ def _dt_date_today():
 
 def record_login_attempt(site_id: str, source: str,
                          account_idx: int | None = None) -> None:
-    """Durably append one site login attempt, attributed to its caller.
+    """Durably append one site login attempt, subject to the shared cap.
 
-    Database failure propagates to the caller.  The login must not contact the
-    site when its attempt cannot first enter the accounting denominator.
+    Delegates to ``reserve_login_attempt`` so this writer enters the SAME
+    single-statement count/decision/insert as every other caller (row 740):
+    a writer with its own unconditional insert let a same-process caller of
+    THIS function and a caller of ``reserve_login_attempt`` each see a stale
+    count and both write, letting the pair exceed a cap either one alone
+    would have respected.  Database failure propagates to the caller as a
+    real RuntimeError naming the reason, never a bare write.
     """
-    site_id, source = _require_login_identity(site_id, source)
-    detail = json.dumps({"source": source}, sort_keys=True, separators=(",", ":"))
-    db.session_event_record(site_id, account_idx, _LOGIN_ATTEMPT_EVENT, detail)
+    outcome = reserve_login_attempt(
+        site_id, source, DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY, account_idx)
+    if outcome["status"] == "UNKNOWN":
+        raise RuntimeError(outcome["reason"])
+    if not outcome["granted"]:
+        raise RuntimeError(
+            "daily login attempt cap reached "
+            f"({outcome['count']}/{outcome['cap']})")
 
 
 def login_attempts_for_day(site_id: str, day=None) -> dict:

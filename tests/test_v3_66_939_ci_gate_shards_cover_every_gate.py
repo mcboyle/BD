@@ -137,6 +137,10 @@ _DECLARED = {
     # Row 667. Both credential-login callers must append to the same durable
     # per-site/day attempt denominator before contacting a site.
     "tests/test_row667_login_attempt_accounting.py",
+    # Row 740. record_login_attempt must delegate to the same atomic
+    # reservation reserve_login_attempt uses, so a same-process direct writer
+    # cannot exceed the cap a reserve_login_attempt caller would have hit.
+    "tests/test_row740_login_cap_writer_atomicity.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -1139,6 +1143,7 @@ _CONFIRMED_SAFETY_GATE_FLOOR = 7
 
 _NON_DERIVABLE_DECLARED = {
     "tests/test_row667_login_attempt_accounting.py",  # module
+    "tests/test_row740_login_cap_writer_atomicity.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
