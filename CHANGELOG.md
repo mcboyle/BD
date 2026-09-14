@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1545 - 760 guarded transport proxy + site policy map, 654 filename citations git-tracked, 752 display gate owns its claim, 788 transform-control separated
+
+Train: 4 refute-first-reviewed worker patches.
+
+- row760 (bulk_downloader/runner_transport.py, tests/test_popup_download_capture.py): a one-time popup download was uncaptured because the popup's first request spends the URL; the transport now overrides window.open before the click, takes the URL unconsumed, and fetches it with session cookies. Register row 760 closed.
+- row654 (tests/test_v3_66_1255_backlog_references_resolve.py, tests/test_row654_filename_citations_are_git_tracked.py): a test-row filename id must resolve to a git-tracked file or a declared pending backlog entry; adds a repo-wide citation gate and declares the pending new-backlog ids. Register row 654 closed.
+- row752 (tests/test_row300_parallel_display_cleanup_owns_process.py, tests/test_row752_display_gate_owns_its_claim.py): the display gate owns its claim over the parallel-display cleanup schedule; RED/GREEN, deletion probes, negative control, tree-gate and mutation evidence in .row752-DETAIL.md. Register row 752 closed.
+- row788 (tests/test_row788_transform_control_is_separate.py, tests/mutants/row708_*.json): the row708 primary spec keeps M1-M9; the M10 no-nav-login transform is split into a declared one-node import-only control, and the new test verifies the exact nine/one partition (declared in the mutation-tools shard). Register row 788 closed.
+
 ## v3.66.1544 - 785 login evidence filenames shell-safe, 806 health payload names deployed cloak state, 661 low-disk return releases egress, 709 state seed is not a verdict, pytest banners only on failure
 
 Train: 5 refute-first-reviewed worker patches (rows 785, 806, 661, 709, pytest-banners r10).

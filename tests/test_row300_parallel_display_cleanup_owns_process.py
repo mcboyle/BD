@@ -179,8 +179,30 @@ def test_cited_cleanup_leaves_a_foreign_display_alive(
                 kill_calls.append(args[1])
             return subprocess.run(args, **kwargs)
 
+    def owned_display_claim() -> display_test._DisplayClaim:
+        """Own the claim this gate never uses.
+
+        The helper's ``bash -c`` is intercepted above, so the claimed display
+        number is discarded and the display actually under test is the one
+        Xvfb ``-displayfd`` allocates exclusively below.  Reaching into the
+        host-global /tmp/bd-display-test-X<n>.claim namespace for that unused
+        claim only lets a concurrent worker -- or a claim leaked by a killed
+        run -- decide this gate's outcome (row 752).
+        """
+        claim_path = tmp_path / "owned-display.claim"
+        fd = os.open(
+            claim_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+            0o600,
+        )
+        info = os.fstat(fd)
+        return display_test._DisplayClaim(
+            71, fd, claim_path, info.st_dev, info.st_ino
+        )
+
     monkeypatch.setattr(display_test, "Path", mapped_path)
     monkeypatch.setattr(display_test, "subprocess", _SubprocessBoundary)
+    monkeypatch.setattr(display_test, "_claim_unused_display", owned_display_claim)
 
     target_failure = ""
     try:
@@ -191,6 +213,8 @@ def test_cited_cleanup_leaves_a_foreign_display_alive(
 
         assert len(holder) == 1, (
             f"precondition: expected one foreign display, observed {len(holder)}"
+            "; the cited test stopped before the helper fired: "
+            f"{target_failure or '<no AssertionError>'}"
         )
         foreign = holder[0]
         assert len(helper_calls) == 1, helper_calls

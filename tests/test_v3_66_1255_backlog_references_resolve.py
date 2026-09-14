@@ -9,6 +9,7 @@ this register also uses cut labels such as ``row-1204``.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,24 @@ _INDEPENDENT_SEPARATOR = re.compile(
     re.IGNORECASE,
 )
 _SEPARATORS = frozenset({"/", ",", "-", "->", "and", "or"})
+
+_ROW_FILENAME = re.compile(r"^test_row(\d+)_.+\.py$")
+
+# row654: OWED TO THE INTEGRATOR (O544, TRIO RULE) -- none of these ids have a
+# register or archive row; this worker never edits IMPROVEMENT_BACKLOG.md.
+# test_row362_templates_are_resolvable.py, test_row379_byte_safe_remote_source_transport.py,
+# test_row387_ast_version_pin_guard.py, test_row395_captcha_egress_disclosure.py (row700's
+# text flags this exact file as an open A2/row654 ownership question -- integrator to
+# reconcile, not renumbered here) and test_row399_a_photo_gallery_is_not_a_failed_video_page.py
+# each need one new row under their own id. The four test_row407_*.py files span two
+# distinct subjects (candidate adopt/replay vs. watchdog/integration verdict) and need
+# TWO new rows, not one. Shrink this set only once the integrator lands the matching row.
+#
+# test_row1435_band_verdict_transfer.py and test_row1459_the_verified_binary_is_the_executed_binary.py
+# are excluded by _is_cut_slug_not_a_row_citation below: both docstrings self-identify as
+# "Cut <N>", a cut/commit slug, not a backlog row citation (1459's says so explicitly:
+# "is this cut's slug, not a register row").
+_PENDING_NEW_BACKLOG_ROW_IDS = frozenset({362, 379, 387, 395, 399, 407})
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,33 @@ def _targets_from_body(body: str) -> list[int]:
         else:
             targets.append(target)
     return targets
+
+
+def _is_cut_slug_not_a_row_citation(path: Path, row_id: int) -> bool:
+    """A test_row<N>_*.py module whose docstring self-identifies as ``Cut N``
+    is naming a cut/commit slug, not citing backlog row N."""
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    docstring = ast.get_docstring(module) or ""
+    return f"Cut {row_id}" in docstring
+
+
+def _row_filename_ids(root: Path) -> dict[int, list[str]]:
+    by_id: dict[int, list[str]] = {}
+    for path in sorted((root / "tests").glob("test_row*_*.py")):
+        match = _ROW_FILENAME.match(path.name)
+        if match is None:
+            continue
+        row_id = int(match.group(1))
+        if _is_cut_slug_not_a_row_citation(path, row_id):
+            continue
+        by_id.setdefault(row_id, []).append(path.name)
+    return by_id
+
+
+def _absent_filename_row_ids(
+    by_id: dict[int, list[str]], row_ids: set[int]
+) -> dict[int, list[str]]:
+    return {row_id: names for row_id, names in by_id.items() if row_id not in row_ids}
 
 
 def _references(rows: dict[int, BacklogRow]) -> list[BacklogReference]:
@@ -220,3 +266,62 @@ def test_plural_lists_ranges_arrows_and_annotations_have_exact_targets() -> None
 
 def test_transform_control_only_imports_the_gate_without_asserting_existence() -> None:
     assert callable(_missing_reference_errors)
+
+
+def test_every_test_row_filename_id_resolves_or_is_a_declared_pending_entry() -> None:
+    """row654: a tests/test_row<N>_*.py filename is a backlog-id citation too,
+    not just prose. The contiguity gate (v3.66.1441) only covers the register;
+    this is the filename half."""
+    text = BACKLOG.read_text(encoding="ascii") + "\n" + ARCHIVE.read_text(encoding="ascii")
+    row_ids = set(_parse_rows(text))
+    by_id = _row_filename_ids(ROOT)
+    assert by_id, "found zero tests/test_row<N>_*.py files: prove the scan built the shape first"
+
+    absent = _absent_filename_row_ids(by_id, row_ids)
+    assert set(absent) == _PENDING_NEW_BACKLOG_ROW_IDS, (
+        f"tests/test_row<N>_*.py filenames cite absent backlog id(s) {sorted(absent)}; "
+        f"declared pending set is {sorted(_PENDING_NEW_BACKLOG_ROW_IDS)} -- a mismatch "
+        f"means either a new absent id appeared (extend the declaration) or one of the "
+        f"declared ids now has a row (shrink the declaration)"
+    )
+    assert len(by_id[407]) == 4, (
+        f"row 407 must be cited by exactly four test files (it spans two subjects), "
+        f"got {len(by_id[407])}"
+    )
+
+
+def test_a_valid_row_filename_id_produces_no_absence() -> None:
+    by_id = {654: ["test_row654_x.py"], 700: ["test_row700_y.py"]}
+    row_ids = {654, 700, 1}
+    assert not _absent_filename_row_ids(by_id, row_ids)
+
+
+def test_an_absent_row_filename_id_fires_once_for_the_intended_reason() -> None:
+    by_id = {999999: ["test_row999999_ghost.py"]}
+    row_ids = {1, 2}
+    absent = _absent_filename_row_ids(by_id, row_ids)
+    assert absent == {999999: ["test_row999999_ghost.py"]}
+    assert len(absent) == 1
+
+
+def test_prose_discussion_of_an_absent_id_is_not_a_filename_citation() -> None:
+    # A backlog row may legitimately discuss an id no row owns without that id
+    # ever appearing as a tests/test_row<N>_*.py filename; the filename scan
+    # must never treat prose text as a citation.
+    assert _ROW_FILENAME.match("not_a_row_file.py") is None
+    assert _ROW_FILENAME.match("test_row_bad_shape.py") is None
+    match = _ROW_FILENAME.match("test_row407_candidate_adopt.py")
+    assert match is not None and match.group(1) == "407"
+
+
+def test_a_cut_slug_filename_is_a_legitimate_absent_id_discussion(tmp_path: Path) -> None:
+    # test_row1459_the_verified_binary_is_the_executed_binary.py names its own
+    # id "this cut's slug, not a register row" -- a real, live example of the
+    # exact "legitimate absent-id discussion" the row's ACCEPTANCE controls for.
+    cut_slug = tmp_path / "test_row999999_a_cut_not_a_row.py"
+    cut_slug.write_text('"""Cut 999999: a slug, not a backlog row."""\n', encoding="utf-8")
+    assert _is_cut_slug_not_a_row_citation(cut_slug, 999999)
+
+    row_citation = tmp_path / "test_row999999_a_real_row.py"
+    row_citation.write_text('"""Row 999999: a real backlog citation."""\n', encoding="utf-8")
+    assert not _is_cut_slug_not_a_row_citation(row_citation, 999999)

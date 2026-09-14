@@ -97,6 +97,71 @@ def _is_click_only_download_grant(href):
     return not isinstance(href, str) or not href.strip()
 
 
+class _DirectURLDownload:
+    """Stand-in for a Playwright ``Download`` when the URL is already known."""
+
+    def __init__(self, url, suggested_filename):
+        self.url = url
+        self.suggested_filename = suggested_filename
+
+    def cancel(self):
+        return None
+
+
+# ── row 760: a grant handed to a popup is SPENT by the popup ────────────────
+#
+# Aylo/project1content (bangbros, brazzers) answers a click on a quality row
+# with ``window.open`` on a signed mp4 at download-private-{ht,fl}.
+# project1content.com. That URL is one-time / request-context bound: the
+# popup's own first request consumes it and every later request answers 474.
+# So watching for the popup's download event is too late -- the bytes are
+# already gone by the time it could fire. Overriding ``window.open`` before the
+# click takes the URL UNCONSUMED and opens no popup at all; the ordinary HTTP
+# leg below then fetches it once, with the session's cookies.
+_POPUP_GRANT_ARM = """() => {
+  window.__bd_popup_grant = null;
+  if (!window.__bd_popup_grant_open) { window.__bd_popup_grant_open = window.open; }
+  window.open = function (url) {
+    if (url) { window.__bd_popup_grant = String(url); }
+    return { closed: false, close() {}, focus() {}, blur() {} };
+  };
+}"""
+
+_POPUP_GRANT_READ = "() => window.__bd_popup_grant"
+
+_POPUP_GRANT_DISARM = """() => {
+  if (window.__bd_popup_grant_open) { window.open = window.__bd_popup_grant_open; }
+  window.__bd_popup_grant = null;
+}"""
+
+
+def _arm_popup_grant_capture(page):
+    """Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
+
+    Fail-open: a page that will not evaluate gives back readers that answer
+    ``None``, which leaves the caller on its existing no-download-event path.
+    """
+    try:
+        page.evaluate(_POPUP_GRANT_ARM)
+    except Exception:
+        return (lambda: None), (lambda: None)
+
+    def _read():
+        try:
+            url = page.evaluate(_POPUP_GRANT_READ)
+        except Exception:
+            return None
+        return url if isinstance(url, str) and url.strip() else None
+
+    def _disarm():
+        try:
+            page.evaluate(_POPUP_GRANT_DISARM)
+        except Exception:
+            pass
+
+    return _read, _disarm
+
+
 def _closeable_response_context(response):
     """Turn a closeable HTTP response into a context manager.
 
@@ -1241,12 +1306,38 @@ class TransportMixin:
 
         # ── Standard path: click and let Playwright capture the download ──
         if not direct_url:
+            _read_popup_grant,_disarm_popup_grant=_arm_popup_grant_capture(page)
             try:
                 with page.expect_download(timeout=60000) as dli: best["locator"].click()
                 dl=dli.value
                 direct_url=dl.url
                 suggested=dl.suggested_filename or "download.bin"
             except PWTimeout:
+                # row 760: no download event on this page -- but the click may
+                # have handed the grant to window.open, which the arm above
+                # intercepted before a popup could spend it.
+                _grant_url=_read_popup_grant()
+                if _grant_url:
+                    from urllib.parse import urlparse as _grant_urlparse
+                    direct_url=_grant_url
+                    suggested=(Path(_grant_urlparse(direct_url).path).name
+                               or "download.bin")
+                    # The grant is single-use, so the HTTP leg below must not
+                    # fall back to a second click: a re-click cannot re-issue
+                    # THIS URL and the intercepted window.open opens no popup
+                    # for expect_download to catch either.
+                    click_only_grant=True
+                    dl=_DirectURLDownload(direct_url,suggested)
+                    sys.stderr.write(
+                        f"  download: window.open grant captured unconsumed -> "
+                        f"{suggested} ({direct_url[:90]})\n")
+                    _disarm_popup_grant()
+                else:
+                    _disarm_popup_grant()
+                    dl=None
+            else:
+                _disarm_popup_grant()
+            if dl is None:
                 # No actual download event fired.
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
@@ -1293,12 +1384,9 @@ class TransportMixin:
                        f"no dl event; {hint}; saw: {seen}",ss)
                 return
         else:
-            # Direct-URL path: no Playwright Download object. Make a stub
+            # Direct-URL path: no Playwright Download object. Use the stand-in
             # so the rest of the function doesn't have to special-case.
-            class _DLStub:
-                def __init__(self,url,fn): self.url=url; self.suggested_filename=fn
-                def cancel(self): pass
-            dl=_DLStub(direct_url,suggested)
+            dl=_DirectURLDownload(direct_url,suggested)
 
         suggested=dl.suggested_filename or "download.bin"
         # GCW probe mode (v3.66.274): the trigger has fired and dl.url is the

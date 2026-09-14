@@ -654,6 +654,7 @@ jobs:
           - name: mutation-tools
             suites: >-
               tests/test_row705_published_denominators.py
+              tests/test_row788_transform_control_is_separate.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
               tests/test_v3_66_1188_bd_mutate_review_controls.py
@@ -690,6 +691,7 @@ jobs:
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
               tests/test_row300_parallel_display_cleanup_owns_process.py
               tests/test_capture_provides_a_display.py
+              tests/test_row752_display_gate_owns_its_claim.py
           - name: tree-gates-1
             suites: >-
               tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
@@ -739,6 +741,7 @@ jobs:
               tests/test_row343_fresh_host_bringup.py
               tests/test_row689_install_linux_converges_test_manifest.py
               tests/test_row1459_the_verified_binary_is_the_executed_binary.py
+              tests/test_row654_filename_citations_are_git_tracked.py
           - name: tree-gates-4
             suites: >-
               tests/test_sandbox_home_stays_retired.py

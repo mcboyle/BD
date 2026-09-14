@@ -78,14 +78,6 @@
       "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_the_page_actually_read_is_written_to_the_run_record",
       "direction": "regression",
       "old_regex": "write_login_evidence(?=\\(page, config, final_url, tag\\)\\n    if success_url)"
-    },
-    {
-      "label": "M10 transform control -- imports the seam, asserts no behaviour, must ESCAPE",
-      "file": "bulk_downloader/login_impl/submit.py",
-      "old": "if confirmed:",
-      "new": "if confirmed or cookies:",
-      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_transform_control_only_imports_the_seam",
-      "direction": "regression"
     }
   ]
 }
