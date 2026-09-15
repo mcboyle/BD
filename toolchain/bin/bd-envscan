@@ -139,6 +139,7 @@ def main():
         return 0
     if a.selftest:
         return _selftest()
+    sec.require_source_tree(a.tree, label="--tree")
 
     cur, items, count = _open_env(a.tree)
     base = None

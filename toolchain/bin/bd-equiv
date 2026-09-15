@@ -42,6 +42,7 @@ BIN = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, BIN)
 import bdtools_sec as sec  # noqa: E402
 
+# sweep: probe-args --old row470-old --new row470-new
 
 ERROR_SENTINEL = "__BD_EQUIV_ERROR__"   # @852: a crash is not agreement
 
@@ -320,6 +321,12 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    # --work is the base --inputs/--corpus paths are resolved against, not
+    # necessarily a BulkDownloader source tree (bd-equiv compares two
+    # arbitrary tools/scripts) -- require_source_tree's bulk_downloader/*.py
+    # predicate is the wrong shape-check and would refuse every synthetic
+    # comparison fixture this tool's own suite builds.
+    sec.require_corpus(a.work, min_files=1, label="--work", patterns=None)
     if not a.old or not a.new:
         print("bd-equiv: --old and --new are required", file=sys.stderr)
         return 2
@@ -327,7 +334,15 @@ def main():
     inputs = list(a.inputs)
     if a.corpus:
         base = os.path.join(a.work, a.corpus)
-        found = sorted(glob.glob(os.path.join(base, "*.py")))[:a.limit]
+        result = sec.corpus_guard(base, min_files=1, label="--corpus", patterns=("*.py",))
+        if isinstance(result, sec.Refusal):
+            # Fold the shared guard's finding into bd-equiv's OWN distinctive
+            # "no inputs" wording (a landed gate's contract) instead of
+            # replacing it -- the reason is appended, not substituted.
+            print("bd-equiv: no inputs (pass --inputs or --corpus) -- "
+                  + result.text(), file=sys.stderr)
+            return 2
+        found = sorted(result)[:a.limit]
         inputs += [os.path.relpath(p, a.work) for p in found]
     if not inputs:
         print("bd-equiv: no inputs (pass --inputs or --corpus)", file=sys.stderr)

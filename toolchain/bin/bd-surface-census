@@ -264,6 +264,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     c = census(a.work)
     if a.out:
         json.dump(c, open(a.out, "w"), indent=2, sort_keys=True)

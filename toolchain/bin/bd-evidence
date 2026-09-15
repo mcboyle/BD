@@ -389,6 +389,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
 
     if a.view == "verify":
         return verify(collect(a.work), a.json, a.work)

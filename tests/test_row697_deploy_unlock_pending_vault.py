@@ -244,7 +244,7 @@ def test_missing_credentials_without_unlock_hook_refuses_before_accepting_degrad
     )
     assert observed.count("health:1") == 1
     assert result.returncode == 1, deploy_support._ctx(result)
-    assert "VAULT-UNLOCK-HOOK-UNAVAILABLE" in deploy_support._out(result), (
+    assert "VAULT-UNLOCK-HOOK-ABSENT" in deploy_support._out(result), (
         "no-hook missing credentials lost their distinctive fail-closed refusal"
         + deploy_support._ctx(result)
     )

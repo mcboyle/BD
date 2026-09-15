@@ -68,6 +68,7 @@ def main():
     ap.add_argument("--grep", default=None)
     ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
+    sec.require_source_tree(a.tree, label="--tree")
     rows, src = load_routes(a.tree)
     if not rows:
         print("no url_map-derived route source (ROUTE_INDEX.json / ENDPOINT_CATALOG.md) found."); return 1

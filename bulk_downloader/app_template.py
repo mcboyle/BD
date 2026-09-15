@@ -233,6 +233,27 @@ def _sandbox_browser_host_pin(host, host_safety):
     return True, f"MAP {bare} {literal}", None
 
 
+def _sandbox_browser_route_is_safe(url, host_safety):
+    """ROW 804. Classify one in-flight request's hostname exactly like the
+    pre-fetch check does, so a redirect / JS navigation / XHR that Chromium
+    follows AFTER the initial ``page.goto`` -- which ``_sandbox_browser_host_pin``
+    does not cover, since that pin only protects the FIRST hop -- is refused
+    instead of silently reaching a private/link-local/metadata address.
+
+    Returns ``(ok, why)``; ``why`` is the classifier's structured message when
+    ``ok`` is False. Loopback keeps the exemption the pre-fetch check grants it.
+    """
+    from urllib.parse import urlparse as _urlparse
+
+    _is_safe_public_host = getattr(host_safety, "_is_safe_public_host")
+    _Reason = getattr(host_safety, "HostSafetyReason")
+    host = _urlparse(url).hostname or ""
+    ok, why = _is_safe_public_host(host)
+    if not ok and why.code is not _Reason.LOOPBACK:
+        return False, why
+    return True, None
+
+
 # ── v3.45.1 / v3.46.2 Phase 176: template sandbox ─────────────────────
 # Fetches a URL + applies a draft template's selectors. Two modes:
 #
@@ -333,6 +354,20 @@ def api_template_sandbox():
         try:
             with _cloak.cloaked_page(headless=True, user_agent=ua,
                                      args=_launch_args) as page:
+                # ROW 804: the pin above only protects the FIRST navigation --
+                # a redirect, JS `window.location` hop, or XHR/fetch to a new
+                # host inside this same page is a fresh connection Chromium
+                # resolves and reaches on its own, unguarded. Re-classify every
+                # hop's host the same way the pre-fetch check does and abort
+                # any that lands on a private/link-local/metadata address.
+                def _route_guard(route):
+                    _hop_ok, _hop_why = _sandbox_browser_route_is_safe(
+                        route.request.url, _host_safety)
+                    if _hop_ok:
+                        route.continue_()
+                    else:
+                        route.abort()
+                page.route("**/*", _route_guard)
                 page.goto(url, wait_until="domcontentloaded",
                           timeout=30000)
                 # Extra wait for lazy-loaded content. Operator tunes this.

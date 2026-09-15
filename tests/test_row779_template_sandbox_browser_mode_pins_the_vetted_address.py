@@ -188,6 +188,14 @@ def sandbox(fresh_app, monkeypatch):
             self._rules = rules
             self._url = ""
 
+        def route(self, _pattern, _handler):
+            # ROW 804: the route registers a page.route guard on every real
+            # Page before navigating. This fixture models only the initial
+            # pin (no same-page hop), so registration is accepted and
+            # otherwise inert here -- exactly like a real Page on which the
+            # registered handler is simply never dispatched.
+            return None
+
         def goto(self, url, **_kwargs):
             host = urlparse(url).hostname or ""
             state["navigations"].append(host)

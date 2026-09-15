@@ -614,6 +614,12 @@ _CORPUS_ARG_TEXT_RE = re.compile(
     r'add_argument\(\s*["\'](--tree|--work|--home|--scan|--corpus|--root|--src)["\']')
 _CORPUS_MARKER_RE = re.compile(
     r'^#\s*lint:\s*corpus-guard-ok(?:\s*--\s*(\S.*))?\s*$')
+_CORPUS_ARG_EXEMPT_RE = re.compile(
+    r'^#\s*lint:\s*corpus-arg-not-corpus\s+'
+    r'(--tree|--work|--home|--scan|--corpus|--root|--src)'
+    r'\s+--\s+(\S.*)\s*$')
+_CORPUS_ARG_EXEMPT_PREFIX_RE = re.compile(
+    r'^#\s*lint:\s*corpus-arg-not-corpus\b')
 _CORPUS_PROBE_ARGS_RE = re.compile(r'^#\s*sweep:\s*probe-args\s+(.+?)\s*$')
 
 
@@ -656,6 +662,24 @@ def corpus_opt_out_reasons(src):
     """Reasons from real corpus opt-out comments; ``None`` means malformed."""
     return tuple(reason.strip() if reason else None
                  for (reason,) in _comment_values(src, _CORPUS_MARKER_RE))
+
+
+def corpus_arg_exemptions(src):
+    """Per-flag non-corpus declarations, or ``None`` for malformed input."""
+    try:
+        comments = [tok.string for tok in tokenize.generate_tokens(
+            iter(src.splitlines(True)).__next__) if tok.type == tokenize.COMMENT]
+    except (IndentationError, tokenize.TokenError):
+        return None
+    candidates = [comment for comment in comments
+                  if _CORPUS_ARG_EXEMPT_PREFIX_RE.match(comment)]
+    parsed = []
+    for comment in candidates:
+        match = _CORPUS_ARG_EXEMPT_RE.match(comment)
+        if not match:
+            return None
+        parsed.append((match.group(1), match.group(2).strip()))
+    return tuple(parsed)
 
 
 def _required_positionals(tree):
@@ -729,9 +753,11 @@ def corpus_profile(src, executable=None, timeout=10):
     AST, not grep: a regex over raw text matches these flag names inside a tool's
     own STRING LITERALS, which is how the first cut of this check reported
     bd-tool-lint itself as a corpus tool. A guard is GUARDED only after the
-    executable refuses a proven-absent path at every declared flag. A comment
-    marker is the distinct OPTED_OUT state and must carry a reason. Missing or
-    unavailable execution is UNKNOWN, never a clean result.
+    executable refuses a proven-absent path at every declared flag. A whole-tool
+    marker is the distinct OPTED_OUT state and must carry a reason. A mixed-
+    interface tool may instead exempt a named flag that does not select its
+    corpus; every remaining corpus flag still has to execute its guard. Missing
+    or unavailable execution is UNKNOWN, never a clean result.
     """
     try:
         tree = ast.parse(src)
@@ -755,10 +781,21 @@ def corpus_profile(src, executable=None, timeout=10):
         if all(markers):
             return (True, CORPUS_OPTED_OUT, flags, True)
         return (True, CORPUS_UNKNOWN, flags, True)
-    if executable is None:
+    exemptions = corpus_arg_exemptions(src)
+    if exemptions is None:
         return (True, CORPUS_UNKNOWN, flags, True)
+    exempt_flags = [flag for flag, _reason in exemptions]
+    if (len(exempt_flags) != len(set(exempt_flags))
+            or any(flag not in flags for flag in exempt_flags)):
+        return (True, CORPUS_UNKNOWN, flags, True)
+    declared_flags = flags
+    flags = [flag for flag in flags if flag not in exempt_flags]
+    if not flags:
+        return (True, CORPUS_OPTED_OUT, declared_flags, True)
+    if executable is None:
+        return (True, CORPUS_UNKNOWN, declared_flags, True)
     state = _executed_corpus_guard_state(src, tree, executable, flags, timeout)
-    return (True, state, flags, True)
+    return (True, state, declared_flags, True)
 
 
 def require_source_tree(work=DEFAULT_WORK, label="--work/--tree"):
@@ -862,6 +899,62 @@ def assert_same_tree(home, work, label="verdict"):
     return str(wv)
 
 
+class Refusal(object):
+    """A CANNOT-EVALUATE finding a caller can format through its OWN refusal
+    path instead of the caller being forced to accept a hard sys.exit at an
+    arbitrary point in its own validation.
+
+    text() renders the exact stderr line require_corpus() used to write
+    directly, so a tool that folds it into its own distinctive wording (or a
+    tool that already had its own --json UNKNOWN document) keeps BOTH: its
+    established contract, and the literal "CANNOT-EVALUATE ... reason=X"
+    substring bd-tool-lint's runtime probe keys on.
+    """
+
+    def __init__(self, label, path, reason, detail):
+        self.label = label
+        self.path = path
+        self.reason = reason
+        self.detail = detail
+
+    def text(self):
+        return "CANNOT-EVALUATE %s %s: reason=%s %s" % (
+            self.label, self.path, self.reason, self.detail)
+
+
+def corpus_guard(path, min_files=1, label="--tree", patterns=None):
+    """The F-1 predicate, returning a Refusal instead of exiting.
+
+    Same rule as require_corpus() (below, now a thin wrapper over this): a
+    readable directory holding >= min_files matching regular files returns
+    the sorted file list; anything else returns a Refusal for the caller to
+    format and act on. patterns: fnmatch globs (e.g. ("*.py",)), or None =
+    any regular file.
+    """
+    root = os.path.realpath(path)
+    if not os.path.isdir(root):
+        return Refusal(label, path, REASON_ABSENT, "(no such directory)")
+    files = []
+    try:
+        def raise_walk_error(exc):
+            raise exc
+
+        for dirpath, dirs, names in os.walk(root, onerror=raise_walk_error):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for name in names:
+                if patterns is None or any(fnmatch.fnmatch(name, p) for p in patterns):
+                    fp = os.path.join(dirpath, name)
+                    if stat.S_ISREG(os.stat(fp).st_mode):
+                        files.append(fp)
+    except OSError as exc:
+        return Refusal(label, path, REASON_UNREADABLE, "(%s)" % exc)
+    if len(files) < min_files:
+        return Refusal(label, path, REASON_EMPTY,
+                       "(%d file(s), need >= %d)" % (len(files), min_files))
+    files.sort()
+    return files
+
+
 def require_corpus(path, min_files=1, label="--tree", patterns=None):
     """Refuse to mint a verdict without a real corpus. (The F-1 precondition.)
 
@@ -877,34 +970,18 @@ def require_corpus(path, min_files=1, label="--tree", patterns=None):
     findings, green". A check whose search set structurally excludes the thing
     being asked about reports clean truthfully and is useless. Unknown is a
     third state, and it fails.
-    """
-    root = os.path.realpath(path)
-    if not os.path.isdir(root):
-        sys.stderr.write("CANNOT-EVALUATE %s %s: reason=%s (no such directory)\n"
-                         % (label, path, REASON_ABSENT))
-        sys.exit(EXIT_CANNOT_EVALUATE)
-    files = []
-    try:
-        def raise_walk_error(exc):
-            raise exc
 
-        for dirpath, dirs, names in os.walk(root, onerror=raise_walk_error):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-            for name in names:
-                if patterns is None or any(fnmatch.fnmatch(name, p) for p in patterns):
-                    fp = os.path.join(dirpath, name)
-                    if stat.S_ISREG(os.stat(fp).st_mode):
-                        files.append(fp)
-    except OSError as exc:
-        sys.stderr.write("CANNOT-EVALUATE %s %s: reason=%s (%s)\n"
-                         % (label, path, REASON_UNREADABLE, exc))
+    A tool with its OWN distinctive refusal wording or its own --json UNKNOWN
+    document (a landed gate's contract) should call corpus_guard() directly
+    instead and format the Refusal itself; this wrapper is for the plain
+    pre-check case, where hard-exiting with the generic message IS the tool's
+    refusal.
+    """
+    result = corpus_guard(path, min_files=min_files, label=label, patterns=patterns)
+    if isinstance(result, Refusal):
+        sys.stderr.write(result.text() + "\n")
         sys.exit(EXIT_CANNOT_EVALUATE)
-    if len(files) < min_files:
-        sys.stderr.write("CANNOT-EVALUATE %s %s: reason=%s (%d file(s), need >= %d)\n"
-                         % (label, path, REASON_EMPTY, len(files), min_files))
-        sys.exit(EXIT_CANNOT_EVALUATE)
-    files.sort()
-    return files
+    return result
 
 
 def _iter_py(work, subdir, include_tests, files=None, fail_unreadable=False,

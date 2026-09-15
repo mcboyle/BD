@@ -278,6 +278,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     data = gather(a.work, a.module)
     if not any(data.get(k) for k in ("xray", "seams", "coupling", "plan")):
         print("bd-decomp: no lens produced output for %s" % a.module, file=sys.stderr)

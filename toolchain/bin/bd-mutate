@@ -2996,9 +2996,30 @@ def run_battery(spec: list[dict], band: list[str], work: Path,
                 _write_subject_text(owner, mutated, expected_sha=before_sha)
                 operation_stage = "mutant band execution"
                 result = _run_band(band, work, timeout=timeout)
+                # VERIFY THE SUBJECT BEFORE THE VERDICT. The band graded
+                # whatever content it imported; if the subject no longer holds
+                # the exact mutant we wrote -- a concurrent run or other tooling
+                # rewrote it in place on a shared work tree -- the verdict would
+                # be attributed to a mutant that never ran. owner.sha() reads the
+                # pinned fd, so it sees an in-place same-inode rewrite the band
+                # imported. (A detach/replace is already non-silent: the subject
+                # cannot be restored, so the restore path below fails loud.)
+                mutated_sha = hashlib.sha256(mutated.encode("utf-8")).hexdigest()
+                observed_sha = owner.sha()
                 row["verdict"], row["why"] = _grade_mutant(m, result)
                 if control_spec:
                     row["verdict"] = _control_verdict(row["verdict"])
+                if observed_sha != mutated_sha:
+                    # The grade above scored whatever content the band imported.
+                    # The subject no longer holds the exact mutant we wrote -- a
+                    # concurrent run or other tooling substituted it on a shared
+                    # work tree -- so that grade is about a mutant that never ran.
+                    row["verdict"] = UNKNOWN
+                    row["why"] = (
+                        "subject changed under the band before grading "
+                        "(%s != mutant %s); the verdict would be about "
+                        "substituted content, not the mutant"
+                        % (observed_sha[:12], mutated_sha[:12]))
             except Exception as exc:
                 operation_problem = "%s is unproved (%s)" % (
                     operation_stage, _exception_summary(exc))

@@ -473,6 +473,7 @@ def main(argv=None):
         return selftest()
 
     root = a.root or _auto_root()
+    sec.require_source_tree(root, label="--root")
     tmpdir = tempfile.mkdtemp(prefix="bd-precut-baseline.")
     atexit.register(shutil.rmtree, tmpdir, True)
     derived_reason = None

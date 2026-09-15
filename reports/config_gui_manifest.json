@@ -206,6 +206,7 @@
     "cross_site_selectors": "full",
     "crawler_delay_s": "full",
     "crawler_listing_url": "full",
+    "listing_url": "full",
     "crawler_max_pages": "full",
     "crawler_max_scrolls": "full",
     "crawler_newest_n": "full",

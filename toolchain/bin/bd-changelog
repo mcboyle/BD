@@ -50,6 +50,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.tree, label="--tree")
     cl = a.changelog or os.path.join(a.tree, "CHANGELOG.md")
     if not os.path.exists(cl):
         print(f"no CHANGELOG at {cl}"); return 1

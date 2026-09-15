@@ -40,6 +40,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     p = os.path.join(a.work, "DEPENDENCY_GRAPH.json")
     if not os.path.exists(p):
         print("DEPENDENCY_GRAPH.json not found (bd-regen --write)")

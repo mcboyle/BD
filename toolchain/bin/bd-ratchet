@@ -349,6 +349,7 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest: return selftest()
+    sec.require_source_tree(a.tree, label="--tree")
     if a.baseline: return cmd_baseline(a)
     if a.check: return cmd_check(a)
     if a.trend: return cmd_trend(a)

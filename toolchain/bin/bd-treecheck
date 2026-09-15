@@ -104,6 +104,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     w = a.work
 
     # ---- select the .py set ----

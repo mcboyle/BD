@@ -359,6 +359,7 @@ def main():
 
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
 
     inv = inventory(a.work)
     missing = []

@@ -109,6 +109,7 @@ def main():
     ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
     ap.add_argument("--write", action="store_true")
     a = ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
     if not a.new or not re.match(r'^3\.66\.\d+$', a.new):
         print(f"{R}usage: bd-bump 3.66.<N> --title \"...\" [--write]{RST}")
         return 1

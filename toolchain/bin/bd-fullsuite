@@ -683,6 +683,11 @@ def main():
 
     if a.selftest:
         return selftest()
+    # --work is a test-runner root (run_tests.py + tests/), not necessarily a
+    # full BulkDownloader source checkout -- require_source_tree's
+    # bulk_downloader/*.py predicate is the wrong shape-check here and would
+    # refuse every synthetic test-fixture tree this tool's own suite builds.
+    sec.require_corpus(a.work, min_files=1, label="--work", patterns=None)
 
     state_root = os.path.abspath(a.state_dir or _default_state_dir())
     try:

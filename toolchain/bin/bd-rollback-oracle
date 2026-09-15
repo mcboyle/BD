@@ -90,6 +90,7 @@ def main():
     ap.add_argument("--json",action="store_true"); ap.add_argument("--selftest",action="store_true")
     a=ap.parse_args()
     if a.selftest: return selftest()
+    sec.require_source_tree(a.work, label="--work")
     if not a.failure:
         print(R+"--failure TYPE required"+RST+DIM+" (guard|security|data-loss|cosmetic|copy|perf-minor|...)"+RST); return 1
     touched=a.touched if a.touched is not None else touched_count(a.work)

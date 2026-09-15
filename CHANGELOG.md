@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1552 - Train13: row804 browser-redirect metadata guard; row707 bd-mutate subject-substitution -> UNKNOWN; row470 corpus-tool empty-tree refusal; row737 deploy hook readability
+
+Train: 4 refute-first-reviewed worker patches (804 470 707 737b), base 5a680692.
+
+- row804 (T3): the browser-redirect path now runs the same metadata guard as the direct download path; a redirect can no longer bypass it (rework of row804-A1A; row779 stays open).
+- row470 (T2): bd-tool-lint gates the corpus tools that accepted --tree/--work/--home/--scan and reported green on a nonexistent or empty tree; each now refuses with UNKNOWN.
+- row707 (T3): bd-mutate run_battery re-reads the subject through its already-pinned fd before every verdict; a same-inode in-place rewrite of the subject now yields UNKNOWN instead of a silent verdict.
+- row737 (T1): deploy.sh distinguishes an unreadable hook from an absent one and names the path on failure, not only on success (follow-up to row697).
+
 ## v3.66.1551 - Train12: row773rp2 login/history egress_ip; row753/807/723/778/780 re-derive closures
 
 Train: 6 refute-first-reviewed worker patches. Benign ratchet ceiling re-pinned (coupling_ratio 0.379->0.38, defect_DP_total 1365->1367) per O732/O733.1 -- added-code metric ceilings, not product behaviour; carried, not blocked.

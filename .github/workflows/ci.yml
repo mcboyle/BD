@@ -610,6 +610,7 @@ jobs:
             suites: >-
               tests/test_deploy_script.py
               tests/test_row697_deploy_unlock_pending_vault.py
+              tests/test_row737_unreadable_hook_diagnostics.py
           # Rows 617/623/624/625/628/629/631. Secrets delete/probe state is a
           # cross-backend safety contract, including a deterministic two-writer
           # transaction and the extension rate-accounting boundary.
@@ -673,6 +674,7 @@ jobs:
               tests/test_v3_66_1188_bd_mutate_review_controls.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py
+              tests/test_row470_corpus_tools_fail_closed.py
           - name: mutation-verifiers
             suites: >-
               tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
@@ -683,6 +685,7 @@ jobs:
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
               tests/test_rowssrf_loopback_reason_is_structured.py
               tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py
+              tests/test_row804_browser_redirect_bypasses_metadata_guard.py
               tests/test_row531_denominators_are_derived_not_pinned.py
               tests/test_v3_66_1189_bd_mutate_durable_contract.py
           - name: isolation

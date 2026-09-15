@@ -24,6 +24,8 @@ import os
 import re
 import sys
 
+# lint: corpus-arg-not-corpus --home -- legacy fallback is not the scan denominator
+
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 

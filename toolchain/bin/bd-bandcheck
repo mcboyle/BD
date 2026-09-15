@@ -126,6 +126,12 @@ def main():
     # diagnosis is the product: the operator is told "Typo?" about a path that
     # is fine. sec.DEFAULT_WORK walks up to the repo root, which is what
     # bd-band:100 already used.
+    # lint: corpus-arg-not-corpus --tree -- a per-target existence-check root,
+    # not a corpus scanned for a verdict; check() already fails closed for
+    # every unresolvable target (MISSING, unsafe/unmeasurable rc) by design,
+    # and the leak-pair hazard detector must still run over an unresolvable
+    # tree (@876) -- a corpus pre-check here would pre-empt that on purpose.
+    # lint: corpus-arg-not-corpus --work -- same flag, aliased to --tree above
     ap.add_argument("--tree","--work", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
     rc, lines = check(a.targets, a.tree)

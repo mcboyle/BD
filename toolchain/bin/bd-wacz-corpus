@@ -1290,6 +1290,7 @@ _MODES = {"group": mode_group, "hosts": mode_hosts, "templates": mode_templates,
           "pairs": mode_pairs, "health": mode_health, "scrub": mode_scrub,
           "dupes": mode_dupes}
 
+# sweep: probe-args --all
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="read-only WACZ corpus survey")
@@ -1319,6 +1320,25 @@ def main() -> int:
                  % "/".join("--" + m for m in _MODES))
 
     root = pathlib.Path(a.root).expanduser()
+    guard = sec.corpus_guard(str(root), min_files=1, label="--root",
+                             patterns=("*" + _WACZ,))
+    if isinstance(guard, sec.Refusal):
+        # The tool's own why-based --json UNKNOWN document is the landed
+        # contract; corpus_guard() supplies the classification (F-1's ABSENT
+        # vs EMPTY) without pre-empting it. The shared "CANNOT-EVALUATE ...
+        # reason=X" line still reaches stderr, so bd-tool-lint's runtime
+        # probe recognizes this as guarded; stdout keeps its own shape.
+        sys.stderr.write(guard.text() + "\n")
+        why = ("root does not exist: %s" % root
+               if guard.reason == sec.REASON_ABSENT
+               else "no *.wacz found under root: %s" % root)
+        out = {"status": "unknown", "root": str(root),
+               "denominator": {"wacz_files": 0}, "reason": why,
+               "modes": {}}
+        print(json.dumps(out, indent=2) if a.json
+              else "UNKNOWN  %s\n         nothing was examined, so this is not "
+                   "a clean result." % why)
+        return EXIT_UNKNOWN
     files, why = enumerate_corpus(root)
     if why:
         out = {"status": "unknown", "root": str(root),

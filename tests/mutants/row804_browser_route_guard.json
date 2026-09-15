@@ -1,0 +1,26 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 804. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/row804_browser_route_guard.json --work <a detached scratch clone OUTSIDE this repository>. Re-derive the population with: git grep -n 'page.route(\"\\*\\*/\\*\", _route_guard)' -- bulk_downloader/app_template.py -- a call site that command reports and this spec does not name means the battery is out of date. The paired transform control must ESCAPE.",
+ "subject": "the template sandbox browser-mode page.route guard actually intercepts every post-navigation hop; removing the registration, or making the classifier always report safe, must be caught by the row804 defect test",
+ "band": [
+  "tests/test_row804_browser_redirect_bypasses_metadata_guard.py::test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused"
+ ],
+ "mutants": [
+  {
+   "label": "M1_route_never_registered",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "page\\.route\\(\"\\*\\*/\\*\", _route_guard\\)\\n\\s*page\\.goto\\(url,",
+   "new": "page.goto(url,",
+   "direction": "regression",
+   "catcher": "tests/test_row804_browser_redirect_bypasses_metadata_guard.py::test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused"
+  },
+  {
+   "label": "M2_classifier_always_safe",
+   "file": "bulk_downloader/app_template.py",
+   "old_regex": "(?<=def _route_guard\\(route\\):\\n)\\s*_hop_ok, _hop_why = _sandbox_browser_route_is_safe\\(\\n\\s*route\\.request\\.url, _host_safety\\)",
+   "new": "                    _hop_ok, _hop_why = True, None",
+   "direction": "regression",
+   "catcher": "tests/test_row804_browser_redirect_bypasses_metadata_guard.py::test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused"
+  }
+ ]
+}

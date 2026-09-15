@@ -228,6 +228,10 @@ _DECLARED = {
     # address it just vetted; the SSRF boundary is a repo-wide safety gate and
     # rides the same shard as the classifier census it depends on.
     "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py",
+    # Row 804. Follow-up to 779: the browser-mode page.route guard must
+    # intercept every post-navigation hop, not just the initial page.goto --
+    # the same repo-wide SSRF boundary, checked at the same shard.
+    "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
     # Row 664. A pre-download dedup refusal is terminal work and must leave its
     # reason in operator-visible history through the real worker dispatch seam.
     "tests/test_row664_dedup_refusal_reaches_history.py",
@@ -803,6 +807,10 @@ _DECLARED = {
     # subject path can make a diff router select the gate that audits every
     # tracked mutation spec and its independently recorded producer evidence.
     "tests/test_row357_mutant_anchors_are_not_fragile.py",
+    # Row 470. Corpus-taking tools are a tree-wide population; a new or
+    # unguarded member must reach this runtime census regardless of the paths a
+    # particular PR happened to touch.
+    "tests/test_row470_corpus_tools_fail_closed.py",
     # Row 473. Candidate shipment is a relation between the whole register and
     # the target tree, so no one candidate's changed paths can select it.
     "tests/test_row473_register_tree_containment.py",
@@ -1065,6 +1073,9 @@ _DECLARED = {
     # Row 697. A restart-locked vault must run the sanctioned unlock hook and
     # receive a bounded health re-probe before deploy decides readiness.
     "tests/test_row697_deploy_unlock_pending_vault.py",
+    # Row 737. The deploy diagnostic distinguishes an absent hook from an
+    # unreadable one and names the probed path in every outcome.
+    "tests/test_row737_unreadable_hook_diagnostics.py",
     # Row 290: no-argument capture must reach its local fixture and every later
     # step; the same executable harness proves --parallel still owns and routes
     # a real distinct port pair.

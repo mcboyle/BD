@@ -1150,20 +1150,26 @@ while :; do
         die "VAULT-STILL-LOCKED-AFTER-UNLOCK: the sanctioned local unlock hook
   returned success, but the bounded health re-probe still reports $vault_state."
       fi
-      if [ -f "$vault_unlock_hook" ]; then
+      if [ ! -e "$vault_unlock_hook" ]; then
+        if [ "$vault_state" != "locked" ]; then
+          die "VAULT-UNLOCK-HOOK-ABSENT: initialized locked vault reports
+  $vault_state; install the sanctioned local unlock hook at $vault_unlock_hook
+  before credential presence can be judged."
+        fi
+        note "VAULT-UNLOCK-HOOK-ABSENT: $vault_unlock_hook is not installed;
+  install it before a future credential-missing state needs repair."
+      elif [ ! -f "$vault_unlock_hook" ] || [ ! -r "$vault_unlock_hook" ]; then
+        die "VAULT-UNLOCK-HOOK-UNREADABLE: $vault_unlock_hook is not a readable
+  regular file; fix its mode or replace it with the sanctioned unlock hook."
+      else
         note "UNLOCK-PENDING: initialized credential vault reports $vault_state
-  after restart; running the sanctioned local unlock hook and re-probing within 5s."
+  after restart; probing $vault_unlock_hook and re-probing within 5s."
         if ! bash "$vault_unlock_hook" local; then
-          die "VAULT-UNLOCK-HOOK-FAILED: $vault_unlock_hook local returned nonzero;
+          die "VAULT-UNLOCK-HOOK-FAILED: local unlock hook returned nonzero;
   health remains unverified."
         fi
         vault_unlock_attempted=1
         continue
-      fi
-      if [ "$vault_state" != "locked" ]; then
-        die "VAULT-UNLOCK-HOOK-UNAVAILABLE: initialized locked vault reports
-  $vault_state, but $vault_unlock_hook is absent; credential presence cannot be
-  judged until the sanctioned unlock hook runs."
       fi
       got="$vault_version"
       health_serving_degraded=1

@@ -70,6 +70,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.tree, label="--tree")
     if a.all:
         sites = scan(a.tree, include_code=False)
         print("pinned packages in dependency files (name : #sites):")

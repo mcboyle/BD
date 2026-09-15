@@ -10,6 +10,7 @@ Usage: bd-dependency-license [--work DIR] [--home DIR] [--json] [--selftest]
 Exit 0 (informational -- reports/generates; does not render a pass/fail verdict and does not gate).
 """
 import argparse, glob, os, re, sys
+# lint: corpus-arg-not-corpus --home -- compatibility path is not read by this scan
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 import os as _oscli, sys as _syscli
