@@ -4,7 +4,7 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1557 - Train18e v3.66.1557: row656 cut-quality permits; row700-r5 captcha egress ack and row395-to-row700 rename; row716rp2 mirror-swap anchors; row741 typed relogin refusals; row787 sentinel must not look found; row794 and row800 rebases
+## v3.66.1559 - Train18e v3.66.1559: row656 cut-quality permits; row700-r5 captcha egress ack and row395-to-row700 rename; row716rp2 mirror-swap anchors; row741 typed relogin refusals; row787 sentinel must not look found; row794 and row800 rebases
 
 Train: 5 refute-first-reviewed worker patches.
 
@@ -13,6 +13,12 @@ Train: 5 refute-first-reviewed worker patches.
 - 794-REBASE-6ADD188B-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row794-rebase-6add188b-A20-A-local/DONE.md
 - 800-REBASE-6ADD188B-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row800-rebase-6add188b-A20-A-local/DONE.md
 - 787-REBASE-97035787-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row787-rebase-97035787-A20-A-local/DONE.md
+
+## v3.66.1558 - bd-precut names the gates that failed instead of only counting them (H389)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- H389-B2-B-LOCAL: # H389 -- bd-precut must not lose the names of failing underived gates. Limbs (1)-(4).
 
 ## v3.66.1556 - credleak d1+d2: redact credentials at login/replay/status call sites
 
