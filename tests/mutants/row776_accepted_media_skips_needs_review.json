@@ -1,0 +1,115 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 776: the auto-teach preflight must not flag needs_review for a pending URL that is already an accepted direct media href, nor for a PAGE url whose fetched HTML ranks an accepted media winner (REFUTE fix).",
+  "subject": "auto-teach preflight consults candidate_filter and the ranker before flagging needs_review",
+  "band": [
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_precondition_the_helper_exists",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_direct_media_url_is_already_downloadable",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_plain_page_url_is_not_already_downloadable",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_auto_teach_preflight_consults_the_helper_before_flagging_needs_review",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_exists",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_true_when_fetched_page_ranks_an_accepted_media_winner",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_fails_open_on_network_error",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_fails_open_when_no_winner",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_auto_teach_preflight_consults_the_ranker_helper_before_flagging_needs_review",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_real_start_arms_the_pool_for_a_page_url_whose_ranker_accepts_media",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_refuses_a_link_local_url_with_no_request_made",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_requires_a_strong_url_signal_not_a_bare_label",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_attaches_cookies_from_the_cookie_jar",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_refuses_a_redirect_response_even_with_a_strong_winner",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_installs_the_guarded_transport_with_no_redirects_and_the_given_proxy",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_real_start_fails_closed_and_never_fetches_when_the_proxy_tunnel_is_down",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_sends_a_jar_cookie_only_to_the_url_it_is_scoped_to",
+    "tests/test_row776_accepted_media_skips_needs_review.py::test_negative_control_the_in_scope_url_still_carries_the_jar_cookie"
+  ],
+  "mutants": [
+    {
+      "label": "M1 helper always says not-downloadable",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^    return verdict\\.accepted and verdict\\.kind == \"download\"$",
+      "new": "    return False",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_direct_media_url_is_already_downloadable"
+    },
+    {
+      "label": "M2 helper always says already-downloadable",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^    return verdict\\.accepted and verdict\\.kind == \"download\"$",
+      "new": "    return True",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_plain_page_url_is_not_already_downloadable"
+    },
+    {
+      "label": "M3 preflight stops consulting the already-downloadable helper",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^                    and not _pending_url_already_downloadable\\(first_url\\)$",
+      "new": "                    and True",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_auto_teach_preflight_consults_the_helper_before_flagging_needs_review"
+    },
+    {
+      "label": "M4 preflight stops consulting the ranker helper",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^                    and not _ranker_accepts\\(first_url\\)\\):$",
+      "new": "                    and True):",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_real_start_arms_the_pool_for_a_page_url_whose_ranker_accepts_media"
+    },
+    {
+      "label": "M5 ranker helper drops the SSRF host guard",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^        ok, _reason = _is_safe_public_host\\(hostname\\)$",
+      "new": "        ok, _reason = (True, \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_refuses_a_link_local_url_with_no_request_made"
+    },
+    {
+      "label": "M6 ranker helper accepts a label-only winner",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^        return bool\\(signals & _candidate_filter\\._STRONG_URL_SIGNALS\\)$",
+      "new": "        return True",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_requires_a_strong_url_signal_not_a_bare_label"
+    },
+    {
+      "label": "M7 ranker helper drops the redirect-status guard",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^            if resp\\.status_code in \\(301, 302, 303, 307, 308\\):$",
+      "new": "            if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_refuses_a_redirect_response_even_with_a_strong_winner"
+    },
+    {
+      "label": "M8 ranker helper follows redirects instead of refusing them",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^        with httpx\\.Client\\(timeout=timeout, follow_redirects=False,$",
+      "new": "        with httpx.Client(timeout=timeout, follow_redirects=True,",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_installs_the_guarded_transport_with_no_redirects_and_the_given_proxy"
+    },
+    {
+      "label": "M9 ranker helper drops proxy from guarded_transport",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^                          transport=guarded_transport\\(PUBLIC_ONLY, proxy=proxy\\)\\) as cl:$",
+      "new": "                          transport=guarded_transport(PUBLIC_ONLY)) as cl:",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_installs_the_guarded_transport_with_no_redirects_and_the_given_proxy"
+    },
+    {
+      "label": "M10 proxy-selection failure falls through instead of failing closed",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^                    proxy = self\\._download_proxy_url\\(\\)\\n                except Exception:\\n                    return False$",
+      "new": "                    proxy = self._download_proxy_url()\n                except Exception:\n                    proxy = None",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_real_start_fails_closed_and_never_fetches_when_the_proxy_tunnel_is_down"
+    },
+    {
+      "label": "M11 cookie jar flattened to a name->value dict again (sent to every host)",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^            cookies = httpx\\.Cookies\\(jar\\)$",
+      "new": "            cookies = {c.name: c.value for c in jar}",
+      "direction": "regression",
+      "catcher": "tests/test_row776_accepted_media_skips_needs_review.py::test_ranker_helper_sends_a_jar_cookie_only_to_the_url_it_is_scoped_to"
+    }
+  ]
+}

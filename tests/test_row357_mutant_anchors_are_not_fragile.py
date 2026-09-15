@@ -405,8 +405,77 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
             r"(?m)^def test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused\($",
         ),
+    # Row 776: the helper's verdict check and the preflight's call to it are
+    # new fixed protocol text, not values copied from a measurement producer.
+    "b72936902178e721c5ee3a36cbf3d1cf7877a3e9f2f5686863118f94dfd4f95c":
+        StableValueException(
+            "download is the fixed candidate_filter verdict kind that marks a pending URL already downloadable",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_direct_media_url_is_already_downloadable\(\):$",
+        ),
+    "aa76c58ef2d8f7d97b0e05a62bf17dd97f0d791af26d072f64c1b94bb9e4b9e7":
+        StableValueException(
+            "download is the fixed candidate_filter verdict kind that marks a pending URL already downloadable",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_plain_page_url_is_not_already_downloadable\(\):$",
+        ),
+    # Row 776rp2 (correctness REFUTE): `httpx.Cookies(jar)` is the fixed
+    # decision that the jar, not a flattened dict, reaches the client, so
+    # domain/path/secure/expiry scoping is the library's; audited by the
+    # wire-level scoping test this mutant names as its catcher.
+    "da3201832513a611cdb3c455bb0607c6f465f30ed8a18daa516c332cb442818b":
+        StableValueException(
+            "httpx.Cookies(jar) is the fixed decision that keeps cookie scoping with the jar",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_ranker_helper_sends_a_jar_cookie_only_to_the_url_it_is_scoped_to\(",
+        ),
+    "704621157972db89fffdc5b013c32b9a28394b2905b75e0886f5886bb3f3e0f1":
+        StableValueException(
+            "the auto-teach preflight must consult the audited helper before flagging needs_review",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_auto_teach_preflight_consults_the_helper_before_flagging_needs_review\(\):$",
+        ),
+    # Row 776c (correctness REFUTE fix): the ranker helper's SSRF host-guard
+    # call is new fixed protocol text -- not a value copied from a
+    # measurement producer -- audited by its own dedicated regression test.
+    "653fd354e23826b6688398aae02932324f1dc87f9d814991c1a9fa935b95a98c":
+        StableValueException(
+            "the ranker helper must refuse a non-public host before ever fetching it",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_ranker_helper_refuses_a_link_local_url_with_no_request_made\(monkeypatch\):$",
+        ),
+    # Row 776d (shape REFUTE fix): the 3xx status-code tuple is new fixed
+    # protocol text -- not a value copied from a measurement producer --
+    # audited by its own dedicated regression test.
+    "17328f4c444f2a9e6b038736d2ab4f4698139f878b23264cbf6303459ece9e3f":
+        StableValueException(
+            "the ranker helper must refuse a redirect response by status code alone",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_ranker_helper_refuses_a_redirect_response_even_with_a_strong_winner\(monkeypatch\):$",
+        ),
+    # Row 776d (correctness REFUTE fix): follow_redirects/proxy/fail-closed
+    # are new fixed protocol text -- not values copied from a measurement
+    # producer -- each audited by its own dedicated regression test.
+    "1d7fdba8b011ae3f698c47bbde266b74de28d0529e1ccad171ee66b290f3713c":
+        StableValueException(
+            "the ranker helper's transport must be built with follow_redirects=False and the caller's proxy",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_ranker_helper_installs_the_guarded_transport_with_no_redirects_and_the_given_proxy\(monkeypatch\):$",
+        ),
+    "da9acdd798ae088570c13656463260715ec614e15603644b650aaf8a74f64539":
+        StableValueException(
+            "the ranker helper's transport must be built with follow_redirects=False and the caller's proxy",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_ranker_helper_installs_the_guarded_transport_with_no_redirects_and_the_given_proxy\(monkeypatch\):$",
+        ),
+    "fd68924da537e75b9f431e51e82fe66d5b2110e4edf5cf2a681bbb9e14f8832c":
+        StableValueException(
+            "a down proxy tunnel must fail closed, never fall through with proxy=None",
+            "tests/test_row776_accepted_media_skips_needs_review.py",
+            r"(?m)^def test_real_start_fails_closed_and_never_fetches_when_the_proxy_tunnel_is_down\(tmp_path, monkeypatch\):$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 36
+_STABLE_VALUE_EXCEPTION_MAX = 45
 
 
 def _family(

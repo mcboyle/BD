@@ -862,6 +862,105 @@ class StartOutcome(str, enum.Enum):
     TEARDOWN_PENDING = "worker_teardown"
 
 
+def _pending_url_already_downloadable(url):
+    """Row 776: True when `url` is already an accepted direct-media href
+    per candidate_filter, with no page fetched and no selectors involved.
+
+    The auto-teach preflight (Phase 41.5, below) exists to avoid spawning
+    a worker/browser only to immediately demand manual selector teaching.
+    That reasoning does not apply to a pending URL that needs no
+    selectors at all -- it can just be downloaded. `classify(url=...)`
+    with no `page_host` is used deliberately: it is the only candidate
+    signal available before any page has been fetched, and omitting
+    `page_host` skips the same-site rejection branch (there is no site
+    to compare against yet), matching what a raw pending URL string is.
+    """
+    from . import candidate_filter as _candidate_filter
+    verdict = _candidate_filter.classify(url=url)
+    return verdict.accepted and verdict.kind == "download"
+
+
+def _pending_url_ranker_accepts_media(url, cookie_file="", proxy=None, timeout=10):
+    """Row 776 (REFUTE fix, correctness lens): True when a lightweight
+    HTTP fetch of `url`'s page HTML, scored by dry_run.inspect_candidates
+    (the same ranker the Test Selectors UI uses), finds an accepted media
+    winner with a strong URL signal -- the case
+    `_pending_url_already_downloadable` above cannot see, because that
+    helper never fetches: a PAGE url whose page, once fetched, ranks a
+    media href as the accepted winner needs no learned selectors either,
+    same as a bare media href does.
+
+    Uses the site's stored `cookie_file` (the same Netscape-jar source
+    runner_extractors.py already hands yt-dlp) so a members-only page
+    is read with the runner's own session, not anonymously.
+
+    AUDIT FIX (row776c correctness REFUTE): this is an SSRF-capable fetch
+    of a caller-controlled URL exactly like the listing scrape at
+    `_scrape_listing_urls` (F-RUN01-01), so it is guarded the same way --
+    `_is_safe_public_host` host check, `guarded_transport(PUBLIC_ONLY,
+    proxy=proxy)`, no redirects followed. It also requires the winner to
+    carry a _STRONG_URL_SIGNALS signal (media_extension/manifest_url/
+    download_path/api_pattern), not merely a resolution_label, so a nav
+    page with a stray number in its text cannot be mistaken for media.
+
+    Fail-open on any refused/network/parse error or missing/weak winner --
+    a preflight check must never block start(); a refused host, a down
+    VPN tunnel, or a stale/expired cookie file degrades to the existing
+    must-teach path exactly as before this fix.
+    """
+    try:
+        from urllib.parse import urlparse as _up
+        from bulk_downloader.provider_resolve_impl._common import (
+            _is_safe_public_host,
+        )
+        p = _up(url)
+        if p.scheme not in ("http", "https"):
+            return False
+        hostname = p.hostname or ""
+        if not hostname:
+            return False
+        ok, _reason = _is_safe_public_host(hostname)
+        if not ok:
+            return False
+    except Exception:
+        return False
+    try:
+        jar = None
+        if cookie_file and cookie_file.endswith(".txt") and os.path.exists(cookie_file):
+            import http.cookiejar
+            jar = http.cookiejar.MozillaCookieJar(cookie_file)
+            jar.load(ignore_discard=True, ignore_expires=True)
+            # Row 776rp2 (correctness REFUTE): hand httpx the JAR, not a
+            # flattened {name: value} dict -- a flat dict sends every
+            # cookie to every host; the jar keeps domain/path/secure/expiry
+            # scoping (httpx.Cookies wraps a CookieJar and asks it for the
+            # Cookie header of the actual target url).
+            cookies = httpx.Cookies(jar)
+        else:
+            cookies = None
+        from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
+        with httpx.Client(timeout=timeout, follow_redirects=False,
+                          transport=guarded_transport(PUBLIC_ONLY, proxy=proxy)) as cl:
+            resp = cl.get(url, cookies=cookies)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                return False
+            resp.raise_for_status()
+            html = resp.text
+    except Exception:
+        return False
+    try:
+        from . import dry_run as _dry_run
+        from . import candidate_filter as _candidate_filter
+        result = _dry_run.inspect_candidates(html, page_url=url)
+        winner = result.get("winner")
+        if not winner:
+            return False
+        signals = set(winner.get("signals") or ())
+        return bool(signals & _candidate_filter._STRONG_URL_SIGNALS)
+    except Exception:
+        return False
+
+
 def _run_lifecycle_serialized(method):
     """Serialize public run transitions through one re-entrant lock."""
     @functools.wraps(method)
@@ -1717,7 +1816,26 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # a teach window from opening on every first run of a site
             # the operator already templated.
             has_template = bool(self.config.get("applied_template"))
-            if not has_dl and not has_template:
+            first_url = pending[0]
+            # Row 776: a pending URL that is already an accepted direct
+            # media href needs no selectors/teaching at all — don't flag
+            # it needs_review just because the site has none learned yet.
+            # Row 776 (REFUTE fix): nor does a PAGE url whose fetched HTML
+            # ranks an accepted media winner — consult the ranker before
+            # falling back to teach.
+            def _ranker_accepts(url):
+                # VPN required but tunnel down (or any other proxy-selection
+                # failure): never fetch this pending URL on the clear
+                # interface -- degrade to the existing must-teach path.
+                try:
+                    proxy = self._download_proxy_url()
+                except Exception:
+                    return False
+                return _pending_url_ranker_accepts_media(
+                    url, self.config.get("cookie_file", ""), proxy=proxy)
+            if (not has_dl and not has_template
+                    and not _pending_url_already_downloadable(first_url)
+                    and not _ranker_accepts(first_url)):
                 # If a URL is ALREADY in needs_review with auto_teach_seen,
                 # don't flag another one — user just needs to teach the
                 # existing one. Clicking Start again while waiting for teach
@@ -1732,7 +1850,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     sys.stderr.write(
                         "  start: already waiting for teach — no-op\n")
                     return
-                first_url = pending[0]
                 self._update_job(first_url, "needs_review",
                     "Auto-teach: take over to teach download selectors. "
                     "Click 'Take over' on this row, then complete the download "
