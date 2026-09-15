@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..constants import INSTALL_DIR
 from ._common import _fire_login_trigger_if_needed, _ms_since
@@ -89,6 +90,34 @@ def _login_evidence_dir(config):
 # the phase is still reported in the verdict message, and now also in the
 # evidence itself.
 _EVIDENCE_NAME_SEPARATORS = re.compile(r"[^A-Za-z0-9]+")
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_CREDENTIAL_QUERY_KEY = re.compile(
+    r"(?:pass(?:word|wd)?|pwd|user(?:name)?|email|login|auth|token|"
+    r"secret|credential|api[_-]?key|session(?:id)?)", re.IGNORECASE)
+
+
+def redact_url_credentials(text):
+    """Replace credential-bearing query values in every HTTP URL in *text*.
+
+    Login diagnostics and evidence intentionally retain the URL that was read,
+    but a GET-style login form can place typed credentials in its query.  Keep
+    noncredential parameters useful while ensuring that no sink receives those
+    values in cleartext.
+    """
+    def redact(match):
+        url = match.group(0)
+        try:
+            parts = urlsplit(url)
+            pairs = parse_qsl(parts.query, keep_blank_values=True)
+            query = urlencode(
+                [(key, "<REDACTED>" if _CREDENTIAL_QUERY_KEY.search(key)
+                  else value) for key, value in pairs],
+                doseq=True, safe="<>")
+            return urlunsplit((parts.scheme, parts.netloc, parts.path,
+                               query, parts.fragment))
+        except (TypeError, ValueError):
+            return url
+    return _URL_IN_TEXT.sub(redact, str(text))
 
 
 def _evidence_slug(tag):
@@ -122,8 +151,9 @@ def write_login_evidence(page, config, final_url, tag):
     capture failure never improves a verdict -- the caller still decides on
     the URL it read.
     """
+    final_url = redact_url_credentials(final_url)
     try:
-        html = page.content()
+        html = redact_url_credentials(page.content())
     except Exception as e:
         html = f"<!-- page content unavailable: {e} -->"
     try:
@@ -158,7 +188,7 @@ def member_state_check(page, config, *, tag="login"):
     learned_login = (config.get("learned") or {}).get("login") or {}
     indicator = learned_login.get("member_indicator") or ""
     try:
-        final_url = page.url
+        final_url = redact_url_credentials(page.url)
     except Exception as e:
         return False, f"final URL unreadable ({e}); member state UNKNOWN", None
     if not success_url and not indicator:

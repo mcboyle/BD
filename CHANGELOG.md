@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1556 - credleak d1+d2: redact credentials at login/replay/status call sites
+
+Train: 2 refute-first-reviewed worker patches.
+
+- credleak-d1: `redact_url_credentials` (login_impl/replay.py) strips password/secret/token/api-key/session query values from every HTTP URL in login_status, replay evidence and runner_auth log lines before they reach app status or disk (tests/test_credleak_d1.py; coverage residual = register row 815).
+- credleak-d2: `_form_submit_is_safe` (login_impl/submit.py) refuses to auto-submit a password-bearing form unless its method is an explicit POST, so a GET-style login can no longer serialise the credential into the URL and browser history (tests/test_credleak_d2.py).
+
 ## v3.66.1555 - Train15b: row750 IPv4-in-IPv6 metadata unwrap; row667rp keeper login cap/persistence; row719rp scene-hint forwarding; row772 rejected-login outcome; row775 Turnstile one-click affordance; row799 REFUTED-PREMISE; rows 810-814 filed
 
 Train: 5 refute-first-reviewed worker patches (base 6add188b). Register (registrar int-C-B, O800): rows 667, 750, 775 CLOSED; row 799 CLOSED REFUTED-PREMISE (O799); rows 810-814 filed (810 row719rp forwarding coverage, 811 row726 body-contract runner residual, 812 row750 DONE.md RED line omitted twice, 813 ratchet DP ceiling re-pinned over two unjudged hits, 814 row750 T3 shape leg owed, O808). Rows 719 and 772 stay OPEN, named below.
