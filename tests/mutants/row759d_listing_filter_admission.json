@@ -1,0 +1,67 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 759d (O738): listing-filter hrefs (/en/videos/?refinementList[...]) must be refused at admission before ranking. M1 disables the admission arm; M2 keeps the arm but makes the query regex never match. Both leave the score-0 Download div outranked by the 4K filter link, which is the live 2026-09-15 defect the catcher reproduces. Anchors are structural (no value token, no quote, no '=') so the row357 anchor gate classifies them STABLE. Gen 2 (lens flip): M3 deletes the strong-media-signal fail-open; M4 deletes the sort alternative. Deep lane O809: M6 deletes the per-key bracket-suffix generalization (?filter[quality]=... etc) added to close the adversary's 8 RED tests in tests/test_row759dc_deep.py.",
+ "subject": "_candidate_admission refuses listing/filter hrefs so the score-0 Download control wins",
+ "band": [
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_real_download_link_beside_the_sidebar_wins",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[signed_mp4]",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[download_path]",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_escape_xh1_manifest_value_in_filter_query_does_not_spoof_signal",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_escape_xh1_download_path_value_in_filter_query_does_not_spoof_signal",
+  "tests/test_row759dc_deep.py::test_bracketed_filter_query_keys_are_refused_as_listing_filters",
+  "tests/test_row759dc_deep.py::test_bare_filter_query_keys_are_refused_as_listing_filters",
+  "tests/test_row759dc_deep.py::test_encoded_listing_text_inside_a_search_value_is_not_a_listing_key",
+  "tests/test_row759dc_deep.py::test_double_encoded_refinement_key_is_not_decoded_twice"
+ ],
+ "mutants": [
+  {
+   "label": "759d-M1 admission arm disabled (listing_filter never returned)",
+   "file": "bulk_downloader/detect.py",
+   "old": "\n    if _is_listing_filter_href(el, t, page_url):\n",
+   "new": "\n    if False and _is_listing_filter_href(el, t, page_url):\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  },
+  {
+   "label": "759d-M2 the query test is inverted (a filter query reads as not-a-filter)",
+   "file": "bulk_downloader/detect.py",
+   "old": "    if not parts.query or not _has_listing_filter_key(parts.query):\n",
+   "new": "    if not parts.query or _has_listing_filter_key(parts.query):\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  },
+  {
+   "label": "759d-M3 strong-media-signal fail-open deleted (media href with a filter query is refused)",
+   "file": "bulk_downloader/detect.py",
+   "old": "        if media_signals:\n",
+   "new": "        if media_signals and not media_signals:\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[download_path]"
+  },
+  {
+   "label": "759d-M4 the sort alternative is deleted from the query rule",
+   "file": "bulk_downloader/detect.py",
+   "old": "sort(?:_?by)?|order(?:_?by)?",
+   "new": "order(?:_?by)?",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  },
+  {
+   "label": "759d-M5 (xh1) the filter query value is no longer stripped before the signal check, so it can spoof manifest_url/download_path",
+   "file": "bulk_downloader/detect.py",
+   "old": "_candidate_filter.positive_signals(cleaned_url, ",
+   "new": "_candidate_filter.positive_signals(href, ",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_escape_xh1_manifest_value_in_filter_query_does_not_spoof_signal"
+  },
+  {
+   "label": "759d-M6 (deep O809) the bracket suffix is no longer allowed on filter/facets/sort/order keys",
+   "file": "bulk_downloader/detect.py",
+   "old": "(?:\\[.*\\])?$\", re.I)",
+   "new": "$\", re.I)",
+   "direction": "regression",
+   "catcher": "tests/test_row759dc_deep.py::test_bracketed_filter_query_keys_are_refused_as_listing_filters[/en/videos/?filter%5Bquality%5D=2160p]"
+  }
+ ]
+}
