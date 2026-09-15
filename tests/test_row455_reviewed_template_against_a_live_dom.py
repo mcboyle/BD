@@ -383,3 +383,248 @@ def test_an_unavailable_subject_is_unknown_and_never_ok(tmp_path: Path):
     assert missing["verdict"] == "UNKNOWN", missing["verdict"]
     assert missing["ok"] is False, missing
     assert missing["selector_count"] == 19, missing["selector_count"]
+
+
+# --- the authenticated half of row 455 ------------------------------------
+#
+# Everything above measures the LOGGED-OUT live page, and it is honest about
+# what that page cannot decide: four of the five reviewed kinds come back
+# UNKNOWN because their subject does not exist behind a login wall.  Row 455's
+# acceptance is not "say UNKNOWN nicely", it is ADJUDICATE EVERY KIND, and that
+# needs a subject a logged-out navigation can never produce.
+#
+# The second subject is the operator harness's own AUTHENTICATED live capture:
+# a real browser, logged in on host test2 with the campaign's configured
+# reptyle credentials, navigated to a scene page and left with the "SELECT
+# DOWNLOAD QUALITY" modal open, and the rendered document saved.  It was made
+# inert with tools/build_recorded_dom_fixture.py, scrubbed of its two signed
+# artifacts (a Cloudflare Stream playback JWT and a CacheFly signed path
+# segment) by zero-entropy fill, and the scrub is proven measurement-preserving:
+# all 19 counts are identical before and after.
+#
+# The two subjects are complementary and neither is sufficient alone -- the
+# login kind exists only on the logged-out page and the other four exist only
+# behind the login -- so the adjudication is stated across BOTH and every kind
+# is decided exactly once.
+_AUTH = "reptyle_live_authenticated_scene"
+
+# In-browser counts for the authenticated subject (19 selectors).  A count, not
+# a boolean: 0 is a measurement here, and so is 7.
+_AUTH_COUNTS: dict[str, int] = {
+    "learned.download.row_selectors.[0]": 1,
+    "learned.download.row_selectors.[1]": 1,
+    "learned.download.row_selectors.[2]": 1,
+    "learned.download.row_selectors.[3]": 3,
+    "learned.download.trigger_selectors.[0]": 1,
+    "learned.download.trigger_selectors.[1]": 2,
+    "learned.download.trigger_selectors.[2]": 0,
+    "learned.download.trigger_selectors.[3]": 0,
+    "learned.download.trigger_selectors.[4]": 0,
+    "learned.download.trigger_selectors.[5]": 0,
+    "learned.download.trigger_selectors.[6]": 0,
+    "learned.download.trigger_selectors.[7]": 0,
+    "learned.download.trigger_selectors.[8]": 0,
+    "learned.download.trigger_selectors.[9]": 0,
+    "learned.login.user_field": 0,
+    "learned.login.pass_field": 0,
+    "learned.login.submit_btn": 0,
+    "learned.player.player_selectors.[0]": 7,
+    "learned.player.player_selectors.[1]": 2,
+}
+
+# Which subject decides which kind.  "UNKNOWN" stays a verdict, not a gap: the
+# login kind is UNKNOWN on an authenticated page for the same A7 reason the
+# player kind is UNKNOWN on the login wall -- its subject is not there.
+_AUTH_KIND_VERDICT: dict[str, str] = {
+    "login": "UNKNOWN",
+    "player": "DECIDED",
+    "quality": "DECIDED",
+    "download.trigger": "DECIDED",
+    "download.row_selectors": "DECIDED",
+}
+
+# The reviewed quality selectors in probe shape: open_menu, then the eight
+# resolution options the adapter expands from the {resolution} placeholder.
+_QUALITY_OPEN_MENU = "learned.download.trigger_selectors.[1]"
+_QUALITY_RESOLUTIONS = tuple(
+    f"learned.download.trigger_selectors.[{i}]" for i in range(2, 10)
+)
+
+
+def _auth_provenance() -> dict:
+    path = _FIXTURES / f"{_AUTH}.provenance.json"
+    assert path.is_file(), f"precondition: authenticated provenance absent: {path}"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _auth_bytes() -> bytes:
+    path = _FIXTURES / f"{_AUTH}.html"
+    assert path.is_file(), f"precondition: authenticated fixture absent: {path}"
+    raw = path.read_bytes()
+    assert raw, f"precondition: authenticated fixture is empty: {path}"
+    prov = _auth_provenance()
+    assert hashlib.sha256(raw).hexdigest() == prov["output_sha256"], (
+        f"authenticated fixture {_AUTH} no longer matches its captured digest"
+    )
+    assert len(raw) == prov["output_bytes"], (len(raw), prov["output_bytes"])
+    return raw
+
+
+def _auth_report() -> dict:
+    _auth_bytes()  # digest precondition before the subject is rendered
+    return _report_for(str(_FIXTURES / f"{_AUTH}.html"))
+
+
+def test_the_authenticated_fixture_is_a_live_capture_taken_with_a_session():
+    prov = _auth_provenance()
+    assert prov["source"] == "LIVE capture, not a replay", prov["source"]
+    assert prov["capture_url"].startswith("https://app.reptyle.com/movies/"), prov
+    assert prov["session"].startswith("AUTHENTICATED"), prov["session"]
+    assert prov["capture_host"].startswith("test2"), prov["capture_host"]
+    assert prov["template_sha256"] == hashlib.sha256(
+        _TEMPLATE.read_bytes()
+    ).hexdigest(), "the reviewed template moved after the authenticated capture"
+    # No signed artifact survives, and the scrub that removed them did not move
+    # a single count -- otherwise the fixture measures the scrubber, not a site.
+    assert prov["scrub"]["bd_scan_artifact_secrets_after"] == [], prov["scrub"]
+    assert prov["scrub"]["cloudflare_stream_jwt_zeroed"] == 1, prov["scrub"]
+    assert prov["scrub"]["cachefly_signed_segments_zeroed"] == 1, prov["scrub"]
+    assert prov["scrub_preserves_measurement"].startswith("all 19"), prov
+    assert len(_auth_bytes()) > 10_000, len(_auth_bytes())
+
+
+def test_the_authenticated_fixture_is_inert():
+    text = _auth_bytes().decode("utf-8")
+    assert "<script" not in text.lower(), "fixture carries executable markup"
+    assert "<noscript" not in text.lower(), "fixture carries noscript markup"
+    assert _auth_provenance()["inert_tags_pruned"] > 0
+
+
+def test_an_edited_authenticated_fixture_cannot_pass_as_the_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Same guard as the logged-out fixture, exercised on this one."""
+    prov = _auth_provenance()
+    raw = _auth_bytes()
+    tampered = bytearray(raw)
+    tampered[len(tampered) // 2] ^= 0x20
+    assert len(tampered) == prov["output_bytes"], "control must differ only in content"
+    staged = tmp_path / "row455auth"
+    staged.mkdir()
+    (staged / f"{_AUTH}.html").write_bytes(bytes(tampered))
+    (staged / f"{_AUTH}.provenance.json").write_text(json.dumps(prov), encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "_FIXTURES", staged)
+    assert _FIXTURES == staged, "precondition: the guard was not repointed"
+    with pytest.raises(AssertionError, match="no longer matches its captured digest"):
+        _auth_bytes()
+
+
+def test_the_authenticated_subject_really_carries_the_download_modal():
+    """The shape precondition, asserted BEFORE any verdict is read off it.
+
+    A capture that never opened the modal would make every DECIDED below
+    vacuous: the four row selectors would be absent for a boring reason and the
+    gate would still be green. The unqualified modal family resolving THREE
+    buttons is the proof the modal is present and populated.
+    """
+    report = _auth_report()
+    assert report["selector_count"] == 19, report["selector_count"]
+    assert _row(report, "learned.download.row_selectors.[3]")["count"] == 3, report
+    assert _row(report, "learned.download.trigger_selectors.[0]")["count"] == 1, report
+
+
+@pytest.mark.parametrize("path_suffix,expected", sorted(_AUTH_COUNTS.items()))
+def test_the_authenticated_dom_resolves_each_selector_with_its_measured_count(
+    path_suffix: str, expected: int
+):
+    row = _row(_auth_report(), path_suffix)
+    assert row["count"] == expected, (path_suffix, row)
+
+
+def test_the_authenticated_dom_decides_the_four_kinds_the_login_wall_could_not():
+    report = _auth_report()
+    # Nothing is UNKNOWN here: the trigger resolved, so the modal-scoped rows
+    # were measurable and the verifier never had to say "could not look".
+    assert report["verdict"] == "HIT", report["verdict"]
+    assert report["ok"] is True, report["ok"]
+    assert {row["status"] for row in report["selectors"]} == {"HIT", "MISS"}, report
+    for index in range(4):
+        row = _row(report, f"learned.download.row_selectors.[{index}]")
+        assert row["status"] == "HIT", (index, row)
+        assert row["error"] == "", (index, row)
+    assert _row(report, "learned.download.trigger_selectors.[0]")["status"] == "HIT"
+    for suffix in ("learned.player.player_selectors.[0]",
+                   "learned.player.player_selectors.[1]"):
+        assert _row(report, suffix)["status"] == "HIT", suffix
+
+
+def test_the_quality_kind_is_decided_and_its_misses_are_the_reviewed_reason():
+    """quality is DECIDED, and a MISS here is a finding, not a failure.
+
+    open_menu resolves the two quality controls. The eight resolution options
+    the adapter expands from ``{resolution}`` resolve ZERO on a populated modal
+    -- exactly what the reviewed template's own row-126 note predicts, because
+    each button's text is Standard/High/Ultra and the 720p/1080p/2160p label
+    lives in a SIBLING div. The modal-scoped replacements resolve 1 each, so the
+    tier really is offered; only the placeholder-shaped selector cannot see it.
+    """
+    report = _auth_report()
+    assert _row(report, _QUALITY_OPEN_MENU)["count"] == 2, report
+    missed = [s for s in _QUALITY_RESOLUTIONS if _row(report, s)["count"] == 0]
+    assert len(missed) == 8, missed
+    for suffix in _QUALITY_RESOLUTIONS:
+        assert _row(report, suffix)["status"] == "MISS", suffix
+    for index, expected_tier in enumerate(("2160p", "1080p", "720p")):
+        row = _row(report, f"learned.download.row_selectors.[{index}]")
+        assert row["count"] == 1, (expected_tier, row)
+        assert expected_tier in row["selector"], (expected_tier, row)
+
+
+def test_every_reviewed_kind_is_decided_across_the_two_live_subjects():
+    """Row 455's acceptance, stated as one exact count.
+
+    Five reviewed kinds; each is decided by exactly one of the two live
+    subjects and by the other not at all; nothing is left UNKNOWN anywhere.
+    """
+    assert sorted(_KIND_VERDICT) == sorted(_AUTH_KIND_VERDICT), (
+        sorted(_KIND_VERDICT), sorted(_AUTH_KIND_VERDICT)
+    )
+    decided = {
+        kind
+        for kind in _KIND_VERDICT
+        if "DECIDED" in (_KIND_VERDICT[kind], _AUTH_KIND_VERDICT[kind])
+    }
+    assert len(decided) == 5, sorted(decided)
+    assert decided == set(_KIND_VERDICT), sorted(set(_KIND_VERDICT) - decided)
+    # ...and exactly one subject decides each, so no kind is double-counted.
+    both = [
+        kind
+        for kind in _KIND_VERDICT
+        if _KIND_VERDICT[kind] == _AUTH_KIND_VERDICT[kind] == "DECIDED"
+    ]
+    assert both == [], both
+    assert _AUTH_KIND_VERDICT["login"] == "UNKNOWN"
+    assert _KIND_VERDICT["login"] == "DECIDED"
+
+
+def test_the_login_wall_cannot_manufacture_the_authenticated_decision():
+    """Negative control: the same four kinds must fail for the intended reason.
+
+    Not "some other page gives other numbers" -- the SAME probe on the SAME
+    resolver against the logged-out live capture must leave every one of the
+    four authenticated kinds unmeasurable, and the reason must be the one the
+    verifier names, ``no uniquely resolved download trigger``.
+    """
+    wall = _live_report()
+    assert wall["verdict"] == "UNKNOWN", wall["verdict"]
+    for index in range(4):
+        row = _row(wall, f"learned.download.row_selectors.[{index}]")
+        assert row["status"] == "UNKNOWN", (index, row)
+        assert row["error"] == _TRIGGER_UNAVAILABLE, (index, row)
+    assert _row(wall, "learned.download.trigger_selectors.[0]")["count"] == 0
+    for suffix in ("learned.player.player_selectors.[0]",
+                   "learned.player.player_selectors.[1]"):
+        assert _row(wall, suffix)["count"] == 0, suffix
+    assert _row(wall, _QUALITY_OPEN_MENU)["count"] == 0
+    # ...and the control is a real page, not an empty one: it decides login.
+    assert _row(wall, "learned.login.user_field")["count"] == 1

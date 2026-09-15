@@ -1,0 +1,30 @@
+{
+  "capture_bytes": 200350,
+  "capture_generator": "operator campaign harness (real Chrome + persistent profile), bd-persist/campaign/reptyle/scene-dom.html",
+  "capture_host": "test2 10.0.70.95",
+  "capture_sha256": "10dc3dde39d31a91fbdbcb0614bff6d1c8caed5daae8a62ee3fa0c4e9211454c",
+  "capture_url": "https://app.reptyle.com/movies/31551",
+  "captured_at_utc": "2026-09-06T03:28:00Z",
+  "inert_generator": "tools/build_recorded_dom_fixture.py (route page_html)",
+  "inert_tags_pruned": 35,
+  "output": "reptyle_live_authenticated_scene.html",
+  "output_bytes": 177855,
+  "output_sha256": "8420b608b92be4b41fc1c7893411a9be1e814c3be5594d8be80e2158e26e4c1a",
+  "repo_head": "367f0f425237985116a373823795a3e2c005b3c4",
+  "row": 455,
+  "scrub": {
+    "bd_scan_artifact_secrets_after": [],
+    "bd_scan_artifact_secrets_before": [
+      "jwt",
+      "userinfo"
+    ],
+    "cachefly_signed_segments_zeroed": 1,
+    "cloudflare_stream_jwt_zeroed": 1,
+    "external_font_query_stripped": 1,
+    "method": "zero-entropy fill, 0 repeated to the matched run's length"
+  },
+  "scrub_preserves_measurement": "all 19 selector counts identical before and after (verified against the unscrubbed capture with the same probe and resolver)",
+  "session": "AUTHENTICATED -- operator-harness login (site c9e488f8) on test2; the scene page was reached logged in and left with the SELECT DOWNLOAD QUALITY modal open",
+  "source": "LIVE capture, not a replay",
+  "template_sha256": "7c4b29b875f80b6c2a813fa2ee87c358be6d61fb95e2ab476296026e2facc5ae"
+}
