@@ -233,7 +233,15 @@
     {
       "label": "unpin bulk_downloader/runner.py::_scrape_listing_urls",
       "file": "bulk_downloader/runner.py",
-      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "old_regex": "(?<=transport)(?==guarded_transport\\(PUBLIC_ONLY, proxy=_cp_proxy\\))",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner.py::_pending_url_ranker_accepts_media",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\(PUBLIC_ONLY, proxy=proxy\\))",
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"

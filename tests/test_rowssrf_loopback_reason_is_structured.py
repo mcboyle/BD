@@ -76,7 +76,10 @@ _EXPECTED_RUNTIME_CONSUMERS = {
         "_is_safe_public_host": 2,
         "_classify_ip": 3,
     },
-    "bulk_downloader/runner.py": {"_is_safe_public_host": 1},
+    # ROW 776d. The second site is the ranker helper's pending-URL pre-fetch
+    # guard, same decision shape as the listing scrape below: `ok, reason =
+    # ...` then `if not ok:`; the reason is discarded, never compared.
+    "bulk_downloader/runner.py": {"_is_safe_public_host": 2},
     "bulk_downloader/runner_extractors.py": {"_is_safe_public_host": 1},
     "bulk_downloader/runner_telemetry.py": {"_is_safe_public_host": 1},
     "bulk_downloader/selector_playground.py": {
@@ -897,8 +900,8 @@ def test_runtime_consumer_census_judges_every_site_without_english_decisions():
     }
     assert measured == expected
     assert noncanonical == expected_noncanonical
-    assert sum(sum(counts.values()) for counts in measured.values()) == 31
-    assert judged == 31
+    assert sum(sum(counts.values()) for counts in measured.values()) == 32
+    assert judged == 32
     _assert_consumer_verdict(judged, escapes)
 
 
@@ -927,9 +930,9 @@ def test_consumer_census_rejects_reason_text_startswith_decision(monkeypatch):
         f"bulk_downloader/app_template.py:{mutant_line}:"
         "_host_why:startswith:['refusing']")
     assert observed == [target]
-    assert judged == 31
+    assert judged == 32
     assert escapes == [expected]
-    with pytest.raises(AssertionError, match=r"census 31 sites, 31 judged"):
+    with pytest.raises(AssertionError, match=r"census 32 sites, 32 judged"):
         _assert_consumer_verdict(judged, escapes)
 
 
@@ -974,7 +977,7 @@ def test_consumer_census_rejects_every_reason_text_decision_form(
     expected = (
         f"bulk_downloader/app_template.py:{mutant_line}:"
         f"_host_why:{kind}:{expected_strings!r}")
-    assert judged == 31
+    assert judged == 32
     assert escapes == [expected]
 
 
@@ -1016,7 +1019,7 @@ def test_consumer_census_resolves_alias_and_ignores_unreachable_decoy(
         "_host_why:in:['refusing']")
     assert measured["bulk_downloader/app_template.py"] == Counter(
         {"_is_safe_public_host": 3, "_classify_ip": 1})
-    assert judged == 31
+    assert judged == 32
     assert escapes == [expected_escape]
 
 
@@ -1051,7 +1054,7 @@ def test_consumer_census_finds_alias_only_consumer_in_new_file(monkeypatch):
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     measured, _noncanonical, judged, escapes = _consumer_census()
     assert measured[synthetic_rel] == Counter({"_is_safe_public_host": 1})
-    assert judged == 32
+    assert judged == 33
     assert escapes == []
 
 
@@ -1104,7 +1107,7 @@ def test_consumer_census_rejects_text_decisions_in_indirect_consumers(
 
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     _measured, _noncanonical, judged, escapes = _consumer_census()
-    assert judged == 31
+    assert judged == 32
     assert len(escapes) == 5
     assert Counter(item.split(":", 1)[0] for item in escapes) == Counter({
         "bulk_downloader/multi_conn.py": 2,

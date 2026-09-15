@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1554 - Train15a: row776rp2 accepted-media ranker passes httpx.Cookies(jar) so domain/path-scoped cookies reach the target URL
+
+Train: 1 refute-first-reviewed worker patches.
+
+- row776rp2 (A20-A fix-in-place of the A2-A REFUTE): `_pending_url_ranker_accepts_media` passes `httpx.Cookies(jar)` instead of a flattened `{name: value}` dict, so the MozillaCookieJar scopes cookies by domain/path for the actual target URL; accepted media no longer lands in needs_review. Tests + mutant anchor `row776_accepted_media_skips_needs_review`.
+
 ## v3.66.1553 - train14b: H156 + row803b
 
 Train: 2 refute-first-reviewed worker patches.
