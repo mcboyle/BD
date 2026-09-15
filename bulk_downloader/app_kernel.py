@@ -432,6 +432,12 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # resume a whole library, while the default action remains cheap
             # newest-N discovery.
             "crawler_listing_url",
+            # Row 780: the bare listing_url fallback that _site_primary_url
+            # (app.py) consults when a site has no crawler_listing_url --
+            # was missing here, so the CFG_FIELDS-filtered import/reload
+            # round-trip silently dropped it while crawler_listing_url,
+            # which was already listed, survived.
+            "listing_url",
             "crawler_newest_n",
             "crawler_max_pages",
             "crawler_max_scrolls",
@@ -820,6 +826,8 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # ROW 374: GUI discovery defaults.  Zero newest_n is the explicit
           # whole-library mode; 50 is the intentionally cheap default.
           "crawler_listing_url": "",
+          # Row 780: default for the bare fallback key added to CFG_FIELDS above.
+          "listing_url": "",
           "crawler_newest_n": 50,
           "crawler_max_pages": 5,
           "crawler_max_scrolls": 8,

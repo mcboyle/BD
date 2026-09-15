@@ -50,6 +50,7 @@ def db_init():
             honeypot_score REAL DEFAULT NULL,
             bytes_fetched INTEGER DEFAULT NULL,
             transfer_mode TEXT DEFAULT NULL,
+            egress_ip TEXT NOT NULL DEFAULT 'UNKNOWN',
             ts TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))""")
         # Phase 4: persist the live queue. Any pending/running/stopped/
         # needs_review job is mirrored here so a restart picks up exactly
@@ -1398,12 +1399,20 @@ def db_log(site_id, site_name, url, status, filename="", file_size=0, message=""
     None) persists the resolve-time honeypot score onto the row so the
     per-site threshold learner can later quantile-fit confirmed traps.
     Default None → column stays NULL, byte-for-byte compatible with prior
-    callers."""
+    callers.
+
+    Row 773: every row carries ``egress_ip`` -- the public IP the site's
+    current carrier was last measured to exit through, or exactly "UNKNOWN"
+    (never NULL/empty) -- so a 474 from an IP-signed CDN can be attributed
+    to its carrier. Resolved here from the site's bound carrier
+    (egress_identity.egress_ip_for_site); callers pass nothing."""
+    from .egress_identity import egress_ip_for_site
+    egress_ip = egress_ip_for_site(site_id)
     with db_conn() as cx:
         try:
-            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score,bytes_fetched,transfer_mode) "
-                       "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score, bytes_fetched, transfer_mode))
+            cur = cx.execute("INSERT INTO history(site_id,site_name,url,status,filename,file_size,message,screenshot,honeypot_score,bytes_fetched,transfer_mode,egress_ip) "
+                       "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (site_id, site_name, url, status, filename, file_size, message, screenshot, honeypot_score, bytes_fetched, transfer_mode, egress_ip))
             history_id = cur.lastrowid
         except Exception as _ins_exc:
             # F3: a 'done' row records a download that already succeeded on

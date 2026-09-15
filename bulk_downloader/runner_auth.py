@@ -9,6 +9,7 @@ import functools, math, sys, threading, time
 
 from .db import db_log, session_event_record
 from .login import do_login
+from . import cloak as _cloak
 from .cookies import cookies_expiry_info
 from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE
 
@@ -197,6 +198,15 @@ def _admit_takeover(config: dict, active_count: int):
     return (headless, effective, reason)
 
 
+def _surface_login_channel_fallbacks(runner):
+    """Row 723: put the real-Chrome degradation a login flow the runner owns
+    left in cloak's ledger into that site's run record, as soon as the flow
+    returns. BrowserMixin owns the drain; a host composed without it (a bare
+    AuthMixin carrier) has no run record to surface into and drains nothing."""
+    drain=getattr(runner,"_surface_pending_channel_fallbacks",None)
+    return drain() if drain is not None else 0
+
+
 class AuthMixin:
     @_auth_start_guard(lambda: "Site runtime is being deleted", on_retired=_resolve_retired_login)
     def login_async(self,on_done=None,allow_manual=True):
@@ -340,7 +350,12 @@ class AuthMixin:
                     sys.stderr.write(
                         f"[{self.site_id}] login_async: pause_site_keepers "
                         f"raised (proceeding anyway): {_e}\n")
-                result=do_login(self.config,allow_manual_takeover=allow_manual)
+                # Row 723: this runner owns the flow -- a real-Chrome
+                # degradation inside it is filed under this site and put
+                # in this run record as soon as the flow returns.
+                with _cloak.owning_site(self.site_id):
+                    result=do_login(self.config,allow_manual_takeover=allow_manual)
+                _surface_login_channel_fallbacks(self)
                 # Manual takeover branch: store handle, set state, return
                 if result and result[0]=="MANUAL_PENDING":
                     _,reason,handle=result
@@ -565,9 +580,12 @@ class AuthMixin:
             sys.stderr.write(f"  manual_login: keeper pause failed "
                               f"({e}); continuing anyway\n")
         try:
-            handle = open_manual_login_browser(self.config, manual_profile_dir=manual_profile)
+            with _cloak.owning_site(self.site_id):   # row 723
+                handle = open_manual_login_browser(self.config, manual_profile_dir=manual_profile)
         except Exception as e:
+            _surface_login_channel_fallbacks(self)
             return False, f"Couldn't open browser: {str(e)[:120]}"
+        _surface_login_channel_fallbacks(self)
         if not handle:
             return False, "Browser open returned no handle"
         self._manual_login_handle = handle
@@ -1027,9 +1045,10 @@ class AuthMixin:
             sys.stderr.write(f"  verify: keeper pause failed ({e}); "
                               "continuing anyway\n")
         try:
-            result = verify_login_replay(
-                self.config, profile_dir, member_url=member_url,
-                timeout=20.0)
+            with _cloak.owning_site(self.site_id):   # row 723
+                result = verify_login_replay(
+                    self.config, profile_dir, member_url=member_url,
+                    timeout=20.0)
         except Exception as e:
             result = {
                 "replay_ok": False, "replay_ms": 0,
@@ -1041,6 +1060,7 @@ class AuthMixin:
                 "cookies_expire_in_days": None,
                 "summary": f"Verify failed to run: {type(e).__name__}",
             }
+        _surface_login_channel_fallbacks(self)   # row 723
         self._last_verify_result = result
         return result
     def get_last_verify_result(self):

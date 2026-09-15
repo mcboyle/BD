@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 723 residual TRANSFORM CONTROL. MUST ESCAPE: M1's transform (the login submit recovered note removed) banded on the resolution-table node, which imports cloak and never drives do_login. A CAUGHT here would mean the row723 CAUGHTs are import/compile breakage, not assertion failures.",
+  "subject": "control -- proves the row723-residual CAUGHTs are assertion failures, not import errors",
+  "band": [
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_site_id_resolution_is_one_helper_in_cloak"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL: M1 login submit: the RECOVERED retry files no note (stderr only, as on base) -- MUST ESCAPE",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^                )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=_cloak\\.ledger_site_id\\(config\\), flow=\"login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e\\)\\.__name__\\}: \\{e\\}\",\\n\\s+recovered=True\\))",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_site_id_resolution_is_one_helper_in_cloak"
+    }
+  ]
+}

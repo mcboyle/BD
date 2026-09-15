@@ -742,10 +742,25 @@ def do_login(config, allow_manual_takeover=False):
                 headless=False, args=launch_args, config=config, **login_extra)
         except Exception as e:
             if login_extra.get("channel"):
+                # Row 723: the retry is a degradation of THIS site's login
+                # (a different browser fingerprint than it asked for), so it
+                # is filed in cloak's ledger under the site that owns the
+                # flow -- the stderr line alone reaches no run record.
                 sys.stderr.write(f"  login: system Chrome unavailable ({str(e)[:60]}); using bundled\n")
-                login_extra.pop("channel",None)
-                browser, pw, backend = _cloak.launch_browser(
-                    headless=False, args=launch_args, config=config, **login_extra)
+                _ch=login_extra.pop("channel",None)
+                try:
+                    browser, pw, backend = _cloak.launch_browser(
+                        headless=False, args=launch_args, config=config, **login_extra)
+                except Exception as e2:
+                    _cloak.note_channel_fallback(
+                        site_id=_cloak.ledger_site_id(config), flow="login",
+                        channel=str(_ch), error=f"{type(e2).__name__}: {e2}",
+                        recovered=False)
+                    raise
+                _cloak.note_channel_fallback(
+                    site_id=_cloak.ledger_site_id(config), flow="login",
+                    channel=str(_ch), error=f"{type(e).__name__}: {e}",
+                    recovered=True)
             else:
                 raise
         _cloak.log_choice("login", backend, "non-persistent")

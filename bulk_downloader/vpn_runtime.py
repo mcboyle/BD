@@ -56,6 +56,8 @@ import time
 from contextlib import contextmanager
 from typing import Callable, Optional
 
+from .egress_identity import bind_site_carrier
+
 
 # ─── Module state ───────────────────────────────────────────────────
 
@@ -505,6 +507,10 @@ def playwright_proxy_for_site(site_id: str) -> Optional[dict]:
     accepts SOCKS5 with the socks5:// scheme.
     """
     url = get_socks_url_for_site(site_id)
+    # Row 773: the browser's carrier is bound to the site here (the download
+    # clients bind theirs in download_egress.effective_download_proxy), so a
+    # login record can carry the tunnel's measured exit IP.
+    bind_site_carrier(site_id, url or None)
     if not url:
         return None
     return {"server": url}

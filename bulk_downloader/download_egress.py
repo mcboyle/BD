@@ -22,6 +22,8 @@ import threading
 from typing import Callable, Optional
 from urllib.parse import urlsplit
 
+from .egress_identity import bind_site_carrier
+
 
 _PROXY_ENV_VARS = (
     "http_proxy", "https_proxy", "all_proxy", "no_proxy", "ftp_proxy",
@@ -327,8 +329,11 @@ def effective_download_proxy(
             client. The payload bytes never touch the clear interface.
     """
     explicit = (explicit_proxy or "").strip()
+    # Row 773: whichever carrier wins is bound to the site here, the one
+    # place every download client passes through, so db_log can stamp the
+    # record with that carrier's measured exit IP without any caller changing.
     if explicit:
-        return explicit
+        return bind_site_carrier(site_id, explicit)
     if socks_for_site is None:
-        return None
-    return socks_for_site(site_id)
+        return bind_site_carrier(site_id, None)
+    return bind_site_carrier(site_id, socks_for_site(site_id))

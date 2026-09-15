@@ -4736,6 +4736,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # find_best_download wide-scan + scoring path and use the
             # variant the user's quality_preference selects.
             # Fail-open — on any error fall through to teach path.
+            # Extractor completions return before the transport boundary,
+            # where ordinary downloads capture the settled page title.  Keep
+            # that metadata handoff at the shared page-extractor boundary so
+            # a successful Vixen (or another page extractor) history row can
+            # retain the website title without inventing one from its file.
+            try:
+                self._capture_website_title(page, url)
+            except Exception:
+                pass
             if self.config.get("use_aylo_extractor", True) and \
                _AYLO_AVAILABLE and _aylo is not None and \
                _aylo.is_aylo_url(url):

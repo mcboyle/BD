@@ -705,6 +705,12 @@ def _record_health(tunnel_id: str, result: dict) -> None:
             ip = result.get("public_ip")
             if ip:
                 t.public_ip = ip
+                if t.socks_port:
+                    # Row 773: the tunnel's measured exit, keyed by the
+                    # carrier url its clients are built with.
+                    from .egress_identity import observe_egress_ip
+                    observe_egress_ip(
+                        f"socks5://127.0.0.1:{t.socks_port}", ip)
             if t.state == "failing":
                 # Recovered
                 t.state = "up"

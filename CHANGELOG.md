@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1551 - Train12: row773rp2 login/history egress_ip; row753/807/723/778/780 re-derive closures
+
+Train: 6 refute-first-reviewed worker patches. Benign ratchet ceiling re-pinned (coupling_ratio 0.379->0.38, defect_DP_total 1365->1367) per O732/O733.1 -- added-code metric ceilings, not product behaviour; carried, not blocked.
+
+- 773rp2 (13 paths, login/egress): history and login records now carry an egress identity (egress_ip measured, or UNKNOWN when it cannot be observed) instead of dropping it; gate tests/test_row773_records_carry_egress_identity.py. Supersedes row773-A14-A, board carried per O733.2 (clean 3-way re-prep).
+- 753 (T2, O662/O664): premise re-derived and SURVIVED on 1/3 canonical samples, so cut; tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py asserts the abandoned-reap contract.
+- 807 (T2): tests/_run_context.py::outcome now takes the no-stats UNKNOWN branch for stats={} and stats={"": [r]} (the loop skips the empty key) instead of recording a clean run it never wrote; gate tests/test_row807_empty_stats_is_unknown_not_clean.py; negative control keeps observed stats recorded with exact counts.
+- 723 (chrome-fallback, fleet re-derived 2026-09-15): a login-flow channel fallback is now filed under its own site instead of a fleet residual; gate tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py + mutant catchers.
+- 778 (T2): extractor completion harvests document.title (title_source=document.title); an empty document.title records exactly empty, never a URL- or filename-derived title; gate tests/test_row778_extractor_completion_harvests_document_title.py.
+- 780rp: sites-config listing URL now round-trips through app_kernel + Settings Center wiring; gate tests/test_row780_sites_config_listing_url_round_trip.py. Supersedes row780-rebase-822b7330.
+
 ## v3.66.1550 - Train11: row697 deploy.sh distinguishes UNLOCK-PENDING vault state from missing-credentials at deploy health
 
 Train: 1 refute-first-reviewed worker patch.

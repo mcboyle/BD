@@ -402,10 +402,10 @@ Schema version: 2
   - L0181 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
   - L0202 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
   - L0234 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0255 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L0449 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L0468 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L0489 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L0262 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L0463 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L0482 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L0503 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
 ```
 
 
@@ -509,39 +509,40 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (30 entries)
+## `bulk_downloader/runner_auth.py` (31 entries)
 
 ```
-- L0016 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0039 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
-- L0061 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
-- L0073 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0084 `_truthy` `[private]`
-- L0094 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0100 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0110 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0125 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0134 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0149 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0181 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0200 `AuthMixin` `[class]`
-  - L0202 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0440 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0487 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0610 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0638 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0747 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0791 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L0996 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1046 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1051 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1066 `AuthMixin.is_awaiting_manual_login`
-  - L1068 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1090 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1169 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1177 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1242 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1297 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0017 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0040 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
+- L0062 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0074 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0085 `_truthy` `[private]`
+- L0095 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0101 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0111 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0126 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0135 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0150 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0182 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0201 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
+- L0210 `AuthMixin` `[class]`
+  - L0212 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0455 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0502 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0628 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0656 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0765 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0809 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1014 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1066 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1071 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1086 `AuthMixin.is_awaiting_manual_login`
+  - L1088 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1110 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1189 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1197 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1262 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1317 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -598,119 +599,119 @@ Schema version: 2
 ```
 - L0023 `_resolve_db_path` `[private]` — v3.66.9: pick the right DB path at call time, not import time.
 - L0044 `db_init`
-- L0214 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
-- L0236 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
-- L0274 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
-- L0309 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
-- L0340 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
-- L0378 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
-  - L0389 `_PgResultCursor.__init__` `[dunder]`
-  - L0394 `_PgResultCursor.fetchall`
-  - L0398 `_PgResultCursor.fetchone`
-  - L0405 `_PgResultCursor.fetchmany`
-  - L0410 `_PgResultCursor.__iter__` `[dunder]`
-  - L0413 `_PgResultCursor.__getattr__` `[dunder]`
-- L0417 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
-  - L0441 `_DualWriteConn.__init__` `[dunder]`
-  - L0444 `_DualWriteConn.execute`
-  - L0461 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
-  - L0475 `_DualWriteConn.executemany`
-  - L0483 `_DualWriteConn.cursor`
-  - L0487 `_DualWriteConn.__getattr__` `[dunder]`
-  - L0490 `_DualWriteConn.__setattr__` `[dunder]`
-  - L0493 `_DualWriteConn.__enter__` `[dunder]`
-  - L0497 `_DualWriteConn.__exit__` `[dunder]`
-- L0501 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
-  - L0504 `_DualWriteCursor.__init__` `[dunder]`
-  - L0507 `_DualWriteCursor.execute`
-  - L0520 `_DualWriteCursor.executemany`
-  - L0528 `_DualWriteCursor.__getattr__` `[dunder]`
-  - L0531 `_DualWriteCursor.__setattr__` `[dunder]`
-  - L0534 `_DualWriteCursor.__iter__` `[dunder]`
-- L0538 `_HistoryCursor` `[private]` — Cursor whose owning history connection can finalize a logical lease.
-  - L0541 `_HistoryCursor.close`
-- L0550 `_HistoryConnection` `[private]` — SQLite connection that tracks cursors created during a logical lease.
-  - L0570 `_HistoryConnection.__init__` `[dunder]`
-  - L0580 `_HistoryConnection._begin_lease` `[private]`
-  - L0583 `_HistoryConnection._end_lease` `[private]`
-  - L0586 `_HistoryConnection._require_lease` `[private]`
-  - L0593 `_HistoryConnection.cursor`
-  - L0603 `_HistoryConnection.execute`
-  - L0606 `_HistoryConnection.executemany`
-  - L0609 `_HistoryConnection.executescript`
-  - L0612 `_HistoryConnection.commit`
-  - L0616 `_HistoryConnection.rollback`
-  - L0620 `_HistoryConnection._close_lease_cursors` `[private]`
-  - L0625 `_HistoryConnection._force_close` `[private]` — Physically close. The pool's path; never guarded by the lease.
-  - L0632 `_HistoryConnection.close`
-- L0639 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
-- L0724 `_close_history_conn` `[private]` — Physically close a handle the POOL owns.
-- L0741 `_begin_history_lease` `[private]`
-- L0747 `_end_history_lease` `[private]`
-- L0753 `_finish_history_lease` `[private]` — Finalize cursors before an otherwise-clean connection is cached.
-- L0764 `_reset_slow_query_trace` `[private]`
-- L0774 `_slow_query_config_token` `[private]` — Cheap in-process marker for "the parsed global config was replaced".
-- L0792 `_bind_slow_query_trace` `[private]` — (Re)configure this physical connection's slow-query tracer.
-- L0819 `_refresh_slow_query_trace` `[private]` — Apply a Settings write to a POOLED connection without polling.
-- L0835 `_history_file_identity` `[private]` — Return the named database inode, or None before first creation.
-- L0847 `_open_history_conn_bound` `[private]` — Open the history database and bind the handle to a PROVEN inode.
-- L0879 `db_conn` — Lease a thread-affine history connection and preserve commit boundaries.
-- L0989 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
-- L1010 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
-- L1030 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
-- L1079 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
-- L1089 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
-- L1132 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
-- L1162 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
-- L1183 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
-- L1222 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
-- L1304 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
-- L1330 `db_log` — Append one row to the history table. Called on every job-level
-- L1466 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
-- L1496 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
-- L1534 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
-- L1610 `db_search` — Read recent history rows with optional filters. `query` substring-
-- L1627 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
-- L1669 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent history row
-- L1784 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
-- L1869 `_transfer_proof_sql` `[private]` — The proof predicate for this database's ACTUAL schema, aliased ``h``.
-- L1901 `db_skip_identity` — Is the file already on disk PROVABLY the same work as ``page_url``?
-- L2092 `db_skip_attribution_state` — Measure whether a library path has lost its current history owner.
-- L2121 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L2139 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L2185 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L2345 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L2365 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L2394 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L2432 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L2446 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L2496 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L2540 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L2551 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L2557 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L2563 `queue_delete_site` — Called when a site is removed.
-- L2578 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L2600 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L2624 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L2646 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L2671 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L2722 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L2734 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L2748 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L2761 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L2774 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L2787 `session_event_record` — Append one row to session_history. event_type is one of:
-- L2822 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L2835 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L2883 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L2977 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L2984 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L2995 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L3007 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L3107 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L3120 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L3131 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L3151 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L0215 `_ensure_captures_table` `[private]` — Idempotently create the `captures` table + indices on the given connection.
+- L0237 `db_captures_upsert` — Bulk-upsert capture index rows keyed on rel_path (the PK). Each row is a
+- L0275 `db_captures_all` — Return capture index rows as plain dicts, newest first (captured_at DESC),
+- L0310 `db_captures_prune_missing` — Delete every capture row whose rel_path is NOT in `seen_rel_paths` — how a
+- L0341 `db_integrity_check` — Run PRAGMA integrity_check if it hasn't run in the last 24 hours.
+- L0379 `_PgResultCursor` `[private]` — v3.66.804: cursor-shaped view over Postgres rows for a cut-over read.
+  - L0390 `_PgResultCursor.__init__` `[dunder]`
+  - L0395 `_PgResultCursor.fetchall`
+  - L0399 `_PgResultCursor.fetchone`
+  - L0406 `_PgResultCursor.fetchmany`
+  - L0411 `_PgResultCursor.__iter__` `[dunder]`
+  - L0414 `_PgResultCursor.__getattr__` `[dunder]`
+- L0418 `_DualWriteConn` `[private]` — v3.66.800 (MOD-3 cut 2): SQLite connection wrapper that MIRRORS writes
+  - L0442 `_DualWriteConn.__init__` `[dunder]`
+  - L0445 `_DualWriteConn.execute`
+  - L0462 `_DualWriteConn._shadow` `[private]` — v3.66.801 (MOD-3 cut 3): compare this SELECT against the shadow
+  - L0476 `_DualWriteConn.executemany`
+  - L0484 `_DualWriteConn.cursor`
+  - L0488 `_DualWriteConn.__getattr__` `[dunder]`
+  - L0491 `_DualWriteConn.__setattr__` `[dunder]`
+  - L0494 `_DualWriteConn.__enter__` `[dunder]`
+  - L0498 `_DualWriteConn.__exit__` `[dunder]`
+- L0502 `_DualWriteCursor` `[private]` — Cursor half of the dual-write proxy (see `_DualWriteConn`).
+  - L0505 `_DualWriteCursor.__init__` `[dunder]`
+  - L0508 `_DualWriteCursor.execute`
+  - L0521 `_DualWriteCursor.executemany`
+  - L0529 `_DualWriteCursor.__getattr__` `[dunder]`
+  - L0532 `_DualWriteCursor.__setattr__` `[dunder]`
+  - L0535 `_DualWriteCursor.__iter__` `[dunder]`
+- L0539 `_HistoryCursor` `[private]` — Cursor whose owning history connection can finalize a logical lease.
+  - L0542 `_HistoryCursor.close`
+- L0551 `_HistoryConnection` `[private]` — SQLite connection that tracks cursors created during a logical lease.
+  - L0571 `_HistoryConnection.__init__` `[dunder]`
+  - L0581 `_HistoryConnection._begin_lease` `[private]`
+  - L0584 `_HistoryConnection._end_lease` `[private]`
+  - L0587 `_HistoryConnection._require_lease` `[private]`
+  - L0594 `_HistoryConnection.cursor`
+  - L0604 `_HistoryConnection.execute`
+  - L0607 `_HistoryConnection.executemany`
+  - L0610 `_HistoryConnection.executescript`
+  - L0613 `_HistoryConnection.commit`
+  - L0617 `_HistoryConnection.rollback`
+  - L0621 `_HistoryConnection._close_lease_cursors` `[private]`
+  - L0626 `_HistoryConnection._force_close` `[private]` — Physically close. The pool's path; never guarded by the lease.
+  - L0633 `_HistoryConnection.close`
+- L0640 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
+- L0725 `_close_history_conn` `[private]` — Physically close a handle the POOL owns.
+- L0742 `_begin_history_lease` `[private]`
+- L0748 `_end_history_lease` `[private]`
+- L0754 `_finish_history_lease` `[private]` — Finalize cursors before an otherwise-clean connection is cached.
+- L0765 `_reset_slow_query_trace` `[private]`
+- L0775 `_slow_query_config_token` `[private]` — Cheap in-process marker for "the parsed global config was replaced".
+- L0793 `_bind_slow_query_trace` `[private]` — (Re)configure this physical connection's slow-query tracer.
+- L0820 `_refresh_slow_query_trace` `[private]` — Apply a Settings write to a POOLED connection without polling.
+- L0836 `_history_file_identity` `[private]` — Return the named database inode, or None before first creation.
+- L0848 `_open_history_conn_bound` `[private]` — Open the history database and bind the handle to a PROVEN inode.
+- L0880 `db_conn` — Lease a thread-affine history connection and preserve commit boundaries.
+- L0990 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
+- L1011 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
+- L1031 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
+- L1080 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
+- L1090 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
+- L1133 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
+- L1163 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+- L1184 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+- L1223 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
+- L1305 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
+- L1331 `db_log` — Append one row to the history table. Called on every job-level
+- L1475 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
+- L1505 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
+- L1543 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
+- L1619 `db_search` — Read recent history rows with optional filters. `query` substring-
+- L1636 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
+- L1678 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent history row
+- L1793 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
+- L1878 `_transfer_proof_sql` `[private]` — The proof predicate for this database's ACTUAL schema, aliased ``h``.
+- L1910 `db_skip_identity` — Is the file already on disk PROVABLY the same work as ``page_url``?
+- L2101 `db_skip_attribution_state` — Measure whether a library path has lost its current history owner.
+- L2130 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L2148 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L2194 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L2354 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L2374 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L2403 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L2441 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L2455 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L2505 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L2549 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L2560 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L2566 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L2572 `queue_delete_site` — Called when a site is removed.
+- L2587 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L2609 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L2633 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L2655 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L2680 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L2731 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L2743 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L2757 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L2770 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L2783 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L2796 `session_event_record` — Append one row to session_history. event_type is one of:
+- L2831 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L2844 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L2892 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L2986 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L2993 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L3004 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L3016 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L3116 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L3129 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L3140 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L3160 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
 ```
 
 
@@ -746,17 +747,17 @@ Schema version: 2
 - L0119 `_drain_and_dispatch_input` `[private]` — Pump: drain queued operator input for `sid` and dispatch each to the CDP
 - L0136 `ManualLoginSession` `[class]` — Phase 19.fix: dedicated-thread owner of a Playwright session.
   - L0157 `ManualLoginSession.__init__` `[dunder]`
-  - L0183 `ManualLoginSession.ready`
-  - L0187 `ManualLoginSession.error`
-  - L0190 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0444 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0579 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0598 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0615 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0643 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0660 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0685 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0714 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+  - L0188 `ManualLoginSession.ready`
+  - L0192 `ManualLoginSession.error`
+  - L0195 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
+  - L0471 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0606 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0625 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0642 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0670 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0687 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0712 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0741 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
@@ -827,4 +828,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 651 across 22 files._
+_Total entries: 652 across 22 files._

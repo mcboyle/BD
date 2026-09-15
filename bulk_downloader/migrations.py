@@ -558,3 +558,15 @@ def _m10(cx):
     if "title_source" not in cols:
         cx.execute(
             "ALTER TABLE library ADD COLUMN title_source TEXT DEFAULT ''")
+
+
+@migration(version=11, name="add_history_egress_ip")
+def _m11(cx):
+    """Row 773: every history row names the egress it left through.
+
+    Rows written before the column existed were never measured, so they
+    take the same honest stamp a live unmeasured write takes: "UNKNOWN".
+    """
+    cols = {r[1] for r in cx.execute("PRAGMA table_info(history)").fetchall()}
+    if "egress_ip" not in cols:
+        cx.execute("ALTER TABLE history ADD COLUMN egress_ip TEXT NOT NULL DEFAULT 'UNKNOWN'")

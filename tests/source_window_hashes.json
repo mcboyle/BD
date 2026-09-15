@@ -380,19 +380,19 @@
       "sha256": "0d682a6afb9d1da674c7238f55cffdd8816718bca1f6b12fe7761ac16ee1e8eb"
     },
     {
-      "bytes": 2118,
+      "bytes": 2004,
       "key": "tests/test_v3_43_52_keeper_collision.py::test_auto_relogin_tears_down_before_callback::src[pos:pos + 2000]::1",
-      "sha256": "4fc413480aed875b849e4a93065d53d22bd7e24a7cf02507520b113ec36f2dc1"
+      "sha256": "b5129fd0e67334959cd9841da77783a280e13fba6a627ad7af87e311de3a8748"
     },
     {
       "bytes": 3002,
       "key": "tests/test_v3_43_52_keeper_collision.py::test_verify_continues_when_keeper_pause_raises::src[pos:pos + 3000]::1",
-      "sha256": "f5f93fc0bf90ea471fe38363e44f956fcc0bbd4d7b815137e801b00bc00fe2a2"
+      "sha256": "e42e0d704709e6a440f7691984a916336bc9801f82c04587c7c35262bff26d4a"
     },
     {
       "bytes": 3002,
       "key": "tests/test_v3_43_52_keeper_collision.py::test_verify_pauses_site_keepers::src[pos:pos + 3000]::1",
-      "sha256": "f5f93fc0bf90ea471fe38363e44f956fcc0bbd4d7b815137e801b00bc00fe2a2"
+      "sha256": "e42e0d704709e6a440f7691984a916336bc9801f82c04587c7c35262bff26d4a"
     },
     {
       "bytes": 3002,
