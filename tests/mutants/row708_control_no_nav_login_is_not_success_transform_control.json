@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "control_spec": true,
+  "_comment": "Row 788 transform control, split from row708_no_nav_login_is_not_success.json. It applies M10's byte-identical no-nav regression to an import-only node and must report exactly one CONTROL-ESCAPED result, proving the primary nine CAUGHT results are behavioral assertion failures.",
+  "subject": "the no-nav success regression remains importable when no behavior is asserted",
+  "band": [
+    "tests/test_row708_no_nav_login_is_not_success.py::test_transform_control_only_imports_the_seam"
+  ],
+  "mutants": [
+    {
+      "label": "M10 transform control -- imports the seam, asserts no behaviour, must ESCAPE",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old": "if confirmed:",
+      "new": "if confirmed or cookies:",
+      "catcher": "tests/test_row708_no_nav_login_is_not_success.py::test_transform_control_only_imports_the_seam",
+      "direction": "regression"
+    }
+  ]
+}

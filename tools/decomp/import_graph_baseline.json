@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4442,
+  "edge_count": 4443,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3593,6 +3593,9 @@
     "tests/test_plugin_uninstall.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py"
+    ],
+    "tests/test_popup_download_capture.py": [
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_preflight_checklist.py": [
       "bulk_downloader/app.py",

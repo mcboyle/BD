@@ -96,6 +96,7 @@ _DECLARED = {
     # The release stamp judges the reviewed Git tree and runs the real regen chain.
     # CI-SHARD-CLAIM version-at-land version-at-land tests/test_row_version_at_land.py
     "tests/test_row_version_at_land.py",
+    "tests/test_row788_transform_control_is_separate.py",
     # PM-handoff 2026-09-06 template gap report. The matcher and the committed
     # template corpus are a tree-wide denominator: the gate judges every
     # template, not the four files this cut edited.
@@ -563,6 +564,13 @@ _DECLARED = {
     # teardown on every PR independently of which test files a diff touches.
     "tests/test_row300_parallel_display_cleanup_owns_process.py",
     "tests/test_capture_provides_a_display.py",
+    # Row 752. The cited row-300 gate borrowed the host-global
+    # /tmp/bd-display-test-X<n>.claim namespace for a claim it never
+    # uses, so a concurrent worker or a leaked claim could decide its
+    # verdict and erase the diagnosis. The population it guards is that
+    # host-global namespace, so it runs on every PR beside the two gates
+    # above rather than only when a diff touches them.
+    "tests/test_row752_display_gate_owns_its_claim.py",
     # F31. This gate measures every child-test launch that used to forward an
     # operator BD_INSTALL_DIR, drives a real nested bd-band against a
     # sacrificial database root, and proves the central autouse pop plus the
@@ -1135,6 +1143,10 @@ _DECLARED = {
     # handing a bare "ffmpeg" to a live HLS-over-HTTPS recording, the exact case
     # the pin exists for. No diff can select a tree-wide denominator.
     "tests/test_row1459_the_verified_binary_is_the_executed_binary.py",
+    # Row 654. The filename half of the backlog-reference gate: an untracked
+    # test_row<N>_*.py file must not silently disagree with the git-tracked
+    # population it is measured against.
+    "tests/test_row654_filename_citations_are_git_tracked.py",
 }
 
 # A PARTITION, NOT A COUNT (rows 569/570, superseding the row-531 floor).
