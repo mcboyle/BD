@@ -12,6 +12,7 @@ import functools, sys, threading, queue, time
 
 from playwright.sync_api import TimeoutError as PWTimeout
 from .runner_util import _check_video_magic_bytes, resolve_url_attribute
+from .detect import no_selection  # Row 787: keyed decision on find_best_download's result
 
 # httpx soft import (moved verbatim from runner.py; flat sibling). _HTTPX_AVAILABLE.
 try:
@@ -266,7 +267,8 @@ class _ManualDownloadSession:
                             response_q.put(("err", "No page in context"))
                             continue
                         best = find_best_download(live_page, custom="", learned=picks, runner=self)
-                        if not best:
+                        # Row 787: keyed decision (see detect.no_selection).
+                        if no_selection(best):
                             response_q.put(("err",
                                 "No element matched the picked selectors on this page"))
                             continue
@@ -330,7 +332,8 @@ class _ManualDownloadSession:
                         if not live_page:
                             response_q.put(("err", "No page in context")); continue
                         best = find_best_download(live_page, custom="", learned=picks, runner=self)
-                        if not best:
+                        # Row 787: keyed decision (see detect.no_selection).
+                        if no_selection(best):
                             response_q.put(("err",
                                 "No element matched the picked selectors")); continue
                         # Extract URL same way as verify

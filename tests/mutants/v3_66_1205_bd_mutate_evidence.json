@@ -1,0 +1,235 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 exact catcher attribution and candidate-bound mutation evidence.",
+  "subject": "bd-mutate attributes each failure to one named catcher and publishes only observed all-CAUGHT evidence for one exact candidate and subject",
+  "band": [
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_rejects_missing_observed_label",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_rejects_duplicate_declared_and_observed_labels",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_preserves_observed_mutated_blob",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_ambiguous_junit_identity",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_a_semantic_signature_not_observed_by_the_catcher",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_signature_seen_only_in_a_passing_control",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_wrong_actual_failure",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_wrong_control_outcome",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_a_red_preserved_control",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_refuses_a_red_baseline",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_refuses_candidate_or_spec_change_during_battery",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_result_binds_exact_contract_environment_and_tool_hashes",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_battery_exit_refuses_escaped",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_multiple_subject_blobs",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result",
+    "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+  ],
+  "mutants": [
+    {
+      "label": "BM1-label-uniqueness",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "set(labels)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_rejects_duplicate_declared_and_observed_labels",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "labels(?=\\) != len\\(set\\(labels\\)\\):)"
+    },
+    {
+      "label": "BM1-label-accounting",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "[row[\"label\"] for row in rows]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_rejects_missing_observed_label",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "zip() argument 2 is shorter than argument 1"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "(?<=\\] != )labels(?=:)"
+    },
+    {
+      "label": "BM1-mutated-blob",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "subject_blob_sha256",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_preserves_observed_mutated_blob",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "cccccccccccccccc"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "(?<=\"mutated_blob_sha256\": row\\[\")mutated_blob_sha256(?=\"\\],)"
+    },
+    {
+      "label": "BM2-exact-junit-node",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_ambiguous_junit_identity",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "and 'maps to' in"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "len(?=\\(candidates\\) != 1:)"
+    },
+    {
+      "label": "BM3-catcher-signature",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "{\"failure_text\": signature}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_a_semantic_signature_not_observed_by_the_catcher",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 0 == 1"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "record(?=\\[\"failure_text\"\\]:)"
+    },
+    {
+      "label": "BM4-no-global-signature",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "{\"failure_text\": result[\"tail\"]}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_signature_seen_only_in_a_passing_control",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 0 == 1"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "record(?=\\[\"failure_text\"\\]:)"
+    },
+    {
+      "label": "BM5-observed-failure",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "(lambda _key: expected_actual)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_wrong_actual_failure",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "row\\.get(?=\\(\"actual_failure\"\\) != expected_actual:)"
+    },
+    {
+      "label": "BM5-observed-controls",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "(lambda _key: expected_controls)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_wrong_control_outcome",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "row\\.get(?=\\(\"control_outcomes\"\\) != expected_controls:)"
+    },
+    {
+      "label": "BM6-controls",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "[]",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_rejects_a_red_preserved_control",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "INDISCRIMINATE"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "bad_controls(?=:\\n                return INDISCRIMINATE)"
+    },
+    {
+      "label": "BM7-baseline",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "{\"rc\": 0, \"measurement_error\": None}",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_refuses_a_red_baseline",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "rows == []"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "baseline(?=\\[\"rc\"\\] != 0 or baseline\\.get\\(\"measurement_error\"\\):)"
+    },
+    {
+      "label": "BM8-candidate-binding",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "evidence_identity",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_refuses_candidate_or_spec_change_during_battery",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 0 == 2"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "observed_identity(?= != evidence_identity:)"
+    },
+    {
+      "label": "BM8-contract-hashes",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "\"0\" * 64",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_result_binds_exact_contract_environment_and_tool_hashes",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "0000000000000000"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "(?<=\"tool_sha256\": )tool_sha256(?=,\\n        \"spec_sha256\")"
+    },
+    {
+      "label": "BM9-noncaught",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "(lambda _values: True)",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_battery_exit_refuses_escaped",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 0 == 1"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_regression_runs_only_its_catcher_and_declared_preserves"
+      ],
+      "old_regex": "all(?=\\(\\n        row\\.get\\(\"verdict\"\\) in \\{CAUGHT, CONTROL_ESCAPED\\} for row in rows\\))"
+    },
+    {
+      "label": "BM10-one-subject",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "bool",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_publisher_refuses_multiple_subject_blobs",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE"
+      },
+      "preserves": [
+        "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_v2_emits_candidate_bound_cut_mutation_result"
+      ],
+      "old_regex": "len(?=\\(subject_hashes\\) != 1:)"
+    }
+  ]
+}

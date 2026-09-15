@@ -57,6 +57,13 @@ import tempfile
 
 import pytest
 
+from _cut_quality_test_support import (
+    authorize_module,
+    raw_module,
+    write_authorized_cut_quality_stub,
+    write_refusing_cut_quality_stub,
+)
+
 # Its subject is one tool's gate, not the tree.
 BD_GATE_SCOPE = "module"
 
@@ -103,6 +110,7 @@ def _bin_with(tmp: pathlib.Path, stubs: dict, timeout_override=None) -> pathlib.
     (b / "bd-cut").write_text(src, encoding="utf-8")
     (b / "bd-cut").chmod(0o755)
     shutil.copy(SEC, b / "bdtools_sec.py")
+    write_authorized_cut_quality_stub(b)
     for name, body in stubs.items():
         p = b / name
         p.write_text(STUB.format(body=body), encoding="utf-8")
@@ -233,7 +241,7 @@ def _load_bdcut():
         loader.exec_module(mod)
     finally:
         sys.path.pop(0)
-    return mod
+    return authorize_module(mod)
 
 
 def _reclaim(m):

@@ -1,0 +1,543 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 receipt-v2 trust-boundary battery. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1205_cut_quality_receipt_v2.json --work . The earlier malformed canonical-comparison edit is INVALID and excluded.",
+  "subject": "the public cut-quality consumer authorizes only after exact validator replay, exact stable-claim comparison, and an exact post-replay repository remeasurement",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_arbitrary_valid_hashes_refuse_when_validator_does_not_reproduce_them",
+    "tests/test_cut_quality_permits.py::test_candidate_sha_mismatch_refuses",
+    "tests/test_cut_quality_permits.py::test_candidate_tree_mismatch_refuses",
+    "tests/test_cut_quality_permits.py::test_canonical_replay_projection_excludes_only_issue_window",
+    "tests/test_cut_quality_permits.py::test_combined_issuer_wraps_validator_output_for_public_consumer",
+    "tests/test_cut_quality_permits.py::test_dirty_snapshot_receipt_rejects_second_edit",
+    "tests/test_cut_quality_permits.py::test_earlier_stage_does_not_authorize_later_action",
+    "tests/test_cut_quality_permits.py::test_expired_now_permit_refuses",
+    "tests/test_cut_quality_permits.py::test_final_candidate_permit_rejects_dirty_tree",
+    "tests/test_cut_quality_permits.py::test_final_stage_requires_review_artifact",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_exact_transition_reviewed_consumer_blob",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_receipt_at_its_exact_declared_stage",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_receipt_pinned_to_exact_matrix_bytes",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_replayed_receipt_and_authorizes_one_safe_action",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_unchanged_declared_runtime_input",
+    "tests/test_cut_quality_permits.py::test_full_consumer_accepts_when_every_stable_replay_claim_matches",
+    "tests/test_cut_quality_permits.py::test_full_consumer_refuses_a_validator_mismatched_delivery_claim",
+    "tests/test_cut_quality_permits.py::test_full_consumer_refuses_if_repo_changes_during_validator_replay",
+    "tests/test_cut_quality_permits.py::test_full_consumer_refuses_listed_nonregular_consumer",
+    "tests/test_cut_quality_permits.py::test_full_consumer_refuses_unlisted_regular_consumer",
+    "tests/test_cut_quality_permits.py::test_full_consumer_refuses_wrapped_placeholder_claims_before_authorization",
+    "tests/test_cut_quality_permits.py::test_future_issued_permit_refuses",
+    "tests/test_cut_quality_permits.py::test_live_consumer_blob_mismatch_refuses",
+    "tests/test_cut_quality_permits.py::test_matrix_digest_drift_refuses_before_checker_invocation",
+    "tests/test_cut_quality_permits.py::test_matrix_interpreter_bytes_must_equal_the_environment_pin",
+    "tests/test_cut_quality_permits.py::test_missing_invalidator_refuses",
+    "tests/test_cut_quality_permits.py::test_missing_matrix_refuses_before_validator_result_is_trusted",
+    "tests/test_cut_quality_permits.py::test_nonancestor_base_refuses_with_distinctive_code",
+    "tests/test_cut_quality_permits.py::test_nonpositive_permit_window_refuses_even_before_expiry",
+    "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+    "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt",
+    "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema",
+    "tests/test_cut_quality_permits.py::test_pinned_validator_replay_refuses_mixed_environment_schema",
+    "tests/test_cut_quality_permits.py::test_policy_sha_mismatch_refuses",
+    "tests/test_cut_quality_permits.py::test_policy_refuses_a_disconnected_validator_transition_chain",
+    "tests/test_cut_quality_permits.py::test_preimplementation_receipt_allows_not_yet_available_artifacts",
+    "tests/test_cut_quality_permits.py::test_preimplementation_requires_red_artifact",
+    "tests/test_cut_quality_permits.py::test_prereview_accepts_complete_artifacts",
+    "tests/test_cut_quality_permits.py::test_prereview_requires_green_artifact",
+    "tests/test_cut_quality_permits.py::test_prereview_requires_mutation_artifact",
+    "tests/test_cut_quality_permits.py::test_prereview_requires_regeneration_artifact",
+    "tests/test_cut_quality_permits.py::test_refusal_json_is_stable_from_cli",
+    "tests/test_cut_quality_permits.py::test_relevant_ignored_runtime_input_change_refuses",
+    "tests/test_cut_quality_permits.py::test_symlink_repository_argument_refuses",
+    "tests/test_cut_quality_permits.py::test_valid_dirty_snapshot_receipt",
+    "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit",
+    "tests/test_cut_quality_permits.py::test_validator_bytes_must_equal_the_policy_pin",
+    "tests/test_cut_quality_permits.py::test_wrapper_producer_binds_checker_matrix_and_inner_permit",
+    "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove active-validator provenance replay",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_full_consumer_refuses_wrapped_placeholder_claims_before_authorization",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_replayed_receipt_and_authorizes_one_safe_action"
+      ],
+      "old_regex": "_verify_evidence_provenance(?=\\(\\n        repo, permit, receipt)"
+    },
+    {
+      "label": "M2 remove canonical stable-authorization comparison",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda _permit: _stable_issuer_payload(fresh[\"payload\"]))",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_arbitrary_valid_hashes_refuse_when_validator_does_not_reproduce_them",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt"
+      ],
+      "old_regex": "(?<=            != )_stable_issuer_payload(?=\\(permit\\[\"payload\"\\]\\)\\):)"
+    },
+    {
+      "label": "M3 remove post-replay repository identity measurement",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda *args: None)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_full_consumer_refuses_if_repo_changes_during_validator_replay",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_combined_issuer_wraps_validator_output_for_public_consumer"
+      ],
+      "old_regex": "_validate_repository_identity(?=\\(repo, identity, required_stage, path\\)\\n    return receipt)"
+    },
+    {
+      "label": "M4 ignore exact stage ordering",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "payload[\"stage\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_earlier_stage_does_not_authorize_later_action",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_receipt_at_its_exact_declared_stage"
+      ],
+      "old_regex": "(?<= != )required_stage(?=:)"
+    },
+    {
+      "label": "M5 exclude one stable semantic field from replay comparison",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "expires_at\", \"delivery_sha256",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_full_consumer_refuses_a_validator_mismatched_delivery_claim",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_when_every_stable_replay_claim_matches"
+      ],
+      "old_regex": "(?<=\"issued_at\", \")expires_at(?=\"\\}\\})"
+    },
+    {
+      "label": "M6 ignore only transition-reviewed consumer digest mismatch",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "expected_consumer",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_live_consumer_blob_mismatch_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_exact_transition_reviewed_consumer_blob",
+        "tests/test_cut_quality_permits.py::test_full_consumer_refuses_unlisted_regular_consumer",
+        "tests/test_cut_quality_permits.py::test_full_consumer_refuses_listed_nonregular_consumer"
+      ],
+      "old_regex": "observed_consumer(?= != expected_consumer)"
+    },
+    {
+      "label": "M7 ignore changed runtime-input bytes",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "expected_input",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_relevant_ignored_runtime_input_change_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_unchanged_declared_runtime_input"
+      ],
+      "old_regex": "observed_input(?= != expected_input:)"
+    },
+    {
+      "label": "M8 ignore the policy-selected active checker identity",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "active",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_validator_bytes_must_equal_the_policy_pin",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_missing_matrix_refuses_before_validator_result_is_trusted"
+      ],
+      "old_regex": "(?<=    if \\(\\{key: )checker(?=\\.get\\(key\\) for key in \\(\"schema\", \"sha256\"\\)\\})"
+    },
+    {
+      "label": "M9 ignore the receipt-pinned matrix byte digest",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda _key: None)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_matrix_digest_drift_refuses_before_checker_invocation",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_full_consumer_accepts_receipt_pinned_to_exact_matrix_bytes"
+      ],
+      "old_regex": "(?<=expected_sha256=)matrix\\.get(?=\\(\"sha256\"\\))"
+    },
+    {
+      "label": "CQ10",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "identity[\"candidate_sha\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_candidate_sha_mismatch_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "(?<=identity\\[\"candidate_sha\"\\] != )head(?= or identity\\[\"candidate_tree\"\\])"
+    },
+    {
+      "label": "CQ11",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "identity[\"candidate_tree\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_candidate_tree_mismatch_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "(?<=identity\\[\"candidate_tree\"\\] != )tree(?=:)"
+    },
+    {
+      "label": "CQ12",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_nonancestor_base_refuses_with_distinctive_code",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "ancestor\\.returncode(?= != 0:)"
+    },
+    {
+      "label": "CQ13-red",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "required_nonempty = set(); _ignored_required_nonempty",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_preimplementation_requires_red_artifact",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_preimplementation_receipt_allows_not_yet_available_artifacts"
+      ],
+      "old_regex": "required_nonempty(?= = \\(\\{\"red\"\\} if required_stage)"
+    },
+    {
+      "label": "CQ13-green",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "required_nonempty = {\"red\", \"mutation\", \"regeneration\"}; _ignored_required_nonempty",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_prereview_requires_green_artifact",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_prereview_accepts_complete_artifacts"
+      ],
+      "old_regex": "required_nonempty(?= = \\(\\{\"red\"\\} if required_stage)"
+    },
+    {
+      "label": "CQ13-mutation",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "required_nonempty = {\"red\", \"green\", \"regeneration\"}; _ignored_required_nonempty",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_prereview_requires_mutation_artifact",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_prereview_accepts_complete_artifacts"
+      ],
+      "old_regex": "required_nonempty(?= = \\(\\{\"red\"\\} if required_stage)"
+    },
+    {
+      "label": "CQ13-regeneration",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "required_nonempty = {\"red\", \"green\", \"mutation\"}; _ignored_required_nonempty",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_prereview_requires_regeneration_artifact",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_prereview_accepts_complete_artifacts"
+      ],
+      "old_regex": "required_nonempty(?= = \\(\\{\"red\"\\} if required_stage)"
+    },
+    {
+      "label": "CQ13-review",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "required_nonempty = artifact_keys - {\"review\"}; _ignored_required_nonempty",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_final_stage_requires_review_artifact",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "required_nonempty(?= = \\(\\{\"red\"\\} if required_stage)"
+    },
+    {
+      "label": "CQ14-future",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "payload[\"issued_at\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_future_issued_permit_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "current(?= \\+ 300:)"
+    },
+    {
+      "label": "CQ14-expired-now",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "payload[\"expires_at\"] - 1",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_expired_now_permit_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_nonpositive_permit_window_refuses_even_before_expiry",
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "(?<= <= )current(?=:)"
+    },
+    {
+      "label": "CQ14-nonpositive-window",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda: {\"issued_at\": payload[\"expires_at\"] - 1})()",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_nonpositive_permit_window_refuses_even_before_expiry",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_expired_now_permit_refuses",
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "payload(?=\\[\"issued_at\"\\]:)"
+    },
+    {
+      "label": "CQ15",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "set(payload[\"invalidators\"])",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_missing_invalidator_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "FINAL_INVALIDATORS(?=:)"
+    },
+    {
+      "label": "CQ16",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "identity[\"snapshot\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_dirty_snapshot_receipt_rejects_second_edit",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_dirty_snapshot_receipt"
+      ],
+      "old_regex": "observed_snapshot(?=:)"
+    },
+    {
+      "label": "CQ17",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "supplied_repo",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_symlink_repository_argument_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "(?<= != )repo(?=:)"
+    },
+    {
+      "label": "CQ18",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "\"cut-acceptance-preflight\"",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_refusal_json_is_stable_from_cli",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "--issue-receipt"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_combined_issuer_wraps_validator_output_for_public_consumer"
+      ],
+      "old_regex": "sys\\.executable(?=, str\\(Path\\(__file__\\)\\.resolve\\(\\)\\), \"--issue-receipt\")"
+    },
+    {
+      "label": "CQ19-environment",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "None",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_matrix_interpreter_bytes_must_equal_the_environment_pin",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt"
+      ],
+      "old_regex": "(?<=expected_sha256=)python_sha(?=, mismatch_code=\"CQ-ENVIRONMENT-MISMATCH\",\\n    \\)\\n    try:)"
+    },
+    {
+      "label": "CQ20-receipt-schema",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "\"cut-quality-receipt/1\"",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_combined_issuer_wraps_validator_output_for_public_consumer",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "cut-quality-receipt/2"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_wrapper_producer_binds_checker_matrix_and_inner_permit"
+      ],
+      "old_regex": "RECEIPT_SCHEMA(?=,\\n        \"provenance\")"
+    },
+    {
+      "label": "CQ21-final-clean",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_final_candidate_permit_rejects_dirty_tree",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "(?<=    if )status(?=:)"
+    },
+    {
+      "label": "CQ22-policy-stale",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "payload[\"policy_sha256\"]",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_policy_sha_mismatch_refuses",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_valid_final_candidate_permit"
+      ],
+      "old_regex": "policy_sha(?=:)"
+    },
+    {
+      "label": "CQ23-transition-chain",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "expected_edges",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_policy_refuses_a_disconnected_validator_transition_chain",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_policy_is_strict_and_bootstrapped_from_v1"
+      ],
+      "old_regex": "observed_edges(?= != expected_edges:)"
+    },
+    {
+      "label": "CQ24-environment-schema",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "{\"schema\": None, \"python\": None, \"python_sha256\": None}",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_pinned_validator_replay_refuses_mixed_environment_schema",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "DID NOT RAISE PermitRefusal"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema"
+      ],
+      "old_regex": "environment(?=\\) != \\{\"schema\", \"python\", \"python_sha256\"\\}:)"
+    },
+    {
+      "label": "CQ25-replay-policy-argv",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda _value: \"--policy\")",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_its_reproduced_receipt",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "CQ-EVIDENCE-UNVERIFIABLE"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_wrapper_producer_binds_checker_matrix_and_inner_permit"
+      ],
+      "old_regex": "str(?=\\(policy_path\\),)"
+    },
+    {
+      "label": "CQ26-issue-policy-argv",
+      "file": "toolchain/bin/bd_cut_quality.py",
+      "new": "(lambda _value: \"--policy\")",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_combined_issuer_and_replay_accept_exact_v3_environment_schema",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "CQ-EVIDENCE-UNVERIFIABLE"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_pinned_validator_replay_accepts_exact_v3_environment_schema"
+      ],
+      "old_regex": "str(?=\\(policy_file\\)\\],)"
+    }
+  ]
+}

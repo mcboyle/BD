@@ -1,0 +1,41 @@
+{
+  "schema": "cut-quality-policy/2",
+  "stage_order": [
+    "pre-implementation",
+    "pre-review",
+    "pre-floor",
+    "pre-fleet",
+    "pre-merge"
+  ],
+  "trusted_validators": [
+    {
+      "schema": "cut-acceptance-preflight/1",
+      "sha256": "6c06529b9d78e7cd2b662be89bd37f8ea48e5b6392311044cb3e0bbc31739bac"
+    },
+    {
+      "schema": "cut-acceptance-preflight/2",
+      "sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456"
+    }
+  ],
+  "active_checker": {
+    "schema": "cut-acceptance-preflight/2",
+    "sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456",
+    "resolver_env": "BD_CUT_QUALITY_VALIDATOR"
+  },
+  "trusted_consumers": {
+    "toolchain/bin/bd-band": "86e7996205f9bf1a7342d8b51e54d5a335e50a1cb2a1743eb40d49c38318fd82",
+    "toolchain/bin/bd-ci-verdict": "bc8eeae53c3baf723c49b1227dedb8e3adff0ef587e4feefeb417f5c1f0c5975",
+    "toolchain/bin/bd-cut": "6137f957c937a6e381ebbac374638705c6db716ffb4754c58cb0718274655dfe",
+    "toolchain/bin/bd-fleet-run": "19a4be83d846754c03bb964743a02ddbeae769af8a4df2d3f5fb900fe76d4196",
+    "toolchain/bin/bd-parband": "7bc2c0d95cc1d37b52c973801e0bd4af1fe93e9893cca84a49329358901782ee",
+    "toolchain/bin/bd_cut_quality.py": "8889da78373d4adddd9a20cb0d399ecac6ccbc5c68600f4534c30f4c4f6a027d"
+  },
+  "transitions": [
+    {
+      "from_sha256": "6c06529b9d78e7cd2b662be89bd37f8ea48e5b6392311044cb3e0bbc31739bac",
+      "to_sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456",
+      "artifact_sha256": "ce85e018f670772f923e8e24aa82d3e2e1d43e8cc06e7912d0cfc1c4cc1a300d",
+      "review_sha256": "ce85e018f670772f923e8e24aa82d3e2e1d43e8cc06e7912d0cfc1c4cc1a300d"
+    }
+  ]
+}

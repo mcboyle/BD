@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656 transform control: changing a driver authorization seam must escape an import-only test.",
+  "subject": "an import-only control does not catch missing legacy-driver authorization",
+  "band": [
+    "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band",
+    "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_the_exit_code_grading_actually_discriminates"
+  ],
+  "mutants": [
+    {
+      "label": "AUTH-CONTROL-import-only",
+      "file": "tests/test_v3_66_950_the_band_runs_real_pytest.py",
+      "new": "raw_tool_argv",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band",
+      "expected_failure": {"outcome": "failed", "signature": "authorization"},
+      "preserves": ["tests/test_v3_66_950_the_band_runs_real_pytest.py::test_the_exit_code_grading_actually_discriminates"],
+      "old_regex": "authorized_tool_argv(?=\\(_BAND, _DIVERGENT\\))"
+    }
+  ]
+}

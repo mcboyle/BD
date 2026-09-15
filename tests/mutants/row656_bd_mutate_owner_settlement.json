@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656: the legacy two-value normalisation seam must still settle a prepared emit owner.",
+  "subject": "bd-mutate settles prepared emit descriptors on zero-selection and cancellation paths",
+  "band": [
+    "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_main_settles_live_prepared_emit_owner[zero-selected]",
+    "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_transform_control_only_imports_the_tool"
+  ],
+  "mutants": [
+    {
+      "label": "OWNER1-rigid-three-value-unpack",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "spec, band, schema",
+      "direction": "regression",
+      "catcher": "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_main_settles_live_prepared_emit_owner[zero-selected]",
+      "expected_failure": {"outcome": "failed", "signature": "descriptor owner remains open after settlement"},
+      "preserves": ["tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_transform_control_only_imports_the_tool"],
+      "old_regex": "spec, band(?= = _normalise_spec\\()"
+    }
+  ]
+}

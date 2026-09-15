@@ -1,0 +1,234 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656: every legacy protected-tool driver injects authorization at its real execution seam.",
+  "subject": "eleven legacy driver files contain fourteen explicit post-permit execution seams",
+  "band": [
+    "tests/test_child_test_install_dir_isolation.py::test_bd_band_child_drops_inherited_install_dir_before_database_use",
+    "tests/test_row243_registration_resolves_without_ambient_luck.py::test_bd_band_verdict_refuses_for_registration_failure",
+    "tests/test_v3_66_1145_step0_fails_closed.py::test_the_harness_drives_the_real_seam",
+    "tests/test_v3_66_1145_step0_fails_closed.py::test_resume_zip_gate_and_band_share_one_subject",
+    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py::test_the_default_invocation_preserves_every_runtime_database",
+    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py::test_an_unchanged_archive_still_completes",
+    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py::test_the_consumers_receive_a_descriptor_backed_path",
+    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py::test_a_clean_run_still_exits_zero",
+    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py::test_the_REAL_CLI_exits_nonzero_when_cleanup_fails",
+    "tests/test_v3_66_1158_fleet_provenance_fails_closed.py::test_missing_provenance_cannot_be_host_success",
+    "tests/test_verify_lane_state_naming.py::test_row416_default_timeout_covers_the_remeasured_slowest_suite",
+    "tests/test_verify_lane_state_naming.py::test_row472_pending_advisory_is_outside_the_required_denominator",
+    "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_bd_band_passes_the_file_the_stub_failed",
+    "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band",
+    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py::test_main_turns_a_seam_2_swap_into_EXIT_CLEANUP_FAILED"
+  ],
+  "mutants": [
+    {
+      "label": "AUTH01-child-band-wrapper",
+      "file": "tests/test_child_test_install_dir_isolation.py",
+      "new": "raw_tool_argv",
+      "direction": "regression",
+      "catcher": "tests/test_child_test_install_dir_isolation.py::test_bd_band_child_drops_inherited_install_dir_before_database_use",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "the nested pytest probe never ran"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorized_tool_argv(?=\\(\\n            _REPO)"
+    },
+    {
+      "label": "AUTH02-registration-copy",
+      "file": "tests/test_row243_registration_resolves_without_ambient_luck.py",
+      "new": "write_refusing_cut_quality_stub",
+      "direction": "regression",
+      "catcher": "tests/test_row243_registration_resolves_without_ambient_luck.py::test_bd_band_verdict_refuses_for_registration_failure",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "BD-BAND UNEVALUABLE"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "write_authorized_cut_quality_stub(?=\\(private_bin\\))"
+    },
+    {
+      "label": "AUTH03-step0-copy",
+      "file": "tests/test_v3_66_1145_step0_fails_closed.py",
+      "new": "write_refusing_cut_quality_stub",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1145_step0_fails_closed.py::test_the_harness_drives_the_real_seam",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "step 0 never invoked our stub"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "write_authorized_cut_quality_stub(?=\\(b\\))"
+    },
+    {
+      "label": "AUTH04-step0-module",
+      "file": "tests/test_v3_66_1145_step0_fails_closed.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1145_step0_fails_closed.py::test_resume_zip_gate_and_band_share_one_subject",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 2 == 0"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(mod\\))"
+    },
+    {
+      "label": "AUTH05-runtime-db-module",
+      "file": "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py::test_the_default_invocation_preserves_every_runtime_database",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "runtime DB artifact"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(_load)"
+    },
+    {
+      "label": "AUTH06-sealed-snapshot-module",
+      "file": "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py::test_an_unchanged_archive_still_completes",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 2 == 0"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(_load)"
+    },
+    {
+      "label": "AUTH07-descriptor-snapshot-module",
+      "file": "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py::test_the_consumers_receive_a_descriptor_backed_path",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 2 == 0"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(_load)"
+    },
+    {
+      "label": "AUTH08-cleanup-module",
+      "file": "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py::test_a_clean_run_still_exits_zero",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert 2 == 0"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(_load)"
+    },
+    {
+      "label": "AUTH09-cleanup-copy",
+      "file": "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
+      "new": "write_refusing_cut_quality_stub",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py::test_the_REAL_CLI_exits_nonzero_when_cleanup_fails",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "the run did not reach the end"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "write_authorized_cut_quality_stub(?=\\(b\\))"
+    },
+    {
+      "label": "AUTH10-fleet-module",
+      "file": "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1158_fleet_provenance_fails_closed.py::test_missing_provenance_cannot_be_host_success",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "fleet authorization fired 0 times, expected exactly 2"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(mod\\))"
+    },
+    {
+      "label": "AUTH11-verdict-band-module",
+      "file": "tests/test_verify_lane_state_naming.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_verify_lane_state_naming.py::test_row416_default_timeout_covers_the_remeasured_slowest_suite",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "cut-quality authorization fired 0 times, expected exactly 1"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(module\\))"
+    },
+    {
+      "label": "AUTH12-verdict-ci-wrapper",
+      "file": "tests/test_verify_lane_state_naming.py",
+      "new": "raw_tool_argv",
+      "direction": "regression",
+      "catcher": "tests/test_verify_lane_state_naming.py::test_row472_pending_advisory_is_outside_the_required_denominator",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "fake gh must fire once through the production CLI"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorized_tool_argv(?=\\(\\n            TOOLS)"
+    },
+    {
+      "label": "AUTH13-real-band-wrapper",
+      "file": "tests/test_v3_66_950_the_band_runs_real_pytest.py",
+      "new": "raw_tool_argv",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_bd_band_passes_the_file_the_stub_failed",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "bd-band graded tests/test_codex_handoff_stays_retired.py non-green"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorized_tool_argv(?=\\(_BAND, _DIVERGENT\\))"
+    },
+    {
+      "label": "AUTH14-object-bound-deletion-module",
+      "file": "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py::test_main_turns_a_seam_2_swap_into_EXIT_CLEANUP_FAILED",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "the fixture never swapped an archive directory"
+      },
+      "preserves": [
+        "tests/test_v3_66_950_the_band_runs_real_pytest.py::test_authorization_transform_control_only_imports_the_band"
+      ],
+      "old_regex": "authorize_module(?=\\(_load\\(BDCUT)"
+    }
+  ]
+}

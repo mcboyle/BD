@@ -9,7 +9,7 @@
     {
       "label": "CONTROL the delegating arm returns success outside any asserted path",
       "file": "toolchain/bin/bd-band",
-      "old_regex": "(?<=            )(?=return \\d\\n\\n    if a\\.from_zip:)",
+      "old_regex": "(?<=            )(?=return 2\\n\\n    # The permit boundary)",
       "new": "return 0\n            ",
       "direction": "regression",
       "catcher": "tests/test_row747_bd_band_delegation_is_guarded.py::test_row747_transform_control_imports_without_judging_refusal"

@@ -61,6 +61,8 @@ import zipfile
 
 import pytest
 
+from _cut_quality_test_support import authorize_module, raw_module
+
 # Its subject is one tool's archive binding and two cleanup helpers.
 BD_GATE_SCOPE = "module"
 
@@ -88,7 +90,7 @@ def _load(path, name):
 
 
 def _load_bdcut():
-    return _load(BDCUT, "bd_cut_uut_1151")
+    return authorize_module(_load(BDCUT, "bd_cut_uut_1151"))
 
 
 def _tmproot():

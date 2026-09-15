@@ -41,7 +41,7 @@ _RATE_RE = re.compile(r"^\d+(\.\d+)?[KMGkmg]?$")
 
 from .runner_util import DEFAULT_MIN_RESOLUTION
 from .db import db_log
-from .detect import find_best_download, fmt_bytes, safe_dest
+from .detect import find_best_download, fmt_bytes, no_selection, safe_dest
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import history_title_kwargs
 # F5 (v3.66.689): per-capture netns isolation for the subprocess download
@@ -833,7 +833,9 @@ class ExtractorsMixin:
                 f"  deep-detect: retry find_best_download raised "
                 f"{type(e).__name__}: {str(e)[:120]}\n")
             return None
-        if not best:
+        # Row 787: keyed decision -- a nothing-in-scope sentinel must not be
+        # tagged `_via_deep_detect` and handed back as a rescue.
+        if no_selection(best):
             sys.stderr.write(
                 "  deep-detect: selectors did not match in the DOM after "
                 "all (page may have changed since snapshot)\n")

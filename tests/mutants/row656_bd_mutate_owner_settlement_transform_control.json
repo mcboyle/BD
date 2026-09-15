@@ -1,0 +1,21 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656 transform control: importing bd-mutate cannot detect a prepared-owner leak.",
+  "subject": "an import-only control escapes the descriptor-settlement regression",
+  "band": [
+    "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_transform_control_only_imports_the_tool",
+    "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_settlement_negative_control_detects_a_live_owner"
+  ],
+  "mutants": [
+    {
+      "label": "OWNER-CONTROL-import-only",
+      "file": "toolchain/bin/bd-mutate",
+      "new": "spec, band, schema",
+      "direction": "regression",
+      "catcher": "tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_transform_control_only_imports_the_tool",
+      "expected_failure": {"outcome": "failed", "signature": "descriptor owner remains open after settlement"},
+      "preserves": ["tests/test_desandbox_tool_verifiers.py::test_bd_mutate_owner_settlement_negative_control_detects_a_live_owner"],
+      "old_regex": "spec, band(?= = _normalise_spec\\()"
+    }
+  ]
+}

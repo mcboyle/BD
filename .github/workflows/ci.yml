@@ -497,6 +497,8 @@ jobs:
               tests/test_row774_login_submit_refuses_cross_origin_navigation.py
               tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
               tests/test_row719_scene_classifier_underselects.py
+              tests/test_row787_sentinel_must_not_look_found.py
+              tests/test_row741_relogin_refusals_are_typed.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py
@@ -658,7 +660,7 @@ jobs:
               tests/test_row718_installer_refuses_an_unwritable_install_dir.py
               tests/test_row089_capture_corpus_backup_restore.py
               tests/test_row090_global_run_cap.py
-              tests/test_row395_captcha_egress_disclosure.py
+              tests/test_row700_captcha_egress_disclosure.py
               tests/test_row704_listing_routes_are_not_scenes.py
           - name: jobs-determinism
             suites: >-
@@ -676,6 +678,7 @@ jobs:
               tests/test_row788_transform_control_is_separate.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
+              tests/test_cut_quality_permits.py
               tests/test_v3_66_1188_bd_mutate_review_controls.py
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py
@@ -754,6 +757,7 @@ jobs:
               tests/test_precut_selects_repo_wide_gates_by_marker.py
               tests/test_row790_precut_names_footguns_ratchet_unknown.py
               tests/test_row463_precut_derives_its_baseline.py
+              tests/test_row794_precut_preamble_reports_only_run_checks.py
               tests/test_import_dodge_is_caught_in_the_cut_diff.py
               tests/test_row530_docs_only_lane_fails_closed.py
               tests/test_verify_lane_state_naming.py

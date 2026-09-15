@@ -1,0 +1,8 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "control_spec": true,
+  "_comment": "Row 26 import-only transform control; this intentional escape proves the regression catchers judge behavior.",
+  "subject": "row 26 control -- import-only assertion-gate test does not judge variable resolution",
+  "band": ["tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_variable_slice_transform_control_imports_without_judging_behaviour"],
+  "mutants": [{"label": "TRANSFORM CONTROL: disabling variable resolution must escape when the named test only imports the mutated module", "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py", "old": "    if isinstance(node, ast.Name) and env is not None and node.id in env:\n        return bool(env[node.id])", "new": "    if False:\n        return bool(env[node.id])", "direction": "regression", "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_variable_slice_transform_control_imports_without_judging_behaviour"}]
+}

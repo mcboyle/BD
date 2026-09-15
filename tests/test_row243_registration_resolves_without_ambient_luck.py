@@ -21,6 +21,11 @@ from pathlib import Path
 
 import pytest
 
+from _cut_quality_test_support import (
+    write_authorized_cut_quality_stub,
+    write_refusing_cut_quality_stub,
+)
+
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -438,7 +443,11 @@ def _copied_tool_with_failed_registrar(tmp_path: Path, tool_name: str) -> Path:
     tracked = ["toolchain/bin/" + tool_name, "toolchain/bin/bd-jobs"]
     if tool_name == "bd-band":
         shutil.copy2(BIN / "bdtools_sec.py", private_bin / "bdtools_sec.py")
-        tracked.append("toolchain/bin/bdtools_sec.py")
+        write_authorized_cut_quality_stub(private_bin)
+        tracked.extend([
+            "toolchain/bin/bdtools_sec.py",
+            "toolchain/bin/bd_cut_quality.py",
+        ])
     _git_init(anchor, *tracked)
     return runner
 
@@ -626,11 +635,14 @@ def _mutation_work(tmp_path: Path) -> Path:
         private_bin / "bd-jobs", tmp_path / "mutation-work-registry"
     )
     shutil.copy2(Path(__file__), tests / Path(__file__).name)
+    support = Path(__file__).with_name("_cut_quality_test_support.py")
+    shutil.copy2(support, tests / support.name)
     _git_init(
         work,
         *("toolchain/bin/" + name for name in mutation_tools),
         "toolchain/bin/bd-jobs",
         "tests/" + Path(__file__).name,
+        "tests/" + support.name,
     )
     return work
 

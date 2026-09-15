@@ -1,0 +1,59 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 initial, common-prework, and detach permit boundaries.",
+  "subject": "bd-cut refuses before mutation and rechecks before common work or detached launch",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_bd_cut_no_gate_cannot_bypass_missing_snapshot_receipt",
+    "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary",
+    "tests/test_cut_quality_permits.py::test_bd_cut_rechecks_snapshot_at_last_prework_boundary",
+    "tests/test_cut_quality_permits.py::test_bd_cut_detach_rechecks_before_child_launch",
+    "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_fake_detached_child"
+  ],
+  "mutants": [
+    {
+      "label": "CUT1-initial",
+      "file": "toolchain/bin/bd-cut",
+      "new": "(lambda: True)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_no_gate_cannot_bypass_missing_snapshot_receipt",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "assert not True"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary"
+      ],
+      "old_regex": "(?<=    if not )_receipt_ok(?=\\(\\):\\n        return \\d+\\n\\n    # --detach)"
+    },
+    {
+      "label": "CUT2-common-recheck",
+      "file": "toolchain/bin/bd-cut",
+      "new": "(lambda: True)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_rechecks_snapshot_at_last_prework_boundary",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "bd-cut continued after final permit recheck was removed"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_post_recheck_boundary"
+      ],
+      "old_regex": "(?<=    if not )_receipt_ok(?=\\(\\):\\n        return \\d+\\n\\n    # --- fast retry path)"
+    },
+    {
+      "label": "CUT3-detach-recheck",
+      "file": "toolchain/bin/bd-cut",
+      "new": "(lambda: True)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_cut_detach_rechecks_before_child_launch",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "detached child launched after the receipt went stale"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_cut_valid_receipt_reaches_fake_detached_child"
+      ],
+      "old_regex": "(?<=        if not )_receipt_ok(?=\\(\\):\\n            return \\d+\\n        # v)"
+    }
+  ]
+}

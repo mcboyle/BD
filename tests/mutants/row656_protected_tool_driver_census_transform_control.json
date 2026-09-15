@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656 transform control: removing a driver's authorization must ESCAPE a policy-only census test that never looks at drivers, proving the census CAUGHTs are assertion failures rather than import breaks.",
+  "subject": "a policy-only census test does not catch a missing driver authorization",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool",
+    "tests/test_cut_quality_permits.py::test_policy_binds_every_protected_consumer_blob"
+  ],
+  "mutants": [
+    {
+      "label": "CENSUS-CONTROL-policy-only",
+      "file": "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "boundary"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_policy_binds_every_protected_consumer_blob"
+      ],
+      "old_regex": "authorize_module(?=\\(_load\\(BDCUT)"
+    }
+  ]
+}

@@ -165,6 +165,14 @@ _DECLARED = {
     # ultrafilms scene links and refuse the navigation the fallback picked,
     # with the hint list open to template extension.
     "tests/test_row719_scene_classifier_underselects.py",
+    # Row 787. find_best_download's nothing-in-scope result must not LOOK FOUND
+    # at any caller: a tree-derived caller census, every caller deciding by the
+    # sentinel KEY rather than by truthiness alone, and a genuine-candidate
+    # control at each of them.
+    "tests/test_row787_sentinel_must_not_look_found.py",
+    # Row 741. A failed relogin is filed by WHO refused it and WHY, decided by
+    # the type of the callback's detail, never by a phrase in its text.
+    "tests/test_row741_relogin_refusals_are_typed.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -454,6 +462,7 @@ _DECLARED = {
     # rides the same shard as its precut siblings above.
     # CI-SHARD-CLAIM row-790 tree-gates-3 tests/test_row790_precut_names_footguns_ratchet_unknown.py
     "tests/test_row790_precut_names_footguns_ratchet_unknown.py",
+    "tests/test_row794_precut_preamble_reports_only_run_checks.py",
     # Rows 416/464/472/527. Verification tools must preserve each measured
     # state through their real entry points; the suite also pins bd-precut's
     # baseline/tracked-only main() wiring, which the row-463 component tests do
@@ -812,11 +821,14 @@ _DECLARED = {
     # validates the same corpus.
     # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",
+    # Row 656. Persistent cut permits bind policy, repository identity, and
+    # protected lifecycle launchers, so the validator is a tree-wide gate.
+    "tests/test_cut_quality_permits.py",
     # Row 649. These recovered module contracts had never reached main; their
     # explicit declarations are paired with the recovered-contracts CI shard.
     "tests/test_row089_capture_corpus_backup_restore.py",
     "tests/test_row090_global_run_cap.py",
-    "tests/test_row395_captcha_egress_disclosure.py",
+    "tests/test_row700_captcha_egress_disclosure.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     # Row 357. Anchor fragility is a whole-population property: no changed
     # subject path can make a diff router select the gate that audits every
@@ -1286,6 +1298,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
     "tests/test_row772_rejected_login_is_not_success.py",  # module
+    "tests/test_row741_relogin_refusals_are_typed.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
     "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
@@ -1320,7 +1333,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
     "tests/test_row089_capture_corpus_backup_restore.py",  # module
     "tests/test_row090_global_run_cap.py",  # module
-    "tests/test_row395_captcha_egress_disclosure.py",  # module
+    "tests/test_row700_captcha_egress_disclosure.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
     "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",  # module
     "tests/test_row363_affordance_learning.py",  # module

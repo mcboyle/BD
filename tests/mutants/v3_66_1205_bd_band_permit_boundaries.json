@@ -1,0 +1,27 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "v3.66.1205 bd-band permit boundary: enforced after target validation (bd-bandcheck, row747) and before the first pytest subprocess.",
+  "subject": "bd-band enforces the permit after bandcheck and before pytest",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_bd_band_permit_runs_after_target_validation",
+    "tests/test_cut_quality_permits.py::test_bd_band_valid_permit_reaches_fake_pytest",
+    "tests/test_cut_quality_permits.py::test_bd_band_permit_refuses_before_pytest"
+  ],
+  "mutants": [
+    {
+      "label": "BAND-permit-boundary",
+      "file": "toolchain/bin/bd-band",
+      "new": "(lambda: True)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_bd_band_permit_refuses_before_pytest",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "pytest launched despite a refused permit"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_bd_band_valid_permit_reaches_fake_pytest"
+      ],
+      "old_regex": "(?<=    if not )_permit_ok(?=\\(\\):\\n        return 2\\n\\n    if a\\.from_zip)"
+    }
+  ]
+}

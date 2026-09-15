@@ -740,12 +740,14 @@ class _NoInScopeCandidates(dict):
     """A consumable, falsy no-selection result for every find_best_download
     caller.
 
-    Falsy so the four callers that only ask `if not best:` cannot mistake it
-    for a found candidate, and keyed (`score`, `size`, `text`, `locator`) so a
+    Falsy so a caller that only asks `if not best:` cannot mistake it for a
+    found candidate, and keyed (`score`, `size`, `text`, `locator`) so a
     caller that reads those fields before testing gets 0/None rather than a
     KeyError.  runner.py tests `_no_in_scope_candidates` BEFORE its own
     `if not best:` guards, so the named outcome is reached rather than
-    collapsing into "No download button found".
+    collapsing into "No download button found".  Row 787: the four other
+    callers decide through :func:`no_selection`, which reads the KEY, so
+    none of them rests on this class's truthiness alone.
     """
     def __bool__(self):
         return False
@@ -758,6 +760,25 @@ def _no_in_scope_result(excluded):
         _no_in_scope_candidates=True, _all_candidates=[],
         _excluded_candidates=list(excluded), score=0, size=0, text="",
         locator=None)
+
+
+def no_selection(best):
+    """True when `best` is NOT a found candidate: None, an empty result, or
+    the nothing-in-scope sentinel.
+
+    Row 787: decide by the KEY, never by truthiness alone.  The sentinel is
+    falsy today, but a caller whose whole decision is `if not best:` takes
+    any truthy nothing-in-scope result as a find and then reads
+    locator=None / _learned_sel="" -- it LOOKS FOUND.  Reading
+    `_no_in_scope_candidates` here keeps every caller correct whatever the
+    sentinel's truthiness becomes.
+    """
+    if not best:
+        return True
+    get = getattr(best, "get", None)
+    if get is None:
+        return False
+    return bool(get("_no_in_scope_candidates"))
 
 
 def _split_selector_list(selector):

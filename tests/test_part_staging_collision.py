@@ -1360,7 +1360,8 @@ def _row523_runner(http_behavior="real"):
         def _finish_daily_byte_accumulator(self, accumulator):
             return None
 
-        def _http_download(self, page_url, page, ctx, file_url, final_path):
+        def _http_download(self, page_url, page, ctx, file_url, final_path,
+                           resource_url=None):
             if self.http_behavior == "success":
                 Path(final_path).write_bytes(b"http-ok")
                 return len(b"http-ok"), len(b"http-ok")
@@ -1370,7 +1371,7 @@ def _row523_runner(http_behavior="real"):
                 staging.write_bytes(b"partial-bytes")
                 raise rt._HTTPDownloadFailed("synthetic interrupted transfer")
             return super()._http_download(page_url, page, ctx, file_url,
-                                          final_path)
+                                          final_path, resource_url=resource_url)
 
         def _pw_save(self, dl, final_path):
             Path(final_path).write_bytes(b"browser-ok")

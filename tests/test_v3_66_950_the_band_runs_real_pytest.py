@@ -61,6 +61,8 @@ from pathlib import Path
 
 import pytest
 
+from _cut_quality_test_support import authorized_tool_argv, raw_tool_argv
+
 _REPO = Path(__file__).resolve().parent.parent
 _PY = Path(sys.executable)
 _BAND = _REPO / "toolchain" / "bin" / "bd-band"
@@ -167,7 +169,7 @@ def test_bd_band_passes_the_file_the_stub_failed():
     re-derived rather than patched.
     """
     proc = subprocess.run(
-        [str(_PY), str(_BAND), _DIVERGENT],
+        authorized_tool_argv(_BAND, _DIVERGENT),
         cwd=str(_REPO), capture_output=True, text=True, timeout=600)
     blob = proc.stdout + proc.stderr
     assert "IMPORT ERROR" not in blob, (
@@ -177,6 +179,11 @@ def test_bd_band_passes_the_file_the_stub_failed():
     assert proc.returncode == 0, (
         f"bd-band graded {_DIVERGENT} non-green; real pytest passes it 4/4 in "
         f"the same tree with the same interpreter:\n" + blob[-1500:])
+
+
+def test_authorization_transform_control_only_imports_the_band():
+    band = _load(_BAND)
+    assert callable(band.main)
 
 
 def test_the_behavioural_check_is_not_vacuous():

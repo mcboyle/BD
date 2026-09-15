@@ -60,14 +60,6 @@
       "new": "False",
       "direction": "regression",
       "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row647_shared_egress_refuses_required_site_without_a_proxy"
-    },
-    {
-      "label": "TRANSFORM CONTROL live-recorder egress bypass escapes a build-only test",
-      "file": "bulk_downloader/live_recorder.py",
-      "old": "def _prepare_recording_egress(site: str):\n",
-      "new": "def _prepare_recording_egress(site: str):\n    return _egress_prepare(\"\")\n",
-      "direction": "regression",
-      "catcher": "tests/test_v3_43_62_live_recorder.py::TestBuildCmdDefense::test_clean_inputs_build_streamlink_cmd"
     }
   ]
 }

@@ -131,17 +131,44 @@ DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY = 3
 # auto_relogin_fail, so filing a self-refusal there would corrupt expiry
 # prediction with a window that no site ever ended.
 RELOGIN_REFUSED_EVENT = "auto_relogin_refused"
-_SELF_REFUSAL_MARK = "daily login attempt cap"
+# Row 741: a refusal we issued has THREE remedies, not one. The cap was
+# reached (wait for the day to roll), the cap could not be measured or
+# reserved (repair the attempt store), or the cap is misconfigured (fix the
+# site config). One event per remedy; a substring test collapsed the first two.
+RELOGIN_CAP_UNAVAILABLE_EVENT = "auto_relogin_cap_unavailable"
+RELOGIN_CAP_INVALID_EVENT = "auto_relogin_cap_invalid"
+RELOGIN_SELF_REFUSAL_EVENTS = (RELOGIN_REFUSED_EVENT,
+                               RELOGIN_CAP_UNAVAILABLE_EVENT,
+                               RELOGIN_CAP_INVALID_EVENT)
 
 
-def relogin_event_type(detail: str) -> str:
+class SelfRefusal(str):
+    """A relogin detail WE produced, carrying the event it files as (row 741).
+
+    It IS the detail string every reader already expects, so a callback's
+    ``(False, detail)`` contract is unchanged; only a detail of this type is
+    ever filed as one of our own refusals. A site's words are a plain string
+    however they read -- a reply that merely contains a phrase of ours is
+    still the site's reply.
+    """
+
+    def __new__(cls, event_type: str, text: str):
+        if event_type not in RELOGIN_SELF_REFUSAL_EVENTS:
+            raise ValueError(f"not a self-refusal event: {event_type!r}")
+        obj = super().__new__(cls, text)
+        obj.event_type = event_type
+        return obj
+
+
+def relogin_event_type(detail) -> str:
     """Name the durable event for a failed relogin by WHO refused it.
 
-    The marker is the one phrase every cap refusal carries and no site reply
-    reaches: a site's own words arrive wrapped as ``login failed: ...``.
+    Decided by TYPE: a ``SelfRefusal`` names its own event; anything else is
+    the site's answer. No phrase in the text is consulted (row 741).
     """
-    return (RELOGIN_REFUSED_EVENT if _SELF_REFUSAL_MARK in str(detail or "")
-            else "auto_relogin_fail")
+    if isinstance(detail, SelfRefusal):
+        return detail.event_type
+    return "auto_relogin_fail"
 
 
 def _local_day_bounds(selected):

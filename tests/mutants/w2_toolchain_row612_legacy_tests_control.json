@@ -1,5 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
+  "control_spec": true,
   "_comment": "Expected ESCAPES required by row 612. Each structural main()-wiring mutant is repeated with each of the five pre-existing row-463 component tests as its named catcher. Ten escapes prove every old test remains green under both mutations; the primary w2 battery adds the current main-entry-point catcher and catches both.",
   "subject": "row 612 control -- legacy component tests do not pin main wiring",
   "band": [

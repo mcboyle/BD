@@ -10,6 +10,8 @@ import pathlib
 import shlex
 import subprocess
 
+from _cut_quality_test_support import authorize_module, raw_module
+
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 TOOL = REPO / "toolchain" / "bin" / "bd-fleet-run"
@@ -21,7 +23,7 @@ def _load():
     spec = importlib.util.spec_from_loader(loader.name, loader)
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
-    return mod
+    return authorize_module(mod)
 
 
 def _git(repo: pathlib.Path, *args: str) -> str:
@@ -286,6 +288,7 @@ def _execute(mod, tmp_path: pathlib.Path, log_text: str, runner_rc: int = 0):
     root = tmp_path / "runs"
     root.mkdir()
     runner = _LogRunner(log_text, rc=runner_rc)
+    authorization_before = len(mod._legacy_cut_quality_calls)
     rc = mod.main(
         [
             "--hosts", str(hosts),
@@ -296,6 +299,10 @@ def _execute(mod, tmp_path: pathlib.Path, log_text: str, runner_rc: int = 0):
         runner=runner,
         probe=_Probe(),
     )
+    authorization_fired = len(mod._legacy_cut_quality_calls) - authorization_before
+    assert authorization_fired == 2, (
+        "precondition: fleet authorization fired %d times, expected exactly 2"
+        % authorization_fired)
     run = next(p for p in root.iterdir() if p.is_dir())
     summary = json.loads((run / "summary.json").read_text())
     manifest = json.loads((run / "manifest.json").read_text())

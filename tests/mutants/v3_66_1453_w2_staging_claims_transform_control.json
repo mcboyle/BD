@@ -9,7 +9,7 @@
     {
       "label": "CONTROL remove ownership unwind from an import-only spec",
       "file": "bulk_downloader/runner_transport.py",
-      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path,\n                        resource_url=None):",
       "new": "            pass\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_transform_control_only_imports_runner_transport"

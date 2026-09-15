@@ -62,6 +62,13 @@ import zipfile
 
 import pytest
 
+from _cut_quality_test_support import (
+    authorize_module,
+    raw_module,
+    write_authorized_cut_quality_stub,
+    write_refusing_cut_quality_stub,
+)
+
 BD_GATE_SCOPE = "module"
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -88,7 +95,7 @@ def _load(path, name):
 
 
 def _load_bdcut():
-    return _load(BDCUT, "bd_cut_uut_1152")
+    return authorize_module(_load(BDCUT, "bd_cut_uut_1152"))
 
 
 def _tmproot():
@@ -261,6 +268,7 @@ def test_the_REAL_CLI_exits_nonzero_when_cleanup_fails(tmp_path):
     (b / "bd-cut").write_text(after, encoding="utf-8")
     (b / "bd-cut").chmod(0o755)
     shutil.copy(SEC, b / "bdtools_sec.py")
+    write_authorized_cut_quality_stub(b)
 
     z = _zip_with(tmp_path / "r.zip", "A")
     w = _work(tmp_path)
