@@ -183,3 +183,11 @@ audit_venv/
 # copies of THIS repo nested inside it -- never commit them. Distinct from the
 # `.worktrees/` entry above, which that pattern does not match.
 .claude/worktrees/
+
+# H389: bd-precut now KEEPS the underived run's JUnit record instead of deleting
+# it with its own scratch dir, and when BD_PRECUT_EVIDENCE_DIR is unset the
+# default destination is <cwd>/.bd-precut-evidence/. That cwd is a worktree, so
+# without this the tool would dirty the tree it is judging -- which is exactly
+# H338, where three precut .log.remote files were collected into row802's lens
+# patch. A tool must not change the object under test (rule 13).
+.bd-precut-evidence/

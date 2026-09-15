@@ -840,7 +840,9 @@ def test_dev_run_worker_error_reaps_descendant_after_leader_exits(
         _await_dev_run(
             subject,
             run_id,
-            lambda current: current["pid"] is not None and marker.is_file(),
+            lambda current: current["pid"] is not None
+            and marker.is_file()
+            and marker.read_text(encoding="ascii").endswith("\n"),
         )
         child_pid = int(marker.read_text(encoding="ascii").strip())
         child_start = _linux_process_start(child_pid)
