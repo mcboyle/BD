@@ -478,7 +478,6 @@ jobs:
               tests/test_row360_turnstile_bypass_is_installed.py
               tests/test_row763_child_frame_turnstile.py
               tests/test_row764_turnstile_bypass_verdict.py
-              tests/test_row775_turnstile_one_click_affordance.py
               tests/test_row765_scrapling_selector_compatibility.py
               tests/test_row763_frame_urls_never_reach_the_model_prompt.py
               tests/test_rows706_714_test_hygiene.py
@@ -552,6 +551,7 @@ jobs:
           - name: download-chain
             suites: >-
               tests/test_row386_the_download_chain_is_gated.py
+              tests/test_row775_turnstile_one_click_affordance.py
               tests/test_row701_quality_scan_scopes_to_the_requested_scene.py
           # Row 778. Page-native extractors return before the ordinary
           # transport boundary, so their completion history must receive the
