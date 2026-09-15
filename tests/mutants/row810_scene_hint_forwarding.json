@@ -1,0 +1,10 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row810 forwarding seams: template-only scene classification reaches both playlist and search walkers.",
+  "subject": "template-only scene hints reach both real forwarding walkers",
+  "band": ["tests/test_row719_scene_classifier_underselects.py::test_row810_template_scene_hints_forward_through_both_walkers"],
+  "mutants": [
+    {"label": "playlist forwarding drops template-only scene", "file": "bulk_downloader/playlist_extractor.py", "old_regex": "(?m)(?<=^            if not _looks_like_scene_url\\(u, template=template\\):\\n                )continue$", "new": "pass", "direction": "regression", "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row810_template_scene_hints_forward_through_both_walkers"},
+    {"label": "search forwarding drops template-only scene", "file": "bulk_downloader/search_extractor.py", "old_regex": "(?m)(?<=^        if not _looks_like_scene_url\\(url, template=template\\):\\n            )continue$", "new": "pass", "direction": "regression", "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row810_template_scene_hints_forward_through_both_walkers"}
+  ]
+}

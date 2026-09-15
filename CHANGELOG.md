@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1561 - row810 forwarding mutants; row813 rejected-login diagnostic; row719 return_to spoof; row816 Playwright teardown; row820 CI shard split and derived 939 coverage
+
+Train: 5 refute-first-reviewed worker patches.
+
+- 810-REAL-R1-CX-WORKER4-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row810-real-r1-cx-worker4-local/DONE.md
+- 813-R2-WORKER-B4-B-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row813-r2-worker-B4-B-local/DONE.md
+- 719-ASTRA-U3-HELPER-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row719-astra-u3-helper-local/DONE.md
+- 816-ASTRA-U3-HELPER-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row816-astra-u3-helper-local/DONE.md
+- 820-CX16-LOCAL: PATCH-SHA256: 33f45819565b4c3f835587c2158654c1d5f3e9678313cbc99a606c40e741603f (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/row810-rebase-822b7330-bd-cx-worker16-local at 2026-09-15T00:48:24Z, vs declared base 822b7330) CONTENT-SHA256: 5af37f6e88de77e4c11af0937710e90f3344b5002edd64f
+
 ## v3.66.1560 - row759dc: a per-key listing-filter gate so an encoded separator cannot fabricate a media key
 
 Train: 1 refute-first-reviewed worker patches.

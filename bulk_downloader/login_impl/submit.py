@@ -1336,8 +1336,14 @@ def do_login(config, allow_manual_takeover=False):
         if not _rejected_login:
             try:
                 _rejected_login = "wrong username or password provided" in page.content().lower()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Row 813 (the DP-13 hit O805 deferred). The swallow is correct --
+                # the /badlogin URL check above is the primary signal and still
+                # decides -- but a silent one made an unreadable body look exactly
+                # like a body that said nothing.
+                sys.stderr.write(
+                    f"  login: rejected-login body probe could not read the page "
+                    f"({exc.__class__.__name__}); the landing-URL check decides\n")
         if _rejected_login:
             _hard_close()
             return False, f"Rejected login landing: {cur[:200]}", []

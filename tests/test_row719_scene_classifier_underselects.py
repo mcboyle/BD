@@ -230,3 +230,29 @@ def test_row719_the_search_walker_applies_the_same_scene_rule():
     assert result.ok, result.error
     got = sorted(hit.url for hit in result.hits)
     assert got == films, f"search selected {got}; the register names {films}"
+
+
+def test_row810_template_scene_hints_forward_through_both_walkers():
+    """A template-only scene route must survive both real forwarding sites."""
+    from bulk_downloader import search_extractor
+    from bulk_downloader.playlist_extractor import extract_playlist_urls
+
+    scene = "https://x.example/stream/ab12cd/some-slug"
+    navigation = "https://x.example/stream/sort/latest"
+    template = {"scene_url_hints": ["/stream/"],
+                "search_url_pattern": "https://x.example/search?q={query}"}
+    links = [{"url": scene, "title": "scene"},
+             {"url": navigation, "title": "navigation"}]
+
+    playlist = extract_playlist_urls(
+        _DuckPage(links), "https://x.example/listing", template=template,
+        max_pages=1)
+    assert playlist.ok, playlist.error
+    assert playlist.urls == [scene]
+    assert navigation not in playlist.urls
+
+    search = search_extractor.search_site(
+        _DuckPage(links), "x", "scene", template)
+    assert search.ok, search.error
+    assert [hit.url for hit in search.hits] == [scene]
+    assert navigation not in [hit.url for hit in search.hits]

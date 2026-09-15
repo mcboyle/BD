@@ -483,15 +483,58 @@ def test_parallel_gate_rejects_an_empty_collection(monkeypatch):
 # Row 317, 48 CPUs, 139 specs: 270.00s serial; 77.30s with the 12-worker
 # quarter-CPU pool. The assertions and denominator remain per-spec and ordered
 # outcomes are reconciled before failures surface.
-@pytest.mark.timeout(900)
-def test_every_tracked_spec_parses_and_declares_schema_band_and_mutants():
-    specs = _tracked_specs()
-    assert specs, "cannot validate a zero-spec population"
-    tracked = set(_git_paths())
-    checked = _validate_tracked_specs_concurrently(specs, tracked)
-    assert checked > 0 and checked == len(specs), (
-        f"schema reader processed {checked} of {len(specs)} tracked specs"
+# Row 810: test_every_tracked_spec_parses_and_declares_schema_band_and_mutants
+# -- the whole-corpus collection walk, one `pytest --collect-only` per spec --
+# was the whole of the mutation-tools shard's wall time (measured 2026-09-14 on
+# test5: 100 s of the file's 137 s at 12 workers; 729 s of 765 s pinned to 4
+# CPUs, i.e. the ONE worker a 4-vCPU CI runner gets from _collection_worker_count).
+# It now runs as interleaved slices of the tracked population (specs[k::of]),
+# one file per slice (tests/test_row810_spec_collection_slice_<k>.py), each in
+# its own CI shard. The slice files import the helpers above; the partition test
+# below proves the slice files on disk cover the population exactly.
+_SPEC_SLICE_GLOB = "tests/test_row810_spec_collection_slice_*.py"
+_SPEC_SLICE_BINDING = "_SPEC_SLICE"
+
+
+def _tracked_spec_slice(index: int, of: int) -> list[Path]:
+    """Every `of`-th tracked spec starting at `index`, in tracked order."""
+    assert 0 <= index < of, f"slice {index} of {of} is not a slice"
+    return _tracked_specs()[index::of]
+
+
+def _spec_slice_declarations() -> dict[str, tuple[int, int]]:
+    """path -> (index, of) as each slice file on disk binds _SPEC_SLICE."""
+    declared = {}
+    for rel in _git_paths(_SPEC_SLICE_GLOB):
+        tree = ast.parse((_REPO / rel).read_text(encoding="utf-8"), filename=rel)
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == _SPEC_SLICE_BINDING
+                    for t in node.targets):
+                declared[rel] = tuple(ast.literal_eval(node.value))
+    return declared
+
+
+def test_the_spec_slice_files_partition_the_tracked_population_exactly():
+    """Row 810: the slices on disk are 0..of-1 of ONE `of`, and re-assemble to the
+    whole population -- a deleted or mis-numbered slice file shrinks the walk
+    silently otherwise, and the 939 gate cannot see inside a file."""
+    declared = _spec_slice_declarations()
+    assert declared, f"no {_SPEC_SLICE_BINDING} binding under {_SPEC_SLICE_GLOB}"
+    counts = {of for _index, of in declared.values()}
+    assert len(counts) == 1, f"slice files disagree on the slice count: {declared}"
+    of = counts.pop()
+    indexes = sorted(index for index, _of in declared.values())
+    assert indexes == list(range(of)), (
+        f"slice files declare indexes {indexes}, expected every one of 0..{of - 1} once"
     )
+    specs = _tracked_specs()
+    assembled = [spec
+                 for k in range(of)
+                 for spec in _tracked_spec_slice(k, of)]
+    assert len(assembled) == len(specs) > 0
+    assert sorted(assembled) == sorted(specs), "slices do not re-assemble the population"
+    assert all(_tracked_spec_slice(k, of) for k in range(of)), "an empty slice"
 
 
 def test_every_tracked_mutant_anchor_occurs_exactly_once_in_its_file():

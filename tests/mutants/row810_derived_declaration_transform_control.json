@@ -1,0 +1,18 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for row 810. Applies the identical valid M1 derivation-emptying transform to a node that imports the gate module without judging the census. It must ESCAPE; INVALID, ERROR, or UNKNOWN is not an escape.",
+ "subject": "a valid derivation-emptying transform does not fail merely because the CI meta-gate module is imported",
+ "band": [
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row810_derivation"
+ ],
+ "mutants": [
+  {
+   "label": "TC1 emptied derivation escapes an import-only control",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    return {rel for rel, scope in _scope_map(_tracked_test_files()).items()",
+   "new": "    return {rel for rel, scope in {}.items()",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_ci_gate_without_judging_row810_derivation"
+  }
+ ]
+}

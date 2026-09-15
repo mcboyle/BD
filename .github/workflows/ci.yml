@@ -674,6 +674,7 @@ jobs:
               tests/test_v3_66_1180_band_derivation_paths.py
           - name: mutation-tools
             suites: >-
+              tests/test_row810_spec_collection_slice_0.py
               tests/test_row705_published_denominators.py
               tests/test_row788_transform_control_is_separate.py
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
@@ -683,6 +684,12 @@ jobs:
               tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py
               tests/test_row470_corpus_tools_fail_closed.py
+          - name: mutation-tools-b
+            suites: >-
+              tests/test_row810_spec_collection_slice_1.py
+          - name: mutation-tools-c
+            suites: >-
+              tests/test_row810_spec_collection_slice_2.py
           - name: mutation-verifiers
             suites: >-
               tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
