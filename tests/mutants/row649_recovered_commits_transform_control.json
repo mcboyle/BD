@@ -1,0 +1,8 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "control_spec": true,
+  "_comment": "Row 649 import-only transform control; this intentional escape proves the regression catchers judge behavior.",
+  "subject": "row 649 control -- import-only captcha test does not judge the paid-egress gate",
+  "band": ["tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"],
+  "mutants": [{"label": "paid captcha gate removal escapes import-only control", "file": "bulk_downloader/runner.py", "old": "    if not (key_will_enable or provider_moves_active_key):", "new": "    if True:", "direction": "regression", "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"}]
+}

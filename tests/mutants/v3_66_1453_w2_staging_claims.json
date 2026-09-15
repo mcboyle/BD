@@ -10,7 +10,7 @@
     {
       "label": "M1 remove the post-reservation ownership unwind",
       "file": "bulk_downloader/runner_transport.py",
-      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path,\n                        resource_url=None):",
       "new": "            pass\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_every_post_reservation_return_is_inside_one_ownership_scope"
@@ -18,7 +18,7 @@
     {
       "label": "M2 make the scope guard blind-unlink another identity",
       "file": "bulk_downloader/runner_transport.py",
-      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
+      "old": "            staging_claim.release(_staging_path, _staging_identity)\n    def _http_download(self,page_url,page,ctx,file_url,final_path,\n                        resource_url=None):",
       "new": "            staging_claim.release(_staging_path, force=True)\n    def _http_download(self,page_url,page,ctx,file_url,final_path):",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_do_download_scope_will_not_delete_a_different_jobs_claim"

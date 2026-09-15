@@ -474,8 +474,39 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row776_accepted_media_skips_needs_review.py",
             r"(?m)^def test_real_start_fails_closed_and_never_fetches_when_the_proxy_tunnel_is_down\(tmp_path, monkeypatch\):$",
         ),
+    "38b57453885725b06195f85694c94bdc8d8c439ef8e9ba7aaf864c976e17a791":
+        StableValueException(
+            "row 800 moved the established import-only transform control into its declared control-only spec",
+            "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
+            r"(?m)^def test_variable_slice_transform_control_imports_without_judging_behaviour\(\):$",
+        ),
+    # Row 716: resource_url=None is the fixed sentinel meaning "caller did not
+    # override; fall back to file_url", not a value copied from a producer.
+    # The negative control below relies on exactly this fallback to keep the
+    # raise-site discriminator correct when no resource_url is passed.
+    "219d8b770312cc27321de838d557592de38a689930b36ad3110d044ba20f9c2e":
+        StableValueException(
+            "resource_url=None is the fixed fallback to file_url that keeps "
+            "the mirror-swap chain's raise-site discriminator correct",
+            "tests/test_row716_mirror_swap_keeps_the_chain.py",
+            r"(?m)^def test_a_genuinely_different_resource_on_one_host_still_refuses\($",
+        ),
+    "c951c4345a0cd204e20c88dc73ca3fae252e1bb5c726aaa01453985156a2863a":
+        StableValueException(
+            "resource_url=None is the fixed fallback to file_url that keeps "
+            "the mirror-swap chain's raise-site discriminator correct",
+            "tests/test_row716_mirror_swap_keeps_the_chain.py",
+            r"(?m)^def test_a_genuinely_different_resource_on_one_host_still_refuses\($",
+        ),
+    "0f3a9f09981441effd60422d9d8d451e4b40f269e8b72168f033c07e0dc7bad8":
+        StableValueException(
+            "resource_url=None is the fixed fallback to file_url that keeps "
+            "the mirror-swap chain's raise-site discriminator correct",
+            "tests/test_row716_mirror_swap_keeps_the_chain.py",
+            r"(?m)^def test_a_genuinely_different_resource_on_one_host_still_refuses\($",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 45
+_STABLE_VALUE_EXCEPTION_MAX = 49
 
 
 def _family(

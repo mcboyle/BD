@@ -121,7 +121,7 @@
     {
       "label": "M15 invalid cap falls back to an effectively unbounded value",
       "file": "bulk_downloader/app.py",
-      "old_regex": "(?m)(?<=^                )return(?= False, \"daily login attempt cap is invalid\"$)",
+      "old_regex": "(?m)(?<=^                )return(?=\\s*False, _sk\\.SelfRefusal\\(\\n\\s*_sk\\.RELOGIN_CAP_INVALID_EVENT,\\n\\s*\"daily login attempt cap is invalid\"\\))",
       "new": "daily_cap = 999\n                if False: return",
       "direction": "regression",
       "catcher": "tests/test_row667_login_attempt_accounting.py::test_keeper_invalid_cap_refuses_without_contact"
@@ -265,7 +265,7 @@
     {
       "label": "M33 the classifier files our own refusal as a site rejection",
       "file": "bulk_downloader/session_keeper.py",
-      "old_regex": "(?<=    return \\()RELOGIN_REFUSED_EVENT(?= if _SELF_REFUSAL_MARK in str\\(detail or \\\"\\\"\\))",
+      "old_regex": "(?m)(?<=^        return )detail\\.event_type$",
       "new": "\"auto_relogin_fail\"",
       "direction": "regression",
       "catcher": "tests/test_row667_login_attempt_accounting.py::test_a_self_refusal_and_a_site_refusal_have_distinct_event_types"

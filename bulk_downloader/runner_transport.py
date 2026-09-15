@@ -1714,7 +1714,8 @@ class TransportMixin:
                                     f"Trying mirror: {self._extract_host(attempt_url)}")
                                 self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
                             downloaded_size, bytes_fetched = self._http_download(
-                                page_url, page, ctx, attempt_url, final_path)
+                                page_url, page, ctx, attempt_url, final_path,
+                                **({"resource_url": file_url} if attempt_url != file_url else {}))
                             break  # success
                         except _HTTPDownloadFailed as e:
                             last_err = e
@@ -2024,8 +2025,16 @@ class TransportMixin:
             except OSError:
                 pass
             staging_claim.release(_staging_path, _staging_identity)
-    def _http_download(self,page_url,page,ctx,file_url,final_path):
-        """Run one HTTP transfer inside the RAM staging ownership scope."""
+    def _http_download(self,page_url,page,ctx,file_url,final_path,
+                        resource_url=None):
+        """Run one HTTP transfer inside the RAM staging ownership scope.
+
+        row716: `resource_url` names the media object this transfer is
+        FOR, independent of which host `file_url` happens to be fetching
+        it from this attempt. The mirror loop passes the chain's original
+        URL here on every attempt so a host-only swap still claims under
+        the one identity the whole chain shares; callers with a single URL
+        leave it unset and `file_url` doubles as its own resource."""
         ramdisk_claims = []
         identity = staging_claim.job_identity(page_url)
         _rl_slot = None
@@ -2061,7 +2070,8 @@ class TransportMixin:
         try:
             return self._http_download_claimed(
                 page_url, page, ctx, file_url, final_path, ramdisk_claims,
-                _acquire_rate_limit, _release_rate_limit, _report_progress)
+                _acquire_rate_limit, _release_rate_limit, _report_progress,
+                resource_url=resource_url)
         finally:
             # The inner response-loop finally releases at the historical
             # boundary. This idempotent outer call also covers failures after
@@ -2082,7 +2092,8 @@ class TransportMixin:
 
     def _http_download_claimed(
             self, page_url, page, ctx, file_url, final_path, ramdisk_claims,
-            acquire_rate_limit, release_rate_limit, report_progress):
+            acquire_rate_limit, release_rate_limit, report_progress,
+            resource_url=None):
         """Stream the file URL to disk via httpx, with progress updates,
         resume support via Range, and pause/stop responsiveness.
 
@@ -2114,6 +2125,11 @@ class TransportMixin:
         # have too much per-chunk HTTP overhead to benefit.
         n_chunks = int(self.config.get("parallel_chunks", 1) or 1)
         n_chunks = max(1, min(n_chunks, 8))  # cap at 8 to avoid hammering CDNs
+        # row716: fix the resource identity to the caller's canonical URL
+        # BEFORE any further reassignment of `file_url` below (speculative
+        # mirror pick, parallel dispatch) -- those pick where bytes come
+        # from this attempt, not what resource they're claimed under.
+        resource_url = resource_url if resource_url is not None else file_url
         # AUDIT FIX (v3.42.0): Phase 69 speculative mirror selection was
         # defined but never invoked. Call it here so the rest of the
         # download path operates against the fastest-responding mirror.
@@ -2131,7 +2147,8 @@ class TransportMixin:
                 try:
                     return self._http_download_parallel(page_url, ctx, file_url,
                                                         final_path, total=size,
-                                                        n_chunks=n_chunks)
+                                                        n_chunks=n_chunks,
+                                                        resource_url=resource_url)
                 except _HTTPDownloadFailed as e:
                     # User stop / rate limit / quota — propagate. Anything else
                     # we treat as "parallel didn't work, try sequential".
@@ -2162,7 +2179,7 @@ class TransportMixin:
         identity = staging_claim.job_identity(page_url)
         try:
             tmp_path = staging_claim.claim(
-                final_path, identity, resource_url=file_url)
+                final_path, identity, resource_url=resource_url)
         except (staging_claim.StagingClaimedByAnotherJob,
                 staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:
@@ -2685,7 +2702,7 @@ class TransportMixin:
         try: return int(cl)
         except Exception: return 0
     def _http_download_parallel(self, page_url, ctx, file_url, final_path,
-                                 total, n_chunks):
+                                 total, n_chunks, resource_url=None):
         """Download `total` bytes via N parallel HTTP Range requests.
 
         Layout:
@@ -2735,7 +2752,8 @@ class TransportMixin:
         try:
             tmp_path = staging_claim.claim(
                 final_path, staging_claim.job_identity(page_url),
-                resource_url=file_url)
+                resource_url=resource_url if resource_url is not None
+                else file_url)
         except (staging_claim.StagingClaimedByAnotherJob,
                 staging_claim.StagingResourceMismatch,
                 staging_claim.StagingUnavailable) as e:

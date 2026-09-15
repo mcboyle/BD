@@ -1190,7 +1190,9 @@ def test_a_self_refusal_and_a_site_refusal_have_distinct_event_types(
                 "ORDER BY id ASC", (site_id,)).fetchall()]
 
     refused = _drive("row667-n2-refused",
-                     "daily login attempt cap reached (3/3)")
+                     session_keeper.SelfRefusal(
+                         session_keeper.RELOGIN_REFUSED_EVENT,
+                         "daily login attempt cap reached (3/3)"))
     rejected = _drive("row667-n2-rejected",
                       "login failed: password rejected by the site")
 
@@ -1299,13 +1301,14 @@ def test_session_event_record_documents_the_login_event_vocabulary():
     recorded = set(_re.findall(r'_record_event\(\s*"([a-z_]+)"', source))
     recorded.add(session_keeper._LOGIN_ATTEMPT_EVENT)
     # The relogin branch names its event through a classifier rather than a
-    # literal, so ask the classifier for BOTH of its answers instead of
+    # literal, so ask the classifier for EVERY one of its answers instead of
     # reading the call site -- the denominator must not shrink when a literal
-    # moves behind a function.
-    classifier = getattr(session_keeper, "relogin_event_type", None)
-    if classifier is not None:
-        recorded.add(classifier("daily login attempt cap reached (1/1)"))
-        recorded.add(classifier("login failed: rejected by the site"))
+    # moves behind a function. Row 741: it answers by TYPE, one event per
+    # self-refusal kind plus the site's own failure.
+    classifier = session_keeper.relogin_event_type
+    for event in session_keeper.RELOGIN_SELF_REFUSAL_EVENTS:
+        recorded.add(classifier(session_keeper.SelfRefusal(event, "fixture")))
+    recorded.add(classifier("login failed: rejected by the site"))
     assert len(recorded) >= 7, (
         "precondition: the measured vocabulary must be nonzero and complete; "
         f"observed {sorted(recorded)}")
@@ -1407,7 +1410,9 @@ def test_a_self_refusal_is_not_counted_as_a_site_failure(monkeypatch, tmp_path):
             lambda: (session_keeper.DEAD, "fixture heartbeat failure"))
         keeper._run_one_check()
 
-    _drive("row667-cluster-refused", "daily login attempt cap reached (3/3)")
+    _drive("row667-cluster-refused",
+           session_keeper.SelfRefusal(session_keeper.RELOGIN_REFUSED_EVENT,
+                                      "daily login attempt cap reached (3/3)"))
     _drive("row667-cluster-rejected",
            "login failed: password rejected by the site")
 
@@ -1433,3 +1438,35 @@ def test_a_self_refusal_is_not_counted_as_a_site_failure(monkeypatch, tmp_path):
         site for site in payload["sites"]
         if site["site_id"] == "row667-cluster-refused")
     assert refused_payload["auto_relogin_refused"] == 1, refused_payload
+
+
+def test_activate_configured_runtime_once_starts_the_session_keepers(
+        monkeypatch):
+    """Boot activation must call the real keeper starter -- a deleted call
+    here would leave every configured site's auto-relogin unstarted, and
+    none of this file's direct app._start_session_keepers() calls would
+    ever notice."""
+    app = importlib.import_module("bulk_downloader.app")
+    session_keeper = importlib.import_module("bulk_downloader.session_keeper")
+    monkeypatch.setattr(
+        app, "_require_compatible_site_runtime_path", lambda _path: None)
+    monkeypatch.setattr(
+        app, "_publish_sites_file_for_runtime", lambda _path: None)
+    monkeypatch.setattr(app, "_SITE_RUNTIME_PATH", None)
+    monkeypatch.setattr(app, "_SITE_RUNTIME_READY", False)
+    monkeypatch.setattr(app, "_SITE_RUNTIME_ROLLBACK_PENDING", False)
+    monkeypatch.setattr(app, "_SITE_RUNTIME_RETIRING", False)
+    monkeypatch.setattr(app, "s_cfg", {"row741b-boot-probe": {}})
+    monkeypatch.setattr(app, "s_meta", {})
+    monkeypatch.setattr(app, "runners", {})
+    monkeypatch.setattr(session_keeper, "open_lifecycle", lambda: True)
+    monkeypatch.setattr(app, "_init_vpn_runtime", lambda: {"ok": True})
+    calls = []
+    monkeypatch.setattr(
+        app, "_start_session_keepers", lambda: calls.append(True))
+    monkeypatch.setattr(app, "_start_watch_folder_threads", lambda: None)
+    started = app._activate_configured_runtime_once(
+        "/tmp/row741b-boot-probe.json")
+    assert started is True
+    assert calls == [True], (
+        "boot activation did not call _start_session_keepers")

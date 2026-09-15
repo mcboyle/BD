@@ -126,14 +126,6 @@
       "new": "def _variable_comparisons_in_true_slice(node: ast.expr) -> list[ast.Compare]:\n    return []",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_the_comparison_slice_reports_reconciled_fixture_metrics"
-    },
-    {
-      "label": "TRANSFORM CONTROL: disabling variable resolution must escape when the named test only imports the mutated module",
-      "file": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
-      "old": "    if isinstance(node, ast.Name) and env is not None and node.id in env:\n        return bool(env[node.id])",
-      "new": "    if False:\n        return bool(env[node.id])",
-      "direction": "regression",
-      "catcher": "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py::test_variable_slice_transform_control_imports_without_judging_behaviour"
     }
   ]
 }

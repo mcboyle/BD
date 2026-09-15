@@ -260,6 +260,9 @@ spends one unit of the same per-site, per-local-day budget.
 - A refusal we issued ourselves is recorded as `auto_relogin_refused`, NOT as
   `auto_relogin_fail`. If the session-event log shows `auto_relogin_refused`,
   the credentials are not the problem: the day's budget is spent.
+  `auto_relogin_cap_unavailable` means the attempt store could not be read or
+  written (repair it); `auto_relogin_cap_invalid` means this key is not a
+  positive integer (fix the site config). Each remedy has its own event.
 - If the attempt count cannot be measured at all, the login is refused rather
   than allowed through. An unmeasurable budget is not an unlimited one.
 

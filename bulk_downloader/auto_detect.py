@@ -266,7 +266,9 @@ def _detect_download_live(page, *, quality_pref, warnings: list
         warnings.append(
             f"find_best_download raised: {type(e).__name__}: {str(e)[:120]}")
         return None
-    if not best:
+    # Row 787: decide by the nothing-in-scope KEY, not by truthiness alone,
+    # so a truthy sentinel can never reach the locator read below.
+    if _detect.no_selection(best):
         warnings.append("no download candidate found by find_best_download")
         return None
 

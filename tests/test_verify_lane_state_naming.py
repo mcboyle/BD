@@ -18,6 +18,13 @@ import sys
 
 import pytest
 
+from _cut_quality_test_support import (
+    authorize_module,
+    authorized_tool_argv,
+    raw_module,
+    raw_tool_argv,
+)
+
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -37,6 +44,8 @@ def _load(name: str):
     assert spec and spec.loader, f"precondition: {path} must be loadable"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    if name in {"band", "ci"}:
+        authorize_module(module)
     return module
 
 
@@ -72,6 +81,9 @@ def _drive_band(monkeypatch, tmp_path, capsys, *, returncode, stdout="", stderr=
         argv.extend(["--timeout", str(expected_timeout)])
     rc = mod.main(argv)
     captured = capsys.readouterr()
+    assert len(mod._legacy_cut_quality_calls) == 1, (
+        "precondition: cut-quality authorization fired %d times, expected exactly 1"
+        % len(mod._legacy_cut_quality_calls))
     assert len(fired) == 1, f"precondition: injected pytest fired {len(fired)} times"
     return rc, captured.out + captured.err
 
@@ -248,8 +260,9 @@ def _run_ci_fixture(tmp_path: Path, *, names, statuses, gh_rc=0):
     gh = mod._write_fake_gh(
         tmp_path, "gh-fixture", payload, rc=gh_rc, argv_log=argv_log)
     proc = subprocess.run(
-        [sys.executable, str(TOOLS["ci"]), "673", "--ci-yml", str(ci),
-         "--gh", str(gh)], capture_output=True, text=True)
+        authorized_tool_argv(
+            TOOLS["ci"], "673", "--ci-yml", str(ci), "--gh", str(gh)),
+        capture_output=True, text=True)
     logged = argv_log.read_text().splitlines() if argv_log.is_file() else []
     assert logged[:1] == ["pr checks 673"] and len(logged) == 2, (
         f"precondition: fake gh must fire once through the production CLI: {logged}")

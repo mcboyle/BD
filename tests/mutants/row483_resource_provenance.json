@@ -72,7 +72,7 @@
     {
       "label": "M7 parallel transport drops its only resource-bound claim",
       "file": "bulk_downloader/runner_transport.py",
-      "old_regex": "(?m)(?<=            tmp_path = )staging_claim\\.claim(?=\\(\\n                final_path, staging_claim\\.job_identity\\(page_url\\),\\n                resource_url=file_url\\)$)",
+      "old_regex": "(?m)(?<=            tmp_path = )staging_claim\\.claim(?=\\(\\n                final_path, staging_claim\\.job_identity\\(page_url\\),\\n                resource_url=resource_url if resource_url is not None\\n                else file_url\\)$)",
       "new": "(lambda *args, **kwargs: staging_claim.claim(*args))",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_parallel_changed_resource_refuses_before_any_range"
@@ -80,7 +80,7 @@
     {
       "label": "M8 sequential transport drops its resource-bound claim",
       "file": "bulk_downloader/runner_transport.py",
-      "old_regex": "(?m)(?<=            tmp_path = )staging_claim\\.claim(?=\\(\\n                final_path, identity, resource_url=file_url\\)$)",
+      "old_regex": "(?m)(?<=            tmp_path = )staging_claim\\.claim(?=\\(\\n                final_path, identity, resource_url=resource_url\\)$)",
       "new": "(lambda *args, **kwargs: staging_claim.claim(*args))",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"

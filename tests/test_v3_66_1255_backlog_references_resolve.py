@@ -45,9 +45,11 @@ _ROW_FILENAME = re.compile(r"^test_row(\d+)_.+\.py$")
 # row654: OWED TO THE INTEGRATOR (O544, TRIO RULE) -- none of these ids have a
 # register or archive row; this worker never edits IMPROVEMENT_BACKLOG.md.
 # test_row362_templates_are_resolvable.py, test_row379_byte_safe_remote_source_transport.py,
-# test_row387_ast_version_pin_guard.py, test_row395_captcha_egress_disclosure.py (row700's
-# text flags this exact file as an open A2/row654 ownership question -- integrator to
-# reconcile, not renumbered here) and test_row399_a_photo_gallery_is_not_a_failed_video_page.py
+# test_row387_ast_version_pin_guard.py and
+# test_row399_a_photo_gallery_is_not_a_failed_video_page.py.
+# PM-FIX O806: row395's file was the open A2/row654 ownership question; row700-r5
+# renamed it to test_row700_captcha_egress_disclosure.py, so 395 is no longer an
+# absent citation and is dropped from the pending set below.
 # each need one new row under their own id. The four test_row407_*.py files span two
 # distinct subjects (candidate adopt/replay vs. watchdog/integration verdict) and need
 # TWO new rows, not one. Shrink this set only once the integrator lands the matching row.
@@ -56,7 +58,7 @@ _ROW_FILENAME = re.compile(r"^test_row(\d+)_.+\.py$")
 # are excluded by _is_cut_slug_not_a_row_citation below: both docstrings self-identify as
 # "Cut <N>", a cut/commit slug, not a backlog row citation (1459's says so explicitly:
 # "is this cut's slug, not a register row").
-_PENDING_NEW_BACKLOG_ROW_IDS = frozenset({362, 379, 387, 395, 399, 407})
+_PENDING_NEW_BACKLOG_ROW_IDS = frozenset({362, 379, 387, 399, 407})
 
 
 @dataclass(frozen=True)

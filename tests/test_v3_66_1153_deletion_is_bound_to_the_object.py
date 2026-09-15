@@ -64,6 +64,8 @@ import zipfile
 
 import pytest
 
+from _cut_quality_test_support import authorize_module, raw_module
+
 BD_GATE_SCOPE = "module"
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -106,7 +108,11 @@ def _load(path, name):
 
 
 def _bdcut():
-    return _load(BDCUT, "bd_cut_uut_1153")
+    # This file drives bd-cut's real `main` (seam-2 swap, below), so it
+    # crosses the cut-quality permit boundary exactly as 1145/1149-1152
+    # and 1158 do.  Authorize the loaded module at the same seam they use;
+    # every production step after the boundary stays real.
+    return authorize_module(_load(BDCUT, "bd_cut_uut_1153"))
 
 
 def _fg():

@@ -94,6 +94,11 @@ def guarded(monkeypatch):
     remote-capable one raises immediately.
     """
     m = _load()
+    # Cut-quality provenance has its own direct executable contract.  This
+    # file's subject is the fleet runner after authorization, so inject that
+    # boundary instead of minting an unverified hash-only permit (the exact
+    # workflow escape v3.66.1205 now refuses).
+    monkeypatch.setattr(m.cut_quality, "enforce", lambda *args, **kwargs: True)
     launches = []
 
     def fake_run(argv, *a, **k):

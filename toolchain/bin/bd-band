@@ -222,6 +222,7 @@ def _registered_pytest_argv(python, purpose, *pytest_args, repository_root=None)
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+import bd_cut_quality as cut_quality  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -360,7 +361,19 @@ def main(argv=None):
                     help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
                     help="run even if bd-bandcheck flags a target (say why in the cut)")
+    cut_quality.add_permit_argument(ap)
     a = ap.parse_args(argv)
+
+    # The permit is the exact-candidate quality boundary. It is enforced AFTER
+    # bd-bandcheck (below), never before: bd-bandcheck's target-safety refusal
+    # is the diagnostic row747 pins at this seam, and a pre-floor permit check
+    # returning first would silently preempt it (same rc=2, but no "refusing
+    # this band -- bd-bandcheck flagged it:" line). An operator may override the
+    # bandcheck with --skip-bandcheck, but that override cannot bypass the
+    # permit: the single check below runs regardless of --skip-bandcheck.
+    def _permit_ok():
+        return cut_quality.enforce(
+            a.work, a.cut_quality_permit, "pre-floor", consumer_path=__file__)
 
     # @849 -- REFUSE AN UNSAFE BAND BEFORE SPENDING 200 SECONDS DISCOVERING IT.
     #
@@ -412,6 +425,14 @@ def main(argv=None):
             print("(override with --skip-bandcheck if you are certain)",
                   file=sys.stderr)
             return 2
+
+    # The permit boundary: the last point before extraction or the first pytest
+    # subprocess, and the only one. It runs after target validation, and
+    # regardless of --skip-bandcheck, so bd-bandcheck's refusal diagnostic is
+    # never preempted (row747) yet an unsafe-band override cannot bypass the
+    # exact-candidate quality evidence.
+    if not _permit_ok():
+        return 2
 
     if a.from_zip:
         if not os.path.exists(a.from_zip):

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4482,
+  "edge_count": 4489,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3848,9 +3848,6 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/secrets_store.py"
     ],
-    "tests/test_row395_captcha_egress_disclosure.py": [
-      "bulk_downloader/runner.py"
-    ],
     "tests/test_row399_a_photo_gallery_is_not_a_failed_video_page.py": [
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/detect.py",
@@ -4113,6 +4110,9 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/dom_analyzer.py"
     ],
+    "tests/test_row700_captcha_egress_disclosure.py": [
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py",
@@ -4145,6 +4145,11 @@
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/plex_deep_plexapi.py",
       "bulk_downloader/stash_deep.py"
+    ],
+    "tests/test_row716_mirror_swap_keeps_the_chain.py": [
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_row719_scene_classifier_underselects.py": [
       "bulk_downloader/playlist_extractor.py",
@@ -4253,6 +4258,12 @@
     ],
     "tests/test_row780_sites_config_listing_url_round_trip.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row787_sentinel_must_not_look_found.py": [
+      "bulk_downloader/auto_detect.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_manual.py"
     ],
     "tests/test_row791_witness_state_restored.py": [
       "bulk_downloader/live_recorder.py"

@@ -2810,10 +2810,16 @@ def session_event_record(site_id, account_idx, event_type, detail=""):
                                 creds, rate-limited, network down)
         'auto_relogin_refused'
                              - WE refused the relogin before contacting
-                                the site (the daily login attempt cap).
-                                Distinct from auto_relogin_fail because
-                                the two lead to opposite actions: repair
-                                the account, or wait for the day to roll
+                                the site: the daily login attempt cap is
+                                reached. Distinct from auto_relogin_fail
+                                because the two lead to opposite actions:
+                                repair the account, or wait for the day
+        'auto_relogin_cap_unavailable'
+                             - WE refused: the cap could not be measured
+                                or reserved (repair the attempt store)
+        'auto_relogin_cap_invalid'
+                             - WE refused: the configured cap is not a
+                                positive integer (fix the site config)
         'login_attempt'      - one credential-login attempt, recorded by
                                 every login caller BEFORE it contacts the
                                 site; the denominator the daily cap
@@ -2886,7 +2892,9 @@ def session_lifetime_observations(site_id, account_idx=None, lookback_days=30):
 # Failure event types in session_history (see session_event_record):
 _SESSION_FAILURE_EVENTS = ("heartbeat_fail", "auto_relogin_fail", "needs_takeover")
 _SESSION_SUCCESS_EVENTS = ("login", "heartbeat_ok", "auto_relogin_ok")
-_SESSION_REFUSAL_EVENTS = ("auto_relogin_refused",)
+_SESSION_REFUSAL_EVENTS = ("auto_relogin_refused",
+                           "auto_relogin_cap_unavailable",
+                           "auto_relogin_cap_invalid")
 
 
 def db_session_failure_clusters(lookback_days=7):

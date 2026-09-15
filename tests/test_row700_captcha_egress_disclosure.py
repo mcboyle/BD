@@ -1,4 +1,4 @@
-"""Row 395: paid captcha egress is disclosed and explicitly acknowledged.
+"""Row 700: paid captcha egress is disclosed and explicitly acknowledged.
 
 The captcha API key is the existing enable switch: an empty key makes the
 runtime return before it imports or calls a solver.  These route-level controls
@@ -8,6 +8,27 @@ acknowledgement, and that a rejected write leaves the solver off.
 """
 
 BD_GATE_SCOPE = "module"
+
+
+def test_canonical_row_identity_is_700():
+    assert __file__.endswith("/test_row700_captcha_egress_disclosure.py")
+
+
+def _misfiled_captcha_test_names(paths):
+    return [path.name for path in paths if path.name != "test_row700_captcha_egress_disclosure.py"]
+
+
+def test_legacy_filename_control_is_counted_once(tmp_path):
+    fixture = tmp_path / "tests"
+    fixture.mkdir()
+    (fixture / "test_row395_captcha_egress_disclosure.py").write_text("# legacy\n")
+    (fixture / "test_row700_captcha_egress_disclosure.py").write_text("# canonical\n")
+
+    paths = sorted(fixture.glob("test_row*_captcha_egress_disclosure.py"))
+    assert len(paths) == 2
+    assert _misfiled_captcha_test_names(paths) == [
+        "test_row395_captcha_egress_disclosure.py"
+    ]
 
 
 def test_transform_control_imports_disclosure_module_without_judging_the_gate():
@@ -70,7 +91,6 @@ def test_acknowledged_solver_key_is_persisted_but_ack_is_not(fresh_app):
     assert status["has_key"] is True
     assert status["provider"] == "capsolver"
     assert status["submitted"] == 0
-
     # The acknowledgement authorizes this transition only.  It is not a
     # durable bypass that a later provider change can inherit.
     response = fresh_app.put(

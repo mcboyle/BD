@@ -3437,6 +3437,7 @@ def test_bd_mutate_main_settles_live_prepared_emit_owner(
     identities = [
         _descriptor_identity(os.fstat, fd) for fd in owner._owned.values()
     ]
+    assert identities, "precondition: prepared emit owner acquired zero descriptors"
     prepared = (owner, Path("tests/mutants/v3_66_9999_main_owner.json"), b"{}\n")
     cancellation = KeyboardInterrupt("main battery cancellation")
     selected = [] if mode == "zero-selected" else [{
@@ -3448,14 +3449,22 @@ def test_bd_mutate_main_settles_live_prepared_emit_owner(
         str(runner), "--spec", str(spec), "--work", str(work),
         "--emit-spec", "v3_66_9999_main_owner.json", "--subject", "owner",
     ])
+    prepare_calls = []
+    battery_calls = []
+
+    def prepare(*_args, **_kwargs):
+        prepare_calls.append("prepared")
+        return prepared
+
     monkeypatch.setattr(mutate, "_normalise_spec",
                         lambda *_args, **_kwargs: (selected, ["tests/test_m.py"]))
-    monkeypatch.setattr(mutate, "_prepare_emitted_spec",
-                        lambda *_args, **_kwargs: prepared)
+    monkeypatch.setattr(mutate, "_prepare_emitted_spec", prepare)
     if mode == "battery-cancelled":
-        monkeypatch.setattr(
-            mutate, "run_battery",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(cancellation))
+        def cancel_battery(*_args, **_kwargs):
+            battery_calls.append("cancelled")
+            raise cancellation
+
+        monkeypatch.setattr(mutate, "run_battery", cancel_battery)
 
     if mode == "battery-cancelled":
         with pytest.raises(BaseException) as caught:
@@ -3465,6 +3474,39 @@ def test_bd_mutate_main_settles_live_prepared_emit_owner(
         assert mutate.main() == 2
     for identity in identities:
         _assert_owner_is_settled(os.fstat, identity)
+    assert prepare_calls == ["prepared"], (
+        f"prepared emit owner acquired {len(prepare_calls)} times, expected exactly 1")
+    expected_battery_calls = ["cancelled"] if mode == "battery-cancelled" else []
+    assert battery_calls == expected_battery_calls
+
+
+def test_bd_mutate_owner_settlement_negative_control_detects_a_live_owner(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    effect_parent = tmp_path / "candidate" / "tests" / "mutants"
+    effect_parent.mkdir(parents=True)
+    owner = mutate._PinnedDirectory(effect_parent)
+    identities = [
+        _descriptor_identity(os.fstat, fd) for fd in owner._owned.values()
+    ]
+    assert identities, "precondition: negative-control owner acquired zero descriptors"
+    try:
+        failures = 0
+        for identity in identities:
+            with pytest.raises(
+                    AssertionError,
+                    match="descriptor owner remains open after settlement"):
+                _assert_owner_is_settled(os.fstat, identity)
+            failures += 1
+        assert failures == len(identities) and failures > 0
+    finally:
+        owner.close()
+
+
+def test_bd_mutate_owner_transform_control_only_imports_the_tool(tmp_path):
+    runner = _bd_mutate_scratch_runner(tmp_path / "runner-repository")
+    mutate = _load_bd_mutate(runner)
+    assert callable(mutate.main)
 
 
 @pytest.mark.parametrize("topology", ("equal", "descendant", "ancestor"))

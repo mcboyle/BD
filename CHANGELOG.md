@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1557 - Train18e v3.66.1557: row656 cut-quality permits; row700-r5 captcha egress ack and row395-to-row700 rename; row716rp2 mirror-swap anchors; row741 typed relogin refusals; row787 sentinel must not look found; row794 and row800 rebases
+
+Train: 5 refute-first-reviewed worker patches.
+
+- 656-REWORK-A19-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row656-rework-A19-A-local/DONE.md
+- 700-REWORK-BD-CX-WORKER15-R5-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row700-rework-bd-cx-worker15-r5-local/DONE.md
+- 794-REBASE-6ADD188B-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row794-rebase-6add188b-A20-A-local/DONE.md
+- 800-REBASE-6ADD188B-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row800-rebase-6add188b-A20-A-local/DONE.md
+- 787-REBASE-97035787-A20-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row787-rebase-97035787-A20-A-local/DONE.md
+
 ## v3.66.1555 - Train15b: row750 IPv4-in-IPv6 metadata unwrap; row667rp keeper login cap/persistence; row719rp scene-hint forwarding; row772 rejected-login outcome; row775 Turnstile one-click affordance; row799 REFUTED-PREMISE; rows 810-814 filed
 
 Train: 5 refute-first-reviewed worker patches (base 6add188b). Register (registrar int-C-B, O800): rows 667, 750, 775 CLOSED; row 799 CLOSED REFUTED-PREMISE (O799); rows 810-814 filed (810 row719rp forwarding coverage, 811 row726 body-contract runner residual, 812 row750 DONE.md RED line omitted twice, 813 ratchet DP ceiling re-pinned over two unjudged hits, 814 row750 T3 shape leg owed, O808). Rows 719 and 772 stay OPEN, named below.

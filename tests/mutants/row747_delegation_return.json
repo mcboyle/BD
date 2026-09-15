@@ -9,7 +9,7 @@
     {
       "label": "M1 the delegating arm returns success, so a flagged band is no longer refused",
       "file": "toolchain/bin/bd-band",
-      "old_regex": "(?<=            )(?=return \\d\\n\\n    if a\\.from_zip:)",
+      "old_regex": "(?<=            )(?=return 2\\n\\n    # The permit boundary)",
       "new": "return 0\n            ",
       "direction": "regression",
       "catcher": "tests/test_row747_bd_band_delegation_is_guarded.py::test_delegated_unsafe_and_missing_targets_refuse_once"

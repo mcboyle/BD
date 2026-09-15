@@ -1,0 +1,87 @@
+{
+  "schema": "bd-mutation-spec/2",
+  "_comment": "Row 656: the protected-tool driver census must refuse an unauthorized in-process driver, and each of its own decision seams must be load-bearing.",
+  "subject": "the derived driver census and its four classification seams",
+  "band": [
+    "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool",
+    "tests/test_cut_quality_permits.py::test_every_in_process_protected_tool_driver_is_authorized_or_audited",
+    "tests/test_cut_quality_permits.py::test_the_census_detector_sees_an_unauthorized_driver"
+  ],
+  "mutants": [
+    {
+      "label": "CENSUS1-missed-legacy-driver",
+      "file": "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
+      "new": "raw_module",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_every_in_process_protected_tool_driver_is_authorized_or_audited",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "no authorization and no audited exemption"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool"
+      ],
+      "old_regex": "authorize_module(?=\\(_load\\(BDCUT)"
+    },
+    {
+      "label": "CENSUS2-unclassified-driver-silently-accepted",
+      "file": "tests/test_cut_quality_permits.py",
+      "new": "_AUDITED",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_the_census_detector_sees_an_unauthorized_driver",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "the classifier accepted an unauthorized driver"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool"
+      ],
+      "old_regex": "_UNCLASSIFIED(?=\\]\\[relative\\])"
+    },
+    {
+      "label": "CENSUS3-moved-exemption-mechanism-honoured",
+      "file": "tests/test_cut_quality_permits.py",
+      "new": "_exemption_stands(check, entry)",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_the_census_detector_sees_an_unauthorized_driver",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "was honoured"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool"
+      ],
+      "old_regex": "not _exemption_stands\\(check, entry\\)"
+    },
+    {
+      "label": "CENSUS4-boundary-host-is-the-innermost-function",
+      "file": "tests/test_cut_quality_permits.py",
+      "new": "_innermost",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "_receipt_ok"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_the_census_detector_sees_an_unauthorized_driver"
+      ],
+      "old_regex": "_outermost(?=\\(chain\\))"
+    },
+    {
+      "label": "CENSUS5-population-loses-every-tool-path",
+      "file": "tests/test_cut_quality_permits.py",
+      "new": "if shaped and False:",
+      "direction": "regression",
+      "catcher": "tests/test_cut_quality_permits.py::test_every_in_process_protected_tool_driver_is_authorized_or_audited",
+      "expected_failure": {
+        "outcome": "failed",
+        "signature": "the census sees no subject"
+      },
+      "preserves": [
+        "tests/test_cut_quality_permits.py::test_protected_tool_policy_names_a_boundary_hosting_function_per_tool"
+      ],
+      "old_regex": "if shaped:"
+    }
+  ]
+}

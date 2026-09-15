@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from _cut_quality_test_support import authorized_tool_argv, raw_tool_argv
+
 
 BD_GATE_SCOPE = "repo-wide"
 
@@ -214,16 +216,15 @@ def test_bd_band_child_drops_inherited_install_dir_before_database_use(
     environment[_MODE] = "inherited-probe"
     environment[_RECEIPT] = str(receipt)
     run = subprocess.run(
-        [
-            sys.executable,
-            "toolchain/bin/bd-band",
+        authorized_tool_argv(
+            _REPO / "toolchain" / "bin" / "bd-band",
             _THIS_TEST,
             "--work",
             ".",
             "--timeout",
             "120",
             "--skip-bandcheck",
-        ],
+        ),
         cwd=_REPO,
         env=environment,
         capture_output=True,

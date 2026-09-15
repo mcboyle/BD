@@ -73,11 +73,14 @@ import sys
 import time
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import bd_cut_quality as cut_quality  # noqa: E402
 DEFAULT_HOSTS = pathlib.Path.home() / ".config" / "bd" / "hosts"
 DEFAULT_ROOT = pathlib.Path.home() / ".local" / "share" / "bd-fleet-run" / "runs"
 DEFAULT_REPO_DIR = str(HERE.parents[1])
 DEFAULT_KEEP = 20
 DEFAULT_JOBS = 8
+_SELFTEST_ACTIVE = False
 
 LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 RUN_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
@@ -860,6 +863,7 @@ def main(argv=None, runner=None, probe=None) -> int:
                     help="actually contact the hosts (default is plan only)")
     ap.add_argument("--no-record-commit", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    cut_quality.add_permit_argument(ap)
     ap.add_argument("command", nargs=argparse.REMAINDER)
     args = ap.parse_args(argv)
 
@@ -878,6 +882,14 @@ def _run(args, runner, probe) -> int:
     command = build_command(parts)
     if not command.strip():          # emptiness on a COPY; the value is verbatim
         raise Refusal("no command given. Usage: bd-fleet-run -- <command>")
+
+    # Planning is permit-free. Execute mode refuses before reading the real
+    # inventory, creating artifacts, constructing a SubprocessRunner, or
+    # contacting a host. The private flag exists only while --selftest drives
+    # its injected fake runner in this same process.
+    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__):
+        return 2
 
     hosts_path = pathlib.Path(args.hosts).expanduser()
     if not hosts_path.is_file():
@@ -905,6 +917,9 @@ def _run(args, runner, probe) -> int:
         raise Refusal("no targets remain after selection.")
     if args.jobs < 1:
         raise Refusal("--jobs must be at least 1")
+    if args.execute and not _SELFTEST_ACTIVE and not cut_quality.enforce(
+            args.repo_dir, args.cut_quality_permit, "pre-fleet", consumer_path=__file__):
+        return 2
     base = validate_root(args.root)
     workers = min(args.jobs, len(targets))
 
@@ -1031,6 +1046,17 @@ class _FakeProbe:
 
 
 def selftest() -> int:
+    """Run the hermetic checks with a scoped permit exemption."""
+    global _SELFTEST_ACTIVE
+    previous = _SELFTEST_ACTIVE
+    _SELFTEST_ACTIVE = True
+    try:
+        return _selftest_inner()
+    finally:
+        _SELFTEST_ACTIVE = previous
+
+
+def _selftest_inner() -> int:
     """Hermetic: constructs no SubprocessRunner and no SubprocessProbe."""
     import tempfile
     fails = []

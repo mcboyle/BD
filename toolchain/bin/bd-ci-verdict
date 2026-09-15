@@ -100,12 +100,18 @@ import itertools
 import os
 import re
 import shutil
+import secrets
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bd_cut_quality as cut_quality  # noqa: E402
+
 TOOL = "bd-ci-verdict"
+SELFTEST_ROOT_ENV = "BD_CI_VERDICT_SELFTEST_ROOT"
+SELFTEST_TOKEN_ENV = "BD_CI_VERDICT_SELFTEST_TOKEN"
 
 # gh resolves WHICH repo a PR number belongs to from the git remote of its
 # working directory. Run outside a checkout it exits 1, prints nothing to
@@ -1230,7 +1236,30 @@ def build_parser():
                         "repo from the git remote of the ci.yml's checkout)")
     p.add_argument("--timeout", type=float, default=60.0, help="seconds for gh")
     p.add_argument("--selftest", action="store_true")
+    cut_quality.add_permit_argument(p)
     return p
+
+
+def _is_scoped_selftest_child(args) -> bool:
+    """Recognise only child CLIs spawned by the live synthetic selftest."""
+    root_text = os.environ.get(SELFTEST_ROOT_ENV)
+    token = os.environ.get(SELFTEST_TOKEN_ENV)
+    if not root_text or not token:
+        return False
+    root = Path(root_text).resolve()
+    try:
+        if (root / ".selftest-capability").read_text() != token:
+            return False
+        parent = Path(f"/proc/{os.getppid()}/cmdline").read_bytes().replace(b"\0", b" ")
+        if b"bd-ci-verdict" not in parent or b"--selftest" not in parent:
+            return False
+        gh = Path(args.gh).resolve()
+        subject = Path(args.repo or args.ci_yml or os.getcwd()).resolve()
+        gh.relative_to(root)
+        subject.relative_to(root)
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def main(argv=None):
@@ -1242,6 +1271,11 @@ def main(argv=None):
         print("VERDICT: REFUSE-NO-PR no pull request number given "
               "(usage: bd-ci-verdict <PR>)")
         return EXIT_REFUSE
+    if not _is_scoped_selftest_child(args):
+        repo = Path(args.repo or os.getcwd()).resolve()
+        if not cut_quality.enforce(
+                repo, args.cut_quality_permit, "pre-merge", consumer_path=__file__):
+            return EXIT_REFUSE
     return main_verdict(args)
 
 

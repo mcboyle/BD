@@ -1346,12 +1346,66 @@ def test_band_derive_finds_the_curated_map_and_says_so_when_it_cannot():
 # The slowest real helper call measured 2.906562s in row 338;
 # max(60, ceil(2 * 2.906562)) = 60s for the otherwise-unused default.
 def _band_tool(name, args, results_path, timeout=60):
+    if name in {"bd-band", "bd-parband"}:
+        return _authorized_band_tool(name, args, results_path, timeout=timeout)
     tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
     env = dict(os.environ)
     env["BD_LAST_BAND"] = results_path
     return subprocess.run([sys.executable, tool] + args, cwd=str(_REPO_ROOT),
                           capture_output=True, text=True, timeout=timeout,
                           env=env)
+
+
+def _authorized_band_tool(name, args, results_path, timeout=60):
+    """Exercise band behavior after an injected authorization boundary.
+
+    Receipt replay is covered directly in test_cut_quality_permits.py.  These
+    subprocess tests own result-file/import isolation and must not mint the
+    hash-only synthetic permits that v3.66.1205 deliberately retired.
+    """
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
+    loader = (
+        "import importlib.machinery,importlib.util,sys;"
+        "p=sys.argv.pop(1);"
+        "l=importlib.machinery.SourceFileLoader('authorized_band_uut',p);"
+        "s=importlib.util.spec_from_loader(l.name,l);"
+        "m=importlib.util.module_from_spec(s);l.exec_module(m);"
+        "m.cut_quality.enforce=lambda *a,**k:True;"
+        "raise SystemExit(m.main(sys.argv[1:]))"
+    )
+    env = dict(os.environ)
+    env["BD_LAST_BAND"] = results_path
+    return subprocess.run(
+        [sys.executable, "-c", loader, tool] + list(args),
+        cwd=str(_REPO_ROOT), capture_output=True, text=True,
+        timeout=timeout, env=env,
+    )
+
+
+def _raw_band_tool(name, args, results_path, timeout=60):
+    """Run a protected tool without authorization for the refusal control."""
+    tool = os.path.join(str(_REPO_ROOT), "toolchain", "bin", name)
+    env = dict(os.environ)
+    env["BD_LAST_BAND"] = results_path
+    return subprocess.run(
+        [sys.executable, tool] + list(args), cwd=str(_REPO_ROOT),
+        capture_output=True, text=True, timeout=timeout, env=env,
+    )
+
+
+def test_parband_missing_permit_refuses_before_suite_dispatch():
+    """Migration guard: the legacy door tests below must not bypass R1."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        results = os.path.join(td, "band.json")
+        r = _raw_band_tool(
+            "bd-parband",
+            ["tests/test_capture_dict_shape_tripwire.py", "--jobs", "1"],
+            results, timeout=120,
+        )
+        out = r.stdout + r.stderr
+        assert r.returncode == 2 and "CQ-PERMIT-MISSING" in out
+        assert not os.path.exists(results)
 
 
 def test_parband_refuses_a_suite_path_that_does_not_exist():
@@ -2425,7 +2479,7 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
     import tempfile
     root = str(_REPO_ROOT)
     band_tool = os.path.join(root, "toolchain", "bin", "bd-band")
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as evidence_td:
         os.makedirs(os.path.join(td, "tests"))
         with open(os.path.join(td, "tests", "test_zero.py"), "w") as fh:
             fh.write("class Helper:\n    def test_would_fail(self):\n        assert False\n")
@@ -2442,7 +2496,31 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
         except OSError:
             pass
 
-        # Row 338 measured 1.531214s; max(60, ceil(2 * 1.531214)) = 60s.
+        # Ignore only pytest's generated caches and commit the tiny synthetic
+        # subject. Authorization is injected by _authorized_band_tool; receipt
+        # replay itself has direct executable tests in its owning module.
+        with open(os.path.join(td, ".gitignore"), "w") as fh:
+            fh.write(".pytest_cache/\n__pycache__/\n*.pyc\n")
+        subprocess.run(["git", "-C", td, "init", "-q"], check=True)
+        subprocess.run(["git", "-C", td, "config", "user.name", "Band Test"],
+                       check=True)
+        subprocess.run(["git", "-C", td, "config", "user.email",
+                        "band@example.invalid"], check=True)
+        subprocess.run(["git", "-C", td, "add", "."], check=True)
+        subprocess.run(["git", "-C", td, "commit", "-qm", "candidate"],
+                       check=True)
+        wrapper = os.path.join(evidence_td, "authorized-bd-band.py")
+        with open(wrapper, "w") as fh:
+            fh.write(
+                "import importlib.machinery,importlib.util,sys\n"
+                f"p={band_tool!r}\n"
+                "l=importlib.machinery.SourceFileLoader('authorized_band_uut',p)\n"
+                "s=importlib.util.spec_from_loader(l.name,l)\n"
+                "m=importlib.util.module_from_spec(s);l.exec_module(m)\n"
+                "m.cut_quality.enforce=lambda *a,**k:True\n"
+                "raise SystemExit(m.main(sys.argv[1:]))\n"
+            )
+        band_tool = wrapper
         r = subprocess.run([sys.executable, band_tool, "--work", td,
                             "--skip-bandcheck", "tests/test_zero.py"],
                            cwd=root, capture_output=True, text=True, timeout=60)
@@ -2454,7 +2532,6 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
             "the runner said 'nothing was proven' and bd-band did not pass it "
             "on; the operator sees FAIL beside 'Failed: 0':\n" + out)
 
-        # Row 338 measured 1.513284s; max(60, ceil(2 * 1.513284)) = 60s.
         ok = subprocess.run([sys.executable, band_tool, "--work", td,
                              "--skip-bandcheck", "tests/test_real.py"],
                             cwd=root, capture_output=True, text=True, timeout=60)
