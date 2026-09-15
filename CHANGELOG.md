@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1550 - Train11: row697 deploy.sh distinguishes UNLOCK-PENDING vault state from missing-credentials at deploy health
+
+Train: 1 refute-first-reviewed worker patch.
+
+- 697 (scripts/deploy.sh, tests/test_row697_deploy_unlock_pending_vault.py): deploy health now recognizes the "vault initialized-but-locked, no credential referenced" case. Such a host answers /api/health with HTTP 200 (state=locked_no_references, vault_ready=true, reference_count=0), so every 503 vault branch is skipped and the ordinary "health verified" note wrongly implied credentials are served. New helper _vault_locked_without_references requires all clauses (vault_ready, is_initialized, is_unlocked=false, state=locked_no_references, reference_count=0) and emits a NAMED WARNING (VAULT-LOCKED-NO-REFERENCES): this is the expected state after `sites clear`, not a refusal, but on a host meant to carry loaded sites the first credential-referencing site fails until a human unlocks Settings -> Secrets. Any other 200 body, or one that cannot be parsed, exits nonzero and prints the ordinary note. Rebase provenance (O543/O561): built RED/GREEN on c9dd4176, rebased onto train11 base d0126bc7 via saved `git diff --cached` + `git apply --3way`, no conflict.
+
 ## v3.66.1549 - Train10: row762 gate-dismissal refuses clicks on prechecked recurring-charge billing upsells; register closures for the train8-landed rows
 
 Train: 1 refute-first-reviewed worker patch, plus RULE-31 register closures for rows whose content landed in v3.66.1548.

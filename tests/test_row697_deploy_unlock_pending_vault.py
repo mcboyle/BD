@@ -381,3 +381,198 @@ def test_non_unlockable_degradation_fails_without_calling_the_hook(first, diagno
 
 def test_transform_control_imports_subject_without_asserting_behavior():
     assert deploy_support.SCRIPT.is_file()
+
+
+# ── the UNLOCK-PENDING boundary: a LOCKED vault that answers 200 ──────────
+#
+# Row 697 names this boundary explicitly ("v3.66.1498 vault_ready:true/
+# is_unlocked:false ... is credential-serving health after 'sites clear', not
+# loaded-site deploy; account for UNLOCK-PENDING boundary").
+#
+# bulk_downloader/app_health.credential_health() returns ok=True with
+# state="locked_no_references" when the vault is INITIALIZED AND STILL LOCKED
+# but the live configuration references no credential at all. _attach_credential
+# _health then sets vault_ready=True and leaves payload["ok"] alone, so the
+# route answers 200 -- and the whole vault apparatus in deploy.sh's health gate
+# lives under `if [ "$code" = "503" ]`. On the 200 path the script reads one
+# thing out of the body, "version", so this box is reported with the same words
+# as a fully unlocked one. The two are not the same box: the first serves no
+# credential to anybody and will fail the moment a site references one.
+#
+# "probed path every branch" in the row's ACCEPT is what these cover: the 200
+# branch is a branch.
+
+
+_FIXED_CODE_CURL = r"""#!/usr/bin/env bash
+printf '__ROW697_CALL__\0' >> "$CURL_ARGV_LOG"
+printf '%s\0' "$@" >> "$CURL_ARGV_LOG"
+outfile=""; wfmt=""; prev=""; url=""
+for arg in "$@"; do
+  if [ "$prev" = "-o" ] || [ "$prev" = "--output" ]; then outfile="$arg"; fi
+  if [ "$prev" = "-w" ] || [ "$prev" = "--write-out" ]; then wfmt="$arg"; fi
+  case "$arg" in http://*|https://*) url="$arg";; esac
+  prev="$arg"
+done
+
+if [ "${url##*/api/health}" != "$url" ]; then
+  printf 'health\n' >> "$EVENTS_LOG"
+  body="$FIRST_HEALTH_BODY"; code="$FIRST_HEALTH_CODE"
+else
+  printf 'root\n' >> "$EVENTS_LOG"
+  body=""; code="200"
+fi
+
+if [ -n "$outfile" ]; then printf '%s' "$body" > "$outfile"; else printf '%s' "$body"; fi
+if [ -n "$wfmt" ]; then printf '%b' "${wfmt//%\{http_code\}/$code}"; fi
+"""
+
+_LOCKED_NO_REFERENCES_MARKER = "VAULT-LOCKED-NO-REFERENCES"
+
+
+def _locked_no_references_payload() -> dict:
+    """What /api/health serves for an initialized, LOCKED vault with no refs.
+
+    Shaped from bulk_downloader/app_health.py at this base: credential_health()
+    returns ok=True / state="locked_no_references" / missing_count=0 when
+    ``not unlocked`` and ``not references``; _attach_credential_health then sets
+    vault_ready = credentials["ok"] is True and does NOT touch payload["ok"],
+    so the route answers 200 with no ``degraded`` key at all.
+    """
+    return {
+        "ok": True,
+        "version": deploy_support.TREE_VERSION,
+        "db_ok": True,
+        "queue_depth": 0,
+        "active_downloads": 0,
+        "sites_loaded": 0,
+        "vault_ready": True,
+        "download_hold": {"state": "clear", "downloads_allowed": True},
+        "credentials": {
+            "backend": "master_password",
+            "is_initialized": True,
+            "is_unlocked": False,
+            "missing_count": 0,
+            "ok": True,
+            "reference_count": 0,
+            "resolved_count": 0,
+            "state": "locked_no_references",
+            "stored_count": 2,
+            "unavailable_count": 0,
+        },
+    }
+
+
+def _fully_unlocked_payload() -> dict:
+    """The control: same 200, same vault_ready, but the vault is OPEN."""
+    payload = _locked_no_references_payload()
+    payload["sites_loaded"] = 1
+    payload["credentials"] = {
+        **payload["credentials"],
+        "is_unlocked": True,
+        "reference_count": 2,
+        "resolved_count": 2,
+        "state": "unlocked",
+    }
+    return payload
+
+
+def _two_hundred_fixture(payload: dict):
+    fx = deploy_support._setup()
+    events = Path(fx.work) / "row697-events"
+    curl_argv = Path(fx.work) / "row697-curl-argv"
+    fx.env.update({
+        "CURL_ARGV_LOG": str(curl_argv),
+        "EVENTS_LOG": str(events),
+        "FIRST_HEALTH_BODY": json.dumps(payload, separators=(",", ":")),
+        "FIRST_HEALTH_CODE": "200",
+    })
+    deploy_support._write_exec(Path(fx.binroot) / "curl", _FIXED_CODE_CURL)
+    deploy_support._bundle_current(fx)
+    return fx, events
+
+
+def test_a_locked_vault_serving_200_is_named_and_not_read_as_a_served_vault():
+    payload = _locked_no_references_payload()
+    credentials = payload["credentials"]
+    # PRECONDITIONS: the fixture must actually BUILD the boundary shape, or
+    # every assertion below is about some other box. This is the exact
+    # combination row 697 names -- a 200 whose vault is shut.
+    assert payload["ok"] is True, "precondition: this branch is a 200, not a 503"
+    assert "degraded" not in payload, (
+        "precondition: locked_no_references sets no degraded key, which is why "
+        "deploy.sh's 503 vault branch never sees this box"
+    )
+    assert (
+        payload["vault_ready"],
+        credentials["is_initialized"],
+        credentials["is_unlocked"],
+        credentials["state"],
+        credentials["reference_count"],
+    ) == (True, True, False, "locked_no_references", 0)
+    assert credentials["stored_count"] > 0, (
+        "precondition: the vault HOLDS keys it cannot serve; a vault with "
+        "nothing in it would be a different row"
+    )
+
+    fx, events = _two_hundred_fixture(payload)
+
+    result = deploy_support._deploy(fx)
+
+    observed = _events(events)
+    assert observed == ["health", "root"], (
+        "precondition: deploy must have probed health and the SPA root exactly "
+        f"once each before any verdict; observed={observed}"
+        + deploy_support._ctx(result)
+    )
+    assert result.returncode == 0, (
+        "a locked vault with zero references is a legitimate post-'sites clear' "
+        "deploy and must still succeed" + deploy_support._ctx(result)
+    )
+    out = deploy_support._out(result)
+    assert out.count(_LOCKED_NO_REFERENCES_MARKER) == 1, (
+        "deploy reported this box with the same words as a fully unlocked one. "
+        "The vault is INITIALIZED and STILL LOCKED; this 200 means 'nothing "
+        "asks for a credential', not 'credentials are being served', and an "
+        "operator reading the log cannot tell the two apart. Expected exactly "
+        f"one {_LOCKED_NO_REFERENCES_MARKER!r}, got "
+        f"{out.count(_LOCKED_NO_REFERENCES_MARKER)}." + deploy_support._ctx(result)
+    )
+    assert "locked_no_references" in out, (
+        "the named warning does not quote the state it read, so it cannot be "
+        "distinguished from a hardcoded banner" + deploy_support._ctx(result)
+    )
+
+
+def test_a_fully_unlocked_vault_serving_200_is_not_given_the_locked_warning():
+    """NEGATIVE CONTROL: the marker must be a decision, not a banner.
+
+    Identical 200, identical vault_ready, identical route -- the single
+    difference is is_unlocked/state. If the warning fires here too it is
+    printed unconditionally and proves nothing about the locked box above.
+    """
+    payload = _fully_unlocked_payload()
+    credentials = payload["credentials"]
+    assert (credentials["is_unlocked"], credentials["state"]) == (True, "unlocked"), (
+        "precondition: the control must differ from the subject in exactly the "
+        "unlock state"
+    )
+    assert payload["vault_ready"] is True, (
+        "precondition: vault_ready is True on BOTH sides, so a probe keying on "
+        "it alone could not tell them apart"
+    )
+
+    fx, events = _two_hundred_fixture(payload)
+
+    result = deploy_support._deploy(fx)
+
+    assert _events(events) == ["health", "root"], deploy_support._ctx(result)
+    assert result.returncode == 0, deploy_support._ctx(result)
+    out = deploy_support._out(result)
+    assert _LOCKED_NO_REFERENCES_MARKER not in out, (
+        "the locked-vault warning fired over an UNLOCKED vault, so it is a "
+        "banner rather than a state-only decision" + deploy_support._ctx(result)
+    )
+    assert "health verified" in out, (
+        "the ordinary verified-health note disappeared for a healthy box"
+        + deploy_support._ctx(result)
+    )
