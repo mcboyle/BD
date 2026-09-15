@@ -282,7 +282,10 @@ def test_an_unreadable_landing_behind_the_gate_is_unknown_not_cleared():
     # PRECONDITION: the gate WAS pressed -- this is a post-click verdict, not a
     # refusal that happened before the control was ever used.
     assert page.clicked == ["ENTER"]
-    assert page.text_reads == 2
+    # Three body reads: age-gate recognition, the row-762 prechecked-charge
+    # judgement (both BEFORE the click, so both succeed), then the landing
+    # read that raises.  The verdict below is about that third read.
+    assert page.text_reads == 3
     assert _outcomes(actions, "cleared") == [], (
         "an unreadable landing was reported as a cleared gate"
     )

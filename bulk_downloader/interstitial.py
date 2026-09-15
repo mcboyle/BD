@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from .registrable_domain import registrable_domain, same_site
@@ -127,6 +127,23 @@ BLOCK_LANGUAGE = re.compile(
     r"\btemporarily blocked\b)", re.I)
 
 BODY_TEXT_SELECTOR = "body"
+
+# Row 762. The Aylo /store post-login upsell: a PRECHECKED consent box beside
+# "you agree to add <upsell> ... charged $29.97 every 30 days until you
+# cancel", under CONTINUE TO MEMBERS AREA. That label is exactly what the
+# interstitial tier and the measured per-site line clear, so on that page the
+# dismisser's click is a purchase. Recognition is by CONTENT: recurring-charge
+# language (money AND a period, or an explicit rebill phrase -- a price alone
+# is a sale banner, "every 30 days" alone is a release schedule) together with
+# a checked checkbox. Charge language with an unmeasurable box is UNKNOWN and
+# refuses (A2): unavailable evidence is never permission to spend money.
+RECURRING_CHARGE_LANGUAGE = re.compile(
+    r"(?:(?:[$€£]\s?\d[\d,]*(?:\.\d{2})?|\b\d[\d,]*(?:\.\d{2})?\s?(?:usd|eur|gbp))"
+    r"\s*(?:/|per|every|each|a)\s*(?:\d+\s*)?(?:days?|weeks?|months?|years?|mo|yr)\b|"
+    r"\buntil you cancel\b|\bwill be (?:charged|billed)\b|\brebills?\b|"
+    r"\brecurring (?:charge|billing|payment|subscription)\b)", re.I)
+
+CHECKED_CONSENT_SELECTOR = "input[type='checkbox']:checked"
 
 SAFETY_UNKNOWN_OUTCOMES = frozenset({
     "label_unknown",
@@ -722,6 +739,40 @@ def _body_text(page: Any) -> Optional[str]:
     return text if isinstance(text, str) else None
 
 
+def _prechecked_billing_consent(page: Any) -> Tuple[str, str]:
+    """Row 762: ``("refuse"|"unknown"|"clear", detail)`` for the page.
+
+    ``refuse`` is recurring-charge language beside a checked checkbox: the
+    measured Aylo upsell, where any gate click accepts the charge. ``unknown``
+    is charge language whose box state could not be measured -- fail closed,
+    money is on the line. ``clear`` is a page with no charge language; the
+    box is not even read then, because a checkbox without money behind it
+    is not this hazard (the ordinary members wall keeps clearing as before).
+    """
+    text = _body_text(page)
+    if text is None:
+        return ("clear", "")
+    phrases = [" ".join(found.group(0).split())
+               for found in RECURRING_CHARGE_LANGUAGE.finditer(text)]
+    if not phrases:
+        return ("clear", "")
+    # The diagnostic names the money: "$29.97 every 30 days" tells the
+    # operator what was refused where "will be charged" alone does not.
+    phrase = next((p for p in phrases if any(c.isdigit() for c in p)),
+                  phrases[0])
+    try:
+        checked = page.locator(CHECKED_CONSENT_SELECTOR).count()
+    except Exception as exc:
+        return ("unknown", f"{phrase!r} on page; checked consent box state "
+                           f"unmeasurable: {type(exc).__name__}")
+    if not isinstance(checked, int):
+        return ("unknown", f"{phrase!r} on page; checked consent box state "
+                           "unmeasurable: invalid count")
+    if checked > 0:
+        return ("refuse", f"{phrase!r} with {checked} prechecked consent box")
+    return ("clear", "")
+
+
 def _age_gate_recognised(page: Any, records: Any) -> Optional[bool]:
     """Whether this page is an age gate. ``None`` means it could not be told.
 
@@ -817,8 +868,41 @@ def dismiss_gates(page: Any, raw: Any, *,
     # orchestrators share ``_gate_selectors``, where only ``# `` comments.
     site_selectors = _declared_selectors(raw)
 
+    # Row 762: the page is judged immediately before every click of either
+    # pass, once per page state -- a click may reveal the upsell behind a
+    # cookie wall, so the verdict is dropped after each click. A refusal or
+    # an UNKNOWN ends the whole dismissal: every control on a
+    # prechecked-charge page is the same purchase.
+    billing_verdict = missing
+
+    def _billing_guard(source: str, selector: str, label: str) -> bool:
+        """Record the refusal and return True when this click must not happen."""
+        nonlocal billing_verdict
+        if billing_verdict is missing:
+            billing_verdict = _prechecked_billing_consent(page)
+        state, detail = billing_verdict
+        if state == "refuse":
+            actions.append({
+                "source": source,
+                "tier": "safety",
+                "label": label,
+                "selector": selector,
+                "outcome": "refused",
+                "reason": (f"prechecked recurring-charge consent on page: "
+                           f"{detail}; control not used"),
+                "destination_re_requested": False,
+            })
+            return True
+        if state == "unknown":
+            actions.append(_measurement_unknown(
+                source, "safety", selector,
+                f"billing consent UNKNOWN: {detail}; control not used"))
+            return True
+        return False
+
     def _site_pass(*, appear_ms: int) -> bool:
         """Try every declared selector once. False means stop the whole pass."""
+        nonlocal billing_verdict
         process_site_selectors = True
 
         # Real Playwright locators support immediate is_visible(). If no
@@ -935,12 +1019,15 @@ def dismiss_gates(page: Any, raw: Any, *,
                     "destination_re_requested": False,
                 })
                 continue
+            if _billing_guard("site", selector, label):
+                return False
             action = _click_gate(
                 page, locator, source="site", tier="site", label=label,
                 selector=selector, destination_url=destination_url,
                 timeout_ms=timeout_ms,
                 navigation_timeout_ms=navigation_timeout_ms,
                 settle_s=settle_s, sleep=sleep)
+            billing_verdict = missing
             actions.append(action)
             if action.get("outcome") in SAFETY_UNKNOWN_OUTCOMES:
                 return False
@@ -1177,11 +1264,14 @@ def dismiss_gates(page: Any, raw: Any, *,
                     "control not used"))
                 break
             attempted_labels.add(label.casefold())
+            if _billing_guard("generic", GENERIC_CONTROL_SELECTOR, label):
+                return actions
             action = _click_gate(
                 page, locator, source="generic", tier=tier, label=label,
                 destination_url=destination_url, timeout_ms=timeout_ms,
                 navigation_timeout_ms=navigation_timeout_ms,
                 settle_s=settle_s, sleep=sleep)
+            billing_verdict = missing
             if admitted_by_age_gate and action.get("outcome") == "cleared":
                 action = _age_gate_landing(page, action)
             actions.append(action)
@@ -1207,6 +1297,7 @@ __all__ = [
     "SAFETY_UNKNOWN_OUTCOMES", "DENIED_CONTROL_TERMS",
     "GENERIC_CONTROL_SELECTOR", "DEFAULT_TIMEOUT_MS",
     "AGE_GATE_LANGUAGE", "ENTER_AFFORDANCE", "BLOCK_LANGUAGE",
+    "RECURRING_CHARGE_LANGUAGE", "CHECKED_CONSENT_SELECTOR",
     "BLOCKED_AFTER_GATE_OUTCOMES", "first_blocked_after_gate",
     "blocked_after_gate_diagnostic",
     "DEFAULT_NAVIGATION_TIMEOUT_MS", "DEFAULT_SITE_APPEAR_MS",
