@@ -7,6 +7,8 @@ import select
 import shutil
 import signal
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -74,6 +76,33 @@ def _recover_exact_process_identity(pid: int, start_ticks: int) -> None:
         os.close(pidfd)
 
 
+def _read_displayfd_report(read_fd: int, deadline_seconds: float) -> bytes:
+    """Read Xvfb's whole ``<number>\\n`` -displayfd report within a bounded deadline.
+
+    Xvfb writes the number and the newline as two separate write(2) calls
+    immediately before it starts dispatching.  Closing the pipe after the
+    first one (H156: 31 precut runs on the 8/16-core pool hosts) makes the
+    second fail with EPIPE, which Xvfb treats as a fatal error ("Cannot write
+    display number to fd N") -- so the helper held a display number whose
+    server was already exiting, and xdpyinfo reported it as not usable.  The
+    caller closes the fd only after the terminator has arrived.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    report = b""
+    while b"\n" not in report:
+        remaining = deadline - time.monotonic()
+        ready, _, _ = select.select([read_fd], [], [], max(remaining, 0))
+        assert ready, (
+            "precondition: Xvfb -displayfd never reported readiness within "
+            f"{deadline_seconds:g}s: partial report {report!r}"
+        )
+        chunk = os.read(read_fd, 32)
+        if not chunk:
+            break
+        report += chunk
+    return report
+
+
 def _start_exclusively_allocated_xvfb(lock: Path) -> _ForeignDisplay:
     xvfb = shutil.which("Xvfb")
     assert xvfb is not None, "precondition: Xvfb is required for the display gate"
@@ -97,18 +126,20 @@ def _start_exclusively_allocated_xvfb(lock: Path) -> _ForeignDisplay:
     )
     os.close(write_fd)
     try:
-        ready, _, _ = select.select([read_fd], [], [], 10)
-        assert ready, "precondition: Xvfb -displayfd never reported readiness"
-        raw_number = os.read(read_fd, 32).strip()
+        raw_report = _read_displayfd_report(read_fd, deadline_seconds=10)
     finally:
         os.close(read_fd)
 
-    if not raw_number:
+    if not raw_report.endswith(b"\n"):
+        # EOF before the terminator: Xvfb closed its end without finishing the
+        # report, so it is exiting and its own diagnosis is the answer.
         stderr = process.stderr.read().decode(errors="replace") if process.stderr else ""
         process.wait(timeout=5)
         raise AssertionError(
-            f"precondition: Xvfb did not allocate a display: {stderr}"
+            "precondition: Xvfb did not allocate a display: "
+            f"partial -displayfd report {raw_report!r}: {stderr}"
         )
+    raw_number = raw_report.strip()
     assert raw_number.isdigit(), (
         f"precondition: Xvfb returned a nonnumeric display: {raw_number!r}"
     )
@@ -241,6 +272,96 @@ def test_cited_cleanup_leaves_a_foreign_display_alive(
         if holder and holder[0].process.poll() is None:
             holder[0].process.terminate()
             holder[0].process.wait(timeout=5)
+
+
+_TWO_WRITE_XVFB = """#!{python}
+# Replays Xvfb's -displayfd protocol: a real server on :{number}, then the
+# number and the newline as two separate writes.  Between them it watches the
+# pipe for the reader hanging up (POLLERR on a write end), which is exactly
+# what a reader that closes after the first chunk causes; a real Xvfb turns
+# that EPIPE into a fatal error and exits.  The receipt records which happened.
+import os, select, signal, subprocess, sys, time
+args = sys.argv[1:]
+fd = int(args[args.index("-displayfd") + 1])
+server = subprocess.Popen(
+    [{real!r}, ":{number}", "-screen", "0", "320x240x24", "-nolisten", "tcp"],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+)
+def stop(*_: object) -> None:
+    server.terminate()
+    os.waitpid(server.pid, 0)
+    os._exit(0)
+signal.signal(signal.SIGTERM, stop)
+deadline = time.monotonic() + 10
+while subprocess.run(["xdpyinfo", "-display", ":{number}"], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode != 0:
+    assert time.monotonic() < deadline, "fake Xvfb: real server never came up"
+    time.sleep(0.05)
+os.write(fd, b"{number}")
+poller = select.poll()
+poller.register(fd, 0)
+hung_up = any(event & select.POLLERR for _, event in poller.poll(500))
+try:
+    if hung_up:
+        raise BrokenPipeError
+    os.write(fd, b"\\n")
+except BrokenPipeError:
+    open({receipt!r}, "w").write("terminator-written=0\\n")
+    sys.stderr.write("Fatal server error: Cannot write display number to fd %d\\n" % fd)
+    server.terminate()
+    server.wait(timeout=5)
+    sys.exit(1)
+open({receipt!r}, "w").write("terminator-written=1\\n")
+os.close(fd)
+server.wait()
+"""
+
+
+@pytest.mark.skipif(shutil.which("Xvfb") is None, reason="Xvfb not installed")
+def test_foreign_display_helper_reads_the_whole_displayfd_report(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """H156: the helper must not hang up on Xvfb between the number and its newline."""
+    real_xvfb = shutil.which("Xvfb")
+    assert real_xvfb is not None, "precondition: Xvfb is required"
+    claim = display_test._claim_unused_display()
+    receipt = tmp_path / "displayfd.receipt"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake = fake_bin / "Xvfb"
+    fake.write_text(
+        _TWO_WRITE_XVFB.format(
+            python=sys.executable, real=real_xvfb, number=claim.number, receipt=str(receipt)
+        ),
+        encoding="utf-8",
+    )
+    fake.chmod(0o700)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
+    foreign: _ForeignDisplay | None = None
+    helper_failure: str | None = None
+    try:
+        try:
+            foreign = _start_exclusively_allocated_xvfb(tmp_path / "foreign.lock")
+        except AssertionError as exc:
+            helper_failure = str(exc)
+        recorded = receipt.read_text(encoding="ascii").strip() if receipt.exists() else "<no receipt>"
+        assert recorded == "terminator-written=1" and helper_failure is None, (
+            "the helper hung up on the -displayfd pipe before Xvfb's terminator "
+            f"(fake Xvfb receipt: {recorded}); helper outcome: "
+            f"{helper_failure or 'returned'}"
+        )
+        assert foreign is not None and foreign.number == claim.number, (
+            f"expected the fake's display :{claim.number}, got {foreign}"
+        )
+        assert foreign.process.poll() is None, "the reported server must still be alive"
+    finally:
+        try:
+            if foreign is not None:
+                foreign.process.terminate()
+                foreign.process.wait(timeout=5)
+        finally:
+            display_test._release_display_claim(claim)
 
 
 @pytest.mark.skipif(shutil.which("Xvfb") is None, reason="Xvfb not installed")

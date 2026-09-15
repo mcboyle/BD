@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1553 - train14b: H156 + row803b
+
+Train: 2 refute-first-reviewed worker patches.
+
+- H156 (T2, test-infra): the display-allocator helper closed the `-displayfd` pipe after one read, but Xvfb writes the display number and its `\n` in separate writes and FatalErrors on EPIPE, leaving `xdpyinfo ":0"` unusable. `_read_displayfd_report` now reads to the `\n` terminator under a 10 s monotonic deadline (select, no sleep) and reports EOF-before-terminator as a named failure. No product source.
+- row803 (T2): `bd-tool-lint` folded an unreadable tool into a green verdict -- unreadable entries got `"errors":[]`, so `clean` computed true with unreadable present, and the `--json`, `--corpus-debt`, `--gate` and `--ratchet` branches left them out of the blocked calculation entirely. Unreadable input now forces `clean:false` in every mode and a policy refusal can no longer mask it; text mode keeps its cannot-evaluate exit. Supersedes row803-bd-cx-trainer1-20260914.
+
 ## v3.66.1552 - Train13: row804 browser-redirect metadata guard; row707 bd-mutate subject-substitution -> UNKNOWN; row470 corpus-tool empty-tree refusal; row737 deploy hook readability
 
 Train: 4 refute-first-reviewed worker patches (804 470 707 737b), base 5a680692.
