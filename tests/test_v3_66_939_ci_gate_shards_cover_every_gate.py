@@ -160,6 +160,10 @@ _DECLARED = {
     # Row 771. A comma-bearing post-login wall must clear through the declared
     # selector and generic safety paths without widening authority to decline.
     "tests/test_row771_interstitial_comma.py",
+    # Row 762. A gate click on the measured Aylo /store upsell accepts a
+    # prechecked recurring charge; the refusal is a real-money safety boundary
+    # that must run on every PR, whatever the diff touched.
+    "tests/test_row762_gate_click_refuses_prechecked_billing_upsell.py",
     # Row 703. Every httpx client construction in the application package is
     # pinned through the guarded transport; the population is derived from the
     # tree by tools/ssrf_client_census.py, so the gate judges the whole package.

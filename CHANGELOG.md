@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1549 - Train10: row762 gate-dismissal refuses clicks on prechecked recurring-charge billing upsells; register closures for the train8-landed rows
+
+Train: 1 refute-first-reviewed worker patch, plus RULE-31 register closures for rows whose content landed in v3.66.1548.
+
+- row762 (bulk_downloader/interstitial.py, tests/test_row762_gate_click_refuses_prechecked_billing_upsell.py, tests/test_row721_age_gate_enter_affordance.py, tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py, .github/workflows/ci.yml): dismiss_gates now judges a prechecked recurring-charge consent before EVERY click of both dismissal passes -- recurring-charge language plus a prechecked consent box refuses the click (tier safety), an unreadable box is measurement_unknown, neither proceeds to accept a $29.97/30-day upsell; negative controls (no charge text; unchecked box) still proceed. New gate test declares BD_GATE_SCOPE repo-wide in the application-safety shard. Register row 762 closed.
+- register closures (no product change this train -- the fixes landed in v3.66.1548 Train8; closed here per RULE 31): rows 738, 774, 790, 791, 792, 805, 809 closed against their landed fixes.
+
 ## v3.66.1548 - Train8: SSRF egress census, cross-origin login refusal, precut honesty, login-cap premise, witness state cleanup
 
 Train: 5 refute-first-reviewed worker patches.
