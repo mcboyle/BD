@@ -1,0 +1,34 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 810: the whole-corpus spec collection walk runs as interleaved slices, one file per CI shard. The partition test in v3.66.1184 must fail when a slice skips specs, when the slice files' _SPEC_SLICE bindings are not read, or when the re-assembly loses a slice. (A duplicated slice index is proven by the hand negative control in the row's DONE.md: on the real tree that assertion holds, so no mutant on it can be CAUGHT.)",
+ "subject": "the spec slice files on disk re-assemble the tracked population exactly",
+ "band": [
+  "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_spec_slice_files_partition_the_tracked_population_exactly"
+ ],
+ "mutants": [
+  {
+   "label": "M1 a slice skips every other spec it owns",
+   "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+   "old": "    return _tracked_specs()[index::of]",
+   "new": "    return _tracked_specs()[index::of + of]",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_spec_slice_files_partition_the_tracked_population_exactly"
+  },
+  {
+   "label": "M2 the slice files' bindings are never read",
+   "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+   "old": "            if isinstance(node, ast.Assign) and any(",
+   "new": "            if isinstance(node, ast.Assign) and False and any(",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_spec_slice_files_partition_the_tracked_population_exactly"
+  },
+  {
+   "label": "M3 the re-assembly drops a slice and still counts as the population",
+   "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+   "old": "                 for k in range(of)",
+   "new": "                 for k in range(of - 1)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_the_spec_slice_files_partition_the_tracked_population_exactly"
+  }
+ ]
+}

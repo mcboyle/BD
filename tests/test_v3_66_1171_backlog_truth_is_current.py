@@ -472,7 +472,14 @@ def test_template_health_document_matches_current_route_index() -> None:
 def test_cut_a_gate_is_directly_wired_once() -> None:
     relative = "tests/test_v3_66_1171_backlog_truth_is_current.py"
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    shard = (ROOT / "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py").read_text()
     assert workflow.count(relative) == 1
-    assert shard.count(f'"{relative}"') == 1
+    # Row 810: the gate's census is derived from this file's own marker, so
+    # membership is judged in the loaded module rather than counted in its text.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "row1171_gate_module",
+        ROOT / "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    assert relative in gate._DECLARED
     assert relative not in (ROOT / "tests/gate_scope_baseline.txt").read_text().splitlines()

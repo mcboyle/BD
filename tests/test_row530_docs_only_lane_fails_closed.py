@@ -452,8 +452,14 @@ def test_a_crash_exits_UNKNOWN_and_never_the_refused_code(tmp_path):
 def test_this_gate_is_declared_and_scheduled_in_ci():
     """A gate CI does not run does not exist (A5)."""
     assert BD_GATE_SCOPE == "repo-wide"
-    assert THIS in DECLARATION.read_text(encoding="utf-8"), (
-        "%s is not in the independent _DECLARED set" % THIS)
+    # Row 810: the gate derives its census from this file's own marker, so
+    # membership is judged in the loaded module, not grepped from its source.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("row530_gate_module", DECLARATION)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    assert THIS in gate._DECLARED, (
+        "%s is not in the derived _DECLARED set" % THIS)
     assert THIS in CI.read_text(encoding="utf-8"), (
         "%s is in no workflow shard, so it would leave a green tick having never run"
         % THIS)

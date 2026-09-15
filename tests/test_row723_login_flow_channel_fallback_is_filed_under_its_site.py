@@ -355,16 +355,26 @@ def test_row723_a_run_launch_surfaces_the_notes_a_keeper_login_left_behind(monke
                                 error=_CHROME_MISSING, recovered=True)
     cloak.note_channel_fallback(site_id=_OTHER, flow="login", channel="chrome",
                                 error=_CHROME_MISSING, recovered=True)
-    monkeypatch.setattr(cloak, "launch_browser", lambda **kw: (object(), None, "fixture"))
+    pw = _FakePW()
+    ctx = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(cloak, "open_persistent_context",
+                        lambda **kw: (ctx, pw, "fixture"))
     monkeypatch.setattr(cloak, "log_choice", lambda *a, **kw: None)
     r = _browser_runner()
-    r._launch_browser()
-    evs = _degradation_events(r)
-    assert len(evs) == 1, (
-        f"a pending login degradation was not surfaced by the site's launch: {r.events!r}")
-    assert evs[0]["extra"]["flow"] == "login"
-    assert len(cloak.drain_channel_fallbacks(_OTHER)) == 1, "another site's note is not ours"
-    assert cloak.drain_channel_fallbacks(_SITE) == []
+    _browser, _ctx, got_pw, _backend = r._launch_browser()
+    try:
+        evs = _degradation_events(r)
+        assert len(evs) == 1, (
+            f"a pending login degradation was not surfaced by the site's launch: {r.events!r}")
+        assert evs[0]["extra"]["flow"] == "login"
+        assert len(cloak.drain_channel_fallbacks(_OTHER)) == 1, "another site's note is not ours"
+        assert cloak.drain_channel_fallbacks(_SITE) == []
+    finally:
+        try:
+            _ctx.close()
+        finally:
+            got_pw.stop()
+    assert got_pw is pw and pw.stopped is True
 
 
 # ── every other owner of a login flow (the H489 census of this cut) ────────

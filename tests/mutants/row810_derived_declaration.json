@@ -1,0 +1,37 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 810. The 939 gate's declared census is DERIVED from the tests' own BD_GATE_SCOPE markers (plus the closed _NON_DERIVABLE_DECLARED remainder) instead of a hand-pinned literal. The property the gate's own comment defends -- a marked file dropped from its shard FAILS -- must survive the derivation, so these mutants sever the derivation and the brief's test (1) is the catcher. Re-run from a detached scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/row810_derived_declaration.json --work SCRATCH --timeout 300. The separate transform-control spec applies M1 to an import-only node and must ESCAPE.",
+ "subject": "the derived declared-gate census still names a marked file that no shard runs",
+ "band": [
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_marked_file_dropped_from_its_shard_fails_the_derived_gate",
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_an_unmarked_file_added_to_a_shard_fails_the_derived_gate",
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_the_real_tree_is_covered_exactly_by_derivation_plus_legacy",
+  "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_new_marked_file_is_declared_without_editing_this_file"
+ ],
+ "mutants": [
+  {
+   "label": "M1 the marker derivation is emptied (returns set())",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    return {rel for rel, scope in _scope_map(_tracked_test_files()).items()",
+   "new": "    return {rel for rel, scope in {}.items()",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_marked_file_dropped_from_its_shard_fails_the_derived_gate"
+  },
+  {
+   "label": "M2 the census forgets its derived half and keeps only the legacy remainder",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    return _derived_repo_wide() | _NON_DERIVABLE_DECLARED",
+   "new": "    return set(_NON_DERIVABLE_DECLARED)",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_marked_file_dropped_from_its_shard_fails_the_derived_gate"
+  },
+  {
+   "label": "M3 the derivation reads every marker as repo-wide (an unmarked file is no longer undeclared)",
+   "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
+   "old": "    return {rel for rel, scope in _scope_map(_tracked_test_files()).items()",
+   "new": "    return {rel for rel in _tracked_test_files()} | {rel for rel, scope in _scope_map(_tracked_test_files()).items()",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_an_unmarked_file_added_to_a_shard_fails_the_derived_gate"
+  }
+ ]
+}

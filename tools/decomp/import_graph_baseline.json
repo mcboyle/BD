@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4492,
+  "edge_count": 4493,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4153,6 +4153,9 @@
       "bulk_downloader/runner_telemetry.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row719_astra_acceptance.py": [
+      "bulk_downloader/playlist_extractor.py"
     ],
     "tests/test_row719_scene_classifier_underselects.py": [
       "bulk_downloader/playlist_extractor.py",

@@ -87,1164 +87,74 @@ _INDEPENDENT_LONG_POLES = {
 # Its subject is which gates CI runs, which is a property of the tree.
 BD_GATE_SCOPE = "repo-wide"
 
-# The gates that must run on every PR. Pinned HERE rather than derived from
-# ci.yml, because deriving the expectation from the thing under test is how a
-# dropped file passes: the union would simply shrink to match. Adding a
-# repo-wide gate to CI is a three-part change: its scope marker, this independent
-# declaration, and one workflow shard entry all land together.
-_DECLARED = {
-    # The release stamp judges the reviewed Git tree and runs the real regen chain.
-    # CI-SHARD-CLAIM version-at-land version-at-land tests/test_row_version_at_land.py
-    "tests/test_row_version_at_land.py",
-    "tests/test_row788_transform_control_is_separate.py",
-    # PM-handoff 2026-09-06 template gap report. The matcher and the committed
-    # template corpus are a tree-wide denominator: the gate judges every
-    # template, not the four files this cut edited.
-    "tests/test_row_pm_template_gap_matchers_and_corpus.py",
-    # Rows 715/718: installer provenance and refusal before unit writes.
-    "tests/test_row715_installer_refuses_a_foreign_directory.py",
-    "tests/test_row718_installer_refuses_an_unwritable_install_dir.py",
-    "tests/test_keepalive_default_off.py",
-    # Row 659. BD_GATE_SCOPE is "module" -- its subject is two named resources in
-    # one audit witness, not the tree -- but the leak it pins is PROCESS-GLOBAL:
-    # a witness suite executed in-process rebinds capture_bodies.bodies_enabled,
-    # and every later test in that worker then reads the witness's capture
-    # posture instead of the store's. No single file's own run can see that, so
-    # the gate is pinned into the lane claimed on the next line.
-    # CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
-    "tests/test_row659_witness_run_does_not_leak_capture_state.py",
-    # CI-SHARD-CLAIM row-791 isolation tests/test_row791_witness_state_restored.py
-    "tests/test_row791_witness_state_restored.py",
-    # Rows 731/732/751/675: the secret boundary. Redaction, export descent and
-    # the paid-egress acknowledgement are repo-wide safety gates, not gates over
-    # the handful of files this cut edits.
-    "tests/test_row731_signed_url_branch_uses_pair_predicate.py",
-    "tests/test_row732_site_editor_redaction_descends.py",
-    "tests/test_row751_template_apply_gates_captcha_egress.py",
-    "tests/test_row751_template_strip_recurses.py",
-    "tests/test_row675_minified_js_is_not_a_secret.py",
-    "tests/test_row713_deep_integration_token_egress.py",  # row 713 token egress
-    # Rows 763/764/765. Child-frame challenge detection, challenge verdicts,
-    # and adaptive-selector compatibility protect the shared challenge boundary.
-    "tests/test_row763_child_frame_turnstile.py",
-    "tests/test_row764_turnstile_bypass_verdict.py",
-    "tests/test_row775_turnstile_one_click_affordance.py",
-    "tests/test_row765_scrapling_selector_compatibility.py",
-    # test2D-1. Persistent-profile workers must apply a configured imported
-    # cookie jar before their first page uses the context.
-    # CI-SHARD-CLAIM test2D-1 application-safety tests/test_test2d_1_persistent_profile_cookie_jar.py
-    "tests/test_test2d_1_persistent_profile_cookie_jar.py",
-    # Rows 701/704. Scene selection must refuse foreign or listing routes
-    # before they can drive an operator-facing quality decision.
-    "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py",
-    "tests/test_row704_listing_routes_are_not_scenes.py",
-    # Row 667. Both credential-login callers must append to the same durable
-    # per-site/day attempt denominator before contacting a site.
-    "tests/test_row667_login_attempt_accounting.py",
-    # Row 740. record_login_attempt must delegate to the same atomic
-    # reservation reserve_login_attempt uses, so a same-process direct writer
-    # cannot exceed the cap a reserve_login_attempt caller would have hit.
-    "tests/test_row740_login_cap_writer_atomicity.py",
-    # Row 806. The /api/health payload must NAME the cloak browser capability
-    # scripts/deploy.sh recorded beside the graph pin: the fleet health column
-    # is a curl of that payload and nothing else, so an omitted field reads as
-    # GREEN on a host with no browser reach (CLAUDE.md A7).
-    # CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
-    "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",
-    # Row 774. A login submit is a SAME-ORIGIN navigation; the text-matched
-    # LOGIN WITH GOOGLE button landing on accounts.google.com is refused at
-    # every observation site and at do_login's acceptance.
-    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",
-    # Row 723 (residual). A real-Chrome -> bundled-Chromium degradation inside a
-    # LOGIN flow (do_login, manual login, verify) is filed under the site that
-    # owns the flow and surfaced into that site's run record; the launch drain
-    # and the owning-site declaration are the seams.
-    # CI-SHARD-CLAIM row-723 application-safety tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
-    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",
-    # Row 719. The scene classifier must select the captured wowgirls and
-    # ultrafilms scene links and refuse the navigation the fallback picked,
-    # with the hint list open to template extension.
-    "tests/test_row719_scene_classifier_underselects.py",
-    # Row 787. find_best_download's nothing-in-scope result must not LOOK FOUND
-    # at any caller: a tree-derived caller census, every caller deciding by the
-    # sentinel KEY rather than by truthiness alone, and a genuine-candidate
-    # control at each of them.
-    "tests/test_row787_sentinel_must_not_look_found.py",
-    # Row 741. A failed relogin is filed by WHO refused it and WHY, decided by
-    # the type of the callback's detail, never by a phrase in its text.
-    "tests/test_row741_relogin_refusals_are_typed.py",
-    # Row 777. Every emitted literal rendered-page shape failure must select a
-    # terminal schedule instead of silently inheriting the transient ladder.
-    "tests/test_row777_retry_ladder.py",
-    # Row 771. A comma-bearing post-login wall must clear through the declared
-    # selector and generic safety paths without widening authority to decline.
-    "tests/test_row771_interstitial_comma.py",
-    # Row 762. A gate click on the measured Aylo /store upsell accepts a
-    # prechecked recurring charge; the refusal is a real-money safety boundary
-    # that must run on every PR, whatever the diff touched.
-    "tests/test_row762_gate_click_refuses_prechecked_billing_upsell.py",
-    # Row 703. Every httpx client construction in the application package is
-    # pinned through the guarded transport; the population is derived from the
-    # tree by tools/ssrf_client_census.py, so the gate judges the whole package.
-    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_ssrf_transport_is_installed_everywhere.py
-    "tests/test_row703_ssrf_transport_is_installed_everywhere.py",
-    # Row 703 gate 1. Nine of those constructions also pass proxy=, and in httpx
-    # 0.28.1 a proxied client is served by its own mount -- the guarded transport
-    # is installed and INERT while the census still reports it pinned. The set is
-    # pinned here so a tenth is red; repo-wide because the population is the whole
-    # package.
-    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_a_proxy_shadows_the_guarded_transport.py
-    "tests/test_row703_a_proxy_shadows_the_guarded_transport.py",
-    # Row 703 gate 2. The PUBLIC_ONLY/PINNED choice at each of the 53 sites is
-    # asserted site by site, so a one-token flip -- which converts "refuses a
-    # hostname resolving to RFC1918" into "admits it" -- turns something red.
-    # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
-    "tests/test_row703_the_site_to_policy_map_is_asserted.py",
-    # Row 785. The login evidence a verdict is read from is named from the
-    # verdict tag, and the tag carries an English phase with spaces. The
-    # name is asserted to stay in a restricted character class while the
-    # human phase moves inside the file, in login_impl/replay.py.
-    # CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
-    "tests/test_row785_login_evidence_filenames_are_shell_safe.py",
-    # Row 805. Every non-httpx egress in the application package -- urllib.request
-    # urlopen and opener .open, requests verbs and Session subclasses -- is
-    # censused from the tree and accounted for, guarded or exempt with a reason,
-    # by bulk_downloader/ssrf_egress_exemptions.py; repo-wide because the
-    # population is the whole package.
-    # CI-SHARD-CLAIM row-805 application-safety tests/test_row805_ssrf_census_covers_every_transport.py
-    "tests/test_row805_ssrf_census_covers_every_transport.py",
-    # Row 780. CFG_FIELDS silently dropped the bare listing_url fallback on
-    # every /api/config/import round-trip, so both _site_primary_url readers
-    # fell back to the login URL instead of the site's configured listing URL.
-    # CI-SHARD-CLAIM row-780 application-safety tests/test_row780_sites_config_listing_url_round_trip.py
-    "tests/test_row780_sites_config_listing_url_round_trip.py",
-    # Row 750. The same host-safety predicates, judged on the IPv4 address an
-    # IPv6 address CARRIES: ::ffff:/2002::/Teredo/64:ff9b:: spellings of
-    # 169.254.169.254 are classified before the private relaxation, in
-    # bulk_downloader/hooks.py and provider_resolve_impl/_common.py.
-    # CI-SHARD-CLAIM row-750 application-safety tests/test_row750_ipv6_unwrapped_metadata_bypass.py
-    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py",
-    # Row 705. Published populations must state derivation, and bounded
-    # diagnostics disclose their hidden tail.
-    # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
-    "tests/test_row705_published_denominators.py",
-    # Row 709. A shell state seed must not be a literal a later measurement in
-    # the same file also produces, or "the probe never ran" is indistinguishable
-    # from "the probe ran and could not resolve" on every surface that reads it.
-    # The population is every tracked POSIX-shell file under scripts and
-    # toolchain/bin, so the gate judges the tree, not a changed file.
-    # CI-SHARD-CLAIM row-709 safety-censuses tests/test_row709_state_seed_is_not_a_verdict.py
-    "tests/test_row709_state_seed_is_not_a_verdict.py",
-    # Row 738 (T2 follow-up to 667). The login-attempt cap's single-process
-    # premise must be a declared INVARIANTS.json entry, not folklore; this
-    # guards both the declaration and the deploy entrypoint fact it rests on.
-    # CI-SHARD-CLAIM row-738 tree-gates-5 tests/test_row738_login_cap_single_process_premise.py
-    "tests/test_row738_login_cap_single_process_premise.py",
-    # rowssrf-loopback. Every canonical host-safety consumer and both template
-    # sandbox exemption sites must use the classifier's structured reason.
-    "tests/test_rowssrf_loopback_reason_is_structured.py",
-    # Row 779. The template sandbox's browser mode must pin Chromium to the
-    # address it just vetted; the SSRF boundary is a repo-wide safety gate and
-    # rides the same shard as the classifier census it depends on.
-    "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py",
-    # Row 804. Follow-up to 779: the browser-mode page.route guard must
-    # intercept every post-navigation hop, not just the initial page.goto --
-    # the same repo-wide SSRF boundary, checked at the same shard.
-    "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
-    # Row 664. A pre-download dedup refusal is terminal work and must leave its
-    # reason in operator-visible history through the real worker dispatch seam.
-    "tests/test_row664_dedup_refusal_reaches_history.py",
-    # Row 665. Every terminal queue outcome must remain addressable by URL;
-    # the gate also pins the bounded additive response shape.
-    "tests/test_row665_terminal_jobs_are_visible.py",
-    # Row 665, second arc, declaring BD_GATE_SCOPE = "repo-wide" beside the
-    # first arc and riding the same shard, because the two halves are ONE
-    # contract: the first says a terminal job stays addressable while it is in
-    # runner.jobs, the second says the API never answers ABSENCE about a job it
-    # cannot classify or no longer holds. Split across two files, a diff-derived
-    # band that touches neither would run neither, and a band that touches only
-    # one would run half a contract and report green.
-    # CI-SHARD-CLAIM row665 db-prune-safety tests/test_row665_absence_is_not_an_answer.py
-    "tests/test_row665_absence_is_not_an_answer.py",
-    # Row 778. Extractor completion returns ahead of the transport boundary,
-    # so the settled document title must cross _process_one into its history
-    # record on every PR.
-    "tests/test_row778_extractor_completion_harvests_document_title.py",
-    # Row 678. The bd-bandcheck exclusion population is hand-maintained and
-    # tree-wide, so no changed subject can derive this path-existence gate.
-    # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
-    "tests/test_row678_bandcheck_exclusion_tables.py",
-    # Rows 724/744-747: toolchain receipts must not mint verification.
-    # CI-SHARD-CLAIM receipts toolchain tests/test_row724_preflight_bandcheck_counts_failures.py
-    "tests/test_row724_preflight_bandcheck_counts_failures.py",
-    "tests/test_row744_guard_declare_wording_matches_repin_rule.py",
-    "tests/test_row745_tool_lint_receipt_counts_what_it_read.py",
-    # Row 803: unreadable toolchain input cannot mint a clean verdict in any mode.
-    "tests/test_bd_tool_lint_unreadable_modes.py",
-    "tests/test_row746_bandcheck_empty_target_is_refused.py",
-    "tests/test_row747_bd_band_delegation_is_guarded.py",
-    # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
-    # caller instead of being flattened into an accepted login request.
-    "tests/test_login_api_refuses_impossible_manual_start.py",
-    # CI-SHARD-CLAIM row-772 application-safety tests/test_row772_rejected_login_is_not_success.py
-    "tests/test_row772_rejected_login_is_not_success.py",
-    # Rows 566/571. The meta-gate over this file and over the tracked Markdown
-    # corpus. It holds the EXACT bidirectional Markdown denominator -- the
-    # modules themselves keep only shrink-only floors -- and the only refusal of
-    # a `>=` -> `==` re-pin of a derived population. Marked `module` it ran in
-    # no shard, so neither refusal reached a PR.
-    "tests/test_row531_denominators_are_derived_not_pinned.py",
-    # Row 532. bd-mutate finds its anchor by TEXT and never asks whether the
-    # text is executable, so an anchor can resolve exactly once onto a comment:
-    # the mutation edits prose, behaviour is unchanged, the catcher passes, and
-    # the battery records a caught regression it never caused. Its subject is
-    # every tracked mutant spec, so no diff selects it.
-    "tests/test_row532_a_mutant_anchor_must_resolve_into_code.py",
-    # Row 346. The plugin sandbox checker judges an exact tree-wide population
-    # of three bridges/six launches, while the runtime cases execute both
-    # launch shapes with leaked and benign environment controls.
-    "tests/test_row346_plugin_sandbox_is_truthful.py",
-    # Row 292. This census pins the existing curated parallel allowlist by a
-    # mechanical digest and ratchet while allowing new, unreviewed tracked
-    # files to remain in the classifier's fail-closed serial default.
-    "tests/test_capture_execution_lanes.py",
-    # Row 261. Replication start/stop owns one sidecar and signals only the
-    # process identity it launched. This real-process gate forces lifecycle
-    # lock contention and checks every direct/HTTP acquisition for re-entry.
-    "tests/test_v3_66_261_contended_lifecycle_lock.py",
-    # Backlog row 311 / F16. Separate app processes write one shared config;
-    # this real-process gate forces their stale-read schedule, proves the two
-    # lock acquisitions use one exact file, and preserves both disjoint keys.
-    "tests/test_row311_app_config_writers_are_serialized.py",
-    # Backlog row 267. Seven application measurements had each collapsed an
-    # unavailable result into the same value as measured permission. This
-    # module drives the real enqueue/start/admission and integrity seams, so it
-    # is pinned into the safety shard claimed below on every PR.
-    # CI-SHARD-CLAIM row-267 application-safety tests/test_app_measurements_fail_closed.py
-    "tests/test_app_measurements_fail_closed.py",
-    # Row 434. A held resume replaces the paused state with a public refusal
-    # token; this runtime gate proves a later clear measurement can recover
-    # only the paused worker pool that created that token. Keep it in the
-    # direct application safety lane because no diff-derived route can substitute
-    # for the held, clear, and UNKNOWN lifecycle transitions it executes.
-    # CI-SHARD-CLAIM row-434 application-safety tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
-    "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",
-    # The download-integrity promotion seam is module-scoped, but a hardened
-    # staging-claim API left four of its six tests red on main while no CI job
-    # executed the file. Keep the real promote/abort contract in the same
-    # safety shard as the other integrity boundaries.
-    # CI-SHARD-CLAIM row-284 application-safety tests/test_v3_66_284_integrity.py
-    "tests/test_v3_66_284_integrity.py",
-    # Row 645. This legacy-baselined guard exercises /api/health through a real
-    # initialized/unlocked master-password vault and distinguishes the exact
-    # locked-vault 503. A local application diff does not reliably select it,
-    # so bind it to the application-safety lane explicitly.
-    # CI-SHARD-CLAIM row-645 application-safety tests/test_v3_62_2_guards.py
-    "tests/test_v3_62_2_guards.py",
-    # Row 507. Queue force-cleanup deletes four staging artifacts per job and
-    # reports only measured filesystem effects. This module is scoped to the
-    # staging-claim boundary but is pinned because an unrun destructive-route
-    # gate provides no safety on a PR.
-    # CI-SHARD-CLAIM row-507 application-safety tests/test_row492_a_release_proves_what_it_frees.py
-    "tests/test_row492_a_release_proves_what_it_frees.py",
-    # CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
-    "tests/test_login_session_does_not_cover_the_scene_host.py",
-    # CI-SHARD-CLAIM row-663 template-selectors tests/test_row663_inspect_rung_matches_runner.py
-    "tests/test_row663_inspect_rung_matches_runner.py",
-    # CI-SHARD-CLAIM row-666 template-selectors tests/test_row666_candidates_inspect_prefers_caller_url.py
-    "tests/test_row666_candidates_inspect_prefers_caller_url.py",
-    # Row 341. cloud-setup and its emitted recovery helper are READY-verdict
-    # boundaries. This behavioral module proves missing, malformed, degraded,
-    # and command-failed artifacts are distinct from the two healthy paths, so
-    # it runs directly rather than relying on a diff-derived shell-script band.
-    "tests/test_cloud_setup_truthfulness.py",
-    # Row 334. Four operator health surfaces used an empty collection for both
-    # measured-empty and unavailable. This runtime gate pairs every exception
-    # probe with a measured-healthy control and is pinned into CI here.
-    "tests/test_ffmpeg_capability_health.py",
-    # Row 356. Cookie quality must not call a session-only jar perfect when no
-    # freshness, expected-name, Cloudflare, or history check ran. This runtime
-    # gate also keeps API-adjacent relogin and queue consumers from defaulting
-    # the explicit UNKNOWN state back to a numeric 100.
-    "tests/test_row356_cookie_quality_reports_unknown.py",
-    # Row 363. The held-open Capture page is the only authoritative subject for
-    # live affordance learning. This offline Chromium gate proves BAR-first and
-    # one-click DROPDOWN discovery, policy refusal, network disagreement,
-    # pagination/scroll enumeration, and selector-only Review staging.
-    "tests/test_row363_affordance_learning.py",
-    # Row 360. A declared Scrapling package is not a usable Turnstile bypass
-    # unless its fetcher capability imports. This runtime gate proves the
-    # absent, probe-unknown, recovery-only, and fully available states.
-    "tests/test_row360_turnstile_bypass_is_installed.py",
-    "tests/test_row763_frame_urls_never_reach_the_model_prompt.py",
-    "tests/test_rows706_714_test_hygiene.py",
-    # Row 334. The library integrity route is a second consumer of the bitrot
-    # issue census. Its runtime gate refuses to call a locked inventory clean.
-    "tests/test_v3_57_phase9.py",
-    # Row 362. This gate compiles the selector population of every committed
-    # template and renders two network-blocked shapes with a real browser. A
-    # changed selector in any family changes its denominator, so it must run
-    # directly rather than depend on a diff-derived template band.
-    "tests/test_row362_templates_are_resolvable.py",
-    # Row 671. Reviewed templates use grouped selector roles outside the legacy
-    # corpus, so their independently counted denominator also runs on every PR.
-    "tests/test_row671_reviewed_template_selectors_are_enumerated.py",
-    # Row 670. The verifier carries an operator session into the browser
-    # context and refuses one it cannot honour as UNKNOWN; the gate drives the
-    # shipped verifier and CLI against a fake browser, fixtures only.
-    "tests/test_row670_verifier_carries_a_session.py",
-    # Rows 672/673/674: the reviewed template has a supported route in and a
-    # supported route out. All three judge tree-wide denominators -- the
-    # committed corpus, every file under tests/, and the one fixture generator
-    # -- so they run on every PR rather than on a changed path.
-    # CI-SHARD-CLAIM row-672 template-selectors tests/test_row672_reviewed_template_is_reachable.py
-    "tests/test_row672_reviewed_template_is_reachable.py",
-    # CI-SHARD-CLAIM row-673 template-selectors tests/test_row673_reviewed_probe_adapter_ships_once.py
-    "tests/test_row673_reviewed_probe_adapter_ships_once.py",
-    # CI-SHARD-CLAIM row-674 template-selectors tests/test_row674_live_state_round_trips.py
-    "tests/test_row674_live_state_round_trips.py",
-    # Row 377. The installed verifier has PASS/FAIL/UNKNOWN outcomes; the CI
-    # consumer must preserve UNKNOWN as a distinct refusal, never a pass.
-    "tests/test_row377_installed_template_selftest_states.py",
-    # Backlog row 176. Verdict pins cannot detect a fixture whose recognizer
-    # result is correct for the wrong site's bytes, so this gate independently
-    # declares every recognizer fixture's page host and checks the payload.
-    "tests/test_recognizer_fixture_site_identity.py",
-    # Row 453. Per-fixture verdict pins cannot see the corpus as a POPULATION:
-    # deleting the yupptv fixture and its pin together leaves the 47-case
-    # battery green over 46 cases and silently reopens row 120's gap. This gate
-    # holds the population claim and the classify() auto_template refusal.
-    "tests/test_row453_signed_jwplayer_behind_akamai.py",
-    # Row 121. Two distinct real-capture slices drive derive_login_flow and a
-    # fake browser independently; the gate catches role-collapsed input clicks,
-    # missing-selector fallback and post-login media origins posing as steps.
-    "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",
-    # @1240, the preflight that runs what a derived band cannot select. Four
-    # defects shipped between v3.66.1223 and v3.66.1238 because bd-band-derive
-    # derives from CHANGED PATHS while those gates judge the TREE, so no diff
-    # ever reached them. This gate has the same property and is declared for
-    # the same reason.
-    "tests/test_v3_66_1239_precut_runs_the_underived_gates.py",
-    # The import-dodge detector (FOOTGUNS.json FG-IMPORT-REWRITTEN-TO-DODGE-THE-GATE,
-    # run by bd-precut --gate through bd-footguns). Its subject is the precut
-    # floor over the whole tree: the registry entry, the tool it names, and a
-    # no-op-diff control over a clone of the current tree that must yield zero
-    # findings -- a cut that rewrites a static first-party import as a dynamic
-    # one to keep the import gate quiet is refused there, before a lens sees it.
-    # A diff-derived band would not re-prove the detector when only the registry
-    # or the tool moves, so it is pinned here.
-    # CI-SHARD-CLAIM footgun-import-dodge tree-gates-3 tests/test_import_dodge_is_caught_in_the_cut_diff.py
-    "tests/test_import_dodge_is_caught_in_the_cut_diff.py",
-    # PM-B row (2026-09-07): bd-precut selects repo-wide gates BY THIS MARKER,
-    # not by its hand list. The file's last test reconciles the tool's live
-    # selection against every tracked tests/test*.py, so its subject is the
-    # whole tree and it must reach a shard in its own right -- and, being
-    # repo-wide, precut now selects it too.
-    "tests/test_precut_selects_repo_wide_gates_by_marker.py",
-    # Row 530, the docs-only lane's classifier. Its subject is which tracked
-    # paths of this tree can be proven inert, so it is derived from
-    # `git ls-files` and no changed path can select it. A classifier whose
-    # allow set has quietly grown a new top-level directory is precisely the
-    # failure it exists to prevent, and it would look like nothing at all.
-    "tests/test_row530_docs_only_lane_fails_closed.py",
-    # Row 529. This gate derives review scope from a real Git diff and proves
-    # omitted and search-only changed files cannot disappear from a clean
-    # review verdict. Its denominator is the diff, not one changed module.
-    "tests/test_row529_review_coverage_reconciliation.py",
-    # @1378, the same tool, the other half of the same question. 1239 pins that
-    # bd-precut RUNS the gates a diff cannot select; this one pins that its
-    # version/pin/surface check can be MEASURED AT ALL. It judges the tool and
-    # the tree rather than a diff, so no changed path selects it either.
-    "tests/test_row463_precut_derives_its_baseline.py",
-    # Rows 790/794. bd-precut's own footguns/ratchet unknown-append and its
-    # "for what RAN (...)" verdict string are properties of the TOOL, judged
-    # against whichever tree it runs on -- not of one changed module -- so it
-    # rides the same shard as its precut siblings above.
-    # CI-SHARD-CLAIM row-790 tree-gates-3 tests/test_row790_precut_names_footguns_ratchet_unknown.py
-    "tests/test_row790_precut_names_footguns_ratchet_unknown.py",
-    "tests/test_row794_precut_preamble_reports_only_run_checks.py",
-    # Rows 416/464/472/527. Verification tools must preserve each measured
-    # state through their real entry points; the suite also pins bd-precut's
-    # baseline/tracked-only main() wiring, which the row-463 component tests do
-    # not reach. Its denominator is the merge-lane tree, not one application
-    # module, so it is always scheduled.
-    "tests/test_verify_lane_state_naming.py",
-    # @1222, the budget ratchet. An inner budget at or above the bound
-    # governing its item has a dead error path, so a hang kills the process
-    # instead of failing the test -- twice over on 2026-08-24. The frozen
-    # population may shrink and may not grow.
-    "tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py",
-    # @1220, the timeout-method contract. It runs REAL sub-pytests in both
-    # shapes and asserts that a test exceeding its bound is reported BY NAME
-    # with no worker killed -- the property the sanctioned command was changed
-    # to obtain. Its negative arm stops it passing vacuously and fails loudly
-    # if pytest-timeout or xdist ever change underneath it.
-    "tests/test_v3_66_1220_a_timeout_names_its_test.py",
-    # The terminal-summary hooks serve every pytest session. This nested
-    # regression holds the line between the two kinds of banner they emit: the
-    # socket-recorder and run-context MEASUREMENTS print on every run, and the
-    # replay POINTERS print only for a session somebody would investigate.
-    "tests/test_row_pytest_banners_only_on_failure.py",
-    # @1208, the capture execution signal contract. These three judge the
-    # heartbeat boundary that made all seven fleet captures fail at once:
-    # 1208 RUNS the wrapper and reads the wrapped process's own signal
-    # dispositions, 1111 proves the wall-clock bound still fires, and u45
-    # pins the shipped launch form 1208 exercises. They are module-scoped,
-    # so nothing else in CI would have seen a regression of
-    # scripts/lib/heartbeat.sh -- and capture is not CI.
-    "tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py",
-    # @1209 extends the same contract to every OTHER detached launch site
-    # and to what the wrapper hands BACK to its caller.
-    "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",
-    # @1215, the same contract seen from the WRAPPER side rather than the
-    # launcher side: a wrapper must not silently alter the subject it bounds
-    # or carries. It judges two PRODUCTION toolchain scripts -- bd-wedge-hunt's
-    # remote transport and bd-run's cap declaration -- and both are
-    # module-scoped, so without an entry here a regression would be caught by
-    # nothing in CI. bd-sweep-run runs pytest through bd-run's cap, which is
-    # exactly how a whole-fleet suite came to carry weaker signal evidence
-    # than its own direct probes suggested.
-    "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",
-    # @1216. The frontend suite entered CI in this cut; this gate judges the
-    # CHECKER that gives that job a denominator, because `vitest run` exits 0
-    # over an empty collection and the job alone would go green over nothing.
-    "tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py",
-    # @1217. The parity scanner's POPULATION is its denominator, and a test
-    # fixture must not be admissible as evidence that the SPA wires a route.
-    "tests/test_v3_66_1217_a_fixture_is_not_wiring.py",
-    # @1218. The five T-series gates now RUN Vitest instead of grepping for it,
-    # so the shard carrying them must be given node. This asserts that contract
-    # from the tree rather than from a pinned shard name.
-    "tests/test_v3_66_1218_vitest_delegating_shards_have_node.py",
-    # @1225, row 232. Generalises 1217 and 1218: it DERIVES every site in
-    # tracked tests/ and tools/ that reads frontend/src text, requires each to
-    # declare its population, and runs each product-only site against a planted
-    # tree whose two arms differ only in a filename. Repo-wide because a new
-    # scanner can appear in any file in that population.
-    "tests/test_v3_66_1225_spa_scanner_populations.py",
-    # Row 348 / H15-2. This live all-source TSX gate was classified by the SPA
-    # scanner census but absent from every CI shard. A planted raw Unicode
-    # escape therefore failed here while the scheduled denominator stayed
-    # green. Pin the live verdict beside the census that classifies it.
-    "tests/test_no_raw_unicode_escape_in_jsx.py",
-    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",
-    "tests/test_u45_capture_sh_shipped.py",
-    "tests/test_all_sources_parse.py",
-    "tests/test_pin_index_in_sync.py",
-    # Row 387. A release-time versync check is not enough to prevent a
-    # same-valued duplicate version pin from becoming another bump site. This
-    # gate AST-scans the live test population, so it must run on every PR.
-    "tests/test_row387_ast_version_pin_guard.py",
-    # Cut 1435. A transferred band is a release-wide safety claim, and each
-    # disposition plus UNKNOWN fallback must remain reachable on every PR.
-    "tests/test_row1435_band_verdict_transfer.py",
-    "tests/test_route_index_in_sync.py",
-    "tests/test_import_graph_no_new_edges.py",
-    "tests/test_source_windows_do_not_shift.py",
-    "tests/test_generated_artifacts_are_not_tracked.py",
-    "tests/test_settings_center_slice4.py",
-    # FOOTGUNS.json named a BLOCKING detector on each of the four files below
-    # and no CI job ran any of them, so their drift was only ever evaluable by
-    # hand. The two registries are now linked in one direction by the fifth
-    # entry: naming a test in FOOTGUNS.json requires it in a shard. Both
-    # populations there are derived, so no third hand-kept list is created.
-    # CI-SHARD-CLAIM footgun-endpoint artifacts-pins tests/test_endpoint_catalog_in_sync.py
-    "tests/test_endpoint_catalog_in_sync.py",
-    # CI-SHARD-CLAIM footgun-function-index artifacts-pins tests/test_function_index_in_sync.py
-    "tests/test_function_index_in_sync.py",
-    # CI-SHARD-CLAIM footgun-route-map artifacts-pins tests/test_route_map_invariant.py
-    "tests/test_route_map_invariant.py",
-    # CI-SHARD-CLAIM footgun-slice5 artifacts-pins tests/test_settings_center_slice5.py
-    "tests/test_settings_center_slice5.py",
-    # CI-SHARD-CLAIM footgun-ci-link artifacts-pins tests/test_footgun_detectors_are_executed_by_ci.py
-    "tests/test_footgun_detectors_are_executed_by_ci.py",
-    # Row 439. Segmented (HLS/DASH) transfers bypassed the fail-closed VPN
-    # egress gate every sibling transfer path passes, so ffmpeg fetched every
-    # segment on the clear interface for a vpn_required site whose tunnel was
-    # down. The fix routes all six arms through one gate; the tree-wide half of
-    # this module holds the denominator that keeps a SEVENTH arm from quietly
-    # reopening it, which only works if it runs on every PR.
-    "tests/test_row439_segmented_transfers_honor_the_egress_gate.py",
-    # Row 773: every history/login record names its egress (IP or UNKNOWN);
-    # the writers, the schema and the producers span the tree.
-    # CI-SHARD-CLAIM row-773 application-safety tests/test_row773_records_carry_egress_identity.py
-    "tests/test_row773_records_carry_egress_identity.py",
-    "tests/test_versync_gate.py",
-    "tests/test_release_hygiene_gates.py",
-    # Row 335. Both release verifiers previously passed over absent evidence.
-    # This module drives their real gate seams plus measured-empty controls;
-    # it is pinned into CI because neither legacy test file ran in any shard.
-    "tests/test_row335_release_gate_populations.py",
-    # Row 339 (2026-08-28). Module-scoped: it judges verify_release.py's
-    # measurement walls. Declared and scheduled beside its row 335 sibling
-    # because it exercises the same release-verifier seam.
-    "tests/test_row339_measurement_noise_bounds.py",
-    "tests/test_scan_version_pins_fixture.py",
-    "tests/test_gui_parity.py",
-    "tests/test_t1_dashboard_wired.py",
-    "tests/test_t2_history_wired.py",
-    # @1255, backlog rows 247/248. build_manifest() must build only in a copied
-    # frontend tree so a suite cannot empty the deployed SPA or delete its
-    # .bd-built-from provenance marker. The host-dependent byte invariant skips
-    # UNKNOWN on clean CI clones, but this shard installs Node and runs its
-    # deterministic copy-shape and negative-control siblings on every PR.
-    "tests/test_v3_66_1255_frontend_build_is_isolated.py",
-    "tests/test_t3_t4_wired.py",
-    "tests/test_t5_t6_wired.py",
-    "tests/test_t7_notifications_wired.py",
-    # @1240, backlog row 240. The supervisor throttle form had no GET consumer
-    # at all, so an untouched Apply POSTed the component's own defaults over
-    # every live byte-rate limit. Delegates to three Vitest specs; it belongs in
-    # the node-enabled shard claimed below.
-    # CI-SHARD-CLAIM row-240 parity-graph tests/test_v3_66_1240_supervisor_settings_seeded.py
-    "tests/test_v3_66_1240_supervisor_settings_seeded.py",
-    "tests/test_t8_cluster_wired.py",
-    "tests/test_t9a_live_stream_wired.py",
-    "tests/test_t9b_push_wired.py",
-    "tests/test_t10_devtools_wired.py",
-    "tests/test_t11_approval_wired.py",
-    # Row 281. The five original Python UI wrappers must consume proof that
-    # their focused Vitest delegate actually executed. The separate complete
-    # frontend job is redundancy, not evidence about these wrapper nodes.
-    "tests/test_row281_ui_wrappers_delegate.py",
-    "tests/test_config_parity_ratchet.py",
-    "tests/test_skip_baseline.py",
-    "tests/test_pytest_capture_results.py",
-    "tests/test_framework_gui.py",
-    "tests/test_v3_66_552_playground_ssrf.py",
-    "tests/test_v3_66_1181_capture_reconciliation.py",
-    "tests/test_csrf_session_bootstrap.py",
-    "tests/test_csrf_contract_reachability.py",
-    "tests/test_csrf_tool_contracts.py",
-    "tests/test_spa_root_routing_contract.py",
-    # Row 310. This gate judges every eligible runtime GET rule and the shipped
-    # template/SPA surface, so it is tree-wide. It lives in the Node-enabled
-    # parity shard because its static half performs an attempt-owned SPA build.
-    "tests/test_secret_display_never.py",
-    "tests/test_cockpit_route_contract.py",
-    "tests/test_cockpit_navigation_contract.py",
-    "tests/test_pk_mirrors_stay_retired.py",
-    "tests/test_authority_documents.py",
-    "tests/test_changelog_draft_placeholder_is_refused.py",
-    "tests/test_v3_66_1183_inv_tags_generated.py",
-    "tests/test_v3_66_1183_safe_temp_janitors.py",
-    "tests/test_v3_66_1183_source_window_content.py",
-    # Backlog row 252. This gate inventories every destructive cockpit-task
-    # cleanup in tests/, proves the autouse environment pop in a nested pytest,
-    # and drives both the refusal and owned-cleanup branches. A diff-derived
-    # band cannot protect callers who export BD_COCKPIT_TASKS before any test.
-    "tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py",
-    # Row 300. The real X display is host-global, so this gate forces the
-    # foreign-process race, proves the atomic claim, and verifies exact owned
-    # teardown on every PR independently of which test files a diff touches.
-    "tests/test_row300_parallel_display_cleanup_owns_process.py",
-    "tests/test_capture_provides_a_display.py",
-    # Row 752. The cited row-300 gate borrowed the host-global
-    # /tmp/bd-display-test-X<n>.claim namespace for a claim it never
-    # uses, so a concurrent worker or a leaked claim could decide its
-    # verdict and erase the diagnosis. The population it guards is that
-    # host-global namespace, so it runs on every PR beside the two gates
-    # above rather than only when a diff touches them.
-    "tests/test_row752_display_gate_owns_its_claim.py",
-    # F31. This gate measures every child-test launch that used to forward an
-    # operator BD_INSTALL_DIR, drives a real nested bd-band against a
-    # sacrificial database root, and proves the central autouse pop plus the
-    # explicit test-owned negative control. It is tree-wide because another
-    # launcher can appear anywhere in the measured production/tool population.
-    "tests/test_child_test_install_dir_isolation.py",
-    "tests/test_toolchain_534.py",
-    "tests/test_row698_corpus_guard_execution.py",
-    # Row 336. Audit promotion and the default static-analysis battery are both
-    # release-verdict boundaries: absent witness/analyzer evidence must remain
-    # UNKNOWN on every PR, independently of a diff-derived module band.
-    "tests/test_row336_audit_and_scan_evidence.py",
-    # Row 349. Three operational tools each exposed one subject to another's
-    # cached bytes.  This runtime gate forces all three two-identity seams and
-    # must run directly in CI rather than depend on a changed-path band.
-    "tests/test_row349_shared_caches_are_identity_bound.py",
-    # Row 355. This gate calibrates bd-mutate's timeout window from a real
-    # warm-up and proves its zero-row diagnostic, negative control, exact
-    # restore, and absent JUnit evidence under scheduling load. A diff-derived
-    # band cannot establish the host-scheduling premise, so CI runs it directly.
-    "tests/test_row355_mutate_timing_is_schedule_stable.py",
-    # Row 386. Nothing in the suite downloaded a file: a 623-file, 8,528-test
-    # band was green while the deployed app could not complete a download on
-    # two of its 32 sites, and green again while it downloaded the wrong scene.
-    # This gate runs the whole chain -- page DOM, candidate discovery, ranking,
-    # direct-URL resolution, filename, a real loopback transfer, history row,
-    # library title -- against recorded fixtures. Its subject is the tree's
-    # ability to complete a download at all, which no changed path implies, so
-    # it is declared here and scheduled in the dedicated shard claimed below.
-    # CI-SHARD-CLAIM row-386 download-chain tests/test_row386_the_download_chain_is_gated.py
-    "tests/test_row386_the_download_chain_is_gated.py",
-    # @1143. The FIRST of the BD_GATE_SCOPE = "module" entries here, and each is
-    # deliberate. (This comment read "the ONLY entry" while the entry directly
-    # below it was a second one -- stale within five releases of being written,
-    # in the file whose whole subject is a hand-pinned set going stale. Count
-    # the entries carrying this reason rather than trusting a word here.)
-    # Its subject is one tool, so calling it "repo-wide" would be
-    # the mislabelling this file's own docstring says nothing catches. It is
-    # pinned into a shard anyway because the property it guards is a SAFETY
-    # BOUNDARY that must run on every PR regardless of what the diff touched:
-    # bd-fleet-run's v3.66.1140 selftest could reach `ssh 192.0.2.10` and ran
-    # on GitHub runners via test_toolchain_534, kept off the network only by
-    # procfs. The failure mode is someone reintroducing a network-capable
-    # fixture, which no diff-derived band would necessarily catch.
-    "tests/test_v3_66_1142_fleet_run_is_hermetic.py",
-    "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",
-    # @1255 row 250 applies 1158's fail-closed provenance contract to the
-    # sibling fleet census. Its failure seam needs a real probe environment,
-    # so a source-only check cannot substitute for executing this module.
-    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",
-    # Row 282. bd-opv executes application writers, so a verifier run can edit
-    # the operator's config, database, subscriptions, and cwd-relative stores
-    # unless its process boundary is exercised on every pull request.
-    "tests/test_row_282_bd_opv_isolates_every_store.py",
-    # Row 345. OPV-A11Y must distinguish a served cockpit from an HTTP error or
-    # a different 200 page, and F4.3 must not leak its authenticated app state.
-    "tests/test_row345_opv_a11y_requires_served_cockpit.py",
-    # Row 313. bd-job is the detached local-job safety boundary: concurrent
-    # starters must not share one state directory, and status/kill must not
-    # mistake a reused numeric PID for the process the job originally owned.
-    "tests/test_row313_bd_job_identity.py",
-    # Row 350. Four lifecycle APIs must not report success when admission,
-    # recovery, capture identity, or cancellation disagrees with durable state.
-    "tests/test_row350_job_api_durable_truth.py",
-    # Row 353. Regex mutation anchors and the tracked row-348 regression read
-    # mutable whole-tree source/spec state, so this gate runs directly.
-    "tests/test_row353_mutant_anchors_survive_a_moved_census.py",
-    # Row 354. Capture's deployment-local graph pin has three states. This gate
-    # executes all three against isolated exact-tree records and prevents a
-    # never-deployed checkout from masquerading as either PASS or graph drift.
-    "tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py",
-    "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",
-    "tests/test_v3_66_1160_bridge_verifier_isolation.py",
-    "tests/test_v3_66_1161_context_census_is_retired.py",
-    "tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py",
-    "tests/test_v3_66_1164_one_task_authority.py",
-    "tests/test_row496_deferral_intake_reconciles_backlog.py",
-    # Row 263. The register's evidence tags and the changelog's release
-    # headings are both tree-wide authorities. A worker can edit any row, so a
-    # diff-derived module band cannot provide this reconciliation.
-    "tests/test_register_closed_versions_exist.py",
-    # v3.66.1359 / row 402. The amendment suite is module-scoped, but its
-    # atomic compare-and-swap is the only sanctioned correction path for
-    # release-register prose, so it remains an explicit CI safety boundary.
-    "tests/test_register_content_amend.py",
-    # The append path shares the same stable-directory transaction with amend
-    # and close, so a regression can otherwise lose a release row without any
-    # diff-derived module test reaching the cross-writer schedule.
-    "tests/test_register_append.py",
-    # Row 323. A human-review census expires when main moves, so this gate
-    # drives the pytest collection hook before a stale row can spend its band.
-    # It is tree-wide because the version comparison is about the row's base
-    # tree rather than about the checker module itself.
-    "tests/test_row323_census_pins_declare_expiry.py",
-    "tests/test_v3_66_1165_one_agent_contract.py",
-    "tests/test_v3_66_1166_historical_docs_are_adjudicated.py",
-    "tests/test_v3_66_1167_safety_authorities_are_single_source.py",
-    "tests/test_v3_66_1168_tests_are_current_contracts.py",
-    "tests/test_v3_66_1169_openapi_has_one_producer.py",
-    "tests/test_v3_66_1170_claude_is_concise_authority.py",
-    "tests/test_v3_66_1171_backlog_truth_is_current.py",
-    # Row 246. Every lexical backlog-id reference in canonical row prose must
-    # resolve against the complete parsed row population. This is tree-wide:
-    # a stale reference can be introduced by editing any backlog row.
-    "tests/test_v3_66_1255_backlog_references_resolve.py",
-    # Row 661: _spawn_recording's low-disk return must release prepared_egress
-    # like its no-backend sibling branch does -- a resource leak the tree-wide
-    # gate must catch on any future asymmetric early return, not just this one.
-    "tests/test_row661_low_disk_return_releases_egress.py",
-    "tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py",
-    "tests/test_v3_66_1173_gate_scope_debt_is_paid.py",
-    "tests/test_row469_toolchain_auditor_denominators_reconcile.py",
-    "tests/test_row469_toolchain_denominator_import_control.py",
-    "tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py",
-    "tests/test_v3_66_1177_ai_boot_observation_is_bounded.py",
-    "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",
-    "tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py",
-    # Row 634. The census of every live-registry iteration under
-    # bulk_downloader/. Its subject is a tree-wide population -- any module can
-    # add a bare walk -- so a diff-derived band would run it only when the
-    # census file or app_state.py changed, which is precisely the case where a
-    # new bare walk elsewhere goes unseen.
-    "tests/test_row634_live_registry_iteration_is_snapshotted.py",
-    # Row 333. The recognizer corpus split four ways. Each shard declares
-    # repo-wide scope because its subject is the whole corpus population,
-    # and a repo-wide gate must reach a shard in its own right or the
-    # split would have moved coverage out of CI rather than parallelised it.
-    "tests/test_recognizer_corpus_shard_a.py",
-    "tests/test_recognizer_corpus_shard_b.py",
-    "tests/test_recognizer_corpus_shard_c.py",
-    "tests/test_recognizer_corpus_shard_d.py",
-    "tests/test_row452_a62_breadth_real_captures.py",
-    # Row 332. The four-way split of test_v3_66_1046: each shard declares
-    # repo-wide scope because its subject is still the whole tool-state
-    # population, and each must reach a shard in its own right or the
-    # split would have moved work out of CI rather than parallelised it.
-    "tests/test_v3_66_1046_tool_state_1040.py",
-    "tests/test_v3_66_1046_tool_state_1043.py",
-    "tests/test_v3_66_1046_tool_state_1044.py",
-    "tests/test_v3_66_1046_tool_state_1054.py",
-    # Row 326. The frontend security floor was legacy-classified and named in
-    # NO shard, so it never ran -- and sat RED on main at v3.66.1304 because a
-    # legitimate patch upgrade tripped its exact-equality pin. Declaring it
-    # here makes removing it from ci.yml a failure of THIS gate.
-    "tests/test_frontend_dependency_security_floor.py",
-    # Row 283. bd-claim coordinates separate writer processes in a shared
-    # checkout, so its real-process transaction gate runs on every PR rather
-    # than depending on a diff router to infer this operational-tool coupling.
-    "tests/test_v3_66_283_bd_claim_transactions.py",
-    # Row 295. Non-cooperating observers do not take the registry lock, so the
-    # claim publisher must keep the old complete record visible until one
-    # atomic pathname replacement publishes the new complete record.
-    "tests/test_v3_66_295_bd_claim_atomic_union.py",
-    # @1256, backlog row 250. bd-regen-order is run on every cut, and its
-    # selftest is the only precondition for treating the complete CHAIN as the
-    # current generator denominator. A dropped member changes no application
-    # path from which bd-band-derive could select this gate, so CI must run it
-    # directly on every tree.
-    "tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py",
-    # Row 243. Registration resolution is a tree-wide launcher contract, and
-    # its copied-bd-mutate CI reproduction plus durable mutation battery cannot
-    # be derived from whichever one of the seven owning tools a diff touches.
-    "tests/test_row243_registration_resolves_without_ambient_luck.py",
-    # Row 298. The end-to-end idempotence gate executes the entire canonical
-    # regen chain twice, so its work-root ownership is a tree-wide concurrency
-    # boundary. It runs in a dedicated shard against a disposable copy rather
-    # than rewriting generated artifacts beneath sibling workers.
-    "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
-    "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
-    # Row 797. The three login seams are pinned by named mutant specs, and a
-    # spec whose anchor has drifted reports invalid -- neither a catch nor an
-    # escape. The binding below places the gate beside the schema gate that
-    # validates the same corpus.
-    # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
-    "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",
-    # Row 656. Persistent cut permits bind policy, repository identity, and
-    # protected lifecycle launchers, so the validator is a tree-wide gate.
-    "tests/test_cut_quality_permits.py",
-    # Row 649. These recovered module contracts had never reached main; their
-    # explicit declarations are paired with the recovered-contracts CI shard.
-    "tests/test_row089_capture_corpus_backup_restore.py",
-    "tests/test_row090_global_run_cap.py",
-    "tests/test_row700_captcha_egress_disclosure.py",
-    "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
-    # Row 357. Anchor fragility is a whole-population property: no changed
-    # subject path can make a diff router select the gate that audits every
-    # tracked mutation spec and its independently recorded producer evidence.
-    "tests/test_row357_mutant_anchors_are_not_fragile.py",
-    # Row 470. Corpus-taking tools are a tree-wide population; a new or
-    # unguarded member must reach this runtime census regardless of the paths a
-    # particular PR happened to touch.
-    "tests/test_row470_corpus_tools_fail_closed.py",
-    # Row 473. Candidate shipment is a relation between the whole register and
-    # the target tree, so no one candidate's changed paths can select it.
-    "tests/test_row473_register_tree_containment.py",
-    # Row 660. A gate that regenerates the tree it inspects. The subject is the
-    # bd-regen-order/FOOTGUNS detector seam, which no one candidate's changed
-    # paths can select -- the hazard fires on runs that touch neither file.
-    "tests/test_row660_gate_is_read_only_over_generated_artifacts.py",
-    "tests/test_v3_66_1186_bd_mutate_named_controls.py",
-    "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",
-    "tests/test_v3_66_1188_bd_mutate_review_controls.py",
-    "tests/test_v3_66_1189_bd_mutate_durable_contract.py",
-    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py",
-    # Backlog 27's executable route is module-scoped, but it decides whether
-    # bd-mutate may publish a false CAUGHT after a fixture contaminates the
-    # restored-source control.  Mutation evidence is a safety boundary, so the
-    # test runs on every PR in the verifier shard claimed below.
-    # CI-SHARD-CLAIM backlog-27 mutation-verifiers tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
-    "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",
-    "tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py",
-    "tests/test_frontend_secret_keys_in_sync.py",
-    "tests/test_templates_list_identity.py",
-    "tests/test_defect_scan_precision.py",
-    # @1148. Also BD_GATE_SCOPE = "module" and also deliberately so: its subject
-    # is bd-cut's release gate, not the tree. It is pinned into a shard because
-    # the contract it holds -- only a measured exit 0 authorizes a cut -- is the
-    # thing that decides whether ANY other gate's verdict is honoured. Until
-    # v3.66.1145 the gate failed open and no test anywhere pinned it; the 12/12
-    # GitHub result on that PR did not execute this contract at all.
-    "tests/test_v3_66_1145_step0_fails_closed.py",
-    # @1149. Third "module" entry, same reasoning one step further out. Its
-    # subject is what the two release-gating tools DO TO THE TREE: bd-cut's
-    # --rm-runtime-db defaulted to deleting downloader_history.db and its WAL,
-    # which on test5 is the live service database, and bd-footguns wrote into
-    # the tree it was judging. Neither is diff-derivable -- the destructive
-    # default is one argparse keyword and the write happens in a delegate
-    # subprocess -- so no band would necessarily run this, and the failure mode
-    # is silent data loss on the box rather than a red test.
-    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",
-    # @1150. Fourth "module" entry. Its subject is the integrity of the ONE
-    # archive object a --resume-zip cut judges, and the honesty of the two
-    # discard helpers. Pinned into a shard for the same reason as 1149: none of
-    # it is diff-derivable -- the seal is one chmod, the cleanup defect is an
-    # `except OSError: pass`, and the leak it closes is invisible to the default
-    # test harness, which erases residue on a green run. The failure mode is a
-    # silent swap or a silent leak, never a red test.
-    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",
-    # @1151. Fifth "module" entry, same subject one layer deeper: what a
-    # --resume-zip cut's consumers are BOUND to. A pathname can be renamed out
-    # from under them between two hashes; a descriptor cannot. Pinned into a
-    # shard because none of it is diff-derivable -- the binding is one os.open
-    # and a pass_fds, the symlink escape is a chmod that follows a link, and
-    # the failure mode of every one is silent rather than red.
-    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",
-    # @1152. Sixth "module" entry, and the one that makes the other five cost
-    # something: a cleanup failure now sets an exit code in bd-cut and a
-    # session exit status in _tmproot. Pinned into a shard because the failure
-    # it guards is a SILENT GREEN -- three cuts made cleanup report honestly
-    # and none made the report matter, so the regression to watch for is a
-    # future edit quietly restoring "print and return 0".
-    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",
-    # @1153. Seventh "module" entry. Its subject is what a destructive
-    # operation is BOUND to: v3.66.1149-1152 moved the ownership proof nearer
-    # the deletion four times and never joined them, so each cut left the same
-    # rename+recreate seam one step further along. Pinned into a shard because
-    # the failure is a silent wrong-object deletion -- never a red test -- and
-    # because bd-footguns' UNKNOWN policy decides whether bd-cut's step 0 is
-    # authorized at all.
-    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",
-    # @1154. Eighth "module" entry, and the one that finally binds the CHILDREN.
-    # 1153 bound the top object and left every child opened by name, so a
-    # directory renamed onto a child pathname mid-walk was entered and emptied;
-    # and success was still read off a pathname, so a tree renamed AWAY reported
-    # clean. Pinned into a shard for the reason all seven above are: the failure
-    # is a silent wrong-object deletion or a silent leak, never a red test, and
-    # the matrix runs against all THREE removers so a drift between the copies
-    # is red rather than being a fourth implementation nobody compares.
-    "tests/test_v3_66_1154_the_object_not_the_name.py",
-    # @1157. Ninth module-scoped safety boundary. Row 148 is another silent
-    # green: stale or concurrently replaced hashed output can look like a new
-    # Vite build unless cleanup authorization and final publication identity
-    # are both bound. A diff-derived local band is not CI execution, so keep the
-    # production-path regression in the deep tool shard claimed below.
-    # CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
-    "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
-    # Row 259. Five operator-facing measurement sites used their clean sentinel
-    # when Git, source reads, scanners, artifact reads, or JSON parsing failed.
-    # The subjects are module-scoped, but the shared fail-closed safety contract
-    # must run on every PR because each regression otherwise exits or reports
-    # green. The explicitly excluded bd-fleet site remains owned by row 254.
-    "tests/test_failed_measurements_have_distinct_states.py",
-    "tests/test_v3_66_799_audit_tool_selftests.py",
-    # CI-SHARD-CLAIM row-1035 parity-static tests/test_v3_66_653_dep_freshness.py
-    "tests/test_v3_66_653_dep_freshness.py",
-    # CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
-    "tests/test_row331_guarded_imports_are_declared.py",
-    # @1035. These three are repo-wide despite not looking it: they assert
-    # invariants about the SUITE rather than a module -- the plugins guard
-    # holding, the leaker population not growing, and no live PyPI call from a
-    # dependency. Their exact, independently parsed shard homes are claimed per
-    # suite rather than collapsed into one prose name. Added in the SAME cut
-    # that created them, because 944, 947, 1031 and 1034 were all added to the
-    # tree and never to this list, and a gate CI does not run does not exist.
-    # CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
-    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
-    "tests/test_v3_66_1044_run_context_and_chains.py",
-    # Row 753, acceptance clause 3. The run-context record is what a
-    # reproduction attempt is read from, and its subject is every run of this
-    # tree rather than a module -- so it runs on every PR beside 1044, the gate
-    # for the same recorder.
-    # CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
-    "tests/test_row753_a_run_records_its_own_outcome.py",
-    # Row 807. The outcome record's third state (recorded: False) must cover a
-    # stats mapping with NO outcome key, not only a missing mapping; the pin
-    # rides beside 753, whose clause 3 reads that record.
-    # CI-SHARD-CLAIM row-807 measurement-tools-core tests/test_row807_empty_stats_is_unknown_not_clean.py
-    "tests/test_row807_empty_stats_is_unknown_not_clean.py",
-    # Row 289. SigIgn/SigBlk changed six test verdicts without appearing in
-    # the run context. This gate compares both masks with the current process,
-    # so every PR records and exercises that environment-identity boundary.
-    "tests/test_row_289_inherited_signals_are_environment_identity.py",
-    # @1207, scope decision 3. The two suites that assert what row 212 changes:
-    # 1054 launches through the REAL CLI and proves `reap` kills the whole
-    # process group (backlog 88), and 1087 proves a launched job's log exists
-    # and is recorded in its entry. Both were diff-derivable only -- 1054 sits
-    # in the frozen baseline below and 1087 declares `module` -- so the cut that
-    # rewrites the launch transaction would have shipped with neither contract
-    # measured on any PR. A gate CI does not run does not exist.
-    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
-    "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",
-    # Row 312. A numeric PID signal is a bystander-kill boundary even though
-    # this gate's source population is one tool. Run the forced exit/reuse
-    # interleave on every PR; a diff-derived band is not release evidence that
-    # the safety assertion itself remains reachable in CI.
-    "tests/test_row312_bd_jobs_reap_holds_identity.py",
-    # @1207 determinism review. These are the other row-212 contracts whose
-    # subjects do not become safe merely because a diff-derived local band can
-    # find them: 1132 owns registration-failure process restoration and 1106
-    # owns the preflight UNKNOWN grade for an unreadable jobs registry.
-    # A pull request that never runs them cannot prove any of those contracts.
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
-    # @1241 row 237. Half of 1132's registration-failure contracts
-    # moved here when the module was split; a pull request that runs
-    # one file and not the other proves half of what it used to.
-    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
-    "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",
-    # Row 344. The shell library accepts a caller-selected capture glob and
-    # removes evidence, so its target-binding fixture is an always-scheduled
-    # safety boundary rather than a test left to diff-derived reachability.
-    "tests/test_row344_capture_prune_is_target_bound.py",
-    # @1206 provider-facade. Retained implementation modules and re-imported
-    # public facades form a process-wide generation boundary, so the direct
-    # concurrency/ownership gate must execute even when no provider file is in
-    # the diff that triggered CI.
-    "tests/test_provider_resolve_surface_lock.py",
-    # Rows 617/623/624/625/628/629/631. This module owns secrets state across
-    # filesystem probes, two backend types, a config-writer interleaving and
-    # extension rate accounting, so its contract is scheduled on every PR.
-    "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",
-    # Row 347. The provider-band gate's own early return escaped its only
-    # catcher. Its independent exact-call receipt now runs on every PR beside
-    # the provider facade whose affected band it constrains.
-    "tests/test_v3_66_1180_band_derivation_paths.py",
-    "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
-    "tests/test_v3_66_1040_remote_job_registry.py",
-    "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",
-    "tests/test_v3_66_1031_socket_recorder_stages.py",
-    # @1256. This drives real serial and -n 2 subprocess sessions because its
-    # subject is the ordering between pytest cleanup/summary hooks and the
-    # worker/master filesystem boundary. No application-module diff can derive
-    # that population, and a missing run is the same silent clean zero it pins.
-    "tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py",
-    "tests/test_no_test_writes_the_repo_plugins_dir.py",
-    "tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py",
-    # Row 245. A public test root that appears before its marker and held lock
-    # becomes permanent UNKNOWN evidence if setup loses any resource. This
-    # gate injects every pre-publication boundary and therefore belongs beside
-    # the session-root lifecycle owners in the shard claimed below.
-    # CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
-    "tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py",
-    # @1452. The shuffle lane's containment gate. Its subject is the TREE: the
-    # exact bytes of the A5 canonical full-suite command, which requirements
-    # manifests may declare pytest-randomly, and whether anything on the merge
-    # path invokes the lane. No changed path derives that population, and
-    # pytest AUTO-LOADS an installed plugin -- so the failure it guards against
-    # is a one-line manifest edit that silently turns every OTHER shard into a
-    # different experiment. It belongs beside the session-isolation owners in
-    # the shard claimed below because cross-file order dependency is the class
-    # they all police.
-    # CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
-    "tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py",
-    # @1085. Its subject is the test SESSION's module table, not the tree -- the
-    # same reason 1034 and 1031 sit in the shard claimed below. A
-    # patch.dict(sys.modules) that evicts a lazily-imported module poisons an
-    # identity-keyed cache for the rest of a worker process, which is how a
-    # v3.66.1083 capture on test6 saw httpx re-raise a raw httpcore error.
-    # CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
-    "tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py",
-    # @1072, and the first entry is this file. MEASURED at v3.66.1071: the
-    # `gates` job runs ZERO pytest, and this suite is in no shard -- so the
-    # only thing that would notice a dropped shard entry has never run on a
-    # PR. It was created at f736748, the same commit that deleted the gates
-    # job's pytest step, and appeared in that diff only inside a comment.
-    # The gate against a file falling out of every shard fell out of every
-    # shard, in the cut that wrote it.
-    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-    # @1072. The four gates shipped 2026-08-12 that this policy exists to
-    # catch: each was added to the tree and to neither list, which is the
-    # eighth occurrence of the failure (944, 947, 1031, 1034 preceded them).
-    "tests/test_v3_66_1062_vision_probes_are_loadable_images.py",
-    "tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py",
-    "tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py",
-    "tests/test_v3_66_1068_modwatch_measures_per_file.py",
-    # @1080. The policy caught its own author one cut later: this file declares
-    # itself repo-wide and the union assertion refused it until it was wired in.
-    "tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py",
-    # @1116, backlog row 105. THE TWO GATES THAT GUARD THE REGISTERS, which
-    # until now ran on no PR at all: both appeared ZERO times in ci.yml, zero
-    # times in this set, and both sat in the frozen baseline below. Section 7
-    # says a gate CI does not run is a gate that does not exist -- and the
-    # register is the one subject where that is invisible, because a stale
-    # register still READS fine. A 2026-08-13 audit found the cost: one row
-    # CLOSED for a cut that did not touch it, one closed without the PARTIAL
-    # its own text needed, and four ids that never existed.
-    "tests/test_v3_66_1052_the_backlog_is_machine_visible.py",
-    # Cut D. Its subject is the PAIR of register files: the register and the
-    # archive the closed rows were moved into. No diff selects it -- a cut
-    # that touches neither file invalidates it by appending a row whose id
-    # the archive already holds.
-    "tests/test_register_archive_holds_the_moved_rows.py",
-    # Cut D residual. The gate above is defeated by a SWAP whose gap allowlist
-    # is co-edited -- one id changed in one JSON entry and a row can leave the
-    # repo entirely with the module green. This one freezes the pre-move id set
-    # in git history at cut D's base commit instead of deriving it from a file
-    # the same edit can launder, and asserts membership element-wise. Repo-wide
-    # for the same reason as its sibling: no diff selects a pair of files.
-    "tests/test_register_archive_frozen_pre_move_set.py",
-    # @1082, backlog 99. Twenty-four suites that enumerate the tree and
-    # ran on no PR -- tombstones, anti-duplication ratchets and
-    # denominator gates, several named by CLAUDE.md section 4's own
-    # axis-6 table. Split across five shards drawn from MEASURED time
-    # (196s total locally), not count, per the @939 precedent.
-    # First tree-gate partition.
-    "tests/test_capture_shell_runtime.py",
-    # Row 342. This module executes the capture preflight's shared tree-state
-    # predicate. A failed Git status is UNKNOWN, never affirmative clean
-    # evidence, and its clean/dirty controls make the inverse reachable too.
-    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py",
-    # Row 285. Deployment, capture-instance teardown, PostgreSQL capability
-    # persistence and configured storage all fail closed on unavailable state.
-    "tests/test_row_285_deploy_fail_open.py",
-    # Row 175: capture service/port/state ownership is a tree-wide execution
-    # boundary. A fixed resource reintroduced anywhere in capture.sh, its
-    # service installer, the seeder, or the live runner must fail every PR.
-    "tests/test_parallel_capture_services.py",
-    # Row 340. A version-matching error body used to make deploy.sh report
-    # health verified over HTTP 500. This real deploy-process gate is pinned
-    # independently of the source-derived band because every fleet deploy
-    # rests on the step-12 readiness claim.
-    "tests/test_deploy_script.py",
-    # Row 697. A restart-locked vault must run the sanctioned unlock hook and
-    # receive a bounded health re-probe before deploy decides readiness.
-    "tests/test_row697_deploy_unlock_pending_vault.py",
-    # Row 737. The deploy diagnostic distinguishes an absent hook from an
-    # unreadable one and names the probed path in every outcome.
-    "tests/test_row737_unreadable_hook_diagnostics.py",
-    # Row 290: no-argument capture must reach its local fixture and every later
-    # step; the same executable harness proves --parallel still owns and routes
-    # a real distinct port pair.
-    "tests/test_row290_capture_serial_fixture_port.py",
-    "tests/test_capture_vault_is_isolated.py",
-    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
-    "tests/test_v3_66_1191_retention_review_edges.py",
-    "tests/test_v3_66_1018_registrable_domain_drain.py",
-    "tests/test_census_file_size_drift.py",
-    "tests/test_zip_era_tools_stay_retired.py",
-    # @1117, backlog row 113. A tombstone over the tracked tree: no served page
-    # may link to the cockpit landing route retired at v3.66.344. Same family as
-    # the two retirement gates above it. The path is deliberately NOT spelled
-    # here -- that gate bans the literal, and a comment is inside the
-    # denominator of every check that reads source text, so naming the removed
-    # thing in order to explain it recreates it. It did, on this line, in the
-    # cut that added the gate.
-    "tests/test_v3_66_1117_cockpit_home_stays_retired.py",
-    # Second tree-gate partition.
-    "tests/test_v3_66_1013_registrable_domain.py",
-    "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
-    "tests/test_history_records_whether_bytes_were_fetched.py",
-    "tests/test_v3_66_972_library_missing_stays_retired.py",
-    # @1234, row 186. It judges .github/workflows/ci.yml itself -- whether the
-    # guard-drift lane is scheduled, failure-propagating, and actually detects a
-    # tampered guard when its own run script is executed. A gate about CI that
-    # CI does not run is the purest form of the defect it exists to close, and
-    # the workflow is not in any diff-derived band, so nothing else would pull
-    # it in on the pull request that disabled the step.
-    "tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py",
-    # @1242, row 228. It sources scripts/provision_test_host.sh under
-    # instrumentation and reads what the shell DID -- whether both optional
-    # capabilities were really dispatched, once each, graded optional, with the
-    # shared library really loaded. The provisioner is not application code and
-    # sits in no diff-derived band, so a pull request that moves the dispatch
-    # below the verdict or into a branch nothing takes would otherwise reach
-    # main with every text arm still green.
-    "tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py",
-    # F35, backlog row 266. An unavailable critical IPv6 measurement must hold
-    # an armed kill switch without being called a leak. The gate drives all
-    # four HTTP outcomes in process and is safety-bearing regardless of which
-    # application path a future change touches.
-    "tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py",
-    # Row 286 independently re-verifies F35 through F38 at their permission
-    # consumers. In particular, it covers the dual-stack IPv4 outcome that
-    # the first F35 repair still called a measured pass, so this safety gate
-    # must run regardless of which of the four application paths changes.
-    "tests/test_row_286_laundered_failures_hold.py",
-    # Row 293 closes the inverse reachability hole left by row 286: the real
-    # IPv6 probe must be able to compare a provider-supplied expected address,
-    # advance an armed switch's streak, and clear it, while every unmeasured
-    # outcome remains UNKNOWN. This production-path safety contract is not
-    # replaceable by a diff-derived run or a fabricated ProbeResult.
-    "tests/test_row_293_ipv6_measured_pass_is_reachable.py",
-    # Row 299. Merely collecting U42 used to overwrite the live sampler's
-    # process-wide count and gap even when every U42 node was deselected. This
-    # gate runs a real same-process collection and asserts the exact values an
-    # unrelated selected test sees, so it is independent of changed paths.
-    "tests/test_row_299_live_sampling_collection_isolation.py",
-    # Row 309. The capture manifest cannot define its own completeness. This
-    # gate independently pins all 52 views / 104 themed rows, reaches every
-    # failure seam, and drives the real navigator refusal. Its visual-census
-    # subject remains tree-wide regardless of which route or builder changes.
-    "tests/test_row_309_capture_manifest_contract.py",
-    # Row 296 drives the runner's real pre-claim VPN admission seam. A raised
-    # measurement and an unavailable runtime must never reach the download,
-    # while the no-VPN-configured fast path must still proceed without waiting.
-    "tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py",
-    # Third tree-gate partition.
-    "tests/test_v3_66_820_share_tools_saw_no_session_keys.py",
-    "tests/test_history_file_size_is_the_size_on_disk.py",
-    "tests/test_playwright_engines_single_source.py",
-    # Row 308. Visual-audit identity is a release boundary across the complete
-    # capture population and both offline builders, independent of which
-    # capture or builder source changes in a future cut.
-    "tests/test_row308_visual_audit_identity.py",
-    # Fourth tree-gate partition.
-    # Walks every tracked tests/test*.py for assertions that are true for
-    # every input, so a new test file changes its denominator (@1098).
-    "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py",
-    # The mirror slice: assertions FALSE for every input, plus statically
-    # unreachable ones. Same denominator, same reason it is repo-wide (@1108).
-    "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py",
-    # Row 297. Every real recon-corpus fixture contributes to the synthesized
-    # request/parameter census, so changing any fixture changes this gate's
-    # exact denominator independently of an application-module diff.
-    "tests/test_ct1_corpus_validation.py",
-    "tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py",
-    "tests/test_v3_66_935_scan_wait_reports_non_convergence.py",
-    "tests/test_history_columns_go_through_migrations.py",
-    "tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py",
-    "tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py",
-    "tests/test_codex_handoff_stays_retired.py",
-    "tests/test_sandbox_home_stays_retired.py",
-    "tests/test_v3_66_1192_build_release_sh_stays_retired.py",
-    "tests/test_deploy_manifest_stays_retired.py",
-    "tests/test_gitignore_rules_actually_match.py",
-    "tests/test_row688_gitignore_covers_sqlite_companions.py",
-    "tests/test_task_tracker_stays_retired.py",
-    "tests/test_v3_66_918_tracked_source_denominator.py",
-    "tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py",
-    "tests/test_generated_artifact_workflow.py",
-    "tests/test_git_deploy_gaps_are_documented.py",
-    # Row 343. This executes the cloud provisioner and the canonical runbook in
-    # isolated fresh-host fixtures, covering ordering, cross-host transfer and
-    # the application-written sites_config shape on every PR.
-    "tests/test_row343_fresh_host_bringup.py",
-    # Row 689. The documented fresh-user installer must converge the manifest
-    # needed by capture.sh's validation gates, independently of deployed hosts.
-    # CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
-    "tests/test_row689_install_linux_converges_test_manifest.py",
-    # Row 259. These five source-derived safety censuses already rejected
-    # credential disclosure, operator-state writes, migration-seam bypasses,
-    # and uncontained browser launches, but all five remained legacy-baselined
-    # and therefore ran in no PR shard. They form one scheduling contract: a
-    # gate CI does not execute does not exist.
-    "tests/test_capture_csrf_diag_redacts_cookies.py",
-    "tests/test_home_config_stores_are_guarded.py",
-    "tests/test_v3_66_1009_live_results_are_bundled.py",
-    "tests/test_v3_66_285_cloak_parity.py",
-    # Row 667. The cloakbrowser log is the only record of which profile a
-    # browser launch actually used; the session keeper logged a backend with no
-    # persistence detail, so a keepalive line could not be audited against the
-    # site's use_persistent_profile. The population this gate guards is every
-    # cloak.log_choice call site in bulk_downloader/ -- a tree-wide denominator
-    # any diff touching a browser flow can change -- so it runs on every PR.
-    "tests/test_row667_keeper_browser_log_names_persistence.py",
-    "tests/test_v3_66_795_mod3_seam.py",
-    # Toolchain verifier partition.
-    "tests/test_desandbox_tool_verifiers.py",
-    # Cut 1459 (the shape of rows 440/441/442, whose own fix left this site).
-    # The ffmpeg_path pin is only worth what its WEAKEST exec site is
-    # worth, and its subject is therefore every shipped module rather than any
-    # changed path: rows 440/441/442 fixed four modules and left live_recorder
-    # handing a bare "ffmpeg" to a live HLS-over-HTTPS recording, the exact case
-    # the pin exists for. No diff can select a tree-wide denominator.
-    "tests/test_row1459_the_verified_binary_is_the_executed_binary.py",
-    # Row 654. The filename half of the backlog-reference gate: an untracked
-    # test_row<N>_*.py file must not silently disagree with the git-tracked
-    # population it is measured against.
-    "tests/test_row654_filename_citations_are_git_tracked.py",
-}
+# The gates that must run on every PR. DERIVED from the tracked tree -- every
+# tests/test*.py whose own BD_GATE_SCOPE says "repo-wide" -- plus the closed
+# legacy remainder _NON_DERIVABLE_DECLARED below, and NEVER from ci.yml,
+# because deriving the expectation from the thing under test is how a dropped
+# file passes: the union would simply shrink to match. The markers are not the
+# thing under test; ci.yml is. Adding a repo-wide gate to CI is therefore a
+# TWO-part change: its scope marker and one workflow shard entry. Until row 810
+# this file carried a third copy of that fact, a 323-entry literal that every
+# landed train forced every in-flight cut to rebase over. The binding itself
+# sits after the marker reader (_scope_map) it is built from.
+#
+# The explicit shard claims that lived beside those entries are kept here
+# verbatim: _ci_shard_claims reads them from COMMENT tokens of this file and
+# test_every_explicit_shard_claim_is_bound_in_ci judges each against ci.yml.
+# CI-SHARD-CLAIM version-at-land version-at-land tests/test_row_version_at_land.py
+# CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
+# CI-SHARD-CLAIM test2D-1 application-safety tests/test_test2d_1_persistent_profile_cookie_jar.py
+# CI-SHARD-CLAIM row-703 application-safety tests/test_row703_ssrf_transport_is_installed_everywhere.py
+# CI-SHARD-CLAIM row-703 application-safety tests/test_row703_a_proxy_shadows_the_guarded_transport.py
+# CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
+# CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
+# CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
+# CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
+# CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
+# CI-SHARD-CLAIM row-820 mutation-tools tests/test_row810_spec_collection_slice_0.py
+# CI-SHARD-CLAIM row-700 recovered-contracts tests/test_row700_captcha_egress_disclosure.py
+# CI-SHARD-CLAIM row-723 application-safety tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
+# CI-SHARD-CLAIM row-741 application-safety tests/test_row741_relogin_refusals_are_typed.py
+# CI-SHARD-CLAIM row-750 application-safety tests/test_row750_ipv6_unwrapped_metadata_bypass.py
+# CI-SHARD-CLAIM row-772 application-safety tests/test_row772_rejected_login_is_not_success.py
+# CI-SHARD-CLAIM row-774 application-safety tests/test_row774_login_submit_refuses_cross_origin_navigation.py
+# CI-SHARD-CLAIM row-709 safety-censuses tests/test_row709_state_seed_is_not_a_verdict.py
+# CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
+# CI-SHARD-CLAIM receipts toolchain tests/test_row724_preflight_bandcheck_counts_failures.py
+# CI-SHARD-CLAIM row-267 application-safety tests/test_app_measurements_fail_closed.py
+# CI-SHARD-CLAIM row-434 application-safety tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
+# CI-SHARD-CLAIM row-284 application-safety tests/test_v3_66_284_integrity.py
+# CI-SHARD-CLAIM row-645 application-safety tests/test_v3_62_2_guards.py
+# CI-SHARD-CLAIM row-507 application-safety tests/test_row492_a_release_proves_what_it_frees.py
+# CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
+# CI-SHARD-CLAIM row-663 template-selectors tests/test_row663_inspect_rung_matches_runner.py
+# CI-SHARD-CLAIM row-666 template-selectors tests/test_row666_candidates_inspect_prefers_caller_url.py
+# CI-SHARD-CLAIM row-672 template-selectors tests/test_row672_reviewed_template_is_reachable.py
+# CI-SHARD-CLAIM row-673 template-selectors tests/test_row673_reviewed_probe_adapter_ships_once.py
+# CI-SHARD-CLAIM row-674 template-selectors tests/test_row674_live_state_round_trips.py
+# CI-SHARD-CLAIM footgun-import-dodge tree-gates-3 tests/test_import_dodge_is_caught_in_the_cut_diff.py
+# CI-SHARD-CLAIM footgun-endpoint artifacts-pins tests/test_endpoint_catalog_in_sync.py
+# CI-SHARD-CLAIM footgun-function-index artifacts-pins tests/test_function_index_in_sync.py
+# CI-SHARD-CLAIM footgun-route-map artifacts-pins tests/test_route_map_invariant.py
+# CI-SHARD-CLAIM footgun-slice5 artifacts-pins tests/test_settings_center_slice5.py
+# CI-SHARD-CLAIM footgun-ci-link artifacts-pins tests/test_footgun_detectors_are_executed_by_ci.py
+# CI-SHARD-CLAIM row-240 parity-graph tests/test_v3_66_1240_supervisor_settings_seeded.py
+# CI-SHARD-CLAIM row-386 download-chain tests/test_row386_the_download_chain_is_gated.py
+# CI-SHARD-CLAIM backlog-27 mutation-verifiers tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
+# CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
+# CI-SHARD-CLAIM row-1035 parity-static tests/test_v3_66_653_dep_freshness.py
+# CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
+# CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
+# CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
+# CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
+# CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
+# CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
+# CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
+#
+# One retired gate's WHY is kept because a test pins the prose: @1215 judges
+# two PRODUCTION toolchain scripts -- bd-wedge-hunt's remote transport and
+# bd-run's cap declaration -- and both are module-scoped, so without its
+# _NON_DERIVABLE_DECLARED entry a regression would be caught by nothing in CI.
 
 # A PARTITION, NOT A COUNT (rows 569/570, superseding the row-531 floor).
 #
@@ -1266,8 +176,9 @@ _DECLARED = {
 # itself from the tracked tree and a half that cannot:
 #
 #   derived   {tracked tests/test*.py declaring BD_GATE_SCOPE = "repo-wide"}
-#             -- grows on its own, no literal, and is already forced into
-#             _DECLARED by test_every_repo_wide_file_is_in_the_declared_set
+#             -- grows on its own, no literal; since row 810 it IS the
+#             derived half of _DECLARED (_derived_repo_wide), not a set a
+#             second list must be kept in step with
 #   remainder _NON_DERIVABLE_DECLARED below -- a CLOSED set, pinned by IDENTITY
 #             rather than by count, exactly as gate_scope_baseline.txt is
 #
@@ -1297,13 +208,8 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
-    "tests/test_row772_rejected_login_is_not_success.py",  # module
-    "tests/test_row741_relogin_refusals_are_typed.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
-    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
-    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",  # module
-    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
@@ -1334,6 +240,11 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row089_capture_corpus_backup_restore.py",  # module
     "tests/test_row090_global_run_cap.py",  # module
     "tests/test_row700_captcha_egress_disclosure.py",  # module
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",  # module
+    "tests/test_row741_relogin_refusals_are_typed.py",  # module
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py",  # module
+    "tests/test_row772_rejected_login_is_not_success.py",  # module
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
     "tests/test_row360_turnstile_bypass_is_installed.py",  # module
     "tests/test_rows617_623_624_625_628_629_631_secrets_family.py",  # module
     "tests/test_row363_affordance_learning.py",  # module
@@ -1440,8 +351,8 @@ _DB_PRUNE_SAFETY_FAMILY = {
 # So the class is not derivable, and the decision is the author's. What a gate
 # CAN do is refuse to let the decision go unmade: every tracked test file must
 # either carry a BD_GATE_SCOPE or sit in the frozen legacy baseline, and a file
-# that calls itself repo-wide must be in _DECLARED, which the union assertion
-# then forces into a shard.
+# that calls itself repo-wide is thereby in _DECLARED, which the union
+# assertion then forces into a shard.
 #
 # WHAT THIS DOES NOT CATCH, stated here because an instrument that hides its
 # blind spots is worse than none: nothing verifies that a "module" answer is
@@ -1602,6 +513,7 @@ def _declared_scope(path: Path | str):
         tree = ast.parse(text)
     except SyntaxError:
         return None
+    scope = None
     for node in tree.body:
         targets = []
         if isinstance(node, ast.Assign):
@@ -1614,9 +526,10 @@ def _declared_scope(path: Path | str):
             continue
         value = node.value
         if isinstance(value, ast.Constant):
-            return value.value
-        return f"<non-literal: {type(value).__name__}>"
-    return None
+            scope = value.value
+        else:
+            scope = f"<non-literal: {type(value).__name__}>"
+    return scope
 
 
 def _scope_map(paths) -> dict[str, object]:
@@ -1627,6 +540,43 @@ def _scope_map(paths) -> dict[str, object]:
         if scope is not None:
             out[rel] = scope
     return out
+
+
+@pytest.mark.parametrize(("first", "final"), [
+    ("module", "repo-wide"),
+    ("repo-wide", "module"),
+])
+def test_declared_scope_uses_the_final_module_assignment(tmp_path, first, final):
+    """Python's last module assignment is the effective marker binding."""
+    marker = tmp_path / "test_marker.py"
+    marker.write_text(
+        f"BD_GATE_SCOPE = {first!r}\nBD_GATE_SCOPE = {final!r}\n",
+        encoding="utf-8",
+    )
+    assert _declared_scope(marker) == final
+
+
+def _derived_repo_wide() -> set[str]:
+    """Every tracked test file that calls itself repo-wide, read from the tree.
+
+    Row 810. This is the half of the declared census that derives itself; it
+    reads `git ls-files` and each file's own BD_GATE_SCOPE and never ci.yml,
+    so a shard that drops one of these files still leaves it in the
+    expectation and the union assertion names it missing.
+    """
+    return {rel for rel, scope in _scope_map(_tracked_test_files()).items()
+            if scope == "repo-wide"}
+
+
+def _declared_gates() -> set[str]:
+    """The declared gate census: derived repo-wide files plus the closed
+    legacy remainder that predates the markers."""
+    return _derived_repo_wide() | _NON_DERIVABLE_DECLARED
+
+
+# Bound at import so the shrink tests can monkeypatch one census, and so the
+# consumers that judge THIS file (rows 353 and 531) keep a module-level set.
+_DECLARED = _declared_gates()
 
 
 # The three policy comparisons, EXTRACTED so they can be driven with synthetic
@@ -2047,6 +997,11 @@ def test_transform_control_imports_ci_gate_without_judging_row645_membership():
     assert _CI.is_file()
 
 
+def test_transform_control_imports_ci_gate_without_judging_row810_derivation():
+    """Mutation control: import alone does not judge the derived census."""
+    assert _CI.is_file()
+
+
 def test_the_coverage_comparison_actually_compares():
     """The positive control for the gate below.
 
@@ -2088,7 +1043,8 @@ def test_the_shard_union_is_exactly_the_declared_gate_set():
         f"any PR while the check stays green: {missing}")
     assert not extra, (
         f"shard(s) name suite(s) that are not in the declared gate set: "
-        f"{extra}. Add them to _DECLARED with a reason, or remove them -- an "
+        f"{extra}. Give them a repo-wide {_SCOPE_MARKER} marker, or remove "
+        f"them -- an "
         f"undeclared entry means the two lists have drifted and only one of "
         f"them is being read.")
 
@@ -2322,8 +1278,8 @@ def test_every_tracked_test_file_is_classified_or_baselined():
         f"not in {_BASELINE.name}:\n  " + "\n  ".join(missing) + "\n\n"
         f"Add one of {sorted(_VALID_SCOPES)} at module scope. 'repo-wide' means "
         f"the gate's subject is the tree rather than a module, so it holds "
-        f"whatever the diff touched and belongs in CI -- add it to _DECLARED "
-        f"and to a gate-suites shard in the same cut. 'module' means an "
+        f"whatever the diff touched and belongs in CI -- the marker declares "
+        f"it; add it to a gate-suites shard in the same cut. 'module' means an "
         f"ordinary test. Do not add the file to the baseline: that list is "
         f"frozen legacy and may only shrink.")
 
@@ -2338,7 +1294,11 @@ def test_every_repo_wide_file_is_in_the_declared_set():
     assertion above then forces into a shard.
 
     This is the walk-forward the author gets for free: one marker in the file
-    they are already writing, and the gate names the other two edits.
+    they are already writing, and the gate names the other edit. Since row 810
+    the live census is derived from these very markers, so on the real tree
+    this holds by construction; the comparison itself is kept because the
+    synthetic-input tests above drive _repo_wide_not_declared, and because a
+    binding that stopped reading the markers would surface here first.
     """
     scopes = _scope_map(_tracked_test_files())
     repo_wide = {p for p, s in scopes.items() if s == "repo-wide"}
@@ -2380,3 +1340,150 @@ def test_the_baseline_is_frozen_legacy_that_may_only_shrink():
         f"file(s) both baselined and declaring a scope: {both}. Classifying a "
         f"file means deleting its baseline line in the same cut, or the "
         f"exemption list stops describing what is actually unclassified.")
+
+
+# ── row 810: the declared set is DERIVED from the markers, not hand-pinned ───
+#
+# Every new repo-wide test file used to be a three-part edit: its marker, one
+# line in the _DECLARED literal above, and one shard line in ci.yml. The middle
+# edit put every in-flight cut on this file's seam (14-way at the time of row
+# 810) and carried no information the marker did not already carry. The
+# expectation is now derived from the TREE -- `git ls-files` plus each file's
+# own BD_GATE_SCOPE -- and never from ci.yml, which is the artifact under
+# judgement. That keeps the property the header defends: a marked file in no
+# shard is still "missing from CI", and a shard line naming an unmarked file is
+# still "undeclared". What changes is only where the author writes the second
+# copy of a fact: nowhere.
+
+_SELF_REL = "tests/" + Path(__file__).name
+# A tracked, unmarked, unscheduled file; the same outsider the row-613 family
+# control uses.
+_UNMARKED_OUTSIDER = "tests/test_negative.py"
+
+
+def _declared_binding() -> ast.Assign:
+    tree = ast.parse(Path(__file__).read_text("utf-8"), filename=__file__)
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "_DECLARED"
+                for t in node.targets):
+            return node
+    pytest.fail("_DECLARED is not bound at module scope")
+
+
+def test_the_declared_set_is_derived_not_hand_pinned():
+    """Row 810. The binding is a derivation, not a literal a human keeps in step.
+
+    Parsed, not grepped (A7): this file names `_DECLARED = {` in prose.
+    """
+    value = _declared_binding().value
+    assert not isinstance(value, (ast.Set, ast.List, ast.Tuple, ast.Dict)), (
+        f"_DECLARED is a hand-pinned literal of {len(value.elts)} entries at "
+        f"line {value.lineno}; row 810 derives it from {_SCOPE_MARKER} markers "
+        f"plus _NON_DERIVABLE_DECLARED, so a new gate is its marker and one "
+        f"shard line, and this file is no longer a seam every cut rebases over")
+
+
+def test_a_new_marked_file_is_declared_without_editing_this_file(monkeypatch):
+    """Row 810. The walk-forward: one marker, and the gate expects the file."""
+    live = _scope_map(_tracked_test_files())
+    newcomer = "tests/test_row810_synthetic_newcomer.py"
+    assert newcomer not in live and not (_REPO / newcomer).exists()
+    before = _declared_gates()
+    assert before == _DECLARED, "the import-time binding is not the derivation"
+
+    monkeypatch.setattr(sys.modules[__name__], "_scope_map",
+                        lambda paths: {**live, newcomer: "repo-wide"})
+    after = _declared_gates()
+    assert after == before | {newcomer}, sorted(after ^ before)
+
+    shards = _shard_lists()
+    first = sorted(shards)[0]
+    scheduled = {**shards, first: shards[first] + [newcomer]}
+    _assert_exact_gate_coverage(after | _DB_PRUNE_SAFETY_FAMILY, scheduled)
+
+    # ... and a `module` answer does not join the census.
+    monkeypatch.setattr(sys.modules[__name__], "_scope_map",
+                        lambda paths: {**live, newcomer: "module"})
+    assert _declared_gates() == before
+
+
+def test_a_marked_file_dropped_from_its_shard_fails_the_derived_gate():
+    """Row 810 (1). The property the derivation must not lose: a repo-wide
+    file in NO shard is named missing, because the expectation reads the
+    tree's markers and never ci.yml."""
+    assert _declared_scope(_REPO / _SELF_REL) == "repo-wide"
+    shards = _shard_lists()
+    holders = [name for name, suites in shards.items() if _SELF_REL in suites]
+    assert len(holders) == 1, holders
+    dropped = {name: [s for s in suites if s != _SELF_REL]
+               for name, suites in shards.items()}
+    assert sum(map(len, shards.values())) - sum(map(len, dropped.values())) == 1
+
+    with pytest.raises(AssertionError, match=re.escape(
+            f"missing from CI: ['{_SELF_REL}']")):
+        _assert_exact_gate_coverage(
+            _declared_gates() | _DB_PRUNE_SAFETY_FAMILY, dropped)
+
+
+def test_an_unmarked_file_added_to_a_shard_fails_the_derived_gate():
+    """Row 810 (2). A shard line is not a declaration: an unmarked file that a
+    shard names is 'undeclared', so the two lists cannot drift apart
+    silently in the other direction either."""
+    assert _tracked(_UNMARKED_OUTSIDER)
+    assert _declared_scope(_REPO / _UNMARKED_OUTSIDER) != "repo-wide"
+    assert _UNMARKED_OUTSIDER not in _NON_DERIVABLE_DECLARED
+    assert _UNMARKED_OUTSIDER not in _DB_PRUNE_SAFETY_FAMILY
+    shards = _shard_lists()
+    assert all(_UNMARKED_OUTSIDER not in suites for suites in shards.values())
+    first = sorted(shards)[0]
+    added = {**shards, first: shards[first] + [_UNMARKED_OUTSIDER]}
+
+    with pytest.raises(AssertionError, match=re.escape(
+            f"extra in CI: ['{_UNMARKED_OUTSIDER}']")):
+        _assert_exact_gate_coverage(
+            _declared_gates() | _DB_PRUNE_SAFETY_FAMILY, added)
+
+
+def test_the_real_tree_is_covered_exactly_by_derivation_plus_legacy():
+    """Row 810 (3). GREEN on the real tree, with the count asserted exactly:
+    the shard union is the derived half plus the closed legacy half plus the
+    row-613 family, three disjoint parts, none empty."""
+    derived = _derived_repo_wide()
+    assert derived, "no tracked test file declares repo-wide scope"
+    assert not derived & _NON_DERIVABLE_DECLARED, (
+        sorted(derived & _NON_DERIVABLE_DECLARED))
+    assert not (derived | _NON_DERIVABLE_DECLARED) & _DB_PRUNE_SAFETY_FAMILY
+    declared = _declared_gates()
+    assert declared == derived | _NON_DERIVABLE_DECLARED
+    assert declared == _DECLARED
+
+    executed = [s for suites in _shard_lists().values() for s in suites]
+    expected_count = (len(derived) + len(_NON_DERIVABLE_DECLARED)
+                      + len(_DB_PRUNE_SAFETY_FAMILY))
+    assert len(executed) == expected_count, (
+        f"CI executes {len(executed)} gate paths; derived {len(derived)} + "
+        f"legacy {len(_NON_DERIVABLE_DECLARED)} + family "
+        f"{len(_DB_PRUNE_SAFETY_FAMILY)} = {expected_count}")
+    assert set(executed) == declared | _DB_PRUNE_SAFETY_FAMILY
+    _assert_exact_gate_coverage(declared | _DB_PRUNE_SAFETY_FAMILY, _shard_lists())
+
+
+def test_the_derivation_control_names_a_severed_marker_reader(monkeypatch):
+    """Row 810 (4), in-process: an emptied derivation is not a quieter gate.
+
+    The bd-mutate spec `row810_derived_declaration.json` plants the same
+    mutant in the source; this is the control that proves test (1) is the
+    catcher rather than an import error."""
+    monkeypatch.setattr(sys.modules[__name__], "_derived_repo_wide", set)
+    assert _declared_gates() == _NON_DERIVABLE_DECLARED
+    shards = _shard_lists()
+    dropped = {name: [s for s in suites if s != _SELF_REL]
+               for name, suites in shards.items()}
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_exact_gate_coverage(
+            _declared_gates() | _DB_PRUNE_SAFETY_FAMILY, dropped)
+    # The refusal is loud but it no longer names the dropped file as missing,
+    # which is exactly what test (1) asserts and why it catches the mutant.
+    assert f"missing from CI: ['{_SELF_REL}']" not in str(excinfo.value)
+    assert "expected exactly" in str(excinfo.value)

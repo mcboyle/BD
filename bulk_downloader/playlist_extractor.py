@@ -203,7 +203,9 @@ def _looks_like_scene_url(
                              for word in (template.get("listing_route_words") or [])
                              if isinstance(word, str))
     try:
-        segments = [segment.lower() for segment in urlparse(url).path.split("/")
+        parsed = urlparse(url)
+        path_low = parsed.path.lower()
+        segments = [segment for segment in path_low.split("/")
                     if segment]
         # Locale prefixes are not a route component (``/en/videos/sort``).
         if segments and len(segments[0]) == 2 and segments[0].isalpha():
@@ -230,7 +232,13 @@ def _looks_like_scene_url(
                            for hint in (template.get("scene_url_hints") or [])
                            if isinstance(hint, str) and hint.strip())
     for h in scene_hints:
-        if h in url_low:
+        # Redirect/query values are not the page's route.  Query-bearing
+        # hints (such as /watch?v=) must identify the actual path and query.
+        hint_path, separator, hint_query = h.partition("?")
+        if separator:
+            if hint_path in path_low and parsed.query.lower().startswith(hint_query):
+                return True
+        elif h in path_low:
             return True
     return False
 

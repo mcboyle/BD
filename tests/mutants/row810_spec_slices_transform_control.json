@@ -1,0 +1,18 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for row 810's slice partition. Applies the identical valid M1 slice-skipping transform under a band that imports v3.66.1184 without judging the slices. It must ESCAPE; INVALID, ERROR, or UNKNOWN is not an escape.",
+ "subject": "a valid slice-skipping transform does not fail merely because v3.66.1184 is imported",
+ "band": [
+  "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_collection_worker_count_scales_with_available_cpus_and_population"
+ ],
+ "mutants": [
+  {
+   "label": "TC1 slice skipping escapes a worker-count-only control",
+   "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
+   "old": "    return _tracked_specs()[index::of]",
+   "new": "    return _tracked_specs()[index::of + of]",
+   "direction": "regression",
+   "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_collection_worker_count_scales_with_available_cpus_and_population"
+  }
+ ]
+}

@@ -17,10 +17,10 @@
    "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
   },
   {
-   "label": "M2 raw-Unicode gate disappears from the independent declaration",
+   "label": "M2 raw-Unicode gate disappears from the derived declaration (row 810: the census is derived from markers, so the declaration-removal transform is a derivation that skips the file)",
    "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-   "old": "    \"tests/test_no_raw_unicode_escape_in_jsx.py\",\n    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
-   "new": "    \"tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py\",",
+   "old": "    return {rel for rel, scope in _scope_map(_tracked_test_files()).items()",
+   "new": "    return {rel for rel, scope in _scope_map(_tracked_test_files()).items() if not rel.endswith(\"/test_no_raw_unicode_escape_in_jsx.py\")",
    "direction": "regression",
    "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
   },
