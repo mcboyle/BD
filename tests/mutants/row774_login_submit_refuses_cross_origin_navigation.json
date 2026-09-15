@@ -1,0 +1,109 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ROW 774 -- the login submit sweep accepted any page.url change as a submit, so bang.com's text-matched LOGIN WITH GOOGLE button (-> accounts.google.com) read as a login. Every anchor is ZERO-WIDTH on a code line: the origin equality, _settle's acceptance, each of the three observation sites (pre-check, post-click poll, post-networkidle poll), and do_login's declared-origin acceptance (the flow flag and the declared set). The transform control is in its own file beside this one and MUST escape.",
+  "subject": "a submit is a SAME-ORIGIN navigation (interstitial._origin) at all three observation sites, and do_login accepts a foreign final origin only when the site declared it",
+  "band": [
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_page_already_on_another_origin_is_not_an_earlier_submit",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_redirect_that_lands_during_networkidle_is_still_refused",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_same_origin_navigation_is_still_the_submit_it_was",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_default_port_is_the_same_origin",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_subdomain_is_another_origin_until_declared",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_refuses_a_final_url_on_another_origin",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_cookie_count_never_outranks_the_origin",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_same_origin_change_is_still_ok",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_declared_cross_origin_flow_still_passes",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_an_absolute_success_url_declares_the_destination_origin",
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_the_product_sweep_reaching_the_google_button_does_not_log_in"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the origin predicate is inverted (only a FOREIGN origin counts as a submit)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if origin is not None and origin)(?===initial_origin: return True$)",
+      "new": " is not None and not origin",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit"
+    },
+    {
+      "label": "M2 _settle accepts any URL change (the foreign-origin string is truthy)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if moved )(?=is True: return True,label$)",
+      "new": "or moved ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit"
+    },
+    {
+      "label": "M3 the post-click poll site returns True on any move (bypasses _settle)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^            if moved is not None: return )(?=_settle\\(moved,label\\)\\n            try: page\\.wait_for_load_state)",
+      "new": "(True,label) or ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit"
+    },
+    {
+      "label": "M4 the post-networkidle poll site returns True on any move (bypasses _settle)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^            if moved is not None: return )(?=_settle\\(moved,label\\)\\n            time\\.sleep\\(0\\.3\\))",
+      "new": "(True,label) or ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_redirect_that_lands_during_networkidle_is_still_refused"
+    },
+    {
+      "label": "M5 the pre-check site returns True on any move (bypasses _settle)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^            return )(?=_settle\\(moved, f\"navigated before \\{label\\}\"\\)$)",
+      "new": "(True, f\"navigated before {label}\") or ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_page_already_on_another_origin_is_not_an_earlier_submit"
+    },
+    {
+      "label": "M6 do_login never refuses a foreign final origin",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if )(?=not _flow_ran and \\(cur_origin is None or cur_origin not in declared_origins\\):$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_refuses_a_final_url_on_another_origin"
+    },
+    {
+      "label": "M7 the final origin declares itself (cookie count outranks the origin again)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        declared_origins=\\{o for o in \\()(?=_origin\\(url\\), _origin\\(success or \"\"\\)\\) if o\\}$)",
+      "new": "cur_origin, ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_cookie_count_never_outranks_the_origin"
+    },
+    {
+      "label": "M8 every site is treated as having declared a cross-origin flow",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^            _flow_ran = )(?=bool\\(_flow_res\\.get\\(\"ran\"\\)\\)$)",
+      "new": "True or ",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_refuses_a_final_url_on_another_origin"
+    },
+    {
+      "label": "M9 same-origin navigation is refused too (only the exact initial URL would pass, which _moved already excluded)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if origin is not None and origin==initial_origin)(?=: return True$)",
+      "new": " and cur==initial_url",
+      "direction": "overcorrection",
+      "control": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_same_origin_navigation_is_still_the_submit_it_was",
+      "preserves": [
+        "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit",
+        "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_refuses_a_final_url_on_another_origin"
+      ]
+    },
+    {
+      "label": "M10 a declared flow no longer exempts the final origin (v3.66.302 multi-step logins refused)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if )(?=not _flow_ran and \\(cur_origin is None or cur_origin not in declared_origins\\):$)",
+      "new": "True or ",
+      "direction": "overcorrection",
+      "control": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_declared_cross_origin_flow_still_passes",
+      "preserves": [
+        "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_do_login_refuses_a_final_url_on_another_origin",
+        "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_a_click_that_leaves_the_origin_is_not_a_submit"
+      ]
+    }
+  ]
+}

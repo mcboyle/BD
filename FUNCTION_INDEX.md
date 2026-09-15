@@ -787,13 +787,13 @@ Schema version: 2
 ## `bulk_downloader/login_impl/submit.py` (7 entries)
 
 ```
-- L0024 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0053 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0092 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0167 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0228 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0461 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0531 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0025 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0054 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0093 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0168 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0229 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0500 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0570 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 

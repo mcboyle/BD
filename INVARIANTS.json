@@ -86,6 +86,14 @@
       "status": "GUARDED",
       "guard_test": "tests/test_v3_43_62_live_recorder.py",
       "added_by": "CAP-01"
+    },
+    "I0011": {
+      "at": "bulk_downloader/session_keeper.py",
+      "dp": null,
+      "guard_test": "tests/test_row738_login_cap_single_process_premise.py",
+      "statement": "the per-site/day login-attempt cap (reserve_login_attempt) rests on an undocumented single-process premise: it is correct only when exactly one OS process writes the durable session_history table for a given home, and the cap is untested and unenforced against a second process writing that same table concurrently",
+      "status": "GUARDED",
+      "why": "row 738, T2 follow-up to row 667: two processes exceeded the cap in production. Current THREADS/deploy configuration runs exactly one process per environment, so the premise cannot be broken today, but nothing in code enforces single-process use -- this must be declared before a future CLI invocation or a second instance shares the same home"
     }
   },
   "schema": 1,

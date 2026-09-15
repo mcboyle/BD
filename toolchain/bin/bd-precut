@@ -519,22 +519,38 @@ def main(argv=None):
     # 2. executable footgun registry (env-tranche F-01 + in-sync F-03 + route-map +
     #    import-edge + endpoint + pin + guard-sha) -- the single source of truth,
     #    so no lesson is forgotten and nothing is double-run.
+    footguns_ran = False
     fge = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-footguns")
     if os.path.isfile(fge):
         rc = subprocess.run([sys.executable, fge, "--check", "--tree", root], timeout=900).returncode
         if rc == 3:
             blocking.append("footgun violation(s) -- see bd-footguns output above")
+        elif rc == 0:
+            footguns_ran = True
+        else:
+            unknown.append("footgun registry exited rc=%d (neither clean nor "
+                           "a violation)" % rc)
     else:
         print("  [bd-footguns not found -- footgun registry SKIPPED]")
+        unknown.append("footgun registry (bd-footguns not found)")
 
     # 3. metric ratchets (Plan A2/F1): a cut must not regress a pinned metric
     #    (unwired operator endpoints, defect DP total, ...). Delegates to bd-ratchet.
+    ratchet_ran = False
     rex = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")
     if os.path.isfile(rex):
         import subprocess as _sp
         rc = _sp.run([sys.executable, rex, "--check", "--tree", root], timeout=900).returncode
         if rc == 3:
             blocking.append("metric ratchet regressed -- see bd-ratchet output above")
+        elif rc == 0:
+            ratchet_ran = True
+        else:
+            unknown.append("metric ratchet exited rc=%d (neither clean nor "
+                           "a regression)" % rc)
+    else:
+        print("  [bd-ratchet not found -- metric ratchet SKIPPED]")
+        unknown.append("metric ratchet (bd-ratchet not found)")
 
     # 4. TOOL INTEGRITY (702): the gates above are only as trustworthy as the
     #    tools that run them. bd-coretest fault-injects the release-gating
@@ -791,7 +807,12 @@ def main(argv=None):
     # into "cut-ready". The exit code is unchanged (an unrun check is not a
     # finding, and making it one would be the over-sensitivity bug), so --gate
     # keeps exactly the teeth it had.
-    ran = "footguns clean, metric ratchets clean"
+    ran_parts = []
+    if footguns_ran:
+        ran_parts.append("footguns clean")
+    if ratchet_ran:
+        ran_parts.append("metric ratchets clean")
+    ran = ", ".join(ran_parts) if ran_parts else "nothing"
     if unknown:
         print(f"RESULT: cut-ready for what RAN ({ran}) -- "
               f"{len(unknown)} check(s) NOT RUN, so UNKNOWN, not OK:")

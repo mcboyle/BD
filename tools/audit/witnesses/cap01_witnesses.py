@@ -131,18 +131,21 @@ def _w5():
 # pending Recording in a temp BD_HOME; no scheduler, no subprocess, no network.
 @w("F-CAP01-01")
 def _w6():
-    import os, tempfile
-    os.environ["BD_HOME"] = tempfile.mkdtemp()
+    import os
+    import tempfile
+    from unittest.mock import patch
     from bulk_downloader import live_recorder as lr
-    # Neutralize backend availability so watch() reaches the url logic regardless.
-    lr.is_available = lambda: True
-    try:
-        lr._reset_for_tests()
-    except Exception:
-        pass
-    ssrf_url = "http://169.254.169.254/latest/meta-data/"
-    res = lr.watch(ssrf_url, "/tmp/rec",
-                   site_override="custom", room_override="room1")
+    with tempfile.TemporaryDirectory() as probe_home, \
+         patch.dict(os.environ, {"BD_HOME": probe_home}), \
+         patch.object(lr, "is_available", return_value=True):
+        # Neutralize backend availability so watch() reaches the url logic regardless.
+        try:
+            lr._reset_for_tests()
+        except Exception:
+            pass
+        ssrf_url = "http://169.254.169.254/latest/meta-data/"
+        res = lr.watch(ssrf_url, "/tmp/rec",
+                       site_override="custom", room_override="room1")
     accepted = bool(res.get("ok"))
     # also confirm the normal path WOULD have rejected this host
     parsed = lr.parse_live_url(ssrf_url)

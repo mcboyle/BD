@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4443,
+  "edge_count": 4449,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4188,6 +4188,12 @@
       "bulk_downloader/interstitial.py",
       "bulk_downloader/templates.py"
     ],
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/stealth.py"
+    ],
     "tests/test_row777_retry_ladder.py": [
       "bulk_downloader/hooks.py",
       "bulk_downloader/runner.py",
@@ -4196,6 +4202,9 @@
     "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py": [
       "bulk_downloader/app_template.py"
     ],
+    "tests/test_row791_witness_state_restored.py": [
+      "bulk_downloader/live_recorder.py"
+    ],
     "tests/test_row792_age_gate_enter_substring_and_three_consumers.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/interstitial.py",
@@ -4203,6 +4212,9 @@
     ],
     "tests/test_row793_screenshots_suffix_guard.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row805_ssrf_census_covers_every_transport.py": [
+      "tools/ssrf_client_census.py"
     ],
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py": [
       "bulk_downloader/app_health.py",

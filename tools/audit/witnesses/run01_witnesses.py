@@ -61,9 +61,11 @@ def _w1():
 @w("F-RUN01-02", "finding",
    flips_to="ok=False once builder inserts '--' before the url argv element")
 def _w2():
-    sys.path.insert(0, WORK)
-    from bulk_downloader.runner_extractors import _build_ytdlp_cmd
-    cmd = _build_ytdlp_cmd(ytdlp="yt-dlp", dl_dir="/tmp/x", url="--version")
+    from unittest.mock import patch
+    with patch.object(sys, "path", list(sys.path)):
+        sys.path.insert(0, WORK)
+        from bulk_downloader.runner_extractors import _build_ytdlp_cmd
+        cmd = _build_ytdlp_cmd(ytdlp="yt-dlp", dl_dir="/tmp/x", url="--version")
     body = cmd[:-1]
     has_sep = "--" in body
     url_is_last = cmd[-1] == "--version"

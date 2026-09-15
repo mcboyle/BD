@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row 805. This spec must report exactly one valid ESCAPED mutant: it applies M1's byte-identical denominator-deleting transform while its only band node is the no-git unmeasurable shape, which fails in tracked_package_files before any site is collected and therefore never reaches the deleted line. The escape proves the CAUGHT results in row805_ssrf_census_covers_every_transport.json are assertion failures rather than a SyntaxError, an import failure, a collection failure, or a transform that never applied.",
+  "subject": "transform control for the row 805 egress denominator",
+  "band": [
+    "tests/test_row805_ssrf_census_covers_every_transport.py::test_an_unmeasurable_population_is_UNKNOWN_and_never_OK[no-git]"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the denominator collection is deleted under a node that never reaches it",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?m)^        sites.extend\\(egress_sites_in\\(rel, source\\)\\)$",
+      "new": "        pass  # mutant: collect no egress site",
+      "direction": "regression",
+      "catcher": "tests/test_row805_ssrf_census_covers_every_transport.py::test_an_unmeasurable_population_is_UNKNOWN_and_never_OK[no-git]"
+    }
+  ]
+}

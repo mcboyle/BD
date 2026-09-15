@@ -323,3 +323,326 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ==========================================================================
+# Row 805 -- the EVERY-TRANSPORT egress census.
+#
+# The httpx census above judges one transport.  ``bulk_downloader/`` also
+# reaches the network through ``urllib.request`` (``urlopen`` / an opener's
+# ``.open``), ``requests`` and ``aiohttp``, and those sites were outside every
+# census, so a new one could be added with nothing in the tree noticing.
+#
+# This census derives the EGRESS population from the tree the same way (git for
+# the file denominator, ``ast`` for the sites) and reconciles it against ONE
+# in-tree declaration, ``bulk_downloader/ssrf_egress_exemptions.py``, which
+# must account for every site by ``<file>::<enclosing function>`` with a
+# nonempty reason.  A site the declaration does not name is UNACCOUNTED and
+# fails; a declaration entry no site matches is STALE and fails; an
+# unmeasurable population is UNKNOWN, never OK.
+#
+# ``getattr(requests, verb)(url)`` IS censused -- the verb is dynamic but the
+# module is named at the call site.  What this cannot see is a transport
+# reached through a name rebound at runtime, and a raw socket egress: the
+# censused transports are urllib.request, requests and aiohttp.
+# ==========================================================================
+
+EXEMPTION_REL = "bulk_downloader/ssrf_egress_exemptions.py"
+EXEMPTION_MAPPING = "ACCOUNTED"
+URLLIB_REQUEST_MODULE = "urllib.request"
+URLLIB_OPENERS = ("urlopen",)
+REQUESTS_MODULE = "requests"
+REQUESTS_CALLABLES = ("get", "post", "put", "patch", "delete", "head", "options", "request", "Session")
+OPENER_BUILDER = "build_opener"
+OPENER_DISPATCH = "open"
+SESSION_BASE = "Session"
+MODULE_SCOPE = "<module>"
+AIOHTTP_MODULE = "aiohttp"
+AIOHTTP_CALLABLES = ("ClientSession", "request")
+DYNAMIC_BUILTIN = "getattr"
+DYNAMIC_DISPATCH = "<dynamic>"
+ACCOUNTING_KINDS = ("guarded", "exempt")
+
+
+@dataclass(frozen=True)
+class EgressSite:
+    file: str
+    line: int
+    transport: str     # "urllib.request" | "requests" | "aiohttp"
+    dispatch: str      # the call as censused, e.g. "urlopen" / "requests.get"
+    function: str      # qualified owner (Class.method / function), or "<module>"
+
+    @property
+    def key(self) -> str:
+        return f"{self.file}::{self.function}"
+
+    @property
+    def where(self) -> str:
+        return f"{self.file}:{self.line}"
+
+
+@dataclass(frozen=True)
+class EgressCensus:
+    root: str
+    files: Tuple[str, ...]
+    sites: Tuple[EgressSite, ...]
+    accounted: Tuple[Tuple[str, str, str], ...]   # (key, kind, reason) from the tree declaration
+
+    @property
+    def keys(self) -> Tuple[str, ...]:
+        return tuple(sorted({s.key for s in self.sites}))
+
+    @property
+    def declared_keys(self) -> Tuple[str, ...]:
+        return tuple(sorted({key for key, _kind, _reason in self.accounted}))
+
+    @property
+    def unaccounted(self) -> Tuple[EgressSite, ...]:
+        declared = set(self.declared_keys)
+        return tuple(s for s in self.sites if s.key not in declared)
+
+    @property
+    def stale(self) -> Tuple[str, ...]:
+        live = set(self.keys)
+        return tuple(key for key in self.declared_keys if key not in live)
+
+
+def _egress_bindings(tree: ast.AST):
+    """Names in one file bound to the non-httpx transports this census judges."""
+    urllib_request_aliases = set()      # module aliases: urllib.request / _ur / _u
+    urlopen_names = set()               # bare names bound to urllib.request.urlopen
+    builder_names = set()               # bare names bound to urllib.request.build_opener
+    opener_names = set()                # names bound to a built opener (its .open is egress)
+    requests_aliases, requests_callables = set(), {}
+    aiohttp_aliases, aiohttp_callables = set(), {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == URLLIB_REQUEST_MODULE:
+                    urllib_request_aliases.add(alias.asname or URLLIB_REQUEST_MODULE)
+                elif alias.name == REQUESTS_MODULE:
+                    requests_aliases.add(alias.asname or REQUESTS_MODULE)
+                elif alias.name == AIOHTTP_MODULE:
+                    aiohttp_aliases.add(alias.asname or AIOHTTP_MODULE)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module == URLLIB_REQUEST_MODULE:
+                for alias in node.names:
+                    if alias.name in URLLIB_OPENERS:
+                        urlopen_names.add(alias.asname or alias.name)
+                    elif alias.name == OPENER_BUILDER:
+                        builder_names.add(alias.asname or alias.name)
+            elif module == "urllib":
+                for alias in node.names:
+                    if alias.name == "request":
+                        urllib_request_aliases.add(alias.asname or "request")
+            elif module == REQUESTS_MODULE:
+                for alias in node.names:
+                    if alias.name in REQUESTS_CALLABLES:
+                        requests_callables[alias.asname or alias.name] = alias.name
+            elif module == AIOHTTP_MODULE:
+                for alias in node.names:
+                    if alias.name in AIOHTTP_CALLABLES:
+                        aiohttp_callables[alias.asname or alias.name] = alias.name
+    # An opener is built once and reached later by name; bind those names in a
+    # second pass, so an alias imported below its use is still seen.
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)):
+            continue
+        callee = node.value.func
+        built = (isinstance(callee, ast.Name) and callee.id in builder_names) or (
+            isinstance(callee, ast.Attribute) and callee.attr == OPENER_BUILDER
+            and _dotted_name(callee.value) in urllib_request_aliases)
+        if built:
+            opener_names.add(node.targets[0].id)
+    return (urllib_request_aliases, urlopen_names, opener_names,
+            requests_aliases, requests_callables, aiohttp_aliases, aiohttp_callables)
+
+
+def _egress_kind(call: ast.Call, bindings) -> Optional[Tuple[str, str]]:
+    """``(transport, dispatch)`` when this call leaves the process, else None."""
+    (urllib_aliases, urlopen_names, opener_names,
+     requests_aliases, requests_callables, aiohttp_aliases, aiohttp_callables) = bindings
+    func = call.func
+    if isinstance(func, ast.Call):
+        # ``getattr(requests, verb)(url)`` -- the verb is chosen at runtime, but
+        # the transport is not: the module is named right here, so the site is
+        # censusable even though the method is not.
+        inner = func.func
+        if isinstance(inner, ast.Name) and inner.id == DYNAMIC_BUILTIN and func.args:
+            holder = _dotted_name(func.args[0])
+            if holder is not None:
+                if holder in requests_aliases:
+                    return REQUESTS_MODULE, f"requests.{DYNAMIC_DISPATCH}"
+                if holder in urllib_aliases:
+                    return URLLIB_REQUEST_MODULE, f"{holder}.{DYNAMIC_DISPATCH}"
+                if holder in aiohttp_aliases:
+                    return AIOHTTP_MODULE, f"aiohttp.{DYNAMIC_DISPATCH}"
+        return None
+    if isinstance(func, ast.Name):
+        if func.id in urlopen_names:
+            return URLLIB_REQUEST_MODULE, func.id
+        if func.id in requests_callables:
+            return REQUESTS_MODULE, f"requests.{requests_callables[func.id]}"
+        if func.id in aiohttp_callables:
+            return AIOHTTP_MODULE, f"aiohttp.{aiohttp_callables[func.id]}"
+        return None
+    if isinstance(func, ast.Attribute):
+        owner = func.value
+        dotted = _dotted_name(owner)
+        if dotted is not None:
+            if dotted in opener_names and func.attr == OPENER_DISPATCH:
+                return URLLIB_REQUEST_MODULE, f"{dotted}.{OPENER_DISPATCH}"
+            if dotted in urllib_aliases and func.attr in URLLIB_OPENERS:
+                return URLLIB_REQUEST_MODULE, f"{dotted}.{func.attr}"
+            if dotted in requests_aliases and func.attr in REQUESTS_CALLABLES:
+                return REQUESTS_MODULE, f"requests.{func.attr}"
+            if dotted in aiohttp_aliases and func.attr in AIOHTTP_CALLABLES:
+                return AIOHTTP_MODULE, f"aiohttp.{func.attr}"
+    return None
+
+
+def _dotted_name(node: ast.AST) -> Optional[str]:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        head = _dotted_name(node.value)
+        return None if head is None else f"{head}.{node.attr}"
+    return None
+
+
+def _session_subclass(node: ast.AST, bindings) -> Optional[str]:
+    """``class X(requests.Session)`` -- a transport of its own, whose ``request``
+    override is the dispatch every caller reaches."""
+    (_urllib_aliases, _urlopen_names, _opener_names,
+     requests_aliases, requests_callables, _aiohttp_aliases, _aiohttp_callables) = bindings
+    if not isinstance(node, ast.ClassDef):
+        return None
+    for base in node.bases:
+        if (isinstance(base, ast.Attribute) and base.attr == SESSION_BASE
+                and _dotted_name(base.value) in requests_aliases):
+            return f"requests.{SESSION_BASE} subclass"
+        if isinstance(base, ast.Name) and requests_callables.get(base.id) == SESSION_BASE:
+            return f"requests.{SESSION_BASE} subclass"
+    return None
+
+
+def egress_sites_in(rel: str, source: str) -> Tuple[EgressSite, ...]:
+    """Every non-httpx egress site in one file's source, with the qualified name
+    of the function or class that owns it."""
+    try:
+        tree = ast.parse(source, filename=rel)
+    except SyntaxError as bad_syntax:
+        raise CensusUnavailable(
+            f"{rel} does not parse for the egress census: {bad_syntax}") from bad_syntax
+    bindings = _egress_bindings(tree)
+    if not any(bindings):
+        return ()
+    found = []
+    stack: list = [(tree, MODULE_SCOPE)]
+    while stack:
+        node, qualname = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            inner = qualname
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                inner = child.name if qualname == MODULE_SCOPE else f"{qualname}.{child.name}"
+            subclass = _session_subclass(child, bindings)
+            if subclass is not None:
+                found.append(EgressSite(rel, child.lineno, REQUESTS_MODULE, subclass, inner))
+            if isinstance(child, ast.Call):
+                kind = _egress_kind(child, bindings)
+                if kind is not None:
+                    transport, dispatch = kind
+                    found.append(EgressSite(rel, child.lineno, transport, dispatch, qualname))
+            stack.append((child, inner))
+    return tuple(sorted(found, key=lambda s: (s.file, s.line)))
+
+
+def declared_accounting(root: Path) -> Tuple[Tuple[str, str, str], ...]:
+    """The in-tree accounting declaration, read from the TREE by ``ast`` (never
+    imported, so the census of a fixture tree never runs that tree's code)."""
+    path = Path(root) / EXEMPTION_REL
+    if not path.exists():
+        # Measurable, and accounting for nothing: the caller reports every site
+        # as UNACCOUNTED and names it.  Absence of the declaration is a FAIL,
+        # not an UNKNOWN -- the population was read from the tree either way.
+        return ()
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=EXEMPTION_REL)
+    except (OSError, SyntaxError) as exc:
+        raise CensusUnavailable(f"{EXEMPTION_REL} cannot be read: {exc}") from exc
+    mapping = None
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == EXEMPTION_MAPPING):
+            mapping = node.value
+    if not isinstance(mapping, ast.Dict):
+        raise CensusUnavailable(
+            f"{EXEMPTION_REL} declares no {EXEMPTION_MAPPING} dict literal")
+    entries = []
+    for key_node, value_node in zip(mapping.keys, mapping.values):
+        try:
+            key = ast.literal_eval(key_node)
+            value = ast.literal_eval(value_node)
+        except ValueError as exc:
+            raise CensusUnavailable(
+                f"{EXEMPTION_MAPPING} holds an entry that is not a literal: {exc}") from exc
+        if not isinstance(key, str) or not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise CensusUnavailable(
+                f"{EXEMPTION_MAPPING}[{key!r}] is not (kind, reason)")
+        kind, reason = value
+        if kind not in ACCOUNTING_KINDS:
+            raise CensusUnavailable(
+                f"{EXEMPTION_MAPPING}[{key!r}] kind {kind!r} is not one of {ACCOUNTING_KINDS}")
+        if not isinstance(reason, str) or not reason.strip():
+            raise CensusUnavailable(
+                f"{EXEMPTION_MAPPING}[{key!r}] carries no reason")
+        entries.append((key, kind, reason))
+    return tuple(entries)
+
+
+def egress_census(root: Path) -> EgressCensus:
+    """The judged non-httpx egress population under ``root``, or CensusUnavailable."""
+    root = Path(root)
+    files = tracked_package_files(root)
+    sites: list = []
+    for rel in files:
+        path = root / rel
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CensusUnavailable(f"{rel} is tracked but unreadable: {exc}") from exc
+        sites.extend(egress_sites_in(rel, source))
+    return EgressCensus(str(root), files, tuple(sites), declared_accounting(root))
+
+
+def egress_verdict(root: Path) -> Tuple[str, str, Optional[EgressCensus]]:
+    """(state, detail, census).  OK only when the population is measured,
+    nonzero, every site is accounted for in the tree and no declared entry is
+    stale.  UNKNOWN when the population or the declaration cannot be read."""
+    try:
+        result = egress_census(root)
+    except CensusUnavailable as why:
+        return UNKNOWN, str(why), None
+    if not result.sites:
+        return UNKNOWN, (
+            f"zero non-httpx egress sites found across {len(result.files)} tracked "
+            f"{PACKAGE_PATHSPEC} files -- an empty population proves nothing"), result
+    problems = []
+    if result.unaccounted:
+        problems.append(
+            f"{len(result.unaccounted)} of {len(result.sites)} egress sites are NOT accounted for in "
+            f"{EXEMPTION_REL}:\n  " + "\n  ".join(
+                f"{s.where} {s.transport} {s.dispatch} (key {s.key})" for s in result.unaccounted))
+    if result.stale:
+        problems.append(
+            f"{len(result.stale)} declared {EXEMPTION_MAPPING} entries match no egress site "
+            f"(stale):\n  " + "\n  ".join(result.stale))
+    if problems:
+        return FAIL, "\n".join(problems), result
+    return OK, (
+        f"{len(result.sites)} non-httpx egress sites across {len(set(s.file for s in result.sites))} "
+        f"files, all accounted for by {len(result.declared_keys)} in-tree entries"), result
