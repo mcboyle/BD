@@ -1,0 +1,12 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row803 unreadable lint output branches must remain cannot-evaluate.",
+  "subject": "Row803 unreadable lint input cannot become clean or a policy refusal",
+  "band": ["tests/test_bd_tool_lint_unreadable_modes.py"],
+  "mutants": [
+    {"label": "M1 unreadable report is called clean", "file": "toolchain/bin/bd-tool-lint", "old_regex": "not unreadable and (?=all\\()", "new": "True and ", "direction": "regression", "catcher": "tests/test_bd_tool_lint_unreadable_modes.py::test_unreadable_tool_is_cannot_evaluate_in_every_output_mode[json]"},
+    {"label": "M2 debt branch ignores unreadable input", "file": "toolchain/bin/bd-tool-lint", "old_regex": "(?<=if )unreadable or (?=cd\\[)", "new": "False or ", "direction": "regression", "catcher": "tests/test_bd_tool_lint_unreadable_modes.py::test_unreadable_tool_is_cannot_evaluate_in_every_output_mode[debt]"},
+    {"label": "M3 JSON branch ignores unreadable input", "file": "toolchain/bin/bd-tool-lint", "old_regex": "(?m)(?<=        return sec.EXIT_CANNOT_EVALUATE if )unreadable(?= else \\(1 if blocked else 0\\)$)", "new": "False", "direction": "regression", "catcher": "tests/test_bd_tool_lint_unreadable_modes.py::test_unreadable_tool_is_cannot_evaluate_in_every_output_mode[json]"},
+    {"label": "M4 text branch lets policy mask unreadable input", "file": "toolchain/bin/bd-tool-lint", "old_regex": "(?m)(?<=    return sec.EXIT_CANNOT_EVALUATE if )unreadable(?= else \\(3 if blocked else 0\\)$)", "new": "False", "direction": "regression", "catcher": "tests/test_bd_tool_lint_unreadable_modes.py::test_unreadable_tool_is_cannot_evaluate_in_every_output_mode[gate]"}
+  ]
+}

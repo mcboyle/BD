@@ -1364,6 +1364,48 @@ def _is_navigation_resolution_ghost(el, text, page_url=""):
     return True
 
 
+# Row 759d: a listing FILTER href. Algolia-style sites render the refinement
+# sidebar on the scene page itself; its links read ``4K (2160p) (1234)`` and
+# point at ``/en/videos/?refinementList[...]``, so res_score admits them as
+# quality candidates and they outrank the score-0 ``Download`` div that opens
+# the real quality modal (measured live 2026-09-15, dfxtra + evilangel). The
+# query is judged, never the label: the label is what fooled the ranker.
+_LISTING_FILTER_QUERY_RE = re.compile(
+    r"(?:^|[?&])(?:refinementList(?:\[|%5B)|"
+    r"(?:facets?|filters?|sort(?:_?by)?|order(?:_?by)?)=)", re.I)
+
+
+def _is_listing_filter_href(el, text):
+    """True only when the href is a listing/filter URL with no strong media
+    signal. Fails open (False) on any read error, and never judges a signed
+    or media-shaped URL: those are the row-399 lesson."""
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        return False
+    if not href:
+        return False
+    try:
+        from urllib.parse import urlsplit
+        query = urlsplit(href).query
+    except Exception:
+        return False
+    if not query or not _LISTING_FILTER_QUERY_RE.search(query):
+        return False
+    try:
+        from . import candidate_filter as _candidate_filter
+        strong = {
+            "media_extension", "manifest_url", "download_path", "api_pattern"
+        }
+        media_signals = strong.intersection(
+            _candidate_filter.positive_signals(href, text or "", ""))
+        if media_signals:
+            return False
+    except Exception:
+        return False
+    return True
+
+
 def _candidate_admission(el, text, page_url="", require_signal=True,
                          label=None):
     """Shared learned/wide admission. Returns None to admit, else the reason.
@@ -1389,6 +1431,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         return "no_signal"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
+    if _is_listing_filter_href(el, t):
+        return "listing_filter"
     return None
 
 
@@ -1451,7 +1495,8 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # with the selector list would not be a number an operator could act on.
     # Identity is the harvested text, the same key ``seen`` already uses for
     # admitted candidates, so both halves of the page report one vocabulary.
-    _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0}
+    _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
+                          "listing_filter": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
