@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1546 - row455 reviewed app.reptyle.com live template: 5/5 authenticated kinds decided across two subjects, none unknown or double-counted
+
+Train: 1 refute-first-reviewed worker patches.
+
+- 455: reviewed the authenticated app.reptyle.com template against two live subjects. Adds an authenticated fixture (reptyle_live_authenticated_scene.html) with a provenance record and extends the row455 DOM-review test so all 5 template kinds are decided across the two subjects -- none left UNKNOWN, none double-counted; the logged-out subject is the negative control (no uniquely resolved download trigger).
+
 ## v3.66.1545 - 760 guarded transport proxy + site policy map, 654 filename citations git-tracked, 752 display gate owns its claim, 788 transform-control separated
 
 Train: 4 refute-first-reviewed worker patches.
