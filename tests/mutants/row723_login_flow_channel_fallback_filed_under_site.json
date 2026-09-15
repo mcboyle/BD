@@ -1,0 +1,122 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 723 residual. Twelve seams of 'a login-flow channel degradation is filed under its site and reaches that site's run record': the two login-submit arms, the three manual-login arms, the site-id resolution and its owning-site declaration, the runner's declaration + post-flow drain, the launch-entry drain and its no-record guard, plus two overcorrections (draining other sites' notes; a declaration that never resets). Every anchor is zero-width and names a DECISION; the band excludes the two probe-only nodes (no-degradation control and the resolution table) which the transform control uses.",
+  "subject": "login_impl.submit / login_impl.manual / cloak.ledger_site_id+owning_site / runner_auth / runner_browser -- the degradation the run record must carry",
+  "band": [
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_login_submit_retry_files_its_degradation_under_the_site",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_login_submit_retry_that_also_fails_is_filed_not_dropped",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_owning_site_names_a_flow_whose_config_has_no_site_id",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_manual_login_persistent_retry_files_under_the_site",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_manual_login_non_persistent_retry_files_under_the_site",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_manual_persistent_retry_that_also_fails_is_filed_not_dropped",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_run_launch_surfaces_the_notes_a_keeper_login_left_behind",
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_caller_with_no_run_record_leaves_the_note_for_its_owner"
+  ],
+  "mutants": [
+    {
+      "label": "M1 login submit: the RECOVERED retry files no note (stderr only, as on base)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^                )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=_cloak\\.ledger_site_id\\(config\\), flow=\"login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e\\)\\.__name__\\}: \\{e\\}\",\\n\\s+recovered=True\\))",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_login_submit_retry_files_its_degradation_under_the_site"
+    },
+    {
+      "label": "M2 login submit: a bundled retry that ALSO fails files no note",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^                    )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=_cloak\\.ledger_site_id\\(config\\), flow=\"login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e2\\)\\.__name__\\}: \\{e2\\}\",\\n\\s+recovered=False\\))",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_login_submit_retry_that_also_fails_is_filed_not_dropped"
+    },
+    {
+      "label": "M3 manual login: the recovered PERSISTENT retry files no note",
+      "file": "bulk_downloader/login_impl/manual.py",
+      "old_regex": "(?m)(?<=^                        )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=self\\._owning_site, flow=\"manual login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e\\)\\.__name__\\}: \\{e\\}\",\\n\\s+recovered=True\\))",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_manual_login_persistent_retry_files_under_the_site"
+    },
+    {
+      "label": "M4 manual login: a persistent bundled retry that ALSO fails files no note",
+      "file": "bulk_downloader/login_impl/manual.py",
+      "old_regex": "(?m)(?<=^                        )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=self\\._owning_site, flow=\"manual login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e2\\)\\.__name__\\}: \\{e2\\}\",\\n\\s+recovered=False\\)\\n\\s+ctx = None)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_manual_persistent_retry_that_also_fails_is_filed_not_dropped"
+    },
+    {
+      "label": "M5 manual login: the recovered NON-persistent retry files no note",
+      "file": "bulk_downloader/login_impl/manual.py",
+      "old_regex": "(?m)(?<=^                    )(?=_cloak\\.note_channel_fallback\\(\\n\\s+site_id=self\\._owning_site, flow=\"manual login\",\\n\\s+channel=str\\(_ch\\), error=f\"\\{type\\(e\\)\\.__name__\\}: \\{e\\}\",\\n\\s+recovered=True\\))",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_manual_login_non_persistent_retry_files_under_the_site"
+    },
+    {
+      "label": "M6 ledger_site_id ignores the owning-site declaration (a config with no site_id files under '')",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^    return str\\(cfg\\.get\\(\"site_id\"\\) or cfg\\.get\\(\"sid\"\\) or )(?=_OWNING_SITE\\.get\\(\\) or \"\"\\)$)",
+      "new": "\"\" and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_owning_site_names_a_flow_whose_config_has_no_site_id"
+    },
+    {
+      "label": "M7 login_async does not declare itself the owner of its login flow",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^                with _cloak\\.owning_site\\()(?=self\\.site_id\\):$)",
+      "new": "\"\" and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note"
+    },
+    {
+      "label": "M8 login_async never surfaces the note when the flow returns",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "(?m)(?<=^                )(?=_surface_login_channel_fallbacks\\(self\\)$)",
+      "new": "0 and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note"
+    },
+    {
+      "label": "M9 _launch_browser never surfaces a note a keeper login left behind",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^            )(?=self\\._surface_pending_channel_fallbacks\\(\\)$)",
+      "new": "0 and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_run_launch_surfaces_the_notes_a_keeper_login_left_behind"
+    },
+    {
+      "label": "M10 the drain with no run record drains anyway (the note is lost)",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^        if )(?=_log is None:\\n            return 0$)",
+      "new": "False and ",
+      "direction": "regression",
+      "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_caller_with_no_run_record_leaves_the_note_for_its_owner"
+    },
+    {
+      "label": "M11 the launch drain takes EVERY site's notes into this site's record",
+      "file": "bulk_downloader/runner_browser.py",
+      "old_regex": "(?m)(?<=^            notes=_cloak\\.drain_channel_fallbacks\\()(?=self\\.site_id\\)$)",
+      "new": "None) or _cloak.drain_channel_fallbacks(",
+      "direction": "overcorrection",
+      "control": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_a_run_launch_surfaces_the_notes_a_keeper_login_left_behind",
+      "preserves": [
+        "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_login_submit_retry_files_its_degradation_under_the_site",
+        "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note"
+      ]
+    },
+    {
+      "label": "M12 the owning-site declaration outlives its block (every later flow on the thread is filed under it)",
+      "file": "bulk_downloader/cloak.py",
+      "old_regex": "(?m)(?<=^        )(?=_OWNING_SITE\\.reset\\(token\\)$)",
+      "new": "None and ",
+      "direction": "overcorrection",
+      "control": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_owning_site_names_a_flow_whose_config_has_no_site_id",
+      "preserves": [
+        "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note",
+        "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_login_submit_retry_files_its_degradation_under_the_site"
+      ]
+    }
+  ]
+}

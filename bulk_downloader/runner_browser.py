@@ -234,8 +234,15 @@ class BrowserMixin:
     def _surface_pending_channel_fallbacks(self):
         """Drain degradations recorded by flows that have no runner (login
         submit, session replay, capture) and put them in THIS site's run
-        record. Returns how many were surfaced."""
+        record. Returns how many were surfaced. Called by the runner after
+        each login flow it owns and at every browser launch (the keeper's
+        login has no runner at hand; its note waits for the site's next
+        launch). A caller with no event log surfaces nothing and DRAINS
+        nothing -- the note stays for a real owner."""
         from . import cloak as _cloak
+        _log=getattr(self,"log_event",None)
+        if _log is None:
+            return 0
         try:
             notes=_cloak.drain_channel_fallbacks(self.site_id)
         except Exception:
@@ -243,7 +250,7 @@ class BrowserMixin:
         for n in notes:
             verdict=("ran on bundled Chromium instead" if n.get("recovered")
                      else "and the bundled-Chromium retry ALSO failed")
-            self.log_event("browser",
+            _log("browser",
                 f"real Chrome unavailable (channel={n.get('channel')}) in "
                 f"{n.get('flow')}; {verdict} -- {n.get('error','')}",
                 extra={"requested_channel":n.get("channel"),
@@ -283,6 +290,13 @@ class BrowserMixin:
         argv for the caller to wrap). None -> byte-identical prior launch.
 
         Caller decides which form it wants by passing `use_persistent`."""
+        # Row 723: a login flow (keeper-driven, or any owner without a run
+        # record) may have left this site's degradation in cloak's ledger;
+        # it belongs in the record before this launch's own events.
+        try:
+            self._surface_pending_channel_fallbacks()
+        except Exception:
+            pass
         if headless is None: headless=bool(self.config.get("headless", True))
         if use_persistent is None:
             use_persistent=bool(self.config.get("use_persistent_profile",True))

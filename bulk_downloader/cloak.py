@@ -25,6 +25,7 @@ launch cloak.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import os
 import sys
 import threading
@@ -272,6 +273,33 @@ def use_cloak(config: dict | None = None) -> bool:
 _CHANNEL_FALLBACKS: list[dict] = []
 _CHANNEL_FALLBACKS_MAX = 200
 _CHANNEL_FALLBACK_LOCK = threading.Lock()
+# Row 723 residual: a site config carries no site_id (it is not a CFG_FIELD),
+# so a login flow launched with the bare config would file its note under ""
+# -- a key no site's drain can match. The OWNER of the flow (the runner, the
+# keeper) knows the site; it declares it around the flow with `owning_site`
+# and every note keys on `ledger_site_id`. Per thread/context: the runner's
+# login thread declares only its own site.
+_OWNING_SITE: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "bd_owning_site", default="")
+
+
+def ledger_site_id(config: dict | None = None) -> str:
+    """The site a channel-fallback note is filed under: the config's own
+    ``site_id`` (or ``sid``, the login-flow spelling), else the site declared
+    by the enclosing :func:`owning_site`, else ``""`` (unowned)."""
+    cfg = config or {}
+    return str(cfg.get("site_id") or cfg.get("sid") or _OWNING_SITE.get() or "")
+
+
+@contextlib.contextmanager
+def owning_site(site_id: str):
+    """Declare, for the duration of the block on THIS thread, the site that
+    owns any browser launch inside it. Nested declarations shadow and restore."""
+    token = _OWNING_SITE.set(str(site_id or ""))
+    try:
+        yield
+    finally:
+        _OWNING_SITE.reset(token)
 
 
 def note_channel_fallback(*, site_id: str, flow: str, channel: str,
@@ -590,12 +618,12 @@ def persistent_context(
                     user_agent=user_agent, config=config, **extra)
             except Exception as _e2:
                 note_channel_fallback(
-                    site_id=(config or {}).get("site_id", ""),
+                    site_id=ledger_site_id(config),
                     flow="persistent_context", channel=str(_ch),
                     error=f"{type(_e2).__name__}: {_e2}", recovered=False)
                 raise
             note_channel_fallback(
-                site_id=(config or {}).get("site_id", ""),
+                site_id=ledger_site_id(config),
                 flow="persistent_context", channel=str(_ch),
                 error=f"{type(_exc).__name__}: {_exc}", recovered=True)
         else:

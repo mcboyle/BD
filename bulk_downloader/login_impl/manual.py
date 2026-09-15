@@ -166,6 +166,11 @@ class ManualLoginSession:
         # be screencast to the cockpit takeover viewer instead of the server
         # display. Default False keeps the pre-A-4 visible behavior byte-for-byte.
         self._headless = bool(headless)
+        # Row 723: the site that owns this login, read on the CALLER's thread
+        # (the runner declares it with cloak.owning_site); _launch files any
+        # real-Chrome degradation under it from the session's own thread.
+        from .. import cloak as _cloak
+        self._owning_site = _cloak.ledger_site_id(config)
         self._screencast_sid = None  # set by start_screencast(sid)
         self._cmd_q = queue.Queue()
         self._error = None
@@ -257,20 +262,31 @@ class ManualLoginSession:
                 # not installed and Chrome can't run from the bundled binary
                 # with a custom user_data_dir on this OS)
                 if extra.get("channel"):
+                    # Row 723: filed under the owning site (captured at
+                    # construction on the caller's thread -- this runs on
+                    # the session's own thread, where no declaration exists).
                     sys.stderr.write(
                         f"  manual_login: persistent launch (channel=chrome) failed "
                         f"({str(e)[:80]}); retrying with bundled Chromium\n")
-                    extra.pop("channel", None)
+                    _ch = extra.pop("channel", None)
                     try:
                         ctx, used_pw, backend = _cloak.open_persistent_context(
                             user_data_dir=self._manual_profile_dir, headless=self._headless,
                             args=launch_args, user_agent=ua_val, config=config, **extra)
                         _cloak.log_choice("manual login", backend,
                                           "persistent manual profile (bundled)")
+                        _cloak.note_channel_fallback(
+                            site_id=self._owning_site, flow="manual login",
+                            channel=str(_ch), error=f"{type(e).__name__}: {e}",
+                            recovered=True)
                     except Exception as e2:
                         sys.stderr.write(
                             f"  manual_login: persistent fallback also failed: "
                             f"{str(e2)[:80]}; reverting to non-persistent\n")
+                        _cloak.note_channel_fallback(
+                            site_id=self._owning_site, flow="manual login",
+                            channel=str(_ch), error=f"{type(e2).__name__}: {e2}",
+                            recovered=False)
                         ctx = None
                 else:
                     sys.stderr.write(
@@ -287,9 +303,20 @@ class ManualLoginSession:
             except Exception as e:
                 if extra.get("channel"):
                     sys.stderr.write(f"  manual_login: system Chrome unavailable ({str(e)[:60]}); using bundled\n")
-                    extra.pop("channel", None)
-                    browser, used_pw, backend = _cloak.launch_browser(
-                        headless=self._headless, args=launch_args, config=config, **extra)
+                    _ch = extra.pop("channel", None)
+                    try:
+                        browser, used_pw, backend = _cloak.launch_browser(
+                            headless=self._headless, args=launch_args, config=config, **extra)
+                    except Exception as e2:
+                        _cloak.note_channel_fallback(
+                            site_id=self._owning_site, flow="manual login",
+                            channel=str(_ch), error=f"{type(e2).__name__}: {e2}",
+                            recovered=False)
+                        raise
+                    _cloak.note_channel_fallback(
+                        site_id=self._owning_site, flow="manual login",
+                        channel=str(_ch), error=f"{type(e).__name__}: {e}",
+                        recovered=True)
                 else: raise
             _cloak.log_choice("manual login", backend, "non-persistent")
             ctx = browser.new_context(**ctx_opts)

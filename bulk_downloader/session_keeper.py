@@ -201,8 +201,13 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
         cap = int(cap)
     except (TypeError, ValueError):
         raise ValueError("login attempt cap must be an integer")
-    detail = json.dumps({"source": source}, sort_keys=True,
-                        separators=(",", ":"))
+    # Row 773: the attempt names the egress it left through ("UNKNOWN"
+    # when unmeasured), so a credential/IP/browser attribution can start
+    # from the record instead of from memory.
+    from .egress_identity import egress_ip_for_site
+    detail = json.dumps({"source": source,
+                         "egress_ip": egress_ip_for_site(site_id)},
+                        sort_keys=True, separators=(",", ":"))
     try:
         start, finish = _local_day_bounds(_dt_date_today())
         params = {
@@ -1313,8 +1318,12 @@ class SessionKeeper:
                 f"  keepalive[{self.site_id}/{self.account_idx}]: "
                 f"pre-relogin teardown failed ({e}); proceeding anyway\n")
         try:
-            return self.do_login_callback(self.site_id, self.account_idx,
-                                          self.config)
+            # Row 723: the keeper owns this login for its site (the callback
+            # gets a config with no site_id); a real-Chrome degradation inside
+            # it is filed under the site and surfaced by its next launch.
+            with _cloak.owning_site(self.site_id):
+                return self.do_login_callback(self.site_id, self.account_idx,
+                                              self.config)
         finally:
             lock.release()
 

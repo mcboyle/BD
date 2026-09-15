@@ -5233,6 +5233,21 @@ _W1_ROW753_LATE_TERMINAL_READER = (
     "if sys.argv[3] == 'terminal':\n"
     "    time.sleep(%r)\n"
 )
+# ROW 753 clause 3: the owner's remaining budget at handover is not a
+# constant (1.61-1.71s across runs here), so a fixed sleep cannot close the
+# window on purpose without also overrunning the budget. This preamble sleeps
+# until 20ms PAST the point where the reader's window (budget - 0.15s margin)
+# has closed, measured on the clock the reader is handed (argv[5] anchor,
+# argv[2] budget, /proc/uptime) -- inside the budget, past the window.
+_W1_ROW753_COLLAPSED_TERMINAL_READER = (
+    "import sys, time\n"
+    "if sys.argv[3] == 'terminal':\n"
+    "    _a = int(sys.argv[5]) / 1000000.0\n"
+    "    _b = float(sys.argv[2])\n"
+    "    with open('/proc/uptime', encoding='ascii') as _s:\n"
+    "        _n = float(_s.read().split()[0])\n"
+    "    time.sleep(max(0.0, _a + _b - 0.15 + 0.02 - _n))\n"
+)
 
 
 def _w1_row753_drive_late_terminal_reader(mod, tmp_path, *, late_start_s):
@@ -5242,7 +5257,9 @@ def _w1_row753_drive_late_terminal_reader(mod, tmp_path, *, late_start_s):
     gate_program = _w1_adversarial_gate_program(
         terminal="ABORTED v1 reason=synthetic", hold=30, status=0)
     reader_program = mod.REGISTRATION_CHANNEL_READER_PROGRAM
-    if late_start_s > 0:
+    if late_start_s == "collapsed":
+        reader_program = _W1_ROW753_COLLAPSED_TERMINAL_READER + reader_program
+    elif late_start_s > 0:
         reader_program = (
             _W1_ROW753_LATE_TERMINAL_READER % float(late_start_s)
             + reader_program)
@@ -5296,7 +5313,7 @@ def _w1_row753_reader_clock(rundir) -> dict:
             for key, value in fields.items()}
 
 
-@pytest.mark.parametrize("late_start_s", [0.3, 0.6])
+@pytest.mark.parametrize("late_start_s", [0.3, 0.6, "collapsed"])
 def test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_late(
         tmp_path, late_start_s):
     """Startup latency must not turn the reader's own deadline into a 124.
@@ -5305,6 +5322,16 @@ def test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_l
     terminal-reader record carries status=124, because the reader's deadline
     began on its own clock 0.3s or more after the wrapper's did and the fixed
     0.15s margin was all that stood between them.
+
+    ROW 753 clause 3 (canonical sample sweep-bd4-20260915T020636Z, -n 24
+    --dist loadfile, 1 of 3): at 0.6s injected lateness the loaded host added
+    enough startup latency that the window collapsed to 0 and the reader said
+    S:ERROR-LATE / C:UNKNOWN -- correctly (review-b R1) -- while this test
+    demanded S:TIMEOUT. The PRECONDITION of that string was unstated: it holds
+    only while window_us > 0. The expectation is now derived from the clock the
+    reader reports, and the "collapsed" case builds the closed window ON
+    PURPOSE (sleep until just past budget - margin on the handed clock), on
+    any host, so the branch is exercised without waiting for load.
     """
     mod = _load()
     reader, rundir = _w1_row753_drive_late_terminal_reader(
@@ -5313,21 +5340,35 @@ def test_row753_terminal_reader_settles_inside_its_owner_budget_when_it_starts_l
     assert reader["wait_ok"] == "1" and reader["descendants"] == "ABSENT", reader
     rows = (rundir / "registration-terminal-reader.out").read_text(
         encoding="utf-8").splitlines()
-    # THE EVIDENCE SURVIVED: the frame that had no EOF authority is on record.
-    assert rows[0] == "S:TIMEOUT", rows
-    assert rows[2] == "D:ABORTED v1 reason=synthetic", rows
     clock = _w1_row753_reader_clock(rundir)
+    # THE PRECONDITION, ASSERTED: an open window earns TIMEOUT (an honestly
+    # empty channel); a window the lateness closed earns ERROR-LATE / UNKNOWN
+    # ("I never got to wait"), never the TIMEOUT that reads as nothing there.
+    # The "collapsed" case closes the window by construction; the two float
+    # cases leave it open unless the host is loaded.
+    collapsed = late_start_s == "collapsed"
+    if collapsed:
+        assert clock["window_us"] == 0, clock
+    assert rows[0] == ("S:TIMEOUT" if clock["window_us"] > 0 else "S:ERROR-LATE"), (rows, clock)
+    assert rows[4] == ("C:TIMEOUT" if clock["window_us"] > 0 else "C:UNKNOWN"), (rows, clock)
+    # THE EVIDENCE SURVIVED EITHER WAY: the frame that had no EOF authority
+    # is on record, and the reader ended inside the owner's budget (status 0).
+    assert rows[2] == "D:ABORTED v1 reason=synthetic", rows
     # THE FIXTURE BUILT THE SHAPE: the reader really started at least the
     # injected lateness after the owner's anchor, and past the fixed margin.
-    assert clock["late_us"] >= int(late_start_s * 1000000), clock
+    assert clock["late_us"] >= (clock["budget_us"] - clock["margin_us"] if collapsed
+                                else int(late_start_s * 1000000)), clock
     assert clock["late_us"] > clock["margin_us"], clock
     # THE DECISION: the window is the budget less the margin less the
     # measured lateness, and the reader ended inside the owner's budget as
-    # measured on the OWNER'S clock.
+    # measured on the OWNER'S clock. A closed window is not waited on at all,
+    # so started and ended may share the clock's tick (<=, not <).
     assert clock["window_us"] == max(
         0, clock["budget_us"] - clock["margin_us"] - clock["late_us"]), clock
-    assert clock["started_us"] < clock["ended_us"] < (
+    assert clock["started_us"] <= clock["ended_us"] < (
         clock["anchor_us"] + clock["budget_us"]), clock
+    if clock["window_us"] > 0:
+        assert clock["started_us"] < clock["ended_us"], clock
 
 
 def test_row753_reader_clock_is_the_owners_anchor_not_the_interpreters_start(tmp_path):

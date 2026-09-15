@@ -9,11 +9,11 @@ authoritative; this file is only a deterministic locality view.
 - `bulk_downloader/dev_suite/introspection.py:211` — `try:                                            # INV-001`
 - `bulk_downloader/runner.py:3323` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:3385` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:338` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:563` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:671` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:1025` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/session_keeper.py:1386` — `def pause_site_keepers(site_id: str) -> int:  # INV-001`
+- `bulk_downloader/runner_auth.py:348` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:578` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:689` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1043` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/session_keeper.py:1395` — `def pause_site_keepers(site_id: str) -> int:  # INV-001`
 
 ## INV-002 — live source tags
 
@@ -27,9 +27,9 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-004 — live source tags
 
-- `bulk_downloader/db.py:696` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
-- `bulk_downloader/db.py:697` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
-- `bulk_downloader/db.py:701` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
+- `bulk_downloader/db.py:697` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
+- `bulk_downloader/db.py:698` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
+- `bulk_downloader/db.py:702` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
 - `bulk_downloader/dev_suite/introspection.py:203` — `try:                                            # INV-004`
 
 ## INV-005 — live source tags

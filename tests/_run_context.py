@@ -163,6 +163,17 @@ def outcome(terminalreporter):
             for report in reports:
                 nodeid = getattr(report, "nodeid", None)
                 failed.append(nodeid if nodeid else "UNKNOWN")
+    if not counts:
+        # Row 807: ``{}`` -- or only the "" key just skipped -- is a reporter
+        # that never observed an outcome, and it took the observed branch above,
+        # writing the record of a run in which nothing failed. Same third state
+        # as a missing mapping, said the same way.
+        return {"recorded": False,
+                "why": "the terminal reporter's stats carried no outcome key "
+                       "(%d report(s) filed without one), so this run's result "
+                       "was never observed" % sum(len(v) for v in stats.values()),
+                "counts": None,
+                "failed": None}
     return {"recorded": True, "counts": counts, "failed": sorted(failed)}
 
 

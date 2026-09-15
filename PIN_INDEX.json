@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 134,
+    "total": 135,
     "version": 1,
-    "count_dict": 133,
-    "test_files_scanned": 1695,
+    "count_dict": 134,
+    "test_files_scanned": 1700,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -43,6 +43,7 @@
       "tests/test_row667_login_attempt_accounting.py": 1,
       "tests/test_row753_a_run_records_its_own_outcome.py": 1,
       "tests/test_row777_retry_ladder.py": 1,
+      "tests/test_row807_empty_stats_is_unknown_not_clean.py": 1,
       "tests/test_secret_display_never.py": 4,
       "tests/test_settings_center_slice4.py": 1,
       "tests/test_spa_root_routing_contract.py": 4,
@@ -470,6 +471,15 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row807_empty_stats_is_unknown_not_clean.py",
+      "line": 78,
+      "value": {
+        "passed": 2
+      },
+      "gates_what": "test_a_reporter_with_one_outcome_key_is_still_recorded_with_its_own_counts — Negative control: the observed shape must NOT take the UNKNOWN branch."
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_secret_display_never.py",
       "line": 808,
       "value": {
@@ -527,7 +537,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1550",
+      "value": "3.66.1551",
       "gates_what": "test_containment_routes_and_version"
     },
     {

@@ -365,6 +365,10 @@ def _probe_ipv4(socks_port: int, expected_exit_ip: Optional[str] = None, **_) ->
     from collections import Counter
     counts = Counter(results)
     most_common_ip, n = counts.most_common(1)[0]
+    # Row 773: this is the one place the product already measures the exit
+    # IP through a carrier; record it so history/login rows can name it.
+    from .egress_identity import observe_egress_ip
+    observe_egress_ip(proxy_url, most_common_ip)
     # Audit 2026-05 (Phase 5): the original threshold `max(2, len(results) - 0)`
     # required unanimity across all responding endpoints, contradicting the
     # docstring's "≥2 agreement". A transient HTML/502 from one provider

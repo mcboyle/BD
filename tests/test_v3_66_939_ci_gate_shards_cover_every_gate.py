@@ -154,6 +154,12 @@ _DECLARED = {
     # LOGIN WITH GOOGLE button landing on accounts.google.com is refused at
     # every observation site and at do_login's acceptance.
     "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",
+    # Row 723 (residual). A real-Chrome -> bundled-Chromium degradation inside a
+    # LOGIN flow (do_login, manual login, verify) is filed under the site that
+    # owns the flow and surfaced into that site's run record; the launch drain
+    # and the owning-site declaration are the seams.
+    # CI-SHARD-CLAIM row-723 application-safety tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -194,6 +200,11 @@ _DECLARED = {
     # population is the whole package.
     # CI-SHARD-CLAIM row-805 application-safety tests/test_row805_ssrf_census_covers_every_transport.py
     "tests/test_row805_ssrf_census_covers_every_transport.py",
+    # Row 780. CFG_FIELDS silently dropped the bare listing_url fallback on
+    # every /api/config/import round-trip, so both _site_primary_url readers
+    # fell back to the login URL instead of the site's configured listing URL.
+    # CI-SHARD-CLAIM row-780 application-safety tests/test_row780_sites_config_listing_url_round_trip.py
+    "tests/test_row780_sites_config_listing_url_round_trip.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
@@ -232,6 +243,10 @@ _DECLARED = {
     # one would run half a contract and report green.
     # CI-SHARD-CLAIM row665 db-prune-safety tests/test_row665_absence_is_not_an_answer.py
     "tests/test_row665_absence_is_not_an_answer.py",
+    # Row 778. Extractor completion returns ahead of the transport boundary,
+    # so the settled document title must cross _process_one into its history
+    # record on every PR.
+    "tests/test_row778_extractor_completion_harvests_document_title.py",
     # Row 678. The bd-bandcheck exclusion population is hand-maintained and
     # tree-wide, so no changed subject can derive this path-existence gate.
     # CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
@@ -522,6 +537,10 @@ _DECLARED = {
     # this module holds the denominator that keeps a SEVENTH arm from quietly
     # reopening it, which only works if it runs on every PR.
     "tests/test_row439_segmented_transfers_honor_the_egress_gate.py",
+    # Row 773: every history/login record names its egress (IP or UNKNOWN);
+    # the writers, the schema and the producers span the tree.
+    # CI-SHARD-CLAIM row-773 application-safety tests/test_row773_records_carry_egress_identity.py
+    "tests/test_row773_records_carry_egress_identity.py",
     "tests/test_versync_gate.py",
     "tests/test_release_hygiene_gates.py",
     # Row 335. Both release verifiers previously passed over absent evidence.
@@ -895,6 +914,11 @@ _DECLARED = {
     # for the same recorder.
     # CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
     "tests/test_row753_a_run_records_its_own_outcome.py",
+    # Row 807. The outcome record's third state (recorded: False) must cover a
+    # stats mapping with NO outcome key, not only a missing mapping; the pin
+    # rides beside 753, whose clause 3 reads that record.
+    # CI-SHARD-CLAIM row-807 measurement-tools-core tests/test_row807_empty_stats_is_unknown_not_clean.py
+    "tests/test_row807_empty_stats_is_unknown_not_clean.py",
     # Row 289. SigIgn/SigBlk changed six test verdicts without appearing in
     # the run context. This gate compares both masks with the current process,
     # so every PR records and exercises that environment-identity boundary.
@@ -1231,6 +1255,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
     "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
+    "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
