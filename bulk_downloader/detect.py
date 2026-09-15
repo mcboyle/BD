@@ -1385,6 +1385,147 @@ def _is_navigation_resolution_ghost(el, text, page_url=""):
     return True
 
 
+# Row 759d: a listing FILTER href. Algolia-style sites render the refinement
+# sidebar on the scene page itself; its links read ``4K (2160p) (1234)`` and
+# point at ``/en/videos/?refinementList[...]``, so res_score admits them as
+# quality candidates and they outrank the score-0 ``Download`` div that opens
+# the real quality modal (measured live 2026-09-15, dfxtra + evilangel). The
+# query is judged, never the label: the label is what fooled the ranker.
+#
+# Path-only media-extension check (row759d escape 2): candidate_filter's
+# MEDIA_EXT_RE is deliberately whole-href for its own callers, but here it
+# must not match a query VALUE (``?filter=trailer.mp4``) on a listing href.
+from . import candidate_filter as _candidate_filter_mod
+_MEDIA_EXT_PATH_RE = _candidate_filter_mod.MEDIA_EXT_RE
+
+# Matched against a single query KEY, decoded exactly ONCE (deep-lane O809):
+# the bracket suffix is allowed on every listing/filter key, not only
+# ``refinementList`` (``?filter[quality]=2160p`` is the same control as
+# ``?filter=hd``). Matching only after a SINGLE ``unquote()`` -- never a
+# hand-rolled ``%5B``-as-bracket alternative -- means a double-encoded key
+# (``refinementList%255Bx%255D``) decodes once into literal ``%5B`` text, not
+# a bracket, and correctly fails the match instead of being treated as a
+# listing control it never was.
+_LISTING_FILTER_KEY_RE = re.compile(
+    r"^(?:refinementList|facets?|filters?|sort(?:_?by)?|order(?:_?by)?)"
+    r"(?:\[.*\])?$", re.I)
+
+
+def _iter_raw_query_pairs(raw_query):
+    """Yields ``(raw_pair, decoded_key)`` for each ``&``-separated pair of a
+    RAW (still percent-encoded) query, decoding only the KEY half of each
+    pair. Never decodes the query as a whole (row759d BOUNCE r2): an encoded
+    ``&``/``=`` INSIDE one value must never surface as a fabricated separate
+    key once the remainder is unquoted."""
+    from urllib.parse import unquote
+    for pair in raw_query.split("&"):
+        if not pair:
+            continue
+        raw_key = pair.split("=", 1)[0]
+        yield pair, unquote(raw_key)
+
+
+def _has_listing_filter_key(raw_query):
+    """True if any KEY in the RAW query is a listing/filter control -- the
+    admission gate (deep-lane O809): built on the same per-key, single-decode
+    scan as ``_decode_retained_query`` so an encoded listing token
+    trapped inside another key's VALUE (``?q=plain%26filter%3Dhd``) can never
+    fire the gate the way decoding the whole query up front once did."""
+    return any(_LISTING_FILTER_KEY_RE.match(key)
+               for _, key in _iter_raw_query_pairs(raw_query))
+
+
+def _decode_retained_query_pair(pair):
+    """Decodes one RAW retained (non-filter) query pair for the signal
+    check. The KEY and VALUE are unquoted independently, and any literal
+    ``&``/``=`` that decoding produces INSIDE the value is re-escaped back
+    to ``%26``/``%3D`` -- otherwise an encoded separator buried in an
+    unrelated key's value (``?q=plain%26format%3Dm3u8``) decodes into a
+    fabricated ``format=m3u8`` substring that spoofs the literal
+    ``format=m3u8`` manifest-signal pattern, even though no such key was
+    ever present in the raw query (row759d REFUTE r3)."""
+    from urllib.parse import unquote
+    if "=" in pair:
+        raw_key, raw_value = pair.split("=", 1)
+        value = unquote(raw_value).replace("&", "%26").replace("=", "%3D")
+        return unquote(raw_key) + "=" + value
+    return unquote(pair)
+
+
+def _decode_retained_query(raw_query):
+    """Rebuilds the NON-filter portion of a raw query for the manifest/
+    download-path/api signal check, decoding each retained pair
+    independently (``_decode_retained_query_pair``) rather than unquoting
+    the joined remainder as a whole -- the latter lets an encoded
+    separator trapped inside one pair's value fabricate what looks like an
+    entirely new pair once every pair is decoded together (row759d REFUTE
+    r3, the third round of this decode-order class)."""
+    return "&".join(_decode_retained_query_pair(pair)
+                     for pair, key in _iter_raw_query_pairs(raw_query)
+                     if not _LISTING_FILTER_KEY_RE.match(key))
+
+
+def _is_listing_filter_href(el, text, page_url=""):
+    """True only when the href is a same-origin listing/filter URL with no
+    strong media signal. Fails open (False) on any read error, and never
+    judges a signed or media-shaped URL: those are the row-399 lesson.
+
+    Cross-origin (CDN/signed) hrefs are never listing pages, so an
+    incidental ``&filter=`` in a signed download URL must not be judged
+    (row759d escape 1). The admission gate and the strip below share one
+    per-key, single-decode scan (``_has_listing_filter_key`` /
+    ``_decode_retained_query``) over the RAW query, since decoding the
+    query as a WHOLE before matching let an encoded listing token trapped
+    inside another key's VALUE (``?q=plain%26filter%3Dhd``) fire the gate,
+    and a double-encoded key (``refinementList%255Bx%255D``) look bracketed
+    after one decode (deep-lane O809 REFUTE class). The media-extension check
+    is scoped to the URL PATH, not the whole href, since ``positive_signals()``
+    matches the whole string and a query VALUE like ``?filter=trailer.mp4``
+    would otherwise spoof a media signal on a listing href (escape 2). The
+    listing-filter key=value pair(s) are also dropped from the retained
+    query before the manifest/download-path/api signal check, and every
+    retained pair's VALUE is decoded independently with its own ``&``/``=``
+    re-escaped, since the filter VALUE itself (e.g. ``?filter=trailer.m3u8``
+    or ``?filter=/download/trailer``) must not spoof those signals, an
+    encoded separator hidden in another key's value must not fabricate a
+    new key (e.g. ``?q=plain%26format%3Dm3u8`` must not spoof
+    ``format=m3u8``, REFUTE r3), while signals on OTHER genuine query keys
+    remain honored (escape xh1)."""
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        return False
+    if not href:
+        return False
+    try:
+        from urllib.parse import urlsplit, urljoin, unquote
+        parts = urlsplit(urljoin(page_url, href) if page_url else href)
+    except Exception:
+        return False
+    if page_url:
+        try:
+            if urlsplit(page_url).netloc != parts.netloc:
+                return False
+        except Exception:
+            return False
+    if not parts.query or not _has_listing_filter_key(parts.query):
+        return False
+    try:
+        if _MEDIA_EXT_PATH_RE.search(parts.path):
+            return False
+        from . import candidate_filter as _candidate_filter
+        cleaned_query = _decode_retained_query(parts.query)
+        cleaned_url = parts.path + ("?" + cleaned_query if cleaned_query else "")
+        strong = {"manifest_url", "download_path", "api_pattern"}
+        media_signals = strong.intersection(
+            _candidate_filter.positive_signals(cleaned_url, text or "", ""))
+        if media_signals:
+            return False
+    except Exception:
+        return False
+    return True
+
+
 def _candidate_admission(el, text, page_url="", require_signal=True,
                          label=None):
     """Shared learned/wide admission. Returns None to admit, else the reason.
@@ -1410,6 +1551,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         return "no_signal"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
+    if _is_listing_filter_href(el, t, page_url):
+        return "listing_filter"
     return None
 
 
@@ -1472,7 +1615,8 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # with the selector list would not be a number an operator could act on.
     # Identity is the harvested text, the same key ``seen`` already uses for
     # admitted candidates, so both halves of the page report one vocabulary.
-    _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0}
+    _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
+                          "listing_filter": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):

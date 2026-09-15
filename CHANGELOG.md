@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1560 - row759dc: a per-key listing-filter gate so an encoded separator cannot fabricate a media key
+
+Train: 1 refute-first-reviewed worker patches.
+
+- 759DC-A6-A-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row759dc-A6-A-local/DONE.md
+
 ## v3.66.1559 - Train18e v3.66.1559: row656 cut-quality permits; row700-r5 captcha egress ack and row395-to-row700 rename; row716rp2 mirror-swap anchors; row741 typed relogin refusals; row787 sentinel must not look found; row794 and row800 rebases
 
 Train: 5 refute-first-reviewed worker patches.
