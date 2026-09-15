@@ -1088,6 +1088,43 @@ if not isinstance(version, str) or not version:
 sys.stdout.write("\t".join((kind, version, str(state or "unknown"))))
 '
 }
+
+# Row 697 boundary: A LOCKED VAULT CAN ANSWER 200.  credential_health() calls an
+# initialized-but-locked vault ok=True with state "locked_no_references" when the
+# live configuration references no credential at all, and _attach_credential_health
+# then sets vault_ready=True without touching payload["ok"] -- so the route answers
+# 200 and every vault branch above, which lives under `code = 503`, never sees it.
+# That box is not the same box as an unlocked one: it serves no credential to
+# anybody and fails the moment a site references one.  It is still a legitimate
+# deploy (it is exactly the state after `sites clear`), so this is a NAMED WARNING
+# and not a refusal -- but it must not be reported in the words a served vault gets.
+# Exit 0 = this exact state, nothing else; any other 200 body, and any body this
+# cannot parse, exits nonzero and the ordinary note is printed.
+_vault_locked_without_references() {
+  printf '%s' "$1" | "$VENV_PY" -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+if not isinstance(payload, dict):
+    raise SystemExit(1)
+credentials = payload.get("credentials")
+if not isinstance(credentials, dict):
+    raise SystemExit(1)
+# Every clause is required.  state alone would fire over a payload that merely
+# quotes the string, and vault_ready alone is True for a fully unlocked vault too.
+raise SystemExit(0 if (
+    payload.get("vault_ready") is True
+    and credentials.get("is_initialized") is True
+    and credentials.get("is_unlocked") is False
+    and credentials.get("state") == "locked_no_references"
+    and credentials.get("reference_count") == 0
+) else 1)
+'
+}
 while :; do
   bodyf="$(mktemp)"
   code="$(curl -s -o "$bodyf" -w '%{http_code}' --max-time 5 "$HEALTH_URL" 2>/dev/null)" || true
@@ -1213,6 +1250,15 @@ fi
 if [ "$health_serving_degraded" -eq 1 ]; then
   note "serving-degraded verified: /api/health version $TREE_VERSION with
   credential_vault_locked, GET / = $rcode; Settings -> Secrets unlock required"
+elif _vault_locked_without_references "$body"; then
+  note "VAULT-LOCKED-NO-REFERENCES: health verified: /api/health version
+  $TREE_VERSION, GET / = $rcode -- but the credential vault is INITIALIZED AND
+  STILL LOCKED and the live configuration references no credential, so the vault
+  reported state=locked_no_references and this 200 means \"nothing asks for a
+  credential\", NOT \"credentials are being served\". This is the expected state
+  after a sites clear. On a host that is meant to carry loaded sites it is not:
+  the first site that references a credential will fail until a human opens
+  Settings -> Secrets -> Unlock."
 else
   note "health verified: /api/health version $TREE_VERSION, GET / = $rcode"
 fi
