@@ -1,0 +1,27 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Transform control for row750_ipv6_unwrapped_metadata.json. It must exit 1 with both mutants ESCAPED. The row-750 gate judges _host_ok_for_hook and _classify_ip THEMSELVES and never reaches a sink or a caller, so bypassing a sink's call to the guard cannot make it fail. A CAUGHT here would mean the mutants break import or parsing rather than behaviour, and every CAUGHT in the main battery would be worthless.",
+ "subject": "transform control -- a sink's guard bypass stays executable and is NOT caught by the row-750 predicate gate, which never calls a sink",
+ "band": [
+  "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate",
+  "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+ ],
+ "mutants": [
+  {
+   "label": "TC row750_hooks_stash_sink",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(stash_url\\)",
+   "new": "(True, stash_url)",
+   "direction": "regression",
+   "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate"
+  },
+  {
+   "label": "TC row750_hooks_home_assistant_sink",
+   "file": "bulk_downloader/hooks.py",
+   "old_regex": "_validate_webhook_url\\(ha_url\\)",
+   "new": "(True, ha_url)",
+   "direction": "regression",
+   "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+  }
+ ]
+}

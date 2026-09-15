@@ -427,6 +427,58 @@ def _is_safe_public_host(host: str) -> Tuple[bool, _HostSafetyMessage]:
     return True, classified[0][1]
 
 
+_NAT64_WELL_KNOWN = "64:ff9b::/96"
+
+
+def _embedded_ipv4(addr):
+    """Every IPv4 address an IPv6 address carries (mapped, 6to4, Teredo server
+    and client, NAT64 well-known prefix); empty for an IPv4 address.
+
+    Row 750. bulk_downloader/ssrf_transport.py already has this function and this
+    is deliberately NOT an import of it: function-local imports are counted by
+    tools/decomp/import_graph_baseline.json, so importing it here would add an
+    import edge, and that baseline is re-frozen only ONCE on merged main -- never
+    inside the cut that adds the edge (tools/decomp/import_graph_gate.py says so
+    in its own docstring). Consolidating the two copies needs a cut that can
+    re-freeze; this one declares the duplication instead of hiding it.
+    """
+    import ipaddress as _ip
+    if not isinstance(addr, _ip.IPv6Address):
+        return ()
+    carried = []
+    for candidate in (addr.ipv4_mapped, addr.sixtofour):
+        if candidate is not None:
+            carried.append(candidate)
+    teredo = addr.teredo
+    if teredo:
+        carried.extend(teredo)
+    if addr in _ip.ip_network(_NAT64_WELL_KNOWN):
+        carried.append(_ip.IPv4Address(int(addr) & 0xFFFFFFFF))
+    return tuple(carried)
+
+
+def _view_to_classify(addr):
+    """The address _classify_ip should judge: the first IPv4 `addr` carries that
+    is never a legitimate target, else `addr` itself.
+
+    Row 750. The never-allowed set here is exactly the one _classify_ip already
+    refuses and no caller relaxes -- link-local (the cloud-metadata endpoint),
+    CGNAT, reserved, multicast, unspecified. It deliberately does NOT include
+    loopback or private: those two are the relaxable answers, so substituting a
+    carried one would change which refusal a caller sees rather than whether the
+    address is refused. Returning the carried view means the reason code and the
+    human message name the address that is actually reached, instead of PRIVATE
+    or RESERVED read off a range table that happens to contain the wrapper.
+    """
+    import ipaddress as _ip
+    for view in _embedded_ipv4(addr):
+        if (view.is_link_local or view.is_reserved or view.is_multicast
+                or view.is_unspecified
+                or view in _ip.ip_network("100.64.0.0/10")):
+            return view
+    return addr
+
+
 def _classify_ip(addr, host_repr: str) -> Tuple[bool, _HostSafetyMessage]:
     """Per-IP safety check. Splits out from _is_safe_public_host so
     literal-IP hosts and resolved hostnames share the same predicate.
@@ -439,6 +491,9 @@ def _classify_ip(addr, host_repr: str) -> Tuple[bool, _HostSafetyMessage]:
     # covers loopback and link-local on Python's stdlib (since they're
     # "not public"). is_loopback and is_link_local are explicit
     # subsets. We list all four for clarity in the rejection reason.
+    # Row 750. An IPv6 address that carries a never-allowed IPv4 address is
+    # judged on what it carries; everything below is unchanged.
+    addr = _view_to_classify(addr)
     if addr.is_loopback:
         return False, _host_safety_message(
             HostSafetyReason.LOOPBACK,

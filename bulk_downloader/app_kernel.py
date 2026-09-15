@@ -50,7 +50,7 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             #  captcha_provider — "2captcha" or "capsolver" (default 2captcha)
             #  captcha_api_key  — provider API key for Turnstile auto-solve
             "use_curl_cffi","proxy","warmup_urls","warmup_every",
-            "captcha_provider","captcha_api_key","use_captcha_relay",
+            "captcha_provider","captcha_api_key","use_captcha_relay","turnstile_one_click",
             # v3.66.324 (Phase 4 gap A4 / GAP1): per-site VPN routing block.
             # Resolved by vpn_runtime.is_vpn_required_for_site/get_tunnel_for_site;
             # the kill-switch gate keys off vpn_required. Categorize "general" ->
@@ -547,7 +547,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           "manual_use_persistent_profile":True,
           "log_network":False,
           "use_curl_cffi":True,"proxy":"","warmup_urls":"","warmup_every":1800,
-          "captcha_provider":"2captcha","captcha_api_key":"",
+          "captcha_provider":"2captcha","captcha_api_key":"","turnstile_one_click":False,
           "parallel_chunks":1,"parallel_min_size_mb":100,"mirror_subdomains":"",
           "verify_hash":True,"min_size_pct":5.0,"auto_chunk_size":False,
           "bandwidth_schedule_enabled":False,"max_mbps":0,

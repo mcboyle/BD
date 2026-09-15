@@ -1,0 +1,84 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 750: an IPv6 address that CARRIES the cloud-metadata endpoint (::ffff:169.254.169.254, 2002:a9fe:a9fe::, 2001:0:...:5601:5601, 64:ff9b::a9fe:a9fe) must be judged on the IPv4 it carries, before the private/loopback relaxation. Each mutant removes one unwrap or puts the relaxation first; each must be CAUGHT. Every anchor is zero-width on purpose (row 357): the mutation is the inserted line, so the matched span carries no value-bearing token. The companion row750_ipv6_unwrapped_metadata_transform_control.json must ESCAPE. Re-run from a detached scratch copy with the venv symlinked in: toolchain/bin/bd-mutate --spec tests/mutants/row750_ipv6_unwrapped_metadata.json M9 is the NEGATIVE CONTROL's own positive control: The NEGATIVE CONTROL's own positive control. Every other mutant here proves the unwrap is load-bearing; this one proves the cut cannot buy those catches with a blanket refusal. It leaves every metadata spelling refused (the two counting tests stay green) and takes away only the LAN/loopback relaxation the plex/jellyfin/home-assistant/stash hooks exist for, so ONLY test_the_hook_relaxation_survives_the_unwrap fails -- which is what 'the negative control fails for the intended reason' means.",
+  "subject": "the embedded-IPv4 unwrap in hooks.py and provider_resolve_impl/_common.py, and its position before the private relaxation",
+  "band": [
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate",
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name",
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_the_hook_relaxation_survives_the_unwrap"
+  ],
+  "mutants": [
+    {
+      "label": "M1 hook unwrap yields nothing (the pre-750 outer-only classification)",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^    addrs = \\[view for answer in addrs)",
+      "new": "    _embedded_ipv4 = lambda answer: ()\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate"
+    },
+    {
+      "label": "M2 hook unwrap drops the 6to4 view",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^    return tuple\\(carried\\)$)",
+      "new": "    carried = [c for c in carried if c != addr.sixtofour]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate"
+    },
+    {
+      "label": "M3 hook unwrap drops the Teredo view",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^    return tuple\\(carried\\)$)",
+      "new": "    carried = [c for c in carried if not addr.teredo or c not in addr.teredo]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate"
+    },
+    {
+      "label": "M4 hook relaxation runs first: private answers skip the never-allowed set",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^    _v6_imds = ipaddress)",
+      "new": "    addrs = [answer for answer in addrs if not answer.is_private]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_hook_predicate"
+    },
+    {
+      "label": "M5 provider classifies the wrapper again (the pre-750 shape)",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?=^    addr = _view_to_classify\\(addr\\)$)",
+      "new": "    _view_to_classify = lambda view: view\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+    },
+    {
+      "label": "M6 provider unwrap drops the NAT64 view",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?=^    return tuple\\(carried\\)$)",
+      "new": "    carried = [c for c in carried if addr not in _ip.ip_network(_NAT64_WELL_KNOWN)]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+    },
+    {
+      "label": "M7 provider unwrap drops the IPv4-mapped view",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?=^    return tuple\\(carried\\)$)",
+      "new": "    carried = [c for c in carried if c != addr.ipv4_mapped]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+    },
+    {
+      "label": "M8 provider never-allowed set is read off the wrapper instead of the carried view",
+      "file": "bulk_downloader/provider_resolve_impl/_common.py",
+      "old_regex": "(?m)(?=^        if \\(view\\.is_link_local)",
+      "new": "        view = addr\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
+    },
+    {
+      "label": "M9 the correction over-refuses: the private relaxation is withdrawn with the unwrap",
+      "file": "bulk_downloader/hooks.py",
+      "old_regex": "(?m)(?=^        if isinstance\\(a, ipaddress\\.IPv4Address\\))",
+      "new": "        if a.is_private or a.is_loopback:\n            return False, f\"refusing private address ({host} -> {a})\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_the_hook_relaxation_survives_the_unwrap"
+    }
+  ]
+}

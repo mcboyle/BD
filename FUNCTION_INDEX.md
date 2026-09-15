@@ -787,16 +787,17 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (7 entries)
+## `bulk_downloader/login_impl/submit.py` (8 entries)
 
 ```
-- L0025 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0054 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0093 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0168 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0229 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0500 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0570 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0026 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0055 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0094 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0118 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0206 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0267 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0538 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0608 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -830,4 +831,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 654 across 22 files._
+_Total entries: 655 across 22 files._

@@ -57,7 +57,7 @@ PINNED = "pinned"
 # this gate does not pretend to. It is declared here so that a SECOND such site
 # -- a new construction whose policy stops being readable from the tree -- is
 # RED rather than silently unmeasured.
-SHARED_BUILDER = "bulk_downloader/provider_resolve_impl/_common.py:740"
+SHARED_BUILDER = "bulk_downloader/provider_resolve_impl/_common.py:795"  # row 750 moved it down 55 lines (the embedded-IPv4 unwrap helper); same construction
 SHARED_BUILDER_NOTE = (
     "policy is the runtime allow_private_hosts argument of "
     "_make_default_http_get; COULD NOT LOOK statically, by construction")
@@ -109,7 +109,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_transport.py:2677": PINNED,
     "bulk_downloader/runner_transport.py:2757": PINNED,
     "bulk_downloader/runner_transport.py:2908": PINNED,
-    "bulk_downloader/session_keeper.py:1231": PINNED,
+    "bulk_downloader/session_keeper.py:1242": PINNED,
     "bulk_downloader/tg_bot.py:162": PINNED,
     "bulk_downloader/tg_bot.py:185": PINNED,
     "bulk_downloader/tier_probe.py:299": PUBLIC_ONLY,

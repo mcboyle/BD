@@ -478,6 +478,7 @@ jobs:
               tests/test_row360_turnstile_bypass_is_installed.py
               tests/test_row763_child_frame_turnstile.py
               tests/test_row764_turnstile_bypass_verdict.py
+              tests/test_row775_turnstile_one_click_affordance.py
               tests/test_row765_scrapling_selector_compatibility.py
               tests/test_row763_frame_urls_never_reach_the_model_prompt.py
               tests/test_rows706_714_test_hygiene.py
@@ -490,11 +491,13 @@ jobs:
               tests/test_v3_62_2_guards.py
               tests/test_row634_live_registry_iteration_is_snapshotted.py
               tests/test_login_api_refuses_impossible_manual_start.py
+              tests/test_row772_rejected_login_is_not_success.py
               tests/test_row667_login_attempt_accounting.py
               tests/test_row740_login_cap_writer_atomicity.py
               tests/test_row806_health_payload_names_the_deployed_cloak_state.py
               tests/test_row774_login_submit_refuses_cross_origin_navigation.py
               tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
+              tests/test_row719_scene_classifier_underselects.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py
@@ -511,6 +514,7 @@ jobs:
               tests/test_row785_login_evidence_filenames_are_shell_safe.py
               tests/test_row805_ssrf_census_covers_every_transport.py
               tests/test_row780_sites_config_listing_url_round_trip.py
+              tests/test_row750_ipv6_unwrapped_metadata_bypass.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -801,6 +805,7 @@ jobs:
               tests/test_home_config_stores_are_guarded.py
               tests/test_v3_66_1009_live_results_are_bundled.py
               tests/test_v3_66_285_cloak_parity.py
+              tests/test_row667_keeper_browser_log_names_persistence.py
               tests/test_v3_66_795_mod3_seam.py
           - name: toolchain-verifiers
             suites: >-

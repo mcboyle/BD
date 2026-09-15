@@ -954,8 +954,19 @@ class SessionKeeper:
             # There is no separate `Browser` handle — leave `self._browser`
             # as None and let `_browser_alive` check the context.
             self._browser = None
+            # Row 667: name the persistence this launch ACTUALLY used, the way
+            # every other browser flow does. The keeper is persistent by
+            # design, so a site configured otherwise is a divergence the log
+            # has to record rather than omit -- an unqualified line cannot be
+            # matched against the site's use_persistent_profile at all.
+            _persist_detail = "persistent keepalive profile"
+            if not bool(self.config.get("use_persistent_profile", True)):
+                _persist_detail += (
+                    " (config use_persistent_profile=False; the keeper keeps a"
+                    " profile by design)")
             _cloak.log_choice(
-                f"keepalive[{self.site_id}/{self.account_idx}]", backend)
+                f"keepalive[{self.site_id}/{self.account_idx}]", backend,
+                _persist_detail)
 
             # First-launch only: seed cookies from the DB-backed
             # cookies file. After this, the persistent context owns

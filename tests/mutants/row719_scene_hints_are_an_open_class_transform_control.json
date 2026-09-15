@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 719, in its own file. It applies M4's byte-identical transform to the template-hint normalisation while its only band node reads the scene-hint DATA and never drives the classifier. It MUST ESCAPE, which proves the regression spec's CAUGHTs are assertion failures rather than import or syntax breakage.",
+  "subject": "transform control for row 719's template scene-hint normalisation",
+  "band": [
+    "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hint_rule_is_data"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 normalisation dropped under a node that never drives the classifier",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        scene_hints\\.extend\\(str\\(hint\\)\\.lower\\(\\)\\.strip\\(\\))(?=$)",
+      "new": ".upper()",
+      "direction": "regression",
+      "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hint_rule_is_data"
+    }
+  ]
+}
