@@ -35,6 +35,7 @@ def main():
     if "--selftest" in _s.argv: return selftest()
     ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--venv"); a=ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
     py=a.venv or os.path.join(a.work,"venv","bin","python")
     if not os.path.exists(py):
         py=sec.resolve_test_interpreter(a.work)

@@ -49,6 +49,7 @@ def main():
     ap.add_argument("--shrink",action="store_true",
                     help="with --update: deliberately drop frozen edges")
     a=ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
     if a.shrink and not a.update:
         ap.error("--shrink is only meaningful with --update")
     if a.update:

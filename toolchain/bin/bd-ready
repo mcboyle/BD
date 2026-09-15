@@ -86,6 +86,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     print(f"{BOLD}== cut-readiness preflight =={RST}  (work: {a.work})")
     n_pass = n_fail = n_unknown = 0
     for label, tool in CHECKS:

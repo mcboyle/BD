@@ -192,6 +192,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=300)
     ap.add_argument("--work", "--tree", default=sec.DEFAULT_WORK)
     a = ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
 
     # Door check. Two tiers, ONE exit code: the known hazards (which this tool
     # has always refused) and, since @868, existence. Both are CANNOT-EVALUATE

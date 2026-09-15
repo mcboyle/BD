@@ -293,6 +293,7 @@ def main() -> int:
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
 
     if not os.path.isdir(a.pk):
         print(f"{R}XX{RST}  cannot verify -- PK root absent: {a.pk} "

@@ -161,6 +161,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
 
     routes_dir = os.path.join(a.work, "frontend", "src", "routes")
     if not os.path.isdir(routes_dir):

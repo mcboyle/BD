@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 470 transform control. The same valid bd-ascii guard deletion is pointed at an import-only test and must escape, proving the primary catches come from assertions rather than parsing or import failure.",
+  "subject": "transform-only control for a corpus-precondition deletion",
+  "band": [
+    "tests/test_row470_corpus_tools_fail_closed.py::test_transform_control_imports_the_census_without_judging_guard_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "transform control omits the ascii corpus precondition",
+      "file": "toolchain/bin/bd-ascii",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_transform_control_imports_the_census_without_judging_guard_behavior",
+      "old": "sec.require_source_tree"
+    }
+  ]
+}

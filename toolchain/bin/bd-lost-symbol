@@ -169,6 +169,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     if not a.old:
         ap.error("--old <previous release zip> is required")
     if not os.path.isfile(a.old):

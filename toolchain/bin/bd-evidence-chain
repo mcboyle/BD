@@ -130,6 +130,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_corpus(a.home, min_files=1, label="--home")
     if a.verify:
         if not os.path.isfile(a.verify):
             sys.stderr.write("CANNOT-EVALUATE evidence chain: reason=%s "

@@ -236,6 +236,11 @@ def main():
                     help="defect_patterns regression corpus (DP-*_vuln.py pairs)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    sec.require_source_tree(a.root, label="--root")
+    sec.require_corpus(
+        a.corpus, min_files=1, label="--corpus",
+        patterns=("*_vuln.py", "*_fixed.py"),
+    )
 
     results = collect(a)
     rc = verdict(results)

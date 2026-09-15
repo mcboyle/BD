@@ -386,8 +386,27 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row738_login_cap_single_process_premise.py",
             r"(?m)^def test_invariants_declares_single_process_login_cap_premise\(\):$",
         ),
+    # Row 804: the route-registration-plus-goto pairing is a fixed
+    # control-flow contract (page.route must be armed before page.goto),
+    # not a value copied from a measurement producer; audited by the
+    # defect test this anchor's mutant is the catcher for.
+    "7b2febc731aee40f4a5ce4b6d709fc33c38dc26dce1ed9eee34ad9bd6e5e2669":
+        StableValueException(
+            "the route guard must be registered before the pinned navigation, a fixed control-flow contract",
+            "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
+            r"(?m)^def test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused\($",
+        ),
+    # Row 804: the classifier's hop verdict is a fixed True/None safety
+    # bypass used only to prove the guard is load-bearing, not a value
+    # copied from a measurement producer; audited by the same catcher.
+    "c6f0073b74ce8a84faf3fa71b79aa4cca5519a7a441bd0db42dd9e7a54f72d71":
+        StableValueException(
+            "always-safe is the fixed bypass that proves the per-hop classifier call is load-bearing",
+            "tests/test_row804_browser_redirect_bypasses_metadata_guard.py",
+            r"(?m)^def test_a_redirect_to_the_metadata_address_after_the_pinned_navigation_is_refused\($",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 34
+_STABLE_VALUE_EXCEPTION_MAX = 36
 
 
 def _family(

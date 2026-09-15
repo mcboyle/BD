@@ -41,12 +41,18 @@ _HOST_IPS = {
 _EXPECTED_RUNTIME_CONSUMERS = {
     "bulk_downloader/app.py": {"_is_safe_public_host": 1},
     "bulk_downloader/app_flaresolverr.py": {"_is_safe_public_host": 1},
-    # ROW 779. The two _is_safe_public_host sites are the sandbox pre-fetch
-    # check and the HTTP redirect-hop check. The third site is the browser
-    # mode's pin: it resolves the host again immediately before launch and
-    # classifies EVERY answer through _classify_ip, so that Chromium is given
-    # a vetted IP literal rather than a name it would resolve for itself.
-    "bulk_downloader/app_template.py": {"_is_safe_public_host": 2,
+    # ROW 779. Two of the three _is_safe_public_host sites are the sandbox
+    # pre-fetch check and the HTTP redirect-hop check. Separately,
+    # _classify_ip is called once more for the browser mode's pin: it
+    # resolves the host again immediately before launch and classifies EVERY
+    # answer, so that Chromium is given a vetted IP literal rather than a
+    # name it would resolve for itself.
+    # ROW 804. The third _is_safe_public_host site is
+    # _sandbox_browser_route_is_safe, called from the browser mode's
+    # page.route guard on every post-navigation hop (redirect / JS
+    # navigation / XHR) that the row 779 pin does not cover, since that pin
+    # only protects the FIRST navigation.
+    "bulk_downloader/app_template.py": {"_is_safe_public_host": 3,
                                         "_classify_ip": 1},
     "bulk_downloader/candidate_filter.py": {"_classify_ip": 1},
     "bulk_downloader/deep_detect/orchestrate.py": {"_is_safe_public_host": 1},
@@ -891,8 +897,8 @@ def test_runtime_consumer_census_judges_every_site_without_english_decisions():
     }
     assert measured == expected
     assert noncanonical == expected_noncanonical
-    assert sum(sum(counts.values()) for counts in measured.values()) == 30
-    assert judged == 30
+    assert sum(sum(counts.values()) for counts in measured.values()) == 31
+    assert judged == 31
     _assert_consumer_verdict(judged, escapes)
 
 
@@ -921,9 +927,9 @@ def test_consumer_census_rejects_reason_text_startswith_decision(monkeypatch):
         f"bulk_downloader/app_template.py:{mutant_line}:"
         "_host_why:startswith:['refusing']")
     assert observed == [target]
-    assert judged == 30
+    assert judged == 31
     assert escapes == [expected]
-    with pytest.raises(AssertionError, match=r"census 30 sites, 30 judged"):
+    with pytest.raises(AssertionError, match=r"census 31 sites, 31 judged"):
         _assert_consumer_verdict(judged, escapes)
 
 
@@ -968,7 +974,7 @@ def test_consumer_census_rejects_every_reason_text_decision_form(
     expected = (
         f"bulk_downloader/app_template.py:{mutant_line}:"
         f"_host_why:{kind}:{expected_strings!r}")
-    assert judged == 30
+    assert judged == 31
     assert escapes == [expected]
 
 
@@ -1009,8 +1015,8 @@ def test_consumer_census_resolves_alias_and_ignores_unreachable_decoy(
         f"bulk_downloader/app_template.py:{expected_line}:"
         "_host_why:in:['refusing']")
     assert measured["bulk_downloader/app_template.py"] == Counter(
-        {"_is_safe_public_host": 2, "_classify_ip": 1})
-    assert judged == 30
+        {"_is_safe_public_host": 3, "_classify_ip": 1})
+    assert judged == 31
     assert escapes == [expected_escape]
 
 
@@ -1045,7 +1051,7 @@ def test_consumer_census_finds_alias_only_consumer_in_new_file(monkeypatch):
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     measured, _noncanonical, judged, escapes = _consumer_census()
     assert measured[synthetic_rel] == Counter({"_is_safe_public_host": 1})
-    assert judged == 31
+    assert judged == 32
     assert escapes == []
 
 
@@ -1098,7 +1104,7 @@ def test_consumer_census_rejects_text_decisions_in_indirect_consumers(
 
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     _measured, _noncanonical, judged, escapes = _consumer_census()
-    assert judged == 30
+    assert judged == 31
     assert len(escapes) == 5
     assert Counter(item.split(":", 1)[0] for item in escapes) == Counter({
         "bulk_downloader/multi_conn.py": 2,

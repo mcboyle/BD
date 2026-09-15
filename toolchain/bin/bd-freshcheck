@@ -317,6 +317,7 @@ def main() -> int:
 
     if a.selftest:
         return _selftest(root)
+    sec.require_source_tree(str(root), label="--root")
 
     rows = run_all(root, repo_only=a.repo_only)
     if a.json:

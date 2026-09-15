@@ -26,6 +26,7 @@ def main():
     if "--selftest" in _s.argv: return selftest()
     ap=argparse.ArgumentParser(); ap.add_argument("--pk",default="/mnt/project"); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     a=ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
     p=None
     for c in (os.path.join(a.work,"COVERAGE_GAPS.json"),os.path.join(a.pk,"COVERAGE_GAPS.json")):
         if os.path.exists(c): p=c; break

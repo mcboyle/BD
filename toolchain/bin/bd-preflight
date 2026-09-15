@@ -326,6 +326,7 @@ def main(argv=None):
     ap.add_argument("--determinism", action="store_true",
                     help="also rebuild unmodified frontend + compare bundle hash")
     a = ap.parse_args(argv)
+    sec.require_source_tree(a.work, label="--work")
 
     # CLAUDE.md s0: an absent corpus is UNKNOWN, not a failure. Both of these used
     # to return 1 -- the same code a REAL byte-divergence returns -- so a caller

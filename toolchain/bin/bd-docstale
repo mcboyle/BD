@@ -83,6 +83,7 @@ def main():
     a=ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
     docs = a.dir if a.dir is not None else os.path.join(a.work,"project-knowledge")
     cur=None
     try:

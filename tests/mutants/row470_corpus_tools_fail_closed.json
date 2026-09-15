@@ -1,0 +1,415 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 470. One no-op substitution per executed corpus-precondition seam. Every structural function-name anchor is value-free and occurs exactly once within its named file.",
+  "subject": "every corpus-taking operational tool reaches a shared fail-closed precondition before producing a verdict",
+  "band": [
+    "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+    "tests/test_row470_corpus_tools_fail_closed.py::test_equiv_also_guards_its_optional_corpus[absent]",
+    "tests/test_row470_corpus_tools_fail_closed.py::test_equiv_also_guards_its_optional_corpus[empty]",
+    "tests/test_row470_corpus_tools_fail_closed.py::test_audit_gate_also_guards_its_optional_corpus[absent]",
+    "tests/test_row470_corpus_tools_fail_closed.py::test_runtime_classifier_executes_every_row470_special_case",
+    "tests/test_row470_corpus_tools_fail_closed.py::test_non_corpus_compatibility_flag_needs_an_explicit_scoped_exemption"
+  ],
+  "mutants": [
+    {
+      "label": "ascii omits its corpus precondition",
+      "file": "toolchain/bin/bd-ascii",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "audit gate omits its source-root precondition",
+      "file": "toolchain/bin/bd-audit-gate.py",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "brief omits its corpus precondition",
+      "file": "toolchain/bin/bd-brief",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "bump omits its corpus precondition",
+      "file": "toolchain/bin/bd-bump",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "capsweep omits its corpus precondition",
+      "file": "toolchain/bin/bd-capsweep",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "changelog omits its corpus precondition",
+      "file": "toolchain/bin/bd-changelog",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "coverage omits its corpus precondition",
+      "file": "toolchain/bin/bd-coverage",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "decomp omits its corpus precondition",
+      "file": "toolchain/bin/bd-decomp",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "deps omits its corpus precondition",
+      "file": "toolchain/bin/bd-deps",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "docstale omits its corpus precondition",
+      "file": "toolchain/bin/bd-docstale",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "envscan omits its corpus precondition",
+      "file": "toolchain/bin/bd-envscan",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "equiv omits its work-tree precondition",
+      "file": "toolchain/bin/bd-equiv",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "equiv omits its optional corpus precondition",
+      "file": "toolchain/bin/bd-equiv",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_equiv_also_guards_its_optional_corpus[absent]",
+      "old": "sec.corpus_guard"
+    },
+    {
+      "label": "evidence omits its corpus precondition",
+      "file": "toolchain/bin/bd-evidence",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "evidence chain omits its corpus precondition",
+      "file": "toolchain/bin/bd-evidence-chain",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "frontend dead-control omits its corpus precondition",
+      "file": "toolchain/bin/bd-fe-dead-control",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "footguns omits its corpus precondition",
+      "file": "toolchain/bin/bd-footguns",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "freshcheck omits its corpus precondition",
+      "file": "toolchain/bin/bd-freshcheck",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "fullsuite omits its corpus precondition",
+      "file": "toolchain/bin/bd-fullsuite",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "guard declare omits its corpus precondition",
+      "file": "toolchain/bin/bd-guard-declare",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "gui surface omits its corpus precondition",
+      "file": "toolchain/bin/bd-gui-surface",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "imports omits its corpus precondition",
+      "file": "toolchain/bin/bd-imports",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "lost symbol omits its corpus precondition",
+      "file": "toolchain/bin/bd-lost-symbol",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "parband omits its corpus precondition",
+      "file": "toolchain/bin/bd-parband",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "pin omits its corpus precondition",
+      "file": "toolchain/bin/bd-pin",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "pinscan omits its corpus precondition",
+      "file": "toolchain/bin/bd-pinscan",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "project-knowledge mirror omits its corpus precondition",
+      "file": "toolchain/bin/bd-pk-mirror",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "precut omits its corpus precondition",
+      "file": "toolchain/bin/bd-precut",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "preflight omits its corpus precondition",
+      "file": "toolchain/bin/bd-preflight",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "ratchet omits its corpus precondition",
+      "file": "toolchain/bin/bd-ratchet",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "ready omits its corpus precondition",
+      "file": "toolchain/bin/bd-ready",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "regen omits its corpus precondition",
+      "file": "toolchain/bin/bd-regen",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "render omits its corpus precondition",
+      "file": "toolchain/bin/bd-render",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "retest omits its explicit corpus precondition",
+      "file": "toolchain/bin/bd-retest",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "rollback oracle omits its corpus precondition",
+      "file": "toolchain/bin/bd-rollback-oracle",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "route omits its corpus precondition",
+      "file": "toolchain/bin/bd-route",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "secrets omits its corpus precondition",
+      "file": "toolchain/bin/bd-secrets",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "smoke omits its corpus precondition",
+      "file": "toolchain/bin/bd-smoke",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "ssrf omits its corpus precondition",
+      "file": "toolchain/bin/bd-ssrf",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "surface census omits its corpus precondition",
+      "file": "toolchain/bin/bd-surface-census",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "sym omits its corpus precondition",
+      "file": "toolchain/bin/bd-sym",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "treecheck omits its corpus precondition",
+      "file": "toolchain/bin/bd-treecheck",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "wacz corpus omits its corpus precondition",
+      "file": "toolchain/bin/bd-wacz-corpus",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.corpus_guard"
+    },
+    {
+      "label": "audit gate omits its optional corpus precondition",
+      "file": "toolchain/bin/bd-audit-gate.py",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_audit_gate_also_guards_its_optional_corpus[absent]",
+      "old": "sec.require_corpus"
+    },
+    {
+      "label": "dependency license omits its source-tree precondition",
+      "file": "toolchain/bin/bd-dependency-license",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "invariant engine omits its source-tree precondition",
+      "file": "toolchain/bin/bd-invariant-engine",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "offline proof omits its source-tree precondition",
+      "file": "toolchain/bin/bd-offline-proof",
+      "new": "(lambda *args, **kwargs: None)",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_every_row470_tool_reaches_its_shared_guard_once[absent]",
+      "old": "sec.require_source_tree"
+    },
+    {
+      "label": "classifier stops honoring the runtime probe-args comment",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "new": "if False else []",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_runtime_classifier_executes_every_row470_special_case",
+      "old_regex": "if probe_args else \\[\\]"
+    },
+    {
+      "label": "classifier ignores scoped per-argument exemptions",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "new": "(lambda _src: ())",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_non_corpus_compatibility_flag_needs_an_explicit_scoped_exemption",
+      "old_regex": "(?<=exemptions = )corpus_arg_exemptions(?=\\(src\\))"
+    },
+    {
+      "label": "classifier probes exempt flags as if they selected a corpus",
+      "file": "toolchain/bin/bdtools_sec.py",
+      "new": "in",
+      "direction": "regression",
+      "catcher": "tests/test_row470_corpus_tools_fail_closed.py::test_non_corpus_compatibility_flag_needs_an_explicit_scoped_exemption",
+      "old_regex": "(?<=if flag )not in(?= exempt_flags)"
+    }
+  ]
+}

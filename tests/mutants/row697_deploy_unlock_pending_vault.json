@@ -25,7 +25,7 @@
     {
       "label": "M3 stop after the hook instead of re-probing health",
       "file": "scripts/deploy.sh",
-      "old_regex": "(?m)^        continue(?=\\n      fi\\n      if \\[ \"\\$vault_state\" != \"locked\" \\]; then)",
+      "old_regex": "(?m)^        continue(?=\\n      fi\\n      got=\"\\$vault_version\")",
       "new": "        break",
       "direction": "regression",
       "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_initialized_locked_vault_runs_unlock_hook_then_reprobes_health"
@@ -57,7 +57,7 @@
     {
       "label": "M7 downgrade the no-hook missing_credentials refusal to a note",
       "file": "scripts/deploy.sh",
-      "old_regex": "\\bdie\\b(?= \"VAULT-UNLOCK-HOOK-UNAVAILABLE:)",
+      "old_regex": "\\bdie\\b(?= \"VAULT-UNLOCK-HOOK-ABSENT:)",
       "new": "note",
       "direction": "regression",
       "catcher": "tests/test_row697_deploy_unlock_pending_vault.py::test_missing_credentials_without_unlock_hook_refuses_before_accepting_degraded"

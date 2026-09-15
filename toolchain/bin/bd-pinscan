@@ -39,6 +39,7 @@ def main():
     a = ap.parse_args()
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.tree, label="--tree")
     findings = []
     for f in glob.glob(os.path.join(a.tree, "tests/*.py")):
         try:

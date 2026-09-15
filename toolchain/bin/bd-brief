@@ -205,6 +205,7 @@ def main():
 
         print("SELFTEST PASS" if ok else "SELFTEST FAIL")
         return 0 if ok else 1
+    sec.require_source_tree(a.tree, label="--tree")
     t = a.tree
 
     _rc, _uniq, _sw = _routes(t)

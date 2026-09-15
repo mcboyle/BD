@@ -34,6 +34,7 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK)
     ap.add_argument("--selftest",action="store_true")
     ap.add_argument("files",nargs="*"); a=ap.parse_args(); bad=0
+    sec.require_source_tree(a.work, label="--work")
     if a.files:
         for f in a.files:
             with open(f,encoding="utf-8",errors="replace") as fh:

@@ -1261,6 +1261,10 @@ def main():
     # delegates now run with cwd inside a sandbox, so a relative --tree that was
     # resolved lazily would resolve against the sandbox instead (v3.66.1149).
     a.tree = os.path.realpath(os.path.expanduser(a.tree))
+    if not a.selftest:
+        # --tree may be an installed copy of just this tool, not a
+        # bulk_downloader checkout (v3.66.1167's runtime/package test).
+        sec.require_corpus(a.tree, patterns=None, label="--tree")
     if a.selftest:
         rc = selftest()
     elif a.explain:

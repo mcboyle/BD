@@ -178,6 +178,7 @@ def main(argv=None):
     ap.add_argument("--root", default=sec.DEFAULT_WORK)
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args(argv)
+    sec.require_source_tree(a.root, label="--root")
 
     rel = a.file.strip()
     if rel not in GUARDS:

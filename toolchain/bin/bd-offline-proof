@@ -20,6 +20,7 @@ there); --work to the checkout the tool ships in. Browser detection honours
 PLAYWRIGHT_BROWSERS_PATH when set.
 """
 import argparse, glob, os, shutil, sys
+# lint: corpus-arg-not-corpus --home -- optional capability roots are reported individually
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
 import os as _oscli, sys as _syscli

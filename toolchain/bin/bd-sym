@@ -131,6 +131,7 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("symbol")
     ap.add_argument("--work","--tree",default=sec.DEFAULT_WORK); ap.add_argument("--py-only",action="store_true")
     a=ap.parse_args()
+    sec.require_source_tree(a.work, label="--work")
     if not os.path.isdir(a.work):
         # s0: a nonexistent --work must not silently fall through to "no
         # occurrences" -- that is indistinguishable from a real, clean scan.

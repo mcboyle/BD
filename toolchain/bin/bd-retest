@@ -77,6 +77,8 @@ def main():
     a=ap.parse_args()
     if a.selftest:
         return selftest()
+    if a.work is not None:
+        sec.require_source_tree(a.work, label="--work")
     if not os.path.exists(RESULTS):
         # absent corpus: there is nothing to grade, which is NOT a failure
         # verdict -- unknown is a third state (CLAUDE.md s0).

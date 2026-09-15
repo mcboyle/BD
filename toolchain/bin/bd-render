@@ -104,6 +104,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
+    sec.require_source_tree(a.work, label="--work")
 
     os.makedirs(a.out, exist_ok=True)
 
