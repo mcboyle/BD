@@ -260,6 +260,8 @@ _DECLARED = {
     "tests/test_row724_preflight_bandcheck_counts_failures.py",
     "tests/test_row744_guard_declare_wording_matches_repin_rule.py",
     "tests/test_row745_tool_lint_receipt_counts_what_it_read.py",
+    # Row 803: unreadable toolchain input cannot mint a clean verdict in any mode.
+    "tests/test_bd_tool_lint_unreadable_modes.py",
     "tests/test_row746_bandcheck_empty_target_is_refused.py",
     "tests/test_row747_bd_band_delegation_is_guarded.py",
     # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP

@@ -426,7 +426,7 @@ def run(bindir, do_runtime):
                               "baseline": CRITICAL_CORE_UNTESTED_BASELINE,
                               "regressed": bool(cc_missing) or
                                            len(cc_untested) > CRITICAL_CORE_UNTESTED_BASELINE},
-            "clean": all(not r["errors"] for r in results)}
+            "clean": not unreadable and all(not r["errors"] for r in results)}
 
 
 def _is_analysis(bindir, tool):
@@ -584,6 +584,10 @@ def main():
     res = run(a.bin, do_runtime=not a.no_runtime)
     cc = res["critical_core"]
     cd = res["corpus_debt"]
+    unreadable = res["unreadable"]
+    if unreadable:
+        detail = "; ".join("%s: %s" % (r["tool"], r["unreadable"]) for r in unreadable)
+        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNREADABLE (%s)\n" % (a.bin, detail))
     if a.corpus_debt:
         print("corpus-arg-unguarded backlog (F-1) -- frozen baseline %d, now %d"
               % (cd["baseline"], cd["unguarded_count"]))
@@ -602,23 +606,19 @@ def main():
         if cd["new"]:
             print("  %sNEW (unbaselined -- these ERROR)   : %s%s"
                   % (R, ", ".join(cd["new"]), RST))
-        return (sec.EXIT_CANNOT_EVALUATE if cd["unknown_count"]
+        return (sec.EXIT_CANNOT_EVALUATE if unreadable or cd["unknown_count"]
                 else (1 if cd["new"] else 0))
     if a.json:
         import json
         json.dump(res, sys.stdout, indent=1, sort_keys=True)
         sys.stdout.write("\n")
         blocked = (a.gate and not res["clean"]) or (a.ratchet and cc["regressed"])
-        return 1 if blocked else 0
-    unreadable = res["unreadable"]
+        return sec.EXIT_CANNOT_EVALUATE if unreadable else (1 if blocked else 0)
     print("linted %d of %d discovered tools (%d unreadable: %s): %s%d error(s)%s, %s%d warning(s)%s" %
           (res["read_tools"], res["tools"], len(unreadable),
            ", ".join(r["tool"] for r in unreadable) or "-",
            R if res["error_count"] else G, res["error_count"], RST,
            Y if res["warning_count"] else G, res["warning_count"], RST))
-    if unreadable:
-        detail = "; ".join("%s: %s" % (r["tool"], r["unreadable"]) for r in unreadable)
-        sys.stderr.write("CANNOT-EVALUATE --bin %s: reason=UNREADABLE (%s)\n" % (a.bin, detail))
     # critical-core ratchet line -- always shown, so the backlog is visible
     col = R if cc["regressed"] else (Y if cc["untested_count"] else G)
     print("critical-core (release-gating mutators): %s%d/%d untested%s (baseline %d)" %

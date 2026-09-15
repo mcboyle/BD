@@ -1,0 +1,10 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row803 transform control loads the same lint subject.",
+  "subject": "Row803 same loaded lint subject without the verdict assertion",
+  "control_spec": true,
+  "band": ["tests/test_bd_tool_lint_unreadable_modes.py::test_transform_control_loads_same_lint_subject"],
+  "mutants": [
+    {"label": "TC1 same clean transform with subject-loading control", "file": "toolchain/bin/bd-tool-lint", "old_regex": "not unreadable and (?=all\\()", "new": "True and ", "direction": "regression", "catcher": "tests/test_bd_tool_lint_unreadable_modes.py::test_transform_control_loads_same_lint_subject"}
+  ]
+}
