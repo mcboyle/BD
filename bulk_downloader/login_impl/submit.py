@@ -2,6 +2,7 @@
 
 import sys
 import time
+from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..cookies import pw_to_json
@@ -109,6 +110,43 @@ def _wait_captcha_tokens(page,deadline=30):
             time.sleep(0.5)
         return tok,deadline
     return None,0
+
+
+_TURNSTILE_CHECKBOX = ".cf-turnstile input[type='checkbox'], .cf-turnstile [role='checkbox']"
+
+
+def _try_turnstile_one_click(page, config):
+    """Perform one operator-enabled local Turnstile checkbox click.
+
+    This deliberately has no solver, token, or cross-origin-frame path. It is
+    available only when the operator opted in and no paid solver key is set.
+    """
+    if (not config.get("turnstile_one_click")
+            or (config.get("captcha_api_key") or "").strip()):
+        return False
+    try:
+        page_origin = urlsplit(page.url)
+        if not page_origin.scheme or not page_origin.netloc:
+            return False
+    except Exception:
+        return False
+    contexts = [page]
+    for frame in getattr(page, "frames", ()):
+        try:
+            frame_origin = urlsplit(frame.url)
+            if (frame_origin.scheme, frame_origin.netloc) == (page_origin.scheme, page_origin.netloc):
+                contexts.append(frame)
+        except Exception:
+            continue
+    for context in contexts:
+        try:
+            checkbox = context.locator(_TURNSTILE_CHECKBOX).first
+            if checkbox.count() and checkbox.is_visible(timeout=500):
+                checkbox.click(timeout=1000)
+                return True
+        except Exception:
+            continue
+    return False
 
 
 USER_FIELD_FALLBACKS=[
@@ -1113,6 +1151,8 @@ def do_login(config, allow_manual_takeover=False):
             cookies=pw_to_json(ctx.cookies()); _hard_close()
             return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
 
+        if _try_turnstile_one_click(page, config):
+            sys.stderr.write("  login: clicked one local Turnstile checkbox\n")
         tok,waited=_wait_captcha_tokens(page,deadline=30)
         if tok:
             sys.stderr.write(f"  login: {tok} populated after {waited:.1f}s\n")
@@ -1249,6 +1289,15 @@ def do_login(config, allow_manual_takeover=False):
             _hard_close()
             return False,(f"Page closed after submit; cookies "
                           f"unconvincing ({why})"),[]
+        _rejected_login = cur.partition("?")[0].lower().endswith("/badlogin")
+        if not _rejected_login:
+            try:
+                _rejected_login = "wrong username or password provided" in page.content().lower()
+            except Exception:
+                pass
+        if _rejected_login:
+            _hard_close()
+            return False, f"Rejected login landing: {cur[:200]}", []
         if success and success not in cur:
             if allow_manual_takeover:
                 return _hand_off(f"Expected URL contains {success!r}, got {cur}")

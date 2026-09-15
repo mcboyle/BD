@@ -1,0 +1,703 @@
+{
+  "link_population": 482,
+  "distinct_hrefs": 211,
+  "structurally_eligible": 201,
+  "site_url_patterns": [],
+  "site_url_pattern_hits_before_floor": 0,
+  "selected_by_site_patterns": 0,
+  "selected_by_generic_heuristic": 159,
+  "selected_by_product_scene_rule": 0,
+  "selected_by_title_fallback": 159,
+  "scene_classifier": "bulk_downloader.playlist_extractor._looks_like_scene_url",
+  "selected": [
+    {
+      "url": "https://venus.wowgirls.com/my/activity",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/my/favorites",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/my/comments",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/goto/site/24",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/goto/site/32",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/goto/site/36",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/eff85d9f/diana-heaven",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/1",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/7",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/19",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/82",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/30",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/50",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/54",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/53",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/c7ad8119/leona-mia",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/14",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/y5d38722/sumiko-smile",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/16",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/52",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/z27648bf/nikki-hareniks",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/5",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/33",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/w951aca2/mila-azul",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/29",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/42",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/46",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/ge9932d9/chelsea-baby",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/a7965b35/kira-kyox",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/c68a89eb/avrora-meey",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/da86391a/kuromi",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/gee12667/nikoletta-queen",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/8",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/11",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/80",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/25",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/26",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/87",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/9",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/17",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/24",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/58",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/d3e8c73e/nancy-a",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/g09e9a18/sybil",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/i1092898/leah-maus",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/18",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/83",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/f512e1eb/clover",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/x62bb472/lady-d",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/23",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/27",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/36",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/37",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/41",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/93",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/fd7231fb/cecilia",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/vbf1a0d1/melena-maria",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/e462d9a0/antonia-sainz",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/cd74ddef/taylor-sands",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/57",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/b1e2841b/sia-siberia",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/10",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/z9a3ea1c/eva-elfie",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/j4e94960/dixie-brown",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/48",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/j4e82fc6/anjelica",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/ad651882/zoe",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/w153e4e2/alexis-crystal",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/yf68fe82/daphne-klyde",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/u48c34a4/shrima-malati",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/f4ac926d/tee-nka",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/bf3572b1/anie-darling",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/b180ccd8/cindy-shine",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/c1c64b95/adel-morel",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/updates/genre/12",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/vc45a28d/katy-rose",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/dff5298d/hazel",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/a5669a4b/nelya",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/v6092603/stefanie-moon",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/1",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/8",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/11",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/25",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/26",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/29",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/30",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/33",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/42",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/46",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/50",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/52",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/53",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/54",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/70",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/71",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/80",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/82",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/90",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/942/genre/107",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/1",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/7",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/9",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/14",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/17",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/19",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/29",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/30",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/33",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/46",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/50",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/52",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/53",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/54",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/57",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/58",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/70",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/71",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/76",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/82",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/90",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/92",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/940/genre/107",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/1",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/7",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/30",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/33",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/46",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/50",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/52",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/53",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/54",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/57",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/70",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/71",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/82",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/107",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/937/genre/109",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/i2720208/rebecca-volpetti",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/u5809c8b/mia-bloom",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/f6afd091/the-scent-of-lust",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/wd069cfa/gets-hot-with-rough",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/gallery/ied8a3d3/meet-avrora-meey",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/ta95e740/share-your-delight",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/xcee9936/the-purpose-of-my-life",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/u1d5eb98/no-boundaries",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/x9bbf1ee/eva-blume",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/cfcef918/ellie-luna",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/girl/w57311ad/lorena",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/a5a6e0bd/morning-shower",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/xb7226fb/lustful-eye",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/za78905b/wild-lust",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/j9fa1f7a/open-to-everything",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/d21a80cb/fuck-me-nikia",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/za51de66/meet-nikia",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/a2bca551/one-pie-after-another",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/n5c96b47/taste-my-clit",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/w0853799/long-awaited-kiss",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/ce780b93/fuck-me-nikki-hareniks",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    },
+    {
+      "url": "https://venus.wowgirls.com/film/h1b620ff/breathtaking-debut",
+      "rule": "generic scene-link heuristic: same host, path depth >= 2, title-bearing anchor (fallback: the product scene-URL classifier accepted none of them)"
+    }
+  ],
+  "base_url": "https://venus.wowgirls.com/",
+  "base_host": "venus.wowgirls.com",
+  "top_link_shapes": [
+    [
+      "https://venus.wowgirls.com/updates/genre/N",
+      258
+    ],
+    [
+      "https://venus.wowgirls.com/girl/N/genre/N",
+      66
+    ],
+    [
+      "https://venus.wowgirls.com/gallery/dNfcN/sweet-side",
+      7
+    ],
+    [
+      "https://venus.wowgirls.com/girl/zNbf/nikki-hareniks",
+      7
+    ],
+    [
+      "https://venus.wowgirls.com/girl/yNdN/sumiko-smile",
+      5
+    ],
+    [
+      "https://venus.wowgirls.com/",
+      3
+    ],
+    [
+      "https://venus.wowgirls.com/film/uNcNc/naughty-di",
+      3
+    ],
+    [
+      "https://venus.wowgirls.com/films-NK/",
+      3
+    ],
+    [
+      "https://venus.wowgirls.com/gallery/iNbNb/closer-every-minute",
+      3
+    ],
+    [
+      "https://venus.wowgirls.com/girl/aNbN/kira-kyox",
+      3
+    ]
+  ],
+  "rules": [
+    "1. the site's own url_patterns (newline/comma separated regexes, case-insensitive, >512 chars skipped) AND the structural floor",
+    "2. generic scene-link heuristic: same host, path depth >= 2, AND the PRODUCT's own scene-URL classifier (playlist_extractor._looks_like_scene_url) -- anchor text is NOT required, because a thumbnail anchor carries none",
+    "3. fallback, only when rules 1 and 2 select nothing: same host, path depth >= 2, title-bearing anchor (the v2 rule)"
+  ],
+  "state": "OK",
+  "base_requested": "https://venus.wowgirls.com/",
+  "base_source": "the site's own listing_url",
+  "base_derived": false
+}

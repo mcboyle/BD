@@ -1,0 +1,69 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ROW 719 -- the scene classifier under-selected ultrafilms /members/content/item/<id>-<slug> pages, and the scene-hint rule was a closed tuple no template could extend. Every anchor is ZERO-WIDTH and sits on a decision: the new default hint, its narrowness, the template union, its normalisation, and the listing-refusal precedence a template hint must not bypass. The transform control is in its own file beside this one and MUST escape.",
+  "subject": "/content/item/ is a scene hint, templates extend the hint list as a normalised UNION, and listing refusal still precedes any hint",
+  "band": [
+    "tests/test_row719_scene_classifier_underselects.py::test_row719_ultrafilms_content_item_links_are_scene_urls",
+    "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hints_are_data_a_template_can_extend",
+    "tests/test_row719_scene_classifier_underselects.py::test_row719_row704_pagination_controls_still_refuse",
+    "tests/test_row719_scene_classifier_underselects.py::test_row719_the_product_rule_names_every_film_in_the_captured_population"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the /content/item/ default hint is removed (ultrafilms under-selects again)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^    )(?=\"/content/item/\",)",
+      "new": "# ",
+      "direction": "regression",
+      "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row719_ultrafilms_content_item_links_are_scene_urls"
+    },
+    {
+      "label": "M2 the hint is widened to /content/ (the section index becomes a scene)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^    \"/content/)(?=item/\",)",
+      "new": "\", \"/content/",
+      "direction": "overcorrection",
+      "control": "tests/test_row719_scene_classifier_underselects.py::test_row719_ultrafilms_content_item_links_are_scene_urls",
+      "preserves": [
+        "tests/test_row719_scene_classifier_underselects.py::test_row719_the_product_rule_names_every_film_in_the_captured_population",
+        "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hints_are_data_a_template_can_extend"
+      ]
+    },
+    {
+      "label": "M3 the template-declared scene hints are dropped (closed list again)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        scene_hints\\.extend\\()(?=str\\(hint\\)\\.lower\\(\\)\\.strip\\(\\)$)",
+      "new": "x for x in () if x or ",
+      "direction": "regression",
+      "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hints_are_data_a_template_can_extend"
+    },
+    {
+      "label": "M4 the declared hints are not normalised to the lower-cased url",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^        scene_hints\\.extend\\(str\\(hint\\)\\.lower\\(\\)\\.strip\\(\\))(?=$)",
+      "new": ".upper()",
+      "direction": "regression",
+      "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hints_are_data_a_template_can_extend"
+    },
+    {
+      "label": "M5 a template hint is consulted before the listing refusal (704's pagination controls become scenes)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^)(?=    listing_words = set\\(_LISTING_ROUTE_WORDS\\)$)",
+      "new": "    if template is not None and any(str(h).lower().strip() in url_low for h in (template.get(\"scene_url_hints\") or []) if isinstance(h, str)):\n        return True\n",
+      "direction": "overcorrection",
+      "control": "tests/test_row719_scene_classifier_underselects.py::test_row719_row704_pagination_controls_still_refuse",
+      "preserves": [
+        "tests/test_row719_scene_classifier_underselects.py::test_row719_the_product_rule_names_every_film_in_the_captured_population",
+        "tests/test_row719_scene_classifier_underselects.py::test_row719_ultrafilms_content_item_links_are_scene_urls"
+      ]
+    },
+    {
+      "label": "M6 the blank-hint guard is dropped (an empty declared hint matches every url)",
+      "file": "bulk_downloader/playlist_extractor.py",
+      "old_regex": "(?m)(?<=^                           if isinstance\\(hint, str\\))(?= and hint\\.strip\\(\\)\\)$)",
+      "new": " or True",
+      "direction": "regression",
+      "catcher": "tests/test_row719_scene_classifier_underselects.py::test_row719_the_scene_hints_are_data_a_template_can_extend"
+    }
+  ]
+}

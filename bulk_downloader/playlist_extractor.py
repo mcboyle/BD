@@ -107,6 +107,7 @@ _SCENE_URL_HINTS = (
     "/film/", "/films/",
     "/clip/", "/clips/",
     "/play/", "view_video.php",
+    "/content/item/",         # members-area item pages (ultrafilms)
 )
 
 
@@ -182,7 +183,8 @@ def _looks_like_scene_url(
     `template`: when the site declares `url_patterns` (the standard
     scene-URL patterns in templates.py), use them. Otherwise fall
     through to generic hints. ``listing_route_words`` extends the default
-    open-class listing actions without changing ``url_patterns`` precedence.
+    open-class listing actions and ``scene_url_hints`` the default scene
+    hints, neither changing ``url_patterns`` precedence.
     """
     if not url or not isinstance(url, str):
         return False
@@ -221,8 +223,13 @@ def _looks_like_scene_url(
                 except re.error:
                     continue
             return False  # template specified, didn't match
-    # Heuristic: any scene-hint substring
-    for h in _SCENE_URL_HINTS:
+    # Heuristic: any scene-hint substring, defaults plus the template's own
+    scene_hints = list(_SCENE_URL_HINTS)
+    if template is not None:
+        scene_hints.extend(str(hint).lower().strip()
+                           for hint in (template.get("scene_url_hints") or [])
+                           if isinstance(hint, str) and hint.strip())
+    for h in scene_hints:
         if h in url_low:
             return True
     return False

@@ -128,6 +128,7 @@ _DECLARED = {
     # and adaptive-selector compatibility protect the shared challenge boundary.
     "tests/test_row763_child_frame_turnstile.py",
     "tests/test_row764_turnstile_bypass_verdict.py",
+    "tests/test_row775_turnstile_one_click_affordance.py",
     "tests/test_row765_scrapling_selector_compatibility.py",
     # test2D-1. Persistent-profile workers must apply a configured imported
     # cookie jar before their first page uses the context.
@@ -160,6 +161,10 @@ _DECLARED = {
     # and the owning-site declaration are the seams.
     # CI-SHARD-CLAIM row-723 application-safety tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
     "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",
+    # Row 719. The scene classifier must select the captured wowgirls and
+    # ultrafilms scene links and refuse the navigation the fallback picked,
+    # with the hint list open to template extension.
+    "tests/test_row719_scene_classifier_underselects.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -205,6 +210,12 @@ _DECLARED = {
     # fell back to the login URL instead of the site's configured listing URL.
     # CI-SHARD-CLAIM row-780 application-safety tests/test_row780_sites_config_listing_url_round_trip.py
     "tests/test_row780_sites_config_listing_url_round_trip.py",
+    # Row 750. The same host-safety predicates, judged on the IPv4 address an
+    # IPv6 address CARRIES: ::ffff:/2002::/Teredo/64:ff9b:: spellings of
+    # 169.254.169.254 are classified before the private relaxation, in
+    # bulk_downloader/hooks.py and provider_resolve_impl/_common.py.
+    # CI-SHARD-CLAIM row-750 application-safety tests/test_row750_ipv6_unwrapped_metadata_bypass.py
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
@@ -267,6 +278,8 @@ _DECLARED = {
     # w4-loginapi. A synchronous headed-browser refusal must reach the HTTP
     # caller instead of being flattened into an accepted login request.
     "tests/test_login_api_refuses_impossible_manual_start.py",
+    # CI-SHARD-CLAIM row-772 application-safety tests/test_row772_rejected_login_is_not_success.py
+    "tests/test_row772_rejected_login_is_not_success.py",
     # Rows 566/571. The meta-gate over this file and over the tracked Markdown
     # corpus. It holds the EXACT bidirectional Markdown denominator -- the
     # modules themselves keep only shrink-only floors -- and the only refusal of
@@ -1198,6 +1211,13 @@ _DECLARED = {
     "tests/test_home_config_stores_are_guarded.py",
     "tests/test_v3_66_1009_live_results_are_bundled.py",
     "tests/test_v3_66_285_cloak_parity.py",
+    # Row 667. The cloakbrowser log is the only record of which profile a
+    # browser launch actually used; the session keeper logged a backend with no
+    # persistence detail, so a keepalive line could not be audited against the
+    # site's use_persistent_profile. The population this gate guards is every
+    # cloak.log_choice call site in bulk_downloader/ -- a tree-wide denominator
+    # any diff touching a browser flow can change -- so it runs on every PR.
+    "tests/test_row667_keeper_browser_log_names_persistence.py",
     "tests/test_v3_66_795_mod3_seam.py",
     # Toolchain verifier partition.
     "tests/test_desandbox_tool_verifiers.py",
@@ -1265,10 +1285,12 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
+    "tests/test_row772_rejected_login_is_not_success.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
     "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
     "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",  # module
+    "tests/test_row750_ipv6_unwrapped_metadata_bypass.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module

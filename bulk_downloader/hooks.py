@@ -247,6 +247,36 @@ def run_command_hook(cmd_template, vars, timeout=120):
         return False, f"{type(e).__name__}: {e}"
 
 
+_NAT64_WELL_KNOWN = "64:ff9b::/96"
+
+
+def _embedded_ipv4(addr):
+    """Every IPv4 address an IPv6 address carries (mapped, 6to4, Teredo server
+    and client, NAT64 well-known prefix); empty for an IPv4 address.
+
+    Row 750. bulk_downloader/ssrf_transport.py already has this function and this
+    is deliberately NOT an import of it: function-local imports are counted by
+    tools/decomp/import_graph_baseline.json, so importing it here would add an
+    import edge, and that baseline is re-frozen only ONCE on merged main -- never
+    inside the cut that adds the edge (tools/decomp/import_graph_gate.py says so
+    in its own docstring). Consolidating the two copies needs a cut that can
+    re-freeze; this one declares the duplication instead of hiding it.
+    """
+    import ipaddress
+    if not isinstance(addr, ipaddress.IPv6Address):
+        return ()
+    carried = []
+    for candidate in (addr.ipv4_mapped, addr.sixtofour):
+        if candidate is not None:
+            carried.append(candidate)
+    teredo = addr.teredo
+    if teredo:
+        carried.extend(teredo)
+    if addr in ipaddress.ip_network(_NAT64_WELL_KNOWN):
+        carried.append(ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF))
+    return tuple(carried)
+
+
 def _host_ok_for_hook(host):
     """(ok, reason) for a hook target host. v3.66.553 (F-CORE_BD04-01).
 
@@ -278,6 +308,16 @@ def _host_ok_for_hook(host):
                     return False, f"got non-IP from getaddrinfo: {sa[0]!r}"
         if not addrs:
             return False, "DNS resolution returned no addresses"
+    # Row 750. Classify every IPv4 address a resolved answer CARRIES as well as the
+    # answer itself: ::ffff:169.254.169.254 (mapped), 2002:a9fe:a9fe:: (6to4),
+    # 2001:0:...:5601:5601 (Teredo) and 64:ff9b::a9fe:a9fe (NAT64) all reach the
+    # cloud-metadata endpoint, and the stdlib answers is_link_local False about
+    # every one of those wrappers, so an outer-only classification let them past
+    # the never-allowed set below and into the private/loopback relaxation. This
+    # widens the population the SAME six checks run over; it adds no check, no
+    # refusal and no exemption, and it is placed here so the never-allowed set is
+    # still decided before the relaxation the loop's trailing comment describes.
+    addrs = [view for answer in addrs for view in (*_embedded_ipv4(answer), answer)]
     _v6_imds = ipaddress.ip_address("fd00:ec2::254")   # AWS IPv6 metadata endpoint
     for a in addrs:
         if isinstance(a, ipaddress.IPv4Address) and a in ipaddress.ip_network("100.64.0.0/10"):
