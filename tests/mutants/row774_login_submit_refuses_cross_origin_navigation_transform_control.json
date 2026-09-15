@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "TRANSFORM CONTROL for row 774, in its own file. It applies M1's byte-identical transform (the inverted origin predicate) while its only band node reads _submit_login's docstring and the _origin import and never drives a sweep. It MUST ESCAPE, which proves the regression spec's CAUGHTs are assertion failures rather than import or syntax breakage.",
+  "subject": "transform control for row 774's origin predicate",
+  "band": [
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_the_rule_is_stated_on_the_predicate_it_reuses"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 the origin predicate inverted under a node that never drives the sweep",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "(?m)(?<=^        if origin is not None and origin)(?===initial_origin: return True$)",
+      "new": " is not None and not origin",
+      "direction": "regression",
+      "catcher": "tests/test_row774_login_submit_refuses_cross_origin_navigation.py::test_row774_the_rule_is_stated_on_the_predicate_it_reuses"
+    }
+  ]
+}

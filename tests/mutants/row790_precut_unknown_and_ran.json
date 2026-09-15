@@ -1,0 +1,90 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Rows 790/794: bd-precut must name a missing/errored bd-footguns or bd-ratchet as UNKNOWN rather than silently dropping it, and its 'for what RAN (...)' verdict string must enumerate only the detectors that actually completed rc==0. Every anchor targets a DECISION the row790 patch added (the isfile presence check, the rc==0/rc==3 boundary, and the ran_parts membership tests) and inverts, widens or drops it; no anchor matches a value. The transform control lives in row790_precut_unknown_and_ran_transform_control.json and MUST escape. GENERATION 2 (row790b) adds L1/L2/L8, the three seams lens A1-A proved could be broken without turning the band red. They are re-expressed here as ZERO-WIDTH anchors (lookbehind/lookahead, empty matched span) with the literal moved into the inserted text, because tests/test_row357_mutant_anchors_are_not_fragile.py refuses a NEW anchor whose matched span carries a value-bearing token unless a producer record or a reasoned stable-value exception establishes its class. The lens spec at bd-persist/evidence/row790-lens-A1A-shape-mutants-20260914.json is untracked and so never met that gate; matching its literals verbatim here made row357 fail. The REGRESSION EACH ONE DRIVES IS UNCHANGED -- the append never executes, and the ran fallback claims both detectors ran -- and every variant was checked to COMPILE, so a verdict of CAUGHT cannot be an INVALID mutant misread.",
+  "subject": "bd-precut names an absent or errored (rc not in {0,3}) bd-footguns/bd-ratchet as UNKNOWN by name, and its cut-ready verdict's ran string names only the detectors that actually ran clean",
+  "band": [
+    "tests/test_row790_precut_names_footguns_ratchet_unknown.py"
+  ],
+  "mutants": [
+    {
+      "label": "S1 footguns presence check inverted: a present tool is reported not-found",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=os\\.path\\.isfile\\(fge\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_present_and_clean_names_both_in_the_ran_string"
+    },
+    {
+      "label": "S2 footguns clean predicate widened to swallow any non-3 rc (the exact defect this row fixes)",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        elif )(?=rc == 0:\\n            footguns_ran = True)",
+      "new": "rc != 3 or ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_footguns_nonzero_not_3_is_unknown_not_swallowed"
+    },
+    {
+      "label": "S3 ratchet presence check inverted: a present tool is reported not-found",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=os\\.path\\.isfile\\(rex\\):$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_present_and_clean_names_both_in_the_ran_string"
+    },
+    {
+      "label": "S4 ratchet clean predicate widened to swallow any non-3 rc",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        elif )(?=rc == 0:\\n            ratchet_ran = True)",
+      "new": "rc != 3 or ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_ratchet_nonzero_not_3_is_unknown_not_swallowed"
+    },
+    {
+      "label": "S5 the ran string claims footguns ran when footguns_ran is False",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=footguns_ran:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_present_and_clean_names_both_in_the_ran_string"
+    },
+    {
+      "label": "S6 the ran string claims the ratchet ran when ratchet_ran is False",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    if )(?=ratchet_ran:$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_present_and_clean_names_both_in_the_ran_string"
+    },
+    {
+      "label": "S7 the ran/nothing branch is inverted: a real ran string is discarded for the literal \"nothing\"",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^    ran = \", \"\\.join\\(ran_parts\\) if )(?=ran_parts else \"nothing\"$)",
+      "new": "not ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_present_and_clean_names_both_in_the_ran_string"
+    },
+    {
+      "label": "L1 (lens A1-A ESCAPE, generation 1) suppress the footguns-absent unknown.append -- SEAM 1 absent half",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)^(?=        unknown\\.append\\(\"footgun registry \\(bd-footguns not found\\)\"\\)$)",
+      "new": "#",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_missing_footguns_is_named_unknown_not_silently_dropped"
+    },
+    {
+      "label": "L2 (lens A1-A ESCAPE, generation 1) suppress the ratchet-absent unknown.append -- SEAM 2 absent half",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)^(?=        unknown\\.append\\(\"metric ratchet \\(bd-ratchet not found\\)\"\\)$)",
+      "new": "#",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_missing_ratchet_is_named_unknown_not_silently_dropped"
+    },
+    {
+      "label": "L8 (lens A1-A ESCAPE, generation 1) ran fallback \"nothing\" replaced by the old hardcoded claim",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=ran_parts\\) if ran_parts else )(?=\"nothing\"$)",
+      "new": "\"footguns clean, metric ratchets clean\" or ",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_both_tools_absent_makes_the_ran_string_read_nothing"
+    }
+  ]
+}

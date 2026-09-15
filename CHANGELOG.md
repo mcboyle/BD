@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1548 - Train8: SSRF egress census, cross-origin login refusal, precut honesty, login-cap premise, witness state cleanup
+
+Train: 5 refute-first-reviewed worker patches.
+
+- row805: SSRF egress census now accounts for every transport -- adds an ssrf_egress_exemptions entry for the one unaccounted egress site; census test + CI gate-shard coverage green (REFUTE-FIX, O651).
+- row774: login submit now refuses cross-origin navigation instead of accepting it (submit.py); row774 test + CI gate-shard coverage green.
+- row790b: bd-precut no longer prints a hardcoded claim about what ran -- it reports UNKNOWN and whether the gate actually ran (gen 2, after lens SHAPE refute).
+- row738b: login-capability single-process premise test + INVARIANTS, row357 anchor-fragility, and safety single-source gates (O651 rebase-only).
+- row791: audit witnesses (cap01/_w6, run01/_w2) now restore mutated global state (BD_HOME, live_recorder.is_available) instead of leaking it across tests.
+
 ## v3.66.1547 - test_353 staged-login fake locator honors count()/nth() contract from row770d _try_fill
 
 Train: 1 T1 test-only fix (refutes the O663 main-red as a stale test fake).

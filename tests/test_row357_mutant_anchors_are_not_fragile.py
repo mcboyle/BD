@@ -365,8 +365,29 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row793_screenshots_suffix_guard.py",
             r"(?m)^def test_double_extension_is_rejected_by_suffix_not_substring\(evidence_client\):$",
         ),
+    # Row 738: the matcher's four literal terms are a fixed identity contract
+    # (which invariant statement counts as declaring the login-cap
+    # single-process premise), not a value any producer re-derives.
+    "377c9c36cb8b7900293503af262537c8250534b48dc37c1f5c28fd7a3d6c6df9":
+        StableValueException(
+            "requiring all four terms (not any one) is the fixed discrimination contract the negative control audits",
+            "tests/test_row738_login_cap_single_process_premise.py",
+            r"(?m)^def test_negative_control_absence_is_detected_for_the_right_reason\(\):$",
+        ),
+    "3e00fbbae39674d4124a95dbc12e1fff87f29a3feee7dce83aa3f462ece4d4fe":
+        StableValueException(
+            "returning the matched entry id (never None) on a genuine hit is the fixed positive-control contract",
+            "tests/test_row738_login_cap_single_process_premise.py",
+            r"(?m)^def test_the_matcher_can_say_yes_before_it_says_no\(\):$",
+        ),
+    "a42200d201f450ad14e0b4232aff61f505cf9a1c04e006d9cab69a58b49d9622":
+        StableValueException(
+            "\"cap\" (not \"caps\") is the fixed term the real I0011 statement is audited against",
+            "tests/test_row738_login_cap_single_process_premise.py",
+            r"(?m)^def test_invariants_declares_single_process_login_cap_premise\(\):$",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 31
+_STABLE_VALUE_EXCEPTION_MAX = 34
 
 
 def _family(

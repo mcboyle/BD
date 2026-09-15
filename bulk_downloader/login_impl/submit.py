@@ -5,6 +5,7 @@ import time
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..cookies import pw_to_json
+from ..interstitial import _origin
 from ._common import (
     _css_escape_for_id,
     _fire_login_trigger_if_needed,
@@ -228,7 +229,23 @@ SUBMIT_FALLBACKS=_build_submit_fallbacks()
 def _submit_login(page,sb_candidates,pf_candidates):
     """Try nine independent ways to submit the login form. Each method
     is attempted with a short timeout; we declare success the moment the
-    page navigates or the URL changes. Returns (ok, method_used).
+    page navigates WITHIN THE LOGIN PAGE'S ORIGIN. Returns (ok, method_used).
+
+    Success predicate (v3.66 row 774): a URL change counts as a submit only
+    when scheme+host+port of page.url equal those of the URL the sweep
+    started on (bulk_downloader.interstitial._origin -- the same predicate
+    dismiss_gates verifies every gate click with; default ports normalised,
+    host case-folded). A bare `page.url != initial_url` is never success:
+    bang.com's button:has-text("LOGIN") matches LOGIN WITH GOOGLE and lands
+    on accounts.google.com, which the sweep used to report as a login. The
+    first candidate that leaves the origin ends the sweep with
+    (False, "cross-origin navigation refused ...") -- the remaining methods
+    are never fired on the foreign page. A subdomain of the same registrable
+    domain (login.example.com -> www.example.com) is another origin here; a
+    cross-origin destination is accepted only where the site DECLARES it: a
+    captured multi-step flow (replay_saved_login_flow, v3.66.302) runs before
+    this sweep and do_login honours it, or an absolute success_url naming
+    the destination origin.
 
     Special return value: ('PAGE_CLOSED', reason). Raised when the page
     or browser context is detected as closed mid-attempt, which usually
@@ -244,9 +261,27 @@ def _submit_login(page,sb_candidates,pf_candidates):
         # Page already closed before we even started — treat like submit
         # never happened so caller can fall back to cookie inspection.
         return "PAGE_CLOSED", f"page already closed: {str(e)[:60]}"
-    def _navigated():
-        try: return page.url!=initial_url
-        except Exception: return False
+    initial_origin=_origin(initial_url)
+    def _moved():
+        # None: still on initial_url. True: navigated within the login
+        # page's origin. str: the foreign origin the page is now on (or a
+        # note that it cannot be measured) -- never a success.
+        try: cur=page.url
+        except Exception: return None
+        if cur==initial_url: return None
+        origin=_origin(cur)
+        if origin is not None and origin==initial_origin: return True
+        return origin or f"unmeasurable origin {cur[:60]!r}"
+    def _settle(moved,label):
+        # A URL change settles the sweep either way: same-origin is the
+        # success the caller expects; any other origin is refused outright
+        # rather than retried, so no further method fires on a page that is
+        # not the login form.
+        if moved is True: return True,label
+        sys.stderr.write(f"  login submit: page left {initial_origin} for "
+                         f"{moved} — cross-origin navigation refused, not a "
+                         f"submit ({label})\n")
+        return False,f"cross-origin navigation refused ({moved}) at {label}"
     def _closed():
         # cheap, non-throwing closed check; a dead context counts as closed
         try: return page.is_closed()
@@ -429,10 +464,12 @@ def _submit_login(page,sb_candidates,pf_candidates):
             sys.stderr.write("  login submit: page already closed — "
                              "stopping method loop\n")
             return "PAGE_CLOSED", f"page closed before {label}"
-        if _navigated():
-            sys.stderr.write(f"  login submit: already navigated before "
-                             f"{label} — earlier method submitted\n")
-            return True, f"navigated before {label}"
+        moved=_moved()
+        if moved is not None:
+            if moved is True:
+                sys.stderr.write(f"  login submit: already navigated before "
+                                 f"{label} — earlier method submitted\n")
+            return _settle(moved, f"navigated before {label}")
         try: ok,info=fn()
         except Exception as e: ok,info=False,str(e)[:60]
         if not ok:
@@ -446,12 +483,14 @@ def _submit_login(page,sb_candidates,pf_candidates):
         # because some forms don't trigger a load event (SPA logins).
         end=time.time()+8
         while time.time()<end:
-            if _navigated(): return True,label
+            moved=_moved()
+            if moved is not None: return _settle(moved,label)
             try: page.wait_for_load_state("networkidle",timeout=500)
             except Exception as e:
                 if _page_closed_err(e):
                     return "PAGE_CLOSED", f"page closed waiting for {label}"
-            if _navigated(): return True,label
+            moved=_moved()
+            if moved is not None: return _settle(moved,label)
             time.sleep(0.3)
         # No navigation? Maybe it's a SPA that just updates auth state
         # silently. Move to the next method.
@@ -835,9 +874,11 @@ def do_login(config, allow_manual_takeover=False):
         # sweep below. No-op when no flow is saved (the common case) — the sweep
         # then runs unchanged, so this is zero-regression for every existing
         # single-form site. LIVE drive; verified on stash.
+        _flow_ran = False
         try:
             _flow_res = replay_saved_login_flow(page, config)
-            if _flow_res.get("ran"):
+            _flow_ran = bool(_flow_res.get("ran"))
+            if _flow_ran:
                 sys.stderr.write(
                     f"  login: replayed saved login flow "
                     f"({_flow_res.get('steps', 0)} steps, "
@@ -1197,6 +1238,19 @@ def do_login(config, allow_manual_takeover=False):
             if allow_manual_takeover:
                 return _hand_off(f"Expected URL contains {success!r}, got {cur}")
             _hard_close(); return False,f"Expected URL contains {success!r}, got {cur}",[]
+        # v3.66 row 774: the page we are about to read cookies from must be
+        # on the login page's origin, or on one the site DECLARED -- the
+        # captured multi-step flow ran (v3.66.302), or success_url is an
+        # absolute URL naming this destination origin. A jar read on
+        # accounts.google.com is not a login, however many cookies it holds.
+        cur_origin=_origin(cur)
+        declared_origins={o for o in (_origin(url), _origin(success or "")) if o}
+        if not _flow_ran and (cur_origin is None or cur_origin not in declared_origins):
+            why=(f"cross-origin navigation refused: login page {_origin(url)} "
+                 f"ended on {cur_origin or cur[:80]!r} (submit: {method})")
+            if allow_manual_takeover:
+                return _hand_off(why)
+            _hard_close(); return False,why,[]
         cookies=pw_to_json(ctx.cookies()); _hard_close()
         return True,f"OK — {len(cookies)} cookies (submit: {method})",cookies
     except Exception as e:

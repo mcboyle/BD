@@ -169,13 +169,13 @@ def test_defect_catalog_is_an_exact_view_of_the_executable_detector_set():
     assert "generated view" in catalog.lower()
 
 
-def test_invariants_json_is_the_only_11_row_invariant_authority():
+def test_invariants_json_is_the_only_12_row_invariant_authority():
     tracked = _tracked()
     assert "INVARIANTS.json" in tracked
     assert "project-knowledge/INVARIANTS.json" not in tracked
     payload = _strict_json((ROOT / "INVARIANTS.json").read_text())
     assert payload["schema"] == 1
-    assert set(payload["invariants"]) == {f"I{i:04d}" for i in range(1, 11)} | {
+    assert set(payload["invariants"]) == {f"I{i:04d}" for i in range(1, 12)} | {
         "I-CAP01-rec-url-shape"
     }
     assert {row["status"] for row in payload["invariants"].values()} == {"GUARDED"}

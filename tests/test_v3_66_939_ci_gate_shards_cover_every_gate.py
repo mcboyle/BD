@@ -113,6 +113,8 @@ _DECLARED = {
     # the gate is pinned into the lane claimed on the next line.
     # CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
     "tests/test_row659_witness_run_does_not_leak_capture_state.py",
+    # CI-SHARD-CLAIM row-791 isolation tests/test_row791_witness_state_restored.py
+    "tests/test_row791_witness_state_restored.py",
     # Rows 731/732/751/675: the secret boundary. Redaction, export descent and
     # the paid-egress acknowledgement are repo-wide safety gates, not gates over
     # the handful of files this cut edits.
@@ -148,6 +150,10 @@ _DECLARED = {
     # GREEN on a host with no browser reach (CLAUDE.md A7).
     # CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",
+    # Row 774. A login submit is a SAME-ORIGIN navigation; the text-matched
+    # LOGIN WITH GOOGLE button landing on accounts.google.com is refused at
+    # every observation site and at do_login's acceptance.
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",
     # Row 777. Every emitted literal rendered-page shape failure must select a
     # terminal schedule instead of silently inheriting the transient ladder.
     "tests/test_row777_retry_ladder.py",
@@ -177,6 +183,13 @@ _DECLARED = {
     # human phase moves inside the file, in login_impl/replay.py.
     # CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",
+    # Row 805. Every non-httpx egress in the application package -- urllib.request
+    # urlopen and opener .open, requests verbs and Session subclasses -- is
+    # censused from the tree and accounted for, guarded or exempt with a reason,
+    # by bulk_downloader/ssrf_egress_exemptions.py; repo-wide because the
+    # population is the whole package.
+    # CI-SHARD-CLAIM row-805 application-safety tests/test_row805_ssrf_census_covers_every_transport.py
+    "tests/test_row805_ssrf_census_covers_every_transport.py",
     # Row 705. Published populations must state derivation, and bounded
     # diagnostics disclose their hidden tail.
     # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
@@ -188,6 +201,11 @@ _DECLARED = {
     # toolchain/bin, so the gate judges the tree, not a changed file.
     # CI-SHARD-CLAIM row-709 safety-censuses tests/test_row709_state_seed_is_not_a_verdict.py
     "tests/test_row709_state_seed_is_not_a_verdict.py",
+    # Row 738 (T2 follow-up to 667). The login-attempt cap's single-process
+    # premise must be a declared INVARIANTS.json entry, not folklore; this
+    # guards both the declaration and the deploy entrypoint fact it rests on.
+    # CI-SHARD-CLAIM row-738 tree-gates-5 tests/test_row738_login_cap_single_process_premise.py
+    "tests/test_row738_login_cap_single_process_premise.py",
     # rowssrf-loopback. Every canonical host-safety consumer and both template
     # sandbox exemption sites must use the classifier's structured reason.
     "tests/test_rowssrf_loopback_reason_is_structured.py",
@@ -392,6 +410,12 @@ _DECLARED = {
     # version/pin/surface check can be MEASURED AT ALL. It judges the tool and
     # the tree rather than a diff, so no changed path selects it either.
     "tests/test_row463_precut_derives_its_baseline.py",
+    # Rows 790/794. bd-precut's own footguns/ratchet unknown-append and its
+    # "for what RAN (...)" verdict string are properties of the TOOL, judged
+    # against whichever tree it runs on -- not of one changed module -- so it
+    # rides the same shard as its precut siblings above.
+    # CI-SHARD-CLAIM row-790 tree-gates-3 tests/test_row790_precut_names_footguns_ratchet_unknown.py
+    "tests/test_row790_precut_names_footguns_ratchet_unknown.py",
     # Rows 416/464/472/527. Verification tools must preserve each measured
     # state through their real entry points; the suite also pins bd-precut's
     # baseline/tracked-only main() wiring, which the row-463 component tests do
@@ -1202,6 +1226,7 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
+    "tests/test_row774_login_submit_refuses_cross_origin_navigation.py",  # module
     "tests/test_all_sources_parse.py",  # legacy-baseline
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module

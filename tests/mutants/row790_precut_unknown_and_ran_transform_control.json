@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row790_precut_unknown_and_ran.json: a semantics-preserving edit (`.returncode or 0` reads identically for every possible subprocess return code -- 0 stays 0, any nonzero value, signed or not, is truthy and passes through unchanged) that the band must NOT catch. It lives in its own file so the battery's CAUGHT count is never padded by it; the expected verdict is ESCAPED.",
+  "subject": "control: an equivalent transform of the footguns returncode read escapes the band",
+  "band": [
+    "tests/test_row790_precut_names_footguns_ratchet_unknown.py"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL equivalent transform: .returncode or 0 in the footguns rc read",
+      "file": "toolchain/bin/bd-precut",
+      "old_regex": "(?m)(?<=^        rc = subprocess\\.run\\(\\[sys\\.executable, fge, \"--check\", \"--tree\", root\\], timeout=900\\)\\.returncode)(?=$)",
+      "new": " or 0",
+      "direction": "regression",
+      "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_footguns_nonzero_not_3_is_unknown_not_swallowed"
+    }
+  ]
+}
