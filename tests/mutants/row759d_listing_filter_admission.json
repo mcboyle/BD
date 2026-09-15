@@ -1,0 +1,45 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 759d (O738): listing-filter hrefs (/en/videos/?refinementList[...]) must be refused at admission before ranking. M1 disables the admission arm; M2 keeps the arm but makes the query regex never match. Both leave the score-0 Download div outranked by the 4K filter link, which is the live 2026-09-15 defect the catcher reproduces. Anchors are structural (no value token, no quote, no '=') so the row357 anchor gate classifies them STABLE. Gen 2 (lens flip): M3 deletes the strong-media-signal fail-open (a signed .mp4 with ?sortBy= would be refused); M4 deletes the sort alternative (a resolution-labelled sortBy link would win).",
+ "subject": "_candidate_admission refuses listing/filter hrefs so the score-0 Download control wins",
+ "band": [
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_real_download_link_beside_the_sidebar_wins",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[signed_mp4]",
+  "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[download_path]"
+ ],
+ "mutants": [
+  {
+   "label": "759d-M1 admission arm disabled (listing_filter never returned)",
+   "file": "bulk_downloader/detect.py",
+   "old": "\n    if _is_listing_filter_href(el, t):\n",
+   "new": "\n    if False and _is_listing_filter_href(el, t):\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  },
+  {
+   "label": "759d-M2 the query test is inverted (a filter query reads as not-a-filter)",
+   "file": "bulk_downloader/detect.py",
+   "old": "    if not query or not _LISTING_FILTER_QUERY_RE.search(query):\n",
+   "new": "    if not query or _LISTING_FILTER_QUERY_RE.search(query):\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  },
+  {
+   "label": "759d-M3 strong-media-signal fail-open deleted (media href with a filter query is refused)",
+   "file": "bulk_downloader/detect.py",
+   "old": "        if media_signals:\n",
+   "new": "        if media_signals and not media_signals:\n",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter[signed_mp4]"
+  },
+  {
+   "label": "759d-M4 the sort alternative is deleted from the query rule",
+   "file": "bulk_downloader/detect.py",
+   "old": "facets?|filters?|sort(?:_?by)?|order(?:_?by)?",
+   "new": "facets?|filters?|order(?:_?by)?",
+   "direction": "regression",
+   "catcher": "tests/test_row759d_listing_filter_hrefs_are_not_candidates.py::test_listing_filter_hrefs_are_refused_and_the_download_div_wins"
+  }
+ ]
+}
