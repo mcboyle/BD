@@ -4,9 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1547 - test_353 staged-login fake locator honors count()/nth() contract from row770d _try_fill
+
+Train: 1 T1 test-only fix (refutes the O663 main-red as a stale test fake).
+
+- 353 TEST-FIX (T1): test_353's _FakeLocator gains count()->1 and nth(i)->self to honor the real Playwright Locator contract row770d's _try_fill now walks; no product change. Unblocks test_353 in the affected band for login-touching trains.
+
 ## v3.66.1546 - row455 reviewed app.reptyle.com live template: 5/5 authenticated kinds decided across two subjects, none unknown or double-counted
 
-Train: 1 refute-first-reviewed worker patches.
+Train: 1 T1 test-only fix (refutes the O663 main-red as a stale test fake).
 
 - 455: reviewed the authenticated app.reptyle.com template against two live subjects. Adds an authenticated fixture (reptyle_live_authenticated_scene.html) with a provenance record and extends the row455 DOM-review test so all 5 template kinds are decided across the two subjects -- none left UNKNOWN, none double-counted; the logged-out subject is the negative control (no uniquely resolved download trigger).
 
