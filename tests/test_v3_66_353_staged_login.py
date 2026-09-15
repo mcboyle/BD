@@ -28,6 +28,14 @@ class _FakeLocator:
     def first(self):
         return self
 
+    def count(self):
+        return 1
+
+    def nth(self, idx):
+        if idx != 0:
+            raise IndexError(idx)
+        return self
+
     def _is_password(self):
         return "pass" in self.sel.lower()
 
