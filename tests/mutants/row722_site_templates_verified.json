@@ -1,0 +1,91 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722. Each mutant corrupts one property of the verified site templates that the wizard or runner consumes: a stray config key (dropped on reload), a selector the site editor would reject, a template value that drifts from the verified :5555 config, a pattern that stops matching the login host, a duplicated id, a stamp on a site that never completed the cycle, and a parallel url_attribute list that no longer lines up.",
+  "subject": "row 722 verified site templates carry the measured login->download config and resolve from their login URLs",
+  "band": [
+    "tests/test_row722_site_templates_verified.py::test_every_verified_template_id_is_present_exactly_once",
+    "tests/test_row722_site_templates_verified.py::test_the_verified_stamp_leads_every_description",
+    "tests/test_row722_site_templates_verified.py::test_patterns_match_the_verified_login_host",
+    "tests/test_row722_site_templates_verified.py::test_the_login_url_resolves_to_the_template",
+    "tests/test_row722_site_templates_verified.py::test_config_defaults_keys_are_all_cfg_fields",
+    "tests/test_row722_site_templates_verified.py::test_config_defaults_carry_what_the_verified_run_needed",
+    "tests/test_row722_site_templates_verified.py::test_every_selector_passes_the_site_editor_validator",
+    "tests/test_row722_site_templates_verified.py::test_learned_selectors_parse_and_parallel_attributes_line_up",
+    "tests/test_row722_site_templates_verified.py::test_no_template_string_carries_a_credential_cookie_or_token",
+    "tests/test_row722_site_templates_verified.py::test_sites_that_did_not_complete_the_cycle_have_no_verified_template"
+  ],
+  "mutants": [
+    {
+      "label": "M1 kink trigger selector drifts from the verified button.buy-shoot",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^            \"trigger_selector\": \"button\\.buy-shoot\",$",
+      "new": "            \"trigger_selector\": \"button:has-text('Download')\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_config_defaults_carry_what_the_verified_run_needed"
+    },
+    {
+      "label": "M2 bangbros CONTINUE div dismiss is dropped",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^            \"dismiss_selectors_login\": \\(\\n                \"div\\[data-test-id=\\\\\"secrev-submit\\\\\"\\] \"\\n                \"div:text-is\\(\\\\\"Continue to Members Area\\\\\"\\)\"\\n            \\),\\n",
+      "new": "# mutant\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_config_defaults_carry_what_the_verified_run_needed"
+    },
+    {
+      "label": "M3 nookies dl_selector is left with an unclosed attribute bracket",
+      "file": "bulk_downloader/site_templates/_data_studios_b.py",
+      "old_regex": "(?m)^            \"dl_selector\": \"a\\[href\\*=\\\\\"/membersarea/video/stream/\\\\\"\\]\",$",
+      "new": "            \"dl_selector\": \"a[href*=\\\"/membersarea/video/stream/\\\"\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_every_selector_passes_the_site_editor_validator"
+    },
+    {
+      "label": "M4 vip4k listing URL is stored under a key that is not a CFG_FIELD",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^            \"crawler_listing_url\": \"https://members\\.vip4k\\.com/en/videos\",$",
+      "new": "            \"listing_url\": \"https://members.vip4k.com/en/videos\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_config_defaults_keys_are_all_cfg_fields"
+    },
+    {
+      "label": "M5 the stepsiblingscaught pattern no longer matches the login host",
+      "file": "bulk_downloader/site_templates/_data_studios_b.py",
+      "old_regex": "(?m)^            r\"stepsiblingscaught\\\\\\.com\",\\n        \\],\\n        \"learned\": \\{\\n            \"download\": \\{\\n                \"trigger_selectors\": \\[\\n                    \"button:has-text\\('Download'\\)\",\\n                    \"a:has-text\\('Download'\\)\",\\n                \\],\\n                \"row_selectors\": \\[\\n                    \"span\\.dimensions\",",
+      "new": "            r\"members\\.stepsiblingscaught\\.com\",\n        ],\n        \"learned\": {\n            \"download\": {\n                \"trigger_selectors\": [\n                    \"button:has-text('Download')\",\n                    \"a:has-text('Download')\",\n                ],\n                \"row_selectors\": [\n                    \"span.dimensions\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_the_login_url_resolves_to_the_template"
+    },
+    {
+      "label": "M6 the brazzers entry is duplicated under the filthykings id",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^        \"id\": \"brazzers\",$",
+      "new": "        \"id\": \"filthykings\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_every_verified_template_id_is_present_exactly_once"
+    },
+    {
+      "label": "M7 the never-completed Vixen network claims the row 722 stamp",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^        \"description\": \"Vixen Media Group sites behind the login\\.vixen\\.com SSO\\. ",
+      "new": "        \"description\": \"VERIFIED 2026-09-15 (row 722): Vixen Media Group sites behind the login.vixen.com SSO. ",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_sites_that_did_not_complete_the_cycle_have_no_verified_template"
+    },
+    {
+      "label": "M8 the bangbros parallel url_attribute list loses the slot for its first row",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^                \"url_attribute\": \\[\"\", \"\", \"href\", \"data-dl-quality\"\\],$",
+      "new": "                \"url_attribute\": [\"\", \"href\", \"data-dl-quality\"],",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_learned_selectors_parse_and_parallel_attributes_line_up"
+    },
+    {
+      "label": "M9 the evilangel description drops the verified stamp",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?m)^        \"description\": \"VERIFIED 2026-09-15 \\(row 722\\): login https://www\\.evilangel\\.com/en/login",
+      "new": "        \"description\": \"Evil Angel: login https://www.evilangel.com/en/login",
+      "direction": "regression",
+      "catcher": "tests/test_row722_site_templates_verified.py::test_the_verified_stamp_leads_every_description"
+    }
+  ]
+}

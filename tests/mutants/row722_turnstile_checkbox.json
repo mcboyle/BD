@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (vip4k.com/en/login): a checkbox-mode Cloudflare Turnstile never populates cf-turnstile-response until the box is clicked; the journal then lied 'populated after 30.0s' and every submit was refused as Wrong Captcha. M1 removes the Turnstile click (token never populates). M2 collapses the NOT-populated journal line back into the 'populated' lie.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_turnstile_checkbox.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 Turnstile checkbox is never clicked",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _click_turnstile_checkbox\\(page\\):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_turnstile_checkbox.py::test_turnstile_checkbox_is_clicked_and_the_token_populates"
+    },
+    {
+      "label": "M2 NOT-populated log collapses back to 'populated after 30.0s'",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if tok and waited is None:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_turnstile_checkbox.py::test_call_site_logs_not_populated_distinctly"
+    },
+    {
+      "label": "M3 closed-shadow-root widget container never clicked",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "for sel in \\(TURNSTILE_IFRAME_SEL, \\*TURNSTILE_CONTAINER_SELS,\\n\\s+\"\\[data-bd-turnstile-host\\]\"\\):",
+      "new": "for sel in (TURNSTILE_IFRAME_SEL,):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_turnstile_checkbox.py::test_the_container_selectors_carry_the_click_when_the_frame_is_proxied"
+    }
+  ]
+}

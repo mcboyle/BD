@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 (bangbros): root success_url matched the login page. M1 root rule dropped; M2 login-page guard dropped.",
+  "subject": "bulk_downloader/login_impl/replay.py",
+  "band": [
+    "tests/test_row722_root_success_url_is_not_the_login_page.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 root success_url matches every path again",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "if sx_path == \"/\":\\n            # Row 722",
+      "new": "if False:\n            # Row 722",
+      "direction": "regression",
+      "catcher": "tests/test_row722_root_success_url_is_not_the_login_page.py::test_success_url_reached[https://site-ma.bangbros.test/-https://site-ma.bangbros.test/store-False]"
+    },
+    {
+      "label": "M2 the login page counts as success",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "if \\(lx\\.netloc == fx\\.netloc\\n                    and \\(lx\\.path or \"/\"\\)\\.rstrip\\(\"/\"\\) == \\(fx\\.path or \"/\"\\)\\.rstrip\\(\"/\"\\)\\):\\n                return False",
+      "new": "if False:\n                return False",
+      "direction": "regression",
+      "catcher": "tests/test_row722_root_success_url_is_not_the_login_page.py::test_success_url_reached[https://site-ma.bangbros.test/login-https://site-ma.bangbros.test/login-False]"
+    }
+  ]
+}

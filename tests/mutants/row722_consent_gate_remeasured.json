@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (bangbros / Aylo): a live-label mismatch after the generic pass's snapshot ('changed after snapshot') is given up to two bounded re-measurements, ~300ms apart, before the original measurement_unknown refusal stands. M1 drops the re-measurement loop entirely (reverts to the pre-fix immediate refusal). M2 drops the bound, so a control that never stabilises is re-measured without limit instead of refused after two tries.",
+  "subject": "bulk_downloader/interstitial.py",
+  "band": [
+    "tests/test_row722_consent_gate_remeasured_after_dom_change.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 drop the re-measurement loop (falls straight back to the immediate refusal)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "for attempt in range\\(2, GENERIC_REMEASURE_ATTEMPTS \\+ 2\\):",
+      "new": "for attempt in range(0):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_consent_gate_remeasured_after_dom_change.py::test_control_that_rerenders_once_is_clicked_on_the_remeasure"
+    },
+    {
+      "label": "M2 drop the re-measurement bound (a control that never stabilises is re-measured unboundedly instead of refused after two tries)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "GENERIC_REMEASURE_ATTEMPTS = 2",
+      "new": "GENERIC_REMEASURE_ATTEMPTS = 100000",
+      "direction": "regression",
+      "catcher": "tests/test_row722_consent_gate_remeasured_after_dom_change.py::test_control_that_keeps_changing_stays_measurement_unknown"
+    }
+  ]
+}

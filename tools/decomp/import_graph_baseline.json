@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4482,
+  "edge_count": 4522,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1542,6 +1542,7 @@
       "bulk_downloader/cross_site_selectors.py",
       "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
+      "bulk_downloader/registrable_domain.py",
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/stealth.py"
     ],
@@ -1859,6 +1860,7 @@
       "bulk_downloader/plugins.py",
       "bulk_downloader/provider_resolve.py",
       "bulk_downloader/runner_util.py",
+      "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/tier_probe.py",
       "bulk_downloader/vpn_runtime.py",
@@ -1925,11 +1927,13 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/notify_apprise.py",
       "bulk_downloader/runner_util.py",
+      "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/tg_bot.py"
     ],
     "bulk_downloader/runner_transport.py": [
+      "bulk_downloader/affordance_learning.py",
       "bulk_downloader/bandwidth_shape.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
@@ -4156,6 +4160,76 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/stealth.py"
+    ],
+    "tests/test_row722_access_brand_gateway.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row722_async_post_login_interstitial_rewalk.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row722_blacked_i_agree_age_gate.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row722_consent_gate_remeasured_after_dom_change.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row722_custom_selector_ranks_by_quality.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_integrity.py"
+    ],
+    "tests/test_row722_dropdown_download_affordance.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row722_integrity_check_is_format_aware.py": [
+      "bulk_downloader/integrity.py"
+    ],
+    "tests/test_row722_invalid_selector_config_is_terminal.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_row722_kink_enter_brand_affordance.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row722_login_browser_mirrors_stepper_profile.py": [
+      "bulk_downloader/cloak.py"
+    ],
+    "tests/test_row722_login_cap_survives_restart.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_row722_media_leaf_names_fall_back_to_title.py": [
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row722_readded_url_starts_fresh.py": [
+      "bulk_downloader/content_rights.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_queue.py",
+      "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_row722_relative_download_href_provenance.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_row722_reveal_download_and_listing_links.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row722_reveal_href_less_quality_buttons.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row722_spa_api_media_extraction.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/spa_media_extract.py"
     ],
     "tests/test_row723_chrome_channel_fallback_reaches_run_record.py": [
       "bulk_downloader/cloak.py",

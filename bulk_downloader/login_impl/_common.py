@@ -85,6 +85,8 @@ def _all_visible(page,selectors):
 
 
 _MATCH_WAIT_MS = 2500
+# Row 722: how many matches of one click selector are walked for a visible one.
+_CLICK_WALK_LIMIT = 6
 
 
 def _wait_attached(loc):
@@ -326,14 +328,25 @@ def _try_click(page,selectors,what):
     for sel in selectors:
         if not sel: continue
         tried.append(sel)
-        try:
-            loc=page.locator(sel).first
-            loc.wait_for(state="visible",timeout=400)
-            try: _human_move_to(page, loc)
-            except Exception: pass
-            loc.click(timeout=2000)
-            return True,sel
-        except Exception: continue
+        # Row 722 (kink.com): a selector's FIRST match can be the button of a
+        # hidden duplicate form (a display:none login modal ahead of the page
+        # form in DOM order). `.first` never becomes visible, so the whole
+        # selector used to be skipped and the visible button behind it was
+        # never clicked. Walk the match set, as _try_fill does, and click the
+        # first match that is visible. Bounded so a broad selector cannot
+        # spend 400ms on every button of a page.
+        matches=page.locator(sel)
+        try: count=max(1,min(matches.count(),_CLICK_WALK_LIMIT))
+        except Exception: count=1
+        for idx in range(count):
+            try:
+                loc=matches.first if idx==0 else matches.nth(idx)
+                loc.wait_for(state="visible",timeout=400)
+                try: _human_move_to(page, loc)
+                except Exception: pass
+                loc.click(timeout=2000)
+                return True,sel
+            except Exception: continue
     # Force-click fallback — same selectors but with force=True
     for sel in selectors:
         if not sel: continue

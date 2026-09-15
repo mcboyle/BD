@@ -2550,10 +2550,21 @@ def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None):
     """Bulk-insert URLs in one transaction. Massively faster than per-URL
     upserts for large lists (one transaction vs N)."""
     title_map = listing_titles if isinstance(listing_titles, dict) else {}
+    # Row 722 (G26): the caller only passes URLs absent from the in-memory job
+    # map, so a conflicting row is a stale leftover (bulk_delete's DELETE
+    # failed or raced a worker write). `INSERT OR IGNORE` kept that row's
+    # retries/retry_after/message, and the re-added URL restored as
+    # "Retry 2/2 in 1h" and was never claimed. A re-added URL is a fresh job.
     with db_conn() as cx:
         cx.executemany(
-            "INSERT OR IGNORE INTO queue(site_id,url,status,ord,listing_title) "
-            "VALUES(?,?,'pending',?,?)",
+            "INSERT INTO queue(site_id,url,status,ord,listing_title) "
+            "VALUES(?,?,'pending',?,?) "
+            "ON CONFLICT(site_id,url) DO UPDATE SET status='pending', message='', "
+            "retries=0, retry_after=0, screenshot='', force_download=0, "
+            "filename='', file_size=0, ord=excluded.ord, "
+            "listing_title=excluded.listing_title, "
+            "ts_added=strftime('%Y-%m-%dT%H:%M:%S','now'), "
+            "ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now')",
             [(site_id, u, ord_start + i, title_map.get(u, ""))
              for i, u in enumerate(urls)])
 

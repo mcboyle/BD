@@ -4,7 +4,7 @@ ITEMS = [
 {
         "id": "nubiles_network",
         "name": "Nubiles Network (Nubile, Nubile.net, NubileFilms, NubilePorn)",
-        "description": "Nubiles Inc operator family. Covers Nubiles, Nubile Films, Nubile Porn, MomsTeachSex, MomsLickTeens, MomsBangTeens, Step Siblings Caught, and related brands. Download flow VERIFIED 2026-09-06 (PM-handoff template gap report): the scene page's Download button reveals rows whose `span.dimensions` carry DIRECT signed hrefs on the content2a/content4 CDNs (st/e signed, cookie-fetchable, not IP-bound).",
+        "description": "VERIFIED 2026-09-15 (row 722): three brands completed the login->download cycle on this template -- nubiles: login https://members.nubiles.net/login ('Please sign in' form, no captcha), lands same-origin after the 'CONTINUE TO MEMBERS AREA' interstitial (cleared by the runtime), listing /video/gallery, scenes /video/watch/<id>/<slug>, generic Download rows, picked the 3840 tier ('..._full.mp4', 2.5 GB); nubilefilms: login https://members.nubilefilms.com/login (username field input[name='username'], submit button[type=submit]), same interstitial, picked 3840x2160 (2.7 GB); stepsiblingscaught: see the dedicated `stepsiblingscaught` entry (login host behind a Cloudflare 'I am human' page, members host members.nubiles-porn.com). Nubiles Inc operator family. Covers Nubiles, Nubile Films, Nubile Porn, MomsTeachSex, MomsLickTeens, MomsBangTeens, Step Siblings Caught, and related brands. Download flow VERIFIED 2026-09-06 (PM-handoff template gap report): the scene page's Download button reveals rows whose `span.dimensions` carry DIRECT signed hrefs on the content2a/content4 CDNs (st/e signed, cookie-fetchable, not IP-bound). No login_url default: each brand has its own members host.",
         "patterns": [
             r"nubile\.com",
             r"nubile\.net",
@@ -72,8 +72,9 @@ ITEMS = [
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 (2026-09-15): verified tier ladder on nubiles/nubilefilms/stepsiblingscaught.
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
@@ -81,7 +82,7 @@ ITEMS = [
 {
         "id": "nookies",
         "name": "Nookies",
-        "description": "Nookies (nookies.com). VERIFIED 2026-09-06 (PM-handoff template gap report): the login form posts /auth.form with uid/pwd field names; the scene page's #downloadTrigger opens #downloadModal, whose 'Full quality video' row points at /membersarea/video/stream/<id> and 302s to the session-cookie-protected /protected/content/<studio>/<slug>/high.mp4. GOTCHA: an #inboxModal appears on scene load and intercepts clicks; the grid preview.mp4 links are previews, not the download.",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://nookies.com/login ('I AGREE' age gate cleared by the runtime; uid/pwd form, submitted via Tab+Enter), lands the /membersarea/gateway partner-deals page whose forward control is 'ACCESS NOOKIES' -> https://nookies.com/membersarea (declared via success_url; /video/<id> URLs are TOUR pages even with a session, members scenes are /membersarea/video/<id>); a promo modal is closed via button[aria-label=\"Close\"]; the scene's bare 'Download' button reveals a hidden a[href*='/membersarea/video/stream/<id>'] which 302s to the session-protected high.mp4 (the '4k' TAG link is a filter, not the download); picked the full-quality stream (2.9 GB, saved as high.mp4). Nookies (nookies.com). VERIFIED 2026-09-06 (PM-handoff template gap report): the login form posts /auth.form with uid/pwd field names; the scene page's #downloadTrigger opens #downloadModal, whose 'Full quality video' row points at /membersarea/video/stream/<id> and 302s to the session-cookie-protected /protected/content/<studio>/<slug>/high.mp4. GOTCHA: an #inboxModal appears on scene load and intercepts clicks; the grid preview.mp4 links are previews, not the download.",
         "patterns": [
             r"nookies\.com",
         ],
@@ -112,8 +113,14 @@ ITEMS = [
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 verified nookies config (:5555, 2026-09-15).
+            "login_url": "https://nookies.com/login",
+            "success_url": "https://nookies.com/membersarea",
+            "dismiss_selectors": "button[aria-label=\"Close\"]",
+            "trigger_selector": "button:has-text(\"Download\")",
+            "dl_selector": "a[href*=\"/membersarea/video/stream/\"]",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
@@ -121,13 +128,15 @@ ITEMS = [
 {
         "id": "new_sensations",
         "name": "New Sensations",
-        "description": "New Sensations studio (newsensations.com). (Speculative — patterns derived from typical premium-studio member area. Run a teach pass to refine.)",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://www.newsensations.com/members/ ('Members Login' form, username field input[placeholder*='user' i], submit button[type=submit], no captcha), lands the same-origin /members/offers.php cross-sell whose safe forward control is 'TAKE ME TO MY MEMBERSHIP' (dismiss_selectors; the runtime re-requests the original URL afterwards); scenes are /members/gallery.php?id=<id>&type=vids; the scene's button.ex-iconbtn--download opens #exDownloadMenu.exp-menu-floating with JS-only .exp-menu-item rows 2160p/1080p/720p/360p (no href -- the tiers are time-signed nsnetworkmembers mp4 URLs in the player config, which the runtime's API/media fallback reads); picked 2160p (2.9 GB, '..._2160_NS.mp4').",
         "patterns": [
             r"newsensations\.com",
         ],
         "learned": {
             "login": {
                 "user_field": [
+                    # Row 722 (2026-09-15): the measured username field first.
+                    "input[placeholder*='user' i]",
                     "#username", "#email",
                     "input[name='username']", "input[name='email']",
                     "input[type='email']",
@@ -143,10 +152,14 @@ ITEMS = [
             },
             "download": {
                 "trigger_selectors": [
+                    "button.ex-iconbtn--download",
                     "button:has-text('Download')",
                     "a:has-text('Download')",
                 ],
                 "row_selectors": [
+                    # Row 722: the floating menu rows have no href (empty
+                    # attribute = click-and-capture / API fallback).
+                    "#exDownloadMenu .exp-menu-item",
                     "a[href*='/download/']",
                     "a[download][href*='.mp4']",
                     "a.download-link",
@@ -154,13 +167,18 @@ ITEMS = [
                     "a:has-text('1080p')",
                     "a:has-text('720p')",
                 ],
-                "url_attribute": "href",
-                "tier_labels_seen": ["4K", "1080p", "720p"],
+                "url_attribute": ["", "href", "href", "href", "href", "href", "href"],
+                "tier_labels_seen": ["2160p", "1080p", "720p", "360p"],
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 verified newsensations config (:5555, 2026-09-15).
+            "login_url": "https://www.newsensations.com/members/",
+            "dismiss_selectors": "a:has-text(\"TAKE ME TO MY MEMBERSHIP\")",
+            "trigger_selector": "button.ex-iconbtn--download",
+            "dl_selector": "#exDownloadMenu .exp-menu-item:has-text('2160p')",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
@@ -223,7 +241,7 @@ ITEMS = [
 {
         "id": "teen_mega_world",
         "name": "Teen Mega World",
-        "description": "Teen Mega World (teenmegaworld.net/.com) — Russian-operated network with ~20 sub-brands. Network sites typically share the same member-area template. (Speculative — created without HTML samples.)",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://members.teenmegaworld.net/authentication.php (the 'Member Login' form lives on the members host; teenmegaworld.net/login is the homepage with an age gate; username field input[name='username'], submit button[type=submit], no captcha); lands same-origin on members.teenmegaworld.net (success_url deliberately empty: members.teenmegaworld.net alone also matched the authentication.php form page); scenes are /scenes/*_vids.html; the generic Download walk picked the 3840x2160 tier (2.3 GB, 'Beauty-Angels_..._3840x2160.mp4'). Teen Mega World (teenmegaworld.net/.com) — Russian-operated network with ~20 sub-brands. Network sites typically share the same member-area template.",
         "patterns": [
             r"teenmegaworld\.net",
             r"teenmegaworld\.com",
@@ -242,8 +260,10 @@ ITEMS = [
         "learned": {
             "login": {
                 "user_field": [
+                    # Row 722 (2026-09-15): the measured username field first.
+                    "input[name='username']",
                     "#username", "#email", "#login",
-                    "input[name='username']", "input[name='login']",
+                    "input[name='login']",
                     "input[name='email']",
                 ],
                 "pass_field": [
@@ -273,8 +293,10 @@ ITEMS = [
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 verified teenmegaworld config (:5555, 2026-09-15).
+            "login_url": "https://members.teenmegaworld.net/authentication.php",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
@@ -410,7 +432,7 @@ ITEMS = [
 {
         "id": "ultrafilms",
         "name": "UltraFilms",
-        "description": "UltraFilms (ultrafilms.com) — premium 4K adult studio. ACTIVE in user's live queue (~777 URLs pending). (Speculative — selectors here are best-guess, send the download-button HTML for a real URL and the login form HTML to refine. Workers can still teach selectors via the manual takeover flow.)",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://ultrafilms.com/login ('MEMBER LOGIN' form, E-Mail / Password / GET INSIDE, no captcha, no interstitial; submitted via the submit selector click), lands same-origin /members/home (no success_url needed); items are /members/content/item/<uuid>-<slug> (photo sets are zips -- pick Movie items); the generic Download walk picked the 7680x4320 tier (6.5 GB, 'insane-desire_..._7680x4320.mp4'). UltraFilms (ultrafilms.com) — premium 4K adult studio.",
         "patterns": [
             r"ultrafilms\.com",
             r"ultrafilms\.net",
@@ -456,8 +478,10 @@ ITEMS = [
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 verified ultrafilms config (:5555, 2026-09-15).
+            "login_url": "https://ultrafilms.com/login",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
@@ -553,7 +577,7 @@ ITEMS = [
         # cut so this template is the only match for the host.
         "id": "pornpros_tiny4k",
         "name": "PornPros / Fame Digital (Tiny4K, Exotic4K)",
-        "description": "tiny4k.com and exotic4k.com -- a Vue SPA, so it needs real Chrome. VERIFIED 2026-09-06: the member scene page carries clear 'DOWNLOAD HD' tier buttons whose direct mp4 links are served from the PornPros CDN with a self-authorizing token good for roughly three hours; use the download_mp4_* variants, NOT stream_mp4_*. NOT WowGirls -- do not apply vip4k_family here. The coin modal on load concerns bonus channels only and is dismissed with its 'No Thanks' text.",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://tiny4k.com/login ('Member login' form, username field input[placeholder*='user' i], submit button[type=submit]; the site warns that rapid repeated logins block the account -- one attempt), lands same-origin with member CDN cookies (CloudFront-Policy/Signature/Key-Pair-Id) after the 'No thanks, continue' coin-modal interstitial; scenes are /members/video/<slug> (Nuxt SPA: cards are JS click divs, no <a>, and no download control renders headless) -- the runtime's API/media path reads /api/members/releases/<slug> downloadOptions and picked 2160p (5.9 GB, 'tiny4k-<slug>-2160.mp4'). tiny4k.com and exotic4k.com -- a Vue SPA, so it needs real Chrome. VERIFIED 2026-09-06: the member scene page carries clear 'DOWNLOAD HD' tier buttons whose direct mp4 links are served from the PornPros CDN with a self-authorizing token good for roughly three hours; use the download_mp4_* variants, NOT stream_mp4_*. NOT WowGirls -- do not apply vip4k_family here. The coin modal on load concerns bonus channels only and is dismissed with its 'No Thanks' text.",
         "patterns": [
             r"tiny4k\.com",
             r"exotic4k\.com",
@@ -585,8 +609,10 @@ ITEMS = [
             },
         },
         "config_defaults": {
-            "quality_preference": "2160,1080,720",
-            "min_resolution": 720,
+            # Row 722 verified tiny4k config (:5555, 2026-09-15).
+            "login_url": "https://tiny4k.com/login",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
             "use_real_chrome": True,
             "use_persistent_profile": True,
         },
@@ -633,6 +659,39 @@ ITEMS = [
             "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_real_chrome": True,
+            "use_persistent_profile": True,
+        },
+    },
+{
+        # Row 722 (2026-09-15): dedicated Step Siblings Caught entry. The host
+        # is also listed under `nubiles_network` (same operator, same download
+        # rows); this entry carries the verified brand-specific login config.
+        "id": "stepsiblingscaught",
+        "name": "Step Siblings Caught (Nubiles brand)",
+        "description": "VERIFIED 2026-09-15 (row 722): login https://stepsiblingscaught.com/login (302s to /turnstile/challenge?r=/login, a full-page Cloudflare 'Security Check' with a custom <div role=button aria-label=\"Verify you are human\"> 'I am human' control that the runtime clicks before the form renders; members.stepsiblingscaught.com does not exist); the submit hops to https://members.nubiles-porn.com/ -- a different brand host, admitted only because success_url declares that origin; the shared Nubiles members host lists every network brand (scenes /video/watch/<id>/<slug>, listing pages such as /video/toprated/ are not scenes); Download rows are the Nubiles span.dimensions direct signed hrefs; picked the 3840 tier (4.8 GB, 'myfamilypies_..._3840.mp4').",
+        "patterns": [
+            r"stepsiblingscaught\.com",
+        ],
+        "learned": {
+            "download": {
+                "trigger_selectors": [
+                    "button:has-text('Download')",
+                    "a:has-text('Download')",
+                ],
+                "row_selectors": [
+                    "span.dimensions",
+                    "a[href*='.mp4?st=']",
+                ],
+                "url_attribute": "href",
+                "tier_labels_seen": ["4K", "2160p", "1080p", "720p", "480p"],
+            },
+        },
+        "config_defaults": {
+            "login_url": "https://stepsiblingscaught.com/login",
+            "success_url": "https://members.nubiles-porn.com/",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "min_resolution": 1080,
+            "use_curl_cffi": True,
             "use_persistent_profile": True,
         },
     },

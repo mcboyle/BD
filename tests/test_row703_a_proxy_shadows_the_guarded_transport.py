@@ -83,10 +83,10 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # A proxy passed POSITIONALLY is not possible: httpx.Client takes no positional
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
-    "bulk_downloader/runner_telemetry.py:301",
-    "bulk_downloader/runner_transport.py:2310",
-    "bulk_downloader/runner_transport.py:2677",
-    "bulk_downloader/runner_transport.py:2908",
+    "bulk_downloader/runner_telemetry.py:309",
+    "bulk_downloader/runner_transport.py:2866",
+    "bulk_downloader/runner_transport.py:3233",
+    "bulk_downloader/runner_transport.py:3464",
 }
 
 

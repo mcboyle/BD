@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 keeper-cap decision record. The value-free regex matches only the structural field name after the required question key. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row722_keeper_cap_decision.json --work DETACHED_SCRATCH.",
+  "subject": "the keeper-cap question carries a nonempty decision",
+  "band": [
+    "tests/test_row722_operator_decision.py::test_row722_records_both_operator_decisions_with_reasons"
+  ],
+  "mutants": [
+    {
+      "label": "M1 remove the keeper-cap decision field",
+      "file": "project-knowledge/FLEET_EGRESS_DECISIONS.md",
+      "new": "Disposition",
+      "direction": "regression",
+      "catcher": "tests/test_row722_operator_decision.py::test_row722_records_both_operator_decisions_with_reasons",
+      "old_regex": "(?s)(?<=### Keeper re-login cap\\n\\n)Decision(?=:)"
+    }
+  ]
+}

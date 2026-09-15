@@ -509,6 +509,14 @@ _DISPATCH_SITES = {
     ("_staged_password_retry", "pf_candidates", "password (after continue)"),
     ("do_login", "uf_candidates", "username"),
     ("do_login", "pf_candidates", "password"),
+    # Row 722 (vixen, 2026-09-15): a cleared Cloudflare challenge can swallow
+    # the POST and hand back an EMPTY login form; do_login re-fills once
+    # through the same filtered seam (tests/test_row722_cloudflare_challenge_
+    # before_form.py::test_after_a_cleared_challenge_an_empty_login_form_is_
+    # re_submitted_once owns the behaviour). Two more dispatch sites, both
+    # inside _try_fill's filter.
+    ("do_login", "uf_candidates", "username (re-submit)"),
+    ("do_login", "pf_candidates", "password (re-submit)"),
 }
 
 
@@ -614,13 +622,13 @@ def test_try_fill_is_imported_by_the_submit_path():
 
 
 def test_every_login_fill_goes_through_the_honeypot_filtered_seam():
-    """EXACT COUNT, not 'at least'. Three dispatch sites call _try_fill and
-    the honeypot filter is inside it; a fourth fill path added later would
-    bypass the filter entirely and must fail here until it is routed through
-    the same seam."""
+    """EXACT COUNT, not 'at least'. Five dispatch sites call _try_fill (three
+    at row 770, two more re-submit fills at row 722) and the honeypot filter
+    is inside it; a sixth fill path added later would bypass the filter
+    entirely and must fail here until it is routed through the same seam."""
     calls = _dispatch_calls()
-    assert len(calls) == 3, (
-        f"expected exactly 3 _try_fill dispatch sites in submit.py, found "
+    assert len(calls) == len(_DISPATCH_SITES) == 5, (
+        f"expected exactly {len(_DISPATCH_SITES)} _try_fill dispatch sites in submit.py, found "
         f"{len(calls)}: {[(c['function'], c['candidates'], c['label']) for c in calls]}"
         f" -- the honeypot filter lives inside _try_fill, so a fill that does "
         f"not go through it is an unfiltered fill")
@@ -632,7 +640,8 @@ def test_every_login_fill_goes_through_the_honeypot_filtered_seam():
         f"  found:    {sorted(shapes)}\n"
         f"Each missing entry is a fill that no longer passes through the "
         f"honeypot filter in _common._try_fill: the username fill, the "
-        f"password fill, or the staged-login password retry.")
+        f"password fill, the staged-login password retry, or one of the "
+        f"row-722 post-challenge re-submit fills.")
 
 
 def test_no_login_fill_dispatch_is_stranded_behind_an_early_return():

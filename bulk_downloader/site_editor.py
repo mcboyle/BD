@@ -133,6 +133,7 @@ NUMERIC_RANGES = {
     "parallel_chunks":      (1, 32),
     "parallel_min_size_mb": (0, 100000),
     "auto_relogin_interval_hours": (1, 168),
+    "login_attempt_cap_per_day": (1, 50),
     "warmup_every":         (0, 86400),
     "min_size_pct":         (0, 100),
     # MOD-1 F1.4 (v3.66.810): predictive-relogin fraction is a 0..1 multiplier of
@@ -156,6 +157,7 @@ NUMERIC_RANGES = {
 # parallel_min_size_mb/auto_relogin_interval_hours/min_size_pct) are float-consumed
 # and legitimately fractional, so they are NOT integer-checked.
 INT_TYPED_FIELDS = frozenset({
+    "login_attempt_cap_per_day",  # row 722: a count of attempts
     "max_concurrent", "max_retries", "no_button_threshold", "min_resolution",
     "chunk_size_mb", "prelogin_minutes", "parallel_chunks", "warmup_every",
     "crawler_newest_n", "crawler_max_pages", "crawler_max_scrolls",
@@ -218,6 +220,163 @@ def validate_numeric_updates(updates: dict) -> dict:
             continue
         if n < lo or n > hi:
             errors[field] = f"'{field}' must be between {lo} and {hi} (got {n:g})."
+    return errors
+
+
+# Row 722 (G25a): selector config fields, validated at the audited PUT boundary.
+# Playwright does not expose its selector parser to Python, so this is a
+# conservative CSS check that only rejects what the browser's querySelectorAll
+# is guaranteed to reject: an unquoted attribute value that is not a CSS
+# identifier (`[href*=2160p]` -> SyntaxError at run time), or unbalanced
+# brackets/parens/quotes. Playwright-only pseudo-classes (:has-text, :text-is,
+# :visible, ...) and non-CSS engines (xpath=, text=, //...) are never rejected.
+SELECTOR_FIELDS = ("dl_selector", "trigger_selector", "dismiss_selectors")
+_CSS_IDENT_RE = re.compile(r"^-?(?:[_a-zA-Z\u00a0-\uffff]|\\.)(?:[\w\u00a0-\uffff-]|\\.)*$")
+_ATTR_BODY_RE = re.compile(
+    r"^\s*[^\s=~|^$*!\]]+\s*(?:([~|^$*!]?=)\s*(.*?))?\s*$", re.S)
+_NON_CSS_PREFIX_RE = re.compile(r"^(?:xpath|text|id|data-testid|data-test-id|data-test|nth|visible|internal:[\w-]+|_react|_vue|role)\s*=", re.I)
+
+
+def _split_top_level(sel: str, sep: str) -> list:
+    """Split ``sel`` on ``sep`` outside quotes/brackets/parens."""
+    out, buf, depth, quote, i = [], [], 0, "", 0
+    while i < len(sel):
+        ch = sel[i]
+        if quote:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < len(sel):
+                buf.append(sel[i + 1]); i += 1
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch; buf.append(ch)
+        elif ch in "[(":
+            depth += 1; buf.append(ch)
+        elif ch in "])":
+            depth -= 1; buf.append(ch)
+        elif depth == 0 and sel.startswith(sep, i):
+            out.append("".join(buf)); buf = []; i += len(sep); continue
+        else:
+            buf.append(ch)
+        i += 1
+    out.append("".join(buf))
+    return out
+
+
+def selector_syntax_error(selector) -> str:
+    """Return a reason string when ``selector`` cannot be a valid selector, else ``""``.
+
+    Comma-separated lists and ``>>`` chains are checked per item. Only certain
+    CSS syntax errors are reported (see SELECTOR_FIELDS comment).
+    """
+    if not isinstance(selector, str):
+        return ""
+    sel = selector.strip()
+    if not sel:
+        return ""
+    for part in _split_top_level(sel, ">>"):
+        part = part.strip()
+        if not part or part.startswith(("//", "..", "(")):
+            continue
+        if _NON_CSS_PREFIX_RE.match(part):
+            continue
+        if part.lower().startswith("css="):
+            part = part[4:]
+        for item in _split_top_level(part, ","):
+            item = item.strip()
+            if not item:
+                return "empty selector in comma-separated list"
+            err = _css_item_error(item)
+            if err:
+                return err
+    return ""
+
+
+def _css_item_error(item: str) -> str:
+    depth_sq = depth_par = 0
+    quote = ""
+    i = 0
+    attr_start = None
+    while i < len(item):
+        ch = item[i]
+        if quote:
+            if ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "(":
+            depth_par += 1
+        elif ch == ")":
+            depth_par -= 1
+            if depth_par < 0:
+                return f"unbalanced ')' in {item!r}"
+        elif ch == "[":
+            if depth_sq:
+                return f"nested '[' in {item!r}"
+            depth_sq = 1; attr_start = i + 1
+        elif ch == "]":
+            if not depth_sq:
+                return f"unbalanced ']' in {item!r}"
+            depth_sq = 0
+            err = _attr_error(item[attr_start:i])
+            if err:
+                return err
+        i += 1
+    if quote:
+        return f"unterminated {quote} quote in {item!r}"
+    if depth_sq:
+        return f"unterminated '[' in {item!r}"
+    if depth_par:
+        return f"unterminated '(' in {item!r}"
+    return ""
+
+
+def _attr_error(body: str) -> str:
+    m = _ATTR_BODY_RE.match(body)
+    if not m:
+        return f"malformed attribute selector [{body}]"
+    op, value = m.group(1), m.group(2)
+    if op is None or value is None:
+        return ""
+    value = value.strip()
+    # optional case-sensitivity flag: [href*="x" i]
+    flag = re.match(r"^(.*?)\s+[iIsS]$", value, re.S)
+    if flag and (flag.group(1).endswith(("\"", "'")) or _CSS_IDENT_RE.match(flag.group(1))):
+        value = flag.group(1).strip()
+    if not value:
+        return f"missing attribute value in [{body}]"
+    if value[0] in "\"'":
+        if len(value) < 2 or value[-1] != value[0]:
+            return f"unterminated quoted attribute value in [{body}]"
+        return ""
+    if not _CSS_IDENT_RE.match(value):
+        return (f"unquoted attribute value {value!r} in [{body}] is not a CSS "
+                f"identifier; quote it as [{body.replace(value, chr(34) + value + chr(34), 1)}]")
+    return ""
+
+
+def validate_selector_updates(updates: dict) -> dict:
+    """Return ``{field: reason}`` for every SELECTOR_FIELDS value in ``updates``
+    that fails ``selector_syntax_error``. ``dismiss_selectors`` is one selector per
+    line (``#`` comments allowed); the other fields may be comma-separated."""
+    errors: dict = {}
+    for field in SELECTOR_FIELDS:
+        v = (updates or {}).get(field)
+        if not isinstance(v, str) or not v.strip():
+            continue
+        if field == "dismiss_selectors":
+            # one selector per line; '#' lines are comments (interstitial.selector_lines)
+            lines = [ln for ln in v.splitlines()
+                     if ln.strip() and not ln.strip().startswith("#")]
+        else:
+            lines = [v]
+        for line in lines:
+            reason = selector_syntax_error(line)
+            if reason:
+                errors[field] = reason
+                break
     return errors
 
 
@@ -627,6 +786,8 @@ _FIELD_TYPES = {
     "login_trigger": ("string", "Selector that reveals the login form"),
     "auto_relogin_interval_hours": ("number",
                                     "Hours between auto-relogins"),
+    "login_attempt_cap_per_day": ("number",
+                                  "Login attempts allowed per day (default 3)"),
     "warmup_every": ("number", "Seconds between warmup visits"),
     "headless": ("boolean", "Run the browser headless"),
     "verify_integrity": ("boolean", "Verify file integrity after download"),

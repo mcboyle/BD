@@ -40,6 +40,8 @@ INT_TYPED = {
     "chunk_size_mb", "prelogin_minutes", "parallel_chunks", "warmup_every",
     "crawler_newest_n", "crawler_max_pages", "crawler_max_scrolls",
     "crawler_title_fetch_limit",
+    # Row 722: daily login attempt cap (a count).
+    "login_attempt_cap_per_day",
 }
 FLOAT_TYPED = {
     "wait", "delay", "disk_threshold_gb", "parallel_min_size_mb",

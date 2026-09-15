@@ -229,11 +229,20 @@ def test_row774_no_navigation_reads_exactly_as_before(sweep):
     assert sweep.counted["origin"] <= 1, sweep.counted
 
 
-def test_row774_a_subdomain_is_another_origin_until_declared(sweep):
+def test_row774_a_subdomain_of_the_same_brand_is_a_submit_a_foreign_domain_is_not(sweep):
+    """Row 722 (G17, operator 2026-09-15) narrowed this control: a hop to
+    another host of the SAME registrable domain (login.bang.com ->
+    www.bang.com) is a submit that do_login records and judges; the
+    refusal is for a FOREIGN registrable domain, which still ends the
+    sweep with row 774's text. tests/test_row722_same_brand_cross_origin_
+    landing.py owns the same-brand half."""
     page = _Page(url="https://login.bang.com/login",
                  on_click={SAFE: "https://www.bang.com/members"})
     ok, label = sweep(page)
-    assert ok is False and "cross-origin" in label, (ok, label)
+    assert (ok, label) == (True, "click submit selector"), (ok, label)
+    page = _Page(url="https://login.bang.com/login", on_click={SAFE: GOOGLE})
+    ok, label = sweep(page)
+    assert ok is False and "cross-origin" in label and "accounts.google.com" in label, (ok, label)
 
 
 # ── RED 3: do_login's own acceptance ───────────────────────────────────────

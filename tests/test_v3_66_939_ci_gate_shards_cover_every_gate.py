@@ -817,6 +817,15 @@ _DECLARED = {
     "tests/test_row089_capture_corpus_backup_restore.py",
     "tests/test_row090_global_run_cap.py",
     "tests/test_row395_captcha_egress_disclosure.py",
+    # Row 722. The tracked fleet-egress evidence is a tree-wide contract: no
+    # application path can make a diff router select a missing decision record.
+    # CI-SHARD-CLAIM row-722 tree-gates-5 tests/test_row722_operator_decision.py
+    "tests/test_row722_operator_decision.py",
+    # Row 722. The verified site-template corpus is judged as a whole tree
+    # property (id/host resolution, CFG_FIELDS keys, validator-clean selectors
+    # across every stamped template); no one template's diff can select it.
+    # CI-SHARD-CLAIM row-722 tree-gates-5 tests/test_row722_site_templates_verified.py
+    "tests/test_row722_site_templates_verified.py",
     "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",
     # Row 357. Anchor fragility is a whole-population property: no changed
     # subject path can make a diff router select the gate that audits every

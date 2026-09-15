@@ -474,8 +474,490 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row776_accepted_media_skips_needs_review.py",
             r"(?m)^def test_real_start_fails_closed_and_never_fetches_when_the_proxy_tunnel_is_down\(tmp_path, monkeypatch\):$",
         ),
+    # Row 722 (row722_access_brand_gateway): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "e4827420c5455cad930687ea6476d30d511a187dfc963e41a8b8fd7ca3a7af21":
+        StableValueException(
+            "M1 (drop the ACCESS_AFFORDANCE admission at the interstitial tier): the anchor is the fixed decision text this mutant severs; audited by test_the_row_access_nookies_is_pressed_and_the_partner_links_are_not",
+            "tests/test_row722_access_brand_gateway.py",
+            r"(?m)^def test_the_row_access_nookies_is_pressed_and_the_partner_links_are_not\(",
+        ),
+    # Row 722 (row722_async_post_login_interstitial_rewalk): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "f4d6e808fbef878d131929c0c5e1d235f80a25865b94f4d001e23c70d463d40c":
+        StableValueException(
+            "M1 (single post-login walk again): the anchor is the fixed decision text this mutant severs; audited by test_the_row_a_late_rendered_interstitial_gets_a_second_walk",
+            "tests/test_row722_async_post_login_interstitial_rewalk.py",
+            r"(?m)^def test_the_row_a_late_rendered_interstitial_gets_a_second_walk\(",
+        ),
+    # Row 722 (row722_blacked_i_agree_age_gate): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "cb79f9cf660d87c0799dca66787487714755fba01d0f9ac16476d900326ba1a7":
+        StableValueException(
+            "M1 (admission removed: bare AGREE never checked in the age tier): the anchor is the fixed decision text this mutant severs; audited by test_bare_i_agree_clears_the_blacked_age_wall",
+            "tests/test_row722_blacked_i_agree_age_gate.py",
+            r"(?m)^def test_bare_i_agree_clears_the_blacked_age_wall\(",
+        ),
+    "1227895df74ea2265cbf8aad9b1aa7f71ae5b4942d31a251d9891c5be2a92086":
+        StableValueException(
+            "M2 (corroboration gate removed: bare I AGREE pressed without age language): the anchor is the fixed decision text this mutant severs; audited by test_negative_control_a_agree_with_no_age_language_is_not_pressed",
+            "tests/test_row722_blacked_i_agree_age_gate.py",
+            r"(?m)^def test_negative_control_a_agree_with_no_age_language_is_not_pressed\(",
+        ),
+    # Row 722 (row722_cloudflare_challenge_before_form): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "0bd8050203fc9cc4c3c59bae6ba15cdb4f30293da9d6870d03094c0b13702977":
+        StableValueException(
+            "M3 (post-submit challenge page not cleared): the anchor is the fixed decision text this mutant severs; audited by test_a_post_submit_challenge_page_is_cleared_before_the_success_url_check",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_a_post_submit_challenge_page_is_cleared_before_the_success_url_check\(",
+        ),
+    "d281bf4a6891ddcf5796587ac60c7a27648216a53d57ed9083d6fdea1dbad18b":
+        StableValueException(
+            "M5 (managed-challenge widget container ids dropped): the anchor is the fixed decision text this mutant severs; audited by test_the_explicit_widget_container_is_the_click_anchor_when_the_frame_is_proxied",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_the_explicit_widget_container_is_the_click_anchor_when_the_frame_is_proxied\(",
+        ),
+    "4ee3582b914298b3b468a9037848777af9aedfdbe22a565646597b70cebe0eeb":
+        StableValueException(
+            "M6 (post-login upsell uncheck dropped): the anchor is the fixed decision text this mutant severs; audited by test_upsell_boxes_are_unchecked_before_the_post_login_interstitial_walk",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_upsell_boxes_are_unchecked_before_the_post_login_interstitial_walk\(",
+        ),
+    "04f8ed96d3419bb2780d2cff1b7ef76e7cf15017f2c07c46fec4c03de7c22b21":
+        StableValueException(
+            "M7 (random-id widget host never tagged): the anchor is the fixed decision text this mutant severs; audited by test_the_tagged_random_id_host_is_the_click_anchor_when_the_frame_is_proxied",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_the_tagged_random_id_host_is_the_click_anchor_when_the_frame_is_proxied\(",
+        ),
+    "cb1d71a7e37f6f58ef158f5216dde862246e07ac700afd7988dfdf75ca99ce6a":
+        StableValueException(
+            "M8 (auto-verifying challenge abandoned): the anchor is the fixed decision text this mutant severs; audited by test_a_challenge_that_auto_verifies_is_waited_for_not_abandoned",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_a_challenge_that_auto_verifies_is_waited_for_not_abandoned\(",
+        ),
+    "6cd122adacef17480db8ba89b44a7fe79a761fa7b473e45fb5c8589207d0db30":
+        StableValueException(
+            "M10 (site-drawn Security Check page not recognised): the anchor is the fixed decision text this mutant severs; audited by test_the_security_check_title_alone_marks_a_site_drawn_challenge",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_the_security_check_title_alone_marks_a_site_drawn_challenge\(",
+        ),
+    "52ca9eba32d6351e4bc855939ebbcde7760fee81ddd56689c04218205cb5bcfc":
+        StableValueException(
+            "M11 (dead page after clearance not re-entered): the anchor is the fixed decision text this mutant severs; audited by test_a_cleared_challenge_that_lands_on_a_dead_page_re_enters_the_site",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_a_cleared_challenge_that_lands_on_a_dead_page_re_enters_the_site\(",
+        ),
+    "6edf8757841c9a0ae7c2b2e7928a86a5b98bebb7377432b5fdd2850af750a920":
+        StableValueException(
+            "M13 (swallowed POST never re-submitted): the anchor is the fixed decision text this mutant severs; audited by test_after_a_cleared_challenge_an_empty_login_form_is_re_submitted_once",
+            "tests/test_row722_cloudflare_challenge_before_form.py",
+            r"(?m)^def test_after_a_cleared_challenge_an_empty_login_form_is_re_submitted_once\(",
+        ),
+    # Row 722 (row722_consent_gate_remeasured): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "db9f5083235da012d8f0a8a5125e01a256945fd3664271e040c65d985576f1ae":
+        StableValueException(
+            "M1 (drop the re-measurement loop (falls straight back to the immediate refusal)): the anchor is the fixed decision text this mutant severs; audited by test_control_that_rerenders_once_is_clicked_on_the_remeasure",
+            "tests/test_row722_consent_gate_remeasured_after_dom_change.py",
+            r"(?m)^def test_control_that_rerenders_once_is_clicked_on_the_remeasure\(",
+        ),
+    "e223a4733b69fa0442252a0410b49cde9016d4feb2cd5d376ebf07e341445ce8":
+        StableValueException(
+            "M2 (drop the re-measurement bound (a control that never stabilises is re-measured unboundedly instead of refused after two tries)): the anchor is the fixed decision text this mutant severs; audited by test_control_that_keeps_changing_stays_measurement_unknown",
+            "tests/test_row722_consent_gate_remeasured_after_dom_change.py",
+            r"(?m)^def test_control_that_keeps_changing_stays_measurement_unknown\(",
+        ),
+    # Row 722 (row722_custom_selector_ranks): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "22eb3542f06d32f2bcb5472b359043205d303d936b23b0e50163fa0c90c6b9b1":
+        StableValueException(
+            "M1 (`.first` restored: multi-match never ranked): the anchor is the fixed decision text this mutant severs; audited by test_five_matches_with_preference_1080_720_pick_1080",
+            "tests/test_row722_custom_selector_ranks_by_quality.py",
+            r"(?m)^def test_five_matches_with_preference_1080_720_pick_1080\(",
+        ),
+    # Row 722 (row722_dropdown_download_affordance): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "d1acb68aad957b06e62a2b1629331262898346ae2e1fec860f9c2254112962e6":
+        StableValueException(
+            "M1 (runner never consults the dropdown helper): the anchor is the fixed decision text this mutant severs; audited by test_runner_seam_consults_the_helper_when_score_is_0",
+            "tests/test_row722_dropdown_download_affordance.py",
+            r"(?m)^def test_runner_seam_consults_the_helper_when_score_is_0\(",
+        ),
+    "46dc0f6b0ec7e0b2c16ba6feeb4398546b8ca1f77a998ab01d44528a7daf19d1":
+        StableValueException(
+            "M2 (helper never opens the menu): the anchor is the fixed decision text this mutant severs; audited by test_the_runner_opens_the_dropdown_and_picks_4k",
+            "tests/test_row722_dropdown_download_affordance.py",
+            r"(?m)^def test_the_runner_opens_the_dropdown_and_picks_4k\(",
+        ),
+    # Row 722 (row722_handoff_keeps_evidence): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "3dcb64c4d00ad42147546dd3e6e28ba617dd114c84cb42ff760d23764ddf4ceb":
+        StableValueException(
+            "M1 (hand-off keeps no evidence): the anchor is the fixed decision text this mutant severs; audited by test_handoff_keeps_the_page_it_gave_up_on",
+            "tests/test_row722_handoff_keeps_evidence.py",
+            r"(?m)^def test_handoff_keeps_the_page_it_gave_up_on\(",
+        ),
+    "19f49a94c54b5f53e6c3b7065b5519742d22296f3352ba2df698ef929f862f05":
+        StableValueException(
+            "M2 (evidence writer keeps no PNG): the anchor is the fixed decision text this mutant severs; audited by test_evidence_writer_keeps_a_png_beside_the_html",
+            "tests/test_row722_handoff_keeps_evidence.py",
+            r"(?m)^def test_evidence_writer_keeps_a_png_beside_the_html\(",
+        ),
+    # Row 722 (row722_hidden_duplicate_login_form): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "62a13d946ad21c544dac87e3f79011c52366b72dcc8e6ff8a4750daf8562c910":
+        StableValueException(
+            "M1 (click only the first match of each selector): the anchor is the fixed decision text this mutant severs; audited by test_submit_acts_on_the_visible_form_not_the_hidden_duplicate",
+            "tests/test_row722_hidden_duplicate_login_form.py",
+            r"(?m)^def test_submit_acts_on_the_visible_form_not_the_hidden_duplicate\(",
+        ),
+    "be49a9520401beeaab2a23fcbd38a6b079ce956c4d9f1b4f51da125b5c010125":
+        StableValueException(
+            "M2 (JS scope prefers the first password field's form): the anchor is the fixed decision text this mutant severs; audited by test_js_request_submit_scopes_to_the_visible_form",
+            "tests/test_row722_hidden_duplicate_login_form.py",
+            r"(?m)^def test_js_request_submit_scopes_to_the_visible_form\(",
+        ),
+    # Row 722 (row722_integrity_check_is_format_aware): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "3ba55f1b593f7937d8da1fd7e62186860b77574bbd9b3cda8dc275be89c12bd3":
+        StableValueException(
+            "M1 (zip routed back to ffprobe): the anchor is the fixed decision text this mutant severs; audited by test_a_valid_zip_is_not_failed_by_ffprobe",
+            "tests/test_row722_integrity_check_is_format_aware.py",
+            r"(?m)^def test_a_valid_zip_is_not_failed_by_ffprobe\(",
+        ),
+    "568cf42602a4b38eabe57b70aa6f0f48c9a3e6111fc7a59a9a49ad6b1ccb854f":
+        StableValueException(
+            "M2 (testzip failure passes): the anchor is the fixed decision text this mutant severs; audited by test_a_zip_with_a_bad_member_crc_is_failed",
+            "tests/test_row722_integrity_check_is_format_aware.py",
+            r"(?m)^def test_a_zip_with_a_bad_member_crc_is_failed\(",
+        ),
+    # Row 722 (row722_invalid_selector_config): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "71e2b78c7ac330852339144e210bba295e371a2dfbd9cd7acbc9002355217560":
+        StableValueException(
+            "M1 (PUT selector validation dropped): the anchor is the fixed decision text this mutant severs; audited by test_put_invalid_dl_selector_is_400_with_field_and_reason_and_not_persisted",
+            "tests/test_row722_invalid_selector_config_is_terminal.py",
+            r"(?m)^def test_put_invalid_dl_selector_is_400_with_field_and_reason_and_not_persisted\(",
+        ),
+    "711eb867a258ce6a08674e67d8534a8dc0a2cbba86a00db624571fd935cd5370":
+        StableValueException(
+            "M2 (selector SyntaxError retried again): the anchor is the fixed decision text this mutant severs; audited by test_selector_syntax_error_from_config_is_needs_review_with_full_selector",
+            "tests/test_row722_invalid_selector_config_is_terminal.py",
+            r"(?m)^def test_selector_syntax_error_from_config_is_needs_review_with_full_selector\(",
+        ),
+    # Row 722 (row722_kink_enter_brand): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "84957b463af0cec523033ff1294bcb921ae3c2adebf4415f44d2b873894d9f76":
+        StableValueException(
+            "M1 (drop the instruction-word exclusion after ENTER): the anchor is the fixed decision text this mutant severs; audited by test_negative_control_instruction_labels_stay_refused",
+            "tests/test_row722_kink_enter_brand_affordance.py",
+            r"(?m)^def test_negative_control_instruction_labels_stay_refused\(",
+        ),
+    "c0e0aebefaa4d285ce9451b08f88b7fe086acea6754a6a63a070b2738fa79e4d":
+        StableValueException(
+            "M2 (widen the brand token to any run of words): the anchor is the fixed decision text this mutant severs; audited by test_a_card_control_whose_label_merely_contains_enter_is_never_clicked",
+            "tests/test_row792_age_gate_enter_substring_and_three_consumers.py",
+            r"(?m)^def test_a_card_control_whose_label_merely_contains_enter_is_never_clicked\(",
+        ),
+    "35feafad78d8a4f8b641bf93c6ecac4f4ad1e56913336518415e61ea9b402edc":
+        StableValueException(
+            "M3 (drop the brand arm (pre-row-722 vocabulary)): the anchor is the fixed decision text this mutant severs; audited by test_enter_brand_clears_the_kink_age_wall",
+            "tests/test_row722_kink_enter_brand_affordance.py",
+            r"(?m)^def test_enter_brand_clears_the_kink_age_wall\(",
+        ),
+    # Row 722 (row722_login_browser_mirrors_stepper_profile): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "beaf09c1c1dae58993dc9f886a34b49a014f55ea72c246f8f8770439e3eda36b":
+        StableValueException(
+            "M1 (implicit channel chrome restored (use_real_chrome absent -> system Chrome)): the anchor is the fixed decision text this mutant severs; audited by test_login_launch_mirrors_cloaked_page_profile",
+            "tests/test_row722_login_browser_mirrors_stepper_profile.py",
+            r"(?m)^def test_login_launch_mirrors_cloaked_page_profile\(",
+        ),
+    "5d007383b49763087308b1914a7741dcac2f3ac96e3f4bb61ab1770feb7d86cd":
+        StableValueException(
+            "M2 (hand-built launch args list restored (overrides cloak stealth defaults)): the anchor is the fixed decision text this mutant severs; audited by test_login_launch_mirrors_cloaked_page_profile",
+            "tests/test_row722_login_browser_mirrors_stepper_profile.py",
+            r"(?m)^def test_login_launch_mirrors_cloaked_page_profile\(",
+        ),
+    # Row 722 (row722_login_cap_survives_restart): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "6abbb3c8f9f3717e5d1704a6aa2e9946645bf4f5f30a633e4d357005d962d741":
+        StableValueException(
+            "M1 (cap key out of CFG_FIELDS again): the anchor is the fixed decision text this mutant severs; audited by test_the_row_the_cap_survives_the_reload_rebuild",
+            "tests/test_row722_login_cap_survives_restart.py",
+            r"(?m)^def test_the_row_the_cap_survives_the_reload_rebuild\(",
+        ),
+    # Row 722 (row722_media_leaf_names): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "cec5a69c736a504450247d1f79491a0fb3aa43bd3366f5864e6d355440c814c6":
+        StableValueException(
+            "M2 (title fallback skipped): the anchor is the fixed decision text this mutant severs; audited by test_high_leaf_nookies",
+            "tests/test_row722_media_leaf_names_fall_back_to_title.py",
+            r"(?m)^def test_high_leaf_nookies\(",
+        ),
+    # Row 722 (row722_post_submit_anonymous_page): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "7cec8399c83d4a2f48f667619c4761e7784532daf330d024f66ed4722ae55adf":
+        StableValueException(
+            "M1 (navigated return ignores the anonymous surface): the anchor is the fixed decision text this mutant severs; audited by test_visible_password_field_after_navigation_is_not_ok",
+            "tests/test_row722_post_submit_anonymous_page_is_not_ok.py",
+            r"(?m)^def test_visible_password_field_after_navigation_is_not_ok\(",
+        ),
+    "151fba60517c273695e1b88c2bf77659fc78678fe55f2e13d4cafd6b5187081d":
+        StableValueException(
+            "M2 (a visible password field is not an anonymous surface): the anchor is the fixed decision text this mutant severs; audited by test_visible_password_field_after_navigation_is_not_ok",
+            "tests/test_row722_post_submit_anonymous_page_is_not_ok.py",
+            r"(?m)^def test_visible_password_field_after_navigation_is_not_ok\(",
+        ),
+    # Row 722 (row722_pre_submit_evidence): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "7f68bb6660361f75fc1e00b871ff0a4270f7e36f0c09ae8abe96423cec097f1a":
+        StableValueException(
+            "M1 (do_login keeps no pre-submit screenshot): the anchor is the fixed decision text this mutant severs; audited by test_the_capture_runs_inside_do_login_before_the_submit_sweep",
+            "tests/test_row722_pre_submit_evidence.py",
+            r"(?m)^def test_the_capture_runs_inside_do_login_before_the_submit_sweep\(",
+        ),
+    "3bc5e2bd58977a7287c476f2df6d9068166320d0d42baa7b4f2aea4bf2c79ed1":
+        StableValueException(
+            "M2 (capture writes nothing): the anchor is the fixed decision text this mutant severs; audited by test_the_filled_form_is_kept_as_a_png_before_the_submit",
+            "tests/test_row722_pre_submit_evidence.py",
+            r"(?m)^def test_the_filled_form_is_kept_as_a_png_before_the_submit\(",
+        ),
+    "6dc08e35c1b4ae2791f159fb6736deac8385e0fd5150581e07205f72ef0fe386":
+        StableValueException(
+            "M3 (username unmasked in the pre-submit shot): the anchor is the fixed decision text this mutant severs; audited by test_the_username_is_masked_for_the_shot_and_restored_after",
+            "tests/test_row722_pre_submit_evidence.py",
+            r"(?m)^def test_the_username_is_masked_for_the_shot_and_restored_after\(",
+        ),
+    # Row 722 (row722_readded_url_starts_fresh): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "4375b05af88edc9c3ef6eef2c693c5d055e79f120afc0a66181edb2a894bf8de":
+        StableValueException(
+            "M1 (queue upsert reset dropped (stale row keeps its ladder)): the anchor is the fixed decision text this mutant severs; audited by test_readded_url_after_bulk_delete_starts_at_retry_zero",
+            "tests/test_row722_readded_url_starts_fresh.py",
+            r"(?m)^def test_readded_url_after_bulk_delete_starts_at_retry_zero\(",
+        ),
+    "ad48ce9c2b6d234a597fbe3c4004ab72362ba8d2cad69fb977c09a9427095cdb":
+        StableValueException(
+            "M2 (deleted-in-flight failure resurrects the job): the anchor is the fixed decision text this mutant severs; audited by test_failure_for_a_job_deleted_in_flight_is_not_published",
+            "tests/test_row722_readded_url_starts_fresh.py",
+            r"(?m)^def test_failure_for_a_job_deleted_in_flight_is_not_published\(",
+        ),
+    # Row 722 (row722_reveal_download_and_listing_links): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "054c47a8e9a7000766b28e96204239f60b3b40aff180b48883d448f19e779d62":
+        StableValueException(
+            "M1 (listing-link exclusion dropped): the anchor is the fixed decision text this mutant severs; audited by test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream",
+            "tests/test_row722_reveal_download_and_listing_links.py",
+            r"(?m)^def test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream\(",
+        ),
+    "cf88339ba3eecc5bdc81df315c958bd758020e12cfeea81dd9695978357097ca":
+        StableValueException(
+            "M2 (reveal path dropped): the anchor is the fixed decision text this mutant severs; audited by test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream",
+            "tests/test_row722_reveal_download_and_listing_links.py",
+            r"(?m)^def test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream\(",
+        ),
+    # Row 722 (row722_reveal_href_less_quality_buttons): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "45506edd9f09e65ec2934c0680850f0166fd7a0fb434ff2528c7db2295f680e8":
+        StableValueException(
+            "M1 (href-less controls excluded again): the anchor is the fixed decision text this mutant severs; audited by test_the_row_href_less_tier_buttons_are_options_and_the_2160p_one_is_clicked",
+            "tests/test_row722_reveal_href_less_quality_buttons.py",
+            r"(?m)^def test_the_row_href_less_tier_buttons_are_options_and_the_2160p_one_is_clicked\(",
+        ),
+    # Row 722 (row722_root_success_url): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "92805f2404800e0b019e80109274ef86cf32c8152dc26cd3865ce95e00639c28":
+        StableValueException(
+            "M1 (root success_url matches every path again): the anchor is the fixed decision text this mutant severs; audited by test_the_row_a_root_success_url_no_longer_matches_the_login_page",
+            "tests/test_row722_root_success_url_is_not_the_login_page.py",
+            r"(?m)^def test_the_row_a_root_success_url_no_longer_matches_the_login_page\(",
+        ),
+    "cc3f703c2438d1dc161c032da7ec38fd6a1fe3ae5b1ca2886575f290bc3f0587":
+        StableValueException(
+            "M2 (the login page counts as success): the anchor is the fixed decision text this mutant severs; audited by test_success_url_reached",
+            "tests/test_row722_root_success_url_is_not_the_login_page.py",
+            r"(?m)^def test_success_url_reached\(",
+        ),
+    # Row 722 (row722_same_brand_cross_origin_landing): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "c0bbeb31d7473962588050b455a263b01dad0b0d7e7b45a0c447b9264a1dcf98":
+        StableValueException(
+            "M1 (predicate always False: a same-brand landing is refused as cross-origin again): the anchor is the fixed decision text this mutant severs; audited by test_same_brand_cross_origin_landing_with_member_surface_is_ok",
+            "tests/test_row722_same_brand_cross_origin_landing.py",
+            r"(?m)^def test_same_brand_cross_origin_landing_with_member_surface_is_ok\(",
+        ),
+    "9b8d3bb26dfd43eba790e0b7637b1fbe9c3feb256f1db11452f71821d420bc4a":
+        StableValueException(
+            "M2 (predicate always True: accounts.google.com is accepted as a same-brand landing): the anchor is the fixed decision text this mutant severs; audited by test_negative_control_a_foreign_domain_keeps_the_row_774_refusal",
+            "tests/test_row722_same_brand_cross_origin_landing.py",
+            r"(?m)^def test_negative_control_a_foreign_domain_keeps_the_row_774_refusal\(",
+        ),
+    "612bbe5d3fe2a3ceff11d56fd6bfceee46bc40e083c6e49bc8e0e05e2ab2d6aa":
+        StableValueException(
+            "M3 (do_login same-brand branch dropped: landing refused before judgment): the anchor is the fixed decision text this mutant severs; audited by test_same_brand_cross_origin_landing_with_member_surface_is_ok",
+            "tests/test_row722_same_brand_cross_origin_landing.py",
+            r"(?m)^def test_same_brand_cross_origin_landing_with_member_surface_is_ok\(",
+        ),
+    "67c493a163ed1d3086ceeb484e3a3688891f86dcfa59f89b84c35bfa5c2e9482":
+        StableValueException(
+            "M4 (evidence not written on the same-brand landing): the anchor is the fixed decision text this mutant severs; audited by test_same_brand_cross_origin_landing_with_member_surface_is_ok",
+            "tests/test_row722_same_brand_cross_origin_landing.py",
+            r"(?m)^def test_same_brand_cross_origin_landing_with_member_surface_is_ok\(",
+        ),
+    "7cbf00c246bfdc8db8a743d0c14e26ddc490d3e219d7043e6b9af63a46d22a66":
+        StableValueException(
+            "M5 (declared success origin not admitted in the sweep): the anchor is the fixed decision text this mutant severs; audited by test_in_sweep_a_declared_success_origin_is_a_submit_for_a_different_brand",
+            "tests/test_row722_same_brand_cross_origin_landing.py",
+            r"(?m)^def test_in_sweep_a_declared_success_origin_is_a_submit_for_a_different_brand\(",
+        ),
+    # Row 722 (row722_site_templates_verified): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "d9827f41fdff1343334e956a49afe563c36924a422c375fa6d5658f2150abc74":
+        StableValueException(
+            "M1 (kink trigger selector drifts from the verified button.buy-shoot): the anchor is the fixed decision text this mutant severs; audited by test_config_defaults_carry_what_the_verified_run_needed",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_config_defaults_carry_what_the_verified_run_needed\(",
+        ),
+    "a1c8deb2a51d27d5112ff21e7d41286f18935dbdab8ccec9d01934b3d7cbf5cd":
+        StableValueException(
+            "M2 (bangbros CONTINUE div dismiss is dropped): the anchor is the fixed decision text this mutant severs; audited by test_config_defaults_carry_what_the_verified_run_needed",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_config_defaults_carry_what_the_verified_run_needed\(",
+        ),
+    "f1eacef2dc8cb69d669eaafef2cde0960e701434823a0077fdbe007ba3e743c6":
+        StableValueException(
+            "M3 (nookies dl_selector is left with an unclosed attribute bracket): the anchor is the fixed decision text this mutant severs; audited by test_every_selector_passes_the_site_editor_validator",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_every_selector_passes_the_site_editor_validator\(",
+        ),
+    "1c63ab2755899fd52fd036aca64104c0c44d7198be0edfa7590ac5c13f699f7c":
+        StableValueException(
+            "M4 (vip4k listing URL is stored under a key that is not a CFG_FIELD): the anchor is the fixed decision text this mutant severs; audited by test_config_defaults_keys_are_all_cfg_fields",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_config_defaults_keys_are_all_cfg_fields\(",
+        ),
+    "d46369864f982966fbabcc9da25a87bc145edddf0deff5d2104260b0addf804a":
+        StableValueException(
+            "M5 (the stepsiblingscaught pattern no longer matches the login host): the anchor is the fixed decision text this mutant severs; audited by test_the_login_url_resolves_to_the_template",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_the_login_url_resolves_to_the_template\(",
+        ),
+    "7eb2728cc1288164733d2c4d929ec6ab3f7997a5fcdce03c779f6fbb1e9fb533":
+        StableValueException(
+            "M6 (the brazzers entry is duplicated under the filthykings id): the anchor is the fixed decision text this mutant severs; audited by test_every_verified_template_id_is_present_exactly_once",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_every_verified_template_id_is_present_exactly_once\(",
+        ),
+    "d018ace75cd08198d9ebc149481488a164ab6120373aaad9d25ae862874feeb7":
+        StableValueException(
+            "M7 (the never-completed Vixen network claims the row 722 stamp): the anchor is the fixed decision text this mutant severs; audited by test_sites_that_did_not_complete_the_cycle_have_no_verified_template",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_sites_that_did_not_complete_the_cycle_have_no_verified_template\(",
+        ),
+    "1d48923e75898f30d1722e2700ad0b34d23557f439080d31904ff5a1d51d8701":
+        StableValueException(
+            "M8 (the bangbros parallel url_attribute list loses the slot for its first row): the anchor is the fixed decision text this mutant severs; audited by test_learned_selectors_parse_and_parallel_attributes_line_up",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_learned_selectors_parse_and_parallel_attributes_line_up\(",
+        ),
+    "a43b81f8f5a6e1dc6925ca024cd0e2e5f2a1c9d0eec5f6c73a53707e135dd235":
+        StableValueException(
+            "M9 (the evilangel description drops the verified stamp): the anchor is the fixed decision text this mutant severs; audited by test_the_verified_stamp_leads_every_description",
+            "tests/test_row722_site_templates_verified.py",
+            r"(?m)^def test_the_verified_stamp_leads_every_description\(",
+        ),
+    # Row 722 (row722_spa_api_media_extraction): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "55f6a07d9173beb2e87da8f67dfbd1b9bf3b0ca9f53c3cc1639972a80be4d8d1":
+        StableValueException(
+            "M2 (ranking ignores resolution (list order wins)): the anchor is the fixed decision text this mutant severs; audited by test_ranking_prefers_resolution_over_list_order_and_api_over_page_media",
+            "tests/test_row722_spa_api_media_extraction.py",
+            r"(?m)^def test_ranking_prefers_resolution_over_list_order_and_api_over_page_media\(",
+        ),
+    "6c2e4e311c41d1666c2debbbc5db1e6ef68dd9deb6395ccea074ba3925d093ef":
+        StableValueException(
+            "M3 (API path writes history without harvesting the title): the anchor is the fixed decision text this mutant severs; audited by test_the_api_path_harvests_the_page_title_before_the_history_row",
+            "tests/test_row722_spa_api_media_extraction.py",
+            r"(?m)^def test_the_api_path_harvests_the_page_title_before_the_history_row\(",
+        ),
+    # Row 722 (row722_turnstile_checkbox): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "0dc4cd93b063e6c42dd7893890b8e005ebfe9574021c7f03b9e6f06f43a57d0a":
+        StableValueException(
+            "M2 (NOT-populated log collapses back to 'populated after 30.0s'): the anchor is the fixed decision text this mutant severs; audited by test_call_site_logs_not_populated_distinctly",
+            "tests/test_row722_turnstile_checkbox.py",
+            r"(?m)^def test_call_site_logs_not_populated_distinctly\(",
+        ),
+    "034f3e22ddd6206f02f92ec072891b72254cb0e19cad46b4c626e287bdeae766":
+        StableValueException(
+            "M3 (closed-shadow-root widget container never clicked): the anchor is the fixed decision text this mutant severs; audited by test_the_container_selectors_carry_the_click_when_the_frame_is_proxied",
+            "tests/test_row722_turnstile_checkbox.py",
+            r"(?m)^def test_the_container_selectors_carry_the_click_when_the_frame_is_proxied\(",
+        ),
+    # Row 722 (row722_upsell_checkbox_unchecked): the anchored text is the fixed
+    # decision the row's fix introduced (control flow / vocabulary /
+    # template identity), not a value any producer re-derives; each
+    # named catcher is the behavioral test that audits that decision.
+    "82c895eb0f095ab1deeca71f15604d1a527de3da36863b84ece0a6aaf6048cdd":
+        StableValueException(
+            "M1 (the uncheck call dropped): the anchor is the fixed decision text this mutant severs; audited by test_upsell_boxes_unchecked_and_verified_remember_me_and_unknown_untouched",
+            "tests/test_row722_upsell_checkbox_unchecked.py",
+            r"(?m)^def test_upsell_boxes_unchecked_and_verified_remember_me_and_unknown_untouched\(",
+        ),
 }
-_STABLE_VALUE_EXCEPTION_MAX = 45
+_STABLE_VALUE_EXCEPTION_MAX = 108
 
 
 def _family(

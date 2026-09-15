@@ -3761,6 +3761,31 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self._worker_url_generations[worker_idx] = run_generation
             return "claimed", run_generation
 
+    def _publish_worker_exception(self, url, exc, run_generation=None):
+        """Publish an exception that escaped one worker attempt.
+
+        Row 722 (G25b): a DOM/Playwright selector SyntaxError raised while
+        applying a CONFIG selector (dl_selector / trigger_selector /
+        dismiss_selectors) is terminal-for-config: the URL goes to
+        ``needs_review`` carrying the FULL selector, not to the
+        "Retry N/2 in 10m/1h" ladder (live: the 100-char truncation cut the
+        selector at ~40 chars, so the failing string was unrecoverable from
+        the app). Every other exception keeps the generic retry path."""
+        bad_sel = self._config_selector_syntax_error(exc)
+        if bad_sel:
+            field, full, err = bad_sel
+            msg = (f"invalid selector in site config: "
+                   f"{field}='{full}' \u2014 {err[:400]}")
+            self._update_job(url, "needs_review", msg,
+                             _run_generation=run_generation)
+            db_log(self.site_id, self.config.get("name", "?"),
+                   url, "needs_review", "", 0, msg)
+            return "needs_review"
+        self._handle_failure(
+            url, f"worker error: {str(exc)[:100]}",
+            _run_generation=run_generation)
+        return "failure"
+
     def _process_worker_url(self, worker_idx, browser, url,
                             persistent_ctx=None, run_generation=None):
         """Claim, map, and process one URL with an unambiguous result."""
@@ -4154,9 +4179,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         pass
                 except Exception as e:
                     try:
-                        self._handle_failure(
-                            url, f"worker error: {str(e)[:100]}",
-                            _run_generation=run_generation)
+                        self._publish_worker_exception(
+                            url, e, run_generation=run_generation)
                     except Exception: pass
                 finally:
                     if acquired_global and _global_sem is not None:
@@ -4969,6 +4993,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # (the code immediately after this if-block treats
                     # `best` as the live result).
             if not best:
+                # Row 722 (G5): the DOM yielded nothing -- consult what the
+                # page itself fetched (same-site /api/ JSON download options,
+                # media the page requested). Consulted ONLY here, never when
+                # a DOM candidate exists. Takes over the transfer on success.
+                if self._try_spa_api_media_extractor(url, page):
+                    return
                 ss=self._screenshot(page,url)
                 if _handle_confirmed_no_video_page(self, page, url, ss):
                     return

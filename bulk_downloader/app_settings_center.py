@@ -94,6 +94,7 @@ def _categorize(k: str) -> str:
     if k in ("login_url", "username", "password", "user_field", "pass_field", "submit_btn",
              "login_trigger",
              "success_url", "cookie_file", "auto_relogin_enabled", "auto_relogin_interval_hours",
+             "login_attempt_cap_per_day",
              "prelogin_minutes", "ai_login_assist_enabled", "auto_preemptive_relogin",
              "predictive_relogin_enabled", "predictive_relogin_fraction",
              "accounts", "accounts_mode", "accounts_rotate_every",

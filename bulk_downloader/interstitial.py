@@ -54,6 +54,16 @@ DEFAULT_SETTLE_S = 0.5
 DEFAULT_NAVIGATION_TIMEOUT_MS = 30000
 DEFAULT_SITE_APPEAR_MS = DEFAULT_TIMEOUT_MS
 
+# Row 722 (bangbros / Aylo, 2026-09-15): a consent banner rendered by React can
+# legitimately re-render ONCE between the generic pass's snapshot and the
+# click that was about to use it, which reads identically to real DOM drift.
+# Two bounded re-measurements, spaced to let a single re-render settle, give
+# that one race a second chance without widening what "changed after
+# snapshot" refuses -- a control that keeps changing gets the same refusal
+# it always got.
+GENERIC_REMEASURE_INTERVAL_S = 0.3
+GENERIC_REMEASURE_ATTEMPTS = 2
+
 GENERIC_CONTROL_SELECTOR = (
     "button, a, [role='button'], input[type='button'], input[type='submit']"
 )
@@ -112,8 +122,47 @@ AGE_GATE_LANGUAGE = re.compile(
     r"\b(?:18|21) years? (?:of age )?or older\b|"
     r"\bover (?:18|21) years?\b)", re.I)
 
+# Row 722 (kink.com, 2026-09-15): the wall reads "ENTER KINK" beside
+# "I Disagree, Exit Here". ENTER plus ONE brand-shaped token is admitted; an
+# instruction word after ENTER ("your", "password", "pin", "code", ...) is not,
+# and two or more tokens ("ENTER YOUR CARD DETAILS", row 792) never are. The
+# content corroboration (18-plus language AND an EXIT beside it) still gates
+# every admission below.
 ENTER_AFFORDANCE = re.compile(
-    r"^(?:enter|enter (?:site|here|the site)|enter this site)$", re.I)
+    r"^(?:enter|enter (?:site|here|the site|this site)|"
+    r"enter (?!(?:your|my|a|an|the|password|passcode|pin|code|email|username|"
+    r"user|login|card|number|amount|details|text|otp)$)"
+    r"[a-z][a-z0-9'.&!-]{0,19})$", re.I)
+
+# Row 722 (blacked.com, 2026-09-15): the wall reads bare "I AGREE" beside
+# "I DISAGREE". ENTER_AFFORDANCE never covered agreement phrasing, so the
+# affirmative had no admission and the gate stood between login and the
+# members area. Admitted ONLY the bare/short forms -- "AGREE", "I AGREE",
+# "YES, I AGREE" -- fullmatch keeps a ToS/checkout control such as "I AGREE
+# TO THE TERMS" out on vocabulary alone, and the SAME content corroboration
+# ENTER_AFFORDANCE uses (18-plus language AND a denylisted sibling control)
+# still gates every admission below; it is never promoted into the
+# unconditional generic "age" tier.
+AGREE_AFFORDANCE = re.compile(r"^(?:i )?agree$|^yes[, ]+i agree$", re.I)
+
+# Row 722 (nookies.com, 2026-09-15): a post-login gateway page ("OUR
+# EXCLUSIVE PARTNERS & PREMIUM DEALS") carries a same-origin "ACCESS NOOKIES"
+# beside foreign partner upsells ("JOIN NOW", "SAVE BIG NOW"). The walker's
+# interstitial tier admitted "CONTINUE TO MEMBERS AREA"-shaped labels but not
+# "ACCESS <brand>", so the run never left the gateway.  ACCESS plus ONE
+# brand-shaped token is admitted, same discipline as ENTER_AFFORDANCE: an
+# instruction word after ACCESS ("your", "code", "denied", "restricted", ...)
+# is refused, and two or more tokens (row 792 style, e.g. "ACCESS YOUR
+# ACCOUNT") never are.  "ENTER MEMBERS AREA" / "GO TO MEMBERS AREA" /
+# "ACCESS MEMBERS AREA" are admitted as fixed phrases.  Corroboration is the
+# control's OWN destination (same-origin href, or no href at all), never page
+# content -- see the same-origin check at its call site.
+ACCESS_AFFORDANCE = re.compile(
+    r"^(?:access members area|enter members area|go to members area|"
+    r"access (?!(?:your|my|a|an|the|password|passcode|pin|code|email|"
+    r"username|user|login|card|number|amount|details|text|otp|denied|"
+    r"restricted)$)"
+    r"[a-z][a-z0-9'.&!-]{0,19})$", re.I)
 
 # Read AFTER the ENTER click, never before it: the evilangel measurement shows
 # the block page sitting BEHIND the gate, invisible until the gate is cleared.
@@ -466,6 +515,36 @@ def _page_url(page: Any) -> Any:
         return None
 
 
+def _control_same_origin(page: Any, href: Any) -> Optional[bool]:
+    """Whether an ACCESS control's href is same-origin with the page.
+
+    ``None`` means unmeasurable (the page url could not be read), which the
+    caller turns into a fail-closed UNKNOWN rather than a click.  A control
+    with no href at all (a ``<button>``) can only act on the current page, so
+    it is same-origin by construction; a relative href has no host of its own
+    and inherits the page's. Only an absolute href naming a different host --
+    a partner upsell such as ``join.nookies.test`` -- is foreign.
+    """
+    if not isinstance(href, str) or not href.strip():
+        return True
+    try:
+        parsed = urlsplit(href)
+    except (TypeError, ValueError):
+        return None
+    if not parsed.netloc:
+        return True
+    page_url = _page_url(page)
+    page_host = None
+    if isinstance(page_url, str):
+        try:
+            page_host = urlsplit(page_url).hostname
+        except (TypeError, ValueError):
+            page_host = None
+    if not page_host:
+        return None
+    return (parsed.hostname or "").lower() == page_host.lower()
+
+
 def _same_destination(current: Any, wanted: str) -> bool:
     """Whether ``current`` is already the requested origin + path."""
     if not isinstance(current, str):
@@ -784,7 +863,9 @@ def _age_gate_recognised(page: Any, records: Any) -> Optional[bool]:
     """
     surfaces = [surface for record in records
                 for surface in record.get("labels", [])]
-    has_enter = any(ENTER_AFFORDANCE.fullmatch(surface) for surface in surfaces)
+    has_enter = any(ENTER_AFFORDANCE.fullmatch(surface)
+                     or AGREE_AFFORDANCE.fullmatch(surface)
+                     for surface in surfaces)
     has_exit = any(_deny_term(surface) is not None for surface in surfaces)
     if not (has_enter and has_exit):
         return False
@@ -1172,19 +1253,49 @@ def dismiss_gates(page: Any, raw: Any, *,
                 # refuse on purpose. It becomes authority ONLY on a page whose
                 # content says age gate, which is what stops a genuine abuse
                 # response at the same URL from being clicked through.
-                if not (tier == "age" and ENTER_AFFORDANCE.fullmatch(label)):
+                if tier == "age" and (ENTER_AFFORDANCE.fullmatch(label)
+                                       or AGREE_AFFORDANCE.fullmatch(label)):
+                    if age_gate_verdict is missing:
+                        age_gate_verdict = _age_gate_recognised(page, records)
+                    if age_gate_verdict is None:
+                        actions.append(_measurement_unknown(
+                            "generic", tier, GENERIC_CONTROL_SELECTOR,
+                            "age gate content UNKNOWN: body text unreadable; "
+                            "control not used"))
+                        return actions
+                    if not age_gate_verdict:
+                        continue
+                    admitted_by_age_gate = True
+                elif tier == "interstitial" and ACCESS_AFFORDANCE.fullmatch(label):
+                    # Row 722 (nookies.com, 2026-09-15): the post-login gateway
+                    # reads "OUR EXCLUSIVE PARTNERS & PREMIUM DEALS" with a
+                    # same-origin "ACCESS NOOKIES" beside foreign "JOIN NOW" /
+                    # "SAVE BIG NOW" partner upsells. Corroboration here is the
+                    # control's OWN destination, never page content: a same-
+                    # origin href (or no href at all -- a <button>) is admitted,
+                    # a foreign one never is, whatever its label says.
+                    try:
+                        access_locator = record["locator"]
+                        if access_locator is None:
+                            access_locator = controls.nth(record["index"])
+                        href = access_locator.get_attribute("href")
+                    except Exception as exc:
+                        actions.append(_measurement_unknown(
+                            "generic", tier, GENERIC_CONTROL_SELECTOR,
+                            f"access control origin UNKNOWN: "
+                            f"{type(exc).__name__}; control not used"))
+                        return actions
+                    same_origin = _control_same_origin(page, href)
+                    if same_origin is None:
+                        actions.append(_measurement_unknown(
+                            "generic", tier, GENERIC_CONTROL_SELECTOR,
+                            "access control origin UNKNOWN: page url "
+                            "unreadable; control not used"))
+                        return actions
+                    if not same_origin:
+                        continue
+                else:
                     continue
-                if age_gate_verdict is missing:
-                    age_gate_verdict = _age_gate_recognised(page, records)
-                if age_gate_verdict is None:
-                    actions.append(_measurement_unknown(
-                        "generic", tier, GENERIC_CONTROL_SELECTOR,
-                        "age gate content UNKNOWN: body text unreadable; "
-                        "control not used"))
-                    return actions
-                if not age_gate_verdict:
-                    continue
-                admitted_by_age_gate = True
             locator = record["locator"]
             if locator is None:
                 try:
@@ -1257,12 +1368,50 @@ def dismiss_gates(page: Any, raw: Any, *,
             if live_labels != labels:
                 # The snapshot's verdict does not describe the live control.
                 # That is UNKNOWN for THIS tier, not permission to stop
-                # measuring the tiers stacked behind it.
-                actions.append(_measurement_unknown(
-                    "generic", tier, GENERIC_CONTROL_SELECTOR,
-                    f"generic {tier} matched control changed after snapshot; "
-                    "control not used"))
-                break
+                # measuring the tiers stacked behind it -- but a single
+                # DOM re-render (Aylo's consent banner) is indistinguishable
+                # from real drift on this one read. Re-measure the SAME
+                # tier/label a bounded number of times; a control that
+                # settles back to the snapshot's own labels is still the
+                # control that was measured, so it is used. A control that
+                # keeps changing gets the original refusal, verbatim.
+                stabilised_labels = None
+                for attempt in range(2, GENERIC_REMEASURE_ATTEMPTS + 2):
+                    sleep(GENERIC_REMEASURE_INTERVAL_S)
+                    try:
+                        retry_is_visible = getattr(locator, "is_visible", None)
+                        if (retry_is_visible is not None
+                                and not retry_is_visible()):
+                            break
+                        retry_labels = _control_labels(locator)
+                    except _LabelMeasurementUnavailable:
+                        break
+                    except Exception:
+                        break
+                    if retry_labels == labels:
+                        stabilised_labels = retry_labels
+                        actions.append({
+                            "source": "generic",
+                            "tier": tier,
+                            "label": label,
+                            "selector": "",
+                            "outcome": "re_measured",
+                            "reason": (
+                                "gate: re-measured %r after a DOM change "
+                                "(attempt %d/%d)"
+                                % (label, attempt,
+                                   GENERIC_REMEASURE_ATTEMPTS + 1)
+                            ),
+                            "destination_re_requested": False,
+                        })
+                        break
+                if stabilised_labels is None:
+                    actions.append(_measurement_unknown(
+                        "generic", tier, GENERIC_CONTROL_SELECTOR,
+                        f"generic {tier} matched control changed after "
+                        "snapshot; control not used"))
+                    break
+                live_labels = stabilised_labels
             attempted_labels.add(label.casefold())
             if _billing_guard("generic", GENERIC_CONTROL_SELECTOR, label):
                 return actions
@@ -1296,7 +1445,8 @@ __all__ = [
     "first_safety_unknown", "safety_unknown_diagnostic",
     "SAFETY_UNKNOWN_OUTCOMES", "DENIED_CONTROL_TERMS",
     "GENERIC_CONTROL_SELECTOR", "DEFAULT_TIMEOUT_MS",
-    "AGE_GATE_LANGUAGE", "ENTER_AFFORDANCE", "BLOCK_LANGUAGE",
+    "AGE_GATE_LANGUAGE", "ENTER_AFFORDANCE", "AGREE_AFFORDANCE",
+    "ACCESS_AFFORDANCE", "BLOCK_LANGUAGE",
     "RECURRING_CHARGE_LANGUAGE", "CHECKED_CONSENT_SELECTOR",
     "BLOCKED_AFTER_GATE_OUTCOMES", "first_blocked_after_gate",
     "blocked_after_gate_diagnostic",

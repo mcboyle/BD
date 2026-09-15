@@ -794,6 +794,8 @@ jobs:
               tests/test_row688_gitignore_covers_sqlite_companions.py
               tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
               tests/test_row738_login_cap_single_process_premise.py
+              tests/test_row722_operator_decision.py
+              tests/test_row722_site_templates_verified.py
           # Row 259. These five gates derive safety populations from live_tests,
           # tools and product source. They were all frozen-baseline legacy and
           # therefore absent from every PR shard even though each gate worked.

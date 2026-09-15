@@ -2369,7 +2369,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1746,
+    "edge_count": 1750,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2413,6 +2413,7 @@
       ],
       "bulk_downloader/affordance_learning.py": [
         "bulk_downloader/app_captures.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/template_manager.py",
         "tools/capture_session.py",
         "tools/cockpit_core.py"
@@ -4288,6 +4289,7 @@
         "bulk_downloader/extractors_vixen.py",
         "bulk_downloader/host_enumerator.py",
         "bulk_downloader/interstitial.py",
+        "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/login_templates_data.py",
         "bulk_downloader/phoenix_catalog.py",
         "bulk_downloader/playlist_extractor.py",
@@ -4552,6 +4554,10 @@
       "bulk_downloader/smart_wakeup.py": [
         "bulk_downloader/app_wakeup.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/spa_media_extract.py": [
+        "bulk_downloader/runner_extractors.py",
+        "bulk_downloader/runner_telemetry.py"
       ],
       "bulk_downloader/sse_broker.py": [
         "bulk_downloader/app_runners.py",
@@ -6777,6 +6783,7 @@
         "bulk_downloader/cross_site_selectors.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py"
       ],
@@ -7094,6 +7101,7 @@
         "bulk_downloader/plugins.py",
         "bulk_downloader/provider_resolve.py",
         "bulk_downloader/runner_util.py",
+        "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/tier_probe.py",
         "bulk_downloader/vpn_runtime.py",
@@ -7160,11 +7168,13 @@
         "bulk_downloader/hooks.py",
         "bulk_downloader/notify_apprise.py",
         "bulk_downloader/runner_util.py",
+        "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/tg_bot.py"
       ],
       "bulk_downloader/runner_transport.py": [
+        "bulk_downloader/affordance_learning.py",
         "bulk_downloader/bandwidth_shape.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",

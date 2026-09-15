@@ -1,0 +1,48 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (wowgirls -> venus landing): a post-submit landing on another host of the SAME registrable brand is judged, not refused as cross-origin. M1/M2 flip the same-brand predicate both ways; M3 drops the do_login branch; M4 drops the evidence write; M5 drops the declared success origin from the sweep.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": ["tests/test_row722_same_brand_cross_origin_landing.py"],
+  "mutants": [
+    {
+      "label": "M1 predicate always False: a same-brand landing is refused as cross-origin again",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "    return bool\\(da\\) and \"\\.\" in da and da == db\n",
+      "new": "    return False\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_same_brand_cross_origin_landing.py::test_same_brand_cross_origin_landing_with_member_surface_is_ok"
+    },
+    {
+      "label": "M2 predicate always True: accounts.google.com is accepted as a same-brand landing",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "    return bool\\(da\\) and \"\\.\" in da and da == db\n",
+      "new": "    return True\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_same_brand_cross_origin_landing.py::test_negative_control_a_foreign_domain_keeps_the_row_774_refusal"
+    },
+    {
+      "label": "M3 do_login same-brand branch dropped: landing refused before judgment",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "            if cur_origin is not None and _same_brand_origin\\(url, cur\\):\n",
+      "new": "            if False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_same_brand_cross_origin_landing.py::test_same_brand_cross_origin_landing_with_member_surface_is_ok"
+    },
+    {
+      "label": "M4 evidence not written on the same-brand landing",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "                _ev=write_login_evidence\\(page, config, cur, \"login-cross-origin-landing\"\\)\n",
+      "new": "                _ev=None\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_same_brand_cross_origin_landing.py::test_same_brand_cross_origin_landing_with_member_surface_is_ok"
+    },
+    {
+      "label": "M5 declared success origin not admitted in the sweep",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if origin is not None and origin in _declared:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_same_brand_cross_origin_landing.py::test_in_sweep_a_declared_success_origin_is_a_submit_for_a_different_brand"
+    }
+  ]
+}

@@ -15,7 +15,8 @@ _REPO = Path(__file__).resolve().parents[1]
 _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
 # 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
 # Row771 updates gamma_kosmos selectors, so the assembled reviewed-selector corpus digest moves.
-_LEGACY_ROWS_SHA256 = "52fdf5ec78c0936266be4c69cde4edb24de411acbc46dde1bd7e25b2b461fbd1"
+# 95 / 565 -> 99 / 622: row 722 (2026-09-15) verified site templates -- four added (filthykings, dfxtra, brazzers, stepsiblingscaught), twelve updated in place with measured selectors (wowgirls_network gains one login and one row selector: 17 -> 19).
+_LEGACY_ROWS_SHA256 = "bd652e149164d96578f57723a558182e760354986f399b29861a2c0de8a61a9d"
 _REVIEWED_DIR = _REPO / "templates" / "reviewed"
 _ROW455 = _REPO / "tests" / "test_row455_reviewed_template_against_a_live_dom.py"
 _HAZARD = _REPO / "tests" / "fixtures" / "row671" / "grouped_hazard.template.json"
@@ -92,16 +93,16 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
     templates_module = importlib.import_module("bulk_downloader.site_templates")
     committed = templates_module.TEMPLATES
 
-    assert len(committed) == 95, "precondition: legacy template population changed"
+    assert len(committed) == 99, "precondition: legacy template population changed"
     templates = {template["id"]: template for template in committed}
     assert "wowgirls_network" in templates
     sample = api.enumerate_template_selectors(templates["wowgirls_network"])
-    assert len(sample) == 17
+    assert len(sample) == 19
     roles = Counter(row["role"] for row in sample)
-    assert sum(roles.values()) == 17
-    assert roles["login"] == 11
+    assert sum(roles.values()) == 19
+    assert roles["login"] == 12
     assert roles["trigger"] == 2
-    assert roles["row"] == 4
+    assert roles["row"] == 5
     assert set(roles) == {"login", "trigger", "row"}
 
     all_rows = [
@@ -110,13 +111,13 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
         for row in api.enumerate_template_selectors(template)
     ]
     encoded = json.dumps(all_rows, sort_keys=True, separators=(",", ":")).encode()
-    assert len(all_rows) == 565
+    assert len(all_rows) == 622
     assert hashlib.sha256(encoded).hexdigest() == _LEGACY_ROWS_SHA256
 
     audit = api.audit_committed_selector_syntax()
-    assert audit["template_count"] == 95
-    assert audit["selector_count"] == 565
-    assert audit["checked_count"] == 565
+    assert audit["template_count"] == 99
+    assert audit["selector_count"] == 622
+    assert audit["checked_count"] == 622
     assert audit["malformed_count"] == 0
     assert audit["unknown_count"] == 0
 

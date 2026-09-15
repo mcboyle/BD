@@ -1,0 +1,114 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 (adulttime): a Cloudflare managed challenge page stands before the login form. M1 drops the pre-form call from do_login; M2 drops the Turnstile click (the helper only waits).",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_cloudflare_challenge_before_form.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 do_login no longer clears the challenge before the form",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "        clear_cloudflare_challenge\\(page\\)\\n",
+      "new": "        pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_do_login_clears_the_challenge_before_the_gate_walk_and_username_search"
+    },
+    {
+      "label": "M2 the click is dropped, the helper only waits",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "elif not _click_turnstile_checkbox\\(page\\):",
+      "new": "elif False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_the_row_challenge_is_cleared_and_the_form_is_reached"
+    },
+    {
+      "label": "M3 post-submit challenge page not cleared",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _is_cloudflare_challenge_page\\(page\\):\\n            sys\\.stderr\\.write\\(\"  login: post-submit cloudflare challenge page\\\\n\"\\)\\n            if clear_cloudflare_challenge\\(page\\):",
+      "new": "if False:\n            sys.stderr.write(\"  login: post-submit cloudflare challenge page\\n\")\n            if clear_cloudflare_challenge(page):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_post_submit_challenge_page_is_cleared_before_the_success_url_check"
+    },
+    {
+      "label": "M4 'I am human' button never pressed",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _click_human_button\\(page\\):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_site_drawn_i_am_human_button_clears_the_challenge"
+    },
+    {
+      "label": "M5 managed-challenge widget container ids dropped",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "\"div\\[id\\^=cf-chl-widget-\\]\",\"#challenge-stage\"",
+      "new": "\"div[id^=cf-chl-widget-NEVER]\",\"#challenge-stage-NEVER\"",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_the_explicit_widget_container_alone_carries_the_click_without_a_token_field"
+    },
+    {
+      "label": "M6 post-login upsell uncheck dropped",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "_post_upsell=_uncheck_upsell_boxes\\(page\\)",
+      "new": "_post_upsell=[]",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_upsell_boxes_are_unchecked_before_the_post_login_interstitial_walk"
+    },
+    {
+      "label": "M7 random-id widget host never tagged",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "  if \\(!tok\\) return 'no-token-field';",
+      "new": "  return 'no-token-field';",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_the_tagged_random_id_host_is_the_click_anchor_when_the_frame_is_proxied"
+    },
+    {
+      "label": "M8 auto-verifying challenge abandoned",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "end=time\\.time\\(\\)\\+wait\\*2",
+      "new": "end=time.time()",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_challenge_that_auto_verifies_is_waited_for_not_abandoned"
+    },
+    {
+      "label": "M9 waiter never re-looks for a late checkbox",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _late and _click_turnstile_checkbox\\(page\\):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_checkbox_that_appears_during_the_auto_verify_wait_is_clicked"
+    },
+    {
+      "label": "M10 site-drawn Security Check page not recognised",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if \\(\"security check\" in title or \"/turnstile/challenge\" in cur\\):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_the_security_check_title_alone_marks_a_site_drawn_challenge"
+    },
+    {
+      "label": "M11 dead page after clearance not re-entered",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if \"/challenge\" in cur or \"not found\" in _t:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_cleared_challenge_that_lands_on_a_dead_page_re_enters_the_site"
+    },
+    {
+      "label": "M12 post-submit redirect wait dropped",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "while time\\.time\\(\\)-_t0 < budget:",
+      "new": "while False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_a_transitional_post_submit_page_is_given_time_to_redirect"
+    },
+    {
+      "label": "M13 swallowed POST never re-submitted",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _form_back:\\n                    sys\\.stderr\\.write\\(\"  login: challenge cleared but the login form is \"",
+      "new": "if False:\n                    sys.stderr.write(\"  login: challenge cleared but the login form is \"",
+      "direction": "regression",
+      "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_after_a_cleared_challenge_an_empty_login_form_is_re_submitted_once"
+    }
+  ]
+}

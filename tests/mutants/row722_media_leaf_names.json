@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G29 (filthykings/dfxtra/evilangel 'mp4.mp4', vip4k '360p.mp4', nookies 'high.mp4', test2 2026-09-15): the URL leaf was the saved name. M1 drops bare-leaf detection so every leaf is accepted as a real name; M2 skips the title fallback so a bare leaf is kept although the title was known.",
+  "subject": "bulk_downloader/runner_transport.py",
+  "band": ["tests/test_row722_media_leaf_names_fall_back_to_title.py"],
+  "mutants": [
+    {
+      "label": "M1 bare-leaf detection dropped",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "return bool\\(_BARE_MEDIA_LEAF_RE\\.match\\(stem\\)\\)",
+      "new": "return False",
+      "direction": "regression",
+      "catcher": "tests/test_row722_media_leaf_names_fall_back_to_title.py::test_mp4_leaf_takes_the_website_title_and_tier"
+    },
+    {
+      "label": "M2 title fallback skipped",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "    if title:\\n        name = title",
+      "new": "    if False:\n        name = title",
+      "direction": "regression",
+      "catcher": "tests/test_row722_media_leaf_names_fall_back_to_title.py::test_high_leaf_nookies"
+    }
+  ]
+}

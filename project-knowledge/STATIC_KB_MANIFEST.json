@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-15T19:02:22+00:00",
+ "generated": "2026-09-15T19:35:51+00:00",
  "version_context": "v3.66.1555",
- "file_count": 95,
+ "file_count": 96,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -151,6 +151,10 @@
   "EXTRACTION_CORE_DECISION_CONFIDENCE_DECISION.md": {
    "sha256": "4b1864426672da45137eb1bc1bbc01ed545ef3f7917c8d47bc92f0f30054b5ec",
    "bytes": 4918
+  },
+  "FLEET_EGRESS_DECISIONS.md": {
+   "sha256": "6bf78803df0095f7d3d65f8e1b655b51c71c80a1cd709e1b4b7bd30266251149",
+   "bytes": 1966
   },
   "GLOSSARY.md": {
    "sha256": "15ef4859ca4aeacd5720166d4d742c80a873ea1f4b00341da7a526971d7e0b5f",

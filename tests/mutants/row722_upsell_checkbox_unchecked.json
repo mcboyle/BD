@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 (operator, 2026-09-15): pre-checked upsell/cross-sale checkboxes on login forms must be unchecked and verified before submit; Remember me must stay checked. M1 drops the actual uncheck action (boxes stay checked). M2 drops the remember-me exclusion (remember me gets unchecked too).",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_upsell_checkbox_unchecked.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the uncheck call dropped",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "loc\\.uncheck\\(timeout=1000\\)",
+      "new": "pass  # M1: uncheck dropped",
+      "direction": "regression",
+      "catcher": "tests/test_row722_upsell_checkbox_unchecked.py::test_upsell_boxes_unchecked_and_verified_remember_me_and_unknown_untouched"
+    },
+    {
+      "label": "M2 remember-me exclusion dropped",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if _REMEMBER_RE\\.search\\(label\\):",
+      "new": "if False and _REMEMBER_RE.search(label):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_upsell_checkbox_unchecked.py::test_upsell_boxes_unchecked_and_verified_remember_me_and_unknown_untouched"
+    }
+  ]
+}

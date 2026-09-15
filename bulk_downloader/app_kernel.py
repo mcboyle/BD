@@ -27,6 +27,10 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # of LEARNED session lifetimes. In CFG_FIELDS so a per-site setting
             # survives the _load_sites_config rebuild (was dropped before).
             "predictive_relogin_enabled","predictive_relogin_fraction",
+            # Row 722 (2026-09-15): the daily login cap was PUT-able but not in
+            # CFG_FIELDS, so every restart reset it to 3 and refused auto re-login
+            # ("daily login attempt cap reached (6/3)").
+            "login_attempt_cap_per_day",
             "filename_template","use_http_dl","chunk_size_mb","skip_if_exists",
             # dismiss_selectors is the PER-PAGE block (cookie / age / consent),
             # tried on every content URL. dismiss_selectors_login is the
@@ -520,6 +524,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # relogin_predict.DEFAULT_FRACTION.
           "predictive_relogin_enabled":False,"predictive_relogin_fraction":0.8,
           "auto_relogin_interval_hours":12,
+          "login_attempt_cap_per_day":3,
           "use_real_chrome":False,"use_stealth":True,"use_persistent_profile":True,
           # v3.43.56: opt-in playwright-stealth library integration.
           # When True AND the library is installed (pip install

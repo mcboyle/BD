@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (kink.com/login): a hidden duplicate login form precedes the visible one. M1 restores the `.first`-only click (the walk never reaches the visible button); M2 makes the JS form scope prefer the first password field's form again (the hidden modal is submitted). Both reproduce the live diagnostic 'no submit method produced navigation' or a wrong-method success.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_hidden_duplicate_login_form.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 click only the first match of each selector",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old_regex": "count=max\\(1,min\\(matches\\.count\\(\\),_CLICK_WALK_LIMIT\\)\\)",
+      "new": "count=1",
+      "direction": "regression",
+      "catcher": "tests/test_row722_hidden_duplicate_login_form.py::test_submit_acts_on_the_visible_form_not_the_hidden_duplicate"
+    },
+    {
+      "label": "M2 JS scope prefers the first password field's form",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "return filled \\|\\| visible \\|\\| first \\|\\| document\\.querySelector\\('form'\\);",
+      "new": "return first || document.querySelector('form');",
+      "direction": "regression",
+      "catcher": "tests/test_row722_hidden_duplicate_login_form.py::test_js_request_submit_scopes_to_the_visible_form"
+    }
+  ]
+}

@@ -412,7 +412,7 @@
     {
       "bytes": 12018,
       "key": "tests/test_v3_43_54_resolution.py::test_default_quality_preference_is_safe::src[pos:pos + 12000]::1",
-      "sha256": "bac2d96e255ac62b1c25e991ee68b133aa6c9bc7066755cbae1cb6bf6087f99d"
+      "sha256": "4c1a87e53e704badce51e65c1f557c2646a95ac9b53192b002fbf2eeec07685a"
     },
     {
       "bytes": 200,
@@ -422,7 +422,7 @@
     {
       "bytes": 8010,
       "key": "tests/test_v3_43_56_stealth.py::test_default_use_stealth_library_is_false::src[pos:pos + 8000]::1",
-      "sha256": "69b74e1a8b4f5ae22dbf20fdde289ac041ac4cedeba26803520b649bc9075e2e"
+      "sha256": "0937da821467247aa606a9f2a2a302611b310764045ab6aaf144a7f0792dadc6"
     },
     {
       "bytes": 0,
