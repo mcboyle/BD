@@ -19,6 +19,13 @@ Usage:
   bd-precut --no-insync / --no-envscan                   # skip a check
 """
 import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile
+# `datetime` is imported on ITS OWN LINE, and the line above is left byte-identical to
+# what it was at base, because tests/mutants/v3_66_1452_shuffle_lane_containment.json M3
+# anchors on that exact import line. MEASURED: folding `datetime` into it cost the anchor
+# its resolution and the precut gate failed
+# tests/test_row532_a_mutant_anchor_must_resolve_into_code.py and
+# tests/test_row357_mutant_anchors_are_not_fragile.py on it. An anchor is a reader.
+import datetime
 
 # Placed AFTER the whole import block on purpose: inserting above `import sys`
 # leaves sys undefined at the insertion point and --help dies with NameError,
@@ -264,10 +271,16 @@ def _underived_detail(rc, junit, present, argv, timed_out_after=None):
     whys = dict(present)
     rerun = " ".join(str(a) for a in argv)
     if timed_out_after is not None:
-        return ("pytest did NOT finish within %ss over %d gate file(s), so no "
-                "verdict was reached at all -- this is a HANG, not a failing "
-                "assertion, and it names no gate because none reported. "
-                "Re-run by hand: %s" % (timed_out_after, len(present), rerun))
+        # O445 / int-B 10:32Z: the old wording here said "it names no gate
+        # because none reported", and it was FALSE -- the 1540b hang carried 38
+        # failures and 3 errors, 41 REPORTED non-passing outcomes, against zero
+        # summary lines. OUTCOMES WERE REPORTED; NAMES WERE NEVER WRITTEN.
+        return ("pytest did NOT finish within %ss over %d gate file(s), so the "
+                "SUMMARY was never written -- this is a HANG. Every outcome that "
+                "WAS reported before the wall is named PRECUT-FAIL above, derived "
+                "from the per-node records; nodes that never reported at all are "
+                "counted by the PRECUT-INCOMPLETE line. Re-run by hand: %s"
+                % (timed_out_after, len(present), rerun))
     cases, reason = _junit_failures(junit, [rel for rel, _ in present])
     if cases is None:
         return ("pytest exited rc=%d and %s, so the failing test could NOT be "
@@ -290,6 +303,321 @@ def _underived_detail(rc, junit, present, argv, timed_out_after=None):
                  "pytest output above" % (len(cases) - len(shown)))
     return ("%d failing test(s) in %d of %d gate file(s) -- %s%s"
             % (len(cases), len(files), len(present), "; ".join(parts), tail))
+
+
+# --- H389: NAME THE FAILING GATES, AND KEEP THE RECORD ------------------------
+# MEASURED 2026-09-14 (HARNESS_BACKLOG H389, bd-integrator-B): lane train-1540b
+# printed PRECUT_RC=3 naming ZERO failing nodes. Two causes, both here:
+#   * the underived run uses `-q`, whose progress row ends WITHOUT a newline, so
+#     the next thing printed is concatenated onto it -- the lane log literally
+#     read `.....F...RESULT: NOT CUT-READY`;
+#   * the JUnit record holding the names was written into the mkdtemp scratch
+#     that this function's own `finally` removes. The one artifact that could
+#     answer "which gate?" was deleted by the run that produced it.
+# `_underived_detail` above is NOT a substitute: it caps at six cases, it lives
+# inside a semicolon-joined prose blob, and it rides the same RESULT line that
+# got truncated.
+_EVIDENCE_DIR_ENV = "BD_PRECUT_EVIDENCE_DIR"
+
+
+def _print_underived_failures(junit, known_files=()):
+    """One `PRECUT-FAIL <nodeid>` line per failing OR erroring testcase.
+
+    Returns the count, which is the number of such testcases and not the number
+    of files. An unreadable or absent record is a THIRD outcome and says so
+    under its own token: it must never emit a PRECUT-FAIL line, because a reader
+    grepping that prefix would otherwise count a lost record as a passing run.
+
+    The node id comes from `_junit_nodeid`, not from a raw `classname::name`.
+    That helper's docstring carries the measurement: pytest's default xunit2
+    family writes no `file` attribute, so the dotted form "cannot be pasted back
+    into a rerun and does not match the gate list either". The dotted form is
+    still what is printed when the gate list cannot resolve the classname --
+    an honest dotted name beats a plausible-looking wrong path.
+    """
+    cases, reason = _junit_failures(junit, known_files)
+    if cases is None:
+        print("PRECUT-NAMES-UNAVAILABLE %s" % reason, flush=True)
+        return 0
+    for _kind, nodeid, _message in cases:
+        print("PRECUT-FAIL %s" % nodeid, flush=True)
+    return len(cases)
+
+
+def _evidence_destination(now=None):
+    """Where the JUnit record is KEPT, outside the scratch dir that dies.
+
+    The stamp carries microseconds, not whole seconds: H348 was two concurrent
+    runs of one index silently sharing a log path, and a second-resolution name
+    reproduces that class exactly whenever a pool host starts two precuts inside
+    the same second.
+    """
+    stamp = (now or datetime.datetime.now(datetime.timezone.utc)).strftime(
+        "%Y%m%dT%H%M%S.%fZ")
+    base = os.environ.get(_EVIDENCE_DIR_ENV) or os.path.join(
+        os.getcwd(), ".bd-precut-evidence")
+    return os.path.join(base, "underived-%s.xml" % stamp)
+
+
+def _preserve_underived_evidence(junit):
+    """Copy the record out and print `PRECUT-EVIDENCE <path>`; return it or None.
+
+    Done for PASSING runs too, on purpose: THE ARTIFACT'S PRESENCE IS NOT THE
+    SIGNAL. If evidence appeared only on failure, a reader could not tell a
+    clean run from a run whose record was lost, which is the H389 defect wearing
+    a different hat.
+    """
+    dest = _evidence_destination()
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(junit, dest)
+    except OSError as exc:
+        print("PRECUT-EVIDENCE-UNAVAILABLE %s (%s: %s)"
+              % (dest, type(exc).__name__, _one_line(exc, 120)), flush=True)
+        return None
+    print("PRECUT-EVIDENCE %s" % dest, flush=True)
+    return dest
+
+
+# --- H389 LIMB 3: NAME WHAT WAS IN FLIGHT WHEN THE WALL CUT THE RUN OFF -------
+# MEASURED (int-B, bd-persist/landing/1540b-CORRECTION-THE-PRECUT-RED-IS-A-HANG-
+# NOT-LOST-EVIDENCE-*.md): the 1540b RED was a HANG at _UNDERIVED_BUDGET_S, not a
+# lost record. On a hang pytest is KILLED, so it writes no JUnit at all and limb
+# 1 above can name nothing -- correctly, but uselessly. The names that matter
+# then are the gates that had STARTED and not finished.
+#
+# WHY A PLUGIN AND NOT THE `-v` PROGRESS. The run carries `-n`/`--dist loadfile`
+# when xdist is present, and xdist prints a node id only AFTER the test reports.
+# A started-but-unfinished node therefore NEVER appears in xdist's progress at
+# all, so deriving in-flight from captured output would silently report none for
+# exactly the runs this limb exists to explain. `pytest_runtest_logstart` fires
+# in the worker before the test body, so it is the only place the fact exists.
+_INFLIGHT_ENV = "BD_PRECUT_INFLIGHT_LOG"
+_INFLIGHT_PLUGIN_NAME = "bd_precut_inflight"
+_INFLIGHT_PLUGIN_SOURCE = '''"""bd-precut in-flight recorder (H389 limb 3). Written by bd-precut."""
+import os
+
+_PATH = os.environ.get("%(env)s")
+
+
+def _record(kind, nodeid):
+    if not _PATH:
+        return
+    # One O_APPEND write per event, flushed and closed: a SIGKILL at the wall
+    # must not take the record with it, and xdist workers are separate
+    # processes appending to the same file.
+    with open(_PATH, "a", encoding="utf-8") as handle:
+        handle.write("%%s %%s\\n" %% (kind, nodeid))
+        handle.flush()
+
+
+def pytest_collection_finish(session):
+    # THE DENOMINATOR, recorded AT COLLECTION TIME (O445). Every xdist worker
+    # collects the whole suite before the controller hands it a subset, so each
+    # one writes the same total and the reader takes the maximum.
+    # `len(session.items)`, NOT `session.testscollected`: MEASURED -- pytest
+    # assigns testscollected only AFTER this hook returns, so reading it here
+    # records 0 and a 0 denominator would make every hang look "closed".
+    _record("COLLECTED", len(getattr(session, "items", ()) or ()))
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _record("START", nodeid)
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    _record("FINISH", nodeid)
+
+
+def pytest_runtest_logreport(report):
+    # THE OUTCOME ITSELF. A wall that falls in pytest_sessionfinish kills the
+    # SUMMARY WRITER, not the outcomes -- each of these was already reported by
+    # the test that produced it. Fires in the worker and again in the controller
+    # that receives it, so the reader keys on (when, nodeid) and dedupes.
+    _record("REPORT", "%%s %%s %%s" %% (report.when, report.outcome, report.nodeid))
+''' % {"env": _INFLIGHT_ENV}
+
+
+def _inflight_records(path):
+    """Parse the recorder's log once. (records, None) or (None, reason).
+
+    records: {"started": [nodeid...], "finished": set(), "collected": int|None,
+              "reports": {(when, nodeid): outcome}}
+
+    A record that is missing or unreadable is COULD NOT LOOK and says so, rather
+    than answering with an empty parse that reads as "nothing happened".
+    """
+    if not os.path.isfile(path):
+        return None, "no in-flight record was written"
+    rec = {"started": [], "finished": set(), "collected": None, "reports": {}}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                kind, _, rest = line.strip().partition(" ")
+                if not rest:
+                    continue
+                if kind == "START":
+                    rec["started"].append(rest)
+                elif kind == "FINISH":
+                    rec["finished"].add(rest)
+                elif kind == "COLLECTED":
+                    try:
+                        total = int(rest)
+                    except ValueError:
+                        continue
+                    if rec["collected"] is None or total > rec["collected"]:
+                        rec["collected"] = total
+                elif kind == "REPORT":
+                    when, _, tail = rest.partition(" ")
+                    outcome, _, nodeid = tail.partition(" ")
+                    if nodeid:
+                        rec["reports"][(when, nodeid)] = outcome
+    except OSError as exc:
+        return None, ("its in-flight record is unreadable (%s: %s)"
+                      % (type(exc).__name__, _one_line(exc, 120)))
+    return rec, None
+
+
+def _denominator(stats):
+    """(closed, finished, collected). CLOSED means FINISH == COLLECTED (O445).
+
+    AN UNKNOWN COLLECTED COUNT IS NEVER CLOSED. A run whose recorder never wrote
+    a denominator cannot show that every collected node reported, and O445 is
+    explicit that below FINISH == COLLECTED the result stays UNKNOWN: a node the
+    controller never dispatched leaves NO in-flight record either, because the
+    channel it would have travelled on was already closed.
+    """
+    collected = stats.get("collected")
+    finished = stats.get("finished", 0)
+    # `collected > 0` is not pedantry: 0 == 0 is arithmetically closed and
+    # semantically empty, and a recorder that wrote no usable count would
+    # otherwise DERIVE A PASS out of a run in which nothing ran at all. My own
+    # acceptance (a) caught exactly that before this shipped.
+    closed = collected is not None and collected > 0 and finished == collected
+    return closed, finished, collected
+
+
+def _records_nonpassing(rec):
+    """Node ids with a non-passing REPORTED outcome, in the order recorded.
+
+    A node is non-passing when ANY phase reported `failed` -- setup is an ERROR,
+    call is a FAILURE, teardown is an ERROR -- which is the rule pytest's own
+    summary applies. `skipped` is not a failure and is not counted here.
+    """
+    bad = []
+    for (_when, nodeid), outcome in rec["reports"].items():
+        if outcome == "failed" and nodeid not in bad:
+            bad.append(nodeid)
+    return bad
+
+
+def _inflight_files(path):
+    """(files, None, stats) for gate files with a started-and-unfinished node.
+
+    (None, reason, stats) when the record itself is missing or unreadable -- a
+    run killed before the plugin wrote anything is COULD NOT LOOK, and must not
+    be reported as "nothing was in flight". That distinction is the whole reason
+    this returns a pair of answers instead of a list.
+
+    `stats` carries started/finished/collected because on a timed-out run the
+    relation between them IS the finding: see `_print_inflight`.
+    """
+    stats = {"started": 0, "finished": 0, "collected": None}
+    rec, reason = _inflight_records(path)
+    if rec is None:
+        return None, reason, stats
+    stats = {"started": len(set(rec["started"])),
+             "finished": len(rec["finished"]),
+             "collected": rec["collected"]}
+    unfinished = [n for n in rec["started"] if n not in rec["finished"]]
+    return sorted({n.split("::", 1)[0] for n in unfinished}), None, stats
+
+
+def _print_inflight(path, timed_out=False):
+    """Print one `PRECUT-INFLIGHT <path>` line per unfinished gate file.
+
+    Called on EVERY run, not only a timed-out one, so a finishing run is a
+    MEASURED zero rather than a question nobody asked (rule 7: the probe that
+    reports none here is the same probe that names gates on a hang).
+
+    A TIMED-OUT RUN WITH NOTHING IN FLIGHT GETS ITS OWN LINE, and which line it
+    gets is O445's mandatory condition. The tempting reading -- "every started
+    node finished, so the wall fell in teardown" -- IS NOT SOUND, and the
+    adjudicator refuted it by measurement: on
+    fleet-run-artifacts/2026-08-25/inflight/train-1540b-precut.log there were
+    2864 reported outcomes against a collected total in (2895, 2925], so between
+    31 and 61 nodes NEVER REPORTED -- and an undispatched node leaves no
+    in-flight record either, because the controller's channels were already
+    closed. So the claim is made only when the denominator is CLOSED
+    (FINISH == COLLECTED, `PRECUT-COMPLETE N-of-N`); otherwise the line names
+    the shortfall and the result stays UNKNOWN.
+    """
+    files, reason, stats = _inflight_files(path)
+    if files is None:
+        print("PRECUT-INFLIGHT-UNAVAILABLE %s" % reason, flush=True)
+        return 0
+    for rel in files:
+        print("PRECUT-INFLIGHT %s" % rel, flush=True)
+    if timed_out and not files:
+        closed, finished, collected = _denominator(stats)
+        if closed:
+            print("PRECUT-COMPLETE %d-of-%d every collected node reported before "
+                  "the wall, so the hang is in teardown/sessionfinish and NOT in "
+                  "a gate that runs long" % (finished, collected), flush=True)
+        elif collected is None:
+            print("PRECUT-INCOMPLETE %d-of-UNKNOWN no collected count was "
+                  "recorded, so it CANNOT be shown that every collected node "
+                  "reported -- the result is UNKNOWN, not a pass (O445)"
+                  % finished, flush=True)
+        else:
+            print("PRECUT-INCOMPLETE %d-of-%d -- %d collected node(s) never "
+                  "reported, and an undispatched node leaves no in-flight record "
+                  "either, so the result is UNKNOWN, not a pass (O445)"
+                  % (finished, collected, collected - finished), flush=True)
+    return len(files)
+
+
+def _print_records_failures(path):
+    """PRECUT-FAIL lines derived from the RECORDS, for a run that wrote no JUnit.
+
+    O445 approves this UNCONDITIONALLY, even on an open denominator: an outcome
+    that was reported is evidence that EXISTS, and the defect H389 was filed for
+    is precisely that 41 reported non-passing outcomes went unnamed because the
+    summary writer died with the session.
+    """
+    rec, reason = _inflight_records(path)
+    if rec is None:
+        print("PRECUT-NAMES-FROM-RECORDS-UNAVAILABLE %s" % reason, flush=True)
+        return 0
+    bad = _records_nonpassing(rec)
+    for nodeid in bad:
+        print("PRECUT-FAIL %s" % nodeid, flush=True)
+    return len(bad)
+
+
+def _derive_from_records(path):
+    """(rc, detail) for a wall-cut run whose denominator is CLOSED, else None.
+
+    None means "do not derive": the caller keeps rc 124 and reports UNKNOWN.
+    That gate is the whole of O445's condition -- deriving CUT-READY while
+    dozens of collected nodes never ran would be a COULD NOT LOOK dressed as a
+    pass, which is the O413 class and what FLEET_RULE 6 forbids.
+    """
+    rec, _reason = _inflight_records(path)
+    if rec is None:
+        return None
+    closed, _finished, collected = _denominator(
+        {"finished": len(rec["finished"]), "collected": rec["collected"]})
+    if not closed:
+        return None
+    bad = _records_nonpassing(rec)
+    if not bad:
+        return 0, ""
+    return 1, ("%d of %d collected node(s) reported a NON-PASSING outcome before "
+               "the wall (named PRECUT-FAIL above, derived from the per-node "
+               "records). Every collected node reported, so these are the run's "
+               "own verdicts and not a consequence of the hang."
+               % (len(bad), collected))
 
 
 # --- REPO-WIDE MARKER CENSUS -------------------------------------------------
@@ -440,16 +768,54 @@ def _run_underived_gates(root, present, env):
     """
     scratch = tempfile.mkdtemp(prefix="bd-precut-underived-")
     junit = os.path.join(scratch, "underived.xml")
+    inflight = os.path.join(scratch, "inflight.log")
+    # H389 limb 3: the recorder lives in the scratch dir this process made, and
+    # reaches pytest through PYTHONPATH rather than by writing into the tree.
+    with open(os.path.join(scratch, _INFLIGHT_PLUGIN_NAME + ".py"),
+              "w", encoding="utf-8") as handle:
+        handle.write(_INFLIGHT_PLUGIN_SOURCE)
+    env = dict(env)
+    env[_INFLIGHT_ENV] = inflight
+    env["PYTHONPATH"] = os.pathsep.join(
+        [scratch] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
     argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:randomly",
+            "-p", _INFLIGHT_PLUGIN_NAME,
             "--timeout=240", "--timeout-method=signal",
             "--junitxml=" + junit] + _underived_parallelism() + [rel for rel, _ in present]
     try:
+        timed_out_after = None
         try:
             rc = subprocess.run(argv, cwd=root, env=env,
                                 timeout=_UNDERIVED_BUDGET_S).returncode
         except subprocess.TimeoutExpired:
-            return 124, _underived_detail(124, junit, present, argv,
-                                          timed_out_after=_UNDERIVED_BUDGET_S)
+            rc, timed_out_after = 124, _UNDERIVED_BUDGET_S
+        # H389. ONE newline, printed ONCE, before either block: `-q` leaves its
+        # progress row unterminated, so the first thing printed after the child
+        # is otherwise concatenated onto it and stops being greppable.
+        print("", flush=True)
+        _print_underived_failures(junit, [rel for rel, _ in present])
+        # On a hang there is no JUnit at all, so this is the ONLY line that can
+        # name a gate; on a finishing run it is a measured zero.
+        _print_inflight(inflight, timed_out=timed_out_after is not None)
+        if timed_out_after is not None:
+            # H389 limb 4: no JUnit exists on a hang, so the outcomes that WERE
+            # reported can only come from the records. Printed unconditionally,
+            # before RESULT; the VERDICT below is what O445 gates.
+            _print_records_failures(inflight)
+        # BEFORE the finally below removes the directory holding it, and on a
+        # green run as well as a red one.
+        _preserve_underived_evidence(junit)
+        if timed_out_after is not None:
+            derived = _derive_from_records(inflight)
+            if derived is None:
+                return 124, _underived_detail(124, junit, present, argv,
+                                              timed_out_after=timed_out_after)
+            drc, ddetail = derived
+            if drc == 0:
+                print("PRECUT-CUT-READY-FROM-RECORDS the wall fell after every "
+                      "collected node had reported, and none of them failed",
+                      flush=True)
+            return drc, ddetail
         if rc == 0:
             return 0, ""
         return rc, _underived_detail(rc, junit, present, argv)

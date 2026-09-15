@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1558 - bd-precut names the gates that failed instead of only counting them (H389)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- H389-B2-B-LOCAL: # H389 -- bd-precut must not lose the names of failing underived gates. Limbs (1)-(4).
+
 ## v3.66.1556 - credleak d1+d2: redact credentials at login/replay/status call sites
 
 Train: 2 refute-first-reviewed worker patches.
