@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1547 - rows 805 774 790 738 791: ssrf egress census, login post-click nav guard, and hardening cuts
+Train: 5 refute-first-reviewed worker patches.
+
+- 805 CLOSED: ssrf_client_census.py censuses every non-httpx egress (urlopen, opener.open, requests verbs, Session subclasses); ssrf_egress_exemptions.py accounts all 26 as guarded/exempt; gate fails on any unaccounted egress.
+- 774 CLOSED: _submit_login/do_login accept a post-click navigation only within the login origin or a declared flow; Login-with-Google -> accounts.google.com now returns False, cross-origin navigation refused.
+- 790 CLOSED: bd-precut no longer prints a hardcoded 'ran' claim; it derives and ratchets unknown/ran state and names footguns, closing the three reported seams.
+- 738 CLOSED: login single-process cap premise is asserted (test_row738_login_cap_single_process_premise).
+- 791 CLOSED: cap01 _w6 and run01 _w2 witnesses now scope and restore every ambient env var and patch they set (BD_HOME, live_recorder.is_available), no leaked state.
+
 ## v3.66.1545 - 760 guarded transport proxy + site policy map, 654 filename citations git-tracked, 752 display gate owns its claim, 788 transform-control separated
 
 Train: 4 refute-first-reviewed worker patches.

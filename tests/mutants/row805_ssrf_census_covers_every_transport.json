@@ -1,0 +1,29 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 805. The gate judges every non-httpx egress site in bulk_downloader/ against the in-tree accounting declaration. M1 deletes the denominator collection, so the census returns an empty population that the declaration trivially matches -- the shape a census fails at silently; M2 deletes the stale-entry check, so a declared entry that names no site is never reported. Each anchor matches structural source text -- a bare statement line and a bare branch keyword line -- and carries no number, quoted value or assignment, so nothing here freezes a re-derived value (row 357).",
+  "subject": "row 805 - the every-transport egress census and its in-tree accounting",
+  "band": [
+    "tests/test_row805_ssrf_census_covers_every_transport.py::test_every_tracked_non_httpx_egress_site_is_accounted_for_in_the_tree",
+    "tests/test_row805_ssrf_census_covers_every_transport.py::test_the_declaration_accounts_for_exactly_the_tree_derived_population",
+    "tests/test_row805_ssrf_census_covers_every_transport.py::test_a_declared_entry_no_site_matches_is_stale_and_fails",
+    "tests/test_row805_ssrf_census_covers_every_transport.py::test_a_tree_with_files_but_no_egress_site_is_UNKNOWN_not_OK"
+  ],
+  "mutants": [
+    {
+      "label": "M1 delete the denominator collection, so the census judges an empty population",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?m)^        sites.extend\\(egress_sites_in\\(rel, source\\)\\)$",
+      "new": "        pass  # mutant: collect no egress site",
+      "direction": "regression",
+      "catcher": "tests/test_row805_ssrf_census_covers_every_transport.py::test_the_declaration_accounts_for_exactly_the_tree_derived_population"
+    },
+    {
+      "label": "M2 delete the stale-entry check, so a declaration entry no site matches is never reported",
+      "file": "tools/ssrf_client_census.py",
+      "old_regex": "(?m)^    if result.stale:$",
+      "new": "    if not result.stale:  # mutant: never report a stale entry",
+      "direction": "regression",
+      "catcher": "tests/test_row805_ssrf_census_covers_every_transport.py::test_a_declared_entry_no_site_matches_is_stale_and_fails"
+    }
+  ]
+}

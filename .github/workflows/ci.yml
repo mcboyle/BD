@@ -490,6 +490,7 @@ jobs:
               tests/test_row667_login_attempt_accounting.py
               tests/test_row740_login_cap_writer_atomicity.py
               tests/test_row806_health_payload_names_the_deployed_cloak_state.py
+              tests/test_row774_login_submit_refuses_cross_origin_navigation.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py
@@ -503,6 +504,7 @@ jobs:
               tests/test_row703_a_proxy_shadows_the_guarded_transport.py
               tests/test_row703_the_site_to_policy_map_is_asserted.py
               tests/test_row785_login_evidence_filenames_are_shell_safe.py
+              tests/test_row805_ssrf_census_covers_every_transport.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -686,6 +688,7 @@ jobs:
               tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py
               tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
               tests/test_row659_witness_run_does_not_leak_capture_state.py
+              tests/test_row791_witness_state_restored.py
           - name: regen-idempotence-isolation
             suites: >-
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
@@ -730,6 +733,7 @@ jobs:
               tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py
               tests/test_v3_66_1239_precut_runs_the_underived_gates.py
               tests/test_precut_selects_repo_wide_gates_by_marker.py
+              tests/test_row790_precut_names_footguns_ratchet_unknown.py
               tests/test_row463_precut_derives_its_baseline.py
               tests/test_import_dodge_is_caught_in_the_cut_diff.py
               tests/test_row530_docs_only_lane_fails_closed.py
@@ -770,6 +774,7 @@ jobs:
               tests/test_gitignore_rules_actually_match.py
               tests/test_row688_gitignore_covers_sqlite_companions.py
               tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
+              tests/test_row738_login_cap_single_process_premise.py
           # Row 259. These five gates derive safety populations from live_tests,
           # tools and product source. They were all frozen-baseline legacy and
           # therefore absent from every PR shard even though each gate worked.
