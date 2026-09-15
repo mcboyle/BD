@@ -511,40 +511,41 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (31 entries)
+## `bulk_downloader/runner_auth.py` (32 entries)
 
 ```
-- L0017 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0040 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
-- L0062 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
-- L0074 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0085 `_truthy` `[private]`
-- L0095 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0101 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0111 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0126 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0135 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0150 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0182 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0201 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
-- L0210 `AuthMixin` `[class]`
-  - L0212 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0455 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0502 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0628 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0656 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0765 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0809 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1014 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1066 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1071 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1086 `AuthMixin.is_awaiting_manual_login`
-  - L1088 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1110 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1189 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1197 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1262 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1317 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0018 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0041 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
+- L0063 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0075 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0086 `_truthy` `[private]`
+- L0096 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0102 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0112 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0127 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0136 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0151 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0183 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0202 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
+- L0211 `AuthMixin` `[class]`
+  - L0212 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
+  - L0217 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0460 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0507 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0633 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0661 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0770 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0814 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1019 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1071 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1076 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1091 `AuthMixin.is_awaiting_manual_login`
+  - L1093 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1115 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1194 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1202 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1267 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1322 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -763,41 +764,43 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (18 entries)
+## `bulk_downloader/login_impl/replay.py` (19 entries)
 
 ```
-- L0032 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
-  - L0044 `LoginOutcome.__init__` `[dunder]`
-  - L0050 `LoginOutcome.__bool__` `[dunder]`
-  - L0053 `LoginOutcome.__eq__` `[dunder]`
-  - L0063 `LoginOutcome.__hash__` `[dunder]`
-  - L0066 `LoginOutcome.__repr__` `[dunder]`
-- L0071 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
-- L0094 `_evidence_slug` `[private]` — A filename-safe, nonempty, tag-unique slug for an evidence tag.
-- L0118 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
-- L0143 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
-- L0208 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0220 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0283 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0338 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0379 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0609 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0654 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0714 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0033 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
+  - L0045 `LoginOutcome.__init__` `[dunder]`
+  - L0051 `LoginOutcome.__bool__` `[dunder]`
+  - L0054 `LoginOutcome.__eq__` `[dunder]`
+  - L0064 `LoginOutcome.__hash__` `[dunder]`
+  - L0067 `LoginOutcome.__repr__` `[dunder]`
+- L0072 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
+- L0099 `redact_url_credentials` — Replace credential-bearing query values in every HTTP URL in *text*.
+- L0123 `_evidence_slug` `[private]` — A filename-safe, nonempty, tag-unique slug for an evidence tag.
+- L0147 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
+- L0173 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
+- L0238 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0250 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0313 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0368 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0409 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0639 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0684 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0744 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (8 entries)
+## `bulk_downloader/login_impl/submit.py` (9 entries)
 
 ```
-- L0026 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0055 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0094 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0118 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0206 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0267 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0538 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0608 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0027 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0056 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0095 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0119 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0203 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0219 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0280 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0580 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0650 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -831,4 +834,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 655 across 22 files._
+_Total entries: 658 across 22 files._

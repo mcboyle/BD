@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from flask import Blueprint, jsonify, request
+from .login_impl.replay import redact_url_credentials
 
 
 def _runners_generation(mapping):
@@ -63,6 +64,7 @@ def api_status():
     now = time.time()
     for sid, runner in _runners_generation(runners):
         st=runner.get_status(light=light); st["name"]=s_meta[sid].get("name",sid); st["config"]=s_meta[sid]
+        st["login_status"] = redact_url_credentials(st.get("login_status", ""))
         # Compute disk-free for the download directory (cached)
         dl_dir = (s_cfg.get(sid) or {}).get("download_dir") or ""
         if dl_dir:
@@ -84,4 +86,3 @@ def register_routes(app) -> int:
     app.register_blueprint(status_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("status."))
-

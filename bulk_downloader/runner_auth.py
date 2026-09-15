@@ -9,6 +9,7 @@ import functools, math, sys, threading, time
 
 from .db import db_log, session_event_record
 from .login import do_login
+from .login_impl.replay import redact_url_credentials
 from . import cloak as _cloak
 from .cookies import cookies_expiry_info
 from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE
@@ -208,6 +209,10 @@ def _surface_login_channel_fallbacks(runner):
 
 
 class AuthMixin:
+    def _set_login_status(self, status):
+        """Set operator-visible login text without retaining GET credentials."""
+        self._login_status = redact_url_credentials(status)
+
     @_auth_start_guard(lambda: "Site runtime is being deleted", on_retired=_resolve_retired_login)
     def login_async(self,on_done=None,allow_manual=True):
         """Phase 4.4: by default, allow manual takeover when auto-login
@@ -262,12 +267,12 @@ class AuthMixin:
                 ok, msg = self.start_manual_login()
                 # Mirror login_async's normal contract: set _login_status,
                 # don't raise, let the manual-done flow do the rest.
-                self._login_status = ("⏳ " if ok else "✗ ") + msg
+                self._set_login_status(("⏳ " if ok else "✗ ") + msg)
                 _fire(False)  # not "ok" yet — user must finish manually
                 if not ok:
                     return msg
                 return
-        self._login_status="Logging in..."
+        self._set_login_status("Logging in...")
         # v3.66.834: stamp this attempt so a second caller's watcher can read
         # THIS login's real result instead of inferring it from a shared
         # timestamp any other code path can bump (an expired-jar set_cookies
@@ -320,7 +325,7 @@ class AuthMixin:
                 except (TypeError, ValueError):
                     _daily_cap = None
                 if _daily_cap is None or _daily_cap < 1:
-                    self._login_status = (
+                    self._set_login_status(
                         "✗ daily login attempt cap is invalid: "
                         f"{_sk.LOGIN_CAP_KEY}={_cap_raw!r}")
                     _settle(False)
@@ -337,7 +342,7 @@ class AuthMixin:
                         f"({_reservation['count']}/{_daily_cap}); raise "
                         f"{_sk.LOGIN_CAP_KEY} for this site to log in "
                         "again today")
-                    self._login_status = "✗ " + _refusal
+                    self._set_login_status("✗ " + _refusal)
                     sys.stderr.write(
                         f"[{self.site_id}] login_async refused: {_refusal}\n")
                     _settle(False)
@@ -360,7 +365,7 @@ class AuthMixin:
                 if result and result[0]=="MANUAL_PENDING":
                     _,reason,handle=result
                     self._manual_login_handle=handle
-                    self._login_status=f"⏳ Manual login required: {reason}"
+                    self._set_login_status(f"⏳ Manual login required: {reason}")
                     # Don't change self._state — login isn't a worker state.
                     # The UI looks at self._login_status and a flag to render
                     # the takeover banner.
@@ -380,7 +385,7 @@ class AuthMixin:
                             # Cookie save failures aren't fatal — session
                             # state survives in-memory; next login refreshes
                             self.log.warning("cookie save to %s failed: %s", p, e)
-                    self._login_status=("✓ ")+msg
+                    self._set_login_status("✓ " + msg)
                     _settle(ok)
                     return
                 # ── Phase B (v3.62.2): templated-login failure fallback ──
@@ -429,16 +434,16 @@ class AuthMixin:
                             f"  login: could not persist fallback event for "
                             f"{self.site_id}: {_e}\n")
                     m_ok, m_msg = self.start_manual_login()
-                    self._login_status = (
+                    self._set_login_status(
                         f"⏳ Auto-login failed ({msg}) — finish login "
                         f"manually" if m_ok
                         else f"✗ {msg}; manual fallback also failed: {m_msg}")
                     _settle(False)
                     return
-                self._login_status=("✗ ")+msg
+                self._set_login_status("✗ " + msg)
                 _settle(ok)
             except Exception as e:
-                self._login_status = ("✗ ")+f"login crashed: {e}"
+                self._set_login_status("✗ " + f"login crashed: {e}")
                 sys.stderr.write(f"[{self.site_id}] login thread crashed: {e}\n")
             finally:
                 _settle(False)
@@ -622,7 +627,7 @@ class AuthMixin:
             if self._manual_login_handle is handle:
                 self._manual_login_handle = None
             raise
-        self._login_status = "⏳ Manual login: complete in browser, then click I'm Done"
+        self._set_login_status("⏳ Manual login: complete in browser, then click I'm Done")
         sys.stderr.write(f"  manual login started for {self.site_id}: {login_url}\n")
         return True, "Manual login window opened"
     def _poll_manual_cookies(self, session, stop_event):
@@ -1009,7 +1014,7 @@ class AuthMixin:
         except Exception as e:
             self.log.error("learn classify failed: %s", e)
 
-        self._login_status=("✓ " if ok else "✗ ")+msg
+        self._set_login_status(("✓ " if ok else "✗ ") + msg)
         return ok,msg
     def verify_login_after_wizard(self, member_url=""):
         """v3.43.51: post-wizard verification. Spawns a HEADLESS replay
@@ -1081,7 +1086,7 @@ class AuthMixin:
         self._manual_login_handle=None
         from .login import cancel_manual_login
         cancel_manual_login(h)
-        self._login_status="✗ Manual login cancelled"
+        self._set_login_status("✗ Manual login cancelled")
         return True,"Cancelled"
     def is_awaiting_manual_login(self):
         return getattr(self,"_manual_login_handle",None) is not None

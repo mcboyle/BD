@@ -19,6 +19,7 @@ from .replay import (
     LoginOutcome,
     _looks_authenticated,
     member_state_check,
+    redact_url_credentials,
     replay_saved_login_flow,
 )
 
@@ -199,6 +200,18 @@ PASS_FIELD_FALLBACKS=[
 ]
 
 
+def _form_submit_is_safe(method, has_password):
+    """Whether a JS form fallback may submit this form.
+
+    Browsers default an omitted form method to GET.  A JavaScript fallback
+    must never submit a password-bearing form unless it is an explicit POST;
+    otherwise it serializes the credential into the URL and browser history.
+    """
+    if not has_password:
+        return True
+    return isinstance(method, str) and method.lower() == "post"
+
+
 _SUBMIT_TEXTS=["Login","Log In","Sign In","Get Inside","Get In",
                "Continue","Next","Submit","Enter","Members","Access","Go"]
 
@@ -345,7 +358,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     # form if the password field can't be located.
     def m2():
         try:
-            page.evaluate("""(pf_sels) => {
+            result = page.evaluate("""(pf_sels) => {
                 let f = null;
                 for (const sel of pf_sels) {
                     try {
@@ -354,11 +367,27 @@ def _submit_login(page,sb_candidates,pf_candidates):
                     } catch (e) {}
                 }
                 if (!f) f = document.querySelector('form');
-                if (!f) return false;
-                if (typeof f.requestSubmit === 'function') { f.requestSubmit(); return true; }
-                return false;
+                if (!f) return {submitted: false, reason: 'no form'};
+                const hasPassword = Boolean(f.querySelector("input[type='password']"));
+                const method = f.getAttribute('method') || 'get';
+                if (hasPassword && method.toLowerCase() !== 'post') {
+                    return {submitted: false, method, hasPassword,
+                            reason: 'refused password form without POST'};
+                }
+                if (typeof f.requestSubmit === 'function') {
+                    f.requestSubmit();
+                    return {submitted: true, method, hasPassword};
+                }
+                return {submitted: false, method, hasPassword,
+                        reason: 'requestSubmit unavailable'};
             }""", pf_candidates)
-            return True,"form.requestSubmit()"
+            if not isinstance(result, dict):
+                return False, "requestSubmit produced no form result"
+            if not _form_submit_is_safe(result.get("method"), result.get("hasPassword")):
+                return False, result.get("reason", "refused unsafe form")
+            if result.get("submitted"):
+                return True, "form.requestSubmit()"
+            return False, result.get("reason", "requestSubmit unavailable")
         except Exception as e: return False,f"requestSubmit error: {str(e)[:60]}"
     methods.append(("JS requestSubmit",m2))
 
@@ -368,7 +397,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     # v3.65.2: same scoping fix as Method 2.
     def m3():
         try:
-            page.evaluate("""(pf_sels) => {
+            result = page.evaluate("""(pf_sels) => {
                 let f = null;
                 for (const sel of pf_sels) {
                     try {
@@ -377,10 +406,23 @@ def _submit_login(page,sb_candidates,pf_candidates):
                     } catch (e) {}
                 }
                 if (!f) f = document.querySelector('form');
-                if (f) { f.submit(); return true; }
-                return false;
+                if (!f) return {submitted: false, reason: 'no form'};
+                const hasPassword = Boolean(f.querySelector("input[type='password']"));
+                const method = f.getAttribute('method') || 'get';
+                if (hasPassword && method.toLowerCase() !== 'post') {
+                    return {submitted: false, method, hasPassword,
+                            reason: 'refused password form without POST'};
+                }
+                f.submit();
+                return {submitted: true, method, hasPassword};
             }""", pf_candidates)
-            return True,"form.submit()"
+            if not isinstance(result, dict):
+                return False, "form.submit produced no form result"
+            if not _form_submit_is_safe(result.get("method"), result.get("hasPassword")):
+                return False, result.get("reason", "refused unsafe form")
+            if result.get("submitted"):
+                return True, "form.submit()"
+            return False, result.get("reason", "form.submit unavailable")
         except Exception as e: return False,f"form.submit error: {str(e)[:60]}"
     methods.append(("JS form.submit",m3))
 
@@ -1143,11 +1185,12 @@ def do_login(config, allow_manual_takeover=False):
         if success and success in cur_after_fill:
             if _fill_wall_cleared:
                 sys.stderr.write(f"  login: at success URL after dismissing the wall "
-                                 f"({cur_after_fill[:80]})\n")
+                                 f"({redact_url_credentials(cur_after_fill)[:80]})\n")
                 cookies=pw_to_json(ctx.cookies()); _hard_close()
                 return True,(f"OK — {len(cookies)} cookies "
                              f"(auto-submitted on fill; wall dismissed)"),cookies
-            sys.stderr.write(f"  login: page already at success URL after fill ({cur_after_fill[:80]})\n")
+            sys.stderr.write("  login: page already at success URL after fill "
+                             f"({redact_url_credentials(cur_after_fill)[:80]})\n")
             cookies=pw_to_json(ctx.cookies()); _hard_close()
             return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
 
@@ -1299,9 +1342,10 @@ def do_login(config, allow_manual_takeover=False):
             _hard_close()
             return False, f"Rejected login landing: {cur[:200]}", []
         if success and success not in cur:
+            safe_cur = redact_url_credentials(cur)
             if allow_manual_takeover:
-                return _hand_off(f"Expected URL contains {success!r}, got {cur}")
-            _hard_close(); return False,f"Expected URL contains {success!r}, got {cur}",[]
+                return _hand_off(f"Expected URL contains {success!r}, got {safe_cur}")
+            _hard_close(); return False,f"Expected URL contains {success!r}, got {safe_cur}",[]
         # v3.66 row 774: the page we are about to read cookies from must be
         # on the login page's origin, or on one the site DECLARED -- the
         # captured multi-step flow ran (v3.66.302), or success_url is an
