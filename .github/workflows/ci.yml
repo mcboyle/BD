@@ -626,6 +626,7 @@ jobs:
           - name: ssrf-pinned-urllib
             suites: >-
               tests/test_row728_pinned_urllib.py
+              tests/test_row728_astra_boundaries.py
           # Row 340. The production deploy harness drives real git and the
           # complete step-12 health boundary. It is isolated because the suite
           # constructs a fresh origin/clone per case and would otherwise make

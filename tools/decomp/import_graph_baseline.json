@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4574,
+  "edge_count": 4576,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4285,6 +4285,10 @@
       "bulk_downloader/runner_auth.py",
       "bulk_downloader/runner_browser.py",
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_row728_astra_boundaries.py": [
+      "bulk_downloader/app_template.py",
+      "bulk_downloader/hooks.py"
     ],
     "tests/test_row728_pinned_urllib.py": [
       "bulk_downloader/app_template.py",

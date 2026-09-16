@@ -10,6 +10,7 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import socket
+import string
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -44,6 +45,16 @@ class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
             req, context=self._context)
 
 
+class _PinnedResponseHandler(urllib.request.BaseHandler):
+    """Keep the public response URL logical while the socket uses a literal."""
+
+    def http_response(self, req, response):
+        response.url = getattr(req, "_pinned_logical_url", req.full_url)
+        return response
+
+    https_response = http_response
+
+
 class _PinnedRedirectHandler(urllib.request.HTTPRedirectHandler):
     def __init__(self, pin_request):
         super().__init__()
@@ -55,6 +66,9 @@ class _PinnedRedirectHandler(urllib.request.HTTPRedirectHandler):
         # and pinned as its hostname, not inherited as an opaque literal.
         logical_base = getattr(req, "_pinned_logical_url", req.full_url)
         location = headers.get("Location") or newurl
+        # Match urllib's header-byte quoting before restoring the logical host.
+        location = urllib.parse.quote(
+            location, encoding="iso-8859-1", safe=string.punctuation)
         logical_url = urllib.parse.urljoin(logical_base, location)
         redirected = super().redirect_request(
             req, fp, code, msg, headers, logical_url)
@@ -157,5 +171,6 @@ class PinnedUrlOpener:
         pinned = (request if hasattr(request, "_pinned_logical_url")
                   else self.pin_request(request))
         opener = urllib.request.build_opener(
-            _PinnedRedirectHandler(self.pin_request), _PinnedHTTPSHandler())
+            _PinnedRedirectHandler(self.pin_request), _PinnedHTTPSHandler(),
+            _PinnedResponseHandler())
         return opener.open(pinned, timeout=timeout)

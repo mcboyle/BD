@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1564 - 728 follow-up: redirect Location quoted stdlib-style (iso-8859-1) before logical rebasing, logical response.url; row 818 M4 catcher re-pinned; row 822 keeper _run_one_check catcher
+
+Train: 3 rows on main v3.66.1563 (8fef858f); each lensed BOARD (bd-persist/train-handoff/lens/*-20260916T0440Z.md) or proven red/green (train-handoff/fixes/rebase8{18,22}-20260916T0440Z.md).
+
+- 728 (follow-up, T3 security): `_PinnedRedirectHandler.redirect_request` now percent-quotes the raw `Location` header exactly as CPython's `http_error_302` does (iso-8859-1, punctuation safe) BEFORE rebasing it onto the logical host, so a non-ASCII redirect no longer raises `UnicodeEncodeError` in `putrequest`; a new `_PinnedResponseHandler` keeps `response.url` logical at every hop. Regression suite tests/test_row728_astra_boundaries.py (30 cases: raw/encoded Latin-1 Location, 0/1/2 hops, metadata/loopback rebind still refused) rides the ssrf-pinned-urllib CI shard. Closes the lens REFUTE recorded against the 1563 landing (landing/ASTRA-REVIEW-728.md).
+- 822: the row-772 self-mutant "delete `self._run_one_check()` at session_keeper.py:751" escaped every existing test; tests/test_session_keeper.py gains a catcher (RED 5 failed with the call deleted, GREEN 37 passed clean) and tests/mutants/row822_keeper_loop_dispatch.json pins it.
+- 818: row-722 mutant M4 in tests/mutants/row722_site_templates_verified.json was pinned to a field that no test can observe (bd-mutate: 8 CAUGHT, 1 ESCAPED); re-pointed at `crawler_listing_page`, which the named catcher fails red / passes green (spec rerun 9/9 CAUGHT).
+
 ## v3.66.1563 - post-D4 consolidation: 722s 648 657 687 728 759 761 769 811 817 819
 
 Train: 11 refute-first-reviewed worker patches.

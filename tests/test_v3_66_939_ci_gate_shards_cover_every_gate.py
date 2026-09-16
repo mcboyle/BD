@@ -160,6 +160,11 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
 # CI-SHARD-CLAIM row-717 tree-gates-5 tests/test_row717_fresh_host_documents_cut_quality.py
 # CI-SHARD-CLAIM row-817 recovered-contracts tests/test_row817_astra_ack_consumption.py
+# Row 728 follow-up: the redirect Location header is quoted stdlib-style
+# (iso-8859-1) before the logical host is restored, so a non-ASCII redirect
+# no longer raises UnicodeEncodeError inside the pinned opener. Repo-wide, so
+# it rides the same shard as the pin contract it extends.
+# CI-SHARD-CLAIM row-728 ssrf-pinned-urllib tests/test_row728_astra_boundaries.py
 #
 # One retired gate's WHY is kept because a test pins the prose: @1215 judges
 # two PRODUCTION toolchain scripts -- bd-wedge-hunt's remote transport and
