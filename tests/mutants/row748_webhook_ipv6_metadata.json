@@ -9,7 +9,7 @@
     {
       "label": "metadata branch deleted",
       "file": "bulk_downloader/hooks.py",
-      "old_regex": "(?m)(?=^        if a == _\\w+:$)",
+      "old_regex": "(?m)(?=^        is_ipv6_metadata = \\(a == _\\w+\\)$)",
       "new": "        _v6_imds = None\n",
       "direction": "regression",
       "catcher": "tests/test_hooks_webhook_ssrf.py::test_every_webhook_refusal_class_is_executed_and_named[IPV6_METADATA]"

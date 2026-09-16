@@ -25,6 +25,8 @@ Why not just use logging.getLogger() directly:
   - We want a rotating file handler installed exactly once
   - The .with_site() convenience adds a tag that's tedious to do by hand
 """
+import contextlib
+import contextvars
 import logging
 import logging.handlers
 import sys
@@ -213,3 +215,52 @@ def set_level(level_name: str) -> bool:
 def get_level() -> str:
     _init()
     return logging.getLevelName(logging.getLogger("bulk_downloader").level)
+
+
+# ── row 769: the site id a login lane is logging under ──────────────────────
+#
+# The login submit path writes its progress straight to stderr rather than
+# through the logger above, and those lines carried no site id at all.  Site
+# lanes run concurrently and interleave into one stream, so a `login:` line
+# could only be attributed by correlating it against the neighbouring
+# `[<sid>][network]` lines -- a correlation that already misattributed one.
+#
+# A CONTEXT VARIABLE rather than a parameter, because the functions that emit
+# most of those lines (`_submit_login`, `_hand_off`, `_report_gate_actions`,
+# the selector helpers) are never handed the site config and threading one
+# through every signature would be a far larger change than the defect.  A
+# contextvar is the right shape twice over: each site lane is its own thread,
+# and a thread starts with an EMPTY context, so one lane can never read the id
+# another lane set -- which is precisely the misattribution being closed.
+_LOGIN_SITE_ID: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "bd_login_site_id", default="")
+
+
+@contextlib.contextmanager
+def login_site(site_id: str):
+    """Scope every login line written inside this block to `site_id`.
+
+    Restores the previous value on the way out, including on an exception,
+    so a lane that raises cannot leak its id onto the next thing this thread
+    logs.
+    """
+    token = _LOGIN_SITE_ID.set(str(site_id or "").strip())
+    try:
+        yield
+    finally:
+        _LOGIN_SITE_ID.reset(token)
+
+
+def site_tag(site_id: str = "") -> str:
+    """`"[<sid>] "` for a known site, `""` for none.
+
+    Written to sit immediately in front of the existing line prefix, so the
+    result reads `  [<sid>] login: ...` and keeps the `login:` token every
+    existing reader and grep of logs/bulk_downloader.log already matches on.
+    The explicit argument wins over the contextvar, for callers such as the
+    site runner that hold the id directly; both are absent in the standalone
+    and test paths, where an untagged line is the honest answer rather than a
+    fabricated id.
+    """
+    sid = str(site_id or _LOGIN_SITE_ID.get() or "").strip()
+    return f"[{sid}] " if sid else ""

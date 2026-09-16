@@ -277,7 +277,7 @@ def _embedded_ipv4(addr):
     return tuple(carried)
 
 
-def _host_ok_for_hook(host):
+def _host_ok_for_hook(host, _resolved=None):
     """(ok, reason) for a hook target host. v3.66.553 (F-CORE_BD04-01).
 
     The plex/jellyfin/home-assistant/stash hooks are INTENDED to reach internal LAN
@@ -292,22 +292,25 @@ def _host_ok_for_hook(host):
     if not host:
         return False, "no host"
     bare = host[1:-1] if host.startswith("[") and host.endswith("]") else host
-    try:
-        addrs = [ipaddress.ip_address(bare)]
-    except ValueError:
+    if _resolved is not None:
+        addrs = list(_resolved)
+    else:
         try:
-            infos = socket.getaddrinfo(bare, None, type=socket.SOCK_STREAM)
-        except (socket.gaierror, OSError, UnicodeError) as ex:
-            return False, f"DNS resolution failed: {type(ex).__name__}: {ex}"
-        addrs = []
-        for fam, _st, _pr, _cn, sa in infos:
-            if fam in (socket.AF_INET, socket.AF_INET6):
-                try:
-                    addrs.append(ipaddress.ip_address(sa[0]))
-                except ValueError:
-                    return False, f"got non-IP from getaddrinfo: {sa[0]!r}"
-        if not addrs:
-            return False, "DNS resolution returned no addresses"
+            addrs = [ipaddress.ip_address(bare)]
+        except ValueError:
+            try:
+                infos = socket.getaddrinfo(bare, None, type=socket.SOCK_STREAM)
+            except (socket.gaierror, OSError, UnicodeError) as ex:
+                return False, f"DNS resolution failed: {type(ex).__name__}: {ex}"
+            addrs = []
+            for fam, _st, _pr, _cn, sa in infos:
+                if fam in (socket.AF_INET, socket.AF_INET6):
+                    try:
+                        addrs.append(ipaddress.ip_address(sa[0]))
+                    except ValueError:
+                        return False, f"got non-IP from getaddrinfo: {sa[0]!r}"
+            if not addrs:
+                return False, "DNS resolution returned no addresses"
     # Row 750. Classify every IPv4 address a resolved answer CARRIES as well as the
     # answer itself: ::ffff:169.254.169.254 (mapped), 2002:a9fe:a9fe:: (6to4),
     # 2001:0:...:5601:5601 (Teredo) and 64:ff9b::a9fe:a9fe (NAT64) all reach the
@@ -324,9 +327,10 @@ def _host_ok_for_hook(host):
             return False, f"refusing CGNAT/shared address ({host} -> {a})"
         if a.is_link_local:
             return False, f"refusing link-local/metadata address ({host} -> {a})"
-        if a == _v6_imds:
+        is_ipv6_metadata = (a == _v6_imds)
+        if is_ipv6_metadata:
             return False, f"refusing IPv6 cloud-metadata address ({host} -> {a})"
-        if a.is_reserved:
+        if bool(a.is_reserved):
             return False, f"refusing reserved address ({host} -> {a})"
         if a.is_multicast:
             return False, f"refusing multicast address ({host} -> {a})"
@@ -335,6 +339,11 @@ def _host_ok_for_hook(host):
         # is_private (RFC 1918) and is_loopback are INTENTIONALLY allowed: the
         # plex/jellyfin/home-assistant/stash integrations target LAN/localhost.
     return True, ""
+
+
+def _hook_address_allowed(addr, host):
+    """Judge one already-resolved hook address (row 728's pinned opener seam)."""
+    return _host_ok_for_hook(host, _resolved=(addr,))
 
 
 def _validate_webhook_url(url):
@@ -368,10 +377,7 @@ def _validate_webhook_url(url):
 
 
 class _HookRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """v3.66.553 (F-CORE_BD04-01): re-validate every redirect target the same way the
-    initial webhook URL is validated, so a public URL can't 30x-redirect a hook into
-    cloud-metadata / a dangerous range. urllib follows redirects by default; the hook
-    sinks open through _hook_urlopen so this handler is in the chain."""
+    """Compatibility guard for direct callers; PinnedUrlOpener owns live hops."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         ok, why = _validate_webhook_url(newurl)
@@ -382,16 +388,10 @@ class _HookRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_HOOK_OPENER = None
-
-
 def _hook_urlopen(req, timeout=15):
-    """urlopen for hook sinks, through an opener whose redirect handler re-validates
-    each hop against _validate_webhook_url (F-CORE_BD04-01)."""
-    global _HOOK_OPENER
-    if _HOOK_OPENER is None:
-        _HOOK_OPENER = urllib.request.build_opener(_HookRedirectHandler())
-    return _HOOK_OPENER.open(req, timeout=timeout)
+    """Open every hook hop at the single address just vetted (row 728)."""
+    from .urllib_ssrf import PinnedUrlOpener
+    return PinnedUrlOpener(_hook_address_allowed).open(req, timeout=timeout)
 
 
 # ── 20.2: Generic outbound webhook ────────────────────────────────────

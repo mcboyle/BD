@@ -18,7 +18,7 @@
     {
       "label": "remove the ENTER affordance admission (invert the age-tier predicate)",
       "file": "bulk_downloader/interstitial.py",
-      "old_regex": "(?m)(?<=if not \\(tier == \"age\" and )(?=ENTER_AFFORDANCE\\.fullmatch\\(label\\)\\):$)",
+      "old_regex": "(?m)(?<=if tier == \"age\" and )(?=\\(ENTER_AFFORDANCE\\.fullmatch\\(label\\)$)",
       "new": "not ",
       "direction": "regression",
       "catcher": "tests/test_row721_age_gate_enter_affordance.py::test_age_gate_enter_is_clicked_exactly_once"

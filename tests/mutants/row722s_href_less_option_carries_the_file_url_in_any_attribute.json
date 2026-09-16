@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722s live (dorcelclub 2026-09-15): the winning quality option was href-less (data-slug carried the MP4 URL) and the click grant read '' -> 'Clicked but no download started'. M1 makes the winner href-only again; M2 lets a class/id value pass as the URL.",
+  "subject": "bulk_downloader/runner_transport.py",
+  "band": [
+    "tests/test_row722s_href_less_option_carries_the_file_url_in_any_attribute.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 winner url is href-only again",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "        if href:\\n            return href\\n",
+      "new": "        if True:\n            return href\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_href_less_option_carries_the_file_url_in_any_attribute.py::test_the_measured_dorcelclub_option_yields_its_data_slug_file_url"
+    },
+    {
+      "label": "M2 href no longer wins over a data attribute",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "        if href:\\n            return href\\n",
+      "new": "        if False:\n            return href\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_href_less_option_carries_the_file_url_in_any_attribute.py::test_href_wins_over_any_data_attribute"
+    }
+  ]
+}

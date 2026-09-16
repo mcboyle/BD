@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 
 const { apiPostMock } = vi.hoisted(() => ({ apiPostMock: vi.fn() }));
 vi.mock("@/lib/api-client", () => ({ apiGet: vi.fn(), apiPost: apiPostMock, ApiError: class extends Error {} }));

@@ -318,11 +318,15 @@ def test_do_login_reads_the_login_key_BEFORE_it_checks_the_success_url():
     reads = [ln for k, ln in _get_string_args(fn) if k == LOGIN_KEY]
     assert reads, "do_login never reads %r" % LOGIN_KEY
 
-    # the success_url comparison: `if success and success not in cur`
+    # the success_url comparison: `if success and success not in cur` until
+    # row 722 (G31) made it structural: `not success_url_reached(success, cur, url)`
     checks = [n.lineno for n in ast.walk(fn)
               if isinstance(n, ast.Compare)
               and any(isinstance(o, ast.NotIn) for o in n.ops)
               and isinstance(n.left, ast.Name) and n.left.id == "success"]
+    checks += [n.lineno for n in ast.walk(fn)
+               if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+               and n.func.id == "success_url_reached"]
     assert checks, "the success_url comparison moved -- re-derive this test"
     assert min(reads) < min(checks), (
         "the interstitial is dismissed at line %d, AFTER the success_url check "

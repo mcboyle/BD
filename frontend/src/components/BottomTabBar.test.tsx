@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { BottomTabBar } from "./BottomTabBar";
 
 // Slice 4b — mobile "More" overflow. The 5 frozen tabs stay; a 6th "More"

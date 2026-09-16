@@ -31,10 +31,10 @@
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
     },
     {
-      "label": "C04 template redirect drops host classifier call",
+      "label": "C04 template pinned redirect drops per-IP classifier call",
       "file": "bulk_downloader/app_template.py",
-      "old_regex": "(?m)(?<=^                    _ok, _why = )_is_safe_public_host",
-      "new": "_is_safe_public_host_bypassed",
+      "old_regex": "(?m)(?<=^                _ok, _why = _host_safety\\.)_classify_ip(?=\\(address, host\\)$)",
+      "new": "_classify_ip_bypassed",
       "direction": "regression",
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_runtime_consumer_census_judges_every_site_without_english_decisions"
     },

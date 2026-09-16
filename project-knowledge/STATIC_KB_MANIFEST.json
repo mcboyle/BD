@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-15T23:30:36+00:00",
- "version_context": "v3.66.1562",
- "file_count": 95,
+ "generated": "2026-09-16T03:35:27+00:00",
+ "version_context": "v3.66.1563",
+ "file_count": 96,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -152,13 +152,17 @@
    "sha256": "4b1864426672da45137eb1bc1bbc01ed545ef3f7917c8d47bc92f0f30054b5ec",
    "bytes": 4918
   },
+  "FLEET_EGRESS_DECISIONS.md": {
+   "sha256": "6bf78803df0095f7d3d65f8e1b655b51c71c80a1cd709e1b4b7bd30266251149",
+   "bytes": 1966
+  },
   "GLOSSARY.md": {
    "sha256": "15ef4859ca4aeacd5720166d4d742c80a873ea1f4b00341da7a526971d7e0b5f",
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "5d9d6659e33483cbcaa532468c2692ac2938bbadc6954924e0e98d7c3b95c78f",
-   "bytes": 146527
+   "sha256": "ca834880b2d47a590b57fdebd289df8185bbd5d1a5da11df0f892230e626e20a",
+   "bytes": 146654
   },
   "IMPROVEMENT_BACKLOG.md.parked-control.parked-control": {
    "sha256": "fba3c3bc36bbe5ddbf65e48572d82fbf8900e39bf8db55eebb8f9a1b195f83b1",

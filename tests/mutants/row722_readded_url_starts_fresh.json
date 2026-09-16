@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G26: bulk_delete then add_url of the same URL starts a fresh job (retries 0, no backoff). Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row722_readded_url_starts_fresh.json --work DETACHED_SCRATCH.",
+  "subject": "a re-added URL does not inherit the deleted job's retry ladder",
+  "band": [
+    "tests/test_row722_readded_url_starts_fresh.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 queue upsert reset dropped (stale row keeps its ladder)",
+      "file": "bulk_downloader/db.py",
+      "old_regex": "\"retries=0, retry_after=0, screenshot='', force_download=0, \"",
+      "new": "\"retries=retries, retry_after=retry_after, screenshot='', force_download=0, \"",
+      "direction": "regression",
+      "catcher": "tests/test_row722_readded_url_starts_fresh.py::test_readded_url_after_bulk_delete_starts_at_retry_zero"
+    },
+    {
+      "label": "M2 deleted-in-flight failure resurrects the job",
+      "file": "bulk_downloader/runner_telemetry.py",
+      "old_regex": "        if job is None:\\n            # Row 722 \\(G26\\)",
+      "new": "        if False:\n            # Row 722 (G26)",
+      "direction": "regression",
+      "catcher": "tests/test_row722_readded_url_starts_fresh.py::test_failure_for_a_job_deleted_in_flight_is_not_published"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
 import math, os, re, shutil, sys, uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urljoin, urlparse
 from .constants import NON_VIDEO_RE, SIZE_RE
 
 
@@ -455,6 +455,30 @@ _NON_VIDEO_SHAPE_ALTERNATIVES = _non_video_partition(NON_VIDEO_RE.pattern)[1]
 _NON_VIDEO_URL_SHAPE_RE = (
     re.compile("|".join(_NON_VIDEO_SHAPE_ALTERNATIVES), NON_VIDEO_RE.flags)
     if _NON_VIDEO_SHAPE_ALTERNATIVES else NON_VIDEO_RE)
+_REFINEMENT_LISTING_PATH_RE = re.compile(r"(?:^|/)videos/?$", re.I)
+
+
+def _has_non_video_url_shape(el, page_url=""):
+    """Judge URL shapes by parsed components, never arbitrary harvested text."""
+    for attr in _WIDE_SCAN_URL_ATTRS:
+        try:
+            value = el.get_attribute(attr)
+        except Exception:
+            value = None
+        if not value:
+            continue
+        try:
+            parsed = urlparse(urljoin(page_url, value))
+        except (TypeError, ValueError):
+            # An opaque or malformed auxiliary value must not hide a real URL.
+            continue
+        if _NON_VIDEO_URL_SHAPE_RE.search(parsed.path):
+            return True
+        if _REFINEMENT_LISTING_PATH_RE.search(parsed.path):
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
+                if key.lower().startswith("refinementlist["):
+                    return True
+    return False
 # Everything the wide sweep harvests from an element, in the order it is
 # joined. Module scope so the label/URL split below has an INDEPENDENT
 # denominator a test can reconcile against it (row 508).
@@ -1526,6 +1550,87 @@ def _is_listing_filter_href(el, text, page_url=""):
     return True
 
 
+# Row 722 (G20): a LISTING link is not a download candidate whatever its
+# text. Live (nookies.com/membersarea/video/3480, 2026-09-15): the scorer took
+# ``<a href="/membersarea/tag/4k">4k</a>`` -- a tag page -- as the 4K download
+# (res_score reads "4k"), then reported "Clicked but no download started".
+# A path whose segment is /tag/, /tags/, /category/, /categories/, /search or
+# /model(s)/ names a listing, not a file: it is refused before scoring, UNLESS
+# the same path also carries a media extension, a /stream/ or a /download
+# segment (a model's video under /models/<name>/x.mp4 is still a file).
+_LISTING_PATH_RE = re.compile(
+    r"(?:^|/)(?:tags?|category|categories|search|models?)(?:/|$|\?)", re.I)
+_LISTING_FILE_PATH_RE = re.compile(
+    r"\.(?:mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|m3u8|mpd|zip|rar|7z)(?:$|[?#])"
+    r"|/(?:stream|download|dl)(?:/|$)", re.I)
+_LISTING_QUERY_RE = re.compile(
+    r"(?:^|&)(?:refinementList|filters?|sort|page|q|s)(?:\[|%5B|=)", re.I)
+_LISTING_URL_TOKEN_RE = re.compile(r"https?://[^\s]+|(?<!\S)/[^\s]+")
+_LISTING_LOGGED = set()
+
+
+def _listing_link_path(text):
+    """The listing-shaped path in harvested candidate `text`, or ''."""
+    for m in _LISTING_URL_TOKEN_RE.finditer(text or ""):
+        try:
+            path = urlparse(m.group(0)).path or ""
+        except Exception:
+            continue
+        if _LISTING_PATH_RE.search(path) and not _LISTING_FILE_PATH_RE.search(path):
+            return path
+        # dfxtra/evilangel live (10:3xZ): a listing FILTER link
+        # (/en/videos/?refinementList[...]=2160p) carries the quality in its
+        # query string, not its path.
+        try:
+            query = urlparse(m.group(0)).query or ""
+        except Exception:
+            query = ""
+        if (_LISTING_QUERY_RE.search(query)
+                and not _LISTING_FILE_PATH_RE.search(path)):
+            return path + "?" + query[:60]
+    return ""
+
+
+def _note_listing_link(text, path):
+    key = (text, path)
+    if key in _LISTING_LOGGED:
+        return
+    if len(_LISTING_LOGGED) > 512:
+        _LISTING_LOGGED.clear()
+    _LISTING_LOGGED.add(key)
+    label = _LISTING_URL_TOKEN_RE.sub(" ", text or "").replace(path, " ")
+    label = " ".join(label.split())[:60]
+    try:
+        sys.stderr.write(
+            f"  download: skipped listing link '{label}' ({path})\n")
+    except Exception:
+        pass
+
+
+def _is_cross_origin_filter_query(el, page_url=""):
+    """Row 761b: origin policy decides a filter QUERY first. A cross-origin
+    (CDN/signed) href is never a listing page (row 759d), so the row-722
+    ``_listing_link_path`` query rule stands down when the element's own href
+    is cross-origin and listing-shaped only by its query; that URL is then
+    judged on its own signals (``_is_listing_filter_href`` already refuses to
+    call it a listing). A cross-origin /tag/-style PATH keeps the row-722
+    verdict. False (rule stays in force) on any read error or no page URL."""
+    if not page_url:
+        return False
+    try:
+        href = (el.get_attribute("href") or "").strip()
+        if not href:
+            return False
+        from urllib.parse import urlsplit, urljoin
+        parts = urlsplit(urljoin(page_url, href))
+        if parts.netloc == urlsplit(page_url).netloc:
+            return False
+        return bool(_LISTING_QUERY_RE.search(parts.query)
+                    and not _LISTING_PATH_RE.search(parts.path))
+    except Exception:
+        return False
+
+
 def _candidate_admission(el, text, page_url="", require_signal=True,
                          label=None):
     """Shared learned/wide admission. Returns None to admit, else the reason.
@@ -1544,8 +1649,12 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     """
     t = (text or "").strip()
     visible = t if label is None else (label or "").strip()
-    if NON_VIDEO_RE.search(visible) or _NON_VIDEO_URL_SHAPE_RE.search(t):
+    if NON_VIDEO_RE.search(visible) or _has_non_video_url_shape(el, page_url):
         return "non_video"
+    _listing = _listing_link_path(t)
+    if _listing and not _is_cross_origin_filter_query(el, page_url):
+        _note_listing_link(t, _listing)
+        return "listing_link"
     if require_signal and (
             not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
         return "no_signal"
@@ -1658,6 +1767,40 @@ def find_best_download(page,custom="",learned=None,runner=None):
             page, custom, learned, runner, _page_url, _note_admission_drop)
     finally:
         _emit_admission_summary()
+
+
+def _rank_custom_matches(loc_all, count, custom):
+    """Score every element a multi-match dl_selector names (row 722, G30).
+
+    Harvests the same text the wide sweep reads (inner text + the label and
+    URL attributes), scores it with ``res_score``/``parse_size_bytes`` and
+    returns candidates sorted best-first. Returns [] when NO match carries a
+    tier at all -- then there is nothing to rank on and the caller keeps the
+    ``.first`` behaviour a single-match selector has always had.
+    """
+    scored=[]
+    for i in range(min(count, 40)):
+        try:
+            el=loc_all.nth(i)
+            parts=[]
+            try: parts.append(el.inner_text() or "")
+            except Exception: pass
+            for attr in _WIDE_SCAN_ATTRS:
+                try:
+                    v=el.get_attribute(attr)
+                    if v: parts.append(v)
+                except Exception: pass
+            txt=" ".join(" ".join(parts).split())
+            score=res_score(txt)
+            scored.append({"locator":el,"text":(txt or custom)[:160],
+                           "score":max(0,score),"size":parse_size_bytes(txt),
+                           "work":0})
+        except Exception:
+            continue
+    if not any(c["score"]>0 for c in scored):
+        return []
+    scored.sort(key=lambda c:(c["score"],c["size"]),reverse=True)
+    return scored
 
 
 def _find_best_download(page, custom, learned, runner, _page_url,
@@ -1810,8 +1953,43 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             return best_match
 
     if custom:
-        loc=page.locator(custom).first
-        if loc.count()>0: return {"locator":loc,"text":custom,"score":9999,"size":0,
+        loc_all=page.locator(custom)
+        try: n_custom=loc_all.count()
+        except Exception: n_custom=0
+        if n_custom>1:
+            # Row 722 (G30): measured live on vip4k (test2, 2026-09-15):
+            # dl_selector=a.download__item matched FIVE tier options
+            # (320p..4K, href javascript:void(0)); ``.first`` took 360p while
+            # quality_preference "1080,720" / min_resolution 1080 were never
+            # consulted, because score 9999 satisfies every gate. A selector
+            # that names several candidates is ranked exactly as the wide
+            # sweep ranks its own: res_score/size, then the runner's
+            # quality preference and min-resolution gate over the REAL tiers.
+            ranked=_rank_custom_matches(loc_all, n_custom, custom)
+            if ranked:
+                best_match=dict(ranked[0])
+                best_match["_all_candidates"]=[
+                    _candidate_summary(c) for c in ranked[:10]]
+                best_match["_custom_selector"]=custom
+                qpref=""
+                cfg=getattr(runner,"config",None) if runner is not None else None
+                if isinstance(cfg,dict):
+                    qpref=(cfg.get("quality_preference") or "").strip()
+                apply_pref=getattr(runner,"_apply_quality_preference",None)
+                if qpref and callable(apply_pref):
+                    try:
+                        chosen=apply_pref(best_match,qpref)
+                        if chosen and chosen.get("locator") is not None:
+                            best_match=chosen
+                    except Exception:
+                        pass
+                _emit=(f"download: custom selector matched {n_custom} "
+                       f"option(s); picked {best_match['text'][:60]!r} "
+                       f"({res_label(best_match['score'])})")
+                sys.stderr.write(f"  {_emit}\n")
+                return best_match
+        loc=loc_all.first
+        if n_custom>0: return {"locator":loc,"text":custom,"score":9999,"size":0,
                                   "_all_candidates":[{"text":f"custom: {custom}","score":9999,"size":0}]}
     candidates,seen=[],set()
     # P5-3: read DOM-honeypot mode once per call. Cheap when off

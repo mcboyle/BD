@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (ultrafilms 2026-09-15): a valid photo-set .zip was quarantined by 'ffprobe rc=1'. M1 routes .zip back through ffprobe; M2 makes a bad testzip() member pass.",
+  "subject": "bulk_downloader/integrity.py",
+  "band": ["tests/test_row722_integrity_check_is_format_aware.py"],
+  "mutants": [
+    {
+      "label": "M1 zip routed back to ffprobe",
+      "file": "bulk_downloader/integrity.py",
+      "old_regex": "if ext == \"\\.zip\":\\n        return _verify_zip\\(path\\)",
+      "new": "if ext == \".zip\":\n        return _verify_with_ffprobe(path)",
+      "direction": "regression",
+      "catcher": "tests/test_row722_integrity_check_is_format_aware.py::test_a_valid_zip_is_not_failed_by_ffprobe"
+    },
+    {
+      "label": "M2 testzip failure passes",
+      "file": "bulk_downloader/integrity.py",
+      "old_regex": "if bad is not None:\\n        return False, f\"zip member corrupt: \\{bad\\}\"",
+      "new": "if bad is not None:\n        return True, \"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row722_integrity_check_is_format_aware.py::test_a_zip_with_a_bad_member_crc_is_failed"
+    }
+  ]
+}

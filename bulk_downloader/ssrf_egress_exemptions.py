@@ -29,10 +29,10 @@ from __future__ import annotations
 
 ACCOUNTED = {
     # -- guarded: an in-tree check runs before the send -------------------
-    "bulk_downloader/app_template.py::api_template_sandbox": (
+    "bulk_downloader/urllib_ssrf.py::PinnedUrlOpener.open": (
         "guarded",
-        "_is_safe_public_host vets the host before the fetch and the "
-        "_GuardedRedirect opener re-checks every redirect hop (F-APP03-01)"),
+        "PinnedUrlOpener resolves every host answer, rejects a disallowed one, "
+        "and dispatches urllib only to the selected vetted IP literal (row 728)"),
     "bulk_downloader/deep_http.py::guarded_open": (
         "guarded",
         "_check classifies each hop and the _NoRedirect opener refuses "
@@ -41,10 +41,6 @@ ACCOUNTED = {
         "guarded",
         "the request override disables requests' redirects, classifies every "
         "hop through _check and refuses a cross-origin Location"),
-    "bulk_downloader/hooks.py::_hook_urlopen": (
-        "guarded",
-        "the one opener hook sinks send through; _HookRedirectHandler "
-        "re-validates each hop against _validate_webhook_url (F-CORE_BD04-01)"),
     "bulk_downloader/webhooks.py::_deliver_one": (
         "guarded",
         "_validate_webhook_url re-vets the stored subscription URL at delivery "
@@ -58,10 +54,6 @@ ACCOUNTED = {
         "_host_is_public is re-checked at every redirect hop with "
         "allow_redirects=False, so a public first hop cannot 302 the probe to "
         "an internal address; the verb is chosen at runtime, the module is not"),
-    "bulk_downloader/dev_suite/capture_diag.py::_fetch_manifest_text": (
-        "guarded",
-        "_is_safe_public_host vets the request-supplied manifest host before "
-        "the GET, using the canonical classifier (F-CBD01-01)"),
     "bulk_downloader/aiassist.py::_post_json": (
         "guarded",
         "_pin_lan_endpoint resolves the operator's endpoint and sends to the "

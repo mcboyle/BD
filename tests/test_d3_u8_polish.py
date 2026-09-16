@@ -263,11 +263,13 @@ def test_d3_u8_e2e_spec_covers_load_bearing_flows():
         "theme",                # dark mode
         "Add",                  # Add site wizard
         "Advanced",             # Settings sub-page
-        "additive",             # D3 must not break / and /m
+        "/m redirects to the root SPA",  # legacy entry still reaches the app
     ):
         assert flow.lower() in src.lower(), (
             f"e2e smoke spec missing coverage of: {flow!r}"
         )
+    assert 'await page.goto(`${BASE}/m`)' in src
+    assert 'await expect(page).toHaveURL(`${BASE}/`)' in src
 
 
 def test_d3_u8_e2e_spec_targets_m2_path():

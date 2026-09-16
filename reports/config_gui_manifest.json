@@ -521,6 +521,7 @@
     "BD_CAPTURE_APP_DIR": "display-only",
     "BD_CAPTURE_INSTANCE": "display-only",
     "BD_CAPTURE_PYTHON": "display-only",
-    "BD_STARTED_DISPLAY_PID_FILE": "display-only"
+    "BD_STARTED_DISPLAY_PID_FILE": "display-only",
+    "login_attempt_cap_per_day": "full"
   }
 }

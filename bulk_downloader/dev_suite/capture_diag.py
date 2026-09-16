@@ -745,20 +745,26 @@ def _fetch_manifest_text(url):
     import urllib.request as _u
     if not url.lower().startswith(("http://", "https://")):
         return False, "url must be http(s)"
-    # F-CBD01-01: validate that the URL's host resolves to a public unicast IP
-    # BEFORE the outbound GET, so a request-supplied manifest URL cannot be used
-    # as an SSRF read primitive against internal targets -- cloud metadata
-    # (169.254.169.254), loopback, RFC1918/RFC6598, ULA. Uses the canonical SSRF
-    # classifier so this stays consistent with the transport-layer guard.
+    # Row 728: retain the fail-fast host check and also classify the connect
+    # resolution in the pinned opener; urllib never opens a socket by name.
     from urllib.parse import urlparse as _urlparse
-    from ..provider_resolve_impl._common import _is_safe_public_host
+    from ..provider_resolve_impl._common import _classify_ip, _is_safe_public_host
+    from ..urllib_ssrf import PinnedUrlOpener
+
+    def _manifest_address_allowed(address, host):
+        return _classify_ip(address, host)
     _ok_host, _why = _is_safe_public_host(_urlparse(url).hostname or "")
     if not _ok_host:
         return False, f"host not permitted: {_why}"
     try:
         req = _u.Request(url, headers={
             "User-Agent": "BulkDownloader-dev-probe/1.0"})
-        with _u.urlopen(req, timeout=15) as r:
+        opener = PinnedUrlOpener(_manifest_address_allowed)
+        try:
+            req = opener.pin_request(req)
+        except Exception as e:
+            return False, f"host not permitted: {e}"
+        with opener.open(req, timeout=15) as r:
             raw = r.read(_MANIFEST_FETCH_CAP + 1)
         if len(raw) > _MANIFEST_FETCH_CAP:
             return False, f"manifest exceeds {_MANIFEST_FETCH_CAP} bytes"

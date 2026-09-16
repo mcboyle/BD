@@ -64,7 +64,12 @@ _BUDGET_NAMES = {"timeout", "budget_s", "timeout_s"}
 # silently drop a real 1800-second budget, which is the opposite of the point.
 _MS_CALLEES = ("goto", "wait_for", "wait_for_function", "wait_for_event",
                "wait_for_selector", "chromium.launch", "is_visible",
-               "wait_for_load_state", "wait_for_timeout")
+               "wait_for_load_state", "wait_for_timeout",
+               # Row 722: the click-path download tests drive Playwright's
+               # `page.expect_download(timeout=)` and `<locator>.click(timeout=)`
+               # directly (10000 / 5000 = 10s / 5s). Both are documented
+               # MILLISECOND budgets; keyed on the callee like the rest.
+               "expect_download", ".click")
 
 # Measured on idle test5 (48 cores), source dcd8201d, 2026-08-28.  These are
 # elapsed times at the exact subprocess/queue boundary, not whole-item durations.

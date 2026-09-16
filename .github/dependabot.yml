@@ -2,31 +2,23 @@
 #
 # WHY THIS FILE EXISTS. Until 2026-09-02 there was no config here at all, so
 # dependabot ran on repository defaults. That was fine until it raised a MAJOR
-# upgrade that cannot be taken as a dependency bump: react-router 6 -> 7 closes
-# two medium advisories, but v7 merges react-router-dom INTO react-router and 82
-# tracked files import it. That is a migration, and a migration needs a cut with
-# tests -- not an auto-generated lockfile PR that will be reopened weekly until
-# somebody merges it unexamined.
+# upgrade that could not be taken as a dependency bump: react-router 6 -> 7
+# closed two medium advisories, but v7 merged react-router-dom INTO react-router
+# and 82 tracked files imported it. That was a migration, so this file carried
+# exactly ONE ignore -- react-router MAJOR updates -- scoped to survive only as
+# long as register row 648 pointed at it.
 #
-# So this ignores exactly ONE thing: react-router MAJOR updates. Patch and minor
-# updates for react-router, and every update for every other package, still flow
-# normally -- including the security bumps this same cut takes for browserslist
-# and postcss-selector-parser.
-#
-# DELETE THE IGNORE BLOCK WHEN THE MIGRATION ROW LANDS. It is scoped to survive
-# only as long as the row it points at; leaving it in place after the migration
-# would silently suppress the next genuine major.
+# ROW 648 LANDED: the frontend now depends on react-router ^7.18.x directly and
+# no source imports react-router-dom, so the ignore is gone and every update
+# for every package flows normally again. tests/test_row648_react_router_7_
+# migration.py refuses a react-router MAJOR ignore from reappearing here; a
+# future major is a migration row of its own, not an ignore entry.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
       interval: "weekly"
-    ignore:
-      # See register row 648. Remove this entry together with that row.
-      - dependency-name: "react-router"
-        update-types:
-          - "version-update:semver-major"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

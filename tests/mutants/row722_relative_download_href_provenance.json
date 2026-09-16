@@ -1,0 +1,20 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (members.filthykings.com, 2026-09-15T06:25:59Z): the window.open grant is a host-relative href ('/movieaction/download/<id>/2160p/mp4?...'); the grant reader must resolve it against page.url before the HTTP leg scores provenance. M1 drops the urljoin so the raw attribute reaches staging_claim.resource_identity again and the live 'cannot derive resource provenance ... no scheme or host' refusal returns. M2 (session scope) intentionally absent: the jar was measured (14 of 17 cookies are .filthykings.com domain cookies and DO cover members; the 2 login-host cookies are host-only for www) so session_scope's diagnostic is correct and nothing was changed there.",
+  "subject": "bulk_downloader/runner_transport.py",
+  "band": [
+    "tests/test_row722_relative_download_href_provenance.py",
+    "tests/test_popup_download_capture.py",
+    "tests/test_row722_dropdown_download_affordance.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 urljoin dropped: the raw host-relative grant is handed on unresolved",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "return urljoin\\(base, raw\\) if base else raw",
+      "new": "return raw",
+      "direction": "regression",
+      "catcher": "tests/test_row722_relative_download_href_provenance.py::test_a_host_relative_window_open_grant_is_resolved_against_the_page"
+    }
+  ]
+}

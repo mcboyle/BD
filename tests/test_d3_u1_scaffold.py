@@ -59,7 +59,7 @@ def test_d3_u1_package_json_has_locked_deps():
     pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
     deps = pkg.get("dependencies", {})
     required = [
-        "react", "react-dom", "react-router-dom",
+        "react", "react-dom", "react-router",
         "@tanstack/react-query",
         "@radix-ui/react-dialog", "@radix-ui/react-tabs",
         "@radix-ui/react-dropdown-menu",

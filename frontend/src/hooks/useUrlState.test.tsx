@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { renderHook, act } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import type { ReactNode } from "react";
 
 // Cut 6.4 — useUrlState: URL-encoded shareable view state (filter/sort/group),

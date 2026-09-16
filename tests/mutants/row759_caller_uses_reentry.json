@@ -1,0 +1,27 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "Row 759 REFUTE fix (O651): the correctness lens's M7/M8 escaped the first cut -- _do_download could keep the pre-patch outcome (needs_review with the modal open) while every test of _download_from_revealed_modal alone stayed green. The catcher drives the real caller arm and reads the OUTCOME (a download reaches _do_probe_fetch, no needs_review job). Anchors are structural (no value token, no '=') so the row357 anchor gate classifies them STABLE rather than UNKNOWN.",
+ "subject": "_do_download carries the re-entry's download forward instead of discarding it",
+ "band": [
+  "tests/test_row759_modal_trigger_click_reenters.py::TestTheCallerArmActuallyUsesIt::test_the_revealed_download_reaches_the_transfer_path",
+  "tests/test_row759_modal_trigger_click_reenters.py::TestTheCallerArmActuallyUsesIt::test_a_caller_whose_click_opens_nothing_still_files_needs_review"
+ ],
+ "mutants": [
+  {
+   "label": "759-M7 the caller treats every re-entry as no download (the dl guard is short-circuited true)",
+   "file": "bulk_downloader/runner_transport.py",
+   "old": "\n            if dl is",
+   "new": "\n            if True or dl is",
+   "direction": "regression",
+   "catcher": "tests/test_row759_modal_trigger_click_reenters.py::TestTheCallerArmActuallyUsesIt::test_the_revealed_download_reaches_the_transfer_path"
+  },
+  {
+   "label": "759-M8 the call is kept, its result discarded (the re-entry call is and-ed to nothing)",
+   "file": "bulk_downloader/runner_transport.py",
+   "old": "self._download_from_revealed_modal(page, best)",
+   "new": "(self._download_from_revealed_modal(page, best) and None)",
+   "direction": "regression",
+   "catcher": "tests/test_row759_modal_trigger_click_reenters.py::TestTheCallerArmActuallyUsesIt::test_the_revealed_download_reaches_the_transfer_path"
+  }
+ ]
+}

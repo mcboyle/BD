@@ -80,7 +80,11 @@ def test_post_submit_timeout_is_a_distinct_non_success(monkeypatch, tmp_path):
     )
     assert getattr(result[0], "status", None) == "settled-timeout", result
     assert bool(result[0]) is False, result
-    assert calls["settle"] == 1, calls
+    # Merged rows 722s+772 (count-correction, operator ruling 2026-09-16):
+    # row 722s settles once before the post-login interstitial walk and
+    # swallows that timeout; row 772's post-walk settle is the second call
+    # and the one whose timeout is this outcome. Pinned 1 before 722s.
+    assert calls["settle"] == 2, calls
 
 
 def test_ordinary_navigation_without_success_url_still_succeeds(monkeypatch, tmp_path):

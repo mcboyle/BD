@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "This control must ESCAPE: it applies the exact same M1 pop-deletion transform as the primary spec, but the named legacy control only imports the disclosure module and does not exercise acknowledgement consumption. The module still imports, so the control remains green while the primary real-route catcher fails. This separates a behavior-sensitive catcher from a transform or import failure; original and mutated source hashes are paired in the evidence.",
+  "control_spec": true,
+  "subject": "same pop deletion leaves import-only control unchanged",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+  ],
+  "mutants": [
+    {
+      "label": "M1 api_update acknowledgement pop is deleted",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old": "    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)",
+      "new": "    pass",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+    }
+  ]
+}

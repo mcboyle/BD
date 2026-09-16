@@ -80,7 +80,7 @@ test.describe("B-3 — Navigation into SiteDetail", () => {
       .first()
       .click();
     await expect(page).toHaveURL(
-      new RegExp(`/m2/sites/${escapeRegExp(encodeURIComponent(site!.siteId))}$`),
+      new RegExp(`/sites/${escapeRegExp(encodeURIComponent(site!.siteId))}$`),
     );
   });
 
@@ -102,7 +102,7 @@ test.describe("B-3 — Navigation into SiteDetail", () => {
     ).toBeVisible();
     // The in-content back-link to /sites is present.
     await expect(
-      page.getByRole("link", { name: /Back to sites/i }),
+      page.getByRole("main").getByRole("link", { name: /Back to sites/i }),
     ).toBeVisible();
   });
 
@@ -114,7 +114,7 @@ test.describe("B-3 — Navigation into SiteDetail", () => {
     await expect(page.getByRole("alert")).toContainText(/Site not found/i);
     // The recovery link to /sites is visible.
     await expect(
-      page.getByRole("link", { name: /Back to sites/i }),
+      page.getByRole("main").getByRole("link", { name: /Back to sites/i }),
     ).toBeVisible();
   });
 });

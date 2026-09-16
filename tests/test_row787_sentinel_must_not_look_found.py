@@ -64,6 +64,8 @@ _EXPECTED_CALLERS = {
     ("bulk_downloader/runner_extractors.py",
      "ExtractorsMixin._try_deep_detect_fallback"): 1,
     ("bulk_downloader/runner_manual.py", "_ManualDownloadSession._run"): 2,
+    ("bulk_downloader/runner_transport.py",
+     "TransportMixin._download_from_revealed_modal"): 1,
 }
 
 
@@ -257,7 +259,7 @@ def test_the_caller_census_is_derived_from_the_tree_and_exact():
         "find_best_download's caller census moved -- a new, moved or removed "
         "caller must be classified here, not admitted silently:\n  found    "
         f"{sorted(found.items())}\n  expected {sorted(_EXPECTED_CALLERS.items())}")
-    assert len(callers) == sum(_EXPECTED_CALLERS.values()) == 5
+    assert len(callers) == sum(_EXPECTED_CALLERS.values()) == 6
     assert all(r["bound"] == "best" for r in callers), [
         _describe(r) for r in callers if r["bound"] != "best"]
 
@@ -265,7 +267,7 @@ def test_the_caller_census_is_derived_from_the_tree_and_exact():
 # ══ 3. the gate rejects a truthiness-only decision ══════════════════════
 def test_no_caller_decides_on_truthiness_alone():
     callers = [r for _, recs in census_of_tree() for r in recs]
-    assert len(callers) == 5, "census moved; see the census test"
+    assert len(callers) == 6, "census moved; see the census test"
     offenders = [_describe(r) for r in callers if r["decision"] != KEYED]
     assert offenders == [], (
         "%d caller(s) decide what find_best_download returned on truthiness "

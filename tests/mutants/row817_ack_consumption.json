@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "All four regressions must be CAUGHT by their named real-route catchers. M1 deletes acknowledgement consumption, so the observed pop count is zero and the field remains in the request. M2 and M3 alias the temporary acknowledgement input to the persisted configuration in the existing-site and new-site import branches, so the corresponding disk-persistence assertion finds the acknowledgement field. M4 consumes the field twice, so the exact-one-pop assertion fails. Baseline cases preserve successful and refused updates, ordinary requests with no acknowledgement, and both import branches.",
+  "subject": "row817 measured escaped acknowledgement seams and exactly-once consumption",
+  "band": [
+    "tests/test_row817_astra_ack_consumption.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 api_update acknowledgement pop is deleted",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old": "    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)",
+      "new": "    pass",
+      "direction": "regression",
+      "catcher": "tests/test_row817_astra_ack_consumption.py::test_update_consumes_ack_exactly_once_before_success_or_refusal[True]"
+    },
+    {
+      "label": "M2 bulk import existing config aliases acknowledgement scratch",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "(?m)(?<=^                _captcha_gate_input = )dict\\(cfg\\)",
+      "new": "cfg",
+      "direction": "regression",
+      "catcher": "tests/test_row817_astra_ack_consumption.py::test_bulk_import_does_not_persist_temporary_ack[True]"
+    },
+    {
+      "label": "M3 bulk import new config aliases acknowledgement scratch",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "(?m)(?<=^            _captcha_gate_input = )dict\\(cfg\\)",
+      "new": "cfg",
+      "direction": "regression",
+      "catcher": "tests/test_row817_astra_ack_consumption.py::test_bulk_import_does_not_persist_temporary_ack[False]"
+    },
+    {
+      "label": "M4 api_update consumes acknowledgement twice",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old": "    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)",
+      "new": "    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)\n    data.pop(CAPTCHA_EGRESS_ACK_FIELD, None)",
+      "direction": "regression",
+      "catcher": "tests/test_row817_astra_ack_consumption.py::test_update_consumes_ack_exactly_once_before_success_or_refusal[True]"
+    }
+  ]
+}

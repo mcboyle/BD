@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 
-import { LEGACY_WIDGET_IDS } from "@/hooks/useDashboardLayout";
+import { LEGACY_WIDGET_IDS, useDashboardLayout } from "@/hooks/useDashboardLayout";
 import { WIDGETS } from "@/lib/widgetCatalog";
 import { Home } from "./Home";
 
@@ -86,6 +86,26 @@ afterEach(() => {
 });
 
 describe("Home dashboard widget coverage", () => {
+  it("supplies selected widgets' dimensions before their first grid render", () => {
+    const frames: ReturnType<typeof useDashboardLayout>["layouts"][] = [];
+    const { rerender } = renderHook(({ ids }) => {
+      const value = useDashboardLayout(ids);
+      frames.push(value.layouts);
+      return value;
+    }, { initialProps: { ids: [] as string[] } });
+
+    frames.length = 0;
+    rerender({ ids: ["lib_top_studio"] });
+    expect(frames[0].sm?.find((tile) => tile.i === "lib_top_studio"))
+      .toMatchObject({ w: 6, h: 3 });
+    expect(frames[0].lg?.find((tile) => tile.i === "lib_top_studio"))
+      .toMatchObject({ w: 3, h: 3 });
+
+    frames.length = 0;
+    rerender({ ids: [] });
+    expect(frames[0].sm?.some((tile) => tile.i === "lib_top_studio")).toBe(false);
+  });
+
   it("renders all 36 selected catalog widgets and all five legacy widgets", async () => {
     window.localStorage.clear();
     window.localStorage.setItem(

@@ -387,26 +387,26 @@ def api_template_sandbox():
         try:
             import urllib.request
             import urllib.error
-            # F-APP03-01: re-validate every redirect hop. urllib follows
-            # redirects by default, so a public host that 302s to an internal
-            # one would otherwise bypass the pre-fetch guard above. This opener
-            # re-checks each Location against the same canonical predicate and
-            # refuses if a hop resolves to a non-public address.
-            class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
-                def redirect_request(self, req, fp, code, msg,
-                                     headers, newurl):
-                    _ok, _why = _is_safe_public_host(
-                        _urlparse(newurl).hostname or "")
-                    # Same structured loopback exemption as the pre-fetch guard.
-                    if not _ok and _why.code is not _HostSafetyReason.LOOPBACK:
-                        raise urllib.error.URLError(
-                            f"SSRF redirect blocked: {_why}")
-                    return super().redirect_request(
-                        req, fp, code, msg, headers, newurl)
-            _opener = urllib.request.build_opener(_GuardedRedirect)
+            # Row 728: this is the only resolution for every HTTP hop.  It
+            # classifies all answers and opens the vetted literal, so a name
+            # cannot rebind between the guard and urllib's socket connect.
+            from .urllib_ssrf import PinnedUrlOpener
+
+            def _template_address_allowed(address, host):
+                _ok, _why = _host_safety._classify_ip(address, host)
+                return (_ok or _why.code is _HostSafetyReason.LOOPBACK), _why
+
+            _opener = PinnedUrlOpener(_template_address_allowed)
             req = urllib.request.Request(
                 url, headers={"User-Agent":
                     "Mozilla/5.0 BD-template-sandbox"})
+            try:
+                # Pin before entering the fetch handler so a refusal preserves
+                # this endpoint's existing 400 URL-host contract.
+                req = _opener.pin_request(req)
+            except Exception as e:
+                return jsonify({"ok": False,
+                                "error": f"url host not allowed: {e}"}), 400
             with _opener.open(req, timeout=20) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 html_bytes = resp.read(4 * 1024 * 1024)

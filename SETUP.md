@@ -7,6 +7,9 @@ repo. Geared at future-you on a new laptop, not strangers.
 
 ## Linux / macOS
 
+Supported Linux installer, service and fleet entry points and their required
+local sources are documented in [Linux installation source coverage](docs/repo/LINUX_INSTALL_SOURCES.md).
+
 ```bash
 git clone <your-private-repo-url> bulk-downloader
 cd bulk-downloader

@@ -30,24 +30,24 @@ _INTERNAL_URLS = (
 
 
 def test_fetch_manifest_text_refuses_internal_host_before_fetch():
-    """The SSRF core: for a non-public host, urlopen must NOT be reached and the
-    helper must return (False, <reason mentioning host>). A public literal IP
-    must still reach the fetch layer (proves we did not over-block)."""
-    orig = _u.urlopen
+    """The SSRF core: a non-public host cannot reach the pinned opener, while a
+    public literal can.  Row 728 owns urllib dispatch through that opener."""
+    from bulk_downloader.urllib_ssrf import PinnedUrlOpener
+    orig = PinnedUrlOpener.open
     calls = {"n": 0}
 
     def _spy(*a, **k):
         calls["n"] += 1
-        raise RuntimeError("sentinel: urlopen reached")
+        raise RuntimeError("sentinel: pinned opener reached")
 
-    _u.urlopen = _spy
+    PinnedUrlOpener.open = _spy
     try:
         for url in _INTERNAL_URLS:
             calls["n"] = 0
             ok, msg = capture_diag._fetch_manifest_text(url)
             assert ok is False, f"internal host must be refused: {url}"
             assert calls["n"] == 0, (
-                f"SSRF: urlopen must NOT be reached for internal host {url}; "
+                f"SSRF: opener must NOT be reached for internal host {url}; "
                 f"it was called {calls['n']}x"
             )
             assert "host" in msg.lower(), (
@@ -57,11 +57,11 @@ def test_fetch_manifest_text_refuses_internal_host_before_fetch():
         calls["n"] = 0
         ok, msg = capture_diag._fetch_manifest_text("http://1.1.1.1/x.m3u8")
         assert calls["n"] == 1, (
-            "a public host must still reach the fetch layer (no over-block); "
-            f"urlopen was called {calls['n']}x"
-        )
+                "a public host must still reach the fetch layer (no over-block); "
+                f"opener was called {calls['n']}x"
+            )
     finally:
-        _u.urlopen = orig
+        PinnedUrlOpener.open = orig
 
 
 def test_manifest_probe_route_contract_refuses_internal_host():

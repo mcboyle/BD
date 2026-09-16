@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G25a/G25b: an invalid config selector is rejected at PUT and, if it reaches a worker, is needs_review with the full selector, never a Retry N/2 transient. Re-run with toolchain/bin/bd-mutate --spec tests/mutants/row722_invalid_selector_config.json --work DETACHED_SCRATCH.",
+  "subject": "invalid selector config is terminal, not retried",
+  "band": [
+    "tests/test_row722_invalid_selector_config_is_terminal.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 PUT selector validation dropped",
+      "file": "bulk_downloader/app_sites_id_core.py",
+      "old_regex": "    if _sel_errs:\\n        _f = sorted\\(_sel_errs\\)\\[0\\]",
+      "new": "    if False:\n        _f = sorted(_sel_errs)[0]",
+      "direction": "regression",
+      "catcher": "tests/test_row722_invalid_selector_config_is_terminal.py::test_put_invalid_dl_selector_is_400_with_field_and_reason_and_not_persisted"
+    },
+    {
+      "label": "M2 selector SyntaxError retried again",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "        if bad_sel:\\n            field, full, err = bad_sel",
+      "new": "        if False:\n            field, full, err = bad_sel",
+      "direction": "regression",
+      "catcher": "tests/test_row722_invalid_selector_config_is_terminal.py::test_selector_syntax_error_from_config_is_needs_review_with_full_selector"
+    }
+  ]
+}

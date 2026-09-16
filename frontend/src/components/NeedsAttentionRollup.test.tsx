@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 
 // Cut 6.5 — Needs-attention Home rollup. Aggregates EXISTING counts (failed
 // runs, review backlog, expired cookies, drift) into linked rows; review -> Cockpit.

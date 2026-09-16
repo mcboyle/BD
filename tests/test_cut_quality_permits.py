@@ -2480,3 +2480,73 @@ def test_the_census_detector_sees_an_unauthorized_driver(tmp_path: Path):
     honoured = _classify_drivers({audited: _entry(
         stripped + "\n_m._main_inner = None\n")})
     assert honoured["audited"] == {audited: "stubs-the-boundary-host"}, honoured
+
+
+@pytest.mark.parametrize("change", [False, True])
+def test_row819_ignored_runtime_input_rechecked_after_replay(repo, tmp_path, monkeypatch, change):
+    name = "changed-during-validator.txt"
+    (repo / ".gitignore").write_text(name + "\n")
+    runtime = repo / name
+    runtime.write_text("one\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-qm", "ignore runtime")
+    module, module_path, receipt, value, validator, matrix, policy = _full_consumer_fixture(repo, tmp_path)
+    expected = _sha_bytes(runtime.read_bytes())
+    _inner(value)["payload"]["runtime_inputs"] = [{"path": name, "sha256": expected}]
+    _resync_full_fixture(value, matrix, policy)
+    mv = json.loads(matrix.read_text())
+    mv["mutate_repo"] = change
+    matrix.write_text(json.dumps(mv))
+    value["provenance"]["matrix"]["sha256"] = _sha_bytes(matrix.read_bytes())
+    _refresh(value)
+    receipt.write_text(json.dumps(value))
+    monkeypatch.setenv("BD_CUT_QUALITY_VALIDATOR", str(validator))
+    assert _git(repo, "status", "--porcelain") == ""
+    assert _sha_bytes(runtime.read_bytes()) == expected
+    failure = None
+    try:
+        result = module.validate_permit(repo, receipt, "pre-floor", policy_path=policy,
+                                       consumer_path=module_path, now=1_800_000_000)
+    except module.PermitRefusal as exc:
+        failure = exc.code
+    assert (_sha_bytes(runtime.read_bytes()) != expected) is change
+    assert _git(repo, "status", "--porcelain") == ""
+    if change:
+        assert failure == "CQ-RUNTIME-INPUT-STALE", f"changed ignored runtime input authorized: {failure=}"
+    else:
+        assert failure is None and result["receipt_id"] == value["receipt_id"]
+
+@pytest.mark.parametrize("use_zip", [False, True])
+def test_row819_zip_cannot_replace_the_authorized_execution_subject(repo, tmp_path, monkeypatch, use_zip):
+    import zipfile
+    module, module_path, receipt, value, validator, matrix, policy = _full_consumer_fixture(repo, tmp_path)
+    receipt.write_text(json.dumps(value))
+    monkeypatch.setenv("BD_CUT_QUALITY_VALIDATOR", str(validator))
+    band = _load_script("bd-band")
+    permitted, actions = [], []
+    def enforce(work, path, stage, **kw):
+        module.validate_permit(work, path, stage, policy_path=policy,
+                               consumer_path=module_path, now=1_800_000_000)
+        permitted.append(Path(work).resolve())
+        return True
+    def launch(argv, **kw):
+        cwd = Path(kw["cwd"]).resolve()
+        actions.append(cwd)
+        return subprocess.CompletedProcess(argv, 0, "1 passed\n", "")
+    monkeypatch.setattr(band.cut_quality, "enforce", enforce)
+    monkeypatch.setattr(band.sec, "resolve_test_interpreter", lambda work: sys.executable)
+    monkeypatch.setattr(band, "run", launch)
+    argv = ["tests/test_tiny.py", "--skip-bandcheck", "--work", str(repo), "--cut-quality-permit", str(receipt)]
+    if use_zip:
+        archive = tmp_path / "different.zip"
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("tests/test_tiny.py", "def test_unreviewed(): assert True\n")
+        argv += ["--from-zip", str(archive)]
+        with zipfile.ZipFile(archive) as z:
+            assert z.read("tests/test_tiny.py") != (repo / "tests/test_tiny.py").read_bytes()
+    rc = band.main(argv)
+    assert permitted == [repo.resolve()], "the valid permit control was not exercised"
+    if use_zip:
+        assert rc == 2 and actions == [], f"unauthorized ZIP reached action: {rc=}, {actions=}"
+    else:
+        assert rc == 0 and actions == permitted

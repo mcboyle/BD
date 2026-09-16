@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G9 (kink.com/shoot/108452 06:1xZ): a Bootstrap dropdown toggle with hidden quality anchors ended in the modal-trigger hint. M1 stops the runner consulting the dropdown helper for a score-0 winner; M2 stops the helper opening the menu.",
+  "subject": "bulk_downloader/runner_transport.py",
+  "band": ["tests/test_row722_dropdown_download_affordance.py"],
+  "mutants": [
+    {
+      "label": "M1 runner never consults the dropdown helper",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "if not direct_url and best\\.get\\(\"score\", 0\\) == 0:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_dropdown_download_affordance.py::test_runner_seam_consults_the_helper_when_score_is_0"
+    },
+    {
+      "label": "M2 helper never opens the menu",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "toggle\\.click\\(timeout=5000\\)",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_row722_dropdown_download_affordance.py::test_the_runner_opens_the_dropdown_and_picks_4k"
+    }
+  ]
+}

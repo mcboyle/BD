@@ -1149,6 +1149,193 @@ class ExtractorsMixin:
             url=url,
         )
         return True
+    def _try_spa_api_media_extractor(self, url: str, page) -> bool:
+        """Row 722 (G5): API/media extraction fallback for SPA scene pages.
+
+        Consulted by runner.py ONLY after ``find_best_download`` (and the
+        deep-detect rescue) returned nothing.  Reads what the page itself
+        already fetched -- the same-site ``/api/`` JSON remembered by
+        ``ApiCapture`` (installed with the page's event listeners) and the
+        media the page requested / bound to ``<video>``/``<source>`` --
+        walks it for download-like options, ranks by resolution then size,
+        resolves a filename-only option through the page's own session, and
+        hands the best URL to the existing direct-download path.
+
+        Returns True when it took over and finished the transfer; False on
+        any miss so the caller's "No download button found" handling runs.
+        """
+        try:
+            from . import spa_media_extract as _spa
+        except Exception as e:
+            sys.stderr.write(f"  spa-api: import failed ({type(e).__name__}); skipped\n")
+            return False
+        capture = getattr(self, "_spa_api_capture", None)
+        records = []
+        if capture is not None:
+            try:
+                records = capture.records()
+            except Exception as e:
+                sys.stderr.write(f"  spa-api: reading captured API records raised {type(e).__name__}\n")
+        page_media = []
+        try:
+            page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
+        except Exception:
+            page_media = []
+        try:
+            page_url = page.url or url
+        except Exception:
+            page_url = url
+        cands = _spa.api_candidates(page_url, records)
+        cands += _spa.page_media_candidates(page_url, page_media)
+        if not cands:
+            sys.stderr.write(
+                f"  spa-api: no download-like options in {len(records)} captured "
+                f"API record(s) and {len(page_media)} page media URL(s)\n")
+            return False
+        ranked = _spa.rank_candidates(cands)
+        headers_by_record = {r["url"]: r.get("headers") or {} for r in records}
+        chosen = None
+        for cand in ranked[:6]:
+            rec_headers = {}
+            ru = cand.get("resolve_url") or ""
+            for rurl, h in headers_by_record.items():
+                if ru.startswith(rurl.split("?", 1)[0].rstrip("/")):
+                    rec_headers = h; break
+            file_url = _spa.resolve_candidate_url(page, cand, rec_headers)
+            if file_url and file_url.startswith(("http://", "https://")):
+                chosen = cand; break
+        if chosen is None:
+            sys.stderr.write("  spa-api: no candidate resolved to a fetchable URL\n")
+            return False
+        file_url = chosen["url"]
+        height = int(chosen.get("height") or 0)
+        summary = " | ".join(
+            f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
+            for c in ranked[:6])
+        self.log_event("spa_api_candidate",
+                       f"chose {height}p from {chosen.get('source')}; saw: {summary}",
+                       url=url)
+
+        dl_dir_str = (self.config.get("download_dir") or "").strip()
+        if not dl_dir_str:
+            try:
+                import importlib
+                dl_dir_str = str(getattr(importlib.import_module(
+                    "bulk_downloader.app"), "_oi_default_download_dir")() or "").strip()
+            except Exception:
+                dl_dir_str = ""
+        if not dl_dir_str:
+            sys.stderr.write("  spa-api: no download_dir configured\n")
+            return False
+        try:
+            os.makedirs(dl_dir_str, exist_ok=True)
+        except Exception as e:
+            sys.stderr.write(f"  spa-api: mkdir failed: {e}\n")
+            return False
+
+        is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
+        ext = ".mp4"
+        fname = chosen.get("filename") or ""
+        if not fname:
+            try:
+                from urllib.parse import urlparse as _up
+                fname = (_up(file_url).path.rsplit("/", 1)[-1] or "")
+            except Exception:
+                fname = ""
+        stem = os.path.splitext(fname)[0] if fname else ""
+        title_root = stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+        if fname and os.path.splitext(fname)[1].lower() in (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".wmv"):
+            ext = os.path.splitext(fname)[1].lower()
+        now = datetime.now()
+        ctx_vars = {
+            "site": self.config.get("name", "site"),
+            "title": title_root, "filename": title_root, "stem": title_root,
+            "ext": ext,
+            "resolution": f"{height}p" if height else "",
+            "quality": f"{height}p" if height else "",
+            "date": now.strftime("%Y-%m-%d"), "time": now.strftime("%H-%M-%S"),
+            "datetime": now.strftime("%Y-%m-%d_%H-%M-%S"),
+            "performer": "", "artist": "",
+            "studio": self.config.get("name", ""), "year": now.strftime("%Y"),
+            "upload_date": "", "duration": "", "extractor": "spa-api",
+        }
+        tpl = (self.config.get("filename_template", "") or "{filename}{ext}").strip()
+        rendered = resolve_filename_template(tpl, ctx_vars)
+        if not rendered:
+            rendered = title_root + ext
+        elif not os.path.splitext(rendered)[1]:
+            rendered = rendered + ext
+        output_path, output_filename = _dest_in_dir(dl_dir_str, rendered)
+        try:
+            os.makedirs(os.path.dirname(output_path) or dl_dir_str, exist_ok=True)
+        except Exception:
+            pass
+
+        self._update_job(url, "running",
+                         f"API/media: downloading {height}p ({chosen.get('source')})...")
+        transfer_mode = None
+        if is_hls:
+            transfer_mode = "segmented"
+            try:
+                from . import hls_downloader as _hls
+            except ImportError:
+                sys.stderr.write("  spa-api: hls_downloader unavailable\n")
+                return False
+            if not _hls.is_available():
+                sys.stderr.write("  spa-api: ffmpeg not on PATH\n")
+                return False
+            ua = self.config.get("user_agent", "") or (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            dl_result = self._hls_download_guarded(
+                _hls, file_url, output_path, user_agent=ua, referer=url,
+                progress_callback=lambda p: self._update_job(
+                    url, "running", f"API/media HLS • {fmt_bytes(p.get('bytes', 0))}"),
+                cancel_check=lambda: self._stop.is_set())
+            if not dl_result.ok:
+                self.log_event("spa_api_hls_failed", f"hls failed: {dl_result.error}", url=url)
+                try:
+                    if os.path.exists(output_path):
+                        os.remove(output_path)
+                except Exception:
+                    pass
+                return False
+            downloaded_size = dl_result.bytes_written
+        else:
+            transfer_mode = "http"
+            ok = self._do_direct_http_download(
+                page_url=url, file_url=file_url, output_path=output_path, referer=url)
+            if not ok:
+                self.log_event("spa_api_mp4_failed", "direct http failed", url=url)
+                return False
+            try:
+                downloaded_size = os.path.getsize(output_path)
+            except OSError:
+                downloaded_size = 0
+
+        file_size_on_disk = self._size_on_disk_after_tagging(output_path, downloaded_size)
+        self._update_job(url, "done",
+                         f"API/media {height}p ({fmt_bytes(downloaded_size)})",
+                         filename=output_filename, file_size=file_size_on_disk)
+        # Row 722 (tiny4k live: HISTORY-TITLE-EMPTY): this path never passes
+        # the transport boundary that harvests the page title, so harvest it
+        # here, idempotently, before the history row is written.
+        capture_title = getattr(self, "_capture_website_title", None)
+        if callable(capture_title):
+            try:
+                capture_title(page, url)
+            except Exception:
+                pass
+        db_log(self.site_id, self.config.get("name", "?"), url, "done",
+               output_filename, file_size_on_disk,
+               f"spa-api source={chosen.get('source')} tier={height} "
+               f"avail={[c.get('height') for c in ranked[:6]]}",
+               bytes_fetched=downloaded_size, transfer_mode=transfer_mode,
+               file_path=output_path, **history_title_kwargs(self, url))
+        self.log_event("spa_api_done",
+                       f"{height}p via {chosen.get('source')} (saw: {summary})", url=url)
+        return True
+
     def _try_vixen_extractor(self, url: str, page) -> bool:
         """v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
         download.

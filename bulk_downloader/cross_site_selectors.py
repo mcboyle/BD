@@ -64,6 +64,8 @@ import tempfile
 from typing import Optional, List, Dict
 from urllib.parse import urlparse
 
+from .log import site_tag
+
 
 # ── Tunables ────────────────────────────────────────────────────────
 STORE_VERSION = 1
@@ -471,9 +473,9 @@ def sync_and_augment(config: dict, chains: Dict[str, List[str]], *,
             out.setdefault(role, chains.get(role, []))
         if verbose and total_added:
             sys.stderr.write(
-                f"  login: cross-site reuse added {total_added} selector(s) "
+                f"  {site_tag()}login: cross-site reuse added {total_added} selector(s) "
                 f"(sig={sig})\n")
         return out
     except Exception as e:  # pragma: no cover - defensive
-        sys.stderr.write(f"  login: cross-site reuse skipped ({e})\n")
+        sys.stderr.write(f"  {site_tag()}login: cross-site reuse skipped ({e})\n")
         return chains

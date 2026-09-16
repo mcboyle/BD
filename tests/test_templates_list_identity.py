@@ -39,13 +39,15 @@ def test_templates_list_identity_holds():
     assert rc == 0, "TEMPLATES list-identity drift (see tool output)"
 
 
-def test_templates_count_is_95():
+def test_templates_count_is_99():
     # 91 -> 95: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
+    # 95 -> 99: row 722 (2026-09-15): four verified single-site templates added at the END of their slices (filthykings, dfxtra, brazzers in studios_a; stepsiblingscaught in studios_b); the other 12 verified sites updated existing ids in place.
     # Updated by RECOMPUTING the population, never by loosening the pin to an
     # inequality -- the pin exists to make an unannounced change visible.
     tool = _load_tool()
     manifest = tool.compute_manifest()
-    assert manifest["count"] == 95, f"expected 95 elements, got {manifest['count']}"
+    # 99 -> 102: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added at the END of studios_b; five other verified sheet sites updated existing ids in place.
+    assert manifest["count"] == 102, f"expected 102 elements, got {manifest['count']}"
 
 
 def test_templates_shim_reexports_surface():

@@ -138,6 +138,14 @@ class TelemetryMixin:
                 "js_error", str(exc)[:300], url=url))
         except Exception:
             pass
+        # Row 722 (G5): remember the same-site /api/ JSON the page fetches so
+        # the API/media fallback can read it if the DOM yields no download.
+        # References only (bodies read lazily, bounded) -- always on.
+        try:
+            from .spa_media_extract import ApiCapture
+            self._spa_api_capture = ApiCapture(url).install(page)
+        except Exception:
+            self._spa_api_capture = None
         # Network request log (optional, controlled by per-site config).
         # Off by default because it can be very chatty; users opt in for
         # specific sites where direct extraction is failing.
@@ -390,6 +398,44 @@ class TelemetryMixin:
                                  "connection","eof","timed out")):
             return "network"
         return "transient"
+    _SELECTOR_SYNTAX_MARKERS = ("querySelectorAll", "querySelector",
+                                "is not a valid selector",
+                                "while parsing selector", "Malformed selector",
+                                "Unexpected token")
+
+    def _config_selector_syntax_error(self, exc):
+        """Row 722 (G25b): classify a worker exception as an invalid CONFIG
+        selector. Returns ``(field, full_selector, error_text)`` when ``exc`` is
+        a DOM/Playwright selector SyntaxError whose selector is one the
+        operator configured (dl_selector / trigger_selector / a
+        dismiss_selectors line), else ``None``. A config error is not
+        transient: retrying it in 10m/1h cannot succeed, and the retry message
+        truncated the selector so it could not be recovered from the app."""
+        text = str(exc or "")
+        if "SyntaxError" not in text and not isinstance(exc, SyntaxError):
+            return None
+        if not any(m in text for m in self._SELECTOR_SYNTAX_MARKERS):
+            return None
+        cfg = self.config if isinstance(getattr(self, "config", None), dict) else {}
+        candidates = []
+        for field in ("dl_selector", "trigger_selector"):
+            v = cfg.get(field)
+            if isinstance(v, str) and v.strip():
+                candidates.append((field, v.strip()))
+        raw = cfg.get("dismiss_selectors")
+        if isinstance(raw, str):
+            for line in raw.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    candidates.append(("dismiss_selectors", line))
+        for field, sel in candidates:
+            # Chromium quotes the full selector; Playwright's own parser may
+            # quote only a prefix. Match on the whole value or its first 24 chars.
+            if sel in text or (len(sel) >= 8 and sel[:24] in text):
+                err = text.replace("\n", " ").strip()
+                return field, sel, err
+        return None
+
     def _handle_failure(self,url,message,screenshot="",_run_generation=None):
         """Fence all worker failure side effects within one run transaction."""
         generation_resolver = getattr(self, "_worker_write_generation", None)
@@ -427,7 +473,18 @@ class TelemetryMixin:
         ([permanent], [rate_limit], etc.) is added to the message so users
         can see at a glance why a URL is failing — and for permanent
         errors, that auto-retry won't help."""
-        with self._lock: job=self.jobs.get(url,{}); retries=job.get("retries",0)
+        with self._lock:
+            job=self.jobs.get(url); retries=(job or {}).get("retries",0)
+        if job is None:
+            # Row 722 (G26): the operator deleted this job while its attempt
+            # was in flight. Publishing the failure would auto-create the row
+            # again ("pending: Retry N/2 in 1h") and the URL re-added next would
+            # inherit that backoff and never be claimed. A deleted job has no
+            # retry ladder to advance.
+            sys.stderr.write(
+                f"[{self.site_id}] failure for deleted job dropped: "
+                f"{url} — {str(message)[:120]}\n")
+            return False
         max_ret=int(self.config.get("max_retries",2))
         # Phase 6.3: pick delay schedule based on error category
         kind=self._classify_error(message)

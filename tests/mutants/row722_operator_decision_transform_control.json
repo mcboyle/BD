@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 transform control. It applies the same structural shared-egress transform as the behavior mutant but runs only the import-only gate node, which must ESCAPE. The value-free regex matches only the field name.",
+  "subject": "transform control for the row 722 operator-decision Markdown mutation",
+  "band": [
+    "tests/test_row722_operator_decision.py::test_transform_control_imports_gate_without_judging_decisions"
+  ],
+  "mutants": [
+    {
+      "label": "M1 identical shared-egress field transform with an import-only catcher",
+      "file": "project-knowledge/FLEET_EGRESS_DECISIONS.md",
+      "new": "Disposition",
+      "direction": "regression",
+      "catcher": "tests/test_row722_operator_decision.py::test_transform_control_imports_gate_without_judging_decisions",
+      "old_regex": "(?s)(?<=### Distinct per-host egress\\n\\n)Decision(?=:)"
+    }
+  ]
+}

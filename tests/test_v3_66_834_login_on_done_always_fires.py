@@ -309,7 +309,7 @@ def test_on_done_fires_when_a_login_is_already_in_flight():
     gate = threading.Event()
     entered = threading.Event()
 
-    def _slow(config, allow_manual_takeover=True):
+    def _slow(config, allow_manual_takeover=True, **_kw):
         entered.set()
         gate.wait(30)
         return (True, "logged in", _fresh_cookie())
@@ -450,7 +450,7 @@ def test_in_flight_watcher_reports_the_login_result_not_a_shared_timestamp():
     gate = threading.Event()
     entered = threading.Event()
 
-    def _failing(config, allow_manual_takeover=True):
+    def _failing(config, allow_manual_takeover=True, **_kw):
         entered.set()
         gate.wait(30)
         return (False, "bad credentials", [])

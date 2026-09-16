@@ -299,7 +299,7 @@ def test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note(monkeypatch
     _no_accounting(monkeypatch)
     seen = []
 
-    def fixture_do_login(config, allow_manual_takeover=False):
+    def fixture_do_login(config, allow_manual_takeover=False, **_kw):
         owner = getattr(cloak, "ledger_site_id", lambda c: "")(config)
         seen.append(owner)
         cloak.note_channel_fallback(site_id=owner, flow="login", channel="chrome",
@@ -440,7 +440,7 @@ def test_row723_a_templated_login_failure_still_falls_back_to_the_manual_window(
     _no_accounting(monkeypatch)
     monkeypatch.setattr(runner_auth, "session_event_record", lambda *a, **k: None)
     monkeypatch.setattr(runner_auth, "do_login",
-                        lambda config, allow_manual_takeover=False: (False, "template stale", []))
+                        lambda config, allow_manual_takeover=False, **_kw: (False, "template stale", []))
     seen = []
     _recording_manual_open(monkeypatch, seen)
     r = _auth_runner()
@@ -464,7 +464,7 @@ def test_row723_an_expired_cookie_relogin_goes_through_the_owned_login(monkeypat
     _no_accounting(monkeypatch)
     seen = []
 
-    def fixture_do_login(config, allow_manual_takeover=False):
+    def fixture_do_login(config, allow_manual_takeover=False, **_kw):
         seen.append(cloak.ledger_site_id(config))
         return True, "fixture ok", []
     monkeypatch.setattr(runner_auth, "do_login", fixture_do_login)

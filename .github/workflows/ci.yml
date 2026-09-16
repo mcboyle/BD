@@ -436,6 +436,7 @@ jobs:
               tests/test_v3_66_653_dep_freshness.py
               tests/test_row331_guarded_imports_are_declared.py
               tests/test_route_index_in_sync.py
+              tests/test_row648_react_router_7_migration.py
           # @1072 adds four suites here, and the last of them is THE GATE THAT
           # GUARDS THIS MATRIX. Until now it ran nowhere: it was created at
           # f736748, the same commit that deleted the `gates` job's pytest step,
@@ -500,6 +501,7 @@ jobs:
               tests/test_row719_scene_classifier_underselects.py
               tests/test_row787_sentinel_must_not_look_found.py
               tests/test_row741_relogin_refusals_are_typed.py
+              tests/test_row769_login_logs_carry_the_site_id.py
               tests/test_keepalive_default_off.py
               tests/test_row731_signed_url_branch_uses_pair_predicate.py
               tests/test_row732_site_editor_redaction_descends.py
@@ -554,8 +556,13 @@ jobs:
           - name: download-chain
             suites: >-
               tests/test_row386_the_download_chain_is_gated.py
+              tests/test_row657_astra_bucket_progress.py
               tests/test_row775_turnstile_one_click_affordance.py
+              tests/test_row761_listing_facet_is_not_a_download_candidate.py
+              tests/test_row761b_deep.py
+              tests/test_row761_astra_acceptance.py
               tests/test_row701_quality_scan_scopes_to_the_requested_scene.py
+              tests/test_row759_modal_trigger_click_reenters.py
           # Row 778. Page-native extractors return before the ordinary
           # transport boundary, so their completion history must receive the
           # settled document title through _process_one.
@@ -610,12 +617,22 @@ jobs:
               tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
               tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
               tests/test_u45_capture_sh_shipped.py
+          # Row 728 (T3 security). The literal-pin behaviour -- resolve once,
+          # connect to the vetted address with Host/SNI kept -- is asserted
+          # only by test_row728_pinned_urllib.py, a module-scoped gate, so
+          # without an entry here a rebind between check and open would be
+          # caught by nothing in CI; the marker is repo-wide so the 939 gate
+          # derives it and this entry is required, not optional.
+          - name: ssrf-pinned-urllib
+            suites: >-
+              tests/test_row728_pinned_urllib.py
           # Row 340. The production deploy harness drives real git and the
           # complete step-12 health boundary. It is isolated because the suite
           # constructs a fresh origin/clone per case and would otherwise make
           # an existing shard's runtime depend on deploy coverage.
           - name: deploy-readiness
             suites: >-
+              tests/test_install_source_coverage.py
               tests/test_deploy_script.py
               tests/test_row697_deploy_unlock_pending_vault.py
               tests/test_row737_unreadable_hook_diagnostics.py
@@ -662,6 +679,7 @@ jobs:
               tests/test_row089_capture_corpus_backup_restore.py
               tests/test_row090_global_run_cap.py
               tests/test_row700_captcha_egress_disclosure.py
+              tests/test_row817_astra_ack_consumption.py
               tests/test_row704_listing_routes_are_not_scenes.py
           - name: jobs-determinism
             suites: >-
@@ -807,6 +825,8 @@ jobs:
               tests/test_row688_gitignore_covers_sqlite_companions.py
               tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
               tests/test_row738_login_cap_single_process_premise.py
+              tests/test_row722_operator_decision.py
+              tests/test_row722_site_templates_verified.py
           # Row 259. These five gates derive safety populations from live_tests,
           # tools and product source. They were all frozen-baseline legacy and
           # therefore absent from every PR shard even though each gate worked.

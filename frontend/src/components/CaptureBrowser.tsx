@@ -10,7 +10,7 @@
 //   GET  /api/captures        — cached inventory, paginated + filterable
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";

@@ -88,7 +88,8 @@ def test_precondition_the_partition_accounts_for_the_whole_shared_pattern():
     word_half, shape_half = _non_video_partition(NON_VIDEO_RE.pattern)
     assert word_half is not None and shape_half, (word_half, shape_half)
     assert len(word_half) == 1, word_half
-    assert len(shape_half) == 6, shape_half
+    assert len(shape_half) == 7, shape_half
+    assert r"/refinementlist(?:\[|%5b)" in shape_half, shape_half
     assert word_half[0].startswith(r"\b") and word_half[0].endswith(r"\b")
     assert all(not alt.startswith(r"\b") for alt in shape_half), shape_half
 

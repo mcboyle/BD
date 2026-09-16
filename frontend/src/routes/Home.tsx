@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Check, CheckCircle2, GripVertical, ListPlus, Plus, RotateCcw, Settings2, Wand2 } from "lucide-react";
 import { Responsive, WidthProvider, type Layouts } from "react-grid-layout";
 

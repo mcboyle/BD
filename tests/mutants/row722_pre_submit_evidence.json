@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 (operator 08:3xZ): the filled form is reviewed before a 2nd submit. M1 drops the pre-submit capture from do_login; M2 makes the capture silently keep nothing.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_pre_submit_evidence.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 do_login keeps no pre-submit screenshot",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "_pre=keep_pre_submit_screenshot\\(page, config\\)",
+      "new": "_pre=None",
+      "direction": "regression",
+      "catcher": "tests/test_row722_pre_submit_evidence.py::test_the_capture_runs_inside_do_login_before_the_submit_sweep"
+    },
+    {
+      "label": "M2 capture writes nothing",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "page\\.screenshot\\(path=str\\(path\\)\\)\\n        finally:",
+      "new": "pass\n        finally:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_pre_submit_evidence.py::test_the_filled_form_is_kept_as_a_png_before_the_submit"
+    },
+    {
+      "label": "M3 username unmasked in the pre-submit shot",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "page\\.evaluate\\(_MASK_TEXT_INPUTS_JS, True\\)",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_row722_pre_submit_evidence.py::test_the_username_is_masked_for_the_shot_and_restored_after"
+    }
+  ]
+}

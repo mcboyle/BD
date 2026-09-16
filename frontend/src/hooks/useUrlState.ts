@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 // Cut 6.4 — URL-encoded shareable view state. A single filter/sort/group key is
 // mirrored into the query string so a view is bookmarkable and replayable.

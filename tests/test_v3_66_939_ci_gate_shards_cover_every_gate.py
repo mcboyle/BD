@@ -141,10 +141,17 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM footgun-ci-link artifacts-pins tests/test_footgun_detectors_are_executed_by_ci.py
 # CI-SHARD-CLAIM row-240 parity-graph tests/test_v3_66_1240_supervisor_settings_seeded.py
 # CI-SHARD-CLAIM row-386 download-chain tests/test_row386_the_download_chain_is_gated.py
+# CI-SHARD-CLAIM row-761 download-chain tests/test_row761_listing_facet_is_not_a_download_candidate.py
+# CI-SHARD-CLAIM row-761b download-chain tests/test_row761b_deep.py
+# CI-SHARD-CLAIM row-761 download-chain tests/test_row761_astra_acceptance.py
 # CI-SHARD-CLAIM backlog-27 mutation-verifiers tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
 # CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
 # CI-SHARD-CLAIM row-1035 parity-static tests/test_v3_66_653_dep_freshness.py
 # CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
+# Row 648. The react-router 7 migration gate: declared range, lock, zero
+# react-router-dom specifiers under frontend/src, and no dependabot MAJOR
+# ignore. Static (no node), so it rides parity-static beside dep_freshness.
+# CI-SHARD-CLAIM row-648 parity-static tests/test_row648_react_router_7_migration.py
 # CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
 # CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
 # CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
@@ -152,6 +159,7 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
 # CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
 # CI-SHARD-CLAIM row-717 tree-gates-5 tests/test_row717_fresh_host_documents_cut_quality.py
+# CI-SHARD-CLAIM row-817 recovered-contracts tests/test_row817_astra_ack_consumption.py
 #
 # One retired gate's WHY is kept because a test pins the prose: @1215 judges
 # two PRODUCTION toolchain scripts -- bd-wedge-hunt's remote transport and

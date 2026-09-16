@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722s live (hustlerunlimited 2026-09-15, HIGH): a GET login form put the credentials in the URL that reached login_status, the journal and an evidence filename. M1 lets the requestSubmit fallback submit a GET form; M2 stops scrubbing query values in log_url. (the form.submit fallback guard is unreachable for a GET form: the requestSubmit guard returns first, so it carries no mutant.)",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722s_login_form_is_never_submitted_by_get.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 requestSubmit fallback submits a GET password form (JS guard disabled)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if \\(hasPassword && method\\.toLowerCase\\(\\) !== 'post'\\) \\{\\n                    return \\{submitted: false, method, hasPassword,\\n                            reason: 'refused password form without POST'\\};\\n                \\}\\n                if \\(typeof f\\.requestSubmit",
+      "new": "if (false) {\n                    return {submitted: false, method, hasPassword,\n                            reason: 'refused password form without POST'};\n                }\n                if (typeof f.requestSubmit",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_login_form_is_never_submitted_by_get.py::test_the_js_fallbacks_refuse_a_get_form_so_the_password_never_enters_the_url"
+    },
+    {
+      "label": "M2 log_url keeps query values",
+      "file": "bulk_downloader/login_impl/_common.py",
+      "old_regex": "q = \"&\"\\.join\\(f\"\\{k\\}=<scrubbed>\" for k in keys\\)",
+      "new": "q = p.query",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_login_form_is_never_submitted_by_get.py::test_a_diagnostic_url_keeps_keys_and_scrubs_every_value"
+    },
+    {
+      "label": "M3 the GET refusal is not terminal (sweep continues into Enter methods)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "            if info == GET_FORM_REFUSED and label == \"JS form\\.submit\":\\n",
+      "new": "            if False:\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_login_form_is_never_submitted_by_get.py::test_the_js_fallbacks_refuse_a_get_form_so_the_password_never_enters_the_url"
+    }
+  ]
+}

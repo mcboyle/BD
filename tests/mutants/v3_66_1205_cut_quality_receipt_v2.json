@@ -97,7 +97,7 @@
       "preserves": [
         "tests/test_cut_quality_permits.py::test_combined_issuer_wraps_validator_output_for_public_consumer"
       ],
-      "old_regex": "_validate_repository_identity(?=\\(repo, identity, required_stage, path\\)\\n    return receipt)"
+      "old_regex": "_validate_repository_identity(?=\\(repo, identity, required_stage, path\\)\\n    _validate_runtime_inputs\\(repo, payload\\[\"runtime_inputs\"\\], required_stage, path\\)\\n    return receipt)"
     },
     {
       "label": "M4 ignore exact stage ordering",

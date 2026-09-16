@@ -196,6 +196,11 @@ def ts_calls(work):
 
 
 def probe_typed(work, tcalls):
+    """Replay typed bodies without inheriting an earlier probe's app runtime."""
+    return _probe_in_subprocess(work, tcalls, "--typed-worker")
+
+
+def _probe_typed_in_process(work, tcalls):
     """DIFFERENTIAL PROBE -- the trick that makes value-plausibility irrelevant.
 
     The type checker gives us the KEYS a control sends, but not believable VALUES. Feeding
@@ -313,6 +318,11 @@ def _probe_typed_inner(work, tcalls):
 
 
 def probe(work, calls, verbose=False):
+    """Replay literal bodies in the same fresh-worker boundary as fixtures."""
+    return _probe_in_subprocess(work, calls, "--literal-worker")
+
+
+def _probe_in_process(work, calls):
     """Replay each call's body against the REAL app and read the answer.
 
     Booting the app WRITES runtime state (plugins/plugins.json, notify_apprise.json,
@@ -437,6 +447,10 @@ def probe_fixtures(work, tcalls):
 
 
 def _probe_fixtures_in_subprocess(work, tcalls):
+    return _probe_in_subprocess(work, tcalls, "--fixture-worker")
+
+
+def _probe_in_subprocess(work, tcalls, worker_flag):
     work = os.path.abspath(work)
     with tempfile.TemporaryDirectory(prefix="bd_fxprobe_ipc_") as ipc:
         calls_path = os.path.join(ipc, "calls.json")
@@ -447,6 +461,8 @@ def _probe_fixtures_in_subprocess(work, tcalls):
         env = os.environ.copy()
         env.pop("BD_INSTALL_DIR", None)
         env["BD_DISABLE_KEEPALIVE"] = "1"
+        env["BD_HOME"] = os.path.join(ipc, "home")
+        os.mkdir(env["BD_HOME"])
         prior_pythonpath = env.get("PYTHONPATH")
         env["PYTHONPATH"] = (work if not prior_pythonpath
                              else work + os.pathsep + prior_pythonpath)
@@ -454,7 +470,7 @@ def _probe_fixtures_in_subprocess(work, tcalls):
             sys.executable,
             os.path.abspath(__file__),
             "--work", work,
-            "--fixture-worker", calls_path, result_path,
+            worker_flag, calls_path, result_path,
         ]
         try:
             completed = subprocess.run(
@@ -728,13 +744,20 @@ def main():
                     help="replay against a REAL world (v3.66.729)")
     ap.add_argument("--fixture-worker", nargs=2, metavar=("CALLS", "RESULT"),
                     help=argparse.SUPPRESS)
+    ap.add_argument("--literal-worker", nargs=2, metavar=("CALLS", "RESULT"),
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--typed-worker", nargs=2, metavar=("CALLS", "RESULT"),
+                    help=argparse.SUPPRESS)
     a = ap.parse_args()
 
-    if a.fixture_worker:
-        calls_path, result_path = a.fixture_worker
+    worker = (a.fixture_worker or a.literal_worker or a.typed_worker)
+    if worker:
+        calls_path, result_path = worker
         with open(calls_path, encoding="utf-8") as fh:
             calls = json.load(fh)
-        result = _probe_fixtures_in_process(os.path.abspath(a.work), calls)
+        replay = (_probe_fixtures_in_process if a.fixture_worker else
+                  _probe_in_process if a.literal_worker else _probe_typed_in_process)
+        result = replay(os.path.abspath(a.work), calls)
         with open(result_path, "w", encoding="utf-8") as fh:
             json.dump(result, fh)
         return 0

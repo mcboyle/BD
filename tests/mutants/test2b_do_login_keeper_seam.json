@@ -9,7 +9,7 @@
     {
       "label": "M1 bypass do_login in the keeper callback",
       "file": "bulk_downloader/app.py",
-      "old_regex": "_login\\.do_login(?=\\(login_cfg, allow_manual_takeover=False\\))",
+      "old_regex": "_login\\.do_login(?=\\(login_cfg, allow_manual_takeover=False[,)])",
       "new": "(lambda *_a, **_k: (False, \"mutant\", []))",
       "direction": "regression",
       "catcher": "tests/test_row667_login_attempt_accounting.py::test_both_real_login_callers_spend_the_same_accounting_denominator"
