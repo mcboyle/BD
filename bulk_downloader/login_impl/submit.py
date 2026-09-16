@@ -1353,10 +1353,12 @@ def do_login(config, allow_manual_takeover=False):
             return False,(f"Page closed after submit; cookies "
                           f"unconvincing ({why})"),[]
         _rejected_login = cur.partition("?")[0].lower().endswith("/badlogin")
+        _body_unreadable = False
         if not _rejected_login:
             try:
                 _rejected_login = "wrong username or password provided" in page.content().lower()
             except Exception as exc:
+                _body_unreadable = True
                 # Row 813 (the DP-13 hit O805 deferred). The swallow is correct --
                 # the /badlogin URL check above is the primary signal and still
                 # decides -- but a silent one made an unreadable body look exactly
@@ -1382,14 +1384,19 @@ def do_login(config, allow_manual_takeover=False):
         # Settling can finish a redirect or render a rejection. The verdict
         # and origin check must use that final page, not the loading shell.
         cur = page.url
-        try:
-            from bs4 import BeautifulSoup
-            _landing_doc = BeautifulSoup(page.content(), "html.parser")
-            _landing_text = " ".join(_landing_doc.get_text(" ", strip=True).split()).lower()
-            _landing_title = (" ".join(_landing_doc.title.get_text(" ", strip=True).split()).lower()
-                              if _landing_doc.title else "")
-        except Exception:
-            _landing_text = _landing_title = ""
+        _landing_text = _landing_title = ""
+        # A body that could not be read above will not become readable here --
+        # the probe failed because the page is gone, not because it was early --
+        # so re-reading it would only repeat the same failure silently.
+        if not _body_unreadable:
+            try:
+                from bs4 import BeautifulSoup
+                _landing_doc = BeautifulSoup(page.content(), "html.parser")
+                _landing_text = " ".join(_landing_doc.get_text(" ", strip=True).split()).lower()
+                _landing_title = (" ".join(_landing_doc.title.get_text(" ", strip=True).split()).lower()
+                                  if _landing_doc.title else "")
+            except Exception:
+                _landing_text = _landing_title = ""
         if (cur.partition("?")[0].lower().endswith("/badlogin")
                 or "wrong username or password provided" in _landing_text):
             _hard_close()
