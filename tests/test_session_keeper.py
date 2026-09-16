@@ -880,3 +880,70 @@ def test_retired_keeper_lifecycle_rejects_stale_starter(monkeypatch):
 
     assert constructed == []
     assert sk.open_lifecycle() is True
+
+
+@pytest.mark.parametrize(("verdict", "expected_state", "event_types", "login_count"), [
+    ("DEAD", "connected", ["auto_relogin_ok", "heartbeat_fail"], 1),
+    ("ALIVE", "connected", ["heartbeat_ok"], 0),
+    ("INCONCLUSIVE", "inconclusive", ["heartbeat_inconclusive"], 0),
+], ids=["dead", "alive", "inconclusive"])
+def test_row822_run_loop_dispatches_real_check(
+        monkeypatch, verdict, expected_state, event_types, login_count):
+    """The live loop must reach the real checker, callback and persisted history."""
+    from bulk_downloader import db, session_keeper as sk
+
+    with _isolated_cwd():
+        db.db_init()
+        _reset_module_state()
+        config = {"keep_alive_enabled": True, "password": "fixture"}
+        logins, heartbeats, waits = [], [], []
+
+        def login(site_id, account_idx, supplied_config):
+            logins.append((site_id, account_idx, supplied_config))
+            return True, "fixture login completed"
+
+        keeper = sk.SessionKeeper("row822-fixture", 0, config, login)
+
+        def heartbeat():
+            heartbeats.append(verdict)
+            return getattr(sk, verdict), "fixture heartbeat"
+
+        def finish_iteration(timeout):
+            waits.append(timeout)
+            keeper._stop.set()
+
+        monkeypatch.setattr(keeper, "_heartbeat", heartbeat)
+        monkeypatch.setattr(keeper._wake, "wait", finish_iteration)
+        keeper._run()
+
+        assert heartbeats == [verdict]
+        assert logins == [("row822-fixture", 0, config)] * login_count
+        assert keeper.state["state"] == expected_state
+        events = db.session_event_recent(site_id="row822-fixture")
+        assert sorted(event["event_type"] for event in events) == event_types
+        assert len(waits) == 1 and waits[0] >= 1
+        assert keeper._stop.is_set() and keeper._thread.ident is None
+
+
+@pytest.mark.parametrize("config", [
+    {"keep_alive_enabled": False, "password": "fixture"},
+    {"keep_alive_enabled": True, "password": ""},
+])
+def test_row822_run_loop_preserves_disabled_negative_control(monkeypatch, config):
+    """A disabled/incomplete account must not acquire a heartbeat or login."""
+    from bulk_downloader import db, session_keeper as sk
+
+    with _isolated_cwd():
+        db.db_init()
+        _reset_module_state()
+        keeper = sk.SessionKeeper(
+            "row822-disabled", 0, config,
+            lambda *args: pytest.fail("disabled keeper attempted a login"))
+        monkeypatch.setattr(
+            keeper, "_heartbeat",
+            lambda: pytest.fail("disabled keeper attempted a heartbeat"))
+        monkeypatch.setattr(keeper._wake, "wait", lambda timeout: keeper._stop.set())
+        keeper._run()
+        assert keeper.state["state"] == "disabled"
+        assert db.session_event_recent(site_id="row822-disabled") == []
+        assert keeper._stop.is_set() and keeper._thread.ident is None

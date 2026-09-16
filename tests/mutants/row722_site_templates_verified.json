@@ -43,7 +43,7 @@
       "label": "M4 vip4k listing URL is stored under a key that is not a CFG_FIELD",
       "file": "bulk_downloader/site_templates/_data_studios_a.py",
       "old_regex": "(?m)^            \"crawler_listing_url\": \"https://members\\.vip4k\\.com/en/videos\",$",
-      "new": "            \"listing_url\": \"https://members.vip4k.com/en/videos\",",
+      "new": "            \"crawler_listing_page\": \"https://members.vip4k.com/en/videos\",",
       "direction": "regression",
       "catcher": "tests/test_row722_site_templates_verified.py::test_config_defaults_keys_are_all_cfg_fields"
     },

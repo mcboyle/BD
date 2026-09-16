@@ -1,0 +1,19 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row822 catcher for the row772 astra escaped self-mutant: deleting the loop-to-checker call must fail the DEAD case because one synthetic heartbeat, one real callback and two persisted history events disappear. ALIVE/INCONCLUSIVE and disabled/missing-password cases preserve the real checker branching. Dependency row772 settling landed at v3.66.1562 (a035a2fb); rebased onto 8fef858f (session_keeper.py blob 5f3391b6 == selected772 blob). RED measured 2026-09-16: 5 failed / 32 passed with the call deleted; GREEN 37 passed restored.",
+  "subject": "SessionKeeper._run dispatch to the real _run_one_check and _auto_relogin with persisted session history",
+  "band": [
+    "tests/test_session_keeper.py::test_row822_run_loop_dispatches_real_check",
+    "tests/test_session_keeper.py::test_row822_run_loop_preserves_disabled_negative_control"
+  ],
+  "mutants": [
+    {
+      "label": "delete-the-call _run_one_check@bulk_downloader/session_keeper.py:751",
+      "file": "bulk_downloader/session_keeper.py",
+      "old": "self._run_one_check()",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_session_keeper.py::test_row822_run_loop_dispatches_real_check[dead]"
+    }
+  ]
+}
