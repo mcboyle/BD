@@ -789,7 +789,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (10 entries)
+## `bulk_downloader/login_impl/submit.py` (11 entries)
 
 ```
 - L0028 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
@@ -801,7 +801,8 @@ Schema version: 2
 - L0239 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
 - L0300 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
 - L0600 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0670 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0671 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L0687 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -835,4 +836,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 659 across 22 files._
+_Total entries: 660 across 22 files._
