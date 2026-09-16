@@ -7,7 +7,8 @@ import pytest
 BD_GATE_SCOPE = "module"
 
 
-def _drive(monkeypatch, tmp_path, *, final_url, html, content_raises=None):
+def _drive(monkeypatch, tmp_path, *, final_url, html, content_raises=None,
+           content_raises_once=False):
     """Run the real login path with a post-submit rejection fixture.
 
     Row 813: `content_raises` makes the body probe fail, which is the state the
@@ -26,7 +27,8 @@ def _drive(monkeypatch, tmp_path, *, final_url, html, content_raises=None):
 
         def content(self):
             calls["content"] += 1
-            if content_raises is not None:
+            if content_raises is not None and not (
+                    content_raises_once and calls["content"] > 1):
                 raise content_raises
             return html
 
@@ -109,6 +111,27 @@ def test_a_readable_body_never_emits_the_probe_diagnostic(monkeypatch, tmp_path,
            final_url="https://login.example.invalid/login",
            html="<p>Wrong username or password provided</p>")
     assert PROBE_DIAGNOSTIC not in capsys.readouterr().err
+
+
+def test_a_transient_probe_failure_still_judges_the_settled_body(monkeypatch, tmp_path):
+    """A body that raises ONCE during the post-submit navigation is readable
+    after settling, and the rejection the settled page names must still be
+    found. RED if the post-settle read is skipped on any exception rather than
+    only on a page that is gone: the run would fall back to cookies and call a
+    rejected login a success -- the exact race this settling block exists for.
+    """
+    result, calls = _drive(
+        monkeypatch, tmp_path,
+        final_url="https://login.example.invalid/dashboard",
+        html="<p>Wrong username or password provided</p>",
+        content_raises=RuntimeError("Execution context was destroyed"),
+        content_raises_once=True)
+    # The probe fired twice on purpose: once before settling (it failed) and
+    # once after (it read the settled body). The 813 pin of ONE read stands for
+    # a page that is GONE, which cannot become readable.
+    assert calls["content"] == 2, calls
+    assert result[0] is False, result[1]
+    assert "rejected login" in result[1].lower(), result[1]
 
 
 def test_an_unreadable_body_still_leaves_the_url_check_deciding(monkeypatch, tmp_path):

@@ -10,7 +10,7 @@
     {
       "label": "fold frame_urls into the model-bound blob so a signed frame token reaches the prompt",
       "file": "bulk_downloader/challenge_classify.py",
-      "old_regex": "(?m)(?<=^    blob = )(?=\" \"\\.join\\(str\\(observation\\.get\\(k, \"\"\\)\\) for k in \\(\"text\", \"title\", \"markers\"\\)\\)\\n    ctype = _detect\\(blob\\)$)",
+      "old_regex": "(?m)(?<=^    blob = )(?=\" \"\\.join\\(\\(_classification_text\\(observation\\),\\n                     str\\(observation\\.get\\(\"title\", \"\"\\)\\),\\n                     str\\(observation\\.get\\(\"markers\", \"\"\\)\\)\\)\\)\\n    ctype = _detect\\(blob\\)$)",
       "new": "\" \".join(str(observation.get(k, \"\")) for k in (\"text\", \"title\", \"markers\", \"frame_urls\")) if True else ",
       "direction": "regression",
       "catcher": "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt"

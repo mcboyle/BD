@@ -104,6 +104,45 @@ step [7] and writes that same tree record only after health and `GET /` verify.
 After that the gate is live. A by-hand update writes neither trustworthy state:
 the next capture is NOT-APPLICABLE when the tree record differs, not permission.
 
+## The cut-quality checker — the second artifact the repo does not carry
+
+`toolchain/cut_quality_policy.json` is tracked, but the checker it activates is
+not. The policy pins it by digest rather than by path:
+
+    "active_checker": {
+      "schema": "cut-acceptance-preflight/2",
+      "sha256": "ab6f42e4cd5f6caabd0243c2e636529b60ba8d2cc17f5e365ea3900ba516c456",
+      "resolver_env": "BD_CUT_QUALITY_VALIDATOR"
+    }
+
+That file is an **operator-harness artifact — no tracked path in this repo
+provides it**, and `git clone` does not deliver it. It reached the existing boxes
+as a fleet patch applied by sha; a completed patch protects only the hosts that
+were up when it ran, which is why this section exists rather than a runbook step.
+Obtain the file from the operator harness store, verify it against the sha256
+above **before** pointing anything at it, and keep the digest — not the filename —
+as its identity: the policy also lists a superseded `cut-acceptance-preflight/1`
+checker and the transition between the two, so a name alone does not say which
+you hold.
+
+`toolchain/bin/bd_cut_quality.py` reads four environment variables:
+
+| variable | what it names | if unset |
+| --- | --- | --- |
+| `BD_CUT_QUALITY_VALIDATOR` | path to the active checker above (`--validator` overrides) | receipt issuance refuses `CQ-VALIDATOR-MISSING` |
+| `BD_CUT_QUALITY_MATRIX` | path to the environment matrix the receipt pins the interpreter from (`--matrix` overrides) | receipt issuance refuses `CQ-VALIDATOR-MISSING` |
+| `BD_CUT_QUALITY_PERMIT` | exact path for the issued permit | falls back to the state root below |
+| `BD_CUT_QUALITY_STATE` | state root holding `<HEAD>-<stage>.json` permits | `$XDG_STATE_HOME`, else `~/.local/state` |
+
+`BD_CUT_QUALITY_MATRIX` is real and required: it was absent when this gap was
+first filed, and receipt issuance now refuses without it.
+
+A fresh host that cannot produce the checker is not blocked from bring-up: the
+refusal is confined to issuing cut-quality receipts, and it is a named refusal
+rather than a silent pass, so nothing downstream mistakes an unequipped box for a
+box that measured and approved. Treat it the same way as a missing graph pin —
+`UNKNOWN`, never permission.
+
 ## Operator state to migrate — the list that loses data if you miss it
 
 Everything below lives in the install root unless noted. **Stop the service

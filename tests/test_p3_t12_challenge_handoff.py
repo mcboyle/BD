@@ -55,6 +55,96 @@ def test_route_non_challenge_emits_nothing():
     assert r["labels"] == []
 
 
+def test_widget_free_public_sign_in_copy_does_not_require_operator_action():
+    observation = {
+        "text": "Watch the trailer. Sign in to save this scene to your favourites.",
+        "title": "Filthy Kings | Public trailer",
+        "markers": [],
+        "frame_urls": [],
+    }
+    assert len(observation["text"].split()) == 12
+    assert len(observation["frame_urls"]) == 0
+    routed = cc.route_challenge(observation)
+    assert routed["challenge_present"] is False
+    assert routed["type"] == "unknown"
+
+
+def test_public_trailer_copy_does_not_suppress_required_login_wall():
+    observation = {
+        "text": ("Watch the trailer. Sign in to save this scene to your favourites. "
+                 "Member login required to continue watching. Email address Password Sign in."),
+        "title": "Public trailer",
+        "markers": [],
+        "frame_urls": [],
+    }
+    routed = cc.route_challenge(observation)
+    assert routed["challenge_present"] is True
+    assert routed["type"] == "login-wall"
+    assert "manual_handoff_required" in routed["labels"]
+
+
+def test_public_trailer_copy_preserves_all_appended_login_prompts():
+    prefix = "Watch the trailer. Sign in to save this scene to your favourites. "
+    for suffix in (
+        "Log in to continue watching this scene",
+        "Sign in required to view this video",
+        "Please authenticate to continue",
+    ):
+        routed = cc.route_challenge({
+            "text": prefix + suffix, "title": "Public trailer", "markers": [], "frame_urls": [],
+        })
+        assert routed["challenge_present"] is True
+        assert routed["type"] == "login-wall"
+        assert "manual_handoff_required" in routed["labels"]
+
+
+def test_public_trailer_optional_sign_in_sentence_is_inert_alone():
+    routed = cc.route_challenge({
+        "text": "Sign in to save this scene to your favourites.",
+        "title": "Public trailer", "markers": [], "frame_urls": [],
+    })
+    assert routed["challenge_present"] is False
+    assert routed["type"] == "unknown"
+
+
+def test_public_trailer_sign_in_copy_is_layout_independent():
+    observation = {
+        "text": "Watch the trailer.\nSign in to save this scene to your favourites.",
+        "title": "Filthy Kings | Public trailer",
+        "markers": [],
+        "frame_urls": [],
+    }
+    routed = cc.route_challenge(observation)
+    assert routed["challenge_present"] is False
+    assert routed["type"] == "unknown"
+
+
+def test_password_login_wall_still_requires_operator_action():
+    observation = {
+        "text": "Member login Email address Password Sign in",
+        "title": "Member login",
+        "markers": [],
+        "frame_urls": [],
+    }
+    assert len(observation["text"].split()) == 7
+    routed = cc.route_challenge(observation)
+    assert routed["challenge_present"] is True
+    assert routed["type"] == "login-wall"
+    assert "manual_handoff_required" in routed["labels"]
+
+
+def test_plain_login_prompts_still_require_operator_action():
+    for text in (
+        "Log in to continue watching this scene",
+        "Sign in required to view this video",
+        "Please authenticate to continue",
+    ):
+        routed = cc.route_challenge({"text": text, "title": "", "markers": [], "frame_urls": []})
+        assert routed["challenge_present"] is True
+        assert routed["type"] == "login-wall"
+        assert "manual_handoff_required" in routed["labels"]
+
+
 # --- passive-wait TIMEOUT -> manual handoff -------------------------------- #
 def test_passive_wait_timeout_routes_to_manual_handoff():
     r = cc.route_challenge(_obs(_load()), passive_wait_timed_out=True)
