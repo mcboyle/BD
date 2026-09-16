@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router";
 
 import { apiGet } from "@/lib/api-client";
 import type { QueueV2Full } from "@/lib/api-types";

@@ -1,0 +1,16 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 (bangbros /store, async offer block): M1 the second post-login walk is dropped.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": ["tests/test_row722_async_post_login_interstitial_rewalk.py"],
+  "mutants": [
+    {
+      "label": "M1 single post-login walk again",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "for _pass in \\(1, 2\\):",
+      "new": "for _pass in (1,):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_async_post_login_interstitial_rewalk.py::test_the_row_a_late_rendered_interstitial_gets_a_second_walk"
+    }
+  ]
+}

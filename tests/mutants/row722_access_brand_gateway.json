@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (nookies.com): ACCESS <brand> / ENTER|GO TO|ACCESS MEMBERS AREA is admitted at the interstitial tier, corroborated by a same-origin href. M1 drops the admission entirely so the gateway's ACCESS NOOKIES control is never pressed. M2 drops the same-origin check so a foreign-host ACCESS control (the join.nookies.test negative control) would be pressed.",
+  "subject": "bulk_downloader/interstitial.py",
+  "band": [
+    "tests/test_row722_access_brand_gateway.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 drop the ACCESS_AFFORDANCE admission at the interstitial tier",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "elif tier == \"interstitial\" and ACCESS_AFFORDANCE\\.fullmatch\\(label\\):",
+      "new": "elif False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_access_brand_gateway.py::test_the_row_access_nookies_is_pressed_and_the_partner_links_are_not"
+    },
+    {
+      "label": "M2 drop the same-origin check (foreign-host ACCESS pressed)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "if not same_origin:\\n                        continue",
+      "new": "if False and not same_origin:\n                        continue",
+      "direction": "regression",
+      "catcher": "tests/test_row722_access_brand_gateway.py::test_negative_control_a_foreign_host_access_is_not_pressed"
+    }
+  ]
+}

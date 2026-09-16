@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, Link, useLocation } from "react-router-dom";
+import { NavLink, Link, useLocation } from "react-router";
 import {
   Home as HomeIcon,
   Globe,

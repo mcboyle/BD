@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (nookies.com): a Tab+Enter submit navigated within the origin, the jar gained a session cookie, and do_login's navigated return reported OK while the page still showed LOG IN / JOIN NOW. M1 removes the refusal at that return (the anonymous surface is logged and the OK verdict stands, as on base). M2 makes a visible password field no longer count as the anonymous surface (only the text rule remains).",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_post_submit_anonymous_page_is_not_ok.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 navigated return ignores the anonymous surface",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "anonymous,anon_why=anonymous_surface_check\\(page\\)\\n        if anonymous:",
+      "new": "anonymous,anon_why=anonymous_surface_check(page)\n        if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_post_submit_anonymous_page_is_not_ok.py::test_visible_password_field_after_navigation_is_not_ok"
+    },
+    {
+      "label": "M2 a visible password field is not an anonymous surface",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "if surface\\.get\\(\"password_visible\"\\):\\n        return True,",
+      "new": "if False:\n        return True,",
+      "direction": "regression",
+      "catcher": "tests/test_row722_post_submit_anonymous_page_is_not_ok.py::test_visible_password_field_after_navigation_is_not_ok"
+    }
+  ]
+}

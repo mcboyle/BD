@@ -31,9 +31,9 @@ Each bucket has:
   - tokens: current balance (float for sub-second accuracy)
   - last_refill: monotonic timestamp
 
-`acquire(n)` blocks until n <= tokens, then deducts n. Refill happens
-lazily on each call: tokens += (now - last_refill) * rate, clamped
-to capacity.
+`acquire(n)` deducts available tokens until the whole request is paid.
+Refill happens lazily: tokens += (now - last_refill) * rate, clamped
+to capacity. Requests larger than capacity consume several refills.
 
 When BOTH global and per-site buckets are active, acquire() must wait
 on BOTH (the slower one wins). We do this with two-phase: deduct from
@@ -44,8 +44,8 @@ the more-constrained one first, then the other.
   - This is a SOFT cap: a single huge chunk write can momentarily
     exceed the cap by ~chunk_size (since acquire() is per-chunk, not
     per-byte).
-  - Hot-reload is best-effort: in-flight acquire() calls finish at
-    the old rate; new calls use the new rate.
+  - Hot-reload is best-effort: in-flight acquire() calls observe a
+    changed rate on their next refill check (at most 0.5s later).
   - Zero or negative rate = "unlimited" (acquire returns instantly).
 
 # API
@@ -131,7 +131,7 @@ class TokenBucket:
             self._last_refill = time.monotonic()
 
     def acquire(self, n_bytes: int) -> float:
-        """Block until n_bytes tokens are available, then deduct them.
+        """Consume n_bytes tokens, waiting for refill as necessary.
         Returns the time spent waiting (0.0 if no wait was needed).
 
         "Wait" here means actual time.sleep() calls — not the few
@@ -151,20 +151,29 @@ class TokenBucket:
                 return 0.0
 
         slept_s = 0.0
+        remaining = n_bytes
         while True:
             with self._lock:
                 self._refill_locked()
-                if self._tokens >= n_bytes:
-                    self._tokens -= n_bytes
+                if self._rate_bps <= 0:
+                    # A hot configuration change releases in-flight work too.
+                    remaining = 0
+                else:
+                    # A transfer chunk can exceed one burst's capacity. Pay it
+                    # incrementally; waiting for the whole chunk to fit would
+                    # never finish because refill is clamped to capacity.
+                    taken = min(self._tokens, remaining)
+                    self._tokens -= taken
+                    remaining -= taken
+                if remaining <= 0:
                     self._acquires += 1
                     self._bytes_passed += n_bytes
                     if slept_s > 0.0:
                         self._total_wait_s += slept_s
                     return slept_s
-                # How long until enough tokens accrue?
-                deficit = n_bytes - self._tokens
-                rate = self._rate_bps
-                wait_for = deficit / rate if rate > 0 else 1.0
+                # Wake by the next full burst so refill time is not discarded
+                # when a small-capacity bucket reaches its ceiling.
+                wait_for = min(remaining, self._capacity) / self._rate_bps
             # Sleep outside the lock so other workers can refill check
             # against the same bucket
             # Cap each sleep at 0.5s so set_rate updates take effect

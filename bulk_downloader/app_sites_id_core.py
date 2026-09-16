@@ -895,6 +895,19 @@ def api_update(sid):
         _num_errs = {}
     if _num_errs:
         return jsonify({"error": " ".join(_num_errs[k] for k in sorted(_num_errs))}), 400
+    # Row 722 (G25a): a selector the browser cannot parse must never persist —
+    # live: dl_selector `...[href*=2160p]` (unquoted, not an identifier) was
+    # accepted here, then crashed every worker attempt with a querySelectorAll
+    # SyntaxError that was retried as if transient. Fail closed at the boundary.
+    try:
+        from . import site_editor as _se_sel
+        _sel_errs = _se_sel.validate_selector_updates(data)
+    except Exception as _sel_err:  # noqa: BLE001
+        sys.stderr.write(f"[app] selector backstop unavailable, skipped: {_sel_err}\n")
+        _sel_errs = {}
+    if _sel_errs:
+        _f = sorted(_sel_errs)[0]
+        return jsonify({"error": f"invalid selector '{_f}': {_sel_errs[_f]}"}), 400
     # Phase 20: secret fields that should be preserved when sent blank
     # from the edit form. The frontend never sees the stored values (they're
     # stripped in api_status), so an unmodified edit submits empty strings;

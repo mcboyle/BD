@@ -8,10 +8,10 @@
  ],
  "mutants": [
   {
-   "label": "TC S4_template_redirect",
-   "file": "bulk_downloader/app_template.py",
-   "old_regex": "_is_safe_public_host\\(\\n\\s+_urlparse\\(newurl\\)\\.hostname",
-   "new": "(True, _urlparse(newurl).hostname",
+  "label": "TC S4_template_pinned_redirect",
+  "file": "bulk_downloader/app_template.py",
+  "old_regex": "(?m)(?<=^                _ok, _why = )_host_safety\\._classify_ip(?=\\(address, host\\)$)",
+  "new": "(lambda _address, _host: (True, None))",
    "direction": "regression",
    "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata"
   },

@@ -92,8 +92,8 @@
     {
       "label": "M10 overcorrection -- the walk runs backwards and takes the LAST match",
       "file": "bulk_downloader/login_impl/_common.py",
-      "old": "        for idx in range(count):",
-      "new": "        for idx in reversed(range(count)):",
+      "old": "        except Exception: continue\n        for idx in range(count):",
+      "new": "        except Exception: continue\n        for idx in reversed(range(count)):",
       "direction": "overcorrection",
       "control": "tests/test_login_honeypot.py::test_walk_fills_the_first_of_two_real_fields",
       "preserves": [

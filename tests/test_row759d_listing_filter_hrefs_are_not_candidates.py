@@ -23,7 +23,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from bulk_downloader.detect import find_best_download, res_score
+from bulk_downloader.detect import _candidate_admission, find_best_download, res_score
 
 # The two hrefs recorded live (the runner's "Saw:" list truncates the query
 # at ``refinementList%5Bv``; the parameter name is Algolia's fixed schema).
@@ -273,6 +273,19 @@ def test_precondition_the_filter_label_outscores_the_download_div():
     assert res_score("Download") <= 0
 
 
+def _assert_sidebar_refusal_partition(page):
+    links = page.query_selector_all(".ais-RefinementList a")
+    assert len(links) == 4
+    reasons = []
+    for link in links:
+        label = link.inner_text()
+        text = label + " " + link.get_attribute("href")
+        reasons.append(_candidate_admission(link, text, _SCENE_URL, label=label))
+    # Row761's URL-shape filter consumes the two facets before the counted
+    # listing-filter stage. The signal-less sort link remains uncounted.
+    assert reasons == ["non_video", "non_video", "no_signal", "listing_filter"]
+
+
 def test_listing_filter_hrefs_are_refused_and_the_download_div_wins():
     runner = _RecordingRunner()
     with _page(_SCENE) as page:
@@ -282,15 +295,13 @@ def test_listing_filter_hrefs_are_refused_and_the_download_div_wins():
             f"listing filter href won the ranking: {_href(best)}")
         assert "sortBy" not in _href(best)
         assert best["score"] == 0 and "Download" in best["text"], best["text"]
+        _assert_sidebar_refusal_partition(page)
     summaries = _summaries(runner)
     assert len(summaries) == 1, runner.events
     extra = summaries[0]["extra"]
-    # Three of four: the bare ``Most viewed`` sort link carries no resolution
-    # or download word, so the (uncounted, row 499) no_signal refusal takes it
-    # first. The ``(1080p)`` sort link IS ranker food and is counted -- that is
-    # the sort/facet half of the query rule doing work.
-    assert extra.get("listing_filter") == 3, extra
-    assert extra.get("count") == 3, extra
+    # Only the quality-bearing sort link reaches the counted refusal stage.
+    assert extra.get("listing_filter") == 1, extra
+    assert extra.get("count") == 1, extra
 
 
 def test_listing_filter_hrefs_are_refused_via_the_learned_admission_path():
@@ -357,6 +368,7 @@ def test_negative_control_a_filter_token_in_a_media_query_is_not_a_filter(
         assert best is not None
         assert _href(best) == winner, _href(best)
         assert best["score"] > 0
+        _assert_sidebar_refusal_partition(page)
     extra = _summaries(runner)[0]["extra"]
-    # The three sidebar refusals are unchanged; the real link is not among them.
-    assert extra.get("listing_filter") == 3, extra
+    # The same four sidebar refusals hold; the real media link is admitted.
+    assert extra.get("listing_filter") == 1, extra

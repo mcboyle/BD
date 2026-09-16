@@ -45,6 +45,14 @@ class AccountsMixin:
         except Exception:
             pass
     def trigger_rate_limit(self,url,reason="Rate limit detected"):
+        # Row 722s (dorcelclub): a cooldown re-queued the job with NO event in
+        # its log -- the only trace was rl_<sid>.json. Name the cause on the
+        # job before anything else happens.
+        _match=getattr(self,"_rl_match","")
+        if _match: reason=f"{reason} (page text: ...{_match}...)"
+        try: self.log_event("rate_limit", reason, url=url)
+        except Exception as e:
+            sys.stderr.write(f"  rate limit: event not journaled ({e}); cooldown proceeds\n")
         # Phase 6.5: try rotating to a fresh account before triggering
         # the 24h site-wide cooldown. If we have other usable accounts,
         # mark this one as cooled-down, switch, and resume immediately.

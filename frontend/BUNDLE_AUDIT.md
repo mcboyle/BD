@@ -1,8 +1,9 @@
 # D3 frontend bundle audit (U8)
 
-Static analysis of `frontend/src/**` against `frontend/package.json`.
-Full byte-count requires `npm run build` which needs network access;
-this audit covers what can be verified without one.
+The original D3 static analysis below is historical. The row648 build measurement
+covers the dependency migration before the dashboard layout repair; its asset
+total includes lazy chunks. The final row648e browser evidence records a fresh
+complete asset measurement including that repair.
 
 ## Results
 
@@ -23,7 +24,7 @@ this audit covers what can be verified without one.
 | `@tanstack/react-query` | 17 | every route + several components |
 | `lucide-react` | 17 | tree-shakable per-icon — verified via named imports |
 | `sonner` | 8 | toasts, mounted at root + per-route |
-| `react-router-dom` | 6 | routing |
+| `react-router` | 82 | routing (v7; was `react-router-dom` before row 648; 82 = `git ls-files frontend/src` importers measured at row 648) |
 | `class-variance-authority` | 2 | shadcn variants (Button, Badge) |
 | `cmdk` | 1 | command palette only |
 | `recharts` | 1 | ThroughputSparkline only |
@@ -42,7 +43,7 @@ Order-of-magnitude estimates from package documentation
 | Bucket | Approx gzip |
 |---|---|
 | React 18 + ReactDOM | ~45 KB |
-| react-router-dom | ~12 KB |
+| react-router | ~12 KB |
 | @tanstack/react-query | ~14 KB |
 | recharts (used surface only) | ~35-50 KB (LARGEST) |
 | sonner | ~6 KB |
@@ -89,3 +90,26 @@ single biggest lever is `recharts` — it's a 50KB chunk for one
 sparkline. A 1KB hand-rolled SVG sparkline would shrink the bundle by
 30%. Not recommended now (U8 polish, not refactor), flag for future
 work if size matters.
+
+## Row648 measured build
+
+Node v22.23.2; fresh `npm ci --no-audit --no-fund`, then `npm run build`
+for each lock. The v6 baseline was built at 42cb12bd; the frontend inputs
+are unchanged on the migration base 5a680692. V7 resolves react-router 7.18.3.
+
+| Lock | Built JS/CSS assets | Sum of individual gzip bytes |
+|---|---:|---:|
+| v6.30.5 | 18 | 475842 |
+| v7.18.3 | 18 | 481643 |
+
+Delta: +5801 gzip bytes. This is the complete built asset sum,
+including lazy route chunks; it is not an initial-page transfer estimate.
+Reproduce after each build from the repository root:
+
+```python
+from pathlib import Path
+import gzip
+assets = sorted(p for p in Path("frontend/dist").rglob("*")
+                if p.suffix in (".js", ".css"))
+print(len(assets), sum(len(gzip.compress(p.read_bytes(), mtime=0)) for p in assets))
+```

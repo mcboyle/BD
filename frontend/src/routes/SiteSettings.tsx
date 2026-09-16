@@ -10,7 +10,7 @@
 // High-risk changes (any secret / gated field) are gated behind a confirm dialog.
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
 

@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (kink.com/login 05:24Z): manual takeover kept nothing of the page. M1 drops the hand-off evidence call; M2 drops the PNG beside the HTML.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": ["tests/test_row722_handoff_keeps_evidence.py"],
+  "mutants": [
+    {
+      "label": "M1 hand-off keeps no evidence",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "_ev = write_login_evidence\\(page, config, _cur, f\"manual takeover \\{reason\\[:40\\]\\}\"\\)",
+      "new": "_ev = None",
+      "direction": "regression",
+      "catcher": "tests/test_row722_handoff_keeps_evidence.py::test_handoff_keeps_the_page_it_gave_up_on"
+    },
+    {
+      "label": "M2 evidence writer keeps no PNG",
+      "file": "bulk_downloader/login_impl/replay.py",
+      "old_regex": "page\\.screenshot\\(path=str\\(path\\.with_suffix\\(\"\\.png\"\\)\\)\\)",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_row722_handoff_keeps_evidence.py::test_evidence_writer_keeps_a_png_beside_the_html"
+    }
+  ]
+}

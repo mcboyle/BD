@@ -1934,7 +1934,8 @@ def _start_session_keepers(site_id=None):
                     _sk.RELOGIN_REFUSED_EVENT,
                     "daily login attempt cap reached "
                     f"({reservation['count']}/{daily_cap})")
-            result = _login.do_login(login_cfg, allow_manual_takeover=False)
+            result = _login.do_login(login_cfg, allow_manual_takeover=False,
+                                     site_id=site_id)
             if not isinstance(result, tuple) or len(result) < 3:
                 return False, f"do_login returned unexpected: {type(result).__name__}"
             ok, info, cookies = result[0], result[1], result[2]

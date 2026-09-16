@@ -15,10 +15,10 @@
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[pre-fetch]"
     },
     {
-      "label": "M2 redirect exemption reverts to attacker-controlled English",
+      "label": "M2 pinned redirect exemption reverts to attacker-controlled English",
       "file": "bulk_downloader/app_template.py",
-      "old_regex": "(?m)^                    if not _ok and(?= _why\\.code is not _HostSafetyReason\\.LOOPBACK:$)",
-      "new": "                    if not _ok and \"loopback\" not in _why.lower(): # mutant prose decision: ",
+      "old_regex": "(?m)(?<=^                return \\(_ok or )_why\\.code is _HostSafetyReason\\.LOOPBACK(?=\\), _why$)",
+      "new": "\"loopback\" in str(_why).lower()",
       "direction": "regression",
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_attacker_hostname_cannot_claim_the_loopback_exemption[redirect]"
     },
@@ -31,10 +31,10 @@
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_genuine_loopback_remains_admitted_at_both_exemption_sites[pre-fetch]"
     },
     {
-      "label": "M4 redirect structured comparison is inverted",
+      "label": "M4 pinned redirect structured comparison is inverted",
       "file": "bulk_downloader/app_template.py",
-      "old_regex": "(?m)(?<=^                    if not _ok and _why\\.code )is not(?= _HostSafetyReason\\.LOOPBACK:$)",
-      "new": "is",
+      "old_regex": "(?m)(?<=^                return \\(_ok or _why\\.code )is(?= _HostSafetyReason\\.LOOPBACK\\), _why$)",
+      "new": "is not",
       "direction": "regression",
       "catcher": "tests/test_rowssrf_loopback_reason_is_structured.py::test_genuine_loopback_remains_admitted_at_both_exemption_sites[redirect]"
     },

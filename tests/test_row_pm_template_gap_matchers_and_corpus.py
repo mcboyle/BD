@@ -95,9 +95,10 @@ def _login(template):
 _MATCHER_FIXES = [
     # A1: the members host is hyphenated.
     ("https://members.nubiles-porn.com/video/x", ["nubiles_network"]),
-    # A2: xempire is Gamma.
-    ("https://members.xempire.com/en/video/hardx/slug/123", ["gamma_kosmos"]),
-    ("https://www.xempire.com/en/login", ["gamma_kosmos"]),
+    # A2: xempire is Gamma. Row 722 (2026-09-15): it also has its own verified
+    # entry (the shared gamma_kosmos stays unstamped), so both ids resolve.
+    ("https://members.xempire.com/en/video/hardx/slug/123", ["gamma_kosmos", "xempire"]),
+    ("https://www.xempire.com/en/login", ["gamma_kosmos", "xempire"]),
     # A3 + B4: tiny4k belongs to PornPros, and to NOTHING else.
     ("https://tiny4k.com/members/video/slug", ["pornpros_tiny4k"]),
     ("https://exotic4k.com/members/video/slug", ["pornpros_tiny4k"]),
@@ -139,7 +140,8 @@ def test_the_matcher_answers_every_reported_gap_and_mismatch(suggest):
     # Exact fired count: every fix row resolves to at least one id, and the
     # tiny4k rows resolve to exactly one -- an empty list would satisfy a
     # "no wrong ids" check while satisfying nothing the report asked for.
-    assert sum(len(suggest(url)) for url, _ in _MATCHER_FIXES) == 10
+    # Row 722 (2026-09-15): 10 -> 12, the two xempire URLs each gain the dedicated 'xempire' id.
+    assert sum(len(suggest(url)) for url, _ in _MATCHER_FIXES) == 12
 
 
 def test_no_host_the_report_left_alone_changed_its_answer(suggest):

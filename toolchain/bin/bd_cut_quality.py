@@ -835,6 +835,60 @@ def _validate_repository_identity(repo: Path, identity: dict[str, Any],
         )
 
 
+def _validate_runtime_inputs(repo: Path, runtime_inputs: Any,
+                             required_stage: str, path: Path) -> None:
+    """Bind every declared runtime byte before and after validator replay."""
+    if not isinstance(runtime_inputs, list) or not runtime_inputs:
+        raise PermitRefusal(
+            "CQ-PERMIT-SCHEMA", "runtime input denominator must be nonempty",
+            expected="nonempty list", observed=runtime_inputs,
+            stage=required_stage, permit_path=path,
+        )
+    seen_inputs: set[str] = set()
+    for index, row in enumerate(runtime_inputs):
+        if not isinstance(row, dict) or set(row) != {"path", "sha256"}:
+            raise PermitRefusal(
+                "CQ-PERMIT-SCHEMA", "runtime inputs require exact path/hash fields",
+                expected={"path": "repo-relative", "sha256": "[0-9a-f]{64}"},
+                observed=row, stage=required_stage, permit_path=path,
+            )
+        rel = row.get("path")
+        if (not isinstance(rel, str) or not rel or Path(rel).is_absolute()
+                or ".." in Path(rel).parts or rel in seen_inputs):
+            raise PermitRefusal(
+                "CQ-RUNTIME-INPUT-STALE",
+                "runtime input paths must be unique and repository-relative",
+                expected="unique safe relative path", observed=rel,
+                stage=required_stage, permit_path=path,
+            )
+        seen_inputs.add(rel)
+        expected_input = _sha(row.get("sha256"), f"runtime_inputs[{index}].sha256",
+                              required_stage, path)
+        live = repo / rel
+        try:
+            relative_parts = Path(rel).parts
+            current = repo
+            symlink_component = False
+            for component in relative_parts:
+                current = current / component
+                if current.is_symlink():
+                    symlink_component = True
+                    break
+            regular = live.is_file() and not symlink_component
+            observed_input = file_sha256(live) if regular else None
+        except OSError:
+            observed_input = None
+            regular = False
+        if not regular or observed_input != expected_input:
+            raise PermitRefusal(
+                "CQ-RUNTIME-INPUT-STALE",
+                "runtime input must remain an exact regular non-symlink file",
+                expected={"path": rel, "sha256": expected_input, "regular": True},
+                observed={"sha256": observed_input, "regular": regular},
+                stage=required_stage, permit_path=path,
+            )
+
+
 def validate_permit(repo: Path | str, permit_path: Path | str | None,
                     required_stage: str, *, policy_path: Path | str | None = None,
                     now: int | None = None,
@@ -993,56 +1047,7 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
             expected=repository, observed=observed_repository,
             stage=required_stage, permit_path=path,
         )
-    runtime_inputs = payload["runtime_inputs"]
-    if not isinstance(runtime_inputs, list) or not runtime_inputs:
-        raise PermitRefusal(
-            "CQ-PERMIT-SCHEMA", "runtime input denominator must be nonempty",
-            expected="nonempty list", observed=runtime_inputs,
-            stage=required_stage, permit_path=path,
-        )
-    seen_inputs: set[str] = set()
-    for index, row in enumerate(runtime_inputs):
-        if not isinstance(row, dict) or set(row) != {"path", "sha256"}:
-            raise PermitRefusal(
-                "CQ-PERMIT-SCHEMA", "runtime inputs require exact path/hash fields",
-                expected={"path": "repo-relative", "sha256": "[0-9a-f]{64}"},
-                observed=row, stage=required_stage, permit_path=path,
-            )
-        rel = row.get("path")
-        if (not isinstance(rel, str) or not rel or Path(rel).is_absolute()
-                or ".." in Path(rel).parts or rel in seen_inputs):
-            raise PermitRefusal(
-                "CQ-RUNTIME-INPUT-STALE",
-                "runtime input paths must be unique and repository-relative",
-                expected="unique safe relative path", observed=rel,
-                stage=required_stage, permit_path=path,
-            )
-        seen_inputs.add(rel)
-        expected_input = _sha(row.get("sha256"), f"runtime_inputs[{index}].sha256",
-                              required_stage, path)
-        live = repo / rel
-        try:
-            relative_parts = Path(rel).parts
-            current = repo
-            symlink_component = False
-            for component in relative_parts:
-                current = current / component
-                if current.is_symlink():
-                    symlink_component = True
-                    break
-            regular = live.is_file() and not symlink_component
-            observed_input = file_sha256(live) if regular else None
-        except OSError:
-            observed_input = None
-            regular = False
-        if not regular or observed_input != expected_input:
-            raise PermitRefusal(
-                "CQ-RUNTIME-INPUT-STALE",
-                "runtime input must remain an exact regular non-symlink file",
-                expected={"path": rel, "sha256": expected_input, "regular": True},
-                observed={"sha256": observed_input, "regular": regular},
-                stage=required_stage, permit_path=path,
-            )
+    _validate_runtime_inputs(repo, payload["runtime_inputs"], required_stage, path)
     artifacts = payload["artifact_hashes"]
     artifact_keys = {"red", "green", "mutation", "regeneration", "review"}
     if not isinstance(artifacts, dict) or set(artifacts) != artifact_keys:
@@ -1133,6 +1138,7 @@ def validate_permit(repo: Path | str, permit_path: Path | str | None,
         policy_path=policy_file,
     )
     _validate_repository_identity(repo, identity, required_stage, path)
+    _validate_runtime_inputs(repo, payload["runtime_inputs"], required_stage, path)
     return receipt
 
 

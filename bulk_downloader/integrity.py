@@ -25,7 +25,66 @@ def _ffprobe():
             _FFPROBE = shutil.which("ffprobe")
     return _FFPROBE
 
+# Row 722 (ultrafilms, 2026-09-15): a 9.9 MB photo set saved as *.zip was marked
+# "failed integrity check (ffprobe rc=1)" and quarantined. ffprobe cannot validate
+# a zip or a still image; the check must be format-aware. Video/audio (and any
+# unknown extension) keep the ffprobe path UNCHANGED; zips get zipfile.testzip();
+# images pass on a non-empty file whose magic header matches the extension.
+_FFPROBE_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".wmv", ".m4v",
+                 ".mp3", ".m4a", ".ts", ".flv"}
+_IMAGE_MAGIC = {
+    ".jpg":  (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".png":  (b"\x89PNG\r\n\x1a\n",),
+    ".gif":  (b"GIF87a", b"GIF89a"),
+    ".webp": (b"RIFF",),          # RIFF....WEBP -- second check below
+}
+
+
+def _verify_zip(path):
+    """zip integrity: open + testzip() is None (first bad member otherwise)."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(str(path)) as zf:
+            bad = zf.testzip()
+    except Exception as e:
+        return False, f"zip unreadable: {e}"
+    if bad is not None:
+        return False, f"zip member corrupt: {bad}"
+    return True, ""
+
+
+def _verify_image(path, ext):
+    """image integrity: non-empty file with a magic header matching the extension."""
+    try:
+        with open(str(path), "rb") as fh:
+            head = fh.read(16)
+    except Exception as e:
+        return False, f"image unreadable: {e}"
+    if not head:
+        return False, "image is empty"
+    if not any(head.startswith(m) for m in _IMAGE_MAGIC[ext]):
+        return False, f"image magic header does not match {ext}"
+    if ext == ".webp" and head[8:12] != b"WEBP":
+        return False, "image magic header does not match .webp"
+    return True, ""
+
+
 def verify_media_integrity(path):
+    """Format-aware integrity check over the saved file. Returns (ok, reason).
+
+    Dispatches on extension: zips -> zipfile test, images -> magic header,
+    everything else (video/audio and unknown) -> the ffprobe check below."""
+    import os
+    ext = os.path.splitext(str(path))[1].lower()
+    if ext == ".zip":
+        return _verify_zip(path)
+    if ext in _IMAGE_MAGIC:
+        return _verify_image(path, ext)
+    return _verify_with_ffprobe(path)
+
+
+def _verify_with_ffprobe(path):
     """Run ffprobe over the saved file. Returns (ok, reason).
 
     The check is light: we ask for a JSON dump of the streams; failure to

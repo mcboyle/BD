@@ -1,0 +1,35 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 live (kink.com): ENTER + one brand token is admitted on a corroborated age gate. M1 removes the instruction-word exclusion so 'ENTER PASSWORD' would be pressed; M2 widens the token to any number of words so 'ENTER YOUR CARD DETAILS' (row 792) would be pressed; M3 drops the brand arm entirely so the kink wall is never cleared. Anchors are exact fragments of the row 722 definition.",
+  "subject": "bulk_downloader/interstitial.py",
+  "band": [
+    "tests/test_row722_kink_enter_brand_affordance.py",
+    "tests/test_row792_age_gate_enter_substring_and_three_consumers.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 drop the instruction-word exclusion after ENTER",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "r\"enter \\(\\?!\\(\\?:your\\|my\\|a\\|an\\|the\\|password\\|passcode\\|pin\\|code\\|email\\|username\\|\"\\n    r\"user\\|login\\|card\\|number\\|amount\\|details\\|text\\|otp\\)\\$\\)\"\\n",
+      "new": "r\"enter \"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_kink_enter_brand_affordance.py::test_negative_control_instruction_labels_stay_refused[ENTER PASSWORD]"
+    },
+    {
+      "label": "M2 widen the brand token to any run of words",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "otp\\)\\$\\)\"\\n    r\"\\[a-z\\]\\[a-z0-9'\\.&!-\\]\\{0,19\\}\\)\\$\", re\\.I\\)",
+      "new": "otp)$)\"\n    r\"[a-z][a-z0-9'.&! -]{0,40})$\", re.I)",
+      "direction": "regression",
+      "catcher": "tests/test_row792_age_gate_enter_substring_and_three_consumers.py::test_a_card_control_whose_label_merely_contains_enter_is_never_clicked"
+    },
+    {
+      "label": "M3 drop the brand arm (pre-row-722 vocabulary)",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "otp\\)\\$\\)\"\\n    r\"\\[a-z\\]\\[a-z0-9'\\.&!-\\]\\{0,19\\}\\)\\$\", re\\.I\\)",
+      "new": "otp)$)\"\n    r\"(?!x)x)$\", re.I)",
+      "direction": "regression",
+      "catcher": "tests/test_row722_kink_enter_brand_affordance.py::test_enter_brand_clears_the_kink_age_wall"
+    }
+  ]
+}

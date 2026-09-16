@@ -24,8 +24,10 @@ test.describe("D3 SPA smoke", () => {
   test("loads / and renders the Home tab", async ({ page }) => {
     await page.goto(`${BASE}/`);
     await expect(page.getByRole("heading", { name: /BulkDL/i })).toBeVisible();
-    // Bottom tab bar present
-    await expect(page.getByRole("navigation", { name: /Primary/i })).toBeVisible();
+    // Both responsive shells expose the primary routes in navigation.
+    await expect(page.getByRole("navigation").filter({
+      has: page.getByRole("link", { name: "Sites", exact: true }),
+    })).toBeVisible();
   });
 
   test("widget picker discovers the full catalog and updates a tile", async ({ page }) => {
@@ -89,7 +91,9 @@ test.describe("D3 SPA smoke", () => {
     ] as const) {
       // The bottom tab bar uses NavLink → renders as <a>; cmdk's
       // accessible name is the visible label.
-      await page.getByRole("link", { name: new RegExp(`^${name}`) }).first().click();
+      const link = page.getByRole("navigation").locator(`a[href="${urlSuffix}"]`).first();
+      await expect(link).toContainText(name);
+      await link.click();
       await expect(page).toHaveURL(
         new RegExp(`${urlSuffix === "/" ? "/$" : urlSuffix}`),
       );
@@ -111,27 +115,30 @@ test.describe("D3 SPA smoke", () => {
 
   test("Settings: theme toggle flips the dark class on <html>", async ({ page }) => {
     await page.goto(`${BASE}/settings`);
-    // Pick Dark.
-    await page.getByRole("radio", { name: "Dark" }).click();
+    await page.locator("#system").getByRole("button", { expanded: false }).click();
+    // The shared theme picker uses pressed buttons.
+    await page.locator("#system").getByRole("button", { name: "Dark", exact: true }).click();
     // <html> should have the 'dark' class
     const cls = await page.locator("html").getAttribute("class");
     expect(cls).toContain("dark");
     // Pick Light → class removed
-    await page.getByRole("radio", { name: "Light" }).click();
+    await page.locator("#system").getByRole("button", { name: "Light", exact: true }).click();
     const cls2 = await page.locator("html").getAttribute("class");
     expect(cls2 ?? "").not.toContain("dark");
   });
 
   test("Settings: theme persists across reloads", async ({ page }) => {
     await page.goto(`${BASE}/settings`);
-    await page.getByRole("radio", { name: "Dark" }).click();
+    await page.locator("#system").getByRole("button", { expanded: false }).click();
+    await page.locator("#system").getByRole("button", { name: "Dark", exact: true }).click();
     await page.reload();
     // After reload, the boot helper should have re-applied 'dark'
     // BEFORE first paint.
     const cls = await page.locator("html").getAttribute("class");
     expect(cls).toContain("dark");
     // Cleanup: restore System default for subsequent test runs.
-    await page.getByRole("radio", { name: "System" }).click();
+    await page.locator("#system").getByRole("button", { expanded: false }).click();
+    await page.locator("#system").getByRole("button", { name: "System", exact: true }).click();
   });
 
   test("Sites: clicking Add opens the wizard", async ({ page }) => {
@@ -150,7 +157,8 @@ test.describe("D3 SPA smoke", () => {
 
   test("Advanced is reachable from Settings", async ({ page }) => {
     await page.goto(`${BASE}/settings`);
-    await page.getByRole("link", { name: /Advanced/i }).click();
+    await page.locator("#system").getByRole("button", { expanded: false }).click();
+    await page.locator("#system").getByRole("link", { name: /Advanced/i }).click();
     await expect(page).toHaveURL(/\/settings\/advanced$/);
     await expect(page.getByRole("heading", { name: /Advanced/i })).toBeVisible();
   });
@@ -164,13 +172,11 @@ test.describe("D3 SPA smoke", () => {
   });
 });
 
-test.describe("/m and / continue to work (D3 is additive)", () => {
-  test("/m mobile UI still renders", async ({ page }) => {
+test.describe("Legacy /m canonicalizes to the root SPA", () => {
+  test("/m redirects to the root SPA", async ({ page }) => {
     await page.goto(`${BASE}/m`);
-    // The /m mobile UI's existence is the load-bearing check —
-    // D3 must not break it. We don't assert specific content
-    // because /m's HTML may evolve independently.
-    expect(page.url()).toContain("/m");
+    await expect(page).toHaveURL(`${BASE}/`);
+    await expect(page.getByRole("heading", { name: /BulkDL/i })).toBeVisible();
   });
 
   test("/ desktop UI still renders", async ({ page }) => {

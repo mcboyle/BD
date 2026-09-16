@@ -26,14 +26,13 @@ suite must be named and stopped, not because those retired examples were real.
 Refuses a bare `tests/` argument -- pass specific files. The whole suite has one
 sanctioned form and it lives in CLAUDE.md section 5.
 
-By default bands from the WORK TREE (the dev loop; fast iteration). For release
-grade, pass --from-zip <zip> to extract + band from a pristine tree (pyc can lie
-in a reused work dir -- this is why bd-cut bands from the extracted zip).
+Bands execute from the repository named by --work and its exact-candidate permit.
+Archive extraction must happen before that repository's permit is issued.
 
 Usage:
     bd-band tests/test_gui_parity.py tests/test_contracts.py
     bd-band tests/test_settings_center_slice4.py --timeout 300
-    bd-band tests/test_contracts.py --from-zip ~/out/BulkDownloader_v3_66_365.zip
+    bd-band tests/test_contracts.py --work /tmp/release-worktree
 Exit 0 = all suites Failed:0 ; 1 = any failure/timeout/missing suite.
 """
 import argparse
@@ -44,7 +43,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import zipfile
 
 REGISTERED = "REGISTERED"
 REGISTRATION_FAILED = "REGISTRATION FAILED"
@@ -356,7 +354,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="bd-band")
     ap.add_argument("suites", nargs="+", help="specific test files, e.g. tests/test_x.py")
     ap.add_argument("--work","--tree", default=sec.DEFAULT_WORK)
-    ap.add_argument("--from-zip", help="extract this zip and band from the pristine tree")
+    ap.add_argument("--from-zip", help="unsupported with permits; extract and authorize the repository first")
     ap.add_argument("--timeout", type=int, default=DEFAULT_SUITE_TIMEOUT,
                     help="per-suite timeout seconds")
     ap.add_argument("--skip-bandcheck", action="store_true",
@@ -435,18 +433,14 @@ def main(argv=None):
         return 2
 
     if a.from_zip:
-        if not os.path.exists(a.from_zip):
-            print(f"{R}--from-zip not found:{RST} {a.from_zip}", file=sys.stderr)
-            return 2
-        rundir = tempfile.mkdtemp(prefix="bdband_")
-        with zipfile.ZipFile(a.from_zip) as zf:
-            zf.extractall(rundir)
-        print(f"{DIM}banding from extracted zip -> {rundir}{RST}")
-    else:
-        rundir = a.work
-        if not os.path.isdir(os.path.join(rundir, "tests")):
-            print(f"{R}no tests/ under {rundir}{RST}", file=sys.stderr)
-            return 2
+        print(f"{R}refusing --from-zip{RST}: the permit authorizes --work, "
+              "not an extracted archive. Extract it first and authorize that "
+              "repository before running the band.", file=sys.stderr)
+        return 2
+    rundir = a.work
+    if not os.path.isdir(os.path.join(rundir, "tests")):
+        print(f"{R}no tests/ under {rundir}{RST}", file=sys.stderr)
+        return 2
 
     env = band_env()
     # @851: NOT "python3". Here that is 3.11 without the project deps, and

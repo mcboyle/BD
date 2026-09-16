@@ -52,8 +52,8 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     # page.route guard on every post-navigation hop (redirect / JS
     # navigation / XHR) that the row 779 pin does not cover, since that pin
     # only protects the FIRST navigation.
-    "bulk_downloader/app_template.py": {"_is_safe_public_host": 3,
-                                        "_classify_ip": 1},
+    "bulk_downloader/app_template.py": {"_is_safe_public_host": 2,
+                                        "_classify_ip": 2},
     "bulk_downloader/candidate_filter.py": {"_classify_ip": 1},
     "bulk_downloader/deep_detect/orchestrate.py": {"_is_safe_public_host": 1},
     # ROW 713. deep_http._check is the single classification point every
@@ -62,7 +62,8 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     # (`safe, reason = ...` then `if not safe:`); the reason object is only
     # carried into the SSRFBlocked message, never compared and never parsed.
     "bulk_downloader/deep_http.py": {"_is_safe_public_host": 1},
-    "bulk_downloader/dev_suite/capture_diag.py": {"_is_safe_public_host": 1},
+    "bulk_downloader/dev_suite/capture_diag.py": {"_is_safe_public_host": 1,
+                                                     "_classify_ip": 1},
     "bulk_downloader/multi_conn.py": {
         "_is_safe_public_host": 2,
         "_via:_guard_url": 2,
@@ -184,9 +185,14 @@ def sandbox_harness(fresh_app, monkeypatch) -> _SandboxHarness:
 
     redirect: dict[str, str | None] = {"url": None}
 
-    def fixture_build_opener(handler_factory):
+    def fixture_build_opener(*handlers):
         counts["build_opener"] += 1
-        handler = handler_factory()
+        handler = next(
+            (candidate() if isinstance(candidate, type) else candidate)
+            for candidate in handlers
+            if hasattr(candidate, "redirect_request")
+            or (isinstance(candidate, type)
+                and hasattr(candidate, "redirect_request")))
 
         class _FixtureOpener:
             def open(self, req, *, timeout):
@@ -197,7 +203,7 @@ def sandbox_harness(fresh_app, monkeypatch) -> _SandboxHarness:
                     counts["redirect_site"] += 1
                     redirected = handler.redirect_request(
                         req, None, 302, "Found", {"Location": target}, target)
-                    assert redirected.full_url == target
+                    assert redirected._pinned_logical_url == target
                 return _FixtureResponse(target or req.full_url)
 
         return _FixtureOpener()
@@ -318,8 +324,8 @@ def test_unknown_host_safety_producer_refuses_before_either_fetch_mode(
             f"http://{_ATTACKER_HOST}/metadata",
             "fetch failed: <urlopen error SSRF redirect blocked: "
             f"refusing link-local address ({_ATTACKER_HOST} → {_METADATA_IP})>",
-            {"resolver": 2, "classifier": 2, "build_opener": 1, "open": 1,
-             "redirect_site": 1, ("public.example", _PUBLIC_IP): 1,
+            {"resolver": 3, "classifier": 3, "build_opener": 1, "open": 1,
+             "redirect_site": 1, ("public.example", _PUBLIC_IP): 2,
              (_ATTACKER_HOST, _METADATA_IP): 1},
             id="redirect",
         ),
@@ -340,14 +346,14 @@ def test_attacker_hostname_cannot_claim_the_loopback_exemption(
     [
         pytest.param(
             "pre-fetch", "http://127.0.0.1/operator-page", None,
-            {"classifier": 1, ("127.0.0.1", "127.0.0.1"): 1,
+            {"classifier": 2, ("127.0.0.1", "127.0.0.1"): 2,
              "build_opener": 1, "open": 1}, id="pre-fetch",
         ),
         pytest.param(
             "redirect", "http://public.example/start",
             "http://127.0.0.1/operator-page",
-            {"resolver": 1, "classifier": 2,
-             ("public.example", _PUBLIC_IP): 1,
+            {"resolver": 2, "classifier": 3,
+             ("public.example", _PUBLIC_IP): 2,
              ("127.0.0.1", "127.0.0.1"): 1,
              "build_opener": 1, "open": 1, "redirect_site": 1}, id="redirect",
         ),
@@ -376,9 +382,9 @@ def test_loopback_word_near_misses_on_public_urls_remain_admitted(
     assert body.get("ok") is True, body
     host = urlparse(url).hostname
     assert sandbox_harness.counts == Counter({
-        "resolver": 1,
-        "classifier": 1,
-        (host, _PUBLIC_IP): 1,
+        "resolver": 2,
+        "classifier": 2,
+        (host, _PUBLIC_IP): 2,
         "build_opener": 1,
         "open": 1,
     })
@@ -900,8 +906,8 @@ def test_runtime_consumer_census_judges_every_site_without_english_decisions():
     }
     assert measured == expected
     assert noncanonical == expected_noncanonical
-    assert sum(sum(counts.values()) for counts in measured.values()) == 32
-    assert judged == 32
+    assert sum(sum(counts.values()) for counts in measured.values()) == 33
+    assert judged == 33
     _assert_consumer_verdict(judged, escapes)
 
 
@@ -930,9 +936,9 @@ def test_consumer_census_rejects_reason_text_startswith_decision(monkeypatch):
         f"bulk_downloader/app_template.py:{mutant_line}:"
         "_host_why:startswith:['refusing']")
     assert observed == [target]
-    assert judged == 32
+    assert judged == 33
     assert escapes == [expected]
-    with pytest.raises(AssertionError, match=r"census 32 sites, 32 judged"):
+    with pytest.raises(AssertionError, match=r"census 33 sites, 33 judged"):
         _assert_consumer_verdict(judged, escapes)
 
 
@@ -977,7 +983,7 @@ def test_consumer_census_rejects_every_reason_text_decision_form(
     expected = (
         f"bulk_downloader/app_template.py:{mutant_line}:"
         f"_host_why:{kind}:{expected_strings!r}")
-    assert judged == 32
+    assert judged == 33
     assert escapes == [expected]
 
 
@@ -1018,8 +1024,8 @@ def test_consumer_census_resolves_alias_and_ignores_unreachable_decoy(
         f"bulk_downloader/app_template.py:{expected_line}:"
         "_host_why:in:['refusing']")
     assert measured["bulk_downloader/app_template.py"] == Counter(
-        {"_is_safe_public_host": 3, "_classify_ip": 1})
-    assert judged == 32
+        {"_is_safe_public_host": 2, "_classify_ip": 2})
+    assert judged == 33
     assert escapes == [expected_escape]
 
 
@@ -1054,7 +1060,7 @@ def test_consumer_census_finds_alias_only_consumer_in_new_file(monkeypatch):
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     measured, _noncanonical, judged, escapes = _consumer_census()
     assert measured[synthetic_rel] == Counter({"_is_safe_public_host": 1})
-    assert judged == 33
+    assert judged == 34
     assert escapes == []
 
 
@@ -1107,7 +1113,7 @@ def test_consumer_census_rejects_text_decisions_in_indirect_consumers(
 
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     _measured, _noncanonical, judged, escapes = _consumer_census()
-    assert judged == 32
+    assert judged == 33
     assert len(escapes) == 5
     assert Counter(item.split(":", 1)[0] for item in escapes) == Counter({
         "bulk_downloader/multi_conn.py": 2,

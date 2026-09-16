@@ -23,7 +23,7 @@
 // arms the pick and reads the resolved selector back.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";

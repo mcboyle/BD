@@ -70,7 +70,8 @@ def test_typed_body_probe_restores_vpn_kill_switch_state(monkeypatch, request):
         "unknownType": False,
     }
 
-    result = bc.probe_typed(ROOT, [call])
+    # Observe the worker core directly, as the fixture-probe test below does.
+    result = bc._probe_typed_in_process(ROOT, [call])
     assert result, "the injected production probe path did not return a verdict"
     assert fired["probe_kills"] == 2, (
         "both differential requests must reach the real kill endpoint; otherwise "
@@ -110,7 +111,7 @@ def test_literal_body_probe_restores_vpn_kill_switch_state(monkeypatch):
         "shape": "{reason}",
     }
 
-    result = bc.probe(ROOT, [call])
+    result = bc._probe_in_process(ROOT, [call])
     assert result, "the injected production probe path did not return a verdict"
     assert fired["probe_kills"] == 1, (
         "the literal-body probe must reach the real kill endpoint exactly once; "
@@ -186,7 +187,7 @@ def test_probe_serializes_restore_against_concurrent_real_state(monkeypatch):
         return []
 
     monkeypatch.setattr(bc, "_probe_inner", inner)
-    bc.probe(ROOT, [])
+    bc._probe_in_process(ROOT, [])
     holder["thread"].join(2)
     assert completed.is_set(), "the serialized legitimate mutation never resumed"
     assert [row["tunnel_id"] for row in ks.list_kill_states()] == ["concurrent"]
@@ -218,10 +219,38 @@ def test_probe_serializes_restore_against_concurrent_auto_recover_change(monkeyp
         return []
 
     monkeypatch.setattr(bc, "_probe_inner", inner)
-    bc.probe(ROOT, [])
+    bc._probe_in_process(ROOT, [])
     holder["thread"].join(2)
     assert completed.is_set(), "the serialized auto-recover mutation never resumed"
     assert ks.get_auto_recover() is True
+
+
+@pytest.mark.parametrize("typed", [False, True])
+def test_public_body_probe_owns_its_runtime_without_touching_parent(typed, request):
+    from bulk_downloader import vpn_kill_switch as ks
+    from tools import body_contract as bc
+
+    ks.set_auto_recover(False)
+    ks.kill_tunnel("parent", reason="caller state must survive")
+    before = ks.list_kill_states()
+    callback_events = []
+
+    def callback(tunnel_id, state):
+        callback_events.append((tunnel_id, state))
+
+    ks.register_kill_callback(callback)
+    request.addfinalizer(lambda: ks.unregister_kill_callback(callback))
+    call = {"file": "INJECTED.tsx", "fn": "apiPost",
+            "path": "/api/vpn/kill_switch/${}/trigger", "keys": ["reason"],
+            "shape": "{reason}", "sample": {"reason": "worker isolation"},
+            "unknownType": False}
+    cwd, home = os.getcwd(), os.environ.get("BD_HOME")
+    result = (bc.probe_typed if typed else bc.probe)(ROOT, [call])
+    assert len(result) == 1 and result[0]["code"] == 200, result
+    assert ks.list_kill_states() == before
+    assert ks.get_auto_recover() is False
+    assert callback_events == []
+    assert (os.getcwd(), os.environ.get("BD_HOME")) == (cwd, home)
 
 
 def test_fixture_probe_snapshots_kill_switch_before_cold_app_import(tmp_path):

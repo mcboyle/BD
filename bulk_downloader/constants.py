@@ -56,6 +56,7 @@ NON_VIDEO_RE = re.compile(
     r"|_353[pP]"                         # Vixen preview-thumb tier
     r"|_(?:desktop|mobile)\d+sec"        # Naughty America N-second teasers
     r"|previewvideos/"                   # Vixen network preview path
+    r"|/refinementlist(?:\[|%5b)"     # Gamma listing-filter path (row 761)
     ,
     re.I)
 
@@ -65,10 +66,18 @@ SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(tb|gb|mb|kb)\b", re.I)
 
 # Rate-limit indicators. Page text containing any of these triggers a
 # 24-hour cooldown so we don't hammer a site that's pushing back.
+# Row 722s (dorcelclub, 2026-09-15 13:55Z): a bare "forbidden" / "403" ALSO
+# matches marketing copy ("Explore forbidden sexual desires!") in a members
+# page sidebar, which put a healthy site into the 24-hour cooldown with the
+# job silently re-queued. The two block words now only count as the HTTP
+# status phrase they were meant to catch ("403 Forbidden", "Forbidden 403",
+# "Error 403", "Access forbidden"), never as a lone English word.
 RL_RE = re.compile(
     r"rate.?limit|too many requests|try again later|download limit"
     r"|quota exceeded|throttled|wait \d+ (?:hours?|minutes?|seconds?)"
-    r"|access denied|forbidden|403", re.I)
+    r"|access denied|access forbidden"
+    r"|\b403\b\s*[-:|]?\s*forbidden|forbidden\s*[-:|(]?\s*403\b|error\s*403\b",
+    re.I)
 
 # Retry backoff schedule in seconds. After each failed attempt, the next
 # retry waits the corresponding entry. We cap at the last value (1h).

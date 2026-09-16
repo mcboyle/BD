@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G23 (login.vixen.com/i/blacked, Castle.io): the login browser must launch with the SAME profile as the stepper's cloak.cloaked_page -- cloak default args (args=None) and no system-Chrome channel unless use_real_chrome is explicitly True. M1 restores the implicit channel=\"chrome\" (key absent -> True). M2 restores the hand-built launch args list that cloakbrowser merges OVER its stealth defaults.",
+  "subject": "bulk_downloader/login_impl/submit.py",
+  "band": [
+    "tests/test_row722_login_browser_mirrors_stepper_profile.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 implicit channel chrome restored (use_real_chrome absent -> system Chrome)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "if \"use_real_chrome\" in config and config\\.get\\(\"use_real_chrome\"\\):",
+      "new": "if config.get(\"use_real_chrome\",True):",
+      "direction": "regression",
+      "catcher": "tests/test_row722_login_browser_mirrors_stepper_profile.py::test_login_launch_mirrors_cloaked_page_profile"
+    },
+    {
+      "label": "M2 hand-built launch args list restored (overrides cloak stealth defaults)",
+      "file": "bulk_downloader/login_impl/submit.py",
+      "old_regex": "launch_args=None\\n",
+      "new": "launch_args=[\"--no-sandbox\",\"--disable-features=PushMessaging,Translate,AutomationControlled\",\"--disable-blink-features=AutomationControlled\",\"--window-size=1366,800\"]\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722_login_browser_mirrors_stepper_profile.py::test_login_launch_mirrors_cloaked_page_profile"
+    }
+  ]
+}

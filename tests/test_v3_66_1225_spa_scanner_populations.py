@@ -217,6 +217,15 @@ _CLASSIFIED: dict[tuple[str, str], tuple[str, str]] = {
         SELF,
         "The absent-tree arm of the same control; population is a path that "
         "deliberately does not exist."),
+    ("tests/test_row648_react_router_7_migration.py",
+     "test_scanner_finds_a_planted_react_router_dom_import"): (
+        SELF,
+        "Row 648's negative control: plants three files in a tmp tree and "
+        "asserts the react-router-dom specifier scanner names exactly the one "
+        "importer. Population is the tmp tree, by construction. The real gate "
+        "in that file walks git ls-files over frontend/src deliberately "
+        "ALL-SOURCE: a spec importing the removed shim breaks vitest and "
+        "tsc exactly as product code does."),
 }
 
 #: Product-only sites whose behavioural arm is a SIBLING row's, recorded here

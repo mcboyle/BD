@@ -771,7 +771,13 @@ def test_row439_the_gate_does_not_fire_on_unrelated_downloads(tmp_path,
 
 def test_row439_all_six_segmented_arms_reach_the_gate():
     """The row names six arms. Assert the exact per-arm count reaching the
-    shared seam, so a future edit that drops one is caught by number."""
+    shared seam, so a future edit that drops one is caught by number.
+
+    Row 722 (G5, 2026-09-15) added a seventh: the SPA/API media arm
+    (``runner_extractors._try_spa_api_media_extractor``) reaches
+    ``_hls_download_guarded`` for an HLS winner, so the extractors count is
+    now six and the total seven. Declared here, by number, on purpose.
+    """
     hits = []
     for rel in ("bulk_downloader/runner_extractors.py",
                 "bulk_downloader/runner_transport.py"):
@@ -785,6 +791,6 @@ def test_row439_all_six_segmented_arms_reach_the_gate():
     per_file = {}
     for rel, _ in hits:
         per_file[rel] = per_file.get(rel, 0) + 1
-    assert per_file.get("bulk_downloader/runner_extractors.py") == 5, per_file
+    assert per_file.get("bulk_downloader/runner_extractors.py") == 6, per_file
     assert per_file.get("bulk_downloader/runner_transport.py") == 1, per_file
-    assert len(hits) == 6, hits
+    assert len(hits) == 7, hits

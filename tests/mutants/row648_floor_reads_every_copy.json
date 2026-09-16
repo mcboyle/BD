@@ -1,0 +1,53 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 648c. The row 648b cut was REFUTED (VERDICT-shape.md, upheld by O515) because the security floor read only the hoisted lock key / installed manifest, so a nested vulnerable copy escaped; O515 also folds correctness's residual ROW A (the floor value was pinned by nothing, S4 escaped). M1/M2 restore the hoisted-only lock and installed reads and must be CAUGHT by the nested-plant controls; M3 is S4 itself, the react-router floor lowered to 6.0.0, CAUGHT by the advisory pin (a floor value is unavoidably value-bearing: audited exception in test_row357 per OD rule 5); M4 blinds the pin's decision so no floor is ever off its advisory, CAUGHT by the pin's negative control. The band is every node of the floor file EXCEPT test_installed_frontend_dependencies_meet_secure_floors, which needs a node_modules provisioned from THIS lock and is scheduled in the node-provisioned parity-graph shard; the remote pool symlinks its main-era install into every band slot (bd-band-remote.sh), which reads 6.30.5 whatever the reader does, so a band that includes it is RED for reasons outside this spec (the 648c row326-spec lane showed exactly that: BD-MUTATE-UNRUNNABLE, baseline RED). Its reader is covered by M2 through the tmp_path control.",
+  "subject": "the frontend dependency security floor floors EVERY copy of a name (hoisted and nested, in the lock and installed) and its floor values are named advisories' first_patched_version",
+  "band": [
+    "tests/test_frontend_dependency_security_floor.py::test_numeric_semver_rejects_prerelease_versions",
+    "tests/test_frontend_dependency_security_floor.py::test_range_minimum_refuses_unknown_range_shapes",
+    "tests/test_frontend_dependency_security_floor.py::test_a_declared_range_below_the_floor_is_refused",
+    "tests/test_frontend_dependency_security_floor.py::test_a_moved_dependency_is_named_rather_than_raising_keyerror",
+    "tests/test_frontend_dependency_security_floor.py::test_every_recorded_advisory_pins_its_floor_value",
+    "tests/test_frontend_dependency_security_floor.py::test_a_lowered_floor_is_refused_by_advisory_id",
+    "tests/test_frontend_dependency_security_floor.py::test_frontend_declares_secure_direct_dependency_ranges",
+    "tests/test_frontend_dependency_security_floor.py::test_frontend_lock_resolves_secure_dependency_floors",
+    "tests/test_frontend_dependency_security_floor.py::test_a_nested_lock_copy_below_the_floor_is_refused",
+    "tests/test_frontend_dependency_security_floor.py::test_a_nested_installed_copy_below_the_floor_is_refused",
+    "tests/test_frontend_dependency_security_floor.py::test_an_absent_node_modules_is_unknown_rather_than_a_skip",
+    "tests/test_frontend_dependency_security_floor.py::test_every_secure_floor_is_checked_by_every_population"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the lock reader reads only the hoisted copy, so a nested vulnerable copy escapes the floor",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "        if _is_copy_of(key, suffix):\n",
+      "new": "        if key == suffix:  # M1: hoisted copy only, nested copies unread (the 648b escape)\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_a_nested_lock_copy_below_the_floor_is_refused"
+    },
+    {
+      "label": "M2 the installed reader never descends into nested node_modules",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "    for manifest in _nested_manifests(modules, name):\n",
+      "new": "    for manifest in ():  # M2: nested installed copies are never read (the 648b escape)\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_a_nested_installed_copy_below_the_floor_is_refused"
+    },
+    {
+      "label": "M3 the react-router floor is quietly lowered to 6.0.0 (correctness S4)",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old_regex": "(?m)^    \"react-router\": \\(\"7\\.[0-9]+\\.[0-9]+\", \"dependencies\"\\),$",
+      "new": "    \"react-router\": (\"6.0.0\", \"dependencies\"),",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_every_recorded_advisory_pins_its_floor_value"
+    },
+    {
+      "label": "M4 the advisory pin never finds a floor off its advisory",
+      "file": "tests/test_frontend_dependency_security_floor.py",
+      "old": "        if not _floor_matches(floor, first_patched):\n",
+      "new": "        if False:  # M4: no floor is ever off its advisory\n",
+      "direction": "regression",
+      "catcher": "tests/test_frontend_dependency_security_floor.py::test_a_lowered_floor_is_refused_by_advisory_id"
+    }
+  ]
+}

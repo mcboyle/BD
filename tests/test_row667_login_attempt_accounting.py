@@ -104,7 +104,7 @@ def test_both_real_login_callers_spend_the_same_accounting_denominator(
     runner_calls = []
     runner_accounting_counts_at_contact = []
 
-    def runner_do_login(config, allow_manual_takeover=False):
+    def runner_do_login(config, allow_manual_takeover=False, **_kw):
         runner_accounting_counts_at_contact.append(len(accounting_rows))
         runner_calls.append((config, allow_manual_takeover))
         return True, "runner ok", []
@@ -134,7 +134,7 @@ def test_both_real_login_callers_spend_the_same_accounting_denominator(
     keeper_calls = []
     keeper_accounting_counts_at_contact = []
 
-    def keeper_do_login(config, allow_manual_takeover=False):
+    def keeper_do_login(config, allow_manual_takeover=False, **_kw):
         keeper_accounting_counts_at_contact.append(len(accounting_rows))
         keeper_calls.append((config, allow_manual_takeover))
         return False, "fixture rejection", []

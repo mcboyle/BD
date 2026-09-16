@@ -27,7 +27,7 @@ RED on pristine v3.66.291 (proven before implementing):
   * `test_dom_analyzer_link_is_router_link` fails — that control is an `<a>`,
     not a `<Link to="/dom-analyzer">`.
 GREEN after the `<a href="#/dom-analyzer">` → `<Link to="/dom-analyzer">` fix
-(plus the `react-router-dom` Link import).
+(plus the `react-router` Link import).
 
 run_tests.py conventions: zero-arg test functions; repo root from
 Path(__file__).resolve().parent.parent; no pytest builtins.
@@ -107,6 +107,6 @@ def test_dom_analyzer_link_is_router_link():
     )
     # And the Link import must be present so the component compiles.
     assert re.search(
-        r'import\s*\{[^}]*\bLink\b[^}]*\}\s*from\s*["\']react-router-dom["\']',
+        r'import\s*\{[^}]*\bLink\b[^}]*\}\s*from\s*["\']react-router["\']',
         src,
-    ), "CaptureWorkflow.tsx must import { Link } from 'react-router-dom'"
+    ), "CaptureWorkflow.tsx must import { Link } from 'react-router'"

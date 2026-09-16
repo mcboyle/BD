@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Eight regression mutants must be CAUGHT: the complete live population detects disabled code normalization, launch discovery, target resolution, required-owner validation and recursive required-source checks; the live-reference control detects bypassed runbook checks; CLI exit-code and JSON controls detect removed audit/main calls. Catchers are the exact failing nodes recorded by the prior native eight-mutant run. Positive complete-graph, optional-branch and valid-root cases preserve supported behavior. No transform-control mutants are included.",
+  "subject": "tools/install_source_coverage.py: supported Linux installer/provisioner source census, branch-sensitive required launches and CLI diagnostics",
+  "band": [
+    "tests/test_install_source_coverage.py"
+  ],
+  "mutants": [
+    {
+      "label": "delete-the-call _code@tools/install_source_coverage.py:189",
+      "file": "tools/install_source_coverage.py",
+      "old": "digest = hashlib.sha256(_code(match[0]).encode()).hexdigest() if match else None",
+      "new": "digest = hashlib.sha256(None.encode()).hexdigest() if match else None",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_supported_population_is_nonzero_and_complete"
+    },
+    {
+      "label": "delete-the-call _launches@tools/install_source_coverage.py:166",
+      "file": "tools/install_source_coverage.py",
+      "old": "expressions, aliases = _launches(text, owner, root_variables)",
+      "new": "expressions, aliases = None",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_supported_population_is_nonzero_and_complete"
+    },
+    {
+      "label": "delete-the-call _resolve@tools/install_source_coverage.py:178",
+      "file": "tools/install_source_coverage.py",
+      "old": "targets.setdefault(_resolve(expression, aliases), []).append(\n                    (expression, number, service_optional))",
+      "new": "pass",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_supported_population_is_nonzero_and_complete"
+    },
+    {
+      "label": "delete-the-call audit@tools/install_source_coverage.py:217",
+      "file": "tools/install_source_coverage.py",
+      "old": "result = audit(args.root)",
+      "new": "result = None",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_cli_reports_measurement_and_failure_exit_code[False]"
+    },
+    {
+      "label": "invert-the-branch check@tools/install_source_coverage.py:151",
+      "file": "tools/install_source_coverage.py",
+      "old": "if not check(owner, owner):\n            continue",
+      "new": "if not (not check(owner, owner)):\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_supported_population_is_nonzero_and_complete"
+    },
+    {
+      "label": "invert-the-branch check@tools/install_source_coverage.py:200",
+      "file": "tools/install_source_coverage.py",
+      "old": "if required and check(owner, target) and target.endswith(\".sh\"):\n                pending.append(target)",
+      "new": "if not (required and check(owner, target) and target.endswith(\".sh\")):\n                pending.append(target)",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_supported_population_is_nonzero_and_complete"
+    },
+    {
+      "label": "invert-the-branch check@tools/install_source_coverage.py:206",
+      "file": "tools/install_source_coverage.py",
+      "old": "if not check(owner, reference[\"document\"]):\n                continue",
+      "new": "if not (not check(owner, reference[\"document\"])):\n                continue",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_live_entry_reference_must_resolve"
+    },
+    {
+      "label": "delete-the-call main@tools/install_source_coverage.py:223",
+      "file": "tools/install_source_coverage.py",
+      "old": "raise SystemExit(main())",
+      "new": "raise SystemExit(None)",
+      "direction": "regression",
+      "catcher": "tests/test_install_source_coverage.py::test_cli_reports_measurement_and_failure_exit_code[False]"
+    }
+  ]
+}

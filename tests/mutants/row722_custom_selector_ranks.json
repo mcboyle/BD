@@ -1,0 +1,24 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G30 (vip4k a.download__item x5, quality_preference 1080,720, min_resolution 1080; the runner took 360p at score 9999): M1 restores `.first` by never ranking a multi-match selector; M2 drops the runner's quality preference from the ranked pick.",
+  "subject": "bulk_downloader/detect.py",
+  "band": ["tests/test_row722_custom_selector_ranks_by_quality.py"],
+  "mutants": [
+    {
+      "label": "M1 `.first` restored: multi-match never ranked",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "if n_custom>1:",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_custom_selector_ranks_by_quality.py::test_five_matches_with_preference_1080_720_pick_1080"
+    },
+    {
+      "label": "M2 quality preference ignored on the ranked pick",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "if qpref and callable\\(apply_pref\\):",
+      "new": "if False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_custom_selector_ranks_by_quality.py::test_five_matches_with_preference_1080_720_pick_1080"
+    }
+  ]
+}

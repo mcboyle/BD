@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1563 - post-D4 consolidation: 722s 648 657 687 728 759 761 769 811 817 819
+
+Train: 11 refute-first-reviewed worker patches.
+
+- row722 (superset 722s): split-egress / uncapped keeper relogins -- login browser mirrors the stepper's cloak profile, login cap survives restart, media leaf names fall back to title, operator-decision transform control; read-count corrections vs rows 772/813 (per ruling); rebased onto the ten-row tree.
+- row648: react-router 7 migration owed -- Link/useNavigate backslash redirect and deserializeErrors() injection closed; frontend dependency floor raised (react-router >= 7.18.0).
+- row657: band-order timeout mechanism -- 240s pytest-timeout ordering failures pinned; band composition made deterministic.
+- row687: linux install source coverage -- downloader.spec/install path coverage for the Linux-only install (Windows retired O289/O292/O295); mutant anchors added to test_row357.
+- row728: three urllib seams resolve twice without pinning (T3 security) -- check_url then urlopen share one resolved address; no TOCTOU between the public check and the connect.
+- row759: gamma trigger misses modal label -- hrefless Download div -> modal live label; _download_from_revealed_modal binds the best candidate and refuses no_selection (row787 census 5->6).
+- row761 (761b): download ranker prefers listing-facet quality token -- cross-origin facet queries are never listing links; origin policy decides first (E1f fix: _is_cross_origin_filter_query guard on the 722s listing-query rule).
+- row769: login logs lack site id under concurrency -- every `login:` line carries sid via a decorator that exposes __wrapped__/__signature__.
+- row811: row726 body-contract tests fail under run_tests runtime -- runtime body-contract tests made runtime-independent.
+- row817: row700 captcha egress ack field pop self-mutant escapes -- test hardening; mutant anchors added to test_row357 (+3).
+- row819: row656 permit validator authorises a tree it never checked -- validator now binds the tree it judged (harness tooling).
+- register: rows 676 717 772 796 815 stamped CLOSED @1562 (landed in v3.66.1562 a035a2fb; closes carried here per O309/FR31).
+- gates: import-graph baseline re-frozen once (4574 edges); ratchet re-pinned (DP 1368->1399, coupling 0.382->0.384; landing/RATCHET-trainE1-DP-1368-1371-intA-0248Z.md); xdist scope fix in test_row_286; row357 anchor union (648/687/817/722s).
+
 ## v3.66.1562 - row796 astra literal redaction; row772 astra settling and settled login outcomes; row815 credleak D1 probe; row717 fresh-host bringup doc gate; row676 challenge classification repair
 
 Train: 5 refute-first-reviewed worker patches.

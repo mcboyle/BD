@@ -99,7 +99,7 @@ ITEMS = [
 {
         "id": "wowgirls_network",
         "name": "WowGirls / VIP4K-network (login + 4 download variants)",
-        "description": "Sites in the WowGirls / VIP4K operator family. Covers all four HTML variants seen across their brands: <a class='ct_dl_button' href>, <div class='download-button' data-href>, <a class='download__item' data-download>, and the floating #exDownloadMenu quality menu. Uses v3.42.4 per-selector url_attribute so one site config handles every variant. v3.43.54: quality_preference defaults to 4K-first because the network's 5K (5568×3132) and 8K (7680×4320) CDN tiers are flaky — workers prefer the reliable 4K. To use higher tiers, edit the site's quality_preference to start with 4320 or 3132.",
+        "description": "VERIFIED 2026-09-15 (row 722) on wowgirls: login https://auth.wowgirls.com/login (submit control [class*='submit-button' i]; no captcha), whose submit navigates to https://venus.wowgirls.com/ -- a different host of the same brand, accepted only because success_url declares it; scenes are /film/<id>/<slug> and carry four plain <a href> rows with absolute .mp4 links (1920x1080, 1280x720, 3840x2160, 7680x4320), no menu/trigger; picked 7680x4320 60fps (7.6 GB). The login_url/success_url defaults below are the wowgirls.com ones; vip4k.com has its own verified defaults on `vip4k_family`. Sites in the WowGirls / VIP4K operator family. Covers all four HTML variants seen across their brands: <a class='ct_dl_button' href>, <div class='download-button' data-href>, <a class='download__item' data-download>, and the floating #exDownloadMenu quality menu. Uses v3.42.4 per-selector url_attribute so one site config handles every variant. v3.43.54: quality_preference defaults to 4K-first because the network's 5K (5568×3132) and 8K (7680×4320) CDN tiers are flaky — workers prefer the reliable 4K. To use higher tiers, edit the site's quality_preference to start with 4320 or 3132.",
         "patterns": [
             r"wowgirls\.com",
             r"vip4k\.com",
@@ -143,6 +143,8 @@ ITEMS = [
                     "input.input__area[type='password']",
                 ],
                 "submit_btn": [
+                    # Row 722 (2026-09-15): the measured auth.wowgirls.com control.
+                    "[class*='submit-button' i]",
                     "form.login button[type='submit']",
                     "button.btn--primary[type='submit']",
                     "button[type='submit']:has-text('Log in')",
@@ -160,12 +162,15 @@ ITEMS = [
                     "a.ct_dl_button[href]",
                     "a.download__item[data-download]",
                     "#exDownloadMenu .exp-menu-item",
+                    # Row 722 (2026-09-15): venus.wowgirls.com film pages expose
+                    # plain absolute-mp4 anchors, one per tier.
+                    "a[href*='.mp4']",
                 ],
                 # v3.42.4: parallel list — each row_selector gets its own
                 # attribute. Empty slot = click-and-capture path (the
                 # floating menu serves via a JS-resolved download event,
                 # no static URL attribute to read).
-                "url_attribute": ["data-href", "href", "data-download", ""],
+                "url_attribute": ["data-href", "href", "data-download", "", "href"],
                 "tier_labels_seen": ["8K", "6K", "5K", "4K", "2160p", "1080p", "720p"],
             },
         },
@@ -178,7 +183,13 @@ ITEMS = [
             # fallback ladder. If a user genuinely wants to chase
             # 5K/8K they can append ',4320,3132,2880' to this
             # preference list via the site edit form.
-            "quality_preference": "2160,1080,720",
+            # Row 722 (2026-09-15): the verified wowgirls run took the 8K
+            # (7680x4320) tier cleanly with the ladder below, so the 4K-first
+            # default above is superseded; trim the list to start at 2160 if
+            # the 5K/8K CDN misbehaves for an account.
+            "login_url": "https://auth.wowgirls.com/login",
+            "success_url": "https://venus.wowgirls.com/",
+            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,

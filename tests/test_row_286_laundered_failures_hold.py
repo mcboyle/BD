@@ -252,19 +252,25 @@ def test_f37_hash_file_io_error_is_quarantined_not_verified(monkeypatch, tmp_pat
         raise OSError("row-286 digest read unavailable")
 
     db_rows = []
-    monkeypatch.setattr(builtins, "open", unreadable_open)
     monkeypatch.setattr(
         runner_integrity, "db_log", lambda *args: db_rows.append(args)
     )
     probe = HashProbe()
-    result = probe._verify_hash_or_quarantine(
-        "https://example.test/hash-io",
-        "sha256",
-        "0" * 64,
-        final,
-        final.name,
-        final.stat().st_size,
-    )
+    # The builtins.open raiser is confined to the product call. pytest fires
+    # pytest_runtest_logreport(when="call") BEFORE fixture teardown, so a
+    # function-scoped patch of builtins.open would still be live when report
+    # hooks run -- bd-precut's in-flight recorder plugin appends to a log
+    # file there, and hit this raiser as an INTERNALERROR on the gate.
+    with monkeypatch.context() as scoped:
+        scoped.setattr(builtins, "open", unreadable_open)
+        result = probe._verify_hash_or_quarantine(
+            "https://example.test/hash-io",
+            "sha256",
+            "0" * 64,
+            final,
+            final.name,
+            final.stat().st_size,
+        )
 
     assert result is False
     assert open_calls == [(final, "rb")]

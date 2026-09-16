@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722s live (hustlerunlimited 2026-09-15): the age modal's only control is 'Yes, I'm Over 18'; the age tier admitted only 'I agree, enter'. M1 removes the bare affirmation arm; M2 lets a sentence through by dropping the end anchor. (Dropping the trailing $ is an EQUIVALENT mutant: the product matches the tier with fullmatch, so it carries no mutant.)",
+  "subject": "bulk_downloader/interstitial.py",
+  "band": [
+    "tests/test_row722s_over_18_affirmation_clears_the_age_modal.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 drop the bare over-18 affirmation arm",
+      "file": "bulk_downloader/interstitial.py",
+      "old_regex": "\\ \\ \\ \\ \\ \\ \\ \\ r\"\\(\\?:yes\\[,\\ \\]\\+\\)\\?i\\(\\?:\\ am\\|'m\\)\\ \\(\\?:over\\ \\|at\\ least\\ \\)\\?\\(\\?:18\\|21\\)\"\\\n",
+      "new": "        r\"(?!x)x\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_over_18_affirmation_clears_the_age_modal.py::test_the_hustler_modal_is_cleared_by_its_affirmation"
+    }
+  ]
+}

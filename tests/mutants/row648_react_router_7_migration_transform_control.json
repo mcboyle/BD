@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for row648_react_router_7_migration.json. This spec must ESCAPE: it applies the identical M3 transform (App.tsx imports react-router-dom again) while running only the manifest test, which never reads frontend/src. The main battery must classify the same transform as CAUGHT, proving CAUGHT is the scanner's behaviour and not a broken file. Its anchor is the same value-bearing App.tsx specifier line as M3 and is registered in the row357 stable-value exception registry as the transform control (OD rule 5).",
+  "subject": "transform-only control proving the App.tsx re-import is a valid edit the manifest test cannot see",
+  "band": [
+    "tests/test_row648_react_router_7_migration.py::test_frontend_declares_react_router_7_and_no_react_router_dom"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 App.tsx re-imports react-router-dom while only the manifest test runs",
+      "file": "frontend/src/App.tsx",
+      "old": "import { Routes, Route, Navigate } from \"react-router\";",
+      "new": "import { Routes, Route, Navigate } from \"react-router-dom\";",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_frontend_declares_react_router_7_and_no_react_router_dom"
+    }
+  ]
+}

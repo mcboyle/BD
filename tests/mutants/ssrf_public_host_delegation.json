@@ -1,7 +1,7 @@
 {
  "schema": "bd-mutate-spec/1",
- "_comment": "Durable module battery, not a per-cut one. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/ssrf_public_host_delegation.json --work <a detached scratch clone OUTSIDE this repository>. Re-derive the population with: git grep -n '_is_safe_public_host(' -- bulk_downloader/ minus the definition itself; a site that command reports and this spec does not name means the battery is out of date. NOTHING RUNS THAT COMMAND: no gate asserts set-equality between it and this spec, so the population is checked by whoever reads this, not by the tree. The paired transform control must ESCAPE.",
- "subject": "every call site of the canonical host classifier _is_safe_public_host that `git grep '_is_safe_public_host(' -- bulk_downloader/` reports, minus its definition, is reached by a test that fails when that call FAILS OPEN -- the population is that command's output, not every caller in the tree",
+ "_comment": "Durable module battery, not a per-cut one. Re-run: toolchain/bin/bd-mutate --spec tests/mutants/ssrf_public_host_delegation.json --work <a detached scratch clone OUTSIDE this repository>. Re-derive the host-classifier population with: git grep -n '_is_safe_public_host(' -- bulk_downloader/ minus the definition itself. The template redirect is now a per-IP callback in its pinned opener, and is separately named below because that callback is the value-bearing redirect guard. NOTHING RUNS these derivations: the population is checked by whoever reads this, not by the tree. The paired transform control must ESCAPE.",
+ "subject": "every named canonical host-classifier call site, plus the template pinned-redirect per-IP callback that superseded its old redirect host check, is reached by a test that fails when that classification FAILS OPEN",
  "band": [
   "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_a_redirect_hop_to_a_non_public_host",
   "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata",
@@ -46,10 +46,10 @@
    "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_link_local_metadata"
   },
   {
-   "label": "S4_template_redirect",
+   "label": "S4_template_pinned_redirect",
    "file": "bulk_downloader/app_template.py",
-   "old_regex": "_is_safe_public_host\\(\\n\\s+_urlparse\\(newurl\\)\\.hostname",
-   "new": "(True, _urlparse(newurl).hostname",
+   "old_regex": "(?m)(?<=^                _ok, _why = )_host_safety\\._classify_ip(?=\\(address, host\\)$)",
+   "new": "(lambda _address, _host: (True, None))",
    "direction": "regression",
    "catcher": "tests/test_c1_ssrf_and_fileread.py::test_sandbox_refuses_a_redirect_hop_to_a_non_public_host"
   },

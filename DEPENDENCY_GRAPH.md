@@ -10,8 +10,8 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1746**
-- tools: 229 · with internal edge: 133 · with tool→package edge: 74
+- internal import edges: **1757**
+- tools: 230 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 161 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
@@ -30,8 +30,8 @@ Graph version: 1
 - `bulk_downloader/runner.py`: 15
 - `bulk_downloader/site_editor.py`: 15
 - `bulk_downloader/capture_artifact_redact.py`: 14
+- `bulk_downloader/registrable_domain.py`: 14
 - `bulk_downloader/capture_redact.py`: 13
-- `bulk_downloader/registrable_domain.py`: 13
 - `tools/report_core.py`: 13
 - `bulk_downloader/app_dev.py`: 12
 - `bulk_downloader/session_keeper.py`: 12
@@ -177,7 +177,7 @@ Graph version: 1
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
 - **synthetic_tests** (`app_synthetic_tests.py`) — routes 2, providers 1
 - **tags** (`app_tags.py`) — routes 9, providers 1
-- **template** (`app_template.py`) — routes 5, providers 3
+- **template** (`app_template.py`) — routes 5, providers 4
 - **template_manager** (`app_template_manager.py`) — routes 7, providers 6
 - **template_manager_ui** (`app_template_manager_ui.py`) — routes 3, providers 3
 - **templates** (`app_templates.py`) — routes 1, providers 1

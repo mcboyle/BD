@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G20 (nookies.com/membersarea/video/3480 09:2xZ): the scorer took the /tag/4k listing link as the 4K download; the real control is a bare <button>Download</button> revealing hidden /video/stream/<id> anchors. M1 drops the listing-link exclusion (tag link chosen again); M2 drops the reveal path (nothing fired, modal-trigger hint).",
+  "subject": "bulk_downloader/detect.py",
+  "band": [
+    "tests/test_row722_reveal_download_and_listing_links.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 listing-link exclusion dropped",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "_listing = _listing_link_path\\(t\\)",
+      "new": "_listing = \"\"",
+      "direction": "regression",
+      "catcher": "tests/test_row722_reveal_download_and_listing_links.py::test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream"
+    },
+    {
+      "label": "M2 reveal path dropped",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "trigger = _reveal_trigger_for\\(loc\\)",
+      "new": "trigger = None",
+      "direction": "regression",
+      "catcher": "tests/test_row722_reveal_download_and_listing_links.py::test_the_row_listing_links_are_not_candidates_and_reveal_picks_the_stream"
+    },
+    {
+      "label": "M3 listing filter-query links admitted again",
+      "file": "bulk_downloader/detect.py",
+      "old_regex": "if \\(_LISTING_QUERY_RE\\.search\\(query\\)",
+      "new": "if (False",
+      "direction": "regression",
+      "catcher": "tests/test_row722_reveal_download_and_listing_links.py::test_a_listing_filter_query_link_is_a_listing_link_too"
+    }
+  ]
+}

@@ -1,10 +1,13 @@
 """login_impl.submit -- verbatim cluster from login.py @v447 (DECOMP-LEAF cut 3)."""
 
+import re
+import inspect
 import sys
 import time
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
+from ..log import login_site, site_tag
 from ..cookies import pw_to_json
 from ..interstitial import _origin
 from ._common import (
@@ -12,17 +15,48 @@ from ._common import (
     _fire_login_trigger_if_needed,
     _try_click,
     _try_fill,
+    log_url,
 )
 from .manual import _MANUAL_LOGIN_BANNER_JS
 from .replay import (
     LOGIN_SETTLED_NO_NAV,
     LoginOutcome,
     _looks_authenticated,
+    anonymous_surface_check,
     member_state_check,
     redact_url_credentials,
     replay_saved_login_flow,
+    keep_pre_submit_screenshot,
+    success_url_reached,
     write_login_evidence,
 )
+
+
+def _brand_host(url):
+    """Lower-cased hostname of an http(s) URL, or "" when unmeasurable."""
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(url or "")
+        if parsed.scheme.lower() not in ("http", "https"):
+            return ""
+        return (parsed.hostname or "").lower()
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
+def _same_brand_origin(login_url, landed_url):
+    """Row 722 (G17): do the login page and the page the submit landed on
+    share a registrable domain (eTLD+1)?  site-ma.brazzers.com ->
+    www.brazzers.com and www.blacked.com -> members.blacked.com/oidc are
+    the SAME brand: recorded and judged, never refused for the origin
+    alone.  accounts.google.com is a FOREIGN domain: row 774's refusal
+    stands.  Fails closed on anything unmeasurable."""
+    from ..registrable_domain import registrable_domain
+    a, b = _brand_host(login_url), _brand_host(landed_url)
+    if not a or not b:
+        return False
+    da, db = registrable_domain(a), registrable_domain(b)
+    return bool(da) and "." in da and da == db
 
 
 def _no_nav_verdict(page, config, cookies, why, phase, hard_close):
@@ -45,11 +79,11 @@ def _no_nav_verdict(page, config, cookies, why, phase, hard_close):
     if confirmed:
         info = (f"OK \u2014 {len(cookies)} cookies ({phase}; {why}; "
                 f"member state confirmed: {member_why}; evidence {evidence})")
-        sys.stderr.write(f"  login: {info}\n")
+        sys.stderr.write(f"  {site_tag()}login: {info}\n")
         return True, info, cookies
     info = (f"{LOGIN_SETTLED_NO_NAV} ({why}; no navigation; {member_why}"
             f"{'; evidence ' + evidence if evidence else ''}) \u2014 NOT success")
-    sys.stderr.write(f"  login: {info}\n")
+    sys.stderr.write(f"  {site_tag()}login: {info}\n")
     return (LoginOutcome(LOGIN_SETTLED_NO_NAV, False, evidence, why),
             info, cookies)
 
@@ -81,7 +115,7 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
     if not cont_ok:
         return False, f"staged-login: no continue affordance ({cont_info})"
     sys.stderr.write(
-        f"  login: password field absent; clicked continue [{cont_info}] — "
+        f"  {site_tag()}login: password field absent; clicked continue [{cont_info}] — "
         f"retrying password fill (staged login)\n")
     # Give the next screen a moment to render before re-attempting. Best-effort:
     # if no password field shows up, _try_fill below fails fast and we hand off.
@@ -93,24 +127,320 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
     return _try_fill(page, pf_candidates, password, "password (after continue)")
 
 
-def _wait_captcha_tokens(page,deadline=30):
+TURNSTILE_IFRAME_SEL="iframe[src*='challenges.cloudflare.com']"
+
+
+def _click_turnstile_checkbox(page):
+    """Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
+    ("Verify you are human") never populates its token until the box is
+    clicked.  Operator decision: click it -- it is a browser-fingerprint
+    check, not a puzzle.  Only Turnstile is ever clicked; hCaptcha and
+    reCAPTCHA can open image puzzles and are left alone.  Returns True when
+    a click was delivered."""
+    # blacked/vixen (15:2xZ): the widget iframe is cross-origin AND inside
+    # a closed shadow root -- no DOM selector reaches it, but the browser's
+    # frame tree still lists it. Go by frame URL first.
+    try:
+        for fr in page.frames:
+            if "challenges.cloudflare.com" not in (fr.url or ""):
+                continue
+            try:
+                box=fr.locator("input[type=checkbox]").first
+                if box.count():
+                    box.click(timeout=3000, force=True)
+                    sys.stderr.write(f"  {site_tag()}login: turnstile checkbox clicked via frame tree\n")
+                    return True
+            except Exception:
+                pass
+            try:
+                body=fr.locator("body").first
+                bb=body.bounding_box() or {}
+                h=bb.get("height") or 65
+                body.click(timeout=3000, position={"x":30,"y":min(h/2, 32)}, force=True)
+                sys.stderr.write(f"  {site_tag()}login: turnstile frame body clicked via frame tree\n")
+                return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        frame=page.frame_locator(TURNSTILE_IFRAME_SEL).first
+        box=frame.locator("input[type=checkbox]").first
+        if box.count():
+            box.click(timeout=3000, force=True)
+            return True
+    except Exception:
+        pass
+    # Closed shadow root or no reachable checkbox: click the widget body
+    # where the box sits (left edge, vertically centred).
+    # vip4k live (10:3xZ): the iframe itself can sit inside a CLOSED shadow
+    # root under the widget container, invisible to every selector -- so the
+    # container (div.cf-turnstile / div.g-recaptcha[data-sitekey]) is the
+    # last anchor a click can be delivered to.
+    # login.vixen.com/.../login/challenge (13:2xZ): the host div has a
+    # RANDOM id (<div id="lVJB5" style="display: grid">) -- no selector
+    # names it. Derive it from the token field: the widget is the sibling
+    # box beside input[name=cf-turnstile-response] that is rendered at
+    # widget size. Tag it so the positional click below can reach it.
+    try:
+        _how=page.evaluate(_TAG_TURNSTILE_HOST_JS)
+        sys.stderr.write(f"  {site_tag()}login: turnstile host search: {_how}\n")
+    except Exception as e:
+        sys.stderr.write(f"  {site_tag()}login: turnstile host search failed: {e}\n")
+    for sel in (TURNSTILE_IFRAME_SEL, *TURNSTILE_CONTAINER_SELS,
+                "[data-bd-turnstile-host]"):
+        try:
+            widget=page.locator(sel).first
+            if not widget.count():
+                continue
+            bb=widget.bounding_box() or {}
+            h=bb.get("height") or 65
+            widget.click(timeout=3000, position={"x":30,"y":h/2})
+            return True
+        except Exception:
+            continue
+    return False
+
+
+_TAG_TURNSTILE_HOST_JS = """() => {
+  const tok = document.querySelector('input[name="cf-turnstile-response"]');
+  if (!tok) return 'no-token-field';
+  const rect = el => el.getBoundingClientRect();
+  const sized = el => { const r = rect(el); return r.width >= 200 && r.height >= 50 && r.height <= 120; };
+  const tag = (el, how) => { el.setAttribute('data-bd-turnstile-host', how);
+    const r = rect(el); return `${how} ${el.tagName.toLowerCase()}#${el.id||'-'} ${Math.round(r.width)}x${Math.round(r.height)}`; };
+  // login.vixen.com (14:3xZ): the token input sits INSIDE the host
+  // (div#<random> > div > div > input) -- walk up first.
+  let el = tok.parentElement;
+  for (let up = 0; el && up < 6; up++, el = el.parentElement) {
+    if (sized(el)) return tag(el, 'ancestor');
+  }
+  // Otherwise the widget-sized box beside the token field.
+  const scopes = [tok.parentElement, tok.parentElement && tok.parentElement.parentElement].filter(Boolean);
+  for (const scope of scopes) {
+    for (const cand of scope.querySelectorAll('div, span')) {
+      if (cand.contains(tok)) continue;
+      if (sized(cand) && cand.querySelectorAll('input, button, a').length === 0) return tag(cand, 'sibling');
+    }
+  }
+  // Last resort (15:1xZ, vixen attempt 4 found nothing sized): the
+  // grandparent of the token field, whatever its box says.
+  const gp = tok.parentElement && tok.parentElement.parentElement;
+  if (gp) return tag(gp, 'grandparent');
+  return 'no-host';
+}"""
+TURNSTILE_CONTAINER_SELS=(".cf-turnstile","div.g-recaptcha[data-sitekey]",
+                          "[data-sitekey][class*=turnstile]",
+                          # login.vixen.com/.../login/challenge: the managed
+                          # challenge renders an explicit widget <div id=cf-chl-widget-xxxx>
+                          "div[id^=cf-chl-widget-]","#challenge-stage")
+HUMAN_BUTTON_RE=re.compile(r"^\s*(?:i am human|i'm human|verify(?: you are human)?)\s*$", re.I)
+
+
+def _click_human_button(page):
+    """A visible button/role=button whose whole text is an 'I am human' /
+    'Verify' affordance on a challenge page. Returns True when clicked."""
+    try:
+        btns=page.locator("button, [role=button], input[type=submit]")
+        for i in range(min(btns.count(), 30)):
+            b=btns.nth(i)
+            try:
+                if not b.is_visible():
+                    continue
+                label=(b.inner_text() if b.evaluate("e => e.tagName") != "INPUT"
+                       else (b.get_attribute("value") or ""))
+                aria=b.get_attribute("aria-label") or ""
+            except Exception:
+                continue
+            # stepsiblingscaught live: <div role=button aria-label="Verify you
+            # are human"> whose text is "✓ I am human" -- read the aria-label
+            # too and drop the decoration glyphs before matching.
+            for cand in (label, aria):
+                cand=re.sub(r"[^A-Za-z' ]+", " ", cand or "").strip()
+                if cand and HUMAN_BUTTON_RE.match(cand):
+                    b.click(timeout=3000)
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+CF_CHALLENGE_SELS=("#challenge-running","#challenge-form",".cf-turnstile",
+                   TURNSTILE_IFRAME_SEL)
+SITE_CHALLENGE_SELS=("[id*=turnstile i][role=button]","[class*=turnstile-checkbox]",
+                     "[role=button][aria-label='Verify you are human' i]")
+CF_CHALLENGE_TITLE="just a moment"
+
+
+def _is_cloudflare_challenge_page(page):
+    """True when the page is a Cloudflare managed-challenge interstitial
+    ("Just a moment..." / cf-chl) rather than a login form: a challenge
+    marker is present AND no password field is visible.  An unreadable
+    title (page gone) is never a challenge."""
+    try:
+        title=(page.title() or "").lower()
+    except Exception:
+        return False
+    marked=CF_CHALLENGE_TITLE in title
+    if not marked:
+        for sel in CF_CHALLENGE_SELS:
+            try:
+                if page.locator(sel).count():
+                    marked=True; break
+            except Exception:
+                continue
+    if not marked:
+        # stepsiblingscaught (14:5xZ): a SITE-DRAWN challenge -- title
+        # "Security Check", path /turnstile/challenge, a
+        # #turnstileCheckboxWrapper[role=button aria-label="Verify you are
+        # human"] -- carries none of Cloudflare's own markers.
+        try:
+            cur=(page.url or "").lower()
+        except Exception:
+            cur=""
+        if ("security check" in title or "/turnstile/challenge" in cur):
+            marked=True
+        else:
+            for sel in SITE_CHALLENGE_SELS:
+                try:
+                    if page.locator(sel).count():
+                        marked=True; break
+                except Exception:
+                    continue
+    if not marked:
+        return False
+    try:
+        if page.locator("input[type=password]:visible").count():
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
+    """Row 722 (adulttime): every login URL answers 307->403 with a
+    Cloudflare managed challenge page ("Just a moment...", Turnstile
+    CHECKBOX "Verify you are human" in a challenges.cloudflare.com iframe).
+    The walker never saw a form and gave up with "Couldn't find username
+    field".  Operator decision: the Turnstile checkbox may be clicked
+    (never a puzzle).  Reuses the G11 click helper, then waits up to
+    ``wait`` seconds for navigation away from the challenge or a visible
+    password field.  At most ``max_rounds`` clicks.  Returns True when the
+    challenge cleared, False when there was no challenge or it did not
+    clear.  hCaptcha / reCAPTCHA pages are never touched."""
+    if not _is_cloudflare_challenge_page(page):
+        return False
+    for _round in range(max_rounds):
+        try:
+            # A container is only trusted as Turnstile when no OTHER captcha
+            # iframe (hCaptcha / reCAPTCHA: puzzle risk) is on the page.
+            _foreign=page.locator(
+                "iframe[src*='hcaptcha'], iframe[src*='recaptcha']").count()>0
+            try:
+                page.evaluate(_TAG_TURNSTILE_HOST_JS)
+            except Exception:
+                pass
+            _frame_widget=any("challenges.cloudflare.com" in (fr.url or "")
+                              for fr in page.frames)
+            _has_widget=(_frame_widget or page.locator(TURNSTILE_IFRAME_SEL).count()>0 or (
+                not _foreign and any(page.locator(sel).count()>0
+                                     for sel in (*TURNSTILE_CONTAINER_SELS,
+                                                 "[data-bd-turnstile-host]"))))
+        except Exception:
+            return False
+        if not _has_widget:
+            # stepsiblingscaught live (11:3xZ): /turnstile/challenge carries
+            # only a site-drawn "I am human" button. That is the same
+            # fingerprint check, not a puzzle: press it once.
+            if _click_human_button(page):
+                sys.stderr.write(f"  {site_tag()}login: cloudflare challenge page — clicked "
+                                 "'I am human' button\n")
+            else:
+                # blacked live (13:1xZ): the widget is already in its
+                # "Verifying..." / "Verification successful. Waiting for
+                # <host> to respond" state -- nothing to click, but the page
+                # WILL navigate on its own. Wait for that before giving up.
+                sys.stderr.write(f"  {site_tag()}login: cloudflare challenge page — no "
+                                 "Turnstile checkbox to click; waiting for "
+                                 "auto-verification\n")
+                # blacked (14:3xZ): Cloudflare can DOWNGRADE from auto-verify
+                # to an interactive checkbox mid-wait -- re-look every poll,
+                # and give the round trip twice the budget.
+                end=time.time()+wait*2
+                _clicked_late=False
+                while time.time()<end:
+                    if not _is_cloudflare_challenge_page(page):
+                        try: cur=page.url
+                        except Exception: cur="?"
+                        sys.stderr.write(f"  {site_tag()}login: challenge cleared -> {cur}\n")
+                        return True
+                    if not _clicked_late:
+                        try:
+                            page.evaluate(_TAG_TURNSTILE_HOST_JS)
+                            _late=(any("challenges.cloudflare.com" in (fr.url or "")
+                                       for fr in page.frames)
+                                   or page.locator(TURNSTILE_IFRAME_SEL).count()>0 or (
+                                not _foreign and any(
+                                    page.locator(sel).count()>0
+                                    for sel in (*TURNSTILE_CONTAINER_SELS,
+                                                "[data-bd-turnstile-host]"))))
+                        except Exception:
+                            _late=False
+                        if _late and _click_turnstile_checkbox(page):
+                            _clicked_late=True
+                            sys.stderr.write(f"  {site_tag()}login: cloudflare challenge page — "
+                                             "checkbox appeared during the wait; "
+                                             "clicked Turnstile checkbox\n")
+                    time.sleep(0.5)
+                sys.stderr.write(f"  {site_tag()}login: challenge NOT cleared within {int(wait*2)}s "
+                                 "(no checkbox, no auto-verification)\n")
+                return False
+        elif not _click_turnstile_checkbox(page):
+            sys.stderr.write(f"  {site_tag()}login: cloudflare challenge page — Turnstile "
+                             "checkbox click failed\n")
+            return False
+        else:
+            sys.stderr.write(f"  {site_tag()}login: cloudflare challenge page — clicked "
+                             "Turnstile checkbox\n")
+        end=time.time()+wait
+        while time.time()<end:
+            if not _is_cloudflare_challenge_page(page):
+                try: cur=page.url
+                except Exception: cur="?"
+                sys.stderr.write(f"  {site_tag()}login: challenge cleared -> {cur}\n")
+                return True
+            time.sleep(0.5)
+    sys.stderr.write(f"  {site_tag()}login: challenge NOT cleared within {int(wait)}s "
+                     "(still 'Just a moment')\n")
+    return False
+
+
+def _wait_captcha_tokens(page,deadline=30,turnstile_click_after=4.0):
     """Detect and wait for any of the three major invisible captchas to
-    populate their hidden token field. Returns (token_name, seconds_waited)
-    if a field was present (regardless of whether it filled in time), or
-    (None, 0) if no captcha is on the page."""
+    populate their hidden token field.  Returns (token_name, seconds_waited)
+    when the token populated, (token_name, None) when a field was present
+    but NEVER populated within ``deadline``, or (None, 0) if no captcha is
+    on the page.  For cf-turnstile-response only, an empty token after
+    ``turnstile_click_after`` seconds gets the Turnstile checkbox clicked
+    (checkbox-mode widgets never populate on their own)."""
     for tok in ("cf-turnstile-response","h-captcha-response","g-recaptcha-response"):
         sel=f"input[name='{tok}']"
         try:
             if page.locator(sel).count()==0: continue
         except Exception: continue
-        start=time.time(); end=start+deadline
+        start=time.time(); end=start+deadline; clicked=False
         while time.time()<end:
             try:
                 v=page.locator(sel).first.input_value()
                 if v: return tok,time.time()-start
             except Exception: pass
+            if (tok=="cf-turnstile-response" and not clicked
+                    and time.time()-start>=turnstile_click_after):
+                clicked=True
+                if _click_turnstile_checkbox(page):
+                    sys.stderr.write(f"  {site_tag()}login: clicked Turnstile checkbox\n")
             time.sleep(0.5)
-        return tok,deadline
+        return tok,None
     return None,0
 
 
@@ -297,7 +627,44 @@ def _build_submit_fallbacks():
 SUBMIT_FALLBACKS=_build_submit_fallbacks()
 
 
-def _submit_login(page,sb_candidates,pf_candidates):
+# Row 722 (kink.com): the login page carries a hidden duplicate form ahead of
+# the visible one, so "the first password field's form" is the wrong form.
+# Every JS-scoped submit method resolves the form through THIS function: the
+# password field a human can see (a rendered box), preferring the one that
+# already holds the typed value; the first match only when none is visible;
+# the first form only when no candidate matches at all.
+_LOGIN_FORM_JS = """(sels) => {
+    const seen = (el) => el.getClientRects().length > 0;
+    let first = null, visible = null, filled = null;
+    for (const sel of sels) {
+        let matches = [];
+        try { matches = document.querySelectorAll(sel); } catch (e) { continue; }
+        for (const pf of matches) {
+            const f = pf.closest('form');
+            if (!f) continue;
+            if (!first) first = f;
+            if (seen(pf)) {
+                if (!visible) visible = f;
+                if (pf.value && !filled) filled = f;
+            }
+        }
+        if (filled) break;
+    }
+    return filled || visible || first || document.querySelector('form');
+}"""
+
+
+_SWEEP_DECLARED_ORIGINS=set()
+
+
+# Row 722s (hustlerunlimited, 2026-09-15 14:1xZ): the form carried no
+# method=POST, so the JS fallbacks submitted it as a GET and the credentials
+# went into the URL (history, server logs, our own diagnostics). A form that
+# holds a password field is never submitted by GET.
+GET_FORM_REFUSED="form method is GET -- refused: submitting would put the credentials in the URL"
+
+
+def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
     """Try nine independent ways to submit the login form. Each method
     is attempted with a short timeout; we declare success the moment the
     page navigates WITHIN THE LOGIN PAGE'S ORIGIN. Returns (ok, method_used).
@@ -311,12 +678,15 @@ def _submit_login(page,sb_candidates,pf_candidates):
     on accounts.google.com, which the sweep used to report as a login. The
     first candidate that leaves the origin ends the sweep with
     (False, "cross-origin navigation refused ...") -- the remaining methods
-    are never fired on the foreign page. A subdomain of the same registrable
-    domain (login.example.com -> www.example.com) is another origin here; a
-    cross-origin destination is accepted only where the site DECLARES it: a
-    captured multi-step flow (replay_saved_login_flow, v3.66.302) runs before
-    this sweep and do_login honours it, or an absolute success_url naming
-    the destination origin.
+    are never fired on the foreign page. Row 722 (G17): a hop to another
+    host of the SAME registrable domain (login.example.com ->
+    www.example.com; site-ma.brazzers.com -> www.brazzers.com) is a
+    same-brand landing, counted as the submit and left for do_login to
+    record and judge. Any other cross-origin destination is accepted only
+    where the site DECLARES it: a captured multi-step flow
+    (replay_saved_login_flow, v3.66.302) runs before this sweep and
+    do_login honours it, or an absolute success_url naming the destination
+    origin.
 
     Special return value: ('PAGE_CLOSED', reason). Raised when the page
     or browser context is detected as closed mid-attempt, which usually
@@ -325,7 +695,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     until cookies have been checked — login may already have succeeded."""
     # Heartbeat at entry — without this, a long selector walk looks
     # identical to a silent hang, which was the visible symptom in v3.15.5.
-    sys.stderr.write(f"  login submit: attempting "
+    sys.stderr.write(f"  {site_tag()}login submit: attempting "
                      f"({len(sb_candidates)} button selector(s), 9 methods)\n")
     try: initial_url=page.url
     except Exception as e:
@@ -342,6 +712,23 @@ def _submit_login(page,sb_candidates,pf_candidates):
         if cur==initial_url: return None
         origin=_origin(cur)
         if origin is not None and origin==initial_origin: return True
+        if origin is not None and _same_brand_origin(initial_url, cur):
+            # Row 722 (G17): same brand, other host -- a submit, not a
+            # refusal; do_login records the landing and judges the page.
+            sys.stderr.write(f"  {site_tag()}login submit: page moved {initial_origin} -> "
+                             f"{origin} (same brand), counted as submit\n")
+            return True
+        _declared=set(declared_origins if declared_origins is not None
+                      else (_SWEEP_DECLARED_ORIGINS or ()))
+        if origin is not None and origin in _declared:
+            # stepsiblingscaught live (16:0xZ): the login host and the
+            # members host are DIFFERENT brands (stepsiblingscaught.com ->
+            # members.nubiles-porn.com); the operator declared the
+            # destination as success_url, which row 774 already admits
+            # after the sweep -- admit it inside the sweep too.
+            sys.stderr.write(f"  {site_tag()}login submit: page moved {initial_origin} -> "
+                             f"{origin} (declared success_url origin), counted as submit\n")
+            return True
         return origin or f"unmeasurable origin {cur[:60]!r}"
     def _settle(moved,label):
         # A URL change settles the sweep either way: same-origin is the
@@ -349,7 +736,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
         # rather than retried, so no further method fires on a page that is
         # not the login form.
         if moved is True: return True,label
-        sys.stderr.write(f"  login submit: page left {initial_origin} for "
+        sys.stderr.write(f"  {site_tag()}login submit: page left {initial_origin} for "
                          f"{moved} — cross-origin navigation refused, not a "
                          f"submit ({label})\n")
         return False,f"cross-origin navigation refused ({moved}) at {label}"
@@ -379,14 +766,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     def m2():
         try:
             result = page.evaluate("""(pf_sels) => {
-                let f = null;
-                for (const sel of pf_sels) {
-                    try {
-                        const pf = document.querySelector(sel);
-                        if (pf) { f = pf.closest('form'); if (f) break; }
-                    } catch (e) {}
-                }
-                if (!f) f = document.querySelector('form');
+                const f = ("""+_LOGIN_FORM_JS+""")(pf_sels);
                 if (!f) return {submitted: false, reason: 'no form'};
                 const hasPassword = Boolean(f.querySelector("input[type='password']"));
                 const method = f.getAttribute('method') || 'get';
@@ -404,7 +784,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
             if not isinstance(result, dict):
                 return False, "requestSubmit produced no form result"
             if not _form_submit_is_safe(result.get("method"), result.get("hasPassword")):
-                return False, result.get("reason", "refused unsafe form")
+                return False, GET_FORM_REFUSED
             if result.get("submitted"):
                 return True, "form.requestSubmit()"
             return False, result.get("reason", "requestSubmit unavailable")
@@ -418,14 +798,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     def m3():
         try:
             result = page.evaluate("""(pf_sels) => {
-                let f = null;
-                for (const sel of pf_sels) {
-                    try {
-                        const pf = document.querySelector(sel);
-                        if (pf) { f = pf.closest('form'); if (f) break; }
-                    } catch (e) {}
-                }
-                if (!f) f = document.querySelector('form');
+                const f = ("""+_LOGIN_FORM_JS+""")(pf_sels);
                 if (!f) return {submitted: false, reason: 'no form'};
                 const hasPassword = Boolean(f.querySelector("input[type='password']"));
                 const method = f.getAttribute('method') || 'get';
@@ -439,7 +812,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
             if not isinstance(result, dict):
                 return False, "form.submit produced no form result"
             if not _form_submit_is_safe(result.get("method"), result.get("hasPassword")):
-                return False, result.get("reason", "refused unsafe form")
+                return False, GET_FORM_REFUSED
             if result.get("submitted"):
                 return True, "form.submit()"
             return False, result.get("reason", "form.submit unavailable")
@@ -450,7 +823,8 @@ def _submit_login(page,sb_candidates,pf_candidates):
     def m4():
         for sel in pf_candidates:
             try:
-                page.locator(sel).first.press("Enter")
+                # Row 722: the visible password field, never a hidden twin.
+                page.locator(f"{sel} >> visible=true").first.press("Enter")
                 return True,f"Enter on {sel}"
             except Exception: continue
         return False,"Enter press failed"
@@ -483,14 +857,7 @@ def _submit_login(page,sb_candidates,pf_candidates):
     def m7():
         try:
             r=page.evaluate("""(pf_sels) => {
-                let f = null;
-                for (const sel of pf_sels) {
-                    try {
-                        const pf = document.querySelector(sel);
-                        if (pf) { f = pf.closest('form'); if (f) break; }
-                    } catch (e) {}
-                }
-                if (!f) f = document.querySelector('form');
+                const f = ("""+_LOGIN_FORM_JS+""")(pf_sels);
                 if (!f) return 'no form';
                 const cands = f.querySelectorAll('button, [role=button], input[type=submit], div[onclick]');
                 for (const c of cands) {
@@ -536,7 +903,11 @@ def _submit_login(page,sb_candidates,pf_candidates):
             try:
                 r=page.evaluate("""(sel) => {
                     try {
-                        const el = document.querySelector(sel);
+                        // Row 722: prefer a rendered match over a hidden twin.
+                        const all = document.querySelectorAll(sel);
+                        let el = null;
+                        for (const c of all) { if (c.getClientRects().length > 0) { el = c; break; } }
+                        if (!el) el = all[0] || null;
                         if (!el) return 'no match';
                         if (typeof el.click !== 'function') return 'no click()';
                         el.click();
@@ -561,24 +932,36 @@ def _submit_login(page,sb_candidates,pf_candidates):
         # still-open page, a redundant second submit. (OPEN_THREADS:
         # the submit loop kept firing methods after the page closed.)
         if _closed():
-            sys.stderr.write("  login submit: page already closed — "
+            sys.stderr.write(f"  {site_tag()}login submit: page already closed — "
                              "stopping method loop\n")
             return "PAGE_CLOSED", f"page closed before {label}"
         moved=_moved()
         if moved is not None:
             if moved is True:
-                sys.stderr.write(f"  login submit: already navigated before "
+                sys.stderr.write(f"  {site_tag()}login submit: already navigated before "
                                  f"{label} — earlier method submitted\n")
             return _settle(moved, f"navigated before {label}")
         try: ok,info=fn()
         except Exception as e: ok,info=False,str(e)[:60]
         if not ok:
-            sys.stderr.write(f"  login submit: {label} → skip ({info})\n")
+            sys.stderr.write(f"  {site_tag()}login submit: {label} → skip ({info})\n")
             if _page_closed_err(info):
-                sys.stderr.write("  login submit: page closed — bailing early; checking cookies\n")
+                sys.stderr.write(f"  {site_tag()}login submit: page closed — bailing early; checking cookies\n")
                 return "PAGE_CLOSED", f"page closed during {label}: {info}"
+            if info == GET_FORM_REFUSED and label == "JS form.submit":
+                # Row 722s (hustlerunlimited): the form is GET. The site's own
+                # button (m1) already had its chance -- its JS may intercept --
+                # and both JS fallbacks (m2, m3) refused; every method left
+                # (Enter, Tab+Enter, click sweeps) would navigate natively and
+                # put the password in the URL. The refusal is terminal.
+                if _closed():
+                    return "PAGE_CLOSED", f"page closed after {label}: {info}"
+                sys.stderr.write(f"  {site_tag()}login submit: GET form -- stopping the "
+                                 "method sweep (a synthetic submit would leak "
+                                 "the credentials into the URL)\n")
+                return False, GET_FORM_REFUSED
             continue
-        sys.stderr.write(f"  login submit: {label} → {info}; waiting...\n")
+        sys.stderr.write(f"  {site_tag()}login submit: {label} → {info}; waiting...\n")
         # Give the page up to 8 seconds to navigate. We poll URL changes
         # because some forms don't trigger a load event (SPA logins).
         end=time.time()+8
@@ -657,10 +1040,10 @@ def _try_check_remember_me(page):
             except Exception:
                 pass
             if already:
-                sys.stderr.write("  login: 'Remember me' already checked\n")
+                sys.stderr.write(f"  {site_tag()}login: 'Remember me' already checked\n")
                 return True
             loc.click(timeout=1000)
-            sys.stderr.write(f"  login: clicked 'Remember me' via [{sel[:60]}]\n")
+            sys.stderr.write(f"  {site_tag()}login: clicked 'Remember me' via [{sel[:60]}]\n")
             return True
         except Exception:
             continue
@@ -684,6 +1067,198 @@ def _page_is_gone(page, exc) -> bool:
     return "has been closed" in text or "target closed" in text
 
 
+# Row 722 (operator, 2026-09-15): pre-checked upsell / cross-sale checkboxes
+# ("Yes! add <site> for $1", "Get a bonus site", "special offer", "trial",
+# "newsletter") must be unchecked and verified before the form goes out --
+# submitting with them checked is a purchase risk. "Remember me" (Phase 19,
+# _try_check_remember_me above) must NOT be touched here.
+_UPSELL_RE = re.compile(
+    r"\$"
+    r"|\d+\s*(?:usd|dollars?)\b"
+    r"|\bcross[\s.-]?sales?\b"
+    r"|\bupsell(?:s|ing)?\b"
+    r"|\badds?\b"
+    r"|\bbonus(?:es)?\b"
+    r"|\bextras?\b"
+    r"|\boffers?\b"
+    r"|\btrials?\b"
+    r"|\bspecials?\b"
+    r"|\bnewsletters?\b"
+    r"|\bsubscri(?:be[sd]?|ption)\b"
+    r"|\bpromotions?\b"
+    r"|\balso\s+join\b"
+    r"|\baccess\s+to\b",
+    re.I,
+)
+_REMEMBER_RE = re.compile(
+    r"\bremember\b|\bkeep\s+me\b|\bstay\s+signed\b|\bsigned\s+in\b"
+    r"|\blogged\s+in\b",
+    re.I,
+)
+
+_COLLECT_CHECKED_VISIBLE_BOXES_JS = """
+() => {
+  const isVisible = (el) => {
+    if (!el || el.hidden) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden'
+        || style.opacity === '0') return false;
+    if (el.offsetParent === null && style.position !== 'fixed') return false;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
+    return true;
+  };
+  const getLabel = (input) => {
+    let text = '';
+    if (input.id) {
+      const lab = document.querySelector(
+        `label[for="${CSS.escape(input.id)}"]`);
+      if (lab) text = lab.innerText || lab.textContent || '';
+    }
+    if (!text.trim()) {
+      const wrap = input.closest('label');
+      if (wrap) text = wrap.innerText || wrap.textContent || '';
+    }
+    if (!text.trim()) {
+      const aria = input.getAttribute('aria-label');
+      if (aria) text = aria;
+    }
+    if (!text.trim()) {
+      // Nearest text within the same container -- but a container can
+      // hold OTHER checkboxes' own <label> text too (e.g. a bare
+      // container is shared, as when several boxes sit directly in one
+      // <form>). Strip nested label/input/select/textarea/button
+      // elements from a clone first so a neighbor's label is never
+      // misread as this box's own.
+      const container = input.closest('div,li,td,p,span,section')
+        || input.parentElement;
+      if (container) {
+        const clone = container.cloneNode(true);
+        clone.querySelectorAll('label,input,select,textarea,button')
+          .forEach((el) => el.remove());
+        text = clone.innerText || clone.textContent || '';
+      }
+    }
+    return (text || '').trim().replace(/\\s+/g, ' ');
+  };
+  const out = [];
+  document.querySelectorAll('input[type=checkbox]').forEach((el, i) => {
+    if (!el.checked) return;
+    if (!isVisible(el)) return;
+    el.setAttribute('data-bd-upsell-idx', String(i));
+    out.push({idx: i, label: getLabel(el)});
+  });
+  return out;
+}
+"""
+
+
+def _checked_upsell_boxes(page):
+    """Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+    verify". Re-read the page AFTER the uncheck pass: the labels of every
+    VISIBLE checkbox that is still checked and reads as an upsell. Empty
+    list = verified. Unreadable page = [] with a diagnostic (never a
+    silent pass into a purchase: the caller logs the count either way)."""
+    try:
+        boxes = page.evaluate(_COLLECT_CHECKED_VISIBLE_BOXES_JS)
+    except Exception as e:
+        sys.stderr.write(f"  {site_tag()}login: upsell verification scan failed: {e}\n")
+        return []
+    still = []
+    for box in boxes or []:
+        label = (box.get("label") or "").strip()
+        if not label or _REMEMBER_RE.search(label) or not _UPSELL_RE.search(label):
+            continue
+        still.append(label)
+    return still
+
+
+def _uncheck_upsell_boxes(page):
+    """Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+    form is submitted. "Remember me" boxes are left alone (excluded via
+    ``_REMEMBER_RE`` before the upsell match is even tried). A checked box
+    whose label cannot be read is left alone too -- never click blind --
+    and logged as UNKNOWN. Returns the list of labels acted on (an uncheck
+    was attempted, whether or not it verified)."""
+    try:
+        boxes = page.evaluate(_COLLECT_CHECKED_VISIBLE_BOXES_JS)
+    except Exception as e:
+        sys.stderr.write(f"  {site_tag()}login: upsell checkbox scan failed: {e}\n")
+        return []
+    acted = []
+    for box in boxes or []:
+        idx = box.get("idx")
+        label = (box.get("label") or "").strip()
+        if not label:
+            sys.stderr.write(f"  {site_tag()}login: checked box with no readable label "
+                             "(UNKNOWN, left alone)\n")
+            continue
+        if _REMEMBER_RE.search(label):
+            continue
+        if not _UPSELL_RE.search(label):
+            continue
+        loc = page.locator(f"[data-bd-upsell-idx='{idx}']")
+        try:
+            loc.uncheck(timeout=1000)
+        except Exception:
+            try:
+                loc.click(timeout=1000)
+            except Exception:
+                pass
+        try:
+            still_checked = loc.is_checked()
+        except Exception:
+            still_checked = True
+        acted.append(label)
+        if still_checked:
+            sys.stderr.write(
+                f"  {site_tag()}login: upsell box '{label[:50]}' could NOT be "
+                f"unchecked (still checked)\n")
+        else:
+            sys.stderr.write(
+                f"  {site_tag()}login: unchecked upsell box '{label[:50]}' (verified)\n")
+    return acted
+
+
+def _scoped_to_the_site_being_logged_into(fn):
+    """Give `do_login` its `site_id` parameter and the log scope that uses it.
+
+    Row 769: every line the login writes goes to stderr, site lanes interleave
+    into one stream, and a line that does not name its site cannot be
+    attributed to one.  The id is taken from the caller, which already holds
+    it beside the config (the site runner's `self.site_id`, the keeper path's
+    `site_id`), and falls back to a config that carries its own id; neither
+    present leaves the line untagged rather than inventing an id.
+
+    A DECORATOR and not an edit inside the function, because the body is ~600
+    lines with some twenty early returns: wrapping it in a `with` block would
+    re-indent every one of them, and setting the scope without one would leak
+    a finished lane's id onto whatever the thread logs next.  The wrapper's
+    own signature is the one callers see -- deliberately not `functools.wraps`,
+    which would leave `inspect.signature` reporting the inner function and
+    denying the `site_id` parameter it just added.
+    """
+    def _scoped_do_login(config, allow_manual_takeover=False, site_id=""):
+        sid = site_id or config.get("site_id") or config.get("sid") or ""
+        with login_site(sid):
+            return fn(config, allow_manual_takeover)
+    # Named apart from the function it wraps on purpose: gates in this repo
+    # read `do_login` out of this file's AST by name, and a second definition
+    # spelled the same way would give them a four-line body to judge.
+    _scoped_do_login.__name__ = fn.__name__
+    _scoped_do_login.__qualname__ = fn.__qualname__
+    _scoped_do_login.__doc__ = fn.__doc__
+    _scoped_do_login.__module__ = fn.__module__
+    # Row 722s composes with this wrapper: its gates read the login body through
+    # `inspect.getsource(do_login)`, which follows `__wrapped__` to the inner
+    # function.  `inspect.signature` stops at an explicit `__signature__`, so
+    # the `site_id` parameter this decorator adds stays the one callers see.
+    _scoped_do_login.__signature__ = inspect.signature(_scoped_do_login)
+    _scoped_do_login.__wrapped__ = fn
+    return _scoped_do_login
+
+
+@_scoped_to_the_site_being_logged_into
 def do_login(config, allow_manual_takeover=False):
     """Robust login. Tries 25 username selectors, 15 password selectors,
     50+ submit-button selectors, and 9 different submit methods (button
@@ -728,19 +1303,19 @@ def do_login(config, allow_manual_takeover=False):
     # missing.
     if password_state == "locked":
         sys.stderr.write(
-            f"  login: SKIPPED — site {config.get('name','?')!r}: credential "
+            f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r}: credential "
             f"vault is LOCKED; the stored password cannot be decrypted. "
             f"Unlock it in Settings -> Secrets after every service restart.\n")
         return False, "Credential vault locked: password", []
     if password_state == "missing":
         sys.stderr.write(
-            f"  login: SKIPPED — site {config.get('name','?')!r}: stored "
+            f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r}: stored "
             f"credential is MISSING for the password reference. Repair it in "
             f"Settings -> Secrets.\n")
         return False, "Stored credential missing: password", []
     if password_state in ("unavailable", "unknown"):
         sys.stderr.write(
-            f"  login: SKIPPED — site {config.get('name','?')!r}: credential "
+            f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r}: credential "
             f"availability is UNKNOWN; the stored password could not be read. "
             f"Check Settings -> Secrets and the service logs.\n")
         return False, "Credential state unknown: password", []
@@ -750,7 +1325,7 @@ def do_login(config, allow_manual_takeover=False):
         if not username: missing.append("username")
         if not password: missing.append("password")
         sys.stderr.write(
-            f"  login: SKIPPED — site {config.get('name','?')!r} is missing "
+            f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r} is missing "
             f"{', '.join(missing)} in its configuration. Open the site's Edit "
             f"form and configure only the fields listed here.\n")
         return False, f"Missing credentials: {', '.join(missing)}", []
@@ -769,7 +1344,7 @@ def do_login(config, allow_manual_takeover=False):
     learned_pf=learned_block.get("pass_field",[]) or []
     learned_sb=learned_block.get("submit_btn",[]) or []
     if learned_uf or learned_pf or learned_sb:
-        sys.stderr.write(f"  login: replaying learned selectors "
+        sys.stderr.write(f"  {site_tag()}login: replaying learned selectors "
             f"(user={len(learned_uf)}, pass={len(learned_pf)}, submit={len(learned_sb)})\n")
 
     # The trigger precondition must inspect the known login field, not every
@@ -815,7 +1390,13 @@ def do_login(config, allow_manual_takeover=False):
         of them. Without it, the chromium window just sits there with the
         login page and the user has no way to know the app is waiting for
         them to click "I'm Done" in the web UI."""
-        sys.stderr.write(f"  login: handing off for manual takeover — {reason}\n")
+        sys.stderr.write(f"  {site_tag()}login: handing off for manual takeover — {reason}\n")
+        # Row 722: keep the page as it stood when the automation gave up
+        # (HTML + screenshot) so the reason is diagnosable after the fact.
+        try: _cur = page.url
+        except Exception: _cur = ""
+        _ev = write_login_evidence(page, config, _cur, f"manual takeover {reason[:40]}")
+        if _ev: sys.stderr.write(f"  {site_tag()}login: evidence kept at {_ev}\n")
         # Inject the banner into both: the current page (evaluate runs
         # immediately) and any future navigations (add_init_script). The
         # banner self-skips if already installed, so dual-injection is safe.
@@ -839,21 +1420,29 @@ def do_login(config, allow_manual_takeover=False):
         # --window-size opens the browser at a sensible desktop size; without
         # it, Chrome's default headed window is ~800x600 (cramped for any
         # modern login form).
-        # v3.43.14: same autofill enabling as open_manual_login_browser.
-        # See that function for the full rationale. Briefly: enables
-        # Chromium's password manager and autofill so the user's saved
-        # credentials can fill the login form.
-        launch_args=["--no-sandbox","--disable-notifications","--disable-popup-blocking",
-                     "--disable-infobars","--no-default-browser-check","--no-first-run",
-                     "--password-store=basic",
-                     "--enable-features=AutofillEnableAccountWalletStorage,PasswordManagerEnabled",
-                     "--disable-features=PushMessaging,Translate,AutomationControlled",
-                     "--disable-blink-features=AutomationControlled",
-                     "--window-size=1366,800"]
+        # Row 722 G23: the login browser MIRRORS the stepper profile
+        # (``cloak.cloaked_page``): NO hand-built args list and NO implicit
+        # system-Chrome channel. Measured (cloak.py + cloakbrowser.build_args):
+        # cloakbrowser merges caller args OVER its stealth defaults by flag key,
+        # so the old list's --enable-features/--disable-features/
+        # --disable-blink-features=AutomationControlled replaced the profile the
+        # patched binary ships, and --window-size suppressed its
+        # --start-maximized (window/screen coherence). channel="chrome" with the
+        # implicit use_real_chrome default made the Playwright backend launch
+        # stock system Chrome with none of it. Castle.io blacked that browser
+        # ("functionality that was blocked by your browser") while the stepper's
+        # cloaked_page(headless=False) rendered the same page clean. The
+        # system-Chrome channel survives ONLY when the site config sets
+        # use_real_chrome explicitly True (key present).
+        launch_args=None
         from .. import cloak as _cloak
         login_extra = {}
-        if config.get("use_real_chrome",True):
+        if "use_real_chrome" in config and config.get("use_real_chrome"):
             login_extra["channel"]="chrome"
+            sys.stderr.write(f"  {site_tag()}login: browser profile = system chrome (use_real_chrome explicit)\n")
+        else:
+            sys.stderr.write(
+                f"  {site_tag()}login: browser profile = cloak default ({_cloak.resolve_backend(config)})\n")
         try:
             browser, pw, backend = _cloak.launch_browser(
                 headless=False, args=launch_args, config=config, **login_extra)
@@ -863,7 +1452,7 @@ def do_login(config, allow_manual_takeover=False):
                 # (a different browser fingerprint than it asked for), so it
                 # is filed in cloak's ledger under the site that owns the
                 # flow -- the stderr line alone reaches no run record.
-                sys.stderr.write(f"  login: system Chrome unavailable ({str(e)[:60]}); using bundled\n")
+                sys.stderr.write(f"  {site_tag()}login: system Chrome unavailable ({str(e)[:60]}); using bundled\n")
                 _ch=login_extra.pop("channel",None)
                 try:
                     browser, pw, backend = _cloak.launch_browser(
@@ -905,14 +1494,14 @@ def do_login(config, allow_manual_takeover=False):
                 from ..constants import STEALTH_JS
                 ctx.add_init_script(STEALTH_JS)
             except Exception as e:
-                sys.stderr.write(f"  login: stealth install failed: {str(e)[:80]}\n")
+                sys.stderr.write(f"  {site_tag()}login: stealth install failed: {str(e)[:80]}\n")
         page=ctx.new_page()
         # v3.43.56: apply playwright-stealth library if configured
         try:
             from .. import stealth as _stealth
             _stealth.apply_to_page(page, config)
         except Exception as e:
-            sys.stderr.write(f"  login: stealth library apply failed: {str(e)[:80]}\n")
+            sys.stderr.write(f"  {site_tag()}login: stealth library apply failed: {str(e)[:80]}\n")
         # Phase 5.1: install click/input recorder. We add this BEFORE any
         # navigation so add_init_script applies to the login page itself
         # and any navigation it triggers (post-login redirects). Running
@@ -923,7 +1512,7 @@ def do_login(config, allow_manual_takeover=False):
             from ..learn import install_recorder
             install_recorder(page)
         except Exception as e:
-            sys.stderr.write(f"  login: recorder install failed: {e}\n")
+            sys.stderr.write(f"  {site_tag()}login: recorder install failed: {e}\n")
         try: page.goto(url,wait_until="domcontentloaded",timeout=25000)
         except PWTimeout:
             _hard_close(); return False,"Login page timed out loading",[]
@@ -933,6 +1522,12 @@ def do_login(config, allow_manual_takeover=False):
             from ..learn import install_recorder
             install_recorder(page)
         except Exception: pass
+
+        # Row 722 (adulttime): a Cloudflare managed challenge page ("Just a
+        # moment...", Turnstile CHECKBOX) stands BEFORE the login form.  Click
+        # the box (operator decision, never a puzzle) and wait for the real
+        # page; otherwise the username search below reports its own failure.
+        clear_cloudflare_challenge(page)
 
         # Row 371: a missing login form has several visually identical causes.
         # Clear declared per-site gates FIRST, then the conservative generic
@@ -954,14 +1549,14 @@ def do_login(config, allow_manual_takeover=False):
                 label = action.get("label", "")
                 reason = action.get("reason", "")
                 if outcome == "cleared":
-                    sys.stderr.write(f"  login: {reason}\n")
+                    sys.stderr.write(f"  {site_tag()}login: {reason}\n")
                 elif outcome == "refused":
                     sys.stderr.write(
-                        f"  login: refused {tier} gate via {label!r} — "
+                        f"  {site_tag()}login: refused {tier} gate via {label!r} — "
                         f"{reason}\n")
                 else:
                     sys.stderr.write(
-                        f"  login: {outcome} for {tier} gate via "
+                        f"  {site_tag()}login: {outcome} for {tier} gate via "
                         f"{label!r} — {reason}\n")
 
         _pre_form_gate_actions = _dismiss_page_gates(
@@ -1012,13 +1607,13 @@ def do_login(config, allow_manual_takeover=False):
             _flow_ran = bool(_flow_res.get("ran"))
             if _flow_ran:
                 sys.stderr.write(
-                    f"  login: replayed saved login flow "
+                    f"  {site_tag()}login: replayed saved login flow "
                     f"({_flow_res.get('steps', 0)} steps, "
                     f"ok={_flow_res.get('ok')})\n")
                 time.sleep(wait)
         except Exception as _e:
             sys.stderr.write(
-                f"  login: login-flow replay skipped: {str(_e)[:80]}\n")
+                f"  {site_tag()}login: login-flow replay skipped: {str(_e)[:80]}\n")
 
         # v3.43.33: AI-assisted login form detection. When the site has
         # ai_login_assist_enabled=True AND aiassist is configured AND
@@ -1081,7 +1676,7 @@ def do_login(config, allow_manual_takeover=False):
                             page, proposal)
                         grade = _ail.grade_proposal(proposal, validation)
                         sys.stderr.write(
-                            f"  login: AI proposal score={grade['score']}, "
+                            f"  {site_tag()}login: AI proposal score={grade['score']}, "
                             f"use={grade['use_proposal']}, "
                             f"reasons={grade['reasons']}\n")
                         if grade.get("use_proposal"):
@@ -1117,7 +1712,7 @@ def do_login(config, allow_manual_takeover=False):
                                 "AI detected a captcha on the login page — "
                                 "please log in manually.")
             except Exception as e:
-                sys.stderr.write(f"  login: AI assist failed: {e} "
+                sys.stderr.write(f"  {site_tag()}login: AI assist failed: {e} "
                                   f"(falling back to enumeration)\n")
 
         trigger_needed, trigger_fired, trigger_detail = (
@@ -1129,7 +1724,7 @@ def do_login(config, allow_manual_takeover=False):
         )
         if trigger_needed:
             sys.stderr.write(
-                f"  login: login-form trigger: {trigger_detail} "
+                f"  {site_tag()}login: login-form trigger: {trigger_detail} "
                 f"(fired={trigger_fired})\n"
             )
 
@@ -1147,7 +1742,7 @@ def do_login(config, allow_manual_takeover=False):
                 return _hand_off(_with_gate_blocker(
                     f"Couldn't find username field: {info}"))
             _hard_close(); return False,info,[]
-        sys.stderr.write(f"  login: filled username via [{info}]\n")
+        sys.stderr.write(f"  {site_tag()}login: filled username via [{info}]\n")
 
         # Phase 15.5: brief "thinking" pause between username and password
         # fields. Real users don't tab instantly — they read the next field's
@@ -1172,7 +1767,7 @@ def do_login(config, allow_manual_takeover=False):
                     return _hand_off(_with_gate_blocker(
                         f"Couldn't find password field: {info}"))
                 _hard_close(); return False,info,[]
-        sys.stderr.write(f"  login: filled password via [{info}]\n")
+        sys.stderr.write(f"  {site_tag()}login: filled password via [{info}]\n")
 
         # Some forms auto-submit on password fill (Enter, blur, JS listener).
         # If the URL already changed to the success URL, we're done — no
@@ -1211,7 +1806,7 @@ def do_login(config, allow_manual_takeover=False):
         _fill_wall_cleared = any(action.get("outcome") == "cleared"
                                  for action in _fill_gate_actions)
         if _fill_wall_cleared:
-            sys.stderr.write("  login: dismissed a post-login interstitial "
+            sys.stderr.write(f"  {site_tag()}login: dismissed a post-login interstitial "
                              "reached by auto-submit-on-fill\n")
             try: page.wait_for_load_state("domcontentloaded",timeout=10000)
             except Exception: pass
@@ -1219,29 +1814,44 @@ def do_login(config, allow_manual_takeover=False):
             cur_after_fill=page.url
         except Exception:
             cur_after_fill=""
-        if success and success in cur_after_fill:
+        if success and success_url_reached(success, cur_after_fill, url):
             if _fill_wall_cleared:
-                sys.stderr.write(f"  login: at success URL after dismissing the wall "
+                sys.stderr.write(f"  {site_tag()}login: at success URL after dismissing the wall "
                                  f"({redact_url_credentials(cur_after_fill)[:80]})\n")
                 cookies=pw_to_json(ctx.cookies()); _hard_close()
                 return True,(f"OK — {len(cookies)} cookies "
                              f"(auto-submitted on fill; wall dismissed)"),cookies
-            sys.stderr.write("  login: page already at success URL after fill "
+            sys.stderr.write(f"  {site_tag()}login: page already at success URL after fill "
                              f"({redact_url_credentials(cur_after_fill)[:80]})\n")
             cookies=pw_to_json(ctx.cookies()); _hard_close()
             return True,f"OK — {len(cookies)} cookies (auto-submitted on fill)",cookies
 
         if _try_turnstile_one_click(page, config):
-            sys.stderr.write("  login: clicked one local Turnstile checkbox\n")
+            sys.stderr.write(f"  {site_tag()}login: clicked one local Turnstile checkbox\n")
         tok,waited=_wait_captcha_tokens(page,deadline=30)
-        if tok:
-            sys.stderr.write(f"  login: {tok} populated after {waited:.1f}s\n")
+        if tok and waited is None:
+            sys.stderr.write(f"  {site_tag()}login: {tok} NOT populated within 30s "
+                             f"(submit will likely be refused as wrong captcha)\n")
+        elif tok:
+            sys.stderr.write(f"  {site_tag()}login: {tok} populated after {waited:.1f}s\n")
 
         # Phase 19: check "Remember me" / "Keep me signed in" if present.
         # Best-effort — silently no-ops if no such checkbox exists. Helps
         # extend session lifetimes so re-login storms happen less often.
         try: _try_check_remember_me(page)
-        except Exception as e: sys.stderr.write(f"  login: remember-me check skipped: {e}\n")
+        except Exception as e: sys.stderr.write(f"  {site_tag()}login: remember-me check skipped: {e}\n")
+
+        # Row 722 (operator, 2026-09-15): uncheck any pre-checked upsell /
+        # cross-sale boxes before the form goes out -- submitting with them
+        # checked is a purchase risk. "Remember me" above is excluded.
+        try:
+            _unchecked_upsell = _uncheck_upsell_boxes(page)
+            if _unchecked_upsell:
+                sys.stderr.write(
+                    f"  {site_tag()}login: {len(_unchecked_upsell)} upsell box(es) "
+                    f"acted on before submit\n")
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag()}login: upsell checkbox uncheck skipped: {e}\n")
 
         # Freeze the jar before submit can mutate it. An unreadable baseline
         # is UNKNOWN, not an empty jar that makes every later cookie new.
@@ -1249,18 +1859,27 @@ def do_login(config, allow_manual_takeover=False):
             cookies_before_submit = tuple(dict(c) for c in ctx.cookies())
         except Exception as e:
             cookies_before_submit = None
-            sys.stderr.write(f"  login: pre-submit cookie snapshot failed: {e}\n")
+            sys.stderr.write(f"  {site_tag()}login: pre-submit cookie snapshot failed: {e}\n")
+        # Row 722 (operator, 2026-09-15): the filled form is reviewed BEFORE
+        # a second submit. Keep what is about to be submitted (HTML + PNG;
+        # the password field renders masked) so that review has an object.
+        _pre=keep_pre_submit_screenshot(page, config)
+        if _pre: sys.stderr.write(f"  {site_tag()}login: pre-submit screenshot kept at {_pre}\n")
+        # The sweep is a 3-arg seam (test harnesses stub it); the declared
+        # success origin travels through a module slot instead.
+        global _SWEEP_DECLARED_ORIGINS
+        _SWEEP_DECLARED_ORIGINS={o for o in (_origin(success or ""),) if o}
         ok,method=_submit_login(page,sb_candidates,pf_candidates)
         # Page closed mid-submit (or before) — the form likely auto-submitted
         # on a previous step. Try to read cookies; if we got any usable session
         # cookies, login succeeded silently. Otherwise fall through to manual.
         if ok=="PAGE_CLOSED":
-            sys.stderr.write("  login: page closed during submit, checking for cookies\n")
+            sys.stderr.write(f"  {site_tag()}login: page closed during submit, checking for cookies\n")
             try:
                 cookies=pw_to_json(ctx.cookies())
             except Exception as e:
                 cookies=[]
-                sys.stderr.write(f"  login: cookie read after page-close failed: {e}\n")
+                sys.stderr.write(f"  {site_tag()}login: cookie read after page-close failed: {e}\n")
             # A login page that closes mid-submit may have succeeded
             # silently — but only count it as a success if the cookie
             # jar actually looks like an authenticated session. One
@@ -1276,7 +1895,7 @@ def do_login(config, allow_manual_takeover=False):
                                        "page closed mid-submit", _hard_close)
             # Cookies absent or unconvincing — login almost certainly
             # did not go through. Manual takeover is the right answer.
-            sys.stderr.write(f"  login: page closed mid-submit but cookies "
+            sys.stderr.write(f"  {site_tag()}login: page closed mid-submit but cookies "
                              f"unconvincing ({why})\n")
             if allow_manual_takeover:
                 return _hand_off(f"Form vanished during submit, no "
@@ -1293,7 +1912,7 @@ def do_login(config, allow_manual_takeover=False):
             try: cookies_after_submit=pw_to_json(ctx.cookies())
             except Exception as e:
                 cookies_after_submit=[]
-                sys.stderr.write(f"  login: cookie read after non-nav submit failed: {e}\n")
+                sys.stderr.write(f"  {site_tag()}login: cookie read after non-nav submit failed: {e}\n")
             authed,why=_looks_authenticated(
                 cookies_after_submit, before_cookies=cookies_before_submit)
             if authed:
@@ -1302,12 +1921,12 @@ def do_login(config, allow_manual_takeover=False):
                 # a navigation.
                 return _no_nav_verdict(page, config, cookies_after_submit,
                                        why, "no nav signal", _hard_close)
-            sys.stderr.write(f"  login: no nav signal and cookies "
+            sys.stderr.write(f"  {site_tag()}login: no nav signal and cookies "
                              f"unconvincing ({why})\n")
             if allow_manual_takeover:
                 return _hand_off(f"Couldn't submit form: {method}")
             _hard_close(); return False,f"Submit failed: {method}",[]
-        sys.stderr.write(f"  login: submitted via {method}\n")
+        sys.stderr.write(f"  {site_tag()}login: submitted via {method}\n")
 
         time.sleep(wait)
         # v3.66.1016 (item E): the post-login interstitial. A "No Thanks.
@@ -1328,7 +1947,48 @@ def do_login(config, allow_manual_takeover=False):
         # same wall and its absence from config is not evidence that it is safe
         # to ignore.
         from ..interstitial import dismiss_gates as _dismiss_interstitials
-        _post_gate_actions = _dismiss_interstitials(page, _wall)
+        # bangbros live (11:3xZ): the post-login /store interstitial carries a
+        # PRE-CHECKED paid bundle box beside "CONTINUE TO MEMBERS AREA".
+        # Pressing continue with it checked is a purchase: uncheck first.
+        # bangbros live (13:0xZ, operator screenshots): the /store offer block
+        # (CheckboxOfferV2Block) renders ASYNC after load; a walk taken at
+        # load sees no box and no CONTINUE TO MEMBERS AREA. Settle first;
+        # when the first pass clears nothing on a non-success URL, settle
+        # once more and walk again.
+        _post_gate_actions = []
+        for _pass in (1, 2):
+            try:
+                page.wait_for_load_state("networkidle", timeout=6000)
+            except Exception:
+                pass
+            if _pass == 2:
+                time.sleep(2.5)
+            try:
+                _post_upsell=_uncheck_upsell_boxes(page)
+                if _post_upsell:
+                    sys.stderr.write(f"  {site_tag()}login: unchecked {len(_post_upsell)} upsell "
+                                     f"box(es) on the post-login page before continuing\n")
+                _still=_checked_upsell_boxes(page)
+                sys.stderr.write(f"  {site_tag()}login: upsell boxes verified — {len(_still)} still "
+                                 f"checked on the post-login page\n")
+                if _still:
+                    sys.stderr.write(f"  {site_tag()}login: REFUSING to continue past the post-login page: "
+                                     f"upsell box still checked {_still[0][:60]!r}\n")
+                    _hard_close()
+                    return False, (f"post-login page keeps a checked upsell box "
+                                   f"({_still[0][:60]!r}) — not continuing (purchase risk)"), []
+            except Exception as e:
+                sys.stderr.write(f"  {site_tag()}login: post-login upsell scan failed: {e}\n")
+            _post_gate_actions = _dismiss_interstitials(page, _wall)
+            if any(a.get("outcome") == "cleared" for a in _post_gate_actions):
+                break
+            try: _cur_now=page.url
+            except Exception: _cur_now=""
+            if not success or success_url_reached(success, _cur_now, url):
+                break
+            if _pass == 1:
+                sys.stderr.write(f"  {site_tag()}login: post-login page is not the success URL and "
+                                 "no gate cleared — settling and walking once more\n")
         _report_gate_actions(_post_gate_actions)
         _post_unknown = _first_gate_unknown(_post_gate_actions)
         if _post_unknown:
@@ -1345,7 +2005,7 @@ def do_login(config, allow_manual_takeover=False):
         _clicked = [action for action in _post_gate_actions
                     if action.get("outcome") == "cleared"]
         if _clicked:
-            sys.stderr.write(f"  login: dismissed post-login interstitial "
+            sys.stderr.write(f"  {site_tag()}login: dismissed post-login interstitial "
                              f"({len(_clicked)} cleared action(s))\n")
             # A dismissal is usually a navigation. Without this the url
             # read below can still be the wall's, which would make the
@@ -1386,11 +2046,136 @@ def do_login(config, allow_manual_takeover=False):
                 # decides -- but a silent one made an unreadable body look exactly
                 # like a body that said nothing.
                 sys.stderr.write(
-                    f"  login: rejected-login body probe could not read the page "
+                    f"  {site_tag()}login: rejected-login body probe could not read the page "
                     f"({exc.__class__.__name__}); the landing-URL check decides\n")
         if _rejected_login:
             _hard_close()
             return False, f"Rejected login landing: {cur[:200]}", []
+        # Row 722 live (blacked, 11:1xZ): the site answers a good submit with
+        # a Turnstile challenge page (login.vixen.com/.../login/challenge)
+        # BEFORE the members redirect. Same rule as before the form (G22):
+        # click the checkbox, wait for it to clear, then read the URL again.
+        # blacked live (15:5xZ): the site accepts the submit and shows a bare
+        # page whose /i/blacked/wait-redirect script sends the browser to
+        # members.blacked.com a few seconds later; the URL was judged before
+        # that fired. A transitional page (no form, not the success page,
+        # no challenge) gets up to 30s for its own redirect.
+        def _wait_transitional(cur, budget=30):
+            # Returns the URL after giving a transitional page (no form, not
+            # the success page, no challenge) up to `budget`s to redirect.
+            if not success or success_url_reached(success, cur, url) \
+                    or _is_cloudflare_challenge_page(page):
+                return cur
+            _t0=time.time()
+            def _form_is_live():
+                # blacked (16:5xZ): the wait-redirect shell keeps #password in
+                # the DOM (":visible" says yes) while a redirect script runs
+                # and the field sits off-viewport. Only an ON-SCREEN field
+                # with no redirect script pending counts as "the form is back".
+                try:
+                    if page.locator("script[src*='wait-redirect'], "
+                                    "meta[http-equiv='refresh' i]").count():
+                        return False
+                    pw=page.locator("input[type=password]:visible").first
+                    if not pw.count():
+                        return False
+                    bb=pw.bounding_box() or {}
+                    vp=page.viewport_size or {}
+                    if bb and vp and (bb.get("x",0) >= vp.get("width",10**9)
+                                      or bb.get("y",0) >= vp.get("height",10**9)
+                                      or bb.get("x",0)+bb.get("width",0) <= 0):
+                        return False
+                    return True
+                except Exception:
+                    return False
+            while time.time()-_t0 < budget:
+                try:
+                    _now=page.url
+                    _form=_form_is_live()
+                except Exception:
+                    return cur
+                if _now!=cur:
+                    sys.stderr.write(f"  {site_tag()}login: post-submit page redirected after "
+                                     f"{time.time()-_t0:.1f}s -> {_now[:80]}\n")
+                    try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                    except Exception: pass
+                    return _now
+                if _form or _is_cloudflare_challenge_page(page):
+                    return cur
+                time.sleep(1.0)
+            sys.stderr.write(f"  {site_tag()}login: post-submit page did not redirect within {budget}s\n")
+            return cur
+        cur=_wait_transitional(cur)
+        if _is_cloudflare_challenge_page(page):
+            sys.stderr.write(f"  {site_tag()}login: post-submit cloudflare challenge page\n")
+            if clear_cloudflare_challenge(page):
+                try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                except Exception: pass
+                try: cur=page.url
+                except Exception: pass
+                # vixen live (15:4xZ): the cleared challenge can land on a
+                # dead "Not found" page at the challenge URL itself instead
+                # of the site's redirect. The clearance cookie is in the jar
+                # now: re-enter the declared success page (or the login
+                # page) and let the surface judgment below decide.
+                # blacked (16:2xZ): the cleared page can itself be the
+                # site's wait-redirect shell -- let it redirect first.
+                cur=_wait_transitional(cur)
+                try: _t=(page.title() or "").lower()
+                except Exception: _t=""
+                if "/challenge" in cur or "not found" in _t:
+                    _target=success if (success and success.startswith("http")) else url
+                    sys.stderr.write(f"  {site_tag()}login: challenge cleared onto a dead page "
+                                     f"({cur[:80]}); re-entering {_target[:80]}\n")
+                    try:
+                        page.goto(_target, wait_until="domcontentloaded", timeout=30000)
+                        try: page.wait_for_load_state("networkidle", timeout=8000)
+                        except Exception: pass
+                        cur=page.url
+                        # ...and the re-entered page may bounce through the
+                        # same shell (login.vixen.com/i/<brand>/login?).
+                        cur=_wait_transitional(cur)
+                    except Exception as e:
+                        sys.stderr.write(f"  {site_tag()}login: re-entry failed: {e}\n")
+                # vixen (16:3xZ): the challenge swallowed the login POST --
+                # the form is back, EMPTY. Fill and submit it ONCE more; the
+                # clearance cookie now lets the POST through.
+                try: _form_back=page.locator("input[type=password]:visible").count()>0
+                except Exception: _form_back=False
+                if _form_back:
+                    sys.stderr.write(f"  {site_tag()}login: challenge cleared but the login form is "
+                                     "back; re-submitting once\n")
+                    _ok_u,_=_try_fill(page,uf_candidates,username,"username (re-submit)")
+                    _ok_p,_=_try_fill(page,pf_candidates,password,"password (re-submit)")
+                    if _ok_u and _ok_p:
+                        _ok2,_m2=_submit_login(page,sb_candidates,pf_candidates)
+                        sys.stderr.write(f"  {site_tag()}login: re-submit -> {_ok2} ({_m2})\n")
+                        try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                        except Exception: pass
+                        try: cur=page.url
+                        except Exception: pass
+                        cur=_wait_transitional(cur)
+                        # vixen (17:0xZ): the re-submit is answered by a SECOND
+                        # challenge (new __cf_chl_rt_tk). Clear that one too,
+                        # then wait for the site's redirect; never a third.
+                        if _is_cloudflare_challenge_page(page):
+                            sys.stderr.write(f"  {site_tag()}login: second cloudflare challenge after "
+                                             "the re-submit\n")
+                            if clear_cloudflare_challenge(page):
+                                try: page.wait_for_load_state("domcontentloaded",timeout=10000)
+                                except Exception: pass
+                                try: cur=page.url
+                                except Exception: pass
+                                cur=_wait_transitional(cur)
+                                if "/challenge" in cur:
+                                    _target=success if (success and success.startswith("http")) else url
+                                    sys.stderr.write(f"  {site_tag()}login: second challenge cleared; "
+                                                     f"re-entering {_target[:80]}\n")
+                                    try:
+                                        page.goto(_target, wait_until="domcontentloaded", timeout=30000)
+                                        cur=_wait_transitional(page.url)
+                                    except Exception as e:
+                                        sys.stderr.write(f"  {site_tag()}login: re-entry failed: {e}\n")
         # A URL move only says that the form left its original page.  It does
         # not say that the destination finished loading or that it is members
         # content: challenge pages commonly redirect first and render later.
@@ -1429,11 +2214,13 @@ def do_login(config, allow_manual_takeover=False):
             return _settled_non_success(
                 page, config, "settled-challenge",
                 "post-submit landing is a challenge page", _hard_close)
-        if success and success not in cur:
-            safe_cur = redact_url_credentials(cur)
+        if success and not success_url_reached(success, cur, url):
+            # Row 722s: `cur` may carry the submitted fields (a GET form);
+            # the reason reaches login_status, the journal and a filename.
+            _why=f"Expected URL contains {success!r}, got {log_url(cur)}"
             if allow_manual_takeover:
-                return _hand_off(f"Expected URL contains {success!r}, got {safe_cur}")
-            _hard_close(); return False,f"Expected URL contains {success!r}, got {safe_cur}",[]
+                return _hand_off(_why)
+            _hard_close(); return False,_why,[]
         # v3.66 row 774: the page we are about to read cookies from must be
         # on the login page's origin, or on one the site DECLARED -- the
         # captured multi-step flow ran (v3.66.302), or success_url is an
@@ -1442,12 +2229,49 @@ def do_login(config, allow_manual_takeover=False):
         cur_origin=_origin(cur)
         declared_origins={o for o in (_origin(url), _origin(success or "")) if o}
         if not _flow_ran and (cur_origin is None or cur_origin not in declared_origins):
-            why=(f"cross-origin navigation refused: login page {_origin(url)} "
-                 f"ended on {cur_origin or cur[:80]!r} (submit: {method})")
-            if allow_manual_takeover:
-                return _hand_off(why)
-            _hard_close(); return False,why,[]
-        cookies=pw_to_json(ctx.cookies()); _hard_close()
+            if cur_origin is not None and _same_brand_origin(url, cur):
+                # Row 722 (G17, operator 2026-09-15): a same-brand landing
+                # (site-ma.brazzers.com -> www.brazzers.com, www.blacked.com
+                # -> members.blacked.com) is not a blocker. Keep what the
+                # page showed, then judge it exactly as a same-origin landing
+                # below -- the origin alone never hands off.
+                _ev=write_login_evidence(page, config, cur, "login-cross-origin-landing")
+                sys.stderr.write(f"  {site_tag()}login: cross-origin landing recorded (same brand: "
+                                 f"{_brand_host(url)} -> {_brand_host(cur)}); "
+                                 f"evidence {_ev}\n")
+            else:
+                why=(f"cross-origin navigation refused: login page {_origin(url)} "
+                     f"ended on {cur_origin or cur[:80]!r} (submit: {method})")
+                if allow_manual_takeover:
+                    return _hand_off(why)
+                _hard_close(); return False,why,[]
+        # Row 722 (nookies.com): a same-origin navigation plus a changed
+        # jar is NOT proof of authentication -- anonymous visitors get a
+        # session cookie too, and the page that came back still showed
+        # "LOG IN / JOIN NOW". Read what the page SHOWS; a declared
+        # success_url match or a present member indicator still wins.
+        cookies=pw_to_json(ctx.cookies())
+        anonymous,anon_why=anonymous_surface_check(page)
+        if anonymous:
+            confirmed,member_why,evidence=member_state_check(
+                page, config, tag="login-post-submit-anonymous")
+            if not confirmed:
+                # The jar is carried as a description, never as the verdict.
+                why=(f"{anon_why}; {member_why}; {len(cookies)} cookies"
+                     f"{'; evidence ' + evidence if evidence else ''}"
+                     f" (submit: {method}) \u2014 NOT success")
+                sys.stderr.write(f"  {site_tag()}login: {why}\n")
+                if allow_manual_takeover:
+                    return _hand_off(why)
+                _hard_close(); return False,why,[]
+            sys.stderr.write(f"  {site_tag()}login: {anon_why} but {member_why}\n")
+        # Rows 722s+772 reconcile: row 722s's base carried ONE row-772 probe,
+        # which 722s moved here behind the UNKNOWN-surface guard. Main now
+        # judges /badlogin and the rejection phrase on the SETTLED page
+        # above (row 772 residual), with row 813's rule that a body which
+        # is GONE is read exactly once. A third read here re-judged the same
+        # settled URL/body and broke that one-read pin, so it is not kept.
+        _hard_close()
         return True,f"OK — {len(cookies)} cookies (submit: {method})",cookies
     except Exception as e:
         # Programming error or fatal exception — never offer manual takeover

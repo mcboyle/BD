@@ -27,7 +27,7 @@ from .runner_util import (
 )
 from .db import db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
-from .fname import resolve_filename_template
+from .fname import resolve_filename_template, _sanitize_filename_var
 from .website_title import history_title_kwargs
 from .constants import (
     _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
@@ -92,6 +92,94 @@ def _finite_config_float(raw, default):
     return v
 
 
+# ── row 722 (G29): a URL leaf that only names a FORMAT or a TIER is no name ──
+#
+# Measured live (test2, 2026-09-15): filthykings saved "mp4.mp4" from
+# /movieaction/download/292639/2160p/mp4, dfxtra/evilangel "mp4.mp4", vip4k
+# "360p.mp4", nookies "high.mp4" from /membersarea/video/stream/3480. Every one
+# of those pages carried a title the history row already records (G19). The
+# transport took ``Path(url).name`` as the site's intended name; for these
+# hosts the leaf is the format/tier ROUTE SEGMENT, and it is the same string
+# for every scene on the site, so skip_if_exists then compares every scene to
+# the first one saved.
+_BARE_MEDIA_LEAF_RE = re.compile(
+    r"^(?:mp4|m4v|webm|mov|high|low|medium|hd|sd|full|stream|download|video"
+    r"|file|index|\d{3,4}p|4k|8k"
+    # brazzers/bangbros live (17:1xZ): CDN object names are bare hex hashes
+    # (936997063d2c...mp4, 2da1abca...mp4) or uuids -- not a name either.
+    r"|[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
+_LEAF_TIER_RE = re.compile(r"^(?:\d{3,4}p|4k|8k)$", re.I)
+_FORMAT_TOKEN_RE = re.compile(r"^(?:mp4|m4v|webm|mov)$", re.I)
+# The transport's own placeholder for "nothing was suggested at all"; it is
+# not a site leaf and the existing paths (and their tests) rely on it.
+_NO_NAME_PLACEHOLDER = "download.bin"
+
+
+def _is_bare_media_leaf(name):
+    """True when ``name`` (with or without an extension) is only a token."""
+    if not isinstance(name, str) or not name.strip():
+        return False
+    stem = Path(name.strip()).stem.strip()
+    return bool(_BARE_MEDIA_LEAF_RE.match(stem))
+
+
+def _scene_url_stem(scene_url):
+    """The scene URL's last path segment that is not itself a bare token."""
+    if not isinstance(scene_url, str) or not scene_url:
+        return ""
+    try:
+        from urllib.parse import urlparse, unquote
+        path = unquote(urlparse(scene_url).path or "")
+    except Exception:
+        return ""
+    for seg in reversed(path.split("/")):
+        seg = seg.strip()
+        if seg and not _is_bare_media_leaf(seg):
+            return Path(seg).stem or seg
+    return ""
+
+
+def resolve_media_leaf_name(suggested, *, disposition_name="",
+                            website_title="", tier="", scene_url=""):
+    """The destination name, with a bare format/tier leaf replaced.
+
+    A name that already carries a real stem is returned UNCHANGED (the site's
+    own name is what skip_if_exists compares on the next run). A bare leaf
+    falls back, in order, to: a Content-Disposition filename that is itself
+    not bare -> the harvested website title (G19's source, template already
+    stripped) + tier suffix + ext -> the scene URL's last meaningful path
+    segment + ext. No title is ever invented from a filename: when nothing
+    better is known the bare leaf is returned as it was.
+    """
+    if not isinstance(suggested, str) or not suggested.strip():
+        return suggested
+    if suggested == _NO_NAME_PLACEHOLDER or not _is_bare_media_leaf(suggested):
+        return suggested
+    stem = Path(suggested.strip()).stem.strip()
+    ext = Path(suggested.strip()).suffix
+    if not ext:
+        ext = "." + stem.lower() if _FORMAT_TOKEN_RE.match(stem) else ".mp4"
+    if isinstance(disposition_name, str) and disposition_name.strip() \
+            and not _is_bare_media_leaf(disposition_name):
+        return disposition_name.strip()
+    tier = (tier or "").strip()
+    if not tier and _LEAF_TIER_RE.match(stem):
+        tier = stem.lower().replace("k", "K")
+    title = " ".join(website_title.split()) if isinstance(website_title, str) else ""
+    if title:
+        name = title
+        if tier and tier.lower() not in title.lower():
+            name = f"{title} [{tier}]"
+        return _sanitize_filename_var(name) + ext
+    scene_stem = _scene_url_stem(scene_url)
+    if scene_stem:
+        name = scene_stem
+        if tier and tier.lower() not in scene_stem.lower():
+            name = f"{scene_stem} [{tier}]"
+        return _sanitize_filename_var(name) + ext
+    return suggested
+
+
 def _is_click_only_download_grant(href):
     """Whether the browser event, rather than a static URL, issued the grant."""
     return not isinstance(href, str) or not href.strip()
@@ -135,11 +223,45 @@ _POPUP_GRANT_DISARM = """() => {
 }"""
 
 
+def _resolve_popup_grant(raw, page_url):
+    """The ``window.open`` argument as the browser would have resolved it.
+
+    Row 722 (members.filthykings.com, measured 2026-09-15): the site hands
+    ``window.open`` a HOST-RELATIVE href (``/movieaction/download/<id>/2160p/
+    mp4?...``). A real popup resolves that against ``document.baseURI``; the
+    capture stored ``String(url)`` verbatim, so the HTTP leg received a URL
+    with no host and ``staging_claim.resource_identity`` refused it with
+    "cannot derive resource provenance ... no scheme or host". The reader is
+    the owner of that resolution because it is the one seam that knows the
+    page, so every consumer downstream sees one absolute URL.
+
+    Only a relative reference is resolved. A grant that already carries a
+    scheme (``https:``, but equally ``javascript:``, ``data:``, ``blob:``) is
+    handed on unchanged: nothing here may fabricate a host for a URL that has
+    no base, and the provenance refusal for those stays exactly as it is.
+    Empty is no grant at all.
+    """
+    if not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        from urllib.parse import urlsplit, urljoin
+        if urlsplit(raw).scheme:
+            return raw
+        base = page_url if isinstance(page_url, str) else ""
+        return urljoin(base, raw) if base else raw
+    except Exception:
+        return raw
+
+
 def _arm_popup_grant_capture(page):
     """Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
 
     Fail-open: a page that will not evaluate gives back readers that answer
     ``None``, which leaves the caller on its existing no-download-event path.
+    The read grant is resolved against the page (``_resolve_popup_grant``).
     """
     try:
         page.evaluate(_POPUP_GRANT_ARM)
@@ -151,7 +273,11 @@ def _arm_popup_grant_capture(page):
             url = page.evaluate(_POPUP_GRANT_READ)
         except Exception:
             return None
-        return url if isinstance(url, str) and url.strip() else None
+        try:
+            page_url = page.url
+        except Exception:
+            page_url = ""
+        return _resolve_popup_grant(url, page_url)
 
     def _disarm():
         try:
@@ -241,6 +367,391 @@ class _ParallelDailyByteAccounting:
             final_worker = self.remaining == 0
         if final_worker:
             self.runner._finish_daily_byte_accumulator(self.accumulator)
+
+
+# ── Row 722 (G9): a dropdown toggle is not a modal trigger ───────────────────
+# Live (kink.com/shoot/108452, 2026-09-15): a VISIBLE Bootstrap toggle
+# `<button data-bs-toggle="dropdown">Download</button>` and a HIDDEN
+# `ul.dropdown-menu` of quality anchors (4K / 1080p / 720p / 480p). The wide
+# sweep admits the hidden anchors (row 759 zeroes their score, it does not
+# delete them), the winner is unclickable while the menu is shut, and the
+# operator read "looks like a modal-trigger button -- set Trigger Selector".
+# A human clicks Download, then 4K. The runner now does the same, with no
+# per-site selector: open the toggle, re-collect the menu, pick by the site's
+# quality preference. The parsing pieces are affordance_learning's -- the
+# learner already knows this DROPDOWN shape.
+_DROPDOWN_TOGGLE_CSS = (
+    "[data-bs-toggle='dropdown' i],[data-toggle='dropdown' i],"
+    "[aria-haspopup],[aria-expanded]")
+_DROPDOWN_MENU_XPATH = (
+    "ancestor::*[contains(concat(' ',normalize-space(@class),' '),"
+    "' dropdown-menu ') or @role='menu'][1]")
+_DROPDOWN_SETTLE_MS = 1500
+_DROPDOWN_POLL_MS = 100
+_NON_VIDEO_ITEM_RE = re.compile(
+    r"\.(?:zip|rar|7z|jpe?g|png|gif|webp|pdf|srt|vtt)(?:$|[?#])"
+    r"|\b(?:images?|photos?|pictures?|gallery|zip)\b", re.I)
+# Row 722 (G20): a bare "Download" BUTTON (no href, no dropdown attribute) is
+# a REVEAL trigger. Live (nookies.com/membersarea/video/3480, 2026-09-15):
+# `<button class="flex ...">Download</button>` opens a modal whose anchors
+# (`Full quality video / Save the video` -> /video/stream/<id>, `Photo
+# gallery (ZIP)`) are offsetParent-null until the click. The opener below
+# clicks it, waits for anchors that BECAME visible, and picks as G9 does.
+_REVEAL_TRIGGER_TEXTS = ("download", "download video", "downloads")
+_REVEAL_SETTLE_MS = 2000
+_REVEAL_MEDIA_RE = re.compile(
+    r"full\s*quality|\b(?:480|720|1080|1440|2160)p?\b|\b4k\b|\.mp4|/stream/"
+    r"|download|\.zip", re.I)
+# Row 722 (G9b): site-ma.bangbros.com/scene/11522485 (Aylo, 2026-09-15): the
+# "Download" trigger reveals href-less BUTTONs `h264 - 2160p / 1080p / 720p /
+# 480p` whose click hands the grant to window.open. Such a control is an
+# option when it BECAME visible and its text names a tier or codec; it is
+# clicked by the click-only path (row 760 popup-grant capture). An upsell
+# control is never clicked.
+_HREF_LESS_OPTION_CSS = "button,[role='menuitem'],[role='option'],li"
+_HREF_LESS_TIER_RE = re.compile(
+    r"\b\d{3,4}p\b|\b[48]k\b|\bh\.?26[45]\b|\bhevc\b|\bmp4\b|\bdownload\b", re.I)
+_UPSELL_OPTION_RE = re.compile(
+    r"\b(?:join|upgrade|buy|purchase|trial)\b|\$", re.I)
+
+
+def _reveal_trigger_for(loc):
+    """`loc` when it is a visible bare Download button/role=button with no
+    href and no dropdown marker, else None."""
+    if not _dropdown_visible(loc):
+        return None
+    try:
+        shape = loc.evaluate(
+            "(el, css) => ({"
+            " tag: el.tagName.toLowerCase(),"
+            " role: (el.getAttribute('role') || '').toLowerCase(),"
+            " href: (el.getAttribute('href') || '').trim(),"
+            " marked: el.matches(css),"
+            " text: (el.innerText || el.textContent || '').trim()})",
+            _DROPDOWN_TOGGLE_CSS)
+    except Exception:
+        return None
+    if not isinstance(shape, dict) or shape.get("marked") or shape.get("href"):
+        return None
+    if shape.get("tag") != "button" and shape.get("role") != "button":
+        return None
+    text = " ".join((shape.get("text") or "").split()).lower()
+    if text not in _REVEAL_TRIGGER_TEXTS:
+        return None
+    return loc
+
+
+def _visible_anchor_keys(page, css="a[href]"):
+    """(href, text) of every visible anchor (or, G9b, of every visible
+    `css` control), so a reveal is judged on what BECAME visible."""
+    try:
+        return page.evaluate(
+            "(css) => [...document.querySelectorAll(css)]"
+            ".filter(a => a.offsetParent !== null"
+            "  || getComputedStyle(a).position === 'fixed')"
+            ".map(a => (a.getAttribute('href') || '') + '\\u0000'"
+            "  + (a.innerText || '').trim())", css)
+    except Exception:
+        return []
+
+
+def _collect_download_options(anchors):
+    """Candidate option dicts from visible anchors (shared by the dropdown
+    and reveal openers)."""
+    from .detect import _DL_WORD_RE, res_score, parse_size_bytes
+    from .affordance_learning import parse_height
+    options = []
+    for a in anchors:
+        try:
+            href = (a.get_attribute("href") or "").strip()
+            label = " ".join((a.inner_text() or "").split())[:160]
+        except Exception:
+            continue
+        href_less = not href or href == "#"
+        if href_less:
+            # G9b: a href-less control is an option only when its text names
+            # a tier/codec and is not an upsell; a click is what spends it.
+            href = ""
+            if not label or not _HREF_LESS_TIER_RE.search(label) \
+                    or _UPSELL_OPTION_RE.search(label):
+                continue
+            # A wrapper (an <li> around an anchor/button) is not an option
+            # of its own; the control inside it is.
+            try:
+                if a.locator("a[href]," + _HREF_LESS_OPTION_CSS).count() > 0:
+                    continue
+            except Exception:
+                continue
+        text = f"{label} {href}".strip()
+        height = parse_height(label, href)
+        if not isinstance(height, int):
+            height = res_score(text)
+        if not (_DL_WORD_RE.search(text) or (height and height > 0)
+                or _REVEAL_MEDIA_RE.search(text)):
+            continue
+        options.append({
+            "locator": a, "text": text[:160], "label": label or href[-40:],
+            "height": height if (isinstance(height, int) and height > 0) else None,
+            "size": parse_size_bytes(text),
+            "video": not _NON_VIDEO_ITEM_RE.search(text),
+            "href_less": href_less,
+        })
+    return options
+
+
+def _dropdown_visible(loc):
+    try:
+        return bool(loc.is_visible())
+    except Exception:
+        return False
+
+
+def _dropdown_menu_has_links(menu):
+    try:
+        return menu.count() > 0 and menu.first.locator("a[href]").count() > 0
+    except Exception:
+        return False
+
+
+def _dropdown_toggle_for(loc):
+    """The toggle that opens the menu `loc` belongs to, or None.
+
+    Three shapes, cheapest first: `loc` IS a visible toggle (marker
+    attributes, or a sibling/descendant menu holding anchors); `loc` is an
+    item INSIDE a shut menu (the kink shape: the hidden 4K anchor wins the
+    sweep), so the toggle is the menu's preceding sibling or a marked control
+    in the menu's parent."""
+    if _dropdown_visible(loc):
+        # A navigational anchor is never a toggle (affordance_learning's
+        # _trigger_is_non_navigational): a visible direct download link is
+        # clicked as itself, whatever sits beside it.
+        try:
+            shape = loc.evaluate(
+                "(el, css) => ({marked: el.matches(css),"
+                " nav: el.tagName.toLowerCase() === 'a'"
+                " && !['', '#'].includes((el.getAttribute('href') || '').trim())})",
+                _DROPDOWN_TOGGLE_CSS)
+        except Exception:
+            shape = {}
+        if not isinstance(shape, dict) or shape.get("nav"):
+            return None
+        if shape.get("marked"):
+            return loc
+        for rel in ("xpath=following-sibling::*[1]"
+                    "[contains(concat(' ',normalize-space(@class),' '),"
+                    "' dropdown-menu ') or @role='menu']",
+                    "xpath=.//*[contains(concat(' ',normalize-space(@class),' '),"
+                    "' dropdown-menu ') or @role='menu']"):
+            try:
+                menu = loc.locator(rel)
+            except Exception:
+                continue
+            if _dropdown_menu_has_links(menu):
+                return loc
+        return None
+    try:
+        menu = loc.locator("xpath=" + _DROPDOWN_MENU_XPATH)
+        if menu.count() == 0:
+            return None
+        menu = menu.first
+    except Exception:
+        return None
+    for rel in ("xpath=preceding-sibling::*[1]",
+                "xpath=..//*"):
+        try:
+            cand = menu.locator(rel)
+            if rel.endswith("//*"):
+                cand = cand.locator(_DROPDOWN_TOGGLE_CSS)
+            n = min(cand.count(), 10)
+        except Exception:
+            continue
+        for i in range(n):
+            t = cand.nth(i)
+            if _dropdown_visible(t):
+                return t
+    return None
+
+
+def _same_element(loc, other):
+    """Whether two locators resolve to one DOM node (the toggle is never one
+    of its own menu's options)."""
+    try:
+        h1 = loc.element_handle(timeout=1000)
+        h2 = other.element_handle(timeout=1000)
+        return bool(h1 and h2 and h1.evaluate("(a, b) => a === b", h2))
+    except Exception:
+        return False
+
+
+def _open_dropdown_download_options(page, best, quality_preference, min_resolution):
+    """Open the dropdown behind a score-0 winner and choose a menu item.
+
+    Returns None when no dropdown shape is present (nothing was clicked), else
+    a dict {option, toggle_label, count, reason}: `option` is a candidate dict
+    (locator/text/score/size/work) ready for the normal expect_download click,
+    or None when the opened menu offered no download-like item (`reason` says
+    why; the caller keeps its existing hint).
+    """
+    toggle = None
+    seen_ids = []
+    best_loc = best.get("locator")
+    probe = [best_loc]
+    # A winner the operator can see and that is not itself a toggle is clicked
+    # as itself; the alternates are consulted only for a winner that cannot
+    # be clicked (an item inside a shut menu, or a bare toggle).
+    if best_loc is None or not _dropdown_visible(best_loc) or (
+            _dropdown_toggle_for(best_loc) is not None):
+        probe += [c.get("locator")
+                  for c in best.get("_all_candidates", []) or []]
+    for loc in probe:
+        if loc is None or loc in seen_ids:
+            continue
+        seen_ids.append(loc)
+        try:
+            toggle = _dropdown_toggle_for(loc)
+        except Exception:
+            toggle = None
+        if toggle is not None:
+            break
+    if toggle is None:
+        # G20: no dropdown shape; a bare "Download" button among the
+        # candidates is a reveal trigger (nookies modal). The winner's own
+        # href, if any, was already refused above (best is score 0, no href
+        # or an unclickable hidden item), so nothing visible is skipped.
+        for loc in seen_ids:
+            try:
+                trigger = _reveal_trigger_for(loc)
+            except Exception:
+                trigger = None
+            if trigger is not None:
+                return _open_reveal_download_options(
+                    page, trigger, best, quality_preference, min_resolution)
+        return None
+    try:
+        toggle_label = " ".join((toggle.inner_text() or "").split())[:60]
+    except Exception:
+        toggle_label = "?"
+    try:
+        toggle.click(timeout=5000)
+    except Exception as e:
+        return {"option": None, "toggle_label": toggle_label, "count": 0,
+                "reason": f"dropdown toggle click failed: {e}"[:160]}
+    # The menu is a sibling/descendant of the toggle's parent; anchors are
+    # read only once visible (a shut menu's items are exactly the defect).
+    container = toggle.locator("xpath=..")
+    items = []
+    deadline = time.monotonic() + _DROPDOWN_SETTLE_MS / 1000
+    while True:
+        try:
+            anchors = container.locator("a[href]," + _HREF_LESS_OPTION_CSS)
+            items = [anchors.nth(i) for i in range(min(anchors.count(), 40))
+                     if _dropdown_visible(anchors.nth(i))
+                     and not _same_element(anchors.nth(i), toggle)]
+        except Exception:
+            items = []
+        if items or time.monotonic() >= deadline:
+            break
+        try:
+            page.wait_for_timeout(_DROPDOWN_POLL_MS)
+        except Exception:
+            break
+    options = _collect_download_options(items)
+    if not options:
+        return {"option": None, "toggle_label": toggle_label, "count": 0,
+                "reason": "opened dropdown holds no download-like item"}
+    return _pick_download_option(options, toggle_label, best,
+                                 quality_preference, min_resolution, "dropdown")
+
+
+def _open_reveal_download_options(page, trigger, best, quality_preference,
+                                  min_resolution):
+    """G20: click a bare Download button and pick among the anchors that
+    BECAME visible within ~2s. Same return contract as the dropdown path."""
+    try:
+        toggle_label = " ".join((trigger.inner_text() or "").split())[:60]
+    except Exception:
+        toggle_label = "Download"
+    _reveal_css = "a[href]," + _HREF_LESS_OPTION_CSS
+    before = set(_visible_anchor_keys(page, _reveal_css))
+    try:
+        trigger.click(timeout=5000)
+    except Exception as e:
+        return {"option": None, "toggle_label": toggle_label, "count": 0,
+                "reason": f"reveal trigger click failed: {e}"[:160]}
+    items = []
+    deadline = time.monotonic() + _REVEAL_SETTLE_MS / 1000
+    while True:
+        new_keys = [k for k in _visible_anchor_keys(page, _reveal_css)
+                    if k not in before]
+        if new_keys:
+            try:
+                anchors = page.locator(_reveal_css)
+                for i in range(min(anchors.count(), 200)):
+                    a = anchors.nth(i)
+                    if not _dropdown_visible(a):
+                        continue
+                    try:
+                        key = ((a.get_attribute("href") or "") + "\u0000"
+                               + " ".join((a.inner_text() or "").split()))
+                    except Exception:
+                        continue
+                    if key in before:
+                        continue
+                    items.append(a)
+            except Exception:
+                items = []
+        if items or time.monotonic() >= deadline:
+            break
+        try:
+            page.wait_for_timeout(_DROPDOWN_POLL_MS)
+        except Exception:
+            break
+    options = _collect_download_options(items)
+    if not options:
+        sys.stderr.write(
+            f"  download: reveal '{toggle_label}' revealed no download "
+            f"option ({len(items)} new anchor(s)/control(s) became visible)\n")
+        return {"option": None, "toggle_label": toggle_label, "count": 0,
+                "reason": f"reveal '{toggle_label}' revealed no download option"}
+    return _pick_download_option(options, toggle_label, best,
+                                 quality_preference, min_resolution, "reveal")
+
+
+def _pick_download_option(options, toggle_label, best, quality_preference,
+                          min_resolution, kind):
+    """Choose by quality preference; video items before image/zip items."""
+    from .affordance_learning import pick_resolution
+    count = len(options)
+    href_less_count = sum(1 for o in options if o.get("href_less"))
+    if any(o["video"] for o in options):
+        options = [o for o in options if o["video"]]
+    # G9b: a static href is preferred over a JS-only grant when both appear.
+    if any(not o.get("href_less") for o in options):
+        options = [o for o in options if not o.get("href_less")]
+    chosen = None
+    with_height = [o for o in options if o["height"]]
+    if with_height:
+        sel = pick_resolution(with_height, quality_preference or "best",
+                              min_resolution)
+        if sel.get("status") == "BELOW_MIN_RESOLUTION":
+            return {"option": None, "toggle_label": toggle_label,
+                    "count": count, "reason": sel.get("reason", "")}
+        chosen = sel.get("option") or max(with_height, key=lambda o: o["height"])
+    else:
+        chosen = options[0]
+    option = {"locator": chosen["locator"], "text": chosen["text"],
+              "score": int(chosen["height"] or 0), "size": chosen["size"] or 0,
+              "work": best.get("work", 0)}
+    how = ""
+    if chosen.get("href_less"):
+        tier = f"{chosen['height']}p" if chosen.get("height") else "?"
+        how = f" ({tier}) via click"
+    extra = f" ({href_less_count} href-less)" if href_less_count else ""
+    sys.stderr.write(
+        f"  download: opened {kind} '{toggle_label}' -> {count} option(s)"
+        f"{extra}, picked {chosen['label']}{how}\n")
+    return {"option": option, "toggle_label": toggle_label, "count": count,
+            "reason": ""}
 
 
 class TransportMixin:
@@ -855,6 +1366,40 @@ class TransportMixin:
 
     @staticmethod
     @staticmethod
+    def _winner_url_value(attrs, page_url):
+        """The winner's URL-bearing attribute VALUE, or "".
+
+        Row 722s (dorcelclub, 2026-09-15 14:34Z): the reveal shows href-less
+        quality options `<div class="filter" data-quality="1080"
+        data-slug="https://www.dorcelclub.com/dl/.../1080.mp4?lang=en">`. The
+        ranker chose the right option from its label, the click did nothing
+        (the site's own button consumes the pick), and the job ended
+        "Clicked but no download started" -- while the file's URL sat on the
+        element the whole time. An attribute is not named by convention here:
+        `href` first, then ANY attribute whose value _direct_media_route
+        accepts as the file (or _stream_route as a manifest).
+
+        `attrs` is the element's (name, value) list in DOM order.
+        """
+        pairs = [(str(n or ""), str(v or "")) for n, v in (attrs or []) if v]
+        if not pairs:
+            return ""
+        by_name = dict(pairs)
+        href = (by_name.get("href") or "").strip()
+        if href:
+            return href
+        for name, value in pairs:
+            if name.lower() in ("class", "id", "style", "title", "aria-label", "alt", "src"):
+                continue
+            _surl, _ = TransportMixin._stream_route(value, page_url)
+            if _surl:
+                return value
+            _durl, _ = TransportMixin._direct_media_route(value, page_url)
+            if _durl:
+                return value
+        return ""
+
+    @staticmethod
     def _direct_media_route(href, page_url):
         """(media_url, destination_name) if `href` IS the file, else (None, None).
 
@@ -1171,6 +1716,74 @@ class TransportMixin:
                              filename=suggested,file_size=0)
             db_log(self.site_id,self.config.get("name","?"),page_url,
                    "needs_review",suggested,0,note)
+    # ── Row 759: a Download control that OPENS A MODAL instead of downloading ──
+    #
+    # A Gamma scene page (dfxtra / evilangel / xempire) carries an hrefless
+    # <div> whose visible text is "Download". Clicking it fires no download
+    # event -- it APPENDS a quality modal, and the label cells in that modal
+    # ("4K", "Full HD", "HD", ...) are the controls that actually mint the
+    # signed mp4. The media is HLS, so there is no static file href anywhere on
+    # the page: clicking the revealed label is the ONLY route to the file.
+    #
+    # Before this, expect_download below timed out on that div and the run
+    # recorded "Clicked but no download started -- looks like a modal-trigger
+    # button — set Trigger Selector". True, and useless: the modal the operator
+    # needed was on screen at the moment the refusal was written, and a trigger
+    # selector cannot be taught for a control whose CSS-module class is
+    # regenerated on every site deploy.
+    _FIRST_DOWNLOAD_TIMEOUT_MS = 60000   # the wait the modal click already spent
+    _REVEALED_MODAL_TIMEOUT_MS = 30000
+
+    def _download_from_revealed_modal(self, page, trigger):
+        """Re-scrape after a score-0 click and take the quality label it revealed.
+
+        Returns a Playwright ``Download``, or ``None`` when there is nothing
+        new to click -- in which case the caller records its needs_review
+        exactly as it did before.
+
+        Narrow in three directions on purpose. Only a candidate that scored 0
+        earns a second click (that is the modal-trigger shape the caller
+        already names in its own hint); the revealed winner must carry a real
+        resolution score; and it must be a DIFFERENT control, so a page that
+        simply did not respond to the click can never be clicked twice. Row
+        759-4 already zeroes the responsive-duplicate resolution cells that are
+        in the DOM but rendered at no breakpoint, so "highest scoring" here is
+        "highest the operator can actually see".
+        """
+        if trigger.get("score"):
+            return None
+        try:
+            from .detect import find_best_download, no_selection
+            best = find_best_download(
+                page, (self.config.get("dl_selector") or "").strip())
+        except Exception:
+            return None
+        if no_selection(best) or not best.get("score"):
+            return None
+        # The operator's quality_preference is applied in the runner BEFORE
+        # _do_download is entered, so this second population has never seen it.
+        # IntegrityMixin owns that choice and is a sibling mixin on the runner.
+        qpref = (self.config.get("quality_preference") or "").strip()
+        if qpref:
+            try:
+                best = self._apply_quality_preference(best, qpref) or best
+            except Exception:
+                pass
+        loc = best.get("locator")
+        if loc is None or loc is trigger.get("locator"):
+            return None
+        sys.stderr.write(
+            f"  download: the trigger click revealed a quality modal -> "
+            f"{res_label(best.get('score') or 0)} "
+            f"{str(best.get('text') or '')[:40]!r}\n")
+        try:
+            with page.expect_download(
+                    timeout=self._REVEALED_MODAL_TIMEOUT_MS) as dli:
+                loc.click()
+            return dli.value
+        except PWTimeout:
+            return None
+
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
@@ -1277,11 +1890,45 @@ class TransportMixin:
         # right here, so the decision happens here.
         is_stream = False
         click_only_grant = False
+        # Row 722 (G9): a score-0 winner may be a dropdown toggle, or an item
+        # inside a shut menu. Open it and re-pick BEFORE any click is spent on
+        # an unclickable element; nothing found -> the existing hint below.
+        if not direct_url and best.get("score", 0) == 0:
+            try:
+                _dd = _open_dropdown_download_options(
+                    page, best, (self.config.get("quality_preference") or "").strip(),
+                    self.config.get("min_resolution", 0) or 0)
+            except Exception as e:
+                _dd = None
+                sys.stderr.write(f"  download: dropdown probe failed: {e}\n")
+            if _dd and _dd.get("option"):
+                _picked = dict(_dd["option"])
+                for k, v in best.items():
+                    _picked.setdefault(k, v)
+                best = _picked
+                res_lbl = res_label(best["score"])
+                self._update_job(page_url, "running",
+                                 f"Opened dropdown '{_dd['toggle_label']}' -- "
+                                 f"clicking [{res_lbl}]...")
+            elif _dd:
+                best["_dropdown_note"] = (
+                    f"opened dropdown '{_dd['toggle_label']}' but "
+                    f"{_dd.get('reason') or 'no item was usable'}")
         if not direct_url:
             try:
-                _href = best["locator"].get_attribute("href") or ""
+                _attrs = best["locator"].evaluate(
+                    "el => Array.from(el.attributes).map(a => [a.name, a.value])")
+                _href = TransportMixin._winner_url_value(_attrs, page.url)
             except Exception:
-                _href = ""          # a detached locator is not the subject
+                _href = ""
+            if not _href:
+                # The attribute walk is an addition to the href read, never a
+                # replacement: a locator that cannot be evaluated (detached,
+                # or a double in a test) still yields its href as before.
+                try:
+                    _href = best["locator"].get_attribute("href") or ""
+                except Exception:
+                    _href = ""      # a detached locator is not the subject
             _surl, _sname = TransportMixin._stream_route(_href, page.url)
             if _surl:
                 direct_url, suggested, is_stream = _surl, _sname, True
@@ -1308,7 +1955,7 @@ class TransportMixin:
         if not direct_url:
             _read_popup_grant,_disarm_popup_grant=_arm_popup_grant_capture(page)
             try:
-                with page.expect_download(timeout=60000) as dli: best["locator"].click()
+                with page.expect_download(timeout=self._FIRST_DOWNLOAD_TIMEOUT_MS) as dli: best["locator"].click()
                 dl=dli.value
                 direct_url=dl.url
                 suggested=dl.suggested_filename or "download.bin"
@@ -1334,7 +1981,13 @@ class TransportMixin:
                     _disarm_popup_grant()
                 else:
                     _disarm_popup_grant()
-                    dl=None
+                    # Row 759: no event and no grant, but the click may have
+                    # OPENED the quality modal rather than failed. Look at the
+                    # page before writing a refusal about it.
+                    dl = self._download_from_revealed_modal(page, best)
+                    if dl is not None:
+                        direct_url=dl.url
+                        suggested=dl.suggested_filename or "download.bin"
             else:
                 _disarm_popup_grant()
             if dl is None:
@@ -1373,6 +2026,8 @@ class TransportMixin:
                           f"them, so no download event can fire. This needs the "
                           f"segmented downloader (ffmpeg via hls_downloader); "
                           f"it is not a selector problem")
+                elif best.get("_dropdown_note"):
+                    hint=best["_dropdown_note"]
                 elif best["score"]==0:
                     hint="looks like a modal-trigger button — set Trigger Selector"
                 else:
@@ -1389,6 +2044,25 @@ class TransportMixin:
             dl=_DirectURLDownload(direct_url,suggested)
 
         suggested=dl.suggested_filename or "download.bin"
+        # Row 722 (G29): "mp4.mp4" / "360p.mp4" / "high.mp4" are route
+        # segments, not names. The website title G19 already harvested for
+        # the history row names the file instead; the scene URL's own slug is
+        # the last resort. A real stem is never touched.
+        if _is_bare_media_leaf(suggested) and suggested != _NO_NAME_PLACEHOLDER:
+            _score = best.get("score", 0) or 0
+            _tier = res_label(_score) if 0 < _score < 9999 else ""
+            try:
+                _wtitle = history_title_kwargs(self, page_url).get("title", "")
+            except Exception:
+                _wtitle = ""
+            _named = resolve_media_leaf_name(
+                suggested, website_title=_wtitle, tier=_tier,
+                scene_url=page_url)
+            if _named != suggested:
+                sys.stderr.write(
+                    f"  download: bare media leaf {suggested!r} -> {_named!r} "
+                    f"({'website title' if _wtitle else 'scene url'})\n")
+                suggested = _named
         # GCW probe mode (v3.66.274): the trigger has fired and dl.url is the
         # real media URL. Sample the first bytes and abort instead of computing
         # a final path / downloading the whole file. No dl_dir is dereferenced

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ..constants import INSTALL_DIR
+from ..log import site_tag
 from ._common import _fire_login_trigger_if_needed, _ms_since
 
 
@@ -164,9 +165,55 @@ def write_login_evidence(page, config, final_url, tag):
         path.write_text(f"<!-- phase: {tag} -->\n"
                         f"<!-- final_url: {final_url} -->\n{html}",
                         encoding="utf-8", errors="replace")
+        # Row 722: the HTML alone cannot show which form was rendered, what
+        # a captcha widget did, or an error banner drawn by script. Keep
+        # what the browser SHOWED beside what it read; a screenshot that
+        # cannot be taken (page closed) never blocks the HTML evidence.
+        try:
+            page.screenshot(path=str(path.with_suffix(".png")))
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag()}login: evidence screenshot unavailable: {e}\n")
         return str(path)
     except Exception as e:
-        sys.stderr.write(f"  login: could not keep the page read as evidence: {e}\n")
+        sys.stderr.write(f"  {site_tag()}login: could not keep the page read as evidence: {e}\n")
+        return None
+
+
+_MASK_TEXT_INPUTS_JS = """(on) => {
+  for (const i of document.querySelectorAll('input:not([type=password]):not([type=hidden])')) {
+    if (on) { i.dataset.bdMaskPrev = i.style.webkitTextSecurity || ''; i.style.webkitTextSecurity = 'disc'; }
+    else { i.style.webkitTextSecurity = i.dataset.bdMaskPrev || ''; delete i.dataset.bdMaskPrev; }
+  }
+}"""
+
+
+def keep_pre_submit_screenshot(page, config):
+    """Row 722 (operator): the filled form is REVIEWED before a second
+    submit, so the run keeps a PNG of it right before the submit sweep.
+    A PNG only: no HTML pass (the row 708 evidence passes stay countable),
+    and the password renders masked. Returns the path, or None with a
+    distinctive line when the page cannot be captured."""
+    try:
+        directory = _login_evidence_dir(config)
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        path = directory / f"login-pre-submit-{stamp}-{os.getpid()}.png"
+        # The typed username is a credential too: render every non-password
+        # text field as discs for the shot, then restore (best effort).
+        try:
+            page.evaluate(_MASK_TEXT_INPUTS_JS, True)
+        except Exception:
+            pass
+        try:
+            page.screenshot(path=str(path))
+        finally:
+            try:
+                page.evaluate(_MASK_TEXT_INPUTS_JS, False)
+            except Exception:
+                pass
+        return str(path)
+    except Exception as e:
+        sys.stderr.write(f"  {site_tag()}login: pre-submit screenshot unavailable: {e}\n")
         return None
 
 
@@ -220,6 +267,84 @@ def member_state_check(page, config, *, tag="login"):
     return (False,
             f"no success_url match on the page read ({final_url})",
             evidence_path)
+
+
+# ── row 722: the post-submit page can still be the ANONYMOUS surface ────
+#
+# Live (nookies.com): a Tab+Enter submit navigated within the origin, the
+# jar gained a session cookie, and the run reported "OK -- 5 cookies"; the
+# members page then rendered "LOG IN / JOIN NOW" and a trailer-view quota,
+# i.e. logged-out chrome. A session cookie is assigned to anonymous
+# visitors too, so neither a same-origin navigation nor a changed jar is
+# proof of authentication when the page the run reads still offers the
+# anonymous affordances. This check reads what the page SHOWS; a declared
+# success_url match or a present member indicator (member_state_check)
+# still wins over it.
+_ANON_LOGIN_AFFORDANCES = ("log in", "login", "sign in", "signin", "join now")
+_MEMBER_AFFORDANCES = ("log out", "logout", "sign out", "signout",
+                       "my account", "members")
+
+# Visible password field: a rendered <input type=password> (layout boxes,
+# not merely present in the DOM -- kink.com's hidden duplicate form, row
+# 722, must not count). `text` is the rendered body text, never the HTML.
+_LOGIN_SURFACE_JS = """() => {
+    const visible = (el) => {
+        if (!el || !el.getClientRects || el.getClientRects().length === 0) return false;
+        const st = window.getComputedStyle(el);
+        return st.visibility !== 'hidden' && st.display !== 'none';
+    };
+    let password_visible = false;
+    for (const el of document.querySelectorAll('input[type=password]')) {
+        if (visible(el)) { password_visible = true; break; }
+    }
+    const text = (document.body && document.body.innerText) || '';
+    return {password_visible: password_visible, text: text.slice(0, 200000)};
+}"""
+
+
+def _read_login_surface(page):
+    """Browser boundary: what the post-submit page SHOWS. Returns
+    {"password_visible": bool, "text": str} or None when it cannot be
+    measured (page closed, evaluate unavailable). None is UNKNOWN: it
+    never asserts anonymity, and never asserts membership either."""
+    try:
+        surface = page.evaluate(_LOGIN_SURFACE_JS)
+    except Exception as e:
+        sys.stderr.write(f"  {site_tag()}login: post-submit surface unreadable: {e}\n")
+        return None
+    if not isinstance(surface, dict):
+        return None
+    return {"password_visible": bool(surface.get("password_visible")),
+            "text": str(surface.get("text") or "")}
+
+
+def _judge_login_surface(surface):
+    """Pure predicate over a surface read. Returns (anonymous, why).
+
+    Anonymous when (a) a password field is VISIBLE -- the login form is
+    still the page -- or (b) the visible text carries a LOG IN / SIGN IN /
+    JOIN NOW affordance and NO logout / account / member affordance. A
+    page that shows "Log out" is a member page even if a "Join now" upsell
+    sits in its footer; a page with neither is UNKNOWN, not anonymous."""
+    if not surface:
+        return False, "post-submit surface UNKNOWN (unreadable)"
+    if surface.get("password_visible"):
+        return True, "post-submit page still anonymous (login form visible)"
+    text = " ".join(str(surface.get("text") or "").lower().split())
+    login_hits = [a for a in _ANON_LOGIN_AFFORDANCES if a in text]
+    member_hits = [a for a in _MEMBER_AFFORDANCES if a in text]
+    if login_hits and not member_hits:
+        return True, (f"post-submit page still anonymous ({login_hits[0]!r} "
+                      f"affordance, no logout/account/member affordance)")
+    if member_hits:
+        return False, f"member affordance {member_hits[0]!r} shown"
+    return False, "no login affordance shown"
+
+
+def anonymous_surface_check(page):
+    """Row 722: does the page the run actually read still show the
+    anonymous (logged-out) surface? Returns (anonymous, why)."""
+    return _judge_login_surface(_read_login_surface(page))
 
 
 _AUTH_COOKIE_HINTS = (
@@ -302,12 +427,36 @@ def _success_url_matches(success_url, final_url):
             return False
         sx_path = sx.path or "/"
         fx_path = fx.path or "/"
+        if sx_path == "/":
+            # Row 722 (bangbros, 2026-09-15 14:4xZ): success_url
+            # https://site-ma.bangbros.com/ is a prefix of EVERY URL on the
+            # host, the login page included ("page already at success URL
+            # after fill" with nothing submitted). A root success URL means
+            # the root page, not the host.
+            return fx_path == "/"
         return _path_prefix_match(fx_path, sx_path)
     except Exception:
         # Conservative fallback: only treat as match if the configured
         # success_url is a strict prefix of final_url. Still safer than
         # arbitrary substring containment.
         return final_url.startswith(success_url)
+
+
+def success_url_reached(success_url, final_url, login_url=""):
+    """Row 722: the ONE success-URL predicate for submit.py. Structural
+    match (never substring) AND never the login page itself."""
+    if not _success_url_matches(success_url, final_url):
+        return False
+    if login_url:
+        try:
+            from urllib.parse import urlsplit
+            lx, fx = urlsplit(login_url), urlsplit(final_url)
+            if (lx.netloc == fx.netloc
+                    and (lx.path or "/").rstrip("/") == (fx.path or "/").rstrip("/")):
+                return False
+        except Exception:
+            return True
+    return True
 
 
 def _looks_authenticated(cookies, *, before_cookies=()):

@@ -35,13 +35,14 @@ test.describe("U10 — Bulk select", () => {
     const selectBtn = page.getByRole("button", {
       name: /Select sites for bulk actions/i,
     });
-    // The button is disabled when there are no sites — skip the
-    // assertion path in that case so a fresh-install run doesn't
-    // fail. We still assert the button EXISTS (the U10 surface is
-    // present), just not that we can drive it.
-    if (await selectBtn.isDisabled()) {
+    // Confirm an empty server response before skipping; initial loading
+    // also disables this button. A configured site must become selectable.
+    const sites = await page.request.get(`${BASE}/api/sites/v2`);
+    expect(sites.ok()).toBeTruthy();
+    if ((await sites.json()).sites.length === 0) {
       test.skip(true, "no sites configured — selection mode path not exercised");
     }
+    await expect(selectBtn).toBeEnabled();
     await selectBtn.click();
     // Selection mode shows a Done/Exit button in the trailing slot.
     await expect(
@@ -56,9 +57,12 @@ test.describe("U10 — Bulk select", () => {
     const selectBtn = page.getByRole("button", {
       name: /Select sites for bulk actions/i,
     });
-    if (await selectBtn.isDisabled()) {
+    const sites = await page.request.get(`${BASE}/api/sites/v2`);
+    expect(sites.ok()).toBeTruthy();
+    if ((await sites.json()).sites.length === 0) {
       test.skip(true, "no sites configured");
     }
+    await expect(selectBtn).toBeEnabled();
     await selectBtn.click();
     await page.getByRole("button", { name: /Exit selection mode/i }).click();
     // Back to the default state — Select button visible again.
@@ -72,13 +76,12 @@ test.describe("U10 — Bulk select", () => {
     const selectBtn = page.getByRole("button", {
       name: /Select waiting jobs for bulk cancel/i,
     });
-    // Button may be absent or disabled if no waiting jobs.
-    if ((await selectBtn.count()) === 0) {
-      test.skip(true, "no Select control on Queue — no waiting jobs");
-    }
-    if (await selectBtn.isDisabled()) {
+    const queue = await page.request.get(`${BASE}/api/queue/v2`);
+    expect(queue.ok()).toBeTruthy();
+    if ((await queue.json()).waiting.length === 0) {
       test.skip(true, "no waiting jobs to select");
     }
+    await expect(selectBtn).toBeEnabled();
     await selectBtn.click();
     await expect(
       page.getByRole("button", { name: /Exit selection mode/i }),
@@ -127,11 +130,13 @@ test.describe("U11 — Queue drag-to-reorder", () => {
     const chips = page.getByRole("button", {
       name: /Reorder \d+ waiting jobs for /i,
     });
-    const count = await chips.count();
-    if (count === 0) {
+    const queue = await page.request.get(`${BASE}/api/queue/v2`);
+    expect(queue.ok()).toBeTruthy();
+    const waiting = (await queue.json()).waiting as { site_id: string }[];
+    if (!waiting.some((job) => waiting.filter((other) => other.site_id === job.site_id).length >= 2)) {
       test.skip(true, "no site has ≥2 waiting jobs — ribbon path not exercised");
     }
-    expect(count).toBeGreaterThan(0);
+    await expect(chips.first()).toBeVisible();
   });
 
   test("API: POST /api/sites/:sid/jobs/reorder accepts an ordering", async ({
@@ -204,7 +209,7 @@ test.describe("U13 — Dashboard customize", () => {
     // Reset button shows up only in edit mode.
     await expect(
       page.getByRole("button", {
-        name: /Reset dashboard layout to defaults/i,
+        name: /Reset dashboard layout and widget selection to defaults/i,
       }),
     ).toBeVisible();
     // Exit cleanly.
@@ -228,7 +233,7 @@ test.describe("U13 — Dashboard customize", () => {
 test.describe("U14 — Log diff", () => {
   test("/m2/logs/diff route mounts the LogDiff page", async ({ page }) => {
     await page.goto(`${BASE}/m2/logs/diff`);
-    await expect(page).toHaveURL(/\/m2\/logs\/diff/);
+    await expect(page).toHaveURL(/\/logs\/diff$/);
     // The page renders even without query params — shows the empty
     // / picker state. We only assert it returned a 200 with the
     // SPA shell, not a 4xx/5xx.

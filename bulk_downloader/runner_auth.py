@@ -11,6 +11,7 @@ from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials
 from . import cloak as _cloak
+from .log import site_tag
 from .cookies import cookies_expiry_info
 from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE
 
@@ -252,7 +253,7 @@ class AuthMixin:
         # logging in on.
         if getattr(self, "_manual_login_handle", None):
             sys.stderr.write(
-                f"  login: manual login already in progress for {self.site_id} "
+                f"  {site_tag(self.site_id)}login: manual login already in progress for {self.site_id} "
                 f"— click I'm Done in the takeover panel\n")
             _fire(False)
             return
@@ -262,7 +263,7 @@ class AuthMixin:
             has_any = any(learned.get(k) for k in ("user_field","pass_field","submit_btn"))
             if not has_any and self.config.get("login_url","").startswith("http"):
                 sys.stderr.write(
-                    "  login: auto_teach_first_run on AND no learned selectors — "
+                    f"  {site_tag(self.site_id)}login: auto_teach_first_run on AND no learned selectors — "
                     "switching to Manual Login mode for capture\n")
                 ok, msg = self.start_manual_login()
                 # Mirror login_async's normal contract: set _login_status,
@@ -359,7 +360,8 @@ class AuthMixin:
                 # degradation inside it is filed under this site and put
                 # in this run record as soon as the flow returns.
                 with _cloak.owning_site(self.site_id):
-                    result=do_login(self.config,allow_manual_takeover=allow_manual)
+                    result=do_login(self.config,allow_manual_takeover=allow_manual,
+                                    site_id=self.site_id)
                 _surface_login_channel_fallbacks(self)
                 # Manual takeover branch: store handle, set state, return
                 if result and result[0]=="MANUAL_PENDING":
@@ -411,7 +413,7 @@ class AuthMixin:
                         and not getattr(self, "_manual_login_handle", None)
                         and self.config.get("login_url","").startswith("http")):
                     sys.stderr.write(
-                        f"  login: templated auto-login failed for "
+                        f"  {site_tag(self.site_id)}login: templated auto-login failed for "
                         f"{self.site_id} ({msg}) — falling back to manual "
                         f"login takeover\n")
                     fallback_detail = (f"templated login failed ({msg}); "
@@ -431,7 +433,7 @@ class AuthMixin:
                         )
                     except Exception as _e:
                         sys.stderr.write(
-                            f"  login: could not persist fallback event for "
+                            f"  {site_tag(self.site_id)}login: could not persist fallback event for "
                             f"{self.site_id}: {_e}\n")
                     m_ok, m_msg = self.start_manual_login()
                     self._set_login_status(
@@ -1100,7 +1102,12 @@ class AuthMixin:
             if any(h in cur for h in AUTH_HINTS): return "auth"
             try:
                 body=page.locator("body").inner_text(timeout=3000)
-                if RL_RE.search(body[:3000]): return "rl"
+                m=RL_RE.search(body[:3000])
+                if m:
+                    # Row 722s: keep the matched text so the cooldown names
+                    # WHAT on the page looked like a rate limit.
+                    self._rl_match=body[max(0,m.start()-40):m.end()+40].replace("\n"," ")
+                    return "rl"
             except Exception: pass
             # In-place login wall (no redirect): check the page HTML for a
             # login-form signal. Catches a session that expired mid-process

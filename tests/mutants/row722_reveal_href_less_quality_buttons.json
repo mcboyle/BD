@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722 G9b (site-ma.bangbros.com/scene/11522485, 2026-09-15): the Download trigger reveals href-less tier BUTTONs (h264 - 2160p/1080p/720p/480p) that hand the grant to window.open; the G20 reveal opener judged anchors only and refused 'revealed no download option'. M1 excludes href-less controls again; M2 drops the upsell-word guard (an UPGRADE $ button becomes an option and is clicked).",
+  "subject": "bulk_downloader/runner_transport.py",
+  "band": [
+    "tests/test_row722_reveal_href_less_quality_buttons.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 href-less controls excluded again",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "href_less = not href or href == \"#\"",
+      "new": "href_less = not href or href == \"#\"\n        if href_less:\n            continue",
+      "direction": "regression",
+      "catcher": "tests/test_row722_reveal_href_less_quality_buttons.py::test_the_row_href_less_tier_buttons_are_options_and_the_2160p_one_is_clicked"
+    },
+    {
+      "label": "M2 upsell-word guard dropped",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "or _UPSELL_OPTION_RE\\.search\\(label\\):",
+      "new": "or False:",
+      "direction": "regression",
+      "catcher": "tests/test_row722_reveal_href_less_quality_buttons.py::test_negative_a_an_upsell_only_menu_is_refused_and_nothing_is_clicked"
+    }
+  ]
+}

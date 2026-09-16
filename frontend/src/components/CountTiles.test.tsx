@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 
 // Cut 6.2 — read-only count tiles (queue / review / capture / template).
 // Presentational: counts come from existing hooks at the call site; the tile

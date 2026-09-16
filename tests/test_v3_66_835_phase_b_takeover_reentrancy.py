@@ -181,7 +181,7 @@ def test_the_alive_guard_still_refuses_an_external_caller():
     entered = threading.Event()
     opened = []
 
-    def _slow(config, allow_manual_takeover=True):
+    def _slow(config, allow_manual_takeover=True, **_kw):
         entered.set()
         gate.wait(30)
         return (False, "page load timeout", [])

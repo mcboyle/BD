@@ -41,7 +41,7 @@
     {
       "label": "M5 unavailable snapshot treated as empty",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "sys\\.stderr\\.write(?=\\(f\"  login: pre-submit cookie snapshot failed:)",
+      "old_regex": "sys\\.stderr\\.write(?=\\(f\"[^\"]*login: pre-submit cookie snapshot failed:)",
       "new": "cookies_before_submit = (); sys.stderr.write",
       "catcher": "tests/test_login_submit_robustness.py::test_unavailable_cookie_snapshot_cannot_prove_a_delta[ajax]",
       "direction": "regression"

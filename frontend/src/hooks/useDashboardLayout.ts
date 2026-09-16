@@ -278,6 +278,19 @@ export function useDashboardLayout(
     };
   });
 
+  // Supply new tiles' dimensions on their first render. Waiting for the
+  // effect below lets react-grid-layout invent a 1x1 cell and persist it
+  // through onLayoutChange before the selection's defaults are available.
+  const visibleLayouts = useMemo(() => {
+    const defaults = defaultLayouts();
+    return {
+      lg: reconcile(layouts.lg ?? [], defaults.lg ?? [], extraIds),
+      sm: reconcile(layouts.sm ?? [], defaults.sm ?? [], extraIds, 6),
+    };
+    // Match the selection-content dependency used by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layouts, extraIds.join("|")]);
+
   // When the operator adds/removes KPI widgets via the picker, the
   // extraIds prop changes. Re-reconcile so new widgets get default
   // positions and removed widgets disappear from the grid. We DON'T
@@ -367,5 +380,5 @@ export function useDashboardLayout(
   })();
   const isCustom = stored !== null;
 
-  return { layouts, setLayouts, reset, isCustom };
+  return { layouts: visibleLayouts, setLayouts, reset, isCustom };
 }

@@ -1,0 +1,34 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 722s live (dorcelclub 2026-09-15): the bare 'forbidden' arm of RL_RE matched marketing copy ('Explore forbidden sexual desires!') and put the site into a 23h cooldown with no log line. M1 restores the bare word; M2 drops the real 403-forbidden arm; M3 drops the quoted page text from the cooldown reason.",
+  "subject": "bulk_downloader/constants.py",
+  "band": [
+    "tests/test_row722s_rate_limit_is_never_a_marketing_word.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore the bare 'forbidden' arm",
+      "file": "bulk_downloader/constants.py",
+      "old_regex": "r\"\\|access denied\\|access forbidden\"",
+      "new": "r\"|access denied|access forbidden|forbidden\"",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_rate_limit_is_never_a_marketing_word.py::test_a_lone_block_word_in_page_copy_is_not_a_rate_limit[forbidden fruit, episode 4030]"
+    },
+    {
+      "label": "M2 drop the 403-forbidden arm",
+      "file": "bulk_downloader/constants.py",
+      "old_regex": "r\"\\|\\\\b403\\\\b\\\\s\\*\\[-:\\|\\]\\?\\\\s\\*forbidden\\|forbidden\\\\s\\*\\[-:\\|\\(\\]\\?\\\\s\\*403\\\\b\\|error\\\\s\\*403\\\\b\",",
+      "new": "r\"|(?!x)x\",",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_rate_limit_is_never_a_marketing_word.py::test_negative_control_the_real_block_phrases_still_match[403 Forbidden]"
+    },
+    {
+      "label": "M3 drop the quoted page text from the cooldown reason",
+      "file": "bulk_downloader/runner_accounts.py",
+      "old_regex": "if _match: reason=f\"\\{reason\\} \\(page text: \\.\\.\\.\\{_match\\}\\.\\.\\.\\)\"",
+      "new": "if _match: pass",
+      "direction": "regression",
+      "catcher": "tests/test_row722s_rate_limit_is_never_a_marketing_word.py::test_a_cooldown_writes_a_rate_limit_event_that_quotes_the_page_text"
+    }
+  ]
+}

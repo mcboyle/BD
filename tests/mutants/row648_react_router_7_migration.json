@@ -1,0 +1,58 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Re-run with ./venv/bin/python toolchain/bin/bd-mutate --spec tests/mutants/row648_react_router_7_migration.json. M1-M3 regress the PRODUCT (manifest, dependabot, one source import) back toward the pre-row-648 shape; M4-M6 blunt the gate's own instrument at its DECISION sites (the range reader's return, the scanner's entry, the lock reader's copy predicate) and must be caught by its controls. Anchors follow OD rule 5: M4/M5/M6 are structural (no value token); M1 is a regex over the declared range so a dependabot bump cannot rot it; M1-M3 carry value-bearing text a manifest, a YAML block and an import specifier cannot avoid, and are registered in tests/test_row357_mutant_anchors_are_not_fragile.py's stable-value exception registry with their catcher as evidence. The transform-control spec applies M3 while running only the manifest test and must ESCAPE.",
+  "subject": "row 648: the frontend depends on react-router >=7.18.0 directly, no source imports react-router-dom, and dependabot no longer ignores react-router majors",
+  "band": [
+    "tests/test_row648_react_router_7_migration.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 the declared range is downgraded back below first_patched_version",
+      "file": "frontend/package.json",
+      "new": "    \"react-router\": \"^7.17.0\",",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_frontend_declares_react_router_7_and_no_react_router_dom",
+      "old_regex": "(?m)^    \"react-router\": \"\\^7\\.[0-9]+\\.[0-9]+\",$"
+    },
+    {
+      "label": "M2 the react-router MAJOR ignore comes back to dependabot.yml",
+      "file": ".github/dependabot.yml",
+      "old": "    directory: \"/frontend\"\n    schedule:\n      interval: \"weekly\"\n",
+      "new": "    directory: \"/frontend\"\n    schedule:\n      interval: \"weekly\"\n    ignore:\n      - dependency-name: \"react-router\"\n        update-types:\n          - \"version-update:semver-major\"\n",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_dependabot_no_longer_ignores_react_router_majors"
+    },
+    {
+      "label": "M3 one route file imports the react-router-dom shim again",
+      "file": "frontend/src/App.tsx",
+      "old": "import { Routes, Route, Navigate } from \"react-router\";",
+      "new": "import { Routes, Route, Navigate } from \"react-router-dom\";",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_no_frontend_source_imports_react_router_dom"
+    },
+    {
+      "label": "M4 the range reader answers above the floor for every spec, so a vulnerable 6.x range passes",
+      "file": "tests/test_row648_react_router_7_migration.py",
+      "old": "    return _numeric_semver(rest)",
+      "new": "    return (7, 99, 99)  # M4: every parsable range reads as above the floor",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_range_minimum_refuses_unknown_shapes_and_orders_versions"
+    },
+    {
+      "label": "M5 the specifier scanner is blinded so no importer can match",
+      "file": "tests/test_row648_react_router_7_migration.py",
+      "old": "def _files_with_specifier(paths: list[Path], pattern: re.Pattern[str]) -> list[Path]:",
+      "new": "def _files_with_specifier(paths: list[Path], pattern: re.Pattern[str]) -> list[Path]:\n    return []  # M5: blinded, no importer can match",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_scanner_finds_a_planted_react_router_dom_import[import { Link } from 'react-router-dom']"
+    },
+    {
+      "label": "M6 the lock reader reads only the hoisted copy, so a nested vulnerable react-router escapes",
+      "file": "tests/test_row648_react_router_7_migration.py",
+      "old": "        if _is_copy_of(key, suffix):",
+      "new": "        if key == suffix:  # M6: hoisted copy only; a nested copy is never read (the 648b escape)",
+      "direction": "regression",
+      "catcher": "tests/test_row648_react_router_7_migration.py::test_lock_reader_floors_a_nested_react_router_copy"
+    }
+  ]
+}

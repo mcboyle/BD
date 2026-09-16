@@ -3,7 +3,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes, useLocation } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router";
 
 const { apiGetMock, apiPostMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
