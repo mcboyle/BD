@@ -23,6 +23,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+BD_GATE_SCOPE = "repo-wide"
+
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

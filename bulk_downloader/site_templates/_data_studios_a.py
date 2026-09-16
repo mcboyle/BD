@@ -198,7 +198,7 @@ ITEMS = [
             ),
             "trigger_selector": "div.download button",
             "dl_selector": "a.VideoJSPlayer-DownloadOption-Link[href*=\"2160p\"]",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             # Same measured Gamma/Kosmos scene upsell as Adult Time.
             "dismiss_selectors": (
@@ -233,7 +233,7 @@ ITEMS = [
             "login_url": "https://www.kink.com/login",
             "trigger_selector": "button.buy-shoot",
             "dl_selector": "a.dropdown-item[href*=\"/download?filename=\"]",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             # Encounter order measured on Kink: CookieYes banner, adult-entry
             # overlay, then the header control that renders the login modal.
@@ -364,7 +364,7 @@ ITEMS = [
             ),
             "trigger_selector": "button:text-is(\"Download\")",
             "dl_selector": "button:has-text(\"h264 - 1080p\")",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
         },
     },
@@ -392,7 +392,7 @@ ITEMS = [
         "config_defaults": {
             # Row 722 verified naughtyamerica config (:5555, 2026-09-15).
             "login_url": "https://members.naughtyamerica.com/login",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
         },
     },
@@ -560,7 +560,7 @@ ITEMS = [
             "crawler_listing_url": "https://members.filthykings.com/en/videos",
             "trigger_selector": "button.ScenePlayerHeaderPlus-IconItem-Button:has-text('Download')",
             "dl_selector": "a.VideoJSPlayer-DownloadOption-Link:has-text('2160p')",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
         },
     },
@@ -603,7 +603,7 @@ ITEMS = [
             ),
             "trigger_selector": "div.download button",
             "dl_selector": "a.VideoJSPlayer-DownloadOption-Link[href*=\"2160p\"]",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
         },
     },
@@ -637,7 +637,7 @@ ITEMS = [
             "success_url": "https://site-ma.brazzers.com/store",
             "trigger_selector": "button:has-text(\"Download\")",
             "dl_selector": "button.sc-o8a1bb-1",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
         },
     },

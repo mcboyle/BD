@@ -544,6 +544,8 @@ jobs:
               tests/test_row672_reviewed_template_is_reachable.py
               tests/test_row673_reviewed_probe_adapter_ships_once.py
               tests/test_row674_live_state_round_trips.py
+              tests/test_v3_43_54_resolution.py
+              tests/test_row821_template_tiers_are_opt_in.py
           # Row 386. The download chain end to end -- page DOM, candidate
           # discovery, ranking, direct-URL resolution, filename, a real
           # loopback transfer, and the history/library rows a completion

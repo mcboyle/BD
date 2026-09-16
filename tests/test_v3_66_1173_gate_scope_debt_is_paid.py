@@ -17,7 +17,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tests" / "gate_scope_baseline.txt"
-BASELINE_IDS_SHA256 = "f9dd7ca6908997f21bc0807784153a19c318f8c62fe8e3888df4f1a0503e2d5b"
+BASELINE_IDS_SHA256 = "25f36e604709736502eea227ae12a961ada586071b161bbbedbfd4960d1ec1a7"
 
 MIGRATED = (
     "tests/test_v3_66_1018_registrable_domain_drain.py",
@@ -98,7 +98,10 @@ def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
     display_gate = "tests/test_capture_provides_a_display.py"
     assert display_gate not in entries
     assert _scope(ROOT / display_gate) == "repo-wide"
-    assert len(entries) == 1237, (
+    resolution_gate = "tests/test_v3_43_54_resolution.py"
+    assert resolution_gate not in entries
+    assert _scope(ROOT / resolution_gate) == "repo-wide"
+    assert len(entries) == 1236, (
         "gate_scope_baseline must contain the 1,290 pre-Cut-C entries minus "
         "the exact 24 migrated gates and the later classified defect-precision and "
         "template-identity, frontend-secret, capture-vault, and capture-runtime "
@@ -107,7 +110,8 @@ def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
         "corpus-credential gate, the row-310 secret-runtime-route gate, and "
         "the row-292 capture-lane census gate, plus the classified download-"
         "integrity suite, and the four footgun-detector gates named in "
-        "FOOTGUN_MIGRATED, and the row-694 capture display gate; "
+        "FOOTGUN_MIGRATED, the row-694 capture display gate, and the row-821 "
+        "resolution-tier gate; "
         "do not trade one unclassified path for another"
     )
     assert _identity_digest(entries) == BASELINE_IDS_SHA256, (

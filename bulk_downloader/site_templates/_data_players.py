@@ -183,13 +183,14 @@ ITEMS = [
             # fallback ladder. If a user genuinely wants to chase
             # 5K/8K they can append ',4320,3132,2880' to this
             # preference list via the site edit form.
-            # Row 722 (2026-09-15): the verified wowgirls run took the 8K
-            # (7680x4320) tier cleanly with the ladder below, so the 4K-first
-            # default above is superseded; trim the list to start at 2160 if
-            # the 5K/8K CDN misbehaves for an account.
+            # Row 722 (2026-09-15) took one 8K (7680x4320) scene cleanly; one
+            # success is not tier reliability (row 821, O823): 4K-first stays
+            # the default and 5K/8K remain opt-in until measured. The row-821
+            # gate tests/test_row821_template_tiers_are_opt_in.py pins this
+            # for every row-722 verified template.
             "login_url": "https://auth.wowgirls.com/login",
             "success_url": "https://venus.wowgirls.com/",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,

@@ -1,0 +1,44 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 821. Each mutant regresses one row-722 verified template toward the abecef79 defect (8K/5K-first ladder, shuffled ladder) or shrinks the measured family denominator; the family gate must name the template. Anchors are zero-width (structural) so no value is frozen (row 357).",
+  "subject": "row 821: the row-722 verified template family keeps 4K-first; 5K/8K tiers stay opt-in",
+  "band": [
+    "tests/test_row821_template_tiers_are_opt_in.py::test_the_family_is_measured_from_the_package",
+    "tests/test_row821_template_tiers_are_opt_in.py::test_no_family_template_auto_prefers_a_5k_or_8k_tier",
+    "tests/test_row821_template_tiers_are_opt_in.py::test_family_ladders_lead_with_the_reliable_top_tier"
+  ],
+  "mutants": [
+    {
+      "label": "M1 kink_network ladder regresses to 8K-first (the abecef79 defect)",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?<=filename=\\\\\"\\]\",\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \"quality_preference\":\\ \")(?=2160,1080,720\")",
+      "new": "4320,3160,2880,",
+      "direction": "regression",
+      "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_no_family_template_auto_prefers_a_5k_or_8k_tier"
+    },
+    {
+      "label": "M2 naughtyamerica ladder is shuffled: 720 leads, 2160 follows",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?<=members\\.naughtyamerica\\.com/login\",\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \"quality_preference\":\\ \")(?=2160,1080,720\")",
+      "new": "720,",
+      "direction": "regression",
+      "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_family_ladders_lead_with_the_reliable_top_tier"
+    },
+    {
+      "label": "M3 wowgirls_network auto-prefers the 5K tier (3132) ahead of 4K",
+      "file": "bulk_downloader/site_templates/_data_players.py",
+      "old_regex": "(?<=venus\\.wowgirls\\.com/\",\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \"quality_preference\":\\ \")(?=2160,1080,720\")",
+      "new": "3132,",
+      "direction": "regression",
+      "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_no_family_template_auto_prefers_a_5k_or_8k_tier"
+    },
+    {
+      "label": "M4 evilangel loses the row-722 stamp: the family denominator shrinks silently",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "VERIFIED(?= 2026-09-15 \\(row 722\\): login https://www\\.evilangel\\.com/en/login)",
+      "new": "Verified",
+      "direction": "regression",
+      "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_the_family_is_measured_from_the_package"
+    }
+  ]
+}

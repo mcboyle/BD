@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: a kink_network min_resolution override (duplicate key, last wins -> 720) must ESCAPE a test that loads TEMPLATES but never reads min_resolution.",
+  "subject": "transform control for the row-821 family gate",
+  "band": [
+    "tests/test_row821_template_tiers_are_opt_in.py::test_the_family_is_measured_from_the_package"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL kink_network min_resolution overridden to 720 outside the asserted path",
+      "file": "bulk_downloader/site_templates/_data_studios_a.py",
+      "old_regex": "(?<=\"min_resolution\": 1080,\\n)(?=            # Encounter order measured on Kink:)",
+      "new": "            \"min_resolution\": 720,\n",
+      "direction": "regression",
+      "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_the_family_is_measured_from_the_package"
+    }
+  ]
+}

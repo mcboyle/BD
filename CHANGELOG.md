@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1565 - row 821: row-722 template family back to 4K-first (2160,1080,720), opt-in high tiers gated in CI; row 812: precollect guard refuses a PATCH DONE.md without a replayable RED command (harness, applied)
+
+Train: 1 row on main v3.66.1564 (8d200f86), corr lens BOARD (bd-persist/train-handoff/lens/VERDICT-821-correctness-20260916T0550Z.md). Register also closes 812 (harness guard, applied outside git).
+
+- 821 (T2): v3.66.1563 left 15 row-722 templates (11 flipped, 4 new) preferring 8K/5K first; `quality_preference` restored to `2160,1080,720` for all 15. New family gate tests/test_row821_template_tiers_are_opt_in.py (23 row-722 templates: high tiers are opt-in per O823) and the standing tests/test_v3_43_54_resolution.py now ride the template-selectors CI shard; mutants 4 caught / 0 escaped. Live high-tier reliability was not measured (no site login).
+
 ## v3.66.1564 - 728 follow-up: redirect Location quoted stdlib-style (iso-8859-1) before logical rebasing, logical response.url; row 818 M4 catcher re-pinned; row 822 keeper _run_one_check catcher
 
 Train: 3 rows on main v3.66.1563 (8fef858f); each lensed BOARD (bd-persist/train-handoff/lens/*-20260916T0440Z.md) or proven red/green (train-handoff/fixes/rebase8{18,22}-20260916T0440Z.md).
