@@ -131,6 +131,7 @@ DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY = 3
 # auto_relogin_fail, so filing a self-refusal there would corrupt expiry
 # prediction with a window that no site ever ended.
 RELOGIN_REFUSED_EVENT = "auto_relogin_refused"
+_CREDENTIAL_REJECTION_MARK = "rejected login landing"
 # Row 741: a refusal we issued has THREE remedies, not one. The cap was
 # reached (wait for the day to roll), the cap could not be measured or
 # reserved (repair the attempt store), or the cap is misconfigured (fix the
@@ -771,6 +772,12 @@ class SessionKeeper:
     def _run_one_check(self):
         """Try to verify the session is still alive. If not, try to
         relogin. Records the result to session_history."""
+        # A site explicitly rejected the stored credentials (or requires an
+        # operator challenge handoff). Re-running the same input merely burns
+        # the shared daily attempt cap; update_config() is the explicit action
+        # that re-enables this keeper after the credential is repaired.
+        if self.state["state"] == "needs_takeover":
+            return
         if not self.config.get("keep_alive_enabled", False):
             self._set_state("disabled", "keep_alive_enabled is False")
             return
@@ -831,7 +838,11 @@ class SessionKeeper:
             # ourselves and a rejection by the site lead to opposite actions.
             self._record_event(relogin_event_type(relogin_detail),
                                relogin_detail)
-            if "captcha" in relogin_detail.lower() or "2fa" in relogin_detail.lower():
+            if (not isinstance(relogin_detail, SelfRefusal) and (
+                    _CREDENTIAL_REJECTION_MARK in relogin_detail.lower()
+                    or "settled-challenge" in relogin_detail.lower()
+                    or "captcha" in relogin_detail.lower()
+                    or "2fa" in relogin_detail.lower())):
                 self._set_state("needs_takeover", relogin_detail)
                 self._record_event("needs_takeover", relogin_detail)
             elif self.state["consecutive_failures"] >= BACKOFF_AFTER_N_FAILURES:
@@ -1653,4 +1664,8 @@ def update_config(site_id: str, account_idx: int, site_config: dict):
         keeper = _keepers.get((site_id, account_idx))
         if keeper:
             keeper.config = site_config
+            if keeper.state.get("state") == "needs_takeover":
+                keeper.state["state"] = "connected"
+                keeper.state["consecutive_failures"] = 0
+                keeper.state["last_detail"] = "configuration updated; retry enabled"
             keeper.force_check_now()

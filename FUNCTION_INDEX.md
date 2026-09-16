@@ -789,18 +789,19 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (9 entries)
+## `bulk_downloader/login_impl/submit.py` (10 entries)
 
 ```
-- L0027 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0056 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0095 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0119 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0203 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0219 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0280 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0580 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L0650 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0028 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0057 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0096 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0124 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0139 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0223 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0239 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0300 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0600 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L0670 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -834,4 +835,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 658 across 22 files._
+_Total entries: 659 across 22 files._

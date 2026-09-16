@@ -491,6 +491,7 @@ jobs:
               tests/test_row634_live_registry_iteration_is_snapshotted.py
               tests/test_login_api_refuses_impossible_manual_start.py
               tests/test_row772_rejected_login_is_not_success.py
+              tests/test_row772_astra_settling.py
               tests/test_row667_login_attempt_accounting.py
               tests/test_row740_login_cap_writer_atomicity.py
               tests/test_row806_health_payload_names_the_deployed_cloak_state.py
@@ -799,6 +800,7 @@ jobs:
               tests/test_v3_66_1192_build_release_sh_stays_retired.py
               tests/test_v3_66_935_scan_wait_reports_non_convergence.py
               tests/test_git_deploy_gaps_are_documented.py
+              tests/test_row717_fresh_host_documents_cut_quality.py
               tests/test_ct1_corpus_validation.py
               tests/test_history_columns_go_through_migrations.py
               tests/test_gitignore_rules_actually_match.py

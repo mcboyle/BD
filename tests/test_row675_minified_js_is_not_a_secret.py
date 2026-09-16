@@ -1,6 +1,8 @@
 """Row 675: JavaScript literals do not trip the artifact secret gate."""
 BD_GATE_SCOPE = "repo-wide"
 
+from html import escape
+
 import pytest
 
 from bulk_downloader.capture_artifact_redact import _value_findings
@@ -68,15 +70,8 @@ def test_an_identifier_valued_minified_assignment_still_trips_the_detector(scrip
 
 
 @pytest.mark.parametrize("script", _LITERAL_VALUED)
-def test_the_workbench_still_rewrites_the_literal_script_it_no_longer_flags(script):
-    """RESIDUAL, second half, and the reason row 675's consequence is unmet.
-
-    The exemption was added to the DETECTOR (_value_findings).  The DOM
-    text path is scrubbed by a different pass, which still rewrites
-    `k=0` to the placeholder -- so the workbench shows mangled script even
-    for the two shapes this cut exempts.  Measured on this candidate, not
-    predicted.  Pinned so the follow-up row has a starting assertion.
-    """
+def test_the_workbench_keeps_the_literal_script_it_no_longer_flags(script):
+    """The DOM rewriter shares the detector's literal exemption."""
     html = redacted_dom(_capture_with_script(script))["html"]
-    assert script not in html
-    assert "scrubbed" in html
+    assert escape(script) in html
+    assert "scrubbed" not in html

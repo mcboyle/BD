@@ -20,10 +20,16 @@ _SIGNATURES = [
     ("turnstile", re.compile(r"cf-turnstile|turnstile|challenges\.cloudflare", re.I)),
     ("hcaptcha", re.compile(r"hcaptcha|h-captcha", re.I)),
     ("recaptcha", re.compile(r"recaptcha|g-recaptcha|gstatic.*recaptcha", re.I)),
-    ("login-wall", re.compile(r"\b(sign in|log ?in|password|sign-in|authenticate)\b", re.I)),
+    ("login-wall", re.compile(r"\b(sign\s+in|log\s*in|password|sign-in|authenticate)\b", re.I)),
 ]
 
 _WIDGET_SIGNATURES = _SIGNATURES[:3]
+_PUBLIC_TRAILER_SIGN_IN_COPY = re.compile(
+    r"\bsign\s+in(?=\s+to\s+save\b[^.!?]*\bfavou?rites?\b)", re.I)
+_BODY_LOGIN_LABEL = re.compile(r"\blogin\b", re.I)
+_LOGIN_PROMPT = re.compile(
+    r"\b(?:(?:please|must|need\s+to|required\s+to)\s+login|"
+    r"login\s+(?:is\s+)?(?:required|necessary|to\b|with\b|first\b))", re.I)
 
 
 def _detect(text: str) -> str:
@@ -41,12 +47,27 @@ def _detect_widget(text: str) -> str:
     return "unknown"
 
 
+def _classification_text(observation: Dict[str, Any]) -> str:
+    """Exclude navigation labels and optional copy, retaining required prompts."""
+    text = str(observation.get("text", ""))
+    public_copy = " ".join((str(observation.get("title", "")), text))
+    if "public trailer" in public_copy.lower():
+        text = _PUBLIC_TRAILER_SIGN_IN_COPY.sub("", text)
+    # A bare body "Login" is also a normal navigation link. Require a prompt
+    # before treating it as a wall; title/marker and other auth signals remain.
+    if not _LOGIN_PROMPT.search(text):
+        text = _BODY_LOGIN_LABEL.sub("", text)
+    return text
+
+
 def classify(observation: Dict[str, Any], *, model: Optional[str] = None,
              _call=None) -> Dict[str, Any]:
     """Classify a detected challenge. `observation` may carry `text`, `title`,
     `markers`. Returns {type, observation_summary, suggested_review_path, advisory}.
     Detection only -- never bypass instructions."""
-    blob = " ".join(str(observation.get(k, "")) for k in ("text", "title", "markers"))
+    blob = " ".join((_classification_text(observation),
+                     str(observation.get("title", "")),
+                     str(observation.get("markers", ""))))
     ctype = _detect(blob)
     if ctype == "unknown":
         frame_blob = " ".join(str(url) for url in observation.get("frame_urls", ()))

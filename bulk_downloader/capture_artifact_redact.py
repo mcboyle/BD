@@ -104,7 +104,14 @@ _SIGNING_META_ONLY = re.compile(r"(?:expires|policy|hash|x-amz-)", re.I)
 # without widening the query SoT (which would change the gated signed-query pass).
 _KV_CRED_EXTRA = re.compile(r"(?:csrf|xsrf|bearer)", re.I)
 _JS_LITERAL_VALUE = re.compile(
-    r"^(?:null|true|false|undefined|NaN|void|[+-]?\d{1,3})(?![A-Za-z0-9_$.])")
+    r"(?:null|true|false|undefined|NaN|void|[+-]?[0-9]{1,3})")
+
+
+def _is_js_literal_value(value: str) -> bool:
+    """Whether a minified assignment value is a harmless JavaScript literal."""
+    return _JS_LITERAL_VALUE.fullmatch(value) is not None
+
+
 def _kv_key_is_secret(k: str) -> bool:
     """True if a key=value key marks its value as a CREDENTIAL -- the always-on
     floor scrubs it even under keep_full.
@@ -235,7 +242,9 @@ def redact_value(s: str, *, redact_signed_query: bool = True,
     if redact_kv:
         out = _KV_PAIR_RE.sub(
             lambda m: (f"{m.group('k')}={PLACEHOLDER}"
-                       if _kv_key_is_secret(m.group("k")) else m.group(0)),
+                       if (_kv_key_is_secret(m.group("k"))
+                           and not _is_js_literal_value(m.group("v")))
+                       else m.group(0)),
             out)
     # 5. JWTs
     out = _JWT_RE.sub(PLACEHOLDER, out)
@@ -289,7 +298,7 @@ def _value_findings(s: str) -> List[str]:
     for m in _KV_PAIR_RE.finditer(s):
         if (_kv_key_is_secret(m.group("k"))
                 and m.group("v") != PLACEHOLDER
-                and not _JS_LITERAL_VALUE.match(m.group("v"))):
+                and not _is_js_literal_value(m.group("v"))):
             kinds.append("kv_secret")
             break
     if _looks_like_opaque_token(s):

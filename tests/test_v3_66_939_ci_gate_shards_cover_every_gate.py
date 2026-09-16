@@ -109,6 +109,7 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
 # CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
 # CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
+# CI-SHARD-CLAIM row-772 application-safety tests/test_row772_astra_settling.py
 # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
 # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
 # CI-SHARD-CLAIM row-820 mutation-tools tests/test_row810_spec_collection_slice_0.py
@@ -150,6 +151,7 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
 # CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
 # CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
+# CI-SHARD-CLAIM row-717 tree-gates-5 tests/test_row717_fresh_host_documents_cut_quality.py
 #
 # One retired gate's WHY is kept because a test pins the prose: @1215 judges
 # two PRODUCTION toolchain scripts -- bd-wedge-hunt's remote transport and

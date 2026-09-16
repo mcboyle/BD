@@ -97,7 +97,7 @@ class _StackedPage:
                 return _ControlLocator(self, control)
         return _ControlLocator(self, _Control(selector, "", self.stage))
 
-    def wait_for_load_state(self, **_kwargs):
+    def wait_for_load_state(self, state=None, **_kwargs):
         return None
 
     def goto(self, url, **_kwargs):

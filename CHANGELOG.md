@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1562 - row796 astra literal redaction; row772 astra settling and settled login outcomes; row815 credleak D1 probe; row717 fresh-host bringup doc gate; row676 challenge classification repair
+
+Train: 5 refute-first-reviewed worker patches.
+
+- 796-ASTRA-U3-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row796-astra-u3-local/DONE.md
+- 772-ASTRA-U3-HELPER-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row772-astra-u3-helper-local/DONE.md
+- 815-R2-WORKER-B9-B-LOCAL: RED-1, redact call deleted at runner_auth.py:214 -- OLD two tests PASS ("2 passed, 3 deselected"), the escape this row was filed on; new test FAILS: "E AssertionError: assert 'd1-password... unner-status' not in 'Expected UR...us&next=home'" (real assertion, not TypeError). RED-2, raw assignment res
+- 717-R2-WORKER-B1-B-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row717-r2-worker-B1-B-local/DONE.md
+- 676-ASTRA-U3-MAINREPAIR-LOCAL: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row676-astra-u3-mainrepair-local/DONE.md
+
 ## v3.66.1561 - row810 forwarding mutants; row813 rejected-login diagnostic; row719 return_to spoof; row816 Playwright teardown; row820 CI shard split and derived 939 coverage
 
 Train: 5 refute-first-reviewed worker patches.

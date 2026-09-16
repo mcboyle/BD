@@ -21,6 +21,7 @@ from .replay import (
     member_state_check,
     redact_url_credentials,
     replay_saved_login_flow,
+    write_login_evidence,
 )
 
 
@@ -111,6 +112,25 @@ def _wait_captcha_tokens(page,deadline=30):
             time.sleep(0.5)
         return tok,deadline
     return None,0
+
+
+_CHALLENGE_LANDING_MARKERS = (
+    "checking your browser",
+    "verify you are human",
+    "just a moment...",
+)
+
+
+def _settled_non_success(page, config, status, why, hard_close):
+    """Keep the landing that made a post-submit verdict non-successful."""
+    try:
+        final_url = page.url
+    except Exception:
+        final_url = ""
+    evidence = write_login_evidence(page, config, final_url, f"login-{status}")
+    hard_close()
+    outcome = LoginOutcome(status, False, evidence, why)
+    return outcome, f"{status}: {why} — NOT success", []
 
 
 _TURNSTILE_CHECKBOX = ".cf-turnstile input[type='checkbox'], .cf-turnstile [role='checkbox']"
@@ -1347,6 +1367,38 @@ def do_login(config, allow_manual_takeover=False):
         if _rejected_login:
             _hard_close()
             return False, f"Rejected login landing: {cur[:200]}", []
+        # A URL move only says that the form left its original page.  It does
+        # not say that the destination finished loading or that it is members
+        # content: challenge pages commonly redirect first and render later.
+        # Keep both cases as distinct, falsy outcomes so callers do not spend
+        # another credential attempt treating them as an ordinary success.
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=10000)
+        except PWTimeout:
+            return _settled_non_success(
+                page, config, "settled-timeout",
+                "post-submit landing did not reach DOMContentLoaded",
+                _hard_close)
+        # Settling can finish a redirect or render a rejection. The verdict
+        # and origin check must use that final page, not the loading shell.
+        cur = page.url
+        try:
+            from bs4 import BeautifulSoup
+            _landing_doc = BeautifulSoup(page.content(), "html.parser")
+            _landing_text = " ".join(_landing_doc.get_text(" ", strip=True).split()).lower()
+            _landing_title = (" ".join(_landing_doc.title.get_text(" ", strip=True).split()).lower()
+                              if _landing_doc.title else "")
+        except Exception:
+            _landing_text = _landing_title = ""
+        if (cur.partition("?")[0].lower().endswith("/badlogin")
+                or "wrong username or password provided" in _landing_text):
+            _hard_close()
+            return False, f"Rejected login landing: {cur[:200]}", []
+        if (_landing_title == "just a moment"
+                or any(marker in _landing_text for marker in _CHALLENGE_LANDING_MARKERS)):
+            return _settled_non_success(
+                page, config, "settled-challenge",
+                "post-submit landing is a challenge page", _hard_close)
         if success and success not in cur:
             safe_cur = redact_url_credentials(cur)
             if allow_manual_takeover:
