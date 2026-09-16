@@ -667,6 +667,23 @@ def _try_check_remember_me(page):
     return False
 
 
+
+def _page_is_gone(page, exc) -> bool:
+    """True only when the page itself is gone, so a body probe cannot succeed.
+
+    Everything else -- "execution context was destroyed" during a navigation,
+    a timeout, a detached frame -- is transient: the body is readable again
+    once the page settles, and the caller must re-read rather than give up.
+    """
+    try:
+        if page.is_closed():
+            return True
+    except Exception:
+        pass
+    text = str(exc).lower()
+    return "has been closed" in text or "target closed" in text
+
+
 def do_login(config, allow_manual_takeover=False):
     """Robust login. Tries 25 username selectors, 15 password selectors,
     50+ submit-button selectors, and 9 different submit methods (button
@@ -1358,7 +1375,12 @@ def do_login(config, allow_manual_takeover=False):
             try:
                 _rejected_login = "wrong username or password provided" in page.content().lower()
             except Exception as exc:
-                _body_unreadable = True
+                # Adjudicator ruling on PR#879: only a page that is GONE stays
+                # unreadable. A transient failure during the post-submit
+                # navigation ("execution context was destroyed") reads fine once
+                # the page settles, and skipping the settled read there would
+                # lose the rejection this block exists to find.
+                _body_unreadable = _page_is_gone(page, exc)
                 # Row 813 (the DP-13 hit O805 deferred). The swallow is correct --
                 # the /badlogin URL check above is the primary signal and still
                 # decides -- but a silent one made an unreadable body look exactly
@@ -1385,9 +1407,10 @@ def do_login(config, allow_manual_takeover=False):
         # and origin check must use that final page, not the loading shell.
         cur = page.url
         _landing_text = _landing_title = ""
-        # A body that could not be read above will not become readable here --
-        # the probe failed because the page is gone, not because it was early --
-        # so re-reading it would only repeat the same failure silently.
+        # A body that could not be read above because the PAGE IS GONE will not
+        # become readable here, so re-reading it would only repeat the same
+        # failure silently. Any other probe failure is transient and the settled
+        # page must still be judged.
         if not _body_unreadable:
             try:
                 from bs4 import BeautifulSoup
