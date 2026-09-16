@@ -617,6 +617,15 @@ jobs:
               tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
               tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
               tests/test_u45_capture_sh_shipped.py
+          # Row 728 (T3 security). The literal-pin behaviour -- resolve once,
+          # connect to the vetted address with Host/SNI kept -- is asserted
+          # only by test_row728_pinned_urllib.py, a module-scoped gate, so
+          # without an entry here a rebind between check and open would be
+          # caught by nothing in CI; the marker is repo-wide so the 939 gate
+          # derives it and this entry is required, not optional.
+          - name: ssrf-pinned-urllib
+            suites: >-
+              tests/test_row728_pinned_urllib.py
           # Row 340. The production deploy harness drives real git and the
           # complete step-12 health boundary. It is isolated because the suite
           # constructs a fresh origin/clone per case and would otherwise make

@@ -4,7 +4,7 @@ import pytest
 from urllib.error import URLError
 from urllib.request import Request
 
-BD_GATE_SCOPE = "module"
+BD_GATE_SCOPE = "repo-wide"
 
 
 def test_pinned_urllib_request_uses_the_single_vetted_answer(monkeypatch):
