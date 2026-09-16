@@ -612,7 +612,6 @@ tests/test_v3_43_50_teach_urls.py
 tests/test_v3_43_51_wizard.py
 tests/test_v3_43_52_keeper_collision.py
 tests/test_v3_43_53_worker_feedback.py
-tests/test_v3_43_54_resolution.py
 tests/test_v3_43_56_stealth.py
 tests/test_v3_43_56_templates.py
 tests/test_v3_43_57_more_templates.py

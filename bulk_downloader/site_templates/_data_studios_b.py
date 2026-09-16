@@ -73,7 +73,7 @@ ITEMS = [
         },
         "config_defaults": {
             # Row 722 (2026-09-15): verified tier ladder on nubiles/nubilefilms/stepsiblingscaught.
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
@@ -119,7 +119,7 @@ ITEMS = [
             "dismiss_selectors": "button[aria-label=\"Close\"]",
             "trigger_selector": "button:has-text(\"Download\")",
             "dl_selector": "a[href*=\"/membersarea/video/stream/\"]",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
@@ -177,7 +177,7 @@ ITEMS = [
             "dismiss_selectors": "a:has-text(\"TAKE ME TO MY MEMBERSHIP\")",
             "trigger_selector": "button.ex-iconbtn--download",
             "dl_selector": "#exDownloadMenu .exp-menu-item:has-text('2160p')",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
@@ -300,7 +300,7 @@ ITEMS = [
         "config_defaults": {
             # Row 722 verified teenmegaworld config (:5555, 2026-09-15).
             "login_url": "https://members.teenmegaworld.net/authentication.php",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
@@ -485,7 +485,7 @@ ITEMS = [
         "config_defaults": {
             # Row 722 verified ultrafilms config (:5555, 2026-09-15).
             "login_url": "https://ultrafilms.com/login",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
@@ -623,7 +623,7 @@ ITEMS = [
         "config_defaults": {
             # Row 722 verified tiny4k config (:5555, 2026-09-15).
             "login_url": "https://tiny4k.com/login",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_real_chrome": True,
             "use_persistent_profile": True,
@@ -706,7 +706,7 @@ ITEMS = [
         "config_defaults": {
             "login_url": "https://stepsiblingscaught.com/login",
             "success_url": "https://members.nubiles-porn.com/",
-            "quality_preference": "4320,3160,2880,2160,1440,1080,720",
+            "quality_preference": "2160,1080,720",
             "min_resolution": 1080,
             "use_curl_cffi": True,
             "use_persistent_profile": True,
