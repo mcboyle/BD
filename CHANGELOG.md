@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1566 - H306 register moot
+
+Train: 1 refute-first-reviewed worker patches.
+
+- H306-MOOT-CUT: SUMMARY MISSING -- read /home/mboyle/bd-cuts/H306-moot-cut/DONE.md
+
 ## v3.66.1565 - row 821: row-722 template family back to 4K-first (2160,1080,720), opt-in high tiers gated in CI; row 812: precollect guard refuses a PATCH DONE.md without a replayable RED command (harness, applied)
 
 Train: 1 row on main v3.66.1564 (8d200f86), corr lens BOARD (bd-persist/train-handoff/lens/VERDICT-821-correctness-20260916T0550Z.md). Register also closes 812 (harness guard, applied outside git).

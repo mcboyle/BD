@@ -156,8 +156,13 @@ def close_row(repo: Path, row: int, version: str) -> tuple[int, int, str]:
                 replacement = _CLOSED_STATUS.sub(f"CLOSED @{release}", status, count=1)
             elif status == "OPEN":
                 replacement = f"CLOSED @{release}"
+            elif status == "MOOT":
+                # H306: MOOT rows reached this state via a cut (e.g. row 808
+                # reached MOOT @1534); stamp the integrator's release so the
+                # tag is authoritative, matching the OPEN/CLOSED pattern.
+                replacement = f"MOOT @{release}"
             else:
-                raise ValueError(f"row {row} is {status!r}, not OPEN or CLOSED")
+                raise ValueError(f"row {row} is {status!r}, not OPEN, CLOSED, or MOOT")
 
             text = (
                 text[: match.start("status")]

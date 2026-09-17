@@ -281,3 +281,28 @@ def test_transform_control_only_exercises_the_close_commands_help() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "--version" in result.stdout
+
+
+def test_H306_a_moot_row_is_stamped_moot_at_release(tmp_path: Path) -> None:
+    """H306: bd-register-close must accept MOOT status and stamp MOOT @release.
+
+    Before this fix, a MOOT row raised ValueError('not OPEN or CLOSED'),
+    blocking the integrator from closing row 808 which reached MOOT @1534
+    via a cut. Positive control: MOOT -> MOOT @release. Negative control:
+    unknown status still raises (exit nonzero).
+    """
+    # Positive control: MOOT row gets stamped MOOT @release
+    repo = _synthetic_repo(tmp_path, "MOOT")
+    result = _run_close(repo)
+    assert result.returncode == 0, result.stderr
+    register = (repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md").read_text(
+        encoding="ascii"
+    )
+    assert "| 263 | MOOT @4321 | fixture row |" in register
+    assert "rows=1 open=0" in register
+
+    # Negative control: a truly unknown status still raises
+    repo2 = _synthetic_repo(tmp_path / "neg", "UNKNOWN-STATUS")
+    result2 = _run_close(repo2)
+    assert result2.returncode != 0
+    assert "not OPEN, CLOSED, or MOOT" in result2.stderr
