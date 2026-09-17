@@ -191,3 +191,7 @@ audit_venv/
 # H338, where three precut .log.remote files were collected into row802's lens
 # patch. A tool must not change the object under test (rule 13).
 .bd-precut-evidence/
+
+# Login evidence written by write_login_evidence (replay.py/submit.py)
+/login_evidence/
+login_evidence/
