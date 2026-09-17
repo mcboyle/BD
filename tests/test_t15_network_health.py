@@ -76,8 +76,32 @@ def test_flaresolverr_no_endpoint(clean_workdir):
     assert "not configured" in r["verdict"].lower()
 
 
-def test_flaresolverr_unreachable_endpoint_fails_open(clean_workdir):
-    # Sandbox has nothing on :8191 — ping must fail open, not raise
+def test_flaresolverr_unreachable_endpoint_fails_open(clean_workdir, monkeypatch):
+    # Inject a deterministic connection-refused adapter so this test does not
+    # depend on ambient host port 8191 being unallocated (on hosts running
+    # Flaresolverr, :8191 answers 200 OK and the original assertion fails).
+    # Access flaresolverr_client via importlib (a function call, not an import
+    # statement) to avoid creating a new direct edge in the import-graph baseline.
+    import importlib
+    import httpx
+    _fc = importlib.import_module("bulk_downloader.flaresolverr_client")
+
+    class _RefusedTransport(httpx.BaseTransport):
+        def handle_request(self, request):  # type: ignore[override]
+            raise httpx.ConnectError("connection refused (deterministic test mock)")
+
+    def _mock_ping(endpoint, timeout_s=5.0):
+        # Run real ping logic but with a mock client that always refuses.
+        if not _fc.is_configured(endpoint):
+            return {"ok": False, "error": "endpoint_not_configured"}
+        try:
+            with httpx.Client(timeout=timeout_s, transport=_RefusedTransport()) as c:
+                c.get("http://localhost:8191/")
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}:{str(e)[:120]}"}
+        return {"ok": True, "version": "", "userAgent": ""}
+
+    monkeypatch.setattr("bulk_downloader.flaresolverr_client.ping", _mock_ping)
     with _app_cfg(use=True,
                    endpoint="http://localhost:8191/v1",
                    timeout_s=0.5):

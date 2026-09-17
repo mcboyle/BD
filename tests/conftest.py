@@ -761,6 +761,7 @@ def clean_workdir(tmp_path, monkeypatch):
     yield tmp_path
 
 
+
 @pytest.fixture
 def fresh_app(clean_workdir, monkeypatch):
     """Yield a fresh Flask test client. The app module is heavyweight

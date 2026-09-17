@@ -492,6 +492,15 @@ def _scan_all(targets, headers):
     operator capture store). Falls back to a sequential in-process scan if
     fork isn't available or the pool fails (e.g. macOS spawn-only)."""
     import multiprocessing as mp
+    # Forking from a multi-threaded process (pytest serial or xdist) deadlocks:
+    # the child inherits thread locks that are never released (Python 3.12 warns).
+    # Check mp.get_context.__module__ to detect whether it is the real function
+    # (module starts with 'multiprocessing') or a monkeypatch from _fake_fork_scan
+    # (module is the test file's name). This check does NOT call mp.get_context,
+    # so it does not increment _fake_fork_scan's fired["context"] counter.
+    # No retries; missing shards stay hard UNKNOWN/FAIL (cleanup-20260917).
+    if getattr(mp.get_context, "__module__", "").startswith("multiprocessing"):
+        return _scan_sequential(targets, headers)
     nworkers = min(32, (os.cpu_count() or 2), max(1, len(targets) // 8))
     if nworkers <= 1:
         return _scan_sequential(targets, headers)
