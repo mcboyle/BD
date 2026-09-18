@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1570 - serial capture promotion (relieved 11xx test suites) and toolchain lint acceleration
+
+Release v3.66.1570 carries Packet 3 Phase 4 allowlist promotion and toolchain lint acceleration:
+
+- Packet 3 Phase 4: Promoted 4 relieved 11xx test suites (`tests/test_v3_66_1145_step0_fails_closed.py`, `tests/test_v3_66_1150_the_snapshot_is_really_sealed.py`, `tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py`, `tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py` -- 104 tests) to parallel execution allowlist (`tests/capture_parallel_files.txt`, count: 1740); updated execution lanes ratchet floor and negative control handling for full suite review completion.
+- Toolchain lint acceleration: Decoupled advisory runtime ANSI probes from standard lint execution and expanded `NEEDS_INPUT` with meta-auditors and repository scanners, eliminating recursive execution timeouts during precut underived gate runs.
+
 ## v3.66.1569 - serial capture promotion (authority documents & runner literal relief) and precut hardening
 
 Release v3.66.1569 carries Packet 3 Phase 3 allowlist promotion and harness hardening:

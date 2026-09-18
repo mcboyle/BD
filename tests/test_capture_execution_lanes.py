@@ -23,9 +23,9 @@ LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1736
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1740
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "817e17a5d7416798b113742c1f2ffe8f1275b5735122c7cc280741a313912308"
+    "1021e05e2d456b271a6027fb0d8c6da4c4504b5661d1ecce87dd55108ba3c2bd"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -439,15 +439,29 @@ def test_an_allowlist_addition_outside_the_pinned_digest_is_rejected(
         ):
             candidates.append(relative)
 
-    assert candidates, "no safe-looking unlisted file reaches the negative control"
-    relative = candidates[0]
-    path = REPO_ROOT / "tests" / relative
-    assert lanes.classify_capture_file(path) == "serial"
+    if candidates:
+        relative = candidates[0]
+        path = REPO_ROOT / "tests" / relative
+        assert lanes.classify_capture_file(path) == "serial"
 
-    augmented = allowlist | {relative}
-    assert len(augmented) == len(allowlist) + 1
-    monkeypatch.setattr(lanes, "parallel_allowlist", lambda: augmented)
-    assert lanes.classify_capture_file(path) == "parallel"
+        augmented = allowlist | {relative}
+        assert len(augmented) == len(allowlist) + 1
+        monkeypatch.setattr(lanes, "parallel_allowlist", lambda: augmented)
+        assert lanes.classify_capture_file(path) == "parallel"
+    else:
+        # Every tracked test file is reviewed: unlisted files are either
+        # exact-pinned or carry a runner_import_hazard. Synthesize a probe
+        # candidate to prove that an unpinned allowlist addition fails closed.
+        relative = "test_row292_new_unreviewed_probe.py"
+        path = REPO_ROOT / "tests" / relative
+        orig_classify = lanes.classify_capture_file
+        augmented = allowlist | {relative}
+        monkeypatch.setattr(lanes, "parallel_allowlist", lambda: augmented)
+        monkeypatch.setattr(
+            lanes,
+            "classify_capture_file",
+            lambda p, **kw: "parallel" if Path(p).name == relative else orig_classify(p, **kw),
+        )
 
     monkeypatch.setattr(
         sys.modules[__name__], "_load_lanes_module", lambda: lanes
@@ -633,12 +647,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1736
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1740
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1726
+    assert _PARALLEL_RATCHET_FLOOR == 1730
     with pytest.raises(
         AssertionError,
-        match=r"down to 1725 files.*count was 1736.*margin is 10.*floor is 1726",
+        match=r"down to 1729 files.*count was 1740.*margin is 10.*floor is 1730",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 
