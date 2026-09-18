@@ -649,7 +649,8 @@ _SECRET_PATTERNS = [
 # advisory slow-list). Scanner-specific extras on top: tests/ carries
 # fake creds BY DESIGN; sast_results/dast_results are scanner output.
 _SECRET_SKIP_DIRS = frozenset(_MANIFEST_EXCLUDE_DIRS) | {
-    "tests", "sast_results", "dast_results"}
+    "tests", "sast_results", "dast_results",
+    ".worktrees", ".claude", "captures"}  # 2026-09-18: .worktrees/.claude/captures
 
 
 

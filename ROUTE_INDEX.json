@@ -7900,7 +7900,7 @@
       "endpoint": "selftest.api_selftest",
       "function": "api_selftest",
       "file": "bulk_downloader/app_selftest.py",
-      "line": 46,
+      "line": 47,
       "csrf": false,
       "spa_wired": false,
       "operator_facing": true,

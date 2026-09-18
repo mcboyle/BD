@@ -28,9 +28,10 @@ def _capture_store_root_for_selftest():
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _app__SITES_CFG_PATH():
-    """The live shared _SITES_CFG_PATH from app.py (fetched fresh per call, by reference)."""
+    """The live shared SITES_FILE from app.py (fetched fresh per call, by reference).
+    Note: app.py renamed _SITES_CFG_PATH to SITES_FILE; this accessor bridges the gap."""
     import importlib
-    return getattr(importlib.import_module("bulk_downloader.app"), "_SITES_CFG_PATH")
+    return getattr(importlib.import_module("bulk_downloader.app"), "SITES_FILE")
 
 def _app__STARTUP_SELFTEST():
     """The live shared _STARTUP_SELFTEST from app.py (fetched fresh per call, by reference)."""

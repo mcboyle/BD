@@ -284,18 +284,21 @@ def test_new_templates_marked_speculative():
     # 2026-09-06: the PM-handoff template gap report (brief
     # matcher-templates.md, C) confirmed their selectors against real
     # HTML, which is exactly the condition this docstring names for
-    # dropping the word. The remaining five are still unconfirmed.
-    new_ids = ["new_sensations", "teen_mega_world",
-                 "dogfart_network", "teamskeet_network", "ultrafilms"]
+    # dropping the word. new_sensations, teen_mega_world, and ultrafilms
+    # left on 2026-09-15 (row 722: confirmed login forms and player
+    # configs against live newsensations.com, teenmegaworld.net, and
+    # ultrafilms.com). The remaining two are still unconfirmed.
+    new_ids = ["dogfart_network", "teamskeet_network"]
     for tid in new_ids:
         t = templates.get(tid)
         desc = (t.get("description") or "").lower()
         assert "speculative" in desc, (
             f"{tid}: description should mark it speculative until "
             f"selectors are confirmed against real HTML")
-    # ...and the three that were confirmed must no longer claim to be
+    # ...and the confirmed templates must no longer claim to be
     # guesses, so this gate keeps teeth in both directions.
-    for tid in ("nubiles_network", "nookies", "bang_originals"):
+    for tid in ("nubiles_network", "nookies", "bang_originals",
+                "new_sensations", "teen_mega_world", "ultrafilms"):
         desc = (templates.get(tid).get("description") or "").lower()
         assert "speculative" not in desc, (
             f"{tid}: selectors are verified; the word misleads the user "
