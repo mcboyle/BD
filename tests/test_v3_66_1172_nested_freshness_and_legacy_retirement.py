@@ -208,7 +208,7 @@ def test_freshcheck_refuses_an_ambiguous_basename_anchor(tmp_path: Path):
 
 # Row 531: a monotonic floor, not a hand-bumped total. Lower it only when
 # documents are deliberately retired; adding one must never edit this file.
-_CURRENT_MARKDOWN_FLOOR = 139
+_CURRENT_MARKDOWN_FLOOR = 130
 
 
 def test_current_markdown_denominator_is_explicit_and_nonzero():

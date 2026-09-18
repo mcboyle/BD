@@ -7,25 +7,25 @@ Single-operator deployment to a headless host.
 
 | Path | Contents |
 | --- | --- |
-| `bulk_downloader/` | 565 `.py` — the application |
-| `tests/` | 1139 tracked `test_*.py` files, plus `corpus/` and `fixtures/` capture assets |
-| `tools/` | 246 `.py` — build, graph, regeneration, and gate scripts |
+| `bulk_downloader/` | 654 `.py` — the application |
+| `tests/` | 1761 tracked `test_*.py` files, plus `corpus/` and `fixtures/` capture assets |
+| `tools/` | 250 `.py` — build, graph, regeneration, and gate scripts |
 | `frontend/` | React/TS SPA (own `node_modules`, not tracked; `dist/` is gitignored) |
-| `toolchain/bin/` | 246 `bd-*` operator tools ("bdsuite") |
-| `project-knowledge/` | 365 durable docs, schemas, and operating cards |
+| `toolchain/bin/` | 253 `bd-*` operator tools ("bdsuite") |
+| `project-knowledge/` | 95 durable docs, schemas, and operating cards |
 | `docs/repo/` | environment and layout references |
 
-Counts were measured at v3.66.818 and move every cut -- re-derive before quoting
+Counts were measured at v3.66.1566 and move every cut -- re-derive before quoting
 them anywhere (`git ls-files bulk_downloader | grep -c '\.py$'`). `tools/*.py`
-and the `toolchain/bin` `bd-*` suite are **disjoint populations** that happen to
-be the same size right now; counting one never answers for the other.
+and the `toolchain/bin` `bd-*` suite are **disjoint populations**; counting one
+never answers for the other.
 
 ## Quick start
 
 ```bash
 python3.12 -m venv venv && ./venv/bin/pip install -r requirements.txt   # 3.12 is the box/CI interpreter; bare python3 may be 3.11
 cd frontend && npm ci && cd ..
-./venv/bin/python -m pytest tests/test_settings_center_slice4.py   # fast sanity check
+./venv/bin/python -m pytest tests/test_v3_66_1180_capture_root_orphan_hygiene.py   # fast sanity check
 ```
 
 Do **not** run the whole `tests/` directory locally — it contains known long
