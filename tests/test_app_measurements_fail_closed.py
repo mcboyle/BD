@@ -492,3 +492,82 @@ def test_f42_measured_usage_below_quota_still_starts(monkeypatch, tmp_path):
     probe.start()
     assert probe._state == "running"
     assert len(_FakeThread.started) == 3
+
+
+def test_h542_fresh_db_alerts_and_bitrot_are_quiet(tmp_path, monkeypatch, capsys):
+    """H542: evaluate() and bitrot.stats() on a fresh database must not log
+    'no such table: provenance|history' or 'schema init failed' to stderr.
+    """
+    import sqlite3
+    from bulk_downloader import alerts_engine
+    from bulk_downloader import bitrot
+    from bulk_downloader import db
+
+    dbp = tmp_path / "downloader_history.db"
+    monkeypatch.setattr(db, "DB_PATH", str(dbp))
+    monkeypatch.setenv("BD_INSTALL_DIR", str(tmp_path))
+    cx = sqlite3.connect(str(dbp))
+    cx.close()
+
+    # 1. bitrot.stats() on fresh DB: measured empty inventory, zero stderr
+    st = bitrot.stats()
+    assert st["ok"] is True
+    assert st["available"] is True
+    assert st["open_issues"] == 0
+
+    # 2. alerts_engine metric eval on fresh DB: 0.0, zero stderr
+    for metric in ("bd_failure_rate_1h", "bd_job_failures_1h", "bd_pending_count", "bd_oldest_pending_hours"):
+        assert alerts_engine._evaluate_metric(metric) == 0.0
+
+    # 3. alerts_engine.evaluate() on fresh DB: runs cleanly without table noise
+    res = alerts_engine.evaluate()
+    assert res["evaluated"] >= len(alerts_engine.DEFAULT_RULES)
+
+    err = capsys.readouterr().err
+    assert "no such table: provenance" not in err
+    assert "no such table: history" not in err
+    assert "schema init failed" not in err
+
+
+def test_h544_local_pytest_load_tripwire_on_test5():
+    """H544/O803: local 'pytest -n > 2' on test5 (seat host) is refused with rc=3
+    unless BD_ALLOW_LOCAL_XDIST=1 or BD_REMOTE_RUNNER=1 is set.
+    """
+    import os
+    import socket
+    import subprocess
+    import sys
+
+    if "test5" not in socket.gethostname():
+        return
+
+    from pathlib import Path
+    repo_root = str(Path(__file__).resolve().parents[1])
+    test_target = "tests/test_app_measurements_fail_closed.py::test_h542_fresh_db_alerts_and_bitrot_are_quiet"
+    env = dict(os.environ)
+    env.pop("BD_ALLOW_LOCAL_XDIST", None)
+    env.pop("BD_REMOTE_RUNNER", None)
+
+    # 1. -n 4 without override is refused on test5
+    res_refused = subprocess.run(
+        [sys.executable, "-m", "pytest", "-n", "4", test_target],
+        capture_output=True, text=True, env=env, cwd=repo_root
+    )
+    assert res_refused.returncode == 3
+    assert "[H544/O803] local 'pytest -n 4' refused on test5" in (res_refused.stdout + res_refused.stderr)
+
+    # 2. -n 2 without override is permitted
+    res_n2 = subprocess.run(
+        [sys.executable, "-m", "pytest", "-n", "2", test_target],
+        capture_output=True, text=True, env=env, cwd=repo_root
+    )
+    assert res_n2.returncode == 0
+
+    # 3. -n 4 with BD_ALLOW_LOCAL_XDIST=1 is permitted
+    env_override = dict(env, BD_ALLOW_LOCAL_XDIST="1")
+    res_override = subprocess.run(
+        [sys.executable, "-m", "pytest", "-n", "4", test_target],
+        capture_output=True, text=True, env=env_override, cwd=repo_root
+    )
+    assert res_override.returncode == 0
+

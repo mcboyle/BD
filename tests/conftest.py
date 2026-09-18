@@ -19,6 +19,7 @@ import os
 import warnings
 import pathlib
 import shutil
+import socket
 import sys
 import threading
 import time
@@ -533,6 +534,27 @@ def pytest_configure(config):
     config._bd_run_context = _run_context.context(config)
     global _BD_CONFIG
     _BD_CONFIG = config
+
+    # H544 / O803: local 'pytest -n > 2' on test5 (seat host) starves the integrators.
+    # Refuse -n > 2 on test5 outside bd-band-remote.sh (override with BD_ALLOW_LOCAL_XDIST=1).
+    if "test5" in socket.gethostname():
+        num_proc = getattr(config.option, "numprocesses", None)
+        if num_proc is not None:
+            is_over = False
+            if isinstance(num_proc, int) and num_proc > 2:
+                is_over = True
+            elif isinstance(num_proc, str):
+                if num_proc.isdigit() and int(num_proc) > 2:
+                    is_over = True
+                elif num_proc in ("auto", "logical"):
+                    is_over = True
+            if is_over and os.environ.get("BD_ALLOW_LOCAL_XDIST") != "1" and os.environ.get("BD_REMOTE_RUNNER") != "1":
+                pytest.exit(
+                    f"[H544/O803] local 'pytest -n {num_proc}' refused on test5 (seat host) to protect "
+                    "integrator capacity. Run with -n <= 2 locally, or dispatch to runners via: "
+                    "bd-band-remote.sh <sha> <tests...> (override with BD_ALLOW_LOCAL_XDIST=1).",
+                    returncode=3,
+                )
 
 
 def pytest_unconfigure(config):
