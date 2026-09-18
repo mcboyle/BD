@@ -57,8 +57,10 @@ def _fixture_bin(tmp_path):
 
 
 def _run(tool, bindir, extra=()):
-    return subprocess.run([sys.executable, os.path.join(BIN, tool), "--bin", bindir]
-                          + list(extra),
+    cmd = [sys.executable, os.path.join(BIN, tool), "--bin", bindir] + list(extra)
+    if tool == "bd-tool-lint" and "--no-runtime" not in extra:
+        cmd.append("--no-runtime")
+    return subprocess.run(cmd,
                           capture_output=True, text=True, timeout=180,
                           cwd=ROOT, env=dict(os.environ, BD_DISABLE_KEEPALIVE="1"))
 

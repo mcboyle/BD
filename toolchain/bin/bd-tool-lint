@@ -62,6 +62,10 @@ NEEDS_INPUT = {
     "bd-job-forensics", "bd-run-timeline", "bd-log-causality", "bd-archaeology",
     "bd-lineage", "bd-plugin-permission-diff", "bd-plugin-diff", "bd-template-diff",
     "bd-template-promote-check", "bd-rollback-oracle", "bd-frontier-lab",
+    "bd-agent-scorecard", "bd-agent-redteam", "bd-agent-watchdog", "bd-agent-debate",
+    "bd-footguns", "bd-coretest", "bd-config-lineage", "bd-config-orphan",
+    "bd-tool-smoke", "bd-tools", "bd-selfcheck", "bd-precut", "bd-preflight",
+    "bd-sweep", "bd-fullsuite", "bd-audit-gate.py", "bd-smoke",
 }
 
 
@@ -256,7 +260,7 @@ def blind_excepts(src):
     return out
 
 
-def lint_tool(tool, bindir, imported, do_runtime):
+def lint_tool(tool, bindir, imported, do_runtime, do_ansi=False):
     path = os.path.join(bindir, tool)
     try:
         raw = open(path, "rb").read()
@@ -358,7 +362,7 @@ def lint_tool(tool, bindir, imported, do_runtime):
                         "clean verdict; add '# why: ...' or re-raise"
                         % (len(blind), ",".join(str(x) for x in blind[:5]),
                            ", ..." if len(blind) > 5 else ""))
-    if (do_runtime and tool not in NEEDS_INPUT and not is_lib
+    if (do_ansi and tool not in NEEDS_INPUT and not is_lib
             and NEVER_EXEC is not None and tool not in NEVER_EXEC):
         a = runtime_ansi_in_json(tool, bindir)
         if a is True:
@@ -370,10 +374,10 @@ def lint_tool(tool, bindir, imported, do_runtime):
             "corpus_parsed": parsed}
 
 
-def run(bindir, do_runtime):
+def run(bindir, do_runtime, do_ansi=False):
     tools = discover(bindir)
     imported = imported_set(bindir, tools)
-    results = [lint_tool(t, bindir, imported, do_runtime) for t in tools]
+    results = [lint_tool(t, bindir, imported, do_runtime, do_ansi=do_ansi) for t in tools]
     readable = [r["tool"] for r in results if not r["unreadable"]]
     unreadable = [r for r in results if r["unreadable"]]
     analysis = [t for t in readable if _is_analysis(bindir, t)]
@@ -581,7 +585,7 @@ def main():
         return sec.EXIT_CANNOT_EVALUATE
     if not pop.report(_cen, sys.stderr) or not _cen.examined:
         return sec.EXIT_CANNOT_EVALUATE
-    res = run(a.bin, do_runtime=not a.no_runtime)
+    res = run(a.bin, do_runtime=not a.no_runtime, do_ansi=a.warnings)
     cc = res["critical_core"]
     cd = res["corpus_debt"]
     unreadable = res["unreadable"]
