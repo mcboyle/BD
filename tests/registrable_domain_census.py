@@ -29,7 +29,24 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
+import os
+import pathlib
+import subprocess
+import sys
 import warnings
+
+# Optional content-addressed cache (bdtools_cache from toolchain/bin).
+# Graceful fallback when the path is absent (e.g. test_1018 import controls).
+try:
+    _tc = str(pathlib.Path(__file__).resolve().parent.parent / "toolchain" / "bin")
+    if _tc not in sys.path:
+        sys.path.insert(0, _tc)
+    import bdtools_cache as _bdcache          # noqa: E402
+    _CACHE_AVAILABLE = True
+except Exception:
+    _bdcache = None                           # type: ignore[assignment]
+    _CACHE_AVAILABLE = False
 
 #: (host, last-two-labels answer). The first two agree with the correct
 #: registrable domain; the last three do not, which is the whole defect.
@@ -205,3 +222,142 @@ def scan(tree):
     return [n for n in ast.walk(tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
             and function_joins_last_two_labels(n)]
+
+
+# ── git blob SHA content-addressed cache ─────────────────────────────────────
+
+
+def build_blob_map(repo_root):
+    """Map of relative .py path -> git blob SHA from `git ls-tree -r HEAD`.
+
+    Keys on git blob SHA (not mtime, not file SHA256) -- this is the MEASURED
+    hotspot: between two cuts almost every tracked file is byte-identical, and
+    `git ls-tree` reads the already-computed object SHAs from the index without
+    touching the working tree at all. Returns {} on any git failure so callers
+    degrade to uncached scan rather than erroring.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-tree", "-r", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if out.returncode != 0:
+            return {}
+        blob_map = {}
+        for line in out.stdout.splitlines():
+            if not line.endswith(".py"):
+                continue
+            try:
+                prefix, path = line.split("\t", 1)
+                mode, otype, sha = prefix.split()
+                if otype == "blob":
+                    blob_map[path] = sha
+            except ValueError:
+                continue
+
+        # Check for dirty/modified files in working tree vs HEAD
+        diff_out = subprocess.run(
+            ["git", "-C", str(repo_root), "diff-index", "--name-only", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if diff_out.returncode == 0 and diff_out.stdout:
+            for dirty_rel in diff_out.stdout.splitlines():
+                if dirty_rel in blob_map:
+                    h_out = subprocess.run(
+                        ["git", "-C", str(repo_root), "hash-object", dirty_rel],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if h_out.returncode == 0 and h_out.stdout.strip():
+                        blob_map[dirty_rel] = h_out.stdout.strip()
+                    else:
+                        blob_map.pop(dirty_rel, None)
+        return blob_map
+    except Exception:
+        return {}
+
+
+def _make_logic_key():
+    """Hash of THIS module's source -- if the analyzer changes, every cached
+    result it produced is invalid. Computed once at import time."""
+    try:
+        with open(__file__, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except Exception:
+        return "no-source"
+
+
+_LOGIC_KEY = _make_logic_key()
+
+
+def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader/registrable_domain.py")):
+    """Scan every tracked .py file for last-two-labels copies; return offenders.
+
+    FULL DENOMINATOR PRESERVED. Every path from `git ls-files *.py` is
+    considered -- the cache only skips re-parsing and re-scanning files whose
+    git blob SHA has not changed since the last run. A cache miss (new or
+    modified file) always recomputes from source.
+
+    Returns a list of strings of the form ``"rel/path.py:<lineno> <funcname>"``
+    (same format as the test assertion message).
+    """
+    root = pathlib.Path(repo_root)
+
+    if files is None:
+        # Full denominator: git ls-files (every tracked .py, nothing omitted).
+        lsf = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "*.py"],
+            capture_output=True, text=True,
+        )
+        files = [f for f in lsf.stdout.split("\0") if f]
+
+    blob_map = build_blob_map(root)
+
+    if _CACHE_AVAILABLE and _bdcache is not None:
+        cache = _bdcache.Cache("registrable-domain-census", _LOGIC_KEY)
+    else:
+        cache = None
+
+    found = []
+    for rel in files:
+        if any(rel.startswith(ex) for ex in exempt_paths):
+            continue
+
+        blob_sha = blob_map.get(rel)
+
+        def _compute(rel=rel, root=root):
+            try:
+                src = (root / rel).read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(src)
+            except (SyntaxError, OSError):
+                return []
+            return ["%s:%d %s" % (rel, n.lineno, n.name)
+                    for n in ast.walk(tree)
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and function_joins_last_two_labels(n)]
+
+        if cache is not None and blob_sha:
+            if hasattr(cache, "get_or_compute_sha"):
+                result = cache.get_or_compute_sha(blob_sha, _compute)
+            else:
+                hit = cache._data.get(blob_sha)
+                if hit is not None:
+                    cache.hits += 1
+                    result = hit
+                else:
+                    cache.misses += 1
+                    result = _compute()
+                    try:
+                        import json
+                        json.dumps(result)
+                        cache._data[blob_sha] = result
+                    except Exception:
+                        pass
+            found.extend(result)
+        else:
+            found.extend(_compute())
+
+    if cache is not None:
+        cache.save()
+
+    return found
+

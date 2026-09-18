@@ -93,12 +93,9 @@ class Cache(object):
             except Exception:
                 self._data = {}
 
-    def get_or_compute(self, path, compute):
-        """Return the cached result for THIS EXACT file content, else compute it."""
-        if not self.enabled:
-            return compute()
-        sha = file_sha(path)
-        if sha is None:
+    def get_or_compute_sha(self, sha, compute):
+        """Return the cached result for this content SHA (e.g. git blob SHA), else compute."""
+        if not self.enabled or not sha:
             return compute()
         hit = self._data.get(sha)
         if hit is not None:
@@ -112,6 +109,16 @@ class Cache(object):
         except Exception:  # why: handled failure is non-fatal here; proceed with the value left unset
             pass
         return val
+
+    def get_or_compute(self, path, compute):
+        """Return the cached result for THIS EXACT file content, else compute it."""
+        if not self.enabled:
+            return compute()
+        sha = file_sha(path)
+        if sha is None:
+            return compute()
+        return self.get_or_compute_sha(sha, compute)
+
 
     def save(self):
         if not self.enabled:
