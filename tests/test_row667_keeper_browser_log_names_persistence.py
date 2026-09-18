@@ -81,6 +81,7 @@ def _keeper_with_fake_browser(monkeypatch, tmp_path, config):
         launches.append(kwargs)
         return _FakeContext(), None, "fixture-cloak"
 
+    monkeypatch.setattr(sk, "_cloak", cloak)
     monkeypatch.setattr(cloak, "open_persistent_context", _fake_open)
     monkeypatch.setattr(
         cloak, "log_choice",
