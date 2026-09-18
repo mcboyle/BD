@@ -181,6 +181,8 @@ def _evaluate_metric(name: str, *, s_cfg: Optional[dict] = None) -> Optional[flo
                   FROM history WHERE status = 'pending'""").fetchone()
             return float(r[0]) if r and r[0] is not None else 0.0
     except Exception as e:
+        if type(e).__name__ == "OperationalError" and "no such table: history" in str(e).lower():
+            return 0.0
         sys.stderr.write(f"[alerts] metric {name}: {e}\n")
         return None
     return None

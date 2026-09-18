@@ -50,7 +50,13 @@ from typing import Optional
 
 
 def _ensure_integrity_table():
-    """Lazy schema creation for integrity_issues."""
+    """Lazy schema creation for integrity_issues.
+
+    H542: provenance absent is handled silently. When the PRAGMA returns
+    empty rows (table does not yet exist), the ALTER is skipped -- no log
+    noise, no cross-module init call. The column is added on the next call
+    once the main app's provenance._ensure_table() has run.
+    """
     try:
         from . import db as _db
         with _db.db_conn() as cx:
@@ -84,7 +90,8 @@ def _ensure_integrity_table():
             # message-matched tolerance underneath it covers only the genuine
             # race where two processes pass the check and both ALTER.
             have = {r[1] for r in cx.execute("PRAGMA table_info(provenance)")}
-            if "last_verified_ts" not in have:
+            if have and "last_verified_ts" not in have:  # H542: skip if absent
+
                 try:
                     cx.execute("ALTER TABLE provenance "
                                "ADD COLUMN last_verified_ts REAL DEFAULT 0")
@@ -419,7 +426,6 @@ def list_issues(*, kind: Optional[str] = None, repaired: Optional[bool] = None,
 
 def stats() -> dict:
     """Aggregate counters for the bit-rot dashboard."""
-    _ensure_integrity_table()
     out = {"ok": True, "available": True, "inventory_status": "measured",
            "error": "", "open_issues": 0, "by_kind": {}, "repaired": 0,
            "last_scan_ts": 0}
