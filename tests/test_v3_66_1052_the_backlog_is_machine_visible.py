@@ -212,18 +212,18 @@ def test_parked_is_a_state_the_register_can_hold_and_must_evidence(monkeypatch):
     # exactly it.
     empty = Path(str(ARCHIVE) + ".parked-control")
     empty.write_text("", encoding="utf-8")
+    good = Path(str(BACKLOG) + ".parked-control")
 
     def _with(body):
-        f = tmp = Path(str(BACKLOG) + ".parked-control")
-        f.write_text(textwrap.dedent(body), encoding="utf-8")
-        monkeypatch.setattr(sys.modules[__name__], "BACKLOG", f)
+        good.write_text(textwrap.dedent(body), encoding="utf-8")
+        monkeypatch.setattr(sys.modules[__name__], "BACKLOG", good)
         # The archive is redirected TOO, and to an empty file: the population is
         # the union of the two, so a control that left the real archive in place
         # would be asserting over 608 rows it never wrote.
         monkeypatch.setattr(sys.modules[__name__], "ARCHIVE", empty)
-        return f
+        return good
 
-    good = _with("""\
+    _with("""\
         | 1 | OPEN | still to do |
         | 2 | PARKED @1195 | waiting on an operator soak |
         """)
