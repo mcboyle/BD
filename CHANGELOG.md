@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1569 - serial capture promotion (authority documents & runner literal relief) and precut hardening
+
+Release v3.66.1569 carries Packet 3 Phase 3 allowlist promotion and harness hardening:
+
+- Packet 3 Phase 3: Promoted `test_authority_documents.py` to parallel execution allowlist (`tests/capture_parallel_files.txt`, count: 1736); audited all 21 `runner_import_hazard` files and relieved incidental dummy zip runner literals in `tests/test_v3_66_1145_step0_fails_closed.py`, `tests/test_v3_66_1150_the_snapshot_is_really_sealed.py`, `tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py`, and `tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py`.
+- Harness hardening (H136): Configured `toolchain/bin/bd-precut` to accept `--work` as an explicit alias for `--root`; updated error handling to write explicit `REFUSED: unknown argument / usage error:` lines to both stdout and stderr with rc=2, preventing stale log tails from reading cut-ready.
+
 ## v3.66.1568 - AST cache acceleration for test 1013 and harness hardening
 
 Release v3.66.1568 carries Packet 3 AST hotspot acceleration and harness hardening:

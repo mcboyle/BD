@@ -106,7 +106,7 @@ def _zip_with(path, marker):
     with zipfile.ZipFile(path, "w") as zf:
         for i in range(4):
             zf.writestr(f"pkg/mod{i}.py", f"MARKER = {marker!r}\nVALUE = {i}\n" * 10)
-        zf.writestr("run_tests.py", f"print({marker!r})\n")
+        zf.writestr("sample_script.py", f"print({marker!r})\n")
     return path
 
 
@@ -202,7 +202,7 @@ def test_the_sealed_snapshot_is_still_readable_and_openable_as_a_zip(tmp_path):
         assert pathlib.Path(snap).read_bytes() == src.read_bytes()
         with zipfile.ZipFile(snap) as zf:
             assert zf.namelist(), "the sealed snapshot has no readable members"
-            assert zf.read("run_tests.py")
+            assert zf.read("sample_script.py")
         # and the directory must still be traversable/listable
         assert os.listdir(os.path.dirname(_real(snap)))
     finally:

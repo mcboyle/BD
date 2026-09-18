@@ -48,6 +48,7 @@ test_auth02_clipboard_netscape_injection.py
 test_auth02_cookie_quality_site_id.py
 test_auth_state_buckets.py
 test_auth_throttle.py
+test_authority_documents.py
 test_auto_refresh_trigger.py
 test_auto_submit_approval.py
 test_auto_teach_template.py

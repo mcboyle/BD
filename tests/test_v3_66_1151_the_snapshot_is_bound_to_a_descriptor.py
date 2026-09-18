@@ -106,7 +106,7 @@ def _zip_with(path, marker):
     with zipfile.ZipFile(path, "w") as zf:
         for i in range(4):
             zf.writestr(f"pkg/mod{i}.py", f"MARKER = {marker!r}\nVALUE = {i}\n" * 10)
-        zf.writestr("run_tests.py", f"print({marker!r})\n")
+        zf.writestr("sample_script.py", f"print({marker!r})\n")
     return path
 
 
