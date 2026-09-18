@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1567 - serial capture acceleration (472 suites to parallel), documentation audit, and harness stabilization
+
+Release v3.66.1567 carries 5 landed packets and operational improvements:
+
+- Packet 1 & 2 (PR #888, 9eba24eb): Hardened brittle test expectations and enforced strict environment isolation across mock networks and database test fixtures.
+- Packet 4b (PR #889, 41e74fc6): Audited repository documentation; archived 18 stale or redundant Markdown files to manifest with verified SHA-256 digests; modernized and unified README.md as single source of truth.
+- Packet 3 (PR #890, 85d753d1): Accelerated test execution by promoting 472 parallel-safe capture suites to allowlist, reducing serial suites from 498 to 26 and shrinking capture wall-clock time by ~25x; hardened worker isolation.
+- Harness runtime resets (PR #891, 4a54cf14): Added support for MonkeyPatch.context() and automatic runtime state cleanup in test harness fixtures.
+- Operational fixes (PR #892, fae3401c): Silenced SQLite schema init warnings on fresh DBs for bitrot and alerts_engine (H542); enforced test5 local pytest concurrency tripwire to protect seat host capacity (H544).
+
 ## v3.66.1566 - H306 register moot
 
 Train: 1 refute-first-reviewed worker patches.
