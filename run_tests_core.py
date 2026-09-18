@@ -460,6 +460,18 @@ class _MonkeyPatch:
     def syspath_prepend(self, path):
         self._undo.append(("__syspath__", str(path), None))
         sys.path.insert(0, str(path))
+    @classmethod
+    def context(cls):
+        """Context manager returning a new _MonkeyPatch object undone upon exit."""
+        import contextlib
+        @contextlib.contextmanager
+        def _ctx():
+            m = cls()
+            try:
+                yield m
+            finally:
+                m.undo()
+        return _ctx()
     def undo(self):
         while self._undo:
             target, name, orig = self._undo.pop()
@@ -523,6 +535,17 @@ def make_clean_workdir():
             yield Path(tmp)
         finally:
             os.chdir(prev)
+            if "bulk_downloader.app" in sys.modules:
+                app_mod = sys.modules["bulk_downloader.app"]
+                if hasattr(app_mod, "_SITE_RUNTIME_PATH"):
+                    app_mod._SITE_RUNTIME_PATH = None
+                if hasattr(app_mod, "_SITE_RUNTIME_READY"):
+                    app_mod._SITE_RUNTIME_READY = False
+                if hasattr(app_mod, "_SITE_RUNTIME_ROLLBACK_PENDING"):
+                    app_mod._SITE_RUNTIME_ROLLBACK_PENDING = False
+                booted = getattr(app_mod, "_BOOTED_PATHS", None)
+                if isinstance(booted, set):
+                    booted.clear()
             for name in [""] + [n for n in
                                 list(logging.Logger.manager.loggerDict)
                                 if n == "bulk_downloader"
