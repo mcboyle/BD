@@ -824,17 +824,29 @@ def _run_underived_gates(root, present, env):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="bd-precut")
+    class PrecutArgumentParser(argparse.ArgumentParser):
+        def error(self, message):
+            self.print_usage(sys.stderr)
+            err = f"REFUSED: unknown argument / usage error: {message}\n"
+            sys.stdout.write(err)
+            sys.stdout.flush()
+            sys.stderr.write(err)
+            sys.stderr.flush()
+            sys.exit(2)
+
+    ap = PrecutArgumentParser(prog="bd-precut")
     ap.add_argument("--baseline")
-    ap.add_argument("--root")
+    ap.add_argument("--root", "--work", dest="root")
     ap.add_argument("--gate", action="store_true", help="exit != 0 on any real problem")
     ap.add_argument("--no-insync", action="store_true")
     ap.add_argument("--no-envscan", action="store_true")
     ap.add_argument("--no-coretest", action="store_true",
                     help="skip the tool-integrity check (bd-coretest, ~12s)")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--selftest",action="store_true")
+    ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
+    if not hasattr(a, "work"):
+        a.work = a.root
     if a.selftest:
         return selftest()
 

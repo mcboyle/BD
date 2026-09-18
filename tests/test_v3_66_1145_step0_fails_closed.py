@@ -815,7 +815,7 @@ def _multi_zip(path):
     with zipfile.ZipFile(path, "w") as zf:
         for i in range(6):
             zf.writestr(f"pkg/mod{i}.py", f"VALUE = {i}\n" * 20)
-        zf.writestr("run_tests.py", "print('ok')\n")
+        zf.writestr("sample_script.py", "print('ok')\n")
     return path
 
 
