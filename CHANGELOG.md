@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1571 - clusterwide precut gate validation, held-back nodes synchronization, and Alertmanager routing
+
+Release v3.66.1571 carries clusterwide validation, held-back node deployment, and telemetry routing:
+
+- Precut gate validation: Full underived precut gate verified clean (3,557 passed, 6 skipped, 1 xpassed in 10m 23s; exit 0); 27/27 cluster hosts verified 100% PASS on MTU 9000 jumbo frame echo probes.
+- Held-back node synchronization: Deployed release code across all held-back fleet nodes (wrk-test03, wrk-spare01, wrk-spare02, wrk-bd02, wrk-spare03) with 200 OK health and unlocked credential vaults.
+- Alertmanager notification routing: Configured Prometheus Alertmanager daemon with multi-route webhooks for GPU, fabric, and critical infrastructure telemetry on hub-mesh01.
+
 ## v3.66.1570 - serial capture promotion (relieved 11xx test suites) and toolchain lint acceleration
 
 Release v3.66.1570 carries Packet 3 Phase 4 allowlist promotion and toolchain lint acceleration:
