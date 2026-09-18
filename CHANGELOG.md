@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1568 - AST cache acceleration for test 1013 and harness hardening
+
+Release v3.66.1568 carries Packet 3 AST hotspot acceleration and harness hardening:
+
+- Packet 3: Accelerated serial test suite `tests/test_v3_66_1013_registrable_domain.py` via git-blob-sha content-addressed AST cache in `toolchain/bin/bdtools_cache.py`, reducing execution time from ~55s to ~0.9s (~60x speedup) while preserving the full 2,164-file repository denominator invariant.
+- Harness hardening (H557, H554, H558): `bd-train.sh --finish` stages release trio and regen outputs before gate invocation; `bd-stop-codex-seat.sh` cleans up remote thread sessions; `bd-check-changelog-closures.py` prevents train landing if changelog headings reference open register rows.
+
 ## v3.66.1567 - serial capture acceleration (472 suites to parallel), documentation audit, and harness stabilization
 
 Release v3.66.1567 carries 5 landed packets and operational improvements:

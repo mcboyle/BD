@@ -259,20 +259,12 @@ def test_the_remaining_copies_are_COUNTED_so_the_backlog_cannot_grow():
     _CANONICAL = "bulk_downloader/registrable_domain.py"
     assert (REPO / _CANONICAL).is_file(), _CANONICAL
 
-    found = []
-    for rel in files:
-        if rel.startswith("tests/"):
-            continue          # this file quotes the shape in its own prose
-        if rel == _CANONICAL:
-            continue
-        try:
-            tree = ast.parse((REPO / rel).read_text(encoding="utf-8",
-                                                    errors="replace"))
-        except (SyntaxError, OSError):
-            continue
-        for n in ast.walk(tree):
-            if isinstance(n, ast.FunctionDef) and _joins_last_two_labels(n):
-                found.append("%s:%d %s" % (rel, n.lineno, n.name))
+    found = registrable_domain_census.scan_repo(
+        REPO,
+        files=files,
+        exempt_paths=("tests/", _CANONICAL),
+    )
+
     assert len(found) <= 0, (
         "last-two-labels copies rose to %d, above the ratchet of 0. Every one "
         "of these is the bug that made victim.co.uk and attacker.co.uk the "
