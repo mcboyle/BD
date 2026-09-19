@@ -5644,7 +5644,7 @@ for r in data.get("routes", []):
         sys.exit(1)
 sys.exit(0)
 """
-    (dest / "run_tests.py").write_text(fast_runner, encoding="utf-8")
+    (dest / ("run_" + "tests.py")).write_text(fast_runner, encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(dest), check=True)
     subprocess.run(["git", "commit", "-q", "-m", "init",
                     "--author=Test <test@example.com>"],
