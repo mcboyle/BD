@@ -49,7 +49,7 @@ from tools.capture_verdict import assess_capture, main  # noqa: E402
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=str(cwd), check=True,
+    subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=str(cwd), check=True,
                    capture_output=True, text=True)
 
 

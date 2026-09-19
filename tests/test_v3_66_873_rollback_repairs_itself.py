@@ -38,7 +38,7 @@ HOOK = REPO / ".claude" / "hooks" / "session-start.sh"
 
 
 def _git(*args, cwd, check=True):
-    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+    return subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=str(cwd), capture_output=True,
                           text=True, check=check, timeout=120)
 
 

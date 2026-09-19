@@ -87,9 +87,10 @@ def _git_work_tree(tmp_path):
     root = tmp_path / "install"
     root.mkdir()
     env = dict(os.environ, GIT_CONFIG_GLOBAL="/dev/null",
-               GIT_CONFIG_SYSTEM="/dev/null", GIT_TERMINAL_PROMPT="0")
+               GIT_CONFIG_SYSTEM="/dev/null", GIT_TERMINAL_PROMPT="0",
+               GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com")
     def _git(*args):
-        proc = subprocess.run(["git", *args], cwd=str(root), env=env,
+        proc = subprocess.run(["git", "-c", "user.name=row521", "-c", "user.email=row521@example.invalid", *args], cwd=str(root), env=env,
                               capture_output=True, text=True, timeout=30)
         assert proc.returncode == 0, (args, proc.stdout, proc.stderr)
         return proc.stdout.strip()

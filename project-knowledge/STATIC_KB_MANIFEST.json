@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-18T01:22:37+00:00",
- "version_context": "v3.66.1575",
- "file_count": 93,
+ "generated": "2026-09-19T12:03:03+00:00",
+ "version_context": "v3.66.1576",
+ "file_count": 95,
  "files": {
   "0_INDEX.md": {
    "sha256": "145d030f29f26b19244a1f04853805004c136e76b3c89f5b80132bd885f54749",
@@ -48,6 +48,10 @@
    "sha256": "743b95dacc2270fe44d720cc4979dc8e49e8eb61e72a1fa2b4c3110accf4418e",
    "bytes": 7940
   },
+  "AUDIT_40_PR_REPORT.md": {
+   "sha256": "a2910eb5b271d984b014e8e7165446bd8f27114bd501119bb0e011d581564643",
+   "bytes": 40816
+  },
   "AUDIT_COMPLETION_LEDGER.json": {
    "sha256": "a90bb5b2ae544b8842383941ea5dbc9d6c396f9bfe9bb46a8ba150476ae9db0e",
    "bytes": 14652
@@ -75,6 +79,10 @@
   "CAPTURE_SHARING_POLICY.md": {
    "sha256": "e379ac889e6b36146daaecb121abfdac7bfe4b1deb24ab1a6b1c94615304111a",
    "bytes": 4352
+  },
+  "CI_FAILURE_TAXONOMY.md": {
+   "sha256": "1065916a74042c9ff6c94a52620af98422fa587b7ddb61227459a08466adb26e",
+   "bytes": 51476
   },
   "CODE_INTELLIGENCE_ARCHITECTURE.md": {
    "sha256": "5e6510ae048eab0f5a3fe0a631eb9f4c84893206faf5562b647be3ab1ef17c3d",

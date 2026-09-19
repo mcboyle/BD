@@ -68,7 +68,7 @@ def _make_source_tree(tmp_path: Path) -> Path:
         check=True,
     )
     subprocess.run(
-        ["git", "commit", "-q", "-m", "graph pin fixture"],
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "graph pin fixture"],
         cwd=source,
         check=True,
     )

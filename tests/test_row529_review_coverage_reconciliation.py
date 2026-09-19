@@ -17,7 +17,7 @@ _REVIEWED = "bulk_downloader/example.py"
 
 def _git(work: Path, *args: str) -> str:
     run = subprocess.run(
-        ["git", "-C", str(work), *args], capture_output=True, text=True)
+        ["git", "-C", str(work), "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], capture_output=True, text=True)
     assert run.returncode == 0, run.stdout + run.stderr
     return run.stdout.strip()
 

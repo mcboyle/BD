@@ -28,7 +28,7 @@ def _load_tool():
 
 def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+        ["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], capture_output=True, text=True, check=True
     )
     return result.stdout.strip()
 

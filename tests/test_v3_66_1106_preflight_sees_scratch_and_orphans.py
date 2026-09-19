@@ -60,7 +60,7 @@ def _fake_repo(tmp_path: Path) -> Path:
     (r / "tests" / "test_real.py").write_text("def test_ok():\n    assert True\n",
                                               encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=r, check=True)
-    subprocess.run(["git", "commit", "-qm", "init"], cwd=r, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init"], cwd=r, check=True)
     return r
 
 
@@ -201,7 +201,7 @@ def _stub_bd_jobs(repo: Path, rc: int, count: int = 0) -> None:
         f"sys.exit({rc})\n", encoding="utf-8")
     tool.chmod(0o755)
     subprocess.run(["git", "add", "toolchain/bin/bd-jobs"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "stub"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "stub"], cwd=repo, check=True)
 
 
 def test_an_unreadable_registry_is_UNKNOWN_even_when_the_orphan_count_is_zero(
@@ -257,7 +257,7 @@ def test_a_failed_process_table_measurement_is_UNKNOWN_not_PASS(tmp_path):
         encoding="utf-8")
     tool.chmod(0o755)
     subprocess.run(["git", "add", "toolchain/bin/bd-jobs"], cwd=r, check=True)
-    subprocess.run(["git", "commit", "-qm", "stub"], cwd=r, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "stub"], cwd=r, check=True)
 
     out = _run(r, tmp_path).stdout
     row = _row(out, "orphans")

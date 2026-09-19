@@ -2507,7 +2507,7 @@ def test_bd_band_reports_nothing_ran_without_calling_it_a_pass():
         subprocess.run(["git", "-C", td, "config", "user.email",
                         "band@example.invalid"], check=True)
         subprocess.run(["git", "-C", td, "add", "."], check=True)
-        subprocess.run(["git", "-C", td, "commit", "-qm", "candidate"],
+        subprocess.run(["git", "-C", td, "-c", "user.name=Band Test", "-c", "user.email=band@example.invalid", "commit", "-qm", "candidate"],
                        check=True)
         wrapper = os.path.join(evidence_td, "authorized-bd-band.py")
         with open(wrapper, "w") as fh:

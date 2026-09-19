@@ -45,7 +45,7 @@ def _run(
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> str:
-    return _run([REAL_GIT, *args], cwd=cwd, check=check).stdout.strip()
+    return _run([REAL_GIT, "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=cwd, check=check).stdout.strip()
 
 
 def _write(path: Path, content: str) -> None:

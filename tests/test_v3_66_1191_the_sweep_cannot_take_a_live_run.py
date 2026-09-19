@@ -235,7 +235,7 @@ def test_bd_gc_worktree_cleanup_requires_a_released_inode_bound_owner_record(
     (seed / "tracked").write_text("fixture")
     subprocess.run(["git", "-C", str(seed), "add", "tracked"], check=True,
                    capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(seed), "commit", "-m", "fixture"],
+    subprocess.run(["git", "-C", str(seed), "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"],
                    check=True, capture_output=True, text=True)
 
     owned = cleanup_root / "owned"

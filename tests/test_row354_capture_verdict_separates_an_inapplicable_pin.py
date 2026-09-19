@@ -33,7 +33,7 @@ _NOT_APPLICABLE_EXIT = 4
 
 def _git(source: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", *args],
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
         cwd=source,
         check=True,
         capture_output=True,

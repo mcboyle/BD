@@ -46,7 +46,7 @@ def _run(
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return _run([REAL_GIT, *args], cwd=cwd, check=check)
+    return _run([REAL_GIT, "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=cwd, check=check)
 
 
 def _write(path: Path, content: str) -> None:

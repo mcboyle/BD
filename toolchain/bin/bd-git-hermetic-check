@@ -1,0 +1,523 @@
+#!/usr/bin/env python3
+"""bd-git-hermetic-check -- detect non-hermetic git commit invocations in test fixtures or scripts.
+
+Enforces Fleet Rule 41 (Hermetic Git Fixtures) and Fleet Rule 42 (Static Census Substring Guards):
+- MUST implement cheap raw-text substring guards (`if "commit" not in text: continue`)
+  before invoking AST or regex analysis.
+- Detects calls to subprocess or git execution running `commit` without explicit
+  `-c user.name=` / `-c user.email=` or `GIT_COMMITTER_*` environment configuration.
+- Supports scanning specific files or directory trees.
+- Returns exit code 0 on clean, exit code 1 with line-level diagnostics on violations.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import os
+import re
+import sys
+from pathlib import Path
+from typing import NamedTuple
+
+
+class Diagnostic(NamedTuple):
+    path: Path
+    lineno: int
+    message: str
+    uses_author: bool = False
+
+
+def _extract_strings(node: ast.AST | None, var_map: dict[str, list[str]] | None = None) -> list[str]:
+    """Extract string literals from an AST node (List, Tuple, Constant, JoinedStr, BinOp, Name)."""
+    if node is None:
+        return []
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, (ast.List, ast.Tuple)):
+        res: list[str] = []
+        for elt in node.elts:
+            res.extend(_extract_strings(elt, var_map))
+        return res
+    if isinstance(node, ast.JoinedStr):
+        # Concatenate constant parts of f-string
+        parts: list[str] = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+        if parts:
+            return ["".join(parts)]
+        return []
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _extract_strings(node.left, var_map)
+        right = _extract_strings(node.right, var_map)
+        if left and right:
+            return [left[0] + right[0]]
+        return left or right
+    if isinstance(node, ast.Name) and var_map and node.id in var_map:
+        return list(var_map[node.id])
+    return []
+
+
+class ScopeInfo:
+    """Tracks variable definitions and environment configuration within a function or module scope."""
+    def __init__(self) -> None:
+        self.var_strings: dict[str, list[str]] = {}
+        self.env_committer_vars: set[str] = set()
+        self.os_environ_has_committer: bool = False
+
+
+class HermeticCommitVisitor(ast.NodeVisitor):
+    def __init__(self, path: Path, tree: ast.AST | None = None) -> None:
+        self.path = path
+        self.diagnostics: list[Diagnostic] = []
+        self.scope_stack: list[ScopeInfo] = [ScopeInfo()]
+        self.hermetic_helpers: set[str] = set()
+        if tree:
+            self._scan_hermetic_helpers(tree)
+
+    def _scan_hermetic_helpers(self, tree: ast.AST) -> None:
+        if not isinstance(tree, ast.Module):
+            return
+        module_vars: dict[str, str] = {}
+        for stmt in tree.body:
+            if isinstance(stmt, ast.Assign):
+                try:
+                    val_text = ast.unparse(stmt.value)
+                except Exception:
+                    val_text = ""
+                for t in stmt.targets:
+                    if isinstance(t, ast.Name):
+                        module_vars[t.id] = val_text
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                try:
+                    fn_text = ast.unparse(node)
+                except Exception:
+                    fn_text = ""
+                has_name = "user.name" in fn_text or "GIT_COMMITTER_NAME" in fn_text
+                has_email = "user.email" in fn_text or "GIT_COMMITTER_EMAIL" in fn_text
+                if not (has_name and has_email):
+                    for var_name, var_val in module_vars.items():
+                        if var_name in fn_text:
+                            if ("user.name" in var_val or "GIT_COMMITTER_NAME" in var_val) and ("user.email" in var_val or "GIT_COMMITTER_EMAIL" in var_val):
+                                has_name = True
+                                has_email = True
+                                break
+                if has_name and has_email:
+                    self.hermetic_helpers.add(node.name)
+
+    @property
+    def current_scope(self) -> ScopeInfo:
+        return self.scope_stack[-1]
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_scoped_block(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_scoped_block(node)
+
+    def _visit_scoped_block(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        new_scope = ScopeInfo()
+        # Pre-scan statements in block for variable assignments & env setups
+        self._prescan_statements(node.body, new_scope)
+        self.scope_stack.append(new_scope)
+        self.generic_visit(node)
+        self.scope_stack.pop()
+
+    def _prescan_statements(self, statements: list[ast.stmt], scope: ScopeInfo) -> None:
+        for stmt in statements:
+            if isinstance(stmt, ast.Assign):
+                # Check for env assignments or cmd list assignments
+                assigned_strs = _extract_strings(stmt.value, scope.var_strings)
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        if assigned_strs:
+                            scope.var_strings[target.id] = assigned_strs
+                        # Check if target is an env dict defining GIT_COMMITTER_
+                        if self._node_defines_committer(stmt.value):
+                            scope.env_committer_vars.add(target.id)
+                    elif isinstance(target, ast.Subscript):
+                        # target is like env["GIT_COMMITTER_NAME"] or os.environ["GIT_COMMITTER_NAME"]
+                        target_var = self._get_subscript_target_var(target)
+                        key_str = self._get_subscript_key(target)
+                        if key_str and key_str.startswith("GIT_COMMITTER_"):
+                            if target_var in ("os.environ", "environ"):
+                                scope.os_environ_has_committer = True
+                            elif target_var:
+                                scope.env_committer_vars.add(target_var)
+
+    def _get_subscript_target_var(self, target: ast.Subscript) -> str | None:
+        if isinstance(target.value, ast.Name):
+            return target.value.id
+        if isinstance(target.value, ast.Attribute):
+            if isinstance(target.value.value, ast.Name) and target.value.value.id == "os" and target.value.attr == "environ":
+                return "os.environ"
+        return None
+
+    def _get_subscript_key(self, target: ast.Subscript) -> str | None:
+        if isinstance(target.slice, ast.Constant) and isinstance(target.slice.value, str):
+            return target.slice.value
+        return None
+
+    def _node_defines_committer(self, node: ast.AST) -> bool:
+        """Check if an AST node (dict literal, call to dict, etc.) sets GIT_COMMITTER_*."""
+        if isinstance(node, ast.Dict):
+            for k in node.keys:
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    if k.value.startswith("GIT_COMMITTER_"):
+                        return True
+        elif isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg and kw.arg.startswith("GIT_COMMITTER_"):
+                    return True
+                if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    if kw.value.value.startswith("GIT_COMMITTER_"):
+                        return True
+            for a in node.args:
+                if self._node_defines_committer(a):
+                    return True
+        return False
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.generic_visit(node)
+        self._check_call_node(node)
+
+    def _check_call_node(self, node: ast.Call) -> None:
+        func_name = self._resolve_func_name(node.func)
+        if func_name in self.hermetic_helpers:
+            return
+        is_subprocess = func_name in {
+            "subprocess.run", "subprocess.Popen", "subprocess.call",
+            "subprocess.check_call", "subprocess.check_output",
+            "run", "Popen", "call", "check_call", "check_output",
+            "os.system", "os.popen",
+            "_git", "git", "run_git", "_run_git", "git_cmd", "git_commit",
+        }
+        if not is_subprocess:
+            return
+
+        # Extract command arguments
+        cmd_args: list[str] = []
+        if node.args:
+            first_arg = node.args[0]
+            cmd_args = _extract_strings(first_arg, self.current_scope.var_strings)
+            # If function is _git(repo, "commit", ...), check remaining positional args
+            if func_name in {"_git", "git", "run_git", "_run_git"} and len(node.args) > 1:
+                for a in node.args[1:]:
+                    cmd_args.extend(_extract_strings(a, self.current_scope.var_strings))
+        for kw in node.keywords:
+            if kw.arg in {"args", "cmd"}:
+                cmd_args.extend(_extract_strings(kw.value, self.current_scope.var_strings))
+
+        if not cmd_args:
+            return
+
+        # Check if this invocation runs `git commit`
+        is_git_commit = self._is_git_commit_invocation(func_name, cmd_args)
+        if not is_git_commit:
+            return
+
+        # It IS a git commit execution. Now verify hermeticity!
+        is_hermetic, reason = self._check_hermeticity(node, cmd_args)
+        if not is_hermetic:
+            uses_author = any("--author" in a for a in cmd_args)
+            if uses_author:
+                msg = (
+                    f"{self.path}:{node.lineno}: VIOLATION [FG-GIT-HERMETIC-COMMIT]: "
+                    f"git commit uses --author without committer identity. "
+                    f"Must pass explicit config flags ('-c', 'user.name=...', '-c', 'user.email=...') "
+                    f"or set GIT_COMMITTER_* env vars."
+                )
+            else:
+                msg = (
+                    f"{self.path}:{node.lineno}: VIOLATION [FG-GIT-HERMETIC-COMMIT]: "
+                    f"non-hermetic git commit invocation ({reason}). "
+                    f"Must pass explicit config flags ('-c', 'user.name=...', '-c', 'user.email=...') "
+                    f"or set GIT_COMMITTER_* env vars."
+                )
+            self.diagnostics.append(Diagnostic(self.path, node.lineno, msg, uses_author=uses_author))
+
+    def _resolve_func_name(self, node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            val = self._resolve_func_name(node.value)
+            return f"{val}.{node.attr}" if val else node.attr
+        return ""
+
+    def _is_git_commit_invocation(self, func_name: str, cmd_args: list[str]) -> bool:
+        """Determine whether the command arguments invoke `git commit`."""
+        # Check for single string command (e.g. os.system("git commit ...") or subprocess.run("git commit ..."))
+        if len(cmd_args) == 1 and (" " in cmd_args[0] or "\t" in cmd_args[0]):
+            cmd_str = cmd_args[0]
+            # Exclude plumbing commands like commit-tree, commit-graph
+            if re.search(r'\bcommit-tree\b|\bcommit-graph\b', cmd_str):
+                return False
+            return bool(re.search(r'\bgit\b.*\bcommit\b', cmd_str))
+
+        # Check list of arguments
+        has_commit = False
+        for a in cmd_args:
+            # Match exact 'commit', but NOT 'commit-tree' or 'commit-graph'
+            if a == "commit":
+                has_commit = True
+                break
+            # Or token starts with commit like "commit" in a sub-command
+            if re.match(r'^commit(?:\s|$)', a):
+                has_commit = True
+                break
+
+        if not has_commit:
+            return False
+
+        # Exclude commit-tree
+        if any(a.startswith("commit-tree") or a.startswith("commit-graph") for a in cmd_args):
+            return False
+
+        # Verify it is git
+        if func_name in {"_git", "git", "run_git", "_run_git", "git_cmd", "git_commit"}:
+            return True
+        if any(a == "git" or a.endswith("/git") or a == "git.exe" for a in cmd_args):
+            return True
+        # Or has distinctive git flags
+        if any(a in {"-m", "-a", "-C", "--author", "--amend", "-qm", "-am", "-qam"} or a.startswith("-c") for a in cmd_args):
+            return True
+
+        return False
+
+    def _check_hermeticity(self, call_node: ast.Call, cmd_args: list[str]) -> tuple[bool, str]:
+        """Verify explicit -c user.name/email config flags or GIT_COMMITTER_* env vars."""
+        # Check 1: Command arguments have -c user.name=... and -c user.email=...
+        has_user_name = False
+        has_user_email = False
+
+        # Combine into one string if needed or inspect items
+        for i, a in enumerate(cmd_args):
+            if "user.name=" in a:
+                # Check if preceded by -c or contains -c
+                if a.startswith("-c") or (i > 0 and cmd_args[i - 1] == "-c") or any(x == "-c" for x in cmd_args):
+                    has_user_name = True
+            if "user.email=" in a:
+                if a.startswith("-c") or (i > 0 and cmd_args[i - 1] == "-c") or any(x == "-c" for x in cmd_args):
+                    has_user_email = True
+
+        # Check single-string command case
+        if len(cmd_args) == 1 and (" " in cmd_args[0] or "\t" in cmd_args[0]):
+            s = cmd_args[0]
+            if re.search(r'-c\s+user\.name=', s) or re.search(r'-c\s*"?user\.name=', s):
+                has_user_name = True
+            if re.search(r'-c\s+user\.email=', s) or re.search(r'-c\s*"?user\.email=', s):
+                has_user_email = True
+
+        if has_user_name and has_user_email:
+            return True, "explicit -c user.name and user.email present"
+
+        # Check 2: Environment configuration in env= kwarg
+        for kw in call_node.keywords:
+            if kw.arg == "env":
+                # Check if literal dict or call defines committer
+                if self._node_defines_committer(kw.value):
+                    return True, "env kwarg defines GIT_COMMITTER_*"
+                # Check if referenced variable in scope defines committer
+                if isinstance(kw.value, ast.Name):
+                    if kw.value.id in self.current_scope.env_committer_vars:
+                        return True, f"env variable '{kw.value.id}' defines GIT_COMMITTER_*"
+
+        # Check 3: os.environ in current scope
+        if self.current_scope.os_environ_has_committer:
+            return True, "os.environ sets GIT_COMMITTER_*"
+
+        reasons: list[str] = []
+        if not (has_user_name and has_user_email):
+            missing: list[str] = []
+            if not has_user_name:
+                missing.append("user.name")
+            if not has_user_email:
+                missing.append("user.email")
+            reasons.append(f"missing -c {', '.join(missing)}")
+        reasons.append("missing GIT_COMMITTER_* env")
+        return False, "; ".join(reasons)
+
+
+def scan_file(path: Path) -> list[Diagnostic]:
+    """Scan a single python file for non-hermetic git commit invocations."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return [Diagnostic(path, 0, f"{path}:0: ERROR: cannot read file: {e}")]
+
+    # Compliance with Fleet Rule 42: Cheap raw-text substring guard
+    if "commit" not in text:
+        return []
+
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError as e:
+        return _regex_fallback_scan(path, text, e)
+
+    visitor = HermeticCommitVisitor(path, tree)
+    visitor.visit(tree)
+    return visitor.diagnostics
+
+
+def _regex_fallback_scan(path: Path, text: str, syntax_err: SyntaxError) -> list[Diagnostic]:
+    """Fallback scanner when AST parsing encounters a SyntaxError."""
+    diags: list[Diagnostic] = []
+    lines = text.splitlines()
+    for i, line in enumerate(lines, 1):
+        if "commit" in line and ("git" in line or "subprocess" in line):
+            if "commit-tree" in line or "commit-graph" in line:
+                continue
+            has_hermetic = (
+                ("user.name=" in line and "user.email=" in line and "-c" in line)
+                or "GIT_COMMITTER_" in line
+            )
+            if not has_hermetic:
+                uses_author = "--author" in line
+                msg = (
+                    f"{path}:{i}: VIOLATION [FG-GIT-HERMETIC-COMMIT]: "
+                    f"git commit invocation without explicit config flags or GIT_COMMITTER_* env."
+                )
+                diags.append(Diagnostic(path, i, msg, uses_author))
+    return diags
+
+
+def collect_python_files(targets: list[str]) -> list[Path]:
+    """Resolve targets (files and directories) into a list of Python files."""
+    files: list[Path] = []
+    for t in targets:
+        p = Path(t).resolve()
+        if p.is_file():
+            files.append(p)
+        elif p.is_dir():
+            for root, _, filenames in os.walk(p):
+                for f in filenames:
+                    if f.endswith(".py"):
+                        files.append(Path(root) / f)
+        else:
+            print(f"Warning: path not found: {t}", file=sys.stderr)
+    return sorted(set(files))
+
+
+def run_selftest() -> int:
+    """Internal self-test verifying negative mutants, positive controls, and Rule 42 guards."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+
+        # 1. Negative mutant: --author without committer identity
+        neg1 = tdp / "neg1.py"
+        neg1.write_text(
+            'import subprocess\n'
+            'def run(repo):\n'
+            '    subprocess.run(["git", "commit", "-q", "-m", "init", "--author=Test <test@example.com>"], cwd=repo)\n'
+        )
+        d1 = scan_file(neg1)
+        assert len(d1) == 1 and d1[0].uses_author, f"Expected 1 negative author violation, got {d1}"
+
+        # 2. Negative mutant: bare git commit
+        neg2 = tdp / "neg2.py"
+        neg2.write_text(
+            'import subprocess\n'
+            'def run(repo):\n'
+            '    subprocess.run(["git", "commit", "-m", "bare"], cwd=repo)\n'
+        )
+        d2 = scan_file(neg2)
+        assert len(d2) == 1 and not d2[0].uses_author, f"Expected 1 negative bare violation, got {d2}"
+
+        # 3. Positive control: explicit -c user.name and -c user.email
+        pos1 = tdp / "pos1.py"
+        pos1.write_text(
+            'import subprocess\n'
+            'def run(repo):\n'
+            '    subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"], cwd=repo)\n'
+        )
+        d3 = scan_file(pos1)
+        assert len(d3) == 0, f"Expected 0 violations on pos1, got {d3}"
+
+        # 4. Positive control: GIT_COMMITTER_* in env
+        pos2 = tdp / "pos2.py"
+        pos2.write_text(
+            'import os, subprocess\n'
+            'def run(repo):\n'
+            '    env = dict(os.environ, GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com")\n'
+            '    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, env=env)\n'
+        )
+        d4 = scan_file(pos2)
+        assert len(d4) == 0, f"Expected 0 violations on pos2, got {d4}"
+
+        # 5. Rule 42 substring guard: file without commit is clean even with syntax error
+        rule42 = tdp / "rule42.py"
+        rule42.write_text('def invalid_syntax(')
+        d5 = scan_file(rule42)
+        assert len(d5) == 0, f"Expected 0 violations on rule42, got {d5}"
+
+        # 6. Plumbing command: commit-tree is not commit
+        plumb = tdp / "plumb.py"
+        plumb.write_text(
+            'import subprocess\n'
+            'def run(repo, tree):\n'
+            '    subprocess.run(["git", "commit-tree", tree, "-m", "fixture"], cwd=repo)\n'
+        )
+        d6 = scan_file(plumb)
+        assert len(d6) == 0, f"Expected 0 violations on commit-tree, got {d6}"
+
+    print("bd-git-hermetic-check SELFTEST PASS (all 6 assertions hold)")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Detect non-hermetic git commit invocations in test fixtures or scripts (Fleet Rule 41 & 42)."
+    )
+    parser.add_argument("paths", nargs="*", default=[], help="Specific Python files or directories to scan.")
+    parser.add_argument("--tree", "--work", dest="tree", default=None, help="Root directory to scan if no paths specified.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose progress output.")
+    parser.add_argument("--selftest", action="store_true", help="Run internal detector self-tests.")
+
+    args = parser.parse_args(argv)
+
+    if args.selftest:
+        return run_selftest()
+
+    target_paths = args.paths
+    if not target_paths:
+        if args.tree:
+            target_paths = [args.tree]
+        else:
+            # Default to scanning tests/ from current working directory
+            tests_dir = Path.cwd() / "tests"
+            if tests_dir.is_dir():
+                target_paths = [str(tests_dir)]
+            else:
+                target_paths = ["."]
+
+    python_files = collect_python_files(target_paths)
+    if not python_files:
+        print("No Python files found to scan.", file=sys.stderr)
+        return 0
+
+    if args.verbose:
+        print(f"Scanning {len(python_files)} Python file(s) for non-hermetic git commit calls...")
+
+    all_diagnostics: list[Diagnostic] = []
+    scanned_count = len(python_files)
+
+    for p in python_files:
+        diags = scan_file(p)
+        if diags:
+            all_diagnostics.extend(diags)
+
+    if all_diagnostics:
+        print(f"FAIL: Found {len(all_diagnostics)} non-hermetic git commit invocation(s):", file=sys.stderr)
+        for diag in all_diagnostics:
+            print(f"  {diag.message}", file=sys.stderr)
+        return 1
+
+    print(f"OK: Scanned {scanned_count} file(s), 0 non-hermetic git commit violations found.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

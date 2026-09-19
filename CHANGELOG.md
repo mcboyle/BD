@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1576 - hermetic git commit enforcement, 40-PR regression audit, and CI failure taxonomy
+
+Release v3.66.1576 carries hermetic git commit enforcement and comprehensive multi-agent 40-PR audit deliverables:
+
+- Hermetic Git Commit Enforcement: Authored AST-based detector `toolchain/bin/bd-git-hermetic-check` with full selftest and regression battery `tests/test_git_hermetic_commit_detector.py`.
+- Legacy Test Suite Remediation: Remediated non-hermetic `git commit` invocations across 23 legacy test files (1,796 test files scanned, 0 violations detected repo-wide).
+- 40-PR Regression Audit & CI Failure Taxonomy: Synthesized `project-knowledge/AUDIT_40_PR_REPORT.md` (0 unmitigated regressions across PRs #856-#901) and `project-knowledge/CI_FAILURE_TAXONOMY.md` cataloging recurring CI failure modes, error signatures, and Fleet Rules 41-47.
+
 ## v3.66.1575 - serial suite acceleration (test cut quality permits 2.1x speedup)
  
 Release v3.66.1575 carries serial suite acceleration:

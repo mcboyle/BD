@@ -51,7 +51,7 @@ def _run(work, argv, *, ok=False, timeout=180):
 
 
 def _git(work, *args):
-    return _run(work, ["git", *args], ok=True).stdout.strip()
+    return _run(work, ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], ok=True).stdout.strip()
 
 
 def _stamp(work, *args, title=TITLE):

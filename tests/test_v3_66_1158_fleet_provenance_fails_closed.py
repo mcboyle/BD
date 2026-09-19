@@ -28,7 +28,7 @@ def _load():
 
 def _git(repo: pathlib.Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", "-C", str(repo), *args],
+        ["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
         text=True,
         capture_output=True,
         check=True,
