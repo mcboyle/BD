@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1577 - Publish approved proposal backlog
+
+Register approved proposals and their parked or moot dispositions so product cuts can satisfy canonical-row checks. Register-only train; implementations follow separately.
+
 ## v3.66.1576 - hermetic git commit enforcement, 40-PR regression audit, and CI failure taxonomy
 
 Release v3.66.1576 carries hermetic git commit enforcement and comprehensive multi-agent 40-PR audit deliverables:
