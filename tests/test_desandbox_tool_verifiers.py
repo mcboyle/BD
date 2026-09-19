@@ -5646,8 +5646,8 @@ sys.exit(0)
 """
     (dest / ("run_" + "tests.py")).write_text(fast_runner, encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(dest), check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init",
-                    "--author=Test <test@example.com>"],
+    subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                    "commit", "-q", "-m", "init"],
                    cwd=str(dest), check=True)
     assert (dest / ".git").is_dir() and (dest / "tests").is_dir(), (
         "the detached copy is not a usable repository, so a green result from "
