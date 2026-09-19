@@ -38,7 +38,7 @@ _CAPTURE = _REPO / "capture.sh"
 
 
 def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=str(cwd), check=True,
+    subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=str(cwd), check=True,
                    capture_output=True, text=True)
 
 

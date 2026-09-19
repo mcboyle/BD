@@ -140,7 +140,7 @@ def _stale_mirror():
     deploy_support._write(os.path.join(fx.seed, "docs", "NOTE.txt"),
                           "every download fix of that day\n")
     git(fx.seed, "add", "-A")
-    git(fx.seed, "commit", "-m", "twenty-one versions of work")
+    git(fx.seed, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "twenty-one versions of work")
     git(fx.seed, "push", "truth", "HEAD:refs/heads/main")
     truth_sha = git(fx.seed, "rev-parse", "HEAD").strip()
 

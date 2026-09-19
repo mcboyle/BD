@@ -42,7 +42,7 @@ def _canonical(value: object) -> bytes:
 
 def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True,
+        ["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], capture_output=True, text=True,
         check=True,
     )
     return result.stdout.strip()

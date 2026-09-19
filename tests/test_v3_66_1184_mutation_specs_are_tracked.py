@@ -1330,7 +1330,7 @@ def test_v2_emits_candidate_bound_cut_mutation_result(tmp_path):
     subprocess.run(["git", "config", "user.name", "Mutation Test"],
                    cwd=work, check=True)
     subprocess.run(["git", "add", "."], cwd=work, check=True)
-    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=work, check=True)
+    subprocess.run(["git", "-c", "user.name=Mutation Test", "-c", "user.email=mutation@example.invalid", "commit", "-qm", "candidate"], cwd=work, check=True)
     evidence = tmp_path / "mutation-result.json"
     digest = "a" * 64
     run = subprocess.run([

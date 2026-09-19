@@ -65,7 +65,7 @@ def _mkrepo(tmp_path: Path) -> Path:
         subprocess.run(c, cwd=r, check=True)
     (r / "victim.py").write_text("orig\n")
     subprocess.run(["git", "add", "-A"], cwd=r, check=True)
-    subprocess.run(["git", "commit", "-qm", "base"], cwd=r, check=True,
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=a@b.c", "commit", "-qm", "base"], cwd=r, check=True,
                    env={**os.environ, "BD_SKIP_CLAIM_CHECK": "1"})
     return r
 
@@ -85,7 +85,7 @@ def _commit(r: Path, msg: str, owner: str | None = None):
     env.pop("BD_CLAIM_OWNER", None)
     if owner is not None:
         env["BD_CLAIM_OWNER"] = owner
-    return subprocess.run(["git", "commit", "-m", msg], cwd=r,
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=a@b.c", "commit", "-m", msg], cwd=r,
                           capture_output=True, text=True, timeout=120, env=env)
 
 
@@ -290,7 +290,7 @@ def test_the_skip_override_still_works(tmp_path):
                   owner="agentA").returncode == 0
     (r / "victim.py").write_text("orig\nforced\n")
     subprocess.run(["git", "add", "victim.py"], cwd=r, check=True)
-    c = subprocess.run(["git", "commit", "-m", "forced"], cwd=r,
+    c = subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=a@b.c", "commit", "-m", "forced"], cwd=r,
                        capture_output=True, text=True, timeout=120,
                        env={**os.environ, "BD_CLAIM_OWNER": "agentB",
                             "BD_SKIP_CLAIM_CHECK": "1"})

@@ -94,7 +94,7 @@ def _source_line(out: str) -> str:
 
 def _git(cwd: Path, *args: str) -> None:
     subprocess.run(
-        ["git", *args],
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args],
         cwd=str(cwd),
         check=True,
         capture_output=True,

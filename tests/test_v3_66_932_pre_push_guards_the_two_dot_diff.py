@@ -41,7 +41,7 @@ _ZERO = "0" * 40
 
 
 def _git(cwd, *args, check=True):
-    r = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+    r = subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", *args], cwd=str(cwd), capture_output=True,
                        text=True)
     if check and r.returncode != 0:
         raise AssertionError(f"git {' '.join(args)} -> {r.returncode}\n"

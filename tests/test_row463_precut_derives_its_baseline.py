@@ -53,7 +53,7 @@ def _load():
 
 
 def git(repo, *a, check=True):
-    p = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    p = subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com", *a], capture_output=True, text=True)
     if check and p.returncode:
         raise RuntimeError(f"git {' '.join(a)}: {p.stderr}")
     return p.stdout.strip()
