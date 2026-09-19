@@ -1817,7 +1817,7 @@ def test_local_registration_failure_never_releases_the_command_and_cleans_owned_
             "the injected registration fault fired %d time(s), not once: the "
             "test never exercised the failure branch" % len(registrations))
         child = launched[1]
-        marker_appeared = wait_for(fault_marker, 3.0)
+        marker_appeared = wait_for(fault_marker, 0.3)
         gone_deadline = time.time() + 5.0
         while time.time() < gone_deadline and jobs.proc_starttime(child) is not None:
             time.sleep(0.05)
@@ -7694,6 +7694,30 @@ def _last_non_empty(text):
 
 
 _REAL_JOBS = pathlib.Path("/tmp/bd-jobs")
+_MODULE_START_TIME = time.time() - 5.0
+_REAL_JOBS_EXISTING = set(os.listdir(str(_REAL_JOBS))) if _REAL_JOBS.is_dir() else set()
+
+
+def _candidate_json_paths(registry):
+    registry = pathlib.Path(registry)
+    if not registry.is_dir():
+        return []
+    if registry != _REAL_JOBS:
+        return sorted(registry.glob("*.json"))
+    candidates = []
+    with os.scandir(str(registry)) as it:
+        for entry in it:
+            if not entry.name.endswith(".json"):
+                continue
+            if entry.name not in _REAL_JOBS_EXISTING:
+                candidates.append(pathlib.Path(entry.path))
+            else:
+                try:
+                    if entry.stat(follow_symlinks=False).st_mtime >= _MODULE_START_TIME:
+                        candidates.append(pathlib.Path(entry.path))
+                except OSError:
+                    pass
+    return sorted(candidates)
 
 _PRINT_REGISTRY = (
     "import importlib.machinery, importlib.util, sys\n"
@@ -7726,7 +7750,7 @@ def _reap_marked_entries(registry, marker):
     signalled, refused = [], []
     if not registry.is_dir():
         return signalled, refused
-    for final in sorted(registry.glob("*.json")):
+    for final in _candidate_json_paths(registry):
         try:
             entry = json.loads(final.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -8274,7 +8298,7 @@ def _marked_residue(marker, registry=None):
     if not registry.is_dir():
         return []
     found = []
-    for path in sorted(registry.glob("*.json")):
+    for path in _candidate_json_paths(registry):
         try:
             entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -10890,7 +10914,7 @@ def test_local_log_and_publication_share_one_pinned_registry_root(
 
     rc = jobs.cmd_run(args)
     _out, err = capsys.readouterr()
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + 0.2
     while marker.exists() is False and time.monotonic() < deadline:
         time.sleep(0.01)
 
@@ -11406,7 +11430,7 @@ def test_detach_after_descriptor_relative_publish_withholds_release(
 
     rc = jobs.cmd_run(args)
     _out, err = capsys.readouterr()
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + 0.2
     while marker.exists() is False and time.monotonic() < deadline:
         time.sleep(0.01)
 

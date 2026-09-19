@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1573 - serial suite acceleration (test 1040 remote job registry 41.7% speedup)
+
+Release v3.66.1573 carries Packet 5 serial suite acceleration:
+
+- Packet 5 (Serial Suite Acceleration): Optimized `_marked_residue` and `_reap_marked_entries` in `tests/test_v3_66_1040_remote_job_registry.py` via `_candidate_json_paths` using `os.scandir` with start-time and creation filters over `/tmp/bd-jobs`, and trimmed polling wait intervals from 3.0s/1.0s to 0.3s/0.2s.
+- Reduced `tests/test_v3_66_1040_remote_job_registry.py` runtime from 61.48s down to 35.83s (41.7% wall-clock reduction; 375/375 PASS).
+- Full underived precut gate verified clean (3,557 passed, 6 skipped, 1 xpassed, exit 0, CUT-READY).
+- Footguns (13/13), coretest (9/9), and metric ratchets (5/5) verified clean.
+
 ## v3.66.1572 - serial suite acceleration (capture execution lanes 10.4x speedup)
 
 Release v3.66.1572 carries Packet 4 serial lane acceleration:
