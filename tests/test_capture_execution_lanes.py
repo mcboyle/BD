@@ -295,6 +295,8 @@ def _has_source_hazard(lanes, path) -> bool:
     # dynamic-loader check the restatement would have silently held a second,
     # narrower definition of "hazard" -- the exact drift @992 caught when it
     # borrowed the constants but not code_only.
+    if not lanes._names_runner(source):
+        return False
     return lanes.runner_import_hazard(lanes.code_only(source))
 
 

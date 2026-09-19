@@ -222,6 +222,7 @@ def _loader_aliases(tree: ast.AST) -> set[str]:
     return aliases
 
 
+@lru_cache(maxsize=4096)
 def runner_import_hazard(code: str) -> bool:
     """The ONE source hazard no allowlist entry may override, asked of CODE.
 
@@ -256,6 +257,9 @@ def runner_import_hazard(code: str) -> bool:
     not the text they applied to held a second definition of "hazard" and
     failed on every promoted file.
     """
+    if not _names_runner(code):
+        return False
+
     try:
         tree = ast.parse(code)
     except (SyntaxError, ValueError):
@@ -434,9 +438,10 @@ def classify_capture_file(
     # assertion messages. The absoluteness is unchanged; `code_only` still
     # falls back to raw source on any parse failure, so an unparseable file is
     # judged on everything it contains.
-    code = code_only(source)
-    if runner_import_hazard(code):
-        return "serial"
+    if _names_runner(lowered):
+        code = code_only(source)
+        if runner_import_hazard(code):
+            return "serial"
 
     # v3.66.923: EXPLICIT REVIEW NOW OUTRANKS THE REMAINING HEURISTICS, on
     # whole-tree experimental evidence rather than on none. The entire tree was
