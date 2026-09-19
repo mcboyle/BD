@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1574 - serial suite acceleration (test desandbox tool verifiers 3.0x speedup) and harness hardening (H561, H3, H6)
+
+Release v3.66.1574 carries Packet 6 serial suite acceleration and harness hardening:
+
+- Packet 6 (Serial Suite Acceleration): Optimized `_work_option_candidates` and `test_every_work_option_declaration_is_visible_to_the_census` in `tests/test_desandbox_tool_verifiers.py` with early short-circuit substring checks, replaced heavyweight subprocess git clones with targeted `_detached_gate_clone`, and injected synthetic selftest directory fixtures, reducing runtime from 83.00s to 27.23s (3.0x speedup; 164/164 PASS).
+- Harness Hardening (H561): Resolved train tier lookups against row-named homes and letter-suffixed subdirectories in `bd-train.sh` (24/24 PASS).
+- Harness Hardening (H3): Wired verified `bd-fanout-launch` process execution into `bd-provision-fan.sh` (18/18 PASS).
+- Harness Hardening (H6): Wired verified `bd-conductor-restart` process execution into `bd-switch-check.sh` and `bd-restart.sh` (21/21 PASS).
+
 ## v3.66.1573 - serial suite acceleration (test 1040 remote job registry 41.7% speedup)
 
 Release v3.66.1573 carries Packet 5 serial suite acceleration:

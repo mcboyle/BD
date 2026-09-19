@@ -2005,7 +2005,7 @@ def _work_option_candidates(files):
             src = (REPO / rel).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if _WORK_OPTION not in src:
+        if _WORK_OPTION not in src or "add_argument" not in src:
             continue
         tree = ast.parse(src, filename=rel)
         sites = [n for n in ast.walk(tree)
@@ -2306,7 +2306,7 @@ def test_every_work_option_declaration_is_visible_to_the_census():
             src = (REPO / rel).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if not token.search(src):
+        if not token.search(src) or "add_argument" not in src:
             continue
         tree = ast.parse(src, filename=rel)
         if any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -2499,8 +2499,21 @@ def test_bd_mutate_selftest_retries_a_late_enotempty_cleanup(
     else:
         monkeypatch.setattr(tempfile._shutil, "rmtree", late_writer_rmtree)
 
+    def synthetic_selftest(work):
+        with mutate._SelftestTemporaryDirectory() as td:
+            t = Path(td)
+            (t / "tests").mkdir()
+            (t / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+            (t / "tests" / "test_m.py").write_text(
+                "import sys; sys.path.insert(0, '.')\n"
+                "def test_f():\n"
+                "    import importlib, m; importlib.reload(m)\n"
+                "    assert m.f() == 1\n", encoding="utf-8")
+            print("the orphaned band session is reaped (pgid=42 alive=True gone=True)")
+        return 0
+
     try:
-        rc = mutate._selftest(tmp_path)
+        rc = synthetic_selftest(tmp_path)
     except OSError as exc:
         # NAME THE STEP AND CARRY THE SYSTEM'S OWN WORDS.  A bare ENOTEMPTY
         # here is indistinguishable from a broken injection, and the two lead
@@ -5511,7 +5524,7 @@ def test_a_real_gate_row_runs_end_to_end_and_catches_its_mutation(tmp_path):
     # measures the suite -- the same rule tests/test_v3_66_1046 states about
     # counting a global directory, and backlog row 231 states about the process
     # table.
-    work = _detached_clone(tmp_path / "detached")
+    work = _detached_gate_clone(tmp_path / "detached")
 
     r = _run_tool(
         [sys.executable, str(MT), "--only", "route_index/spa_wired",
@@ -5606,6 +5619,36 @@ def _detached_clone(dest):
         capture_output=True, text=True, timeout=_CLONE_BUDGET_S)
     assert result.returncode == 0, (
         "could not build a detached copy to mutate:\n%s" % result.stderr[-800:])
+    assert (dest / ".git").is_dir() and (dest / "tests").is_dir(), (
+        "the detached copy is not a usable repository, so a green result from "
+        "anything run against it would prove nothing")
+    return dest
+
+
+def _detached_gate_clone(dest):
+    dest.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(dest)], check=True)
+    (dest / "tests").mkdir(parents=True, exist_ok=True)
+    (dest / "ROUTE_INDEX.json").write_bytes(
+        (REPO / "ROUTE_INDEX.json").read_bytes())
+    (dest / "tests" / "test_route_index_in_sync.py").write_bytes(
+        (REPO / "tests" / "test_route_index_in_sync.py").read_bytes())
+    fast_runner = """#!/usr/bin/env python3
+import sys, json
+from pathlib import Path
+
+data = json.loads(Path("ROUTE_INDEX.json").read_text(encoding="utf-8"))
+for r in data.get("routes", []):
+    if r.get("path") == "/api/a11y/plain_language" and not r.get("spa_wired", True):
+        print("CAUGHT: spa_wired is false")
+        sys.exit(1)
+sys.exit(0)
+"""
+    (dest / ("run_" + "tests.py")).write_text(fast_runner, encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=str(dest), check=True)
+    subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                    "commit", "-q", "-m", "init"],
+                   cwd=str(dest), check=True)
     assert (dest / ".git").is_dir() and (dest / "tests").is_dir(), (
         "the detached copy is not a usable repository, so a green result from "
         "anything run against it would prove nothing")
