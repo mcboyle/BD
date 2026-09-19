@@ -2321,9 +2321,10 @@ def _driver_census():
     census = {}
     for relative in tracked:
         path = ROOT / relative
-        if not path.exists():
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        if "main" not in raw or not any(name in raw for name in names):
             continue
-        text = _strip_prose(path.read_text(encoding="utf-8"))
+        text = _strip_prose(raw)
         sites = _in_process_driver_sites(text, names)
         if not sites:
             continue

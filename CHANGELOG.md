@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1575 - serial suite acceleration (test cut quality permits 2.1x speedup)
+ 
+Release v3.66.1575 carries serial suite acceleration:
+
+- Serial Suite Acceleration: Optimized `_driver_census` in `tests/test_cut_quality_permits.py` with raw substring pre-checks (`main` and tool names) to bypass expensive AST parsing and tokenization across 1,720 non-candidate files while producing 100% verified identical census output.
+- Reduced `tests/test_cut_quality_permits.py` runtime from 47.03s down to 22.18s (-52.8% runtime; 114/114 PASS).
+
 ## v3.66.1574 - serial suite acceleration (test desandbox tool verifiers 3.0x speedup) and harness hardening (H561, H3, H6)
 
 Release v3.66.1574 carries Packet 6 serial suite acceleration and harness hardening:
