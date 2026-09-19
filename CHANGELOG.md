@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1572 - serial suite acceleration (capture execution lanes 10.4x speedup)
+
+Release v3.66.1572 carries Packet 4 serial lane acceleration:
+
+- Packet 4 (Serial Suite Acceleration): Optimized `runner_import_hazard` and `classify_capture_file` in `tests/capture_lanes.py` with `@lru_cache(maxsize=4096)` and early short-circuits on non-runner test suites, reducing `tests/test_capture_execution_lanes.py` execution time from 141.88s down to 13.63s (10.4x speedup) and reducing full serial capture lane runtime from ~2.8 minutes to ~1.0 minute.
+
 ## v3.66.1571 - clusterwide precut gate validation, held-back nodes synchronization, and Alertmanager routing
 
 Release v3.66.1571 carries clusterwide validation, held-back node deployment, and telemetry routing:
