@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4784,
+  "edge_count": 4794,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -846,6 +846,7 @@
     ],
     "bulk_downloader/app_subtitles.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/subtitle_search.py",
       "bulk_downloader/subtitles.py"
     ],
     "bulk_downloader/app_synthetic_tests.py": [
@@ -1786,6 +1787,7 @@
     "bulk_downloader/runner.py": [
       "bulk_downloader/admission.py",
       "bulk_downloader/app_state.py",
+      "bulk_downloader/audio_normalize.py",
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/circuit_breaker.py",
@@ -1809,6 +1811,7 @@
       "bulk_downloader/extractors_jsonapi.py",
       "bulk_downloader/extractors_vixen.py",
       "bulk_downloader/failure_reasons.py",
+      "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/flaresolverr_client.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/friendly_error.py",
@@ -4696,6 +4699,11 @@
       "bulk_downloader/aiassist.py",
       "bulk_downloader/hooks.py"
     ],
+    "tests/test_row834_elasticsearch_subtitles.py": [
+      "bulk_downloader/app_subtitles.py",
+      "bulk_downloader/subtitle_search.py",
+      "bulk_downloader/subtitles.py"
+    ],
     "tests/test_row835_nvdec_thumbnails.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/thumbnail_gen.py",
@@ -4736,6 +4744,12 @@
       "bulk_downloader/enrichment.py",
       "bulk_downloader/runner_integrity.py",
       "bulk_downloader/upscale_detector.py"
+    ],
+    "tests/test_row851_audio_normalizer.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/audio_normalize.py",
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_row852_zstd_compression.py": [
       "bulk_downloader/archive_compression.py"

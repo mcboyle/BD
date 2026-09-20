@@ -477,6 +477,7 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             "thumbnail_dir_mode",
             "thumbnail_sheet_rows",
             "thumbnail_sheet_cols",
+            "use_audio_normalization",
             # v3.43.77: Search-and-add by query.
             #   use_search_extractor       — opt-in per site
             #   search_url_pattern         — e.g. https://x/?s={query}
@@ -869,6 +870,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           "thumbnail_dir_mode": "sidecar",      # "sidecar" or "parallel"
           "thumbnail_sheet_rows": 3,
           "thumbnail_sheet_cols": 3,
+          "use_audio_normalization": False,
           # v3.43.77: Search-and-add by query. Off by default — opt
           # in per site. Templates can set `search_url_pattern` for
           # well-known sites without per-deployment config.

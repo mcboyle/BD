@@ -49,17 +49,10 @@ def api_subtitles_fetch(hid):
                           "pip install subliminal"),
                 "import_error": _sub.import_error(),
             }), 503
-        with db_conn() as cx:
-            row = cx.execute(
-                "SELECT site_id, filename FROM history WHERE id = ?",
-                (hid,)).fetchone()
-        if not row:
-            return jsonify({"ok": False,
-                            "error": f"no history row {hid}"}), 404
-        filename = row["filename"] or ""
-        if not filename:
-            return jsonify({"ok": False,
-                            "error": "row has no filename"}), 400
+        row, err = _history_row(hid)
+        if err:
+            return err
+        filename = row["filename"]
         # Languages: body > site config > default
         langs = body.get("languages") or []
         if not langs:
@@ -67,9 +60,66 @@ def api_subtitles_fetch(hid):
             langs = (site_cfg.get("subtitle_languages")
                      or ["en"])
         result = _sub.download_for_file(filename, languages=langs)
-        return jsonify({"ok": True, **(result or {})})
+        out = {"ok": True, **(result or {})}
+        # Row 834: the ingestion pipeline, opt-in per request -- index the
+        # sidecars just written so their dialogue is searchable. Fail-soft:
+        # an unreachable Elasticsearch is reported in `index`, never a 5xx.
+        if body.get("index") and (result or {}).get("downloaded"):
+            from . import subtitle_search
+            out["index"] = subtitle_search.index_sidecars(filename, video_id=str(hid))
+        return jsonify(out)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+def _history_row(hid):
+    """(row, error_response) for one history row with a filename; shared by
+    fetch/index."""
+    with db_conn() as cx:
+        row = cx.execute(
+            "SELECT site_id, filename FROM history WHERE id = ?",
+            (hid,)).fetchone()
+    if not row:
+        return None, (jsonify({"ok": False, "error": f"no history row {hid}"}), 404)
+    if not (row["filename"] or ""):
+        return None, (jsonify({"ok": False, "error": "row has no filename"}), 400)
+    return row, None
+
+
+@subtitles_bp.route("/api/subtitles/index/<int:hid>", methods=["POST"])
+def api_subtitles_index(hid):
+    """Row 834: index the .srt sidecars already next to one history row's
+    file into Elasticsearch (bd_subtitles). Fail-soft: ES down -> ok False
+    with the error in the body, HTTP 200."""
+    _check_csrf()
+    try:
+        row, err = _history_row(hid)
+        if err:
+            return err
+        from . import subtitle_search
+        return jsonify(subtitle_search.index_sidecars(row["filename"], video_id=str(hid)))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+@subtitles_bp.route("/api/subtitles/search")
+def api_subtitles_search():
+    """Row 834: full-text dialogue search; each hit carries the video id and
+    millisecond seek offsets (start_ms/end_ms). `degraded: true` means
+    Elasticsearch was unreachable -- distinct from a real zero-match."""
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"ok": False, "error": "missing q"}), 400
+    try:
+        k = max(1, min(int(request.args.get("k", 10)), 100))
+    except ValueError:
+        return jsonify({"ok": False, "error": "k must be an integer"}), 400
+    try:
+        from . import subtitle_search
+        return jsonify(subtitle_search.search(query, k=k))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
 
 def register_routes(app) -> int:
     app.register_blueprint(subtitles_bp)

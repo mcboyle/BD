@@ -145,5 +145,18 @@ ACCOUNTED = {
         "exempt",
         "the configured endpoint is restricted to a loopback host before the "
         "reranker request is constructed, so no caller can select external egress"),
+    "bulk_downloader/subtitle_search.py::index_video": (
+        "exempt",
+        "the destination is the operator-configured Elasticsearch endpoint "
+        "(SUBTITLE_SEARCH_ELASTICSEARCH_URL, default loopback:9200); "
+        "video_id/dialogue travel as the bulk request body, never as the host"),
+    "bulk_downloader/subtitle_search.py::search": (
+        "exempt",
+        "the destination is the operator-configured Elasticsearch endpoint; "
+        "the caller's query text travels as the search body, never as the host"),
+    "bulk_downloader/subtitle_search.py::status": (
+        "exempt",
+        "reachability probe against the operator-configured Elasticsearch "
+        "endpoint; no caller input reaches the URL"),
 }
 

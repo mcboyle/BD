@@ -699,6 +699,8 @@
 /api/stream/rotate_secret	POST	api_stream_rotate_secret
 /api/stream/token/<int:hid>	POST	api_stream_token
 /api/subtitles/fetch/<int:hid>	POST	api_subtitles_fetch
+/api/subtitles/index/<int:hid>	POST	api_subtitles_index
+/api/subtitles/search	GET	api_subtitles_search
 /api/subtitles/status	GET	api_subtitles_status
 /api/supervisor/configure	POST	api_supervisor_configure
 /api/supervisor/status	GET	api_supervisor_status
