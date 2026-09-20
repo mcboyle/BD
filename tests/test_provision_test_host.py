@@ -134,9 +134,19 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
     # nothing installed it, so the whole fleet silently ran the ffmpeg fallback.
     # Measured absent on test5, test4 and a freshly provisioned .84 at bb37142.
     "media": ("ffmpeg", "streamlink"),
+    "fonts": (
+        "fonts-liberation",
+        "fonts-noto-color-emoji",
+        "fonts-wqy-zenhei",
+        "fonts-ipafont-gothic",
+    ),
+    "tools": ("ripgrep", "sqlite3"),
+    "db": ("postgresql",),
+    "vpn": ("openvpn", "wireguard-tools"),
 }
 
-GROUP_ORDER = ("core", "node", "gtk", "lint", "media")
+GROUP_ORDER = (
+    "core", "node", "gtk", "lint", "media", "fonts", "tools", "db", "vpn")
 
 ALL_PACKAGES = frozenset(
     name for names in EXPECTED_GROUPS.values() for name in names
@@ -159,6 +169,10 @@ DISCRIMINATING_PACKAGES = (
     "python3-pip",
     "nodejs",
     "x11-utils",
+    "fonts-liberation",
+    "fonts-noto-color-emoji",
+    "fonts-wqy-zenhei",
+    "fonts-ipafont-gothic",
 )
 
 # Deliberately NOT absence-checked: each is also a command or an ordinary word
@@ -171,6 +185,7 @@ DISCRIMINATING_PACKAGES = (
 # `test_anti_drift_predicates_cover_every_package_name`.
 AMBIGUOUS_PACKAGES = (
     "git", "python3.12", "npm", "shellcheck", "ffmpeg", "streamlink",
+    "ripgrep", "sqlite3", "postgresql", "openvpn", "wireguard-tools",
 )
 
 # Files that must never carry their own copy of the package lists.
@@ -834,7 +849,7 @@ def test_bd_system_pkgs_returns_exactly_the_contracted_packages(group: str) -> N
 
 
 def test_bd_system_pkgs_groups_do_not_leak_into_each_other() -> None:
-    """core/node/gtk must be pairwise disjoint.
+    """Every package group must be pairwise disjoint.
 
     A `core` that also returned the gtk names would satisfy every superset
     assertion in this file and every per-group exact-set assertion would still
@@ -859,7 +874,7 @@ def test_bd_system_pkgs_groups_do_not_leak_into_each_other() -> None:
 
 
 def test_bd_system_pkgs_all_is_exactly_the_union_of_the_groups() -> None:
-    """`all` is the denominator: exactly core + node + gtk, deduplicated."""
+    """`all` is the denominator: exactly every named group, deduplicated."""
     combined = _packages("all")
     union = {name for group in GROUP_ORDER for name in _packages(group)}
 
@@ -2072,6 +2087,10 @@ EXPECTED_GROUP_KINDS: dict[str, str] = {
     # rather than breaking the run -- but it must be VISIBLE, which is why it
     # is provisioned and probed rather than assumed present.
     "media": "optional",
+    "fonts": "optional",
+    "tools": "optional",
+    "db": "optional",
+    "vpn": "optional",
 }
 
 # The trailing \S excludes the DEFINITION line `install_group() {`.
@@ -3703,7 +3722,11 @@ bd_system_pkgs() {
         gtk)  printf '%s\n' "${PROBE_PKGS_GTK-probe-gtk-a}" ;;
         lint) printf '%s\n' "${PROBE_PKGS_LINT-probe-lint-a}" ;;
         media) printf '%s\n' "${PROBE_PKGS_MEDIA-probe-media-a}" ;;
-        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a probe-media-a" ;;
+        fonts) printf '%s\n' "${PROBE_PKGS_FONTS-probe-fonts-a}" ;;
+        tools) printf '%s\n' "${PROBE_PKGS_TOOLS-probe-tools-a}" ;;
+        db) printf '%s\n' "${PROBE_PKGS_DB-probe-db-a}" ;;
+        vpn) printf '%s\n' "${PROBE_PKGS_VPN-probe-vpn-a}" ;;
+        all)  printf '%s\n' "probe-core-a probe-core-b probe-node-a probe-gtk-a probe-lint-a probe-media-a probe-fonts-a probe-tools-a probe-db-a probe-vpn-a" ;;
         *)    return 2 ;;
     esac
 }
@@ -4437,7 +4460,7 @@ def _build_install_linux_system_tier_probe(path: Path) -> None:
 
 
 def _run_install_linux_system_tier(
-    tmp_path: Path, *, fragment_body: str
+    tmp_path: Path, *, fragment_body: str, runs: int = 1
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run install_linux.sh's system tier with a stub fragment and a fake apt.
 
@@ -4469,18 +4492,22 @@ def _run_install_linux_system_tier(
         }
     )
     env.pop("BD_SKIP_SYSTEM_DEPS", None)
-    completed = subprocess.run(
-        [_BASH, str(probe)],
-        cwd=str(work),
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
+    assert runs > 0, "the install_linux probe must execute at least once"
+    completions = [
+        subprocess.run(
+            [_BASH, str(probe)],
+            cwd=str(work),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        for _ in range(runs)
+    ]
     apt_calls = (
         apt_log.read_text(encoding="utf-8").splitlines() if apt_log.is_file() else []
     )
-    return completed, apt_calls
+    return completions[-1], apt_calls
 
 
 def _fragment_stub(body: str) -> str:
@@ -4512,6 +4539,31 @@ def test_install_linux_hands_apt_exactly_the_list_the_fragment_returned(
         f"calls: {apt_calls}. rc={completed.returncode} "
         f"stdout tail={completed.stdout[-2000:]!r}"
     )
+
+
+def test_install_linux_apt_path_repeats_cleanly_with_postgresql_already_present(
+    tmp_path: Path,
+) -> None:
+    completed, apt_calls = _run_install_linux_system_tier(
+        tmp_path,
+        fragment_body=_fragment_stub('printf "%s\\n" "postgresql";'),
+        runs=2,
+    )
+    transactions = _install_transactions(apt_calls)
+    assert transactions == [
+        frozenset({"postgresql"}),
+        frozenset({"postgresql"}),
+    ], (
+        "the same PostgreSQL apt transaction did not execute exactly once per "
+        f"install_linux run: {apt_calls}")
+    assert completed.returncode == 0, (
+        "the second install_linux system-tier run rejected an already handled "
+        f"PostgreSQL package: {completed.stderr[-2000:]!r}")
+    code = _strip_shell_comments(_read(INSTALL_LINUX))
+    assert not re.search(
+        r"(?:systemctl|service)\s+(?:start|restart)\s+postgresql", code), (
+        "install_linux starts PostgreSQL separately from apt; that second "
+        "activation can reject an already-running service")
 
 
 @pytest.mark.parametrize(

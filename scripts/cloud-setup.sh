@@ -480,8 +480,8 @@ fi
 if skip NET; then
   row "net tooling" "WARN" "skipped via BD_SKIP_NET — VPN/egress proofs cannot run"
 else
-  step "net packages" optional apt_i wireguard-tools nftables iproute2 iptables \
-                                     dnsmasq aria2 jq sqlite3 zbar-tools libzbar0t64
+  step "net packages" optional apt_i nftables iproute2 iptables \
+                                     dnsmasq aria2 jq zbar-tools libzbar0t64
 fi
 
 # ======================================================= 6. security tooling
@@ -521,10 +521,10 @@ fi
 if skip EXTRAS; then
   row "extras" "WARN" "skipped via BD_SKIP_EXTRAS — GTK module-import gate cannot run"
 else
-  # @903: THE FRAGMENT OWNS FIVE GROUPS. This section originally took only gtk
+  # @903: THE FRAGMENT OWNS THE PACKAGE GROUPS. This section originally took only gtk
   # and lint, so the cloud container was provisioned from a different list than
   # the box -- install_linux.sh takes `all` and
-  # provision_test_host.sh installs all five by name. Measured: the box carried
+  # provision_test_host.sh installs every group by name. Measured: the box carried
   # ffmpeg 6.1.1-3ubuntu5 (the `media` group) and this container had NONE, so
   # bulk_downloader/integrity.py's ffprobe shell-out could not run and its
   # check failed open. That is CLAUDE.md section 5's three-copies drift with
@@ -538,10 +538,18 @@ else
   # one-liner installs nothing and records OK.
   if [ "$HAVE_SYSDEPS" = 1 ]; then
     # The load-bearing core group is installed before section 1, because it
-    # contains python3.12-venv.  Extras owns only the optional media half here.
+    # contains python3.12-venv. Extras owns the optional runtime groups here.
     MEDIA_PKGS="$(bd_system_pkgs media)" || MEDIA_PKGS=""
+    FONTS_PKGS="$(bd_system_pkgs fonts)" || FONTS_PKGS=""
+    TOOLS_PKGS="$(bd_system_pkgs tools)" || TOOLS_PKGS=""
+    DB_PKGS="$(bd_system_pkgs db)" || DB_PKGS=""
+    VPN_PKGS="$(bd_system_pkgs vpn)" || VPN_PKGS=""
   else
     MEDIA_PKGS=""
+    FONTS_PKGS=""
+    TOOLS_PKGS=""
+    DB_PKGS=""
+    VPN_PKGS=""
   fi
   # THE `node` GROUP IS DELIBERATELY NOT INSTALLED HERE, and this comment is
   # load-bearing: 4-of-5 reads like an oversight, and the obvious "fix" breaks
@@ -561,6 +569,32 @@ else
     step "system packages (media)" optional apt_i $MEDIA_PKGS
   else
     row "system packages (media)" "WARN" "bd_system_pkgs media returned nothing -- ffprobe is absent, so integrity.py's media verification fails OPEN"
+  fi
+  if [ -n "$FONTS_PKGS" ]; then
+    # shellcheck disable=SC2086
+    step "system packages (fonts)" optional apt_i $FONTS_PKGS
+  else
+    row "system packages (fonts)" "WARN" "bd_system_pkgs fonts returned nothing -- headed rendering may lack glyphs"
+  fi
+  if [ -n "$TOOLS_PKGS" ]; then
+    # shellcheck disable=SC2086
+    step "system packages (tools)" optional apt_i $TOOLS_PKGS
+  else
+    row "system packages (tools)" "WARN" "bd_system_pkgs tools returned nothing -- rg/sqlite3 are unavailable"
+  fi
+  if [ -n "$DB_PKGS" ]; then
+    # apt-get install is repeatable and owns service activation; do not issue a
+    # separate start that could reject an already-running PostgreSQL service.
+    # shellcheck disable=SC2086
+    step "system packages (db)" optional apt_i $DB_PKGS
+  else
+    row "system packages (db)" "WARN" "bd_system_pkgs db returned nothing -- PostgreSQL is unavailable"
+  fi
+  if [ -n "$VPN_PKGS" ]; then
+    # shellcheck disable=SC2086
+    step "system packages (vpn)" optional apt_i $VPN_PKGS
+  else
+    row "system packages (vpn)" "WARN" "bd_system_pkgs vpn returned nothing -- VPN capture paths are unavailable"
   fi
 
   # GTK: test_v3_43_80_modules::test_all_modules_import false-fails without
@@ -583,7 +617,7 @@ else
   else
     row "GTK + Xvfb" "WARN" "system_deps fragment unavailable -- the GTK/display packages are named only there, so they were NOT installed; the module-import gate cannot run"
   fi
-  step "misc tooling" optional apt_i pypy3 caddy postgresql-client patchelf
+  step "misc tooling" optional apt_i pypy3 caddy patchelf
   step "profiling"    optional ./venv/bin/pip install -q py-spy
 fi
 

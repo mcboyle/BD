@@ -733,8 +733,20 @@ def test_bd_provision_build_failure_is_fatal(tmp_path):
 # The fragment declares five. cloud-setup installs FOUR: `node` is excluded
 # deliberately and the exclusion is itself asserted below, because 4-of-5 reads
 # like an oversight and "fixing" it breaks both machines.
-_GROUPS = ("core", "gtk", "lint", "media")
+_GROUPS = ("core", "gtk", "lint", "media", "fonts", "tools", "db", "vpn")
 _EXCLUDED_GROUPS = ("node",)
+
+
+def test_group_install_gate_has_exact_nonzero_denominator() -> None:
+    assert len(_GROUPS) == 8
+    assert len(set(_GROUPS)) == 8
+
+
+def test_group_handoff_transform_control_only_imports_the_parser() -> None:
+    """Importability alone makes no package-handoff verdict."""
+    import shell_source
+
+    assert shell_source is not None
 
 
 def _setup_code() -> str:
@@ -755,9 +767,9 @@ def _setup_code() -> str:
 def test_cloud_setup_requests_every_declared_package_group() -> None:
     """The container is provisioned from ONE list or it drifts from the box.
 
-    scripts/lib/system_deps.sh is the single source of truth and declares five
-    groups. install_linux.sh takes `all`; provision_test_host.sh installs all
-    five by name. cloud-setup.sh took only gtk and lint -- so the cloud
+    scripts/lib/system_deps.sh is the single source of truth. install_linux.sh
+    takes `all`; provision_test_host.sh installs every group by name.
+    cloud-setup.sh once took only gtk and lint -- so the cloud
     container ran without core, node and media, and hand-rolled substitutes
     inline (fd-find, wireguard-tools nftables iproute2 iptables, pypy3 caddy
     postgresql-client patchelf). That is the three-copies drift CLAUDE.md
@@ -781,7 +793,7 @@ def test_cloud_setup_requests_every_declared_package_group() -> None:
 
 
 def test_the_node_group_stays_excluded_and_says_why() -> None:
-    """4-of-5 must not read as an oversight, or someone closes the "gap".
+    """The sole excluded group must not read as an oversight.
 
     bd_system_pkgs node is `nodejs npm` -- UBUNTU's packages -- and neither
     machine gets node from apt. MEASURED: on the operator's box apt refuses
@@ -825,5 +837,7 @@ def test_each_group_install_refuses_an_empty_package_list(group: str) -> None:
         f"$(bd_system_pkgs {group}) inside the apt call would install nothing "
         f"on a failed lookup and still record OK")
     name = var.group(1)
+    assert re.search(r'apt_i\b[^\n]*\$%s\b' % name, code), \
+        f"{name} is captured and checked but never handed to apt_i"
     assert re.search(r'if\s+\[\s+-n\s+"\$%s"\s+\]' % name, code), (
         f"{name} is captured but never checked non-empty before use")

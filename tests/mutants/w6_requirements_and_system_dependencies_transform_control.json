@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w6-reqconsolidate transform control. SD-M2 remains valid shell but disconnects a package group. This syntax-only test must ESCAPE, proving the primary CAUGHT result comes from the package behavior assertion rather than a parse or collection failure.",
+  "subject": "transform-only control for fresh-host system package declarations",
+  "band": [
+    "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_transform_control_only_parses_the_system_dependency_library"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL SD-M2 disconnect tool group under syntax-only test",
+      "file": "scripts/lib/system_deps.sh",
+      "old_regex": "(?m)^    local tools",
+      "new": "    local skipped_tools",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_transform_control_only_parses_the_system_dependency_library"
+    }
+  ]
+}

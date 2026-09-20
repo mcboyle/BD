@@ -83,6 +83,18 @@ def _provisioned_packages() -> set[str]:
     return set(out.stdout.split())
 
 
+def _group_packages(group: str) -> set[str]:
+    out = subprocess.run(
+        ["bash", "-c", f'. "{SYSTEM_DEPS}" && bd_system_pkgs "$1"', "--", group],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert out.returncode == 0, (
+        f"bd_system_pkgs {group} failed: {out.stderr!r}")
+    return set(out.stdout.split())
+
+
 def test_the_probe_declares_at_least_one_backend():
     """Non-empty denominator, asserted BEFORE the verdict.
 
@@ -120,3 +132,42 @@ def test_every_probed_backend_is_installed_by_a_provisioning_path(backend):
         f"install: {sorted(pkgs)}. Either add {backend!r} to the appropriate "
         f"group in {SYSTEM_DEPS}, or stop probing for it."
     )
+
+
+def test_fresh_host_support_packages_and_database_server_are_in_all():
+    expected_groups = {
+        "fonts": {
+            "fonts-ipafont-gothic",
+            "fonts-liberation",
+            "fonts-noto-color-emoji",
+            "fonts-wqy-zenhei",
+        },
+        "tools": {"ripgrep", "sqlite3"},
+        "db": {"postgresql"},
+        "vpn": {"openvpn", "wireguard-tools"},
+    }
+    assert {name: len(packages) for name, packages in expected_groups.items()} == {
+        "fonts": 4,
+        "tools": 2,
+        "db": 1,
+        "vpn": 2,
+    }
+    observed_groups = {
+        name: _group_packages(name) for name in expected_groups}
+    assert observed_groups == expected_groups
+    all_packages = _provisioned_packages()
+    expected_all = set().union(*expected_groups.values())
+    assert len(expected_all) == 9
+    assert not (expected_all - all_packages), (
+        f"bd_system_pkgs all omits fresh-host packages: "
+        f"{sorted(expected_all - all_packages)}")
+
+
+def test_transform_control_only_parses_the_system_dependency_library():
+    result = subprocess.run(
+        ["bash", "-n", str(SYSTEM_DEPS)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr

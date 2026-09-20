@@ -273,6 +273,17 @@ bd_system_pkgs() {
     # names from _detect_backends by AST, so a third backend joins that gate's
     # denominator automatically rather than needing this comment updated.
     local media=(ffmpeg streamlink)
+    # fonts: the headed browser (Playwright/CloakBrowser) renders pages+screenshots;
+    # without these a fresh box drops CJK/emoji/latin glyphs.
+    local fonts=(fonts-liberation fonts-noto-color-emoji fonts-wqy-zenhei fonts-ipafont-gothic)
+    # tools: ripgrep(rg) is used across toolchain/bin; sqlite3 is the history-DB CLI.
+    local tools=(ripgrep sqlite3)
+    # db: the full PostgreSQL server used by the MOD3 cutover path. apt-get
+    # install is intentionally repeatable; no separate service-start command is
+    # issued, so an already-installed or already-running service is tolerated.
+    local db=(postgresql)
+    # vpn: runner_auth/live capture shell out to openvpn and wg-quick for the tunnel path.
+    local vpn=(openvpn wireguard-tools)
 
     # "${arr[*]}" joins on the FIRST character of IFS, so pin IFS locally: the
     # contract is a space-separated list regardless of what the caller left set.
@@ -280,7 +291,7 @@ bd_system_pkgs() {
     local IFS=' '
 
     if [ "$#" -eq 0 ]; then
-        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk lint media all)\n' >&2
+        printf 'bd_system_pkgs: no package group given (expected one of: core node gtk lint media fonts tools db vpn all)\n' >&2
         return 1
     fi
 
@@ -290,9 +301,13 @@ bd_system_pkgs() {
         gtk)  printf '%s\n' "${gtk[*]}" ;;
         lint) printf '%s\n' "${lint[*]}" ;;
         media) printf '%s\n' "${media[*]}" ;;
-        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" "${lint[@]}" "${media[@]}" ;;
+        fonts) printf '%s\n' "${fonts[*]}" ;;
+        tools) printf '%s\n' "${tools[*]}" ;;
+        db)   printf '%s\n' "${db[*]}" ;;
+        vpn)  printf '%s\n' "${vpn[*]}" ;;
+        all)  _bd_dedup "${core[@]}" "${node[@]}" "${gtk[@]}" "${lint[@]}" "${media[@]}" "${fonts[@]}" "${tools[@]}" "${db[@]}" "${vpn[@]}" ;;
         *)
-            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk lint media all)\n' \
+            printf 'bd_system_pkgs: unknown package group %s (expected one of: core node gtk lint media fonts tools db vpn all)\n' \
                 "'$1'" >&2
             return 1
             ;;

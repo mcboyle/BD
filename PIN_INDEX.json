@@ -17,9 +17,9 @@
     ]
   },
   "counts": {
-    "total": 137,
+    "total": 139,
     "version": 1,
-    "count_dict": 136,
+    "count_dict": 138,
     "test_files_scanned": 1816,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
@@ -37,6 +37,7 @@
       "tests/test_history_records_the_website_title.py": 7,
       "tests/test_kb_golden_questions.py": 1,
       "tests/test_row308_visual_audit_identity.py": 2,
+      "tests/test_row331_guarded_imports_are_declared.py": 1,
       "tests/test_row346_plugin_sandbox_is_truthful.py": 1,
       "tests/test_row360_turnstile_bypass_is_installed.py": 2,
       "tests/test_row363_affordance_learning.py": 1,
@@ -58,6 +59,7 @@
       "tests/test_v3_60_phase12.py": 1,
       "tests/test_v3_66_1014_site_families.py": 1,
       "tests/test_v3_66_1040_remote_job_registry.py": 1,
+      "tests/test_v3_66_1048_live_backends_are_provisioned.py": 1,
       "tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py": 1,
       "tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py": 1,
       "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py": 1,
@@ -391,6 +393,17 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "line": 355,
+      "value": {
+        "gallery-dl": 2,
+        "youtube-dl": 2,
+        "yt-dlp": 3
+      },
+      "gates_what": "test_every_managed_extractor_executable_is_declared"
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_row346_plugin_sandbox_is_truthful.py",
       "line": 217,
       "value": {
@@ -548,7 +561,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1583",
+      "value": "3.66.1584",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -825,6 +838,18 @@
         "GATE_ABANDONED": 75
       },
       "gates_what": "test_lifecycle_exit_status_table_is_exact_and_collision_free — Every machine-facing lifecycle outcome owns one stable numeric code."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_v3_66_1048_live_backends_are_provisioned.py",
+      "line": 149,
+      "value": {
+        "fonts": 4,
+        "tools": 2,
+        "db": 1,
+        "vpn": 2
+      },
+      "gates_what": "test_fresh_host_support_packages_and_database_server_are_in_all"
     },
     {
       "form": "count_dict",
