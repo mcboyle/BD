@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1602 - train27: row 849 spectral upscale detector replaces VMAF scorer
+
+Train: 1 refute-first-reviewed worker patches.
+
+- row849-fx3: spectral upscale detector (bulk_downloader/upscale_detector.py) replaces the refuted VMAF scorer (vmaf_scorer.py + its test deleted; import baseline shrunk deliberately); wired into enrichment/runner/runner_integrity. Row 849 CLOSED @1602.
+
 ## v3.66.1601 - train26: 903-fx3 917 925-fx4 + 4 HB/process cuts + register folds
 
 Train: 7 refute-first-reviewed worker patches (O1009 census; process-test-shard dropped post-PR) + register-122-close fold (O1068). Rows 903 917 925 CLOSED @1601; 122 CLOSED @1354 by evidence; 127 operator-action (O1069). Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 834-rb11 851 process-test-shard.

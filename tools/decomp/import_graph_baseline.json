@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4772,
+  "edge_count": 4777,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1395,7 +1395,8 @@
       "bulk_downloader/drm_detect.py"
     ],
     "bulk_downloader/enrichment.py": [
-      "bulk_downloader/ffmpeg_bin.py"
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/upscale_detector.py"
     ],
     "bulk_downloader/eol_export.py": [
       "bulk_downloader/account_health.py",
@@ -1861,6 +1862,7 @@
       "bulk_downloader/tier_probe.py",
       "bulk_downloader/tombstone.py",
       "bulk_downloader/tpdb.py",
+      "bulk_downloader/upscale_detector.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/vpn_stats.py",
       "bulk_downloader/webhooks.py",
@@ -1954,7 +1956,8 @@
       "bulk_downloader/fname.py",
       "bulk_downloader/integrity.py",
       "bulk_downloader/mp4_metadata.py",
-      "bulk_downloader/stream_verifier.py"
+      "bulk_downloader/stream_verifier.py",
+      "bulk_downloader/upscale_detector.py"
     ],
     "bulk_downloader/runner_manual.py": [
       "bulk_downloader/app.py",
@@ -4721,8 +4724,10 @@
     "tests/test_row848_hls_prefetch.py": [
       "bulk_downloader/hls_prefetch.py"
     ],
-    "tests/test_row849_vmaf_scorer.py": [
-      "bulk_downloader/vmaf_scorer.py"
+    "tests/test_row849_upscale_detector.py": [
+      "bulk_downloader/enrichment.py",
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/upscale_detector.py"
     ],
     "tests/test_row852_zstd_compression.py": [
       "bulk_downloader/archive_compression.py"

@@ -275,7 +275,8 @@ def quality_grade(path: str) -> Optional[dict]:
 
 
 def enrich(path: str, *, do_chapters: bool = False,
-          do_fingerprint: bool = True, do_quality: bool = True) -> dict:
+          do_fingerprint: bool = True, do_quality: bool = True,
+          media_metadata: Optional[dict] = None) -> dict:
     """One-call wrapper for the post-download pipeline. Each flag
     can be disabled independently; defaults reflect cheapest useful
     set (fingerprint + quality grade; chapters are expensive on long
@@ -283,6 +284,12 @@ def enrich(path: str, *, do_chapters: bool = False,
     out: dict = {"path": path}
     if do_quality:
         out["quality"] = quality_grade(path)
+        try:
+            from . import upscale_detector as _upscale
+            meta = media_metadata if media_metadata is not None else out.setdefault("media_metadata", {})
+            _upscale.detect_upscale_async(path, media_metadata=meta)
+        except Exception:
+            pass
     if do_fingerprint:
         out["audio_fingerprint"] = audio_fingerprint(path)
     if do_chapters:

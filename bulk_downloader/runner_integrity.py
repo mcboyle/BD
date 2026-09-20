@@ -527,6 +527,18 @@ class IntegrityMixin:
                 )
             except Exception:
                 pass
+        # Row 849: post-download spectral upscale detection for resolution verification
+        try:
+            from . import upscale_detector as _upscale
+            media_metadata = getattr(self, "jobs", {}).get(source_url, {}).setdefault("media_metadata", {})
+            if quality and "resolution" not in media_metadata:
+                media_metadata["resolution"] = quality
+            _upscale.detect_upscale_async(
+                path,
+                media_metadata=media_metadata,
+            )
+        except Exception as e:
+            sys.stderr.write(f"  metadata: upscale detect_upscale_async failed: {e}\n")
         return ok
 
     def _size_on_disk_after_tagging(self, path, fallback: int) -> int:

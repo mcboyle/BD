@@ -3329,6 +3329,25 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception:
                 pass
 
+        # Row 849: post-download spectral upscale detection for resolution verification.
+        # Computes frequency cutoff ratio and sharpness stored in media_metadata.
+        if (status == "done" and prev_status != "done"
+                and self.config.get("use_upscale_detector", True)):
+            try:
+                filename_ = (self.jobs.get(url) or {}).get("filename", "")
+                dl_dir_ = (self.config.get("download_dir") or "").strip()
+                if filename_ and dl_dir_:
+                    file_path_ = os.path.join(dl_dir_, filename_)
+                    if os.path.isfile(file_path_):
+                        from . import upscale_detector as _upscale
+                        media_meta = self.jobs[url].setdefault("media_metadata", {})
+                        _upscale.detect_upscale_async(
+                            file_path_,
+                            media_metadata=media_meta,
+                        )
+            except Exception as e:
+                sys.stderr.write(f"[{self.site_id}] upscale detector spawn failed: {e}\n")
+
         # v3.43.80 Phase 142: per-VPN-endpoint outcome stats. Only fires
         # when an active VPN profile is known + this is a terminal state.
         # Used by best_profile_for() to inform routing decisions and by
