@@ -349,6 +349,7 @@ jobs:
               tests/test_bd_tool_lint_unreadable_modes.py
               tests/test_row746_bandcheck_empty_target_is_refused.py
               tests/test_row747_bd_band_delegation_is_guarded.py
+              tests/test_row677_bandcheck_missing_is_unknown.py
               tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
               tests/test_v3_66_1154_the_object_not_the_name.py
               tests/test_v3_66_1145_step0_fails_closed.py

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4600,
+  "edge_count": 4604,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -935,6 +935,9 @@
     ],
     "bulk_downloader/app_ytdlp_update.py": [
       "bulk_downloader/ytdlp_updater.py"
+    ],
+    "bulk_downloader/audio_fingerprint.py": [
+      "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/audit.py": [
       "bulk_downloader/capture_artifact_redact.py",
@@ -4472,6 +4475,10 @@
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/thumbnail_sheets.py"
     ],
+    "tests/test_row837_audio_fingerprint.py": [
+      "bulk_downloader/audio_fingerprint.py",
+      "bulk_downloader/ffmpeg_bin.py"
+    ],
     "tests/test_row874_direct_writer.py": [
       "bulk_downloader/direct_writer.py"
     ],
@@ -4491,6 +4498,9 @@
     "tests/test_row905.py": [
       "bulk_downloader/constants.py",
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_row906.py": [
+      "bulk_downloader/playlist_extractor.py"
     ],
     "tests/test_row912.py": [
       "bulk_downloader/interstitial.py"

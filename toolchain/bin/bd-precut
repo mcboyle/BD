@@ -190,6 +190,50 @@ def selftest():
 # self-audit is written into the tests: row 615's controls assert the messages
 # DIFFER, not merely that each is non-empty.
 _UNDERIVED_BUDGET_S = 1800
+# H360 (2026-09-14): five of five remote precuts of one cut hit the fixed 1800 s
+# wall on loaded 48-core pool hosts at [60%]..[98%] -- throughput, not a hung
+# node -- and there was no way to give the run more time short of editing this
+# file. BD_PRECUT_BUDGET_S sets the wall, clamped to [floor, ceiling]. A value
+# that cannot be an integer, or one below the floor, is IGNORED and the tool
+# SAYS so in one bounded stderr line; a silently ignored knob is a trap. The
+# ceiling is clamped, not ignored: asking for more than 7200 s means "as much
+# as allowed", and the line says which value applied.
+_UNDERIVED_BUDGET_ENV = "BD_PRECUT_BUDGET_S"
+_UNDERIVED_BUDGET_CEILING_S = 7200
+
+
+def _underived_budget_s(environ=None, err=None):
+    """The wall for the underived pytest run, in seconds.
+
+    Unset -> _UNDERIVED_BUDGET_S, silently. Set -> int(value) clamped to
+    [_UNDERIVED_BUDGET_S, _UNDERIVED_BUDGET_CEILING_S]. Non-integer or below
+    the floor -> the default, with ONE bounded stderr line saying it was
+    ignored; above the ceiling -> the ceiling, with one line saying so.
+    """
+    environ = os.environ if environ is None else environ
+    err = sys.stderr if err is None else err
+    raw = environ.get(_UNDERIVED_BUDGET_ENV)
+    if raw is None:
+        return _UNDERIVED_BUDGET_S
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        print(_one_line("bd-precut: %s=%r ignored: not an integer; the default "
+                        "%ss applies" % (_UNDERIVED_BUDGET_ENV, raw,
+                                         _UNDERIVED_BUDGET_S)), file=err)
+        return _UNDERIVED_BUDGET_S
+    if value < _UNDERIVED_BUDGET_S:
+        print(_one_line("bd-precut: %s=%s ignored: below the floor of %ss; the "
+                        "default %ss applies" % (_UNDERIVED_BUDGET_ENV, raw.strip(),
+                                                 _UNDERIVED_BUDGET_S,
+                                                 _UNDERIVED_BUDGET_S)), file=err)
+        return _UNDERIVED_BUDGET_S
+    if value > _UNDERIVED_BUDGET_CEILING_S:
+        print(_one_line("bd-precut: %s=%s clamped to the ceiling of %ss"
+                        % (_UNDERIVED_BUDGET_ENV, raw.strip(),
+                           _UNDERIVED_BUDGET_CEILING_S)), file=err)
+        return _UNDERIVED_BUDGET_CEILING_S
+    return value
 
 
 def _one_line(text, limit=240):
@@ -782,13 +826,14 @@ def _run_underived_gates(root, present, env):
             "-p", _INFLIGHT_PLUGIN_NAME,
             "--timeout=240", "--timeout-method=signal",
             "--junitxml=" + junit] + _underived_parallelism() + [rel for rel, _ in present]
+    budget = _underived_budget_s()
     try:
         timed_out_after = None
         try:
             rc = subprocess.run(argv, cwd=root, env=env,
-                                timeout=_UNDERIVED_BUDGET_S).returncode
+                                timeout=budget).returncode
         except subprocess.TimeoutExpired:
-            rc, timed_out_after = 124, _UNDERIVED_BUDGET_S
+            rc, timed_out_after = 124, budget
         # H389. ONE newline, printed ONCE, before either block: `-q` leaves its
         # progress row unterminated, so the first thing printed after the child
         # is otherwise concatenated onto it and stops being greppable.
@@ -809,7 +854,7 @@ def _run_underived_gates(root, present, env):
             derived = _derive_from_records(inflight)
             if derived is None:
                 return 124, _underived_detail(124, junit, present, argv,
-                                              timed_out_after=timed_out_after)
+                                              timed_out_after=budget)
             drc, ddetail = derived
             if drc == 0:
                 print("PRECUT-CUT-READY-FROM-RECORDS the wall fell after every "

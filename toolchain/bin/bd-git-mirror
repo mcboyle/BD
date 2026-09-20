@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""bd-git-mirror -- Git submodule hermetic cache and offline mirror utility.
+
+Row 884: GIT-SUBMODULE-HERMETIC-CACHE-AND-OFFLINE-MIRROR.
+Enforces local Forgejo Git mirror synchronization for hermetic submodules,
+preventing WAN egress and falling back automatically to origin when offline.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+DEFAULT_MIRROR_URL = "http://127.0.0.1:3000"
+DEFAULT_TARGET_PREFIX = "https://github.com/"
+PROBE_TIMEOUT_SECONDS = 0.5
+
+
+def probe_mirror(url: str, timeout: float = PROBE_TIMEOUT_SECONDS) -> bool:
+    """Probe whether the mirror URL is reachable within timeout seconds."""
+    if url.startswith("file://"):
+        local_path = url[len("file://"):]
+        return os.path.exists(local_path)
+
+    if url.startswith(("http://", "https://")):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "bd-git-mirror/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                return response.status in (200, 301, 302, 401, 403)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+            return False
+
+    return False
+
+
+def configure_insteadof(
+    repo: pathlib.Path,
+    mirror_url: str,
+    target_prefix: str = DEFAULT_TARGET_PREFIX,
+) -> None:
+    """Configure git URL rewrite in the repository to redirect external traffic to mirror."""
+    mirror_prefix = mirror_url if mirror_url.endswith("/") else f"{mirror_url}/"
+    apply_remap(repo, f"{target_prefix}={mirror_prefix}")
+
+
+def apply_remap(repo: pathlib.Path, remap_spec: str) -> None:
+    """Remap a specific origin URL to a local mirror URL.
+
+    Recorded as a repository-local ``url.<mirror>.insteadOf <origin>`` rewrite
+    ONLY. ``.gitmodules`` is never edited: the original URLs stay the source of
+    truth (they are what the origin fallback needs, and what the tree records)."""
+    if "=" not in remap_spec:
+        raise ValueError(f"Invalid remap specification '{remap_spec}', expected ORIGIN=MIRROR")
+    origin_url, mirror_url = remap_spec.split("=", 1)
+    if not origin_url or not mirror_url:
+        raise ValueError(f"Invalid remap specification '{remap_spec}', expected ORIGIN=MIRROR")
+    key = f"url.{mirror_url}.insteadOf"
+    if origin_url in _get_all(repo, key):
+        return
+    # --add: one mirror may stand in for several origins (multi-valued key);
+    # a plain set would overwrite the earlier origin (fixer, correctness E1)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "--add", key, origin_url],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _get_all(repo: pathlib.Path, key: str) -> list[str]:
+    proc = subprocess.run(["git", "-C", str(repo), "config", "--local", "--get-all", key],
+                          capture_output=True, text=True, check=False)
+    return proc.stdout.splitlines() if proc.returncode == 0 else []
+
+
+def _journal_path(repo: pathlib.Path) -> pathlib.Path:
+    """Where the lifted insteadOf pairs are journaled while an origin-route
+    run is in flight (inside the repo's git dir; worktree-aware)."""
+    proc = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-path", "bd-git-mirror.insteadof.json"],
+                          capture_output=True, text=True, check=True)
+    out = pathlib.Path(proc.stdout.strip())
+    return out if out.is_absolute() else repo / out
+
+
+def _restore_rewrites(repo: pathlib.Path, pairs: list[tuple[str, str]]) -> None:
+    """Put every journaled ``url.<mirror>.insteadOf <origin>`` back, all
+    values of a multi-valued key included (--add), idempotently."""
+    for mirror in {m for m, _ in pairs}:
+        subprocess.run(["git", "-C", str(repo), "config", "--local", "--unset-all", f"url.{mirror}.insteadOf"],
+                       capture_output=True, text=True, check=False)
+    for mirror, origin in pairs:
+        subprocess.run(["git", "-C", str(repo), "config", "--local", "--add", f"url.{mirror}.insteadOf", origin],
+                       capture_output=True, text=True, check=False)
+
+
+def _recover_interrupted_run(repo: pathlib.Path) -> bool:
+    """A previous origin-route run died between lifting and restoring the
+    rewrites: the journal still exists. Restore from it before doing
+    anything else (fixer, correctness E3)."""
+    journal = _journal_path(repo)
+    if not journal.is_file():
+        return False
+    try:
+        pairs = [tuple(p) for p in json.loads(journal.read_text(encoding="utf-8"))]
+    except (OSError, ValueError):
+        pairs = []
+    if pairs:
+        _restore_rewrites(repo, pairs)
+        print(f"[bd-git-mirror] restored {len(pairs)} mirror rewrite(s) left lifted by an interrupted run.")
+    journal.unlink(missing_ok=True)
+    return bool(pairs)
+
+
+def configured_rewrites(repo: pathlib.Path) -> list[tuple[str, str]]:
+    """Every ``url.<mirror>.insteadOf <origin>`` pair in the repository config."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "config", "--local", "--get-regexp", r"^url\..*\.insteadof$"],
+        capture_output=True, text=True, check=False,
+    )
+    pairs: list[tuple[str, str]] = []
+    if proc.returncode != 0:
+        return pairs
+    for line in proc.stdout.splitlines():
+        key, _, origin = line.partition(" ")
+        mirror = key[len("url."):-len(".insteadof")]
+        if mirror and origin:
+            pairs.append((mirror, origin))
+    return pairs
+
+
+def _rewrite_flags(pairs: list[tuple[str, str]]) -> list[str]:
+    """``-c url.<mirror>.insteadOf=<origin>`` for each pair. A ``-c`` travels to
+    every git subprocess through GIT_CONFIG_PARAMETERS -- a fresh submodule
+    clone reads it, which the superproject's repository-local config it never
+    sees cannot do."""
+    flags: list[str] = []
+    for mirror, origin in pairs:
+        flags += ["-c", f"url.{mirror}.insteadOf={origin}"]
+    return flags
+
+
+def _submodule_cmds(repo: pathlib.Path, flags: list[str]) -> list[list[str]]:
+    base = ["git", "-C", str(repo), "-c", "protocol.file.allow=always", *flags]
+    return [base + ["submodule", "sync", "--recursive"],
+            base + ["submodule", "update", "--init", "--recursive"]]
+
+
+def _run_all(cmds: list[list[str]]) -> subprocess.CompletedProcess[str] | None:
+    """Run in order; the first failing CompletedProcess, or None when all pass."""
+    for cmd in cmds:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            return proc
+    return None
+
+
+def sync_submodules(repo: pathlib.Path, mirror_url: str | None = None) -> int:
+    """Synchronize and update submodules through the configured mirror rewrites,
+    falling back to the ORIGINAL origin URLs when the mirror is unreachable or
+    the mirrored fetch fails. Returns 0 on success, 1 when both routes failed."""
+    _recover_interrupted_run(repo)
+    pairs = configured_rewrites(repo)
+    # Probe the mirror the mirrored route will actually use: the explicit
+    # --url, else every mirror named by the configured rewrites (fixer,
+    # correctness E2: no route goes unprobed, and the probe is never a fixed
+    # default that the rewrites do not point at).
+    probe_urls = [mirror_url] if mirror_url else sorted({m for m, _ in pairs})
+    mirror_ok = True
+    for url in probe_urls:
+        if not probe_mirror(url):
+            mirror_ok = False
+            print(f"[bd-git-mirror] Mirror {url} unreachable; falling back to direct origin.")
+    if pairs and mirror_ok:
+        failed = _run_all(_submodule_cmds(repo, _rewrite_flags(pairs)))
+        if failed is None:
+            print(f"[bd-git-mirror] submodules synced through {len(pairs)} mirror rewrite(s).")
+            return 0
+        print(f"[bd-git-mirror] mirrored fetch failed (rc={failed.returncode}): "
+              f"{failed.stderr.strip()[-300:]}; retrying against direct origin.")
+    # Origin route: the repository's insteadOf keys are lifted for this run (an
+    # empty insteadOf would match EVERY url, so they are unset and restored, not
+    # blanked) so a stale mirror cannot shadow the original URLs.
+    # The pairs are journaled first: a run killed mid-transfer leaves the
+    # journal behind and the next run restores from it before anything else.
+    journal = _journal_path(repo)
+    journal.write_text(json.dumps(pairs), encoding="utf-8")
+    for mirror in {m for m, _ in pairs}:
+        subprocess.run(["git", "-C", str(repo), "config", "--local", "--unset-all", f"url.{mirror}.insteadOf"],
+                       capture_output=True, text=True, check=False)
+    try:
+        failed = _run_all(_submodule_cmds(repo, []))
+    finally:
+        _restore_rewrites(repo, pairs)
+        journal.unlink(missing_ok=True)
+    if failed is None:
+        print("[bd-git-mirror] submodules synced from direct origin.")
+        return 0
+    print(f"[bd-git-mirror] ERROR: submodule sync failed against origin too (rc={failed.returncode}): "
+          f"{failed.stderr.strip()[-300:]}", file=sys.stderr)
+    return 1
+
+
+def run_selftest() -> int:
+    """Run internal unit self-test verifying operations."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp_repo = pathlib.Path(td) / "test_repo"
+        tmp_repo.mkdir()
+        subprocess.run(["git", "-C", str(tmp_repo), "init"], check=True, capture_output=True)
+
+        # Test insteadOf configuration
+        configure_insteadof(tmp_repo, "http://127.0.0.1:3000", "https://github.com/")
+        cfg = subprocess.run(
+            ["git", "-C", str(tmp_repo), "config", "--get-regexp", "url\\..*insteadof"],
+            check=True, capture_output=True, text=True,
+        )
+        assert "127.0.0.1:3000" in cfg.stdout, "insteadof key missing"
+        assert "https://github.com/" in cfg.stdout, "target prefix missing"
+
+        # Test remap
+        apply_remap(tmp_repo, "https://github.com/foo/bar=file:///tmp/bar.git")
+
+        # Test offline probe
+        assert not probe_mirror("http://127.0.0.1:59999", timeout=0.1)
+
+    print("SELFTEST PASS: bd-git-mirror verified")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="bd-git-mirror: Submodule hermetic cache and offline mirror manager.",
+    )
+    parser.add_argument("--url", default=None,
+                        help=f"Mirror URL (default: {DEFAULT_MIRROR_URL}; --sync without it probes the configured rewrites' mirrors)")
+    parser.add_argument("--repo", default=".", help="Path to git repository (default: current dir)")
+    parser.add_argument("--target-prefix", default=DEFAULT_TARGET_PREFIX, help="Origin URL prefix to remap")
+    parser.add_argument("--probe", action="store_true", help="Probe mirror reachability and report status")
+    parser.add_argument("--check", action="store_true", help="Check status and report fallback mode if offline")
+    parser.add_argument("--configure-insteadof", action="store_true", help="Configure git insteadOf rewrites")
+    parser.add_argument("--remap", help="Remap specific origin to mirror in format ORIGIN=MIRROR")
+    parser.add_argument("--sync", action="store_true", help="Synchronize and update git submodules")
+    parser.add_argument("--selftest", action="store_true", help="Run self-tests and exit")
+
+    args = parser.parse_args()
+
+    if args.selftest:
+        return run_selftest()
+
+    repo_path = pathlib.Path(args.repo).resolve()
+    explicit_url = args.url
+    args.url = explicit_url or DEFAULT_MIRROR_URL
+
+    if args.probe:
+        t0 = time.perf_counter()
+        reachable = probe_mirror(args.url)
+        elapsed = time.perf_counter() - t0
+        if reachable:
+            print(f"ONLINE: Local Forgejo Git mirror reachable at {args.url} ({elapsed:.3f}s)")
+            return 0
+        else:
+            print(f"OFFLINE: Mirror at {args.url} unreachable ({elapsed:.3f}s); falling back to direct origin")
+            return 0
+
+    if args.check:
+        reachable = probe_mirror(args.url)
+        if reachable:
+            print(f"ONLINE: Mirror reachable at {args.url}")
+        else:
+            print(f"FALLBACK: Mirror at {args.url} unreachable; direct origin fallback active")
+        return 0
+
+    if args.remap:
+        apply_remap(repo_path, args.remap)
+
+    if args.configure_insteadof:
+        configure_insteadof(repo_path, args.url, args.target_prefix)
+        print(f"Configured insteadOf for {args.target_prefix} -> {args.url}")
+
+    if args.sync:
+        # the default mirror is probed like any other: an offline default is
+        # detected before a fetch is attempted (fixer, correctness E2)
+        rc = sync_submodules(repo_path, explicit_url)
+        if rc != 0:
+            return rc
+        print("Submodule hermetic sync complete.")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

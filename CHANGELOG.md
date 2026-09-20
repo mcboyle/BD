@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1581 - train5d: rows 837 884 906 + RB h360b 677 contract-relit
+
+Train: 6 refute-first-reviewed worker patches (base 6510725b). Rows 884 906 CLOSED @1581; row837 (PARKED @1576) ships its cut, register status pending PM ruling.
+
+- rowh360b-B9-B-rb3 (toolchain/bin/bd-precut + tests/test_row_h360_precut_budget_override.py): precut budget override (rebased RB3).
+- row677-cx-d-rb1 (toolchain/bin/bd-bandcheck + test): bandcheck missing-band is UNKNOWN, not clean (rebased RB1).
+- rowcontract-relit-rb3 (CLAUDE.md + tests/test_v3_66_1170_claude_is_concise_authority.py): CLAUDE.md concise-authority contract re-lit (rebased RB3).
+- row837 (audio_fingerprint.py): acoustic audio-fingerprint deduplication (chromaprint).
+- row884 (toolchain/bin/bd-git-mirror): git-submodule hermetic cache and offline mirror.
+- row906 (playlist_extractor.py): media-item vs directory-listing structural classifier.
+- Dropped from train5 (O965 drop rule, re-review): row887 (SOURCE_WINDOW_HASHES regen), row829/836/842/880 (defect ratchet), row660c-rb1 (non-hermetic copytree in its gate test).
+
 ## v3.66.1580 - train4b: rows 700b 835 856 912 922 + RB4 gitea-ci-compat h1191b
 
 Train: 7 refute-first-reviewed worker patches (base 79a07557). Rows 835 856 912 922 CLOSED @1580 (835: PARKED @1576 -> OPEN -> CLOSED per PM O978).

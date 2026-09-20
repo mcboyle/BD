@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 677 process-exit seam. The anchor is a structural call expression and contains no value-bearing token.",
+  "subject": "bd-bandcheck returns main's three-state verdict to its caller",
+  "band": [
+    "tests/test_row677_bandcheck_missing_is_unknown.py::test_missing_target_is_unknown_and_names_unmeasurable_input"
+  ],
+  "mutants": [
+    {
+      "label": "ROW677-M5 delete main from the process-exit seam",
+      "file": "toolchain/bin/bd-bandcheck",
+      "old": "sys.exit(main())",
+      "new": "sys.exit()",
+      "direction": "regression",
+      "catcher": "tests/test_row677_bandcheck_missing_is_unknown.py::test_missing_target_is_unknown_and_names_unmeasurable_input"
+    }
+  ]
+}

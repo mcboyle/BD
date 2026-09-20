@@ -30,10 +30,23 @@ always ESCALATE a tier when unsure; it may never drop below a floor.
 
 ## The tiers and their gate floors
 
+Cut lanes and review obligations (operator O309, 2026-09-12):
+
+| Tier | Cut lanes | Review / mutation |
+| --- | --- | --- |
+| T0 | Affected band (`bd-band-derive` floor), `bd-precut --gate` tree gates, `bd-freshcheck --repo-only`; no fleet or full canonical suite per cut | ONE lens |
+| T1 | Affected band (`bd-band-derive` floor), `bd-precut --gate` tree gates, `bd-freshcheck --repo-only`; no fleet or full canonical suite per cut | ONE independent lens |
+| T2 | T1 test floor plus the full local suite OR one fleet lane | ONE CORRECTNESS lens runs the code; dispatcher checks the worker's recorded `bd-mutate` battery |
+| T3 | Full lifecycle and fleet full-suite lanes across matched hosts | CORRECTNESS runs the code and SHAPE MUTATES the subject; both must BOARD |
+
+The canonical suite runs once on the DEPLOYED tree (CLAUDE.md A6). Its exact
+command and `-n 24` remain in A5. Exact-head CI remains required
+by A3; the table does not waive generated-state or change-specific gates.
+
 ### T0 — trivial
 A comment, a typo, a version-string-only edit. No claim, no logic change.
-Floor: the single guard that covers the change, plus `bd-freshcheck --repo-only`.
-One self-check. Merge on green. No review round, no fleet, no full suite.
+Floor: affected band, tree gates and freshness as in the table, plus ONE lens.
+No fleet lanes or full canonical suite per cut.
 
 ### T1 — localized, or a pure docs/register cut
 One module, or one test, or a docs/register/backlog cut with no cross-subsystem
@@ -41,11 +54,13 @@ readers and no runtime behavior change.
 A PURE TREE GATE -- one that judges tracked text or structure and exercises no
 runtime subject -- is T1 (operator ruling 2026-09-03, which named a tree gate
 alongside register and one-line config cuts as taking one lens). A gate whose
-subject is runtime behaviour or a fixture is T2 and takes both lenses; the
+subject is runtime behaviour or a fixture is T2 and takes a correctness lens
+plus the dispatcher's check of the worker's mutation battery; the
 distinction is the SUBJECT the gate exercises, not the fact that it is a gate.
 Floor:
 - RED-first only if the cut changes behavior.
-- Affected floor via `bd-band-derive` (a floor, never a ceiling).
+- Affected floor via `bd-band-derive` (a floor, never a ceiling), plus tree
+  gates through `bd-precut --gate`.
 - `bd-regen-order` + `bd-freshcheck --repo-only`.
 - ONE independent review, scoped to the FAILURE MODE.
 - NUMBER-DISCIPLINE (mandatory for any cut that asserts counts, dates, or sizes):
@@ -53,27 +68,30 @@ Floor:
   BEFORE the first freeze; attach the derivation and its output as evidence;
   never copy a number from prose. A glob is a denominator choice — state the
   denominator and prove it is the right one before measuring.
-- NO fleet lanes and NO full suite unless a generated artifact or CI shard is
-  touched.
+- NO fleet lanes and NO full canonical suite per cut. Reclassify changes
+  that cross a higher tier's threshold instead of escalating T1's ceremony.
 
 ### T2 — standard
 Cross-subsystem change, a gate with a runtime or fixture subject, a
 generated-artifact change, a fixture or
 corpus change, or anything touching a secret-scanning boundary.
-Floor: everything in T1, plus —
+Floor: T1's test, freshness and number-discipline requirements, plus —
 - RED-first plus a mutation battery on the new logic (`bd-mutate`).
 - Affected floor plus tree-wide denominators and a deleted-consumer sweep.
 - Read every regenerated diff and explain it.
-- One independent review PLUS one adversarial verify.
+- ONE independent CORRECTNESS lens runs the code; the dispatcher checks the
+  worker's recorded `bd-mutate` battery. The mutating SHAPE lens is T3-only.
 - Exact-head GitHub CI.
 - The full local suite, OR one fleet lane — not the whole fleet.
 
 ### T3 — major / release-guard
 A Tier-A guarded file, the deploy path, a runtime or frontend change that ships,
 or a safety boundary.
-Floor: the full CLAUDE.md A3 lifecycle — RED-first, mutation, adversarial
-multi-lens verify, fleet full-suite lanes across matched hosts, independent
-review, exact-head CI, deploy, and health/version verification.
+Floor: the full CLAUDE.md A3 lifecycle — RED-first, mutation, CORRECTNESS
+that runs the code and SHAPE that MUTATES the subject (both must BOARD),
+fleet full-suite lanes across matched hosts, exact-head CI, deploy, and
+health/version verification. Two lenses remain because one correctness lens
+boarded decoy literals that satisfied three text gates while the seam moved.
 
 ## The rule of proportion
 

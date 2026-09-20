@@ -425,3 +425,119 @@ def test_the_tree_wide_claim_matcher_catches_its_natural_respellings():
         " ".join("CI's pytest denominator is not the tree; a tree-wide gate is "
                  "a different thing entirely.".split()).casefold()
     )
+
+
+# O309: the documentation is the policy subject. These checks deliberately
+# recognize the tier labels, command names and review-role vocabulary, not
+# arbitrary paraphrases. Whitespace, case and inline Markdown are normalized;
+# the control below proves reflow harmless and catches the old T2/BOTH rule.
+def _policy_words(text: str) -> str:
+    return " ".join(re.sub(r"[`*_]", "", text).casefold().split())
+
+
+def _lifecycle_step(text: str, number: int) -> str:
+    a3 = _section_bodies(text)["A3"]
+    match = re.search(rf"(?ms)^{number}\.\s+(.*?)(?=^\d+\.\s|\Z)", a3)
+    assert match, f"A3 lifecycle step {number} is missing"
+    return _policy_words(match[1])
+
+
+def _tier_policy_rows(text: str) -> dict[str, tuple[str, str]]:
+    """The three-column tier table; tolerate inline markup and combined T0/T1."""
+    rows = {}
+    for line in text.splitlines():
+        cells = [_policy_words(cell) for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 3 or not re.fullmatch(r"t[0-3](?:\s*/\s*t[0-3])?", cells[0]):
+            continue
+        for tier in re.findall(r"t[0-3]", cells[0]):
+            assert tier not in rows, f"duplicate tier policy row: {tier}"
+            rows[tier] = (cells[1], cells[2])
+    return rows
+
+
+def _no_cut_full_suite(text: str) -> bool:
+    return bool(re.search(
+        r"\b(?:no|not|without|never)\b[^.;]{0,100}\b"
+        r"(?:(?:canonical\s+)?full[ -]suite|canonical[ -]suite)\b", text))
+
+
+def _t2_review_errors(text: str) -> list[str]:
+    errors = []
+    if "correctness" not in text or not re.search(r"\bruns? (?:the )?code\b", text):
+        errors.append("T2 correctness must run code")
+    if not all(token in text for token in ("worker", "recorded", "bd-mutate", "dispatcher", "check")):
+        errors.append("T2 dispatcher must check the worker's recorded bd-mutate battery")
+    positive = re.sub(r"\b(?:no|not|without)\s+(?:a\s+)?(?:mutating\s+)?shape(?:\s+lens)?", "", text)
+    if "shape" in positive or re.search(r"\b(?:both|two)\s+lenses\b", positive):
+        errors.append("T2 must not require the mutating SHAPE lens or both lenses")
+    return errors
+
+
+def test_relit_low_tiers_owe_affected_tree_and_freshness_not_precut_full_suite():
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    tiering = (ROOT / "project-knowledge/CUT_TIERING.md").read_text(encoding="utf-8")
+    step6 = _lifecycle_step(claude, 6)
+    assert "t0" in step6 and "t1" in step6, "A3 step 6 must state the T0/T1 lane floor"
+    assert _no_cut_full_suite(step6), "A3 still permits a pre-cut canonical/full suite for T0/T1"
+    a5 = _policy_words(_section_bodies(claude)["A5"])
+    paragraphs = [_policy_words(p) for p in re.split(r"\n\s*\n", _section_bodies(claude)["A5"])]
+    low_tier = [p for p in paragraphs if "t0" in p and "t1" in p and "affected" in p]
+    assert low_tier and any(_no_cut_full_suite(p) for p in low_tier), "A5 lacks the T0/T1 affected-band-only policy"
+    for token in ("bd-band-derive", "bd-precut --gate", "bd-freshcheck --repo-only"):
+        assert token in a5, f"A5 loses the required low-tier floor: {token}"
+    rows = _tier_policy_rows(tiering)
+    assert set(rows) == {"t0", "t1", "t2", "t3"}, "tier lane/review table is missing or incomplete"
+    for tier in ("t0", "t1"):
+        lanes = rows[tier][0]
+        assert "affected" in lanes and "band" in lanes, f"{tier} loses affected band"
+        for token in ("bd-band-derive", "bd-precut --gate", "bd-freshcheck --repo-only"):
+            assert token in lanes, f"{tier} loses {token}"
+        assert _no_cut_full_suite(lanes), f"{tier} silently re-adds a pre-cut full suite"
+
+
+def test_relit_t2_correctness_and_worker_battery_agree_in_both_documents():
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    tiering = (ROOT / "project-knowledge/CUT_TIERING.md").read_text(encoding="utf-8")
+    step9 = _lifecycle_step(claude, 9)
+    match = re.search(r"\bt2\b(.*?)(?=\bt3\b|$)", step9)
+    assert match, "A3 has no T2 review assignment"
+    errors = _t2_review_errors(match[1])
+    rows = _tier_policy_rows(tiering)
+    assert "t2" in rows, "CUT_TIERING has no T2 review/mutation row"
+    errors += _t2_review_errors(rows["t2"][1])
+    flat = _policy_words(tiering)
+    assert not re.search(r"\bt2\b[^.;]{0,100}\btakes both lenses\b", flat), "T2 both-lenses prose survived outside the table"
+    assert not errors, "; ".join(errors)
+
+
+def test_relit_t3_keeps_mutating_shape_and_the_decoy_literal_rationale():
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    tiering = (ROOT / "project-knowledge/CUT_TIERING.md").read_text(encoding="utf-8")
+    step9 = _lifecycle_step(claude, 9)
+    match = re.search(r"\bt3\b(.*)", step9)
+    assert match, "A3 has no T3 review assignment"
+    rows = _tier_policy_rows(tiering)
+    assert "t3" in rows, "CUT_TIERING has no T3 review/mutation row"
+    for text in (match[1], rows["t3"][1]):
+        assert "correctness" in text and "shape" in text and "mutat" in text, "T3 lost independent correctness/mutating SHAPE review"
+        assert "both" in text and "board" in text, "T3 BOARD must require both lenses"
+    assert "decoy literal" in step9.replace("-", " ") and "three text gates" in step9, "the reason for two T3 lenses was erased"
+    sections = _section_bodies(claude)
+    deployment_policy = _policy_words(sections["A5"] + sections["A6"])
+    assert re.search(r"canonical suite[^.;]{0,80}\bonce\b[^.;]{0,80}\bdeployed\b", deployment_policy), "canonical verification must run once on the deployed tree"
+
+
+def test_relit_policy_helpers_allow_reflow_but_reject_t2_both_lenses_drift():
+    good = "CORRECTNESS runs the code; dispatcher checks worker's recorded bd-mutate battery."
+    assert _t2_review_errors(_policy_words(good)) == []
+    reflow = "**CORRECTNESS** runs\n the code; DISPATCHER checks worker's\n recorded `bd-mutate` battery."
+    assert _t2_review_errors(_policy_words(reflow)) == []
+    for drift in ("T2 takes both lenses.", "T2/T3 take BOTH lenses; SHAPE mutates the subject."):
+        assert _t2_review_errors(_policy_words(good + " " + drift)), f"old review obligation survived: {drift}"
+    assert _no_cut_full_suite(_policy_words("NO pre-cut canonical full suite."))
+    assert not _no_cut_full_suite(_policy_words("Run the pre-cut canonical full suite."))
+    table = "| Tier | Cut lanes | Review / mutation |\n|:--|--:|:--:|\n| **T0/T1** | affected band | one lens |\n| T2 | pending | " + good + " |\n| T3 | canonical | both BOARD |\n"
+    parsed = _tier_policy_rows(table)
+    assert set(parsed) == {"t0", "t1", "t2", "t3"}
+    assert parsed["t0"] == parsed["t1"] == ("affected band", "one lens")
+    assert _t2_review_errors(parsed["t2"][1]) == []
