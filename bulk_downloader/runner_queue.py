@@ -696,3 +696,13 @@ class QueueMixin:
                     pass
             except queue.Empty:
                 break
+
+    def filter_jobs_by_paused_lanes(self, jobs):
+        """Row 935: Filter jobs whose lane is currently paused due to challenge detection."""
+        from .challenge_detector import filter_jobs_by_paused_lanes as _filter_jobs
+        return _filter_jobs(jobs)
+
+    def is_lane_paused(self, lane=None):
+        """Row 935: Query if site lane is paused."""
+        from .challenge_detector import is_lane_paused as _is_paused
+        return _is_paused(lane or self.site_id)

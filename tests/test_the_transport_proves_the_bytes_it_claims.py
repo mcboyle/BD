@@ -69,6 +69,7 @@ import hashlib
 import json
 import os
 import random
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -144,7 +145,7 @@ class _Origin(BaseHTTPRequestHandler):
 class _Ctx:
     """The only Playwright surface the transport touches."""
 
-    def cookies(self):
+    def cookies(self, _urls=None):
         return []
 
 
@@ -1213,3 +1214,319 @@ def test_an_unmeasurable_part_refuses_reconciliation(monkeypatch, tmp_path):
     assert outcome[0] == "raised" and outcome[1].errno == 5, (
         f"the refusal shape changed to {outcome!r}; it is still a refusal, but "
         "an unreadable .part now reports as an ordinary validator mismatch")
+
+
+class _ScopedCookieCDN(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    expected_path = ""
+    expected_referer = ""
+    payload = b"OK"
+    observations: list[dict[str, object]] = []
+
+    def log_message(self, *_args):
+        return
+
+    def _observe(self):
+        cookie_header = self.headers.get("Cookie")
+        type(self).observations.append({
+            "method": self.command,
+            "path_exact": self.path == self.expected_path,
+            "referer_exact": self.headers.get("Referer") == self.expected_referer,
+            "cookie_header": cookie_header,
+            "range": self.headers.get("Range"),
+        })
+
+    def do_HEAD(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        self._observe()
+        cookie_ok = self.headers.get("Cookie") == "session=cdn-value"
+        self.send_response(200 if cookie_ok else 403)
+        if cookie_ok:
+            self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(len(self.payload) if cookie_ok else 0))
+        self.end_headers()
+
+    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        self._observe()
+        cookie_ok = self.headers.get("Cookie") == "session=cdn-value"
+        range_header = self.headers.get("Range")
+        payload = self.payload if cookie_ok else b""
+        status = 200 if cookie_ok else 403
+        content_range = None
+        if cookie_ok and range_header:
+            start_text, end_text = range_header.removeprefix("bytes=").split("-", 1)
+            start = int(start_text)
+            end = int(end_text) if end_text else len(self.payload) - 1
+            payload = self.payload[start:end + 1]
+            status = 206
+            content_range = f"bytes {start}-{end}/{len(self.payload)}"
+        self.send_response(status)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Accept-Ranges", "bytes")
+        if content_range is not None:
+            self.send_header("Content-Range", content_range)
+        self.end_headers()
+        if payload:
+            self.wfile.write(payload)
+
+
+class _DomainScopedContext:
+    def __init__(self, file_url):
+        self.file_url = file_url
+        self.calls = []
+        # Documented zero-entropy cookie fixtures; these are not secrets.
+        self.all_cookies = [
+            {
+                "name": "session", "value": "cdn-value",
+                "domain": "127.0.0.1", "path": "/",
+            },
+            {
+                "name": "session", "value": "scene-value",
+                "domain": "example.test", "path": "/",
+            },
+        ]
+
+    def cookies(self, urls=None):
+        self.calls.append(urls)
+        if urls:
+            assert urls == [self.file_url]
+            return [self.all_cookies[0]]
+        return list(self.all_cookies)
+
+
+def _record_loopback_connects(monkeypatch):
+    """Refuse any Python transport target outside the recorded loopback origin."""
+    original_connect = socket.socket.connect
+    targets = []
+
+    def checked_connect(sock, address):
+        targets.append(address)
+        assert address[0] == "127.0.0.1", address
+        return original_connect(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", checked_connect)
+    return targets
+
+
+@pytest.mark.parametrize(
+    ("use_curl_cffi", "parallel_chunks"),
+    [
+        pytest.param(False, 1, id="httpx-sequential"),
+        pytest.param(True, 1, id="cffi-sequential"),
+        pytest.param(False, 2, id="httpx-parallel"),
+    ],
+)
+def test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url(
+        monkeypatch, tmp_path, use_curl_cffi, parallel_chunks):
+    """A same-name scene cookie must not replace the CDN-scoped value."""
+    import httpx
+    from bulk_downloader import runner_transport as rt
+
+    signed_path = (
+        "/key=fixture,end=fixture,ip=fixture/speed=0/buffer=1.0/"
+        "download2=payload.bin/"
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScopedCookieCDN)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    file_url = f"http://127.0.0.1:{server.server_address[1]}{signed_path}"
+    scene_url = "https://example.test/members/scene"
+    _ScopedCookieCDN.expected_path = signed_path
+    _ScopedCookieCDN.expected_referer = scene_url
+    _ScopedCookieCDN.observations = []
+    connect_targets = _record_loopback_connects(monkeypatch)
+
+    class Runner(rt.TransportMixin):
+        site_id = "fixture-site"
+        config = {"parallel_chunks": 1}
+
+        def _pick_fastest_mirror(self, url):
+            return url
+
+        def _recommended_chunk_bytes(self):
+            return 1024
+
+        def _current_cap_mbps(self):
+            return 0
+
+        def _download_proxy_url(self):
+            return None
+
+        def _start_daily_byte_accumulator(self):
+            return None
+
+        def _finish_daily_byte_accumulator(self, _accumulator):
+            return None
+
+        def _transfer_gate_open(self, _accumulator, _local_stop=None):
+            return True
+
+        def _flush_after_interrupted_write(self, _accumulator, _local_stop=None):
+            return True
+
+        def _observe_throughput(self, _count, _elapsed):
+            return None
+
+        def _update_job(self, *_args, **_kwargs):
+            return None
+
+        def log_event(self, *args, **kwargs):
+            fallback_events.append((args, kwargs))
+
+    final_path = tmp_path / "payload.bin"
+    part_path = final_path.with_suffix(final_path.suffix + ".part")
+    releases = []
+    monkeypatch.setattr(rt.staging_claim, "claim", lambda *_args, **_kwargs: part_path)
+    monkeypatch.setattr(
+        rt.staging_claim, "release",
+        lambda path, identity, *_args, **_kwargs: releases.append((path, identity)),
+    )
+    ctx = _DomainScopedContext(file_url)
+    runner = Runner()
+    fallback_events = []
+    runner.config = {
+        "parallel_chunks": parallel_chunks,
+        "parallel_min_size_mb": 0.000001,
+        "use_curl_cffi": use_curl_cffi,
+    }
+    assert len(ctx.all_cookies) == 2
+    assert {cookie["domain"] for cookie in ctx.all_cookies} == {
+        "127.0.0.1", "example.test",
+    }
+    assert len({cookie["name"] for cookie in ctx.all_cookies}) == 1
+
+    try:
+        negative = httpx.get(
+            file_url,
+            headers={"Referer": scene_url},
+            cookies={"session": "scene-value"},
+        )
+        assert negative.status_code == 403
+        assert _ScopedCookieCDN.observations == [{
+            "method": "GET",
+            "path_exact": True,
+            "referer_exact": True,
+            "cookie_header": "session=scene-value",
+            "range": None,
+        }]
+
+        failure = None
+        result = None
+        try:
+            result = runner._http_download_claimed(
+                scene_url, None, ctx, file_url, final_path, [],
+                lambda _url: None, lambda: None, lambda *_args: None,
+            )
+        except rt._HTTPDownloadFailed as exc:
+            failure = str(exc)
+
+        transport_observations = _ScopedCookieCDN.observations[1:]
+        expected_cookie_calls = 2 if parallel_chunks == 2 else 1
+        assert len(ctx.calls) == expected_cookie_calls
+        expected_transport_requests = 4 if parallel_chunks == 2 else 1
+        assert len(transport_observations) == expected_transport_requests
+        assert all(item["path_exact"] for item in _ScopedCookieCDN.observations)
+        assert all(item["referer_exact"] for item in _ScopedCookieCDN.observations)
+        assert failure is None, (
+            "the transport flattened two domain-scoped cookies with one name; "
+            f"the fake CDN rejected the surviving value: {failure}"
+        )
+        assert ctx.calls == [[file_url]] * expected_cookie_calls
+        assert all(
+            item["cookie_header"] == "session=cdn-value"
+            for item in transport_observations
+        )
+        chunk_requests = [
+            item for item in transport_observations if item["range"] is not None
+        ]
+        assert len(chunk_requests) == (2 if parallel_chunks == 2 else 0)
+        if parallel_chunks == 2:
+            assert sorted(item["range"] for item in chunk_requests) == [
+                "bytes=0-0", "bytes=1-1",
+            ]
+            assert [item["method"] for item in transport_observations].count("HEAD") == 2
+            assert len(connect_targets) == 5
+        elif not use_curl_cffi:
+            assert len(connect_targets) == 2
+        assert connect_targets
+        assert {target[0] for target in connect_targets} == {"127.0.0.1"}
+        assert fallback_events == []
+        assert result == (2, 2)
+        assert final_path.read_bytes() == b"OK"
+        expected_releases = 1 if parallel_chunks == 2 else 2
+        assert len(releases) == expected_releases
+        assert len(set(releases)) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def test_probe_fetch_uses_only_cookies_scoped_to_the_media_url(monkeypatch):
+    """Probe mode carries only the cookie that the recorded CDN URL can see."""
+    from bulk_downloader import runner_transport as rt
+
+    signed_path = "/recorded/probe.bin"
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScopedCookieCDN)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    file_url = f"http://127.0.0.1:{server.server_address[1]}{signed_path}"
+    scene_url = "https://example.test/members/scene"
+    assert file_url.startswith("http://127.0.0.1:")
+    _ScopedCookieCDN.expected_path = signed_path
+    _ScopedCookieCDN.expected_referer = scene_url
+    _ScopedCookieCDN.observations = []
+    connect_targets = _record_loopback_connects(monkeypatch)
+    updates = []
+    history = []
+
+    class Download:
+        url = file_url
+        cancel_count = 0
+
+        def cancel(self):
+            self.cancel_count += 1
+
+    class Runner(rt.TransportMixin):
+        site_id = "fixture-site"
+        config = {"name": "fixture-site"}
+
+        def _download_proxy_url(self):
+            return None
+
+        def _update_job(self, *args, **kwargs):
+            updates.append((args, kwargs))
+
+    monkeypatch.setattr(rt, "db_log", lambda *args, **kwargs: history.append((args, kwargs)))
+    monkeypatch.setattr(rt, "history_title_kwargs", lambda *_args: {})
+    ctx = _DomainScopedContext(file_url)
+    download = Download()
+
+    try:
+        Runner()._do_probe_fetch(
+            scene_url, None, ctx, download, None, None, "probe.bin"
+        )
+
+        assert download.cancel_count == 1
+        assert ctx.calls == [[file_url]]
+        assert len(_ScopedCookieCDN.observations) == 1
+        assert len(connect_targets) == 1
+        assert {target[0] for target in connect_targets} == {"127.0.0.1"}
+        assert _ScopedCookieCDN.observations[0] == {
+            "method": "GET",
+            "path_exact": True,
+            "referer_exact": True,
+            "cookie_header": "session=cdn-value",
+            "range": "bytes=0-262143",
+        }
+        assert len(updates) == 1
+        assert len(history) == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def test_w4_cdn403_transform_control_imports_transport_only():
+    from bulk_downloader import runner_transport as rt
+
+    assert callable(rt.TransportMixin._http_download_claimed)

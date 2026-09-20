@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1597 - train22b: 863-fx3 934-rb10 935-fx3 w4-rb10 + 849 rescope
+
+Train: 5 refute-first-reviewed worker patches.
+
+- 863-fx3-local: STAGED PATHS: tests/test_shard_rebalancer.py toolchain/bin/bd-shard-rebalance
+- 934-rb10-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row934-rb10-local/DONE.md
+- 935-fx3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row935-fx3-local/DONE.md
+- w4-cdn403d-rb10-local: DEFECT-FIXED: Rebased onto BASE 920fbb988e58b6238146d79883dcc04ebe38a891. Preserved main's policy-map pins: helper placed to keep all 6 httpx.Client constructio
+- register-849-rescope: SUMMARY MISSING -- read /home/mboyle/bd-cuts/cut/register-849-rescope/DONE.md
+
 ## v3.66.1596 - train21: 845-fx3 855 871-fx3 878-fx3 on 920fbb98
 
 Train: 4 refute-first-reviewed worker patches (O1009 census). Base 920fbb98. Rows 845 855 871 878 CLOSED @1596. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 885-fx3 (conflict with landed 885).

@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control for w4-cdn403b: the same valid unscoping transform must escape an import-only test.",
+  "subject": "the cookie-scope transform changes executable transport code independently of the behavioral assertion",
+  "band": [
+    "tests/test_the_transport_proves_the_bytes_it_claims.py::test_w4_cdn403_transform_control_imports_transport_only"
+  ],
+  "mutants": [
+    {
+      "label": "CDN403-C1 unscoped cookies without a behavioral oracle",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=\\n        ua=\\(self\\.config\\.get\\(\"fingerprint\"\\))",
+      "new": "{}",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_w4_cdn403_transform_control_imports_transport_only"
+    }
+  ]
+}
