@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1812**
+- internal import edges: **1815**
 - tools: 233 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 162 · config stores: 5
 
@@ -27,10 +27,10 @@ Graph version: 1
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
 - `bulk_downloader/aiassist.py`: 16
+- `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/runner.py`: 15
 - `bulk_downloader/site_editor.py`: 15
 - `bulk_downloader/capture_artifact_redact.py`: 14
-- `bulk_downloader/ffmpeg_bin.py`: 14
 - `bulk_downloader/registrable_domain.py`: 14
 - `bulk_downloader/capture_redact.py`: 13
 - `tools/report_core.py`: 13
@@ -174,7 +174,7 @@ Graph version: 1
 - **storage_rebalance** (`app_storage_rebalance.py`) — routes 3, providers 1
 - **store_raw_editor** (`app_store_raw_editor.py`) — routes 2, providers 3
 - **stream** (`app_stream.py`) — routes 3, providers 3
-- **subtitles** (`app_subtitles.py`) — routes 2, providers 2
+- **subtitles** (`app_subtitles.py`) — routes 4, providers 3
 - **supervisor** (`app_supervisor.py`) — routes 2, providers 0
 - **synthetic_tests** (`app_synthetic_tests.py`) — routes 2, providers 1
 - **tags** (`app_tags.py`) — routes 9, providers 1

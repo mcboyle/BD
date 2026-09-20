@@ -1832,11 +1832,14 @@
       "module": "app_subtitles.py",
       "providers": [
         "bulk_downloader/db.py",
+        "bulk_downloader/subtitle_search.py",
         "bulk_downloader/subtitles.py"
       ],
-      "route_count": 2,
+      "route_count": 4,
       "routes": [
         "ROUTE /api/subtitles/fetch/<int:hid>",
+        "ROUTE /api/subtitles/index/<int:hid>",
+        "ROUTE /api/subtitles/search",
         "ROUTE /api/subtitles/status"
       ],
       "var": "subtitles_bp"
@@ -2382,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1812,
+    "edge_count": 1815,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3075,6 +3078,9 @@
       ],
       "bulk_downloader/app_ytdlp_update.py": [
         "bulk_downloader/app.py"
+      ],
+      "bulk_downloader/audio_normalize.py": [
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/audit.py": [
         "bulk_downloader/app.py",
@@ -3803,6 +3809,7 @@
         "bulk_downloader/integrity.py",
         "bulk_downloader/live_recorder.py",
         "bulk_downloader/render_diagnostics.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/stream_verifier.py",
         "bulk_downloader/thumbnail_gen.py",
@@ -4716,6 +4723,9 @@
       ],
       "bulk_downloader/subprocess_helpers.py": [
         "bulk_downloader/dev_tools.py"
+      ],
+      "bulk_downloader/subtitle_search.py": [
+        "bulk_downloader/app_subtitles.py"
       ],
       "bulk_downloader/subtitles.py": [
         "bulk_downloader/app_subtitles.py",
@@ -6194,6 +6204,7 @@
       ],
       "bulk_downloader/app_subtitles.py": [
         "bulk_downloader/db.py",
+        "bulk_downloader/subtitle_search.py",
         "bulk_downloader/subtitles.py"
       ],
       "bulk_downloader/app_synthetic_tests.py": [
@@ -7134,6 +7145,7 @@
       "bulk_downloader/runner.py": [
         "bulk_downloader/admission.py",
         "bulk_downloader/app_state.py",
+        "bulk_downloader/audio_normalize.py",
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/circuit_breaker.py",
@@ -7157,6 +7169,7 @@
         "bulk_downloader/extractors_jsonapi.py",
         "bulk_downloader/extractors_vixen.py",
         "bulk_downloader/failure_reasons.py",
+        "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/flaresolverr_client.py",
         "bulk_downloader/fname.py",
         "bulk_downloader/friendly_error.py",

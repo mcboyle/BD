@@ -3232,6 +3232,24 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception as e:
                 sys.stderr.write(
                     f"[{self.site_id}] thumbnail spawn failed: {e}\n")
+
+        if (status == "done" and prev_status != "done"
+                and self.config.get("use_audio_normalization", False)):
+            try:
+                from . import audio_normalize as _audio_normalize
+                filename = (self.jobs.get(url) or {}).get("filename", "")
+                dl_dir = (self.config.get("download_dir") or "").strip()
+                if filename and dl_dir:
+                    file_path = os.path.join(dl_dir, filename)
+                    if os.path.isfile(file_path):
+                        from . import ffmpeg_bin
+                        ffmpeg = ffmpeg_bin.ffmpeg()
+                        if ffmpeg:
+                            _audio_normalize.normalize_in_background(
+                                file_path, ffmpeg=ffmpeg)
+            except Exception as e:
+                sys.stderr.write(
+                    f"[{self.site_id}] audio normalization spawn failed: {e}\n")
         # v3.43.80 Phase 88: TPDB metadata fetch on download-done.
         # Looks up the scene on ThePornDB.net using URL or filename,
         # converts to a metadata dict, and writes a sidecar .nfo via

@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1604 - train29: subtitle full-text search + R128 audio normalizer; register 893 CLOSED
+
+Train: 3 refute-first-reviewed worker patches.
+
+- row834-rb12: Elasticsearch full-text subtitle/dialogue indexer (bulk_downloader/subtitle_search.py): SRT cue parsing, REST bulk indexing, /api/subtitles/index/<hid> + /api/subtitles/search routes in app_subtitles.py, SSRF egress exemption registered, reachability report re-derived on this base. Row 834 stays OPEN.
+- row851-rb1: EBU R128 audio normalizer (bulk_downloader/audio_normalize.py, loudnorm I=-14) behind the use_audio_normalization opt-in (settings center +1 editable, wiring test); runner/site_editor/app_kernel hooks; import baseline re-frozen. Row 851 stays OPEN.
+- register-893-close: row 893 OPEN -> CLOSED @1604 (O1078; VaultSync callers landed v3.66.1603).
+
 ## v3.66.1603 - train28: VaultSync callers wired (session_keeper, cookies, login submit)
 
 Train: 1 refute-first-reviewed worker patches.

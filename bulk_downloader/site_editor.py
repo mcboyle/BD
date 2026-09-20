@@ -808,6 +808,7 @@ _FIELD_TYPES = {
     "captcha_provider": ("string", "Paid third-party captcha solver provider"),
     "captcha_api_key": ("string", "API key that enables paid third-party captcha solving"),
     "turnstile_one_click": ("boolean", "Allow one local Turnstile checkbox click during login"),
+    "use_audio_normalization": ("boolean", "Normalize completed audio to -14 LUFS"),
     # v3.66.468 WS4b: type the download-backend selector + JD connection fields
     # so SiteSettings renders a dropdown + labelled inputs (they were free-text
     # before, so JD was config-file-only in practice). `backend` stays a STRING

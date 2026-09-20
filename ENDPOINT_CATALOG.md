@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (816)
+## /api/* routes (818)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -732,6 +732,8 @@ GET     /api/stream                                            CSRF: no
 POST    /api/stream/rotate_secret                              CSRF: yes  — Rotate the stream-token signing secret. Invalidates every
 POST    /api/stream/token/<int:hid>                            CSRF: yes
 POST    /api/subtitles/fetch/<int:hid>                         CSRF: yes  — Download subtitles for one history row's file. Body may include
+POST    /api/subtitles/index/<int:hid>                         CSRF: yes  — Row 834: index the .srt sidecars already next to one history row's
+GET     /api/subtitles/search                                  CSRF: no   — Row 834: full-text dialogue search; each hit carries the video id and
 GET     /api/subtitles/status                                  CSRF: no
 POST    /api/supervisor/configure                              CSRF: yes  — Hot-reload supervisor rate limits.
 GET     /api/supervisor/status                                 CSRF: no   — Token-bucket bandwidth supervisor stats.

@@ -124,6 +124,7 @@
     "/api/sites/<sid>/teach_verify": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/<sid>/watch/scan_now": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
     "/api/sites/preview_filename": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
+    "/api/subtitles/index/<int:hid>": "CONTROL [row 834]: index existing .srt sidecars for a history item into Elasticsearch; operator/API surface; a control is plausible (future cut)",
     "/api/thumbnail_sheets/single/<int:hid>": "CONTROL [reclassified @752]: was phantom-wired by the shared /<int:hid> param-literal in comments; the hid-keyed single-sheet generator is the SAFE sibling of the closed thumbs family; a control is plausible (Library surface)",
     "/api/thumbnails/regenerate": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
     "/api/thumbs/contact_sheet": "CLOSED [adjudicated @753]: raw body path into ffmpeg, no root confinement; was phantom-wired until the @752 matcher fix; safe hid-keyed sibling already wired; do not wire -- see DARK_CLUSTER_ADJUDICATION_v3_66_753.md",
@@ -232,6 +233,7 @@
     "/api/sites/<sid>/teach_verify",
     "/api/sites/<sid>/watch/scan_now",
     "/api/sites/preview_filename",
+    "/api/subtitles/index/<int:hid>",
     "/api/thumbnail_sheets/single/<int:hid>",
     "/api/thumbnails/regenerate",
     "/api/thumbs/single",
@@ -244,5 +246,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 101
+  "dark_count": 102
 }
