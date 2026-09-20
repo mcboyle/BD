@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4743,
+  "edge_count": 4744,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4680,6 +4680,9 @@
     ],
     "tests/test_row848_hls_prefetch.py": [
       "bulk_downloader/hls_prefetch.py"
+    ],
+    "tests/test_row849_vmaf_scorer.py": [
+      "bulk_downloader/vmaf_scorer.py"
     ],
     "tests/test_row852_zstd_compression.py": [
       "bulk_downloader/archive_compression.py"

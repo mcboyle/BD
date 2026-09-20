@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1595 - train20: 849 885 on train19
+
+Train: 2 refute-first-reviewed worker patches (O1008 pipeline, stacked on train19). Rows 849 885 CLOSED @1595. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 915-r3-fx2-rb9 (runner_browser.py conflict).
+
+- 849-local: ## FIXER (O928) bd-integrator-A 20260920T040914Z -- correctness REFUTE 02:34Z E1-E4 E1 (no CPU fallback): score_video retries once with use_cuda=False when the
+- 885-local: ## STAGED FILES (git diff --cached --stat) tests/conftest.py | 181 +++++++++++++++++++++++++++ tests/test_row885_cleanup_trap.py | 252 +++++++++++++++++++++++++
+
 ## v3.66.1594 - train19: 828 + HB register-status-amend tool
 
 Train: 2 refute-first-reviewed worker patches (O1009 census). Base 4860f28d. Row 828 CLOSED @1594. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 865-r2 (stale base conflict).
