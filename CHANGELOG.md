@@ -6,7 +6,7 @@ archive is not present in this repository; consult source-control history.
 
 ## v3.66.1591 - train16: RB9 825-r3 916-r2-fx2 on c2a6320f
 
-Train: 2 refute-first-reviewed worker patches (RB9 re-rebase on c2a6320f). Rows 825 916 CLOSED @1591. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drop: w4-cdn403d-fx2-rb9 (in-train conflict with 916).
+Train: 2 refute-first-reviewed worker patches (RB9 re-rebase on c2a6320f). Rows 825 916 CLOSED @1591; row 864 CLOSED @1591 (O1017 CLOSED-BY-HARNESS, integrator patch). Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drop: w4-cdn403d-fx2-rb9 (in-train conflict with 916).
 
 - 825-r3-local-rb9-local: TEST RCS (2026-09-20T15:31:57Z, on this index): - tests/test_row825_kafka_event_streamer.py: 10 passed (rc=0) - tests/test_v3_66_939_ci_gate_shards_cover_every_
 - 916-r2-local-fx2-local-rb9-local: TEST RCS: - tests/test_row703_a_proxy_shadows_the_guarded_transport.py tests/test_row703_the_site_to_policy_map_is_asserted.py tests/test_row916.py: 36 passed (
