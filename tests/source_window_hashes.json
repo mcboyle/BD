@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "resolved": 103,
+  "resolved": 102,
   "schema_version": 1,
   "unresolved": [],
   "windows": [
@@ -33,11 +33,6 @@
       "bytes": 2066,
       "key": "tests/test_spa_root_routing_contract.py::test_bootstrap_hook_covers_spa_root::src[pos:pos + 2000]::1",
       "sha256": "1451aa5d4e5474a9588cdd1a0552e5caa3b760efd58656173c1c28a38990aae8"
-    },
-    {
-      "bytes": 600,
-      "key": "tests/test_spa_route_detector.py::test_settle_after_navigation_is_the_workers_post_goto_hook::src[i:i + 600]::1",
-      "sha256": "a88e44df7db434c1f89b04d4ebe463c7ebe03309e1f2cfa74f47ac1854731efa"
     },
     {
       "bytes": 2006,
