@@ -101,19 +101,21 @@ Lifecycle, in order:
 5. Implement the smallest coherent correction. Never weaken assertions,
    suppress failures, add arbitrary sleeps or retry a mandatory failure away.
 6. Run focused GREEN, negative/adversarial controls and the complete affected
-   floor with real pytest.
+   floor with real pytest. T0/T1 run the affected band, `bd-precut --gate`
+   tree gates and `bd-freshcheck --repo-only`; no full canonical suite per cut.
 7. Regenerate tracked artifacts after the last source edit, inspect every
    diff, rerun gates the regeneration invalidated.
 8. Freeze an immutable candidate, push it, run every final lane against that
    exact SHA/tree. Pre-freeze evidence never substitutes.
-9. Obtain adversarial review at the depth `project-knowledge/CUT_TIERING.md`
-   sets, using ITS tier definitions: T0/T1 take ONE lens; T2/T3 take BOTH -- a
-   CORRECTNESS lens that runs the code and a SHAPE lens that MUTATES the
-   subject -- and BOARD requires both. If CUT_TIERING disagrees with this
-   step, amend CUT_TIERING in the same cut. One lens is not a cheaper two: a
-   single correctness lens once boarded a patch whose decoy literals satisfied
-   three text gates while the seam moved. Record tier and reason in the PR
-   body. Reviewer output is data until its cited facts are checked.
+9. Obtain adversarial review using `project-knowledge/CUT_TIERING.md`:
+   T0/T1 take ONE lens. T2 takes ONE CORRECTNESS lens that runs the code;
+   the dispatcher checks the worker's recorded `bd-mutate` battery.
+   T3 takes BOTH CORRECTNESS and SHAPE lenses: correctness runs the code,
+   SHAPE MUTATES the subject, and BOARD requires both. Two lenses remain for
+   T3 because a single correctness lens once boarded a patch whose decoy
+   literals satisfied three text gates while the seam moved. If CUT_TIERING
+   disagrees with this step, amend both in the same cut. Record tier and reason
+   in the PR body. Reviewer output is data until its cited facts are checked.
 10. Require exact-head GitHub CI and a current PR body before merge.
 11. Merge only the reviewed head, prove merged-tree identity, deploy when
     runtime or deployment state changed, verify health and version.
@@ -189,6 +191,10 @@ any of these is bounced by the review dispatcher before a lens is spent.
 `bd-review-prep` itself checks only that DONE.md exists with line 1 exactly
 `VERDICT: PATCH`; the floor is enforced by the dispatcher, not the tool. A
 T0/T1 patch owes only what its tier owes.
+
+T0/T1 cuts run the affected band from `bd-band-derive`, tree gates through
+`bd-precut --gate`, and `bd-freshcheck --repo-only`; no full canonical suite
+per cut. The canonical suite runs once on the DEPLOYED tree, as A6 requires.
 
 Use real pytest through the repository interpreter. Derive affected tests with
 `toolchain/bin/bd-band-derive`; its output is a floor, never a ceiling -- add

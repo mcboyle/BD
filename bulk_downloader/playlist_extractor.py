@@ -473,10 +473,253 @@ def _guess_next_page_url(current_url: str, page_num: int) -> str:
         return ""
 
 
+# ─── Row 906: DOM-topology single-entity-vs-aggregate classifier ────
+#
+# `is_likely_listing_url` above reads the URL string. It says nothing when a
+# collection page has no listing keyword in its path -- a common shape for
+# site-generated model/gallery pages. This section reads the PAGE ITSELF: a
+# collection is a repeated grid of similarly-shaped media "cards", a single
+# item is not. `card_count` is the size of the largest group of DOM
+# siblings under one parent that share the same tag + CSS class SET (order
+# invariant) AND look like a media card: a link that wraps or contains an
+# image/video, outside navigation/header/footer/pagination chrome. Bare
+# navigation anchors, menus and pagers are never cards, so a single-video
+# page with a three-item nav bar stays a single item.
+
+
+_CARD_GRID_DENSITY_JS = """() => {
+    const CHROME = 'nav, header, footer, aside, [role="navigation"], '
+        + '[role="menubar"], [role="tablist"], [aria-label*="agination" i], '
+        + '[class*="pagination" i], [class*="pager" i], [class*="breadcrumb" i], '
+        + '[class*="menu" i]';
+    const classKey = el => {
+        const raw = el.getAttribute('class') || '';
+        return raw.trim().split(/\\s+/).filter(Boolean).sort().join('.');
+    };
+    const isMediaCard = el => {
+        if (el.closest(CHROME)) return false;
+        const link = el.matches('a[href]') ? el : el.querySelector('a[href]');
+        if (!link) return false;
+        return !!el.querySelector('img, picture, video');
+    };
+    const groups = new Map();
+    document.querySelectorAll('body *').forEach(el => {
+        if (!isMediaCard(el)) return;
+        const parent = el.parentElement;
+        if (!parent) return;
+        const key = el.tagName + '.' + classKey(el);
+        let bucket = groups.get(parent);
+        if (!bucket) { bucket = new Map(); groups.set(parent, bucket); }
+        bucket.set(key, (bucket.get(key) || 0) + 1);
+    });
+    let max = 0;
+    groups.forEach(bucket => {
+        bucket.forEach(count => { if (count > max) max = count; });
+    });
+    // A primary player OUTSIDE every media card marks a single-entity page:
+    // the repeated cards beside it are "related" widgets, not the page's
+    // subject (row906 fixer E2). A card-wrapped <video> (a hover preview
+    // inside a grid tile) does not count as a player.
+    const PLAYER = 'video, iframe[src*="embed" i], iframe[src*="player" i], '
+        + 'iframe[src*="youtube" i], iframe[src*="vimeo" i], iframe[src*="jwplayer" i]';
+    // a LEAF card is a media card with no media card inside it (a grid
+    // tile); a container holding many tiles also "looks like" a card but
+    // is not one, so only leaf-card ancestors make a video a preview.
+    const isLeafCard = el => {
+        if (!isMediaCard(el)) return false;
+        for (const d of el.querySelectorAll('*')) { if (isMediaCard(d)) return false; }
+        return true;
+    };
+    let player = false;
+    document.querySelectorAll(PLAYER).forEach(el => {
+        if (player || el.closest(CHROME)) return;
+        let node = el.parentElement, inCard = false;
+        while (node && node !== document.body) {
+            if (isLeafCard(node)) { inCard = true; break; }
+            node = node.parentElement;
+        }
+        if (!inCard) player = true;
+    });
+    return {card_count: max, player: player};
+}"""
+
+
+@dataclass
+class TopologyResult:
+    """Outcome of classify_dataset_topology()."""
+    ok: bool = False
+    is_aggregate: bool = False
+    card_count: int = 0
+    has_player: bool = False
+    base_url: str = ""
+    error: str = ""
+
+
+def classify_dataset_topology(
+    page, url: str, *,
+    min_cards: int = 3,
+    page_load_timeout_ms: int = 30000,
+) -> TopologyResult:
+    """Classify a page as a single entity or an aggregate/collection by its
+    DOM topology (repeated sibling "card" structure), independent of the
+    URL text.
+
+    `min_cards`: the smallest repeated-sibling group size that counts as a
+    collection grid. Below it, the page is a single item -- this is what
+    keeps a couple of "related content" widgets from being misread as a
+    collection (acceptance #3, zero single-asset false positives).
+
+    Returns TopologyResult -- never raises (fail-open, same contract as
+    extract_playlist_urls above: caller falls back to single-item handling).
+    """
+    if not url:
+        return TopologyResult(ok=False, error="empty_url")
+    if page is None:
+        return TopologyResult(ok=False, error="page_is_none")
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=page_load_timeout_ms)
+    except Exception as e:
+        return TopologyResult(ok=False, base_url=url,
+                               error=f"page_load_failed:{type(e).__name__}")
+    try:
+        raw = page.evaluate(_CARD_GRID_DENSITY_JS)
+    except Exception as e:
+        return TopologyResult(ok=False, base_url=url,
+                               error=f"evaluate_failed:{type(e).__name__}")
+    if isinstance(raw, dict):
+        count, player = raw.get("card_count"), bool(raw.get("player", False))
+    else:
+        count, player = raw, False
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return TopologyResult(ok=False, base_url=url, error="bad_response")
+    # a page whose subject is a player is a single entity however many
+    # "related" cards sit beside it (E2)
+    return TopologyResult(
+        ok=True, base_url=url, card_count=count, has_player=player,
+        is_aggregate=count >= max(1, int(min_cards)) and not player,
+    )
+
+
+@dataclass
+class RouteResult:
+    """Outcome of route_dataset_page(): the single-entity-vs-aggregate
+    routing decision, with the aggregate case's children expanded into a
+    batch queue (row906 acceptance #2). Expansion is recursive: child
+    links that are themselves collections are classified and expanded in
+    turn, depth-bounded, with a visited set for cycle protection.
+    `collections` lists every aggregate page visited (root first)."""
+    ok: bool = False
+    is_aggregate: bool = False
+    card_count: int = 0
+    single_url: str = ""
+    child_urls: list = field(default_factory=list)
+    collections: list = field(default_factory=list)
+    error: str = ""
+
+
+def _expand_collection(
+    page, url: str, *, template, min_cards, max_pages, max_depth,
+    visited: set, budget: list, urls: list, collections: list,
+) -> str:
+    """Expand one already-classified aggregate page into `urls` (leaf
+    scenes) and recurse into same-site listing links that classify as
+    aggregates themselves. Returns the first extraction error ("" if none).
+    `budget` is a one-element list holding the remaining classification
+    navigations (shared across the whole traversal)."""
+    collections.append(url)
+    playlist = extract_playlist_urls(page, url, template=template, max_pages=max_pages)
+    urls.extend(playlist.urls)
+    error = playlist.error
+    if max_depth <= 0:
+        return error
+    # Candidate sub-collections: same-site links that look like listings
+    # but are not scenes and were never visited. `_normalize_links` on the
+    # last extraction page is enough for the fake-page contract; a real
+    # multi-page listing's children are the scenes, not more listings.
+    candidates = _normalize_links(page, url, None, include_titles=True)
+    # The URL text is a PRIORITY HINT, never a gate (row906 fixer E1): links
+    # with a listing keyword are classified first, every other same-site
+    # non-scene link after them, all inside the shared navigation budget --
+    # a child collection with no keyword in its path is still inspected.
+    ordered: list = []
+    for candidate in candidates:
+        child = candidate.get("url", "") if isinstance(candidate, dict) else candidate
+        if not child or child in visited or child in ordered:
+            continue
+        if not _is_same_etld1(child, url):
+            continue
+        if _looks_like_scene_url(child, template=template):
+            continue
+        ordered.append(child)
+    ordered.sort(key=lambda c: 0 if is_likely_listing_url(c, template=template) else 1)
+    for child in ordered:
+        if child in visited:
+            continue
+        if budget[0] <= 0:
+            error = error or "expansion_budget_exhausted"
+            break
+        visited.add(child)
+        budget[0] -= 1
+        topo = classify_dataset_topology(page, child, min_cards=min_cards)
+        if not topo.ok or not topo.is_aggregate:
+            continue
+        sub_error = _expand_collection(
+            page, child, template=template, min_cards=min_cards,
+            max_pages=max_pages, max_depth=max_depth - 1, visited=visited,
+            budget=budget, urls=urls, collections=collections,
+        )
+        error = error or sub_error
+    return error
+
+
+def route_dataset_page(
+    page, url: str, *,
+    template: Optional[dict] = None,
+    min_cards: int = 3,
+    max_pages: int = 1,
+    max_depth: int = 3,
+    max_collections: int = 64,
+) -> RouteResult:
+    """Classify `url` and route it: a single item routes to itself, an
+    aggregate/collection routes to its expanded child scene queue.
+
+    `max_depth`: how many levels of nested child collections to expand
+    below the root (0 = only the root's own scenes). `max_collections`:
+    hard cap on child-collection classifications (navigations) across the
+    whole traversal. A URL is visited at most once.
+
+    Never raises. A classification failure short-circuits before any
+    fan-out call (no second navigation on a page that never loaded)."""
+    topo = classify_dataset_topology(page, url, min_cards=min_cards)
+    if not topo.ok:
+        return RouteResult(ok=False, error=topo.error)
+    if not topo.is_aggregate:
+        return RouteResult(ok=True, is_aggregate=False,
+                            card_count=topo.card_count, single_url=url)
+    urls: list = []
+    collections: list = []
+    error = _expand_collection(
+        page, url, template=template, min_cards=min_cards,
+        max_pages=max_pages, max_depth=max(0, int(max_depth)),
+        visited={url}, budget=[max(0, int(max_collections))],
+        urls=urls, collections=collections,
+    )
+    final = _dedup_preserving_order(urls)
+    return RouteResult(
+        ok=bool(final) and not error, is_aggregate=True,
+        card_count=topo.card_count, child_urls=final,
+        collections=collections, error=error,
+    )
+
+
 __all__ = [
     "is_likely_listing_url",
     "extract_playlist_urls",
     "PlaylistResult",
+    "classify_dataset_topology",
+    "route_dataset_page",
+    "TopologyResult",
+    "RouteResult",
     "_is_same_etld1",
     "_looks_like_scene_url",
     "_guess_next_page_url",

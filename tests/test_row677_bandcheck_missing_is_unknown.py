@@ -10,20 +10,24 @@ import sys
 from pathlib import Path
 
 
-BD_GATE_SCOPE = "module"
+BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parents[1]
 _TOOL = _REPO / "toolchain" / "bin" / "bd-bandcheck"
+_BAND = _REPO / "toolchain" / "bin" / "bd-band"
 _MISSING = "tests/test_row677_does_not_exist_xyz.py"
 
 
-def _run(*targets: str) -> subprocess.CompletedProcess[str]:
+def _run(*targets: str, tool: Path = _TOOL) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env.pop("BD_INSTALL_DIR", None)
     return subprocess.run(
-        [sys.executable, str(_TOOL), "--work", str(_REPO), *targets],
+        [sys.executable, str(tool), "--work", str(_REPO), *targets],
         cwd=_REPO,
+        env=env,
         text=True,
         capture_output=True,
-        timeout=30,
+        timeout=120,
     )
 
 
@@ -59,6 +63,31 @@ def test_present_safe_file_remains_safe():
 
     assert result.returncode == 0, output
     assert output.count("all targets safe to band") == 1, output
+
+
+def test_measured_failure_dominates_a_missing_target():
+    assert not os.path.lexists(_REPO / _MISSING)
+    assert (_REPO / "tests").is_dir()
+
+    result = _run(_MISSING, "tests/")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert output.count(f"MISSING '{_MISSING}'") == 1, output
+    assert output.count("UNSAFE") == 1, output
+    assert output.count("fix the flagged targets") == 1, output
+    assert output.count("could not be measured") == 0, output
+
+
+def test_bd_band_caller_preserves_the_missing_target_diagnostic():
+    assert _BAND.is_file()
+    assert not os.path.lexists(_REPO / _MISSING)
+
+    result = _run(_MISSING, tool=_BAND)
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 2, output
+    assert output.count(f"MISSING '{_MISSING}'") == 1, output
 
 
 def test_row677_transform_control_imports_without_judging_exit_code():

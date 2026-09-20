@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 677 bd-band consumer seam. The anchor is a structural call expression and contains no value-bearing token.",
+  "subject": "bd-band passes its complete suite list to bd-bandcheck",
+  "band": [
+    "tests/test_row677_bandcheck_missing_is_unknown.py::test_bd_band_caller_preserves_the_missing_target_diagnostic"
+  ],
+  "mutants": [
+    {
+      "label": "ROW677-M4 delete suite arguments at the bd-band seam",
+      "file": "toolchain/bin/bd-band",
+      "old": "_bc.check(a.suites, rundir_probe(a))",
+      "new": "_bc.check([], rundir_probe(a))",
+      "direction": "regression",
+      "catcher": "tests/test_row677_bandcheck_missing_is_unknown.py::test_bd_band_caller_preserves_the_missing_target_diagnostic"
+    }
+  ]
+}
