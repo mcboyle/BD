@@ -565,6 +565,8 @@ def _classify_status(status) -> HeartbeatVerdict:
 # Cap on consecutive failures before backing off to hourly.
 BACKOFF_AFTER_N_FAILURES = 3
 BACKOFF_INTERVAL_SEC = 60 * 60           # 1 hour
+BACKOFF_BASE_SEC = 60
+BACKOFF_MAX_SEC = BACKOFF_INTERVAL_SEC
 
 # Per-keeper Chromium check timeout (page load + verify).
 CHECK_TIMEOUT_SEC = 60
@@ -578,6 +580,26 @@ def _jitter(base: float, fraction: float = JITTER_FRACTION) -> float:
     """Add ±fraction*base random variation to a wait interval."""
     delta = base * fraction
     return base + random.uniform(-delta, delta)
+
+
+def _backoff_delay(failures: int) -> float:
+    """Jittered exponential delay, capped before randomness is applied."""
+    return _jitter(min(BACKOFF_MAX_SEC,
+                       BACKOFF_BASE_SEC * (2 ** max(0, failures - 1))))
+
+
+# row897 fixer: the exponent is driven by the number of consecutive TRIPS
+# (breaker_trips), not by consecutive_failures -- failures are reset when a
+# window elapses (so the keeper can probe again), which pinned every trip at
+# 2**2 and made the 1h ceiling unreachable in the state machine. Trips reset
+# only on a successful heartbeat or login. On window elapse the breaker is
+# HALF-OPEN: exactly one probe is allowed (consecutive_failures is left at
+# threshold-1), a failure re-trips at the next exponent, a success closes it.
+_TERMINAL_STATES = frozenset({"needs_takeover", "disabled"})
+
+
+def _trip_delay(trips: int) -> float:
+    return _backoff_delay(max(1, trips))
 
 
 def _now() -> float:
@@ -709,6 +731,8 @@ class SessionKeeper:
             "next_check_ts": 0.0,
             "predicted_expiry_ts": None,
             "consecutive_failures": 0,
+            "open_until_ts": 0.0,
+            "breaker_trips": 0,
             "last_detail": "",
         }
 
@@ -772,6 +796,26 @@ class SessionKeeper:
 
     # ── Scheduling ──────────────────────────────────────────────────
 
+    def _trip_breaker(self, why: str) -> float:
+        """Open the circuit for the next exponential window; returns open_until_ts.
+        Never from a terminal state (needs_takeover / disabled): those hold."""
+        if self.state["state"] in _TERMINAL_STATES:
+            return _now() + BACKOFF_INTERVAL_SEC
+        with _state_lock:
+            self.state["breaker_trips"] = int(self.state.get("breaker_trips") or 0) + 1
+            delay = _trip_delay(self.state["breaker_trips"])
+            self.state["open_until_ts"] = _now() + delay
+        self._set_state("circuit_open",
+            f"{why}: failed {self.state['consecutive_failures']} times "
+            f"(trip {self.state['breaker_trips']}); retry after {delay:.1f}s")
+        return self.state["open_until_ts"]
+
+    def _close_breaker(self) -> None:
+        """A successful heartbeat/login: the breaker and its exponent reset."""
+        with _state_lock:
+            self.state["open_until_ts"] = 0.0
+            self.state["breaker_trips"] = 0
+
     def _compute_next_check_time(self) -> float:
         """Decide how long to wait before the next check. Two cases:
 
@@ -785,8 +829,20 @@ class SessionKeeper:
            can exceed a short session's own lifetime and never fire
            before expiry.
         """
-        if self.state["consecutive_failures"] >= BACKOFF_AFTER_N_FAILURES:
+        if self.state["state"] in _TERMINAL_STATES:
+            # needs_takeover / disabled are STICKY (the UI takeover button
+            # keys off them, _run_one_check returns without any login); the
+            # breaker never clobbers them -- poll slowly, attempt nothing.
             return _now() + _jitter(BACKOFF_INTERVAL_SEC)
+        if self.state["consecutive_failures"] >= BACKOFF_AFTER_N_FAILURES:
+            # row897 fixer: a stale (past) open_until_ts is never a schedule
+            # -- it produced a 1s busy loop after a trip had elapsed. Trip
+            # (or re-trip) the breaker here so the raise path in _run, which
+            # only counts failures, gets the same window as the relogin path.
+            if not (self.state["state"] == "circuit_open"
+                    and self.state["open_until_ts"] > _now()):
+                self._trip_breaker("repeated failures")
+            return self.state["open_until_ts"]
         predicted = predict_next_expiry(self.site_id, self.account_idx)
         fetch_interval = _fetch_interval_sec()
         if predicted and predicted > _now():
@@ -892,6 +948,16 @@ class SessionKeeper:
         self._set_state("connected", "starting up")
         try:
             while not self._stop.is_set():
+                if self.state["state"] == "circuit_open":
+                    if _now() < self.state["open_until_ts"]:
+                        self._wake.wait(timeout=max(1, self.state["open_until_ts"] - _now()))
+                        continue
+                    # HALF-OPEN: one probe; the trip count is kept so a
+                    # failure re-trips at the next exponent.
+                    self._set_state("connected", "backoff window elapsed; probing once")
+                    with _state_lock:
+                        self.state["open_until_ts"] = 0.0
+                        self.state["consecutive_failures"] = BACKOFF_AFTER_N_FAILURES - 1
                 self._wake.clear()
                 try:
                     self._run_one_check()
@@ -964,6 +1030,7 @@ class SessionKeeper:
                     self.state["last_renewal_ts"] = self._last_navigate_at
                 self.state["predicted_expiry_ts"] = predict_next_expiry(
                     self.site_id, self.account_idx)
+            self._close_breaker()
             self._set_state("connected", "heartbeat ok")
             self._record_event("heartbeat_ok", detail)
             return
@@ -982,6 +1049,7 @@ class SessionKeeper:
                 self.state["consecutive_failures"] = 0
                 self.state["predicted_expiry_ts"] = (
                     now + DEFAULT_SESSION_LIFETIME_SEC)
+            self._close_breaker()
             self._set_state("connected", "auto-relogin succeeded")
             self._record_event("auto_relogin_ok", relogin_detail)
         else:
@@ -997,8 +1065,7 @@ class SessionKeeper:
                 self._set_state("needs_takeover", relogin_detail)
                 self._record_event("needs_takeover", relogin_detail)
             elif self.state["consecutive_failures"] >= BACKOFF_AFTER_N_FAILURES:
-                self._set_state("disconnected",
-                    f"failed {self.state['consecutive_failures']} times: {relogin_detail}")
+                self._trip_breaker("relogin failed")
             else:
                 self._set_state("disconnected", relogin_detail)
 
