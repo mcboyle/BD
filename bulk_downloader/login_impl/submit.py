@@ -2271,6 +2271,17 @@ def do_login(config, allow_manual_takeover=False):
         # above (row 772 residual), with row 813's rule that a body which
         # is GONE is read exactly once. A third read here re-judged the same
         # settled URL/body and broke that one-read pin, so it is not kept.
+        try:
+            from ..vault_sync import get_vault_sync
+            vs = get_vault_sync()
+            if vs is not None:
+                sid = config.get("site_id") or config.get("name") or ""
+                if not sid and callable(site_tag):
+                    sid = site_tag().strip("[]: ")
+                if sid:
+                    vs.set_session(sid, "0", {"cookies": cookies})
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag()}vault_sync login persist failed: {e}\n")
         _hard_close()
         return True,f"OK — {len(cookies)} cookies (submit: {method})",cookies
     except Exception as e:

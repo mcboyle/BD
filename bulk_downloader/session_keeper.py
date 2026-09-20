@@ -1304,6 +1304,21 @@ class SessionKeeper:
         secure?, sameSite?}. The runner already writes cookies in this
         Playwright format on login, so usually we just pass through."""
         try:
+            # Row 893: check cluster-wide encrypted session cache first
+            try:
+                from .vault_sync import get_vault_sync
+                vs = get_vault_sync()
+                if vs is not None:
+                    vault_sess = vs.get_session(self.site_id, str(self.account_idx))
+                    if vault_sess and "cookies" in vault_sess:
+                        data = vault_sess["cookies"]
+                        if isinstance(data, list) and data:
+                            out = [c for c in data if isinstance(c, dict) and "name" in c and "value" in c and ("domain" in c or "url" in c)]
+                            if out:
+                                return out
+            except Exception as e:
+                sys.stderr.write(f"  keepalive[{self.site_id}]: vault_sync load failed: {e}\n")
+
             cookie_path = Path("cookies") / f"{self.site_id}.json"
             if not cookie_path.exists(): return []
             import json as _json
@@ -1369,6 +1384,15 @@ class SessionKeeper:
                 sys.stderr.write(
                     f"  keepalive[{self.site_id}]: cookie round-trip "
                     f"validation FAILED ({e.kind}): {e}\n")
+            # Row 893: synchronize encrypted session state to cluster vault
+            try:
+                from .vault_sync import get_vault_sync
+                vs = get_vault_sync()
+                if vs is not None:
+                    vs.set_session(self.site_id, str(self.account_idx), {"cookies": cookies})
+            except Exception as e:
+                sys.stderr.write(
+                    f"  keepalive[{self.site_id}]: vault_sync persist failed: {e}\n")
         except Exception as e:
             sys.stderr.write(
                 f"  keepalive[{self.site_id}]: cookie persist failed: {e}\n")
