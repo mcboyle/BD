@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1599 - train24: HB assign-lens codex-remote root
+
+Train: 1 refute-first-reviewed worker patch (O1009 census; tests-only). Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: gate-fix-2 (stale base conflict).
+
+- hb-assign-lens-codex-remote-root-bd-agy-worker10-local: PATCH-SHA256: 6bac29e003950d1e1079a6dfd3cbc1d6d758a0ca9a9185642072ed4082a8e68a (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/rowHB-assign-lens-c
+
 ## v3.66.1598 - train23: 861-wt + O1054 register reconcile fold
 
 Train: 2 refute-first-reviewed worker patches.
