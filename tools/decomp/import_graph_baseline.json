@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4734,
+  "edge_count": 4742,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1351,6 +1351,9 @@
     ],
     "bulk_downloader/dom_recorder.py": [
       "bulk_downloader/session_capture.py"
+    ],
+    "bulk_downloader/dom_structure_analyzer.py": [
+      "bulk_downloader/ai_provider.py"
     ],
     "bulk_downloader/download_egress.py": [
       "bulk_downloader/egress_identity.py"
@@ -3110,6 +3113,9 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/selector_drift.py"
     ],
+    "tests/test_duration_filter.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_e1_capture_events.py": [
       "bulk_downloader/plugins.py",
       "tools/capture_session.py"
@@ -3299,8 +3305,17 @@
       "bulk_downloader/db.py",
       "bulk_downloader/i18n.py"
     ],
+    "tests/test_infinite_scroll_pager.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_browser.py"
+    ],
     "tests/test_ingress_flow_controller.py": [
       "bulk_downloader/ingress_flow_controller.py"
+    ],
+    "tests/test_inmemory_sqlite_fixture.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
     ],
     "tests/test_integration_wiring.py": [
       "bulk_downloader/app_cockpit_home.py",
@@ -4649,6 +4664,9 @@
     "tests/test_row837_audio_fingerprint.py": [
       "bulk_downloader/audio_fingerprint.py",
       "bulk_downloader/ffmpeg_bin.py"
+    ],
+    "tests/test_row838_dom_analyzer.py": [
+      "bulk_downloader/dom_structure_analyzer.py"
     ],
     "tests/test_row839_squid_proxy_pooling.py": [
       "bulk_downloader/deep_http.py",

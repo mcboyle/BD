@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1592 - train17: 832 838-r2 865b 911-r3 + 2 HB pins
+
+Train: 6 refute-first-reviewed worker patches (O1008 pipeline, stacked on train16). Rows 832 838 865 911 CLOSED @1592. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate.
+
+- 832-bd-agy-worker6-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row832-bd-agy-worker6-local/DONE.md
+- 838-r2-local: STAGED PATHS: bulk_downloader/dom_structure_analyzer.py tests/test_row838_dom_analyzer.py
+- 865b-wt-local: RED COMMAND: ./venv/bin/python -m pytest -q tests/test_inmemory_sqlite_fixture.py (base: 7 failed) RED: ./venv/bin/pytest tests/test_inmemory_sqlite_fixture.py
+- 911-r3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row911-r3-local/DONE.md
+- hb-census-exact-count-pins-bd-agy-worker6-local: PATCH-SHA256: e3e5b5c293270d25b836d5923b11d8155a05960686b84dad7cf6804f3e73f94e (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/rowHB-census-exact-
+- hb-main-parity-bd_require_full_length-bd-agy-worker2-local: PATCH-SHA256: 82c5b9363ab215834b7143567b50c55f2f2b9ea6c1ad9102c7f379232ab7010f (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/rowHB-main-parity-B
+
 ## v3.66.1591 - train16: RB9 825-r3 916-r2-fx2 on c2a6320f
 
 Train: 2 refute-first-reviewed worker patches (RB9 re-rebase on c2a6320f). Rows 825 916 CLOSED @1591; row 864 CLOSED @1591 (O1017 CLOSED-BY-HARNESS, integrator patch). Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drop: w4-cdn403d-fx2-rb9 (in-train conflict with 916).

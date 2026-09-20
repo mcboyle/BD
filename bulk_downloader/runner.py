@@ -3468,11 +3468,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     template=self.config,
                     max_pages=max_pages,
                 )
+                virtual_selector = str(
+                    self.config.get("virtual_scroll_selector") or "").strip()
+                virtual_urls = self._collect_virtualized_media_urls(
+                    page, virtual_selector) if virtual_selector else []
             if not result.ok:
                 return []
             with self._lock:
                 self._listing_titles.update(result.titles or {})
-            return list(result.urls)
+            return list(dict.fromkeys([*result.urls, *virtual_urls]))
         except Exception as e:
             sys.stderr.write(
                 f"  playlist_expand: raised {type(e).__name__}: {e}\n")

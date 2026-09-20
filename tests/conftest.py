@@ -499,6 +499,10 @@ def pytest_configure(config):
         "slow: shells out to a whole-tree tool (tens of seconds or more). "
         "Runs by default; deselect with -m 'not slow'.",
     )
+    config.addinivalue_line(
+        "markers",
+        "inmemory_sqlite: run test with shared RAM-backed SQLite database.",
+    )
     # ITEM 46: cloakbrowser starts a daemon thread ON IMPORT that GETs its own
     # PyPI JSON once per process -- so once per xdist worker, landing on
     # whichever test happens to be running. Found by the stage-1 socket recorder
@@ -769,7 +773,45 @@ def isolated_bd_home(request, tmp_path):
 
 
 @pytest.fixture
-def clean_workdir(tmp_path, monkeypatch):
+def inmemory_sqlite(tmp_path, monkeypatch):
+    """Opt into one shared SQLite database held entirely in RAM."""
+    from bulk_downloader import db
+
+    uri = f"file:row865-{tmp_path.name}?mode=memory&cache=shared"
+    original_connect = db.sqlite3.connect
+    anchor = original_connect(uri, uri=True)
+
+    def connect(path, *args, **kwargs):
+        # Any file: URI (ours, or ours after path handling) or references to
+        # downloader_history.db when in-memory mode is active must connect to the
+        # shared in-memory database.
+        if isinstance(path, str) and (
+            path.startswith("file:")
+            or path.endswith("downloader_history.db")
+            or path == "downloader_history.db"
+        ):
+            kwargs["uri"] = True
+            return original_connect(uri, *args, **kwargs)
+        return original_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(db, "DB_PATH", uri)
+    # The resolution seam, not just DB_PATH: with BD_INSTALL_DIR set (clean_workdir /
+    # fresh_app) _resolve_db_path() would prefix the install dir to the URI and open a
+    # DISK file named "file:row865-...". Resolve to the URI verbatim instead.
+    monkeypatch.setattr(db, "_resolve_db_path", lambda: uri)
+    monkeypatch.setattr(db.sqlite3, "connect", connect)
+    try:
+        yield uri
+    finally:
+        idle = getattr(db._DB_CONN_LOCAL, "idle", None)
+        if idle is not None:
+            db._DB_CONN_LOCAL.idle = None
+            db._close_history_conn(idle[1])
+        anchor.close()
+
+
+@pytest.fixture
+def clean_workdir(tmp_path, monkeypatch, request):
     """Run a test in a clean temp directory. The runner's various state
     files (sites_config.json, downloader_history.db, profiles/) get
     created here and discarded at test end.
@@ -780,12 +822,14 @@ def clean_workdir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BD_INSTALL_DIR", str(tmp_path))
     monkeypatch.setenv("BD_TEST_MODE", "1")
+    if os.environ.get("BD_TEST_INMEMORY_DB", "0") == "1" or request.node.get_closest_marker("inmemory_sqlite"):
+        request.getfixturevalue("inmemory_sqlite")
     yield tmp_path
 
 
 
 @pytest.fixture
-def fresh_app(clean_workdir, monkeypatch):
+def fresh_app(clean_workdir, inmemory_sqlite, monkeypatch):
     """Yield a fresh Flask test client. The app module is heavyweight
     (imports playwright transitively); we import lazily so non-app tests
     don't pay the cost."""

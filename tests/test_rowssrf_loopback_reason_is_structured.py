@@ -118,6 +118,10 @@ _NONCANONICAL_SAME_NAME_CALLS = {
     "toolchain/bin/bdtools_sec.py": {"_classify_ip": 3},
 }
 
+_EXPECTED_TOTAL_SITES = sum(
+    sum(counts.values()) for counts in _EXPECTED_RUNTIME_CONSUMERS.values()
+)
+
 
 class _FixtureResponse:
     def __init__(self, url: str):
@@ -916,8 +920,8 @@ def test_runtime_consumer_census_judges_every_site_without_english_decisions():
     }
     assert measured == expected
     assert noncanonical == expected_noncanonical
-    assert sum(sum(counts.values()) for counts in measured.values()) == 35
-    assert judged == 35
+    assert sum(sum(counts.values()) for counts in measured.values()) == _EXPECTED_TOTAL_SITES
+    assert judged == _EXPECTED_TOTAL_SITES
     _assert_consumer_verdict(judged, escapes)
 
 
@@ -946,9 +950,9 @@ def test_consumer_census_rejects_reason_text_startswith_decision(monkeypatch):
         f"bulk_downloader/app_template.py:{mutant_line}:"
         "_host_why:startswith:['refusing']")
     assert observed == [target]
-    assert judged == 35
+    assert judged == _EXPECTED_TOTAL_SITES
     assert escapes == [expected]
-    with pytest.raises(AssertionError, match=r"census 35 sites, 35 judged"):
+    with pytest.raises(AssertionError, match=rf"census {_EXPECTED_TOTAL_SITES} sites, {_EXPECTED_TOTAL_SITES} judged"):
         _assert_consumer_verdict(judged, escapes)
 
 
@@ -993,7 +997,7 @@ def test_consumer_census_rejects_every_reason_text_decision_form(
     expected = (
         f"bulk_downloader/app_template.py:{mutant_line}:"
         f"_host_why:{kind}:{expected_strings!r}")
-    assert judged == 35
+    assert judged == _EXPECTED_TOTAL_SITES
     assert escapes == [expected]
 
 
@@ -1035,7 +1039,7 @@ def test_consumer_census_resolves_alias_and_ignores_unreachable_decoy(
         "_host_why:in:['refusing']")
     assert measured["bulk_downloader/app_template.py"] == Counter(
         {"_is_safe_public_host": 2, "_classify_ip": 2})
-    assert judged == 35
+    assert judged == _EXPECTED_TOTAL_SITES
     assert escapes == [expected_escape]
 
 
@@ -1070,7 +1074,7 @@ def test_consumer_census_finds_alias_only_consumer_in_new_file(monkeypatch):
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     measured, _noncanonical, judged, escapes = _consumer_census()
     assert measured[synthetic_rel] == Counter({"_is_safe_public_host": 1})
-    assert judged == 36
+    assert judged == _EXPECTED_TOTAL_SITES + 1
     assert escapes == []
 
 
@@ -1123,7 +1127,7 @@ def test_consumer_census_rejects_text_decisions_in_indirect_consumers(
 
     monkeypatch.setattr(Path, "read_text", fixture_read_text)
     _measured, _noncanonical, judged, escapes = _consumer_census()
-    assert judged == 35
+    assert judged == _EXPECTED_TOTAL_SITES
     assert len(escapes) == 5
     assert Counter(item.split(":", 1)[0] for item in escapes) == Counter({
         "bulk_downloader/multi_conn.py": 2,
