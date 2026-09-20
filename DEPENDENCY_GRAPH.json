@@ -2370,7 +2370,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1758,
+    "edge_count": 1760,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3901,7 +3901,8 @@
       ],
       "bulk_downloader/integrity.py": [
         "bulk_downloader/runner.py",
-        "bulk_downloader/runner_integrity.py"
+        "bulk_downloader/runner_integrity.py",
+        "bulk_downloader/satellite_video.py"
       ],
       "bulk_downloader/interop_registry.py": [
         "bulk_downloader/app_interop.py",
@@ -4406,6 +4407,9 @@
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/hls_downloader.py",
         "bulk_downloader/live_recorder.py"
+      ],
+      "bulk_downloader/satellite_video.py": [
+        "bulk_downloader/integrity.py"
       ],
       "bulk_downloader/saved_searches.py": [
         "bulk_downloader/app.py",
@@ -6707,7 +6711,8 @@
         "bulk_downloader/netlog_classify.py"
       ],
       "bulk_downloader/integrity.py": [
-        "bulk_downloader/ffmpeg_bin.py"
+        "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/satellite_video.py"
       ],
       "bulk_downloader/interstitial.py": [
         "bulk_downloader/registrable_domain.py"
@@ -7226,6 +7231,9 @@
       ],
       "bulk_downloader/runtime_flags.py": [
         "bulk_downloader/global_config.py"
+      ],
+      "bulk_downloader/satellite_video.py": [
+        "bulk_downloader/integrity.py"
       ],
       "bulk_downloader/saved_searches.py": [
         "bulk_downloader/db.py",
@@ -8183,7 +8191,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 230,
+    "total": 231,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",

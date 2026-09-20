@@ -4,6 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1579 - train3b: rows 860 862 874 876 888 892 920 921
+
+Train: 8 refute-first-reviewed worker patches (base e020e3b7). Rows 860 862 874 876 888 892 920 921 CLOSED @1579.
+
+- row860 (tools/esxi_vm_clone_harness.py): ephemeral ESXi VM fast-cloning harness for hermetic runners.
+- row862 (satellite_video.py, integrity.py): satellite NVENC/QSV hardware video processing with validation.
+- row874 (direct_writer.py): zero-copy direct-I/O media writer (Linux O_DIRECT).
+- row876 (entity_resolver.py): automated metadata canonicalization and entity resolution.
+- row888 (socks5_pool.py): SOCKS5 proxy-pool rotation for load distribution.
+- row892 (traffic_shaper.py): bandwidth budgeting and token-bucket traffic shaping.
+- row920 (toolchain/bin/bd-template-verify): automated template drift monitoring and regression matrix.
+- row921 (toolchain/bin/bd-template-lint): static AST schema and selector validator for templates.
+- Dropped from train3 (O965 drop rule, re-review): row877 (DP-13 ratchet), row823 (SSRF egress census), row910 (unpin spec), row882 (published-denominator pin).
+
 ## v3.66.1578 - train2d: rows 854 901 902 905 951 gate-fix-1 + O957 register correction (O972)
 
 Train: 6 refute-first-reviewed worker patches (base 6d3a4899) plus one register correction.

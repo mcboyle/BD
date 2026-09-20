@@ -74,13 +74,22 @@ def verify_media_integrity(path):
     """Format-aware integrity check over the saved file. Returns (ok, reason).
 
     Dispatches on extension: zips -> zipfile test, images -> magic header,
-    everything else (video/audio and unknown) -> the ffprobe check below."""
+    eligible video -> satellite video offload with fail-soft local fallback,
+    everything else (audio and unknown) -> the ffprobe check below."""
     import os
     ext = os.path.splitext(str(path))[1].lower()
     if ext == ".zip":
         return _verify_zip(path)
     if ext in _IMAGE_MAGIC:
         return _verify_image(path, ext)
+    # Row 862: Route eligible video validation to approved LAN hardware acceleration
+    try:
+        from . import satellite_video
+        if satellite_video.is_eligible_for_offload(path):
+            return satellite_video.validate_video_rpc(path)
+    except Exception as _e:
+        _ = str(_e)
+        return _verify_with_ffprobe(path)
     return _verify_with_ffprobe(path)
 
 

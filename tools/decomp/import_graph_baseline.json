@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4584,
+  "edge_count": 4593,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1455,7 +1455,8 @@
       "bulk_downloader/netlog_classify.py"
     ],
     "bulk_downloader/integrity.py": [
-      "bulk_downloader/ffmpeg_bin.py"
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/satellite_video.py"
     ],
     "bulk_downloader/interstitial.py": [
       "bulk_downloader/registrable_domain.py"
@@ -1974,6 +1975,9 @@
     ],
     "bulk_downloader/runtime_flags.py": [
       "bulk_downloader/global_config.py"
+    ],
+    "bulk_downloader/satellite_video.py": [
+      "bulk_downloader/integrity.py"
     ],
     "bulk_downloader/saved_searches.py": [
       "bulk_downloader/db.py",
@@ -4461,6 +4465,18 @@
       "bulk_downloader/app_config.py",
       "bulk_downloader/app_sites_id_core.py"
     ],
+    "tests/test_row874_direct_writer.py": [
+      "bulk_downloader/direct_writer.py"
+    ],
+    "tests/test_row876_entity_resolver.py": [
+      "bulk_downloader/entity_resolver.py"
+    ],
+    "tests/test_row888_socks5_pool.py": [
+      "bulk_downloader/socks5_pool.py"
+    ],
+    "tests/test_row892_traffic_shaper.py": [
+      "bulk_downloader/traffic_shaper.py"
+    ],
     "tests/test_row901.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runner_transport.py"
@@ -4546,6 +4562,11 @@
       "bulk_downloader/takeover_vnc.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/watch_folder.py"
+    ],
+    "tests/test_satellite_video_validation.py": [
+      "bulk_downloader/integrity.py",
+      "bulk_downloader/satellite_video.py",
+      "tools/fixture_site.py"
     ],
     "tests/test_secret_display_never.py": [
       "bulk_downloader/app.py",

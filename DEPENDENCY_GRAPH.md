@@ -10,8 +10,8 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1758**
-- tools: 230 · with internal edge: 133 · with tool→package edge: 74
+- internal import edges: **1760**
+- tools: 231 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 161 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
