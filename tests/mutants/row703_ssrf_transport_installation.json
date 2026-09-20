@@ -305,7 +305,7 @@
     {
       "label": "unpin bulk_downloader/runner_transport.py::_do_direct_http_download",
       "file": "bulk_downloader/runner_transport.py",
-      "old_regex": "(?<=with owning_stream\\(\\n                httpx\\.Client\\(transport=)(?=guarded_transport\\(PINNED, proxy=proxy_url\\))",
+      "old_regex": "(?<=httpx\\.Client\\(\\n                            transport=)(?=guarded_transport\\(PINNED, proxy=selected_proxy\\))",
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"

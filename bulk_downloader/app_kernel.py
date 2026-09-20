@@ -109,6 +109,7 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             #  spillover_threshold_pct — % free below which a dir is
             #                            skipped (default 5.0)
             "post_download_cmd", "post_download_timeout",
+            "kafka_event_streaming_enabled",
             "webhook_urls", "webhook_events",
             "stash_enabled", "stash_url", "stash_api_key",
             "plex_enabled", "plex_url", "plex_token", "plex_section_id",
@@ -562,6 +563,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           "auto_teach_first_run":True,
           # Phase 20: hooks default to off; user opts in per-site.
           "post_download_cmd":"","post_download_timeout":120,
+          "kafka_event_streaming_enabled":False,
           "webhook_urls":"","webhook_events":"completed,failed,low_disk",
           "stash_enabled":False,"stash_url":"","stash_api_key":"",
           "plex_enabled":False,"plex_url":"","plex_token":"","plex_section_id":"",

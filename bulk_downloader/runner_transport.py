@@ -18,6 +18,7 @@ runner.py still references the same flags); flat-sibling imports are idempotent.
 import contextlib, json, math, os, re, shutil, sqlite3, sys, threading, time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from playwright.sync_api import TimeoutError as PWTimeout
 
@@ -93,6 +94,117 @@ def _finite_config_float(raw, default):
     if not math.isfinite(v):
         return float(default)
     return v
+
+
+GATEWAY_QUARANTINE_BASE_SEC = 30.0
+GATEWAY_QUARANTINE_MAX_SEC = 15 * 60.0
+
+
+class RegionalGatewayRouter:
+    """Choose configured regional egress and quarantine failed gateways.
+
+    Route keys are hostname suffixes.  The router is deliberately a small,
+    stateful policy object: failures are shared by one runner, locking keeps
+    concurrent workers from selecting a just-failed gateway, and one request
+    can attempt each configured gateway at most once.
+    """
+
+    def __init__(self, routes, health_check=None):
+        self._routes = {
+            str(domain).lower().strip("."): tuple(
+                str(gateway).strip() for gateway in gateways if str(gateway).strip())
+            for domain, gateways in (routes or {}).items()
+            if isinstance(gateways, (list, tuple)) and gateways
+        }
+        self._health_check = health_check or (lambda _gateway: True)
+        # row916 fixer (E3): quarantine is TIMED, not permanent -- a failed
+        # gateway is skipped for a window that doubles per consecutive
+        # failure (capped), then re-offered through the health check.
+        self._failed = {}          # gateway -> quarantine expiry (monotonic)
+        self._failure_streak = {}  # gateway -> consecutive failures
+        self._lock = threading.Lock()
+
+    def _gateways_for(self, host):
+        host = str(host or "").lower().strip(".")
+        matches = [domain for domain in self._routes
+                   if host == domain or host.endswith("." + domain)]
+        return self._routes[max(matches, key=len)] if matches else ()
+
+    def _quarantined(self, gateway, now):
+        expiry = self._failed.get(gateway)
+        if expiry is None:
+            return False
+        if now < expiry:
+            return True
+        del self._failed[gateway]  # window elapsed: eligible again (health check decides)
+        return False
+
+    def _quarantine(self, gateway):
+        with self._lock:
+            streak = self._failure_streak.get(gateway, 0) + 1
+            self._failure_streak[gateway] = streak
+            window = min(GATEWAY_QUARANTINE_MAX_SEC,
+                         GATEWAY_QUARANTINE_BASE_SEC * (2 ** (streak - 1)))
+            self._failed[gateway] = time.monotonic() + window
+
+    def _recovered(self, gateway):
+        with self._lock:
+            self._failed.pop(gateway, None)
+            self._failure_streak.pop(gateway, None)
+
+    def has_route(self, host):
+        return bool(self._gateways_for(host))
+
+    def resolve(self, host, attempted=()):
+        """Return the next healthy configured gateway, or ``None``."""
+        now = time.monotonic()
+        attempted = set(attempted)
+        for gateway in self._gateways_for(host):
+            with self._lock:
+                quarantined = self._quarantined(gateway, now)
+            if quarantined or gateway in attempted:
+                continue
+            try:
+                if self._health_check(gateway):
+                    return gateway
+            except Exception:
+                continue
+        return None
+
+    def route_request(self, host, send):
+        """Run ``send(gateway)`` and retry only connection-level failures.
+
+        row916 fixer (E2): a host with NO configured regional route is a
+        clear-net request -- ``send(None)`` (direct), never an error. Only a
+        host that HAS routes and finds none healthy raises.
+        """
+        if not self.has_route(host):
+            return send(None)
+        last_error = None
+        attempted = set()
+        while True:
+            gateway = self.resolve(host, attempted)
+            if gateway is None:
+                if last_error is not None:
+                    raise last_error
+                raise ConnectionError("no healthy regional gateway for %s" % host)
+            attempted.add(gateway)
+            try:
+                result = send(gateway)
+            except _regional_connection_errors() as exc:
+                last_error = exc
+                self._quarantine(gateway)
+                continue
+            self._recovered(gateway)
+            return result
+
+
+def _regional_connection_errors():
+    """Transport errors that mean retrying the exact request is safe."""
+    if _HTTPX_AVAILABLE:
+        return (ConnectionError, OSError, httpx.ConnectError, httpx.ReadError,
+                httpx.ConnectTimeout)
+    return (ConnectionError, OSError)
 
 
 # ── row 722 (G29): a URL leaf that only names a FORMAT or a TIER is no name ──
@@ -758,6 +870,24 @@ def _pick_download_option(options, toggle_label, best, quality_preference,
 
 
 class TransportMixin:
+    def _regional_gateway_router(self):
+        """Return this runner's regional policy router, if configured.
+
+        Regional routing is opt-in.  Keeping the router on the runner makes a
+        failed gateway stay quarantined for its sibling worker requests rather
+        than retrying a known-bad route for every queued item.
+        """
+        routes = self.config.get("regional_gateway_routes")
+        if not isinstance(routes, dict) or not routes:
+            return None
+        router = getattr(self, "_regional_gateway_router_state", None)
+        if router is None:
+            health_check = self.config.get("regional_gateway_health_check")
+            router = RegionalGatewayRouter(
+                routes, health_check=health_check if callable(health_check) else None)
+            self._regional_gateway_router_state = router
+        return router
+
     def _register_daily_byte_accumulator(self, accumulator):
         """Expose an active transfer's pending accounting to pause/stop."""
         if accumulator is None:
@@ -1071,11 +1201,28 @@ class TransportMixin:
         timeout = httpx.Timeout(connect=15.0, read=60.0, write=60.0, pool=15.0)
         try:
             from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
-            with owning_stream(
-                httpx.Client(transport=guarded_transport(PINNED, proxy=proxy_url)),
-                "GET", file_url, headers=headers, timeout=timeout,
-                follow_redirects=True,
-            ) as r:
+            # Explicit proxy / proxy-pool / VPN resolution happens first and
+            # wins.  A regional policy only supplies egress for a clear-net
+            # request, so it cannot defeat the existing fail-closed VPN path.
+            router = None
+            host = urlsplit(file_url).hostname
+            if not proxy_url and host:
+                router = self._regional_gateway_router()
+            with contextlib.ExitStack() as response_stack:
+                def _open_stream(selected_proxy):
+                    return response_stack.enter_context(owning_stream(
+                        httpx.Client(
+                            transport=guarded_transport(PINNED, proxy=selected_proxy)),
+                        "GET", file_url, headers=headers, timeout=timeout,
+                        follow_redirects=True,
+                    ))
+
+                # The retry wraps context entry, where httpx performs the
+                # connection.  Thus a ConnectError/ReadError/ConnectTimeout
+                # from the primary actually opens the exact same request via
+                # the next gateway instead of merely selecting an unused one.
+                r = (router.route_request(host, _open_stream)
+                     if router is not None else _open_stream(proxy_url))
                 if r.status_code != 200:
                     sys.stderr.write(
                         f"  direct_http: HTTP {r.status_code} from {file_url[:80]}\n"
@@ -1869,6 +2016,7 @@ class TransportMixin:
         URL straight off the element. Skips Playwright's expect_download
         entirely — saves 5-10 seconds per URL and dodges signed-URL race
         conditions on sites with short-lived URLs."""
+        _download_started = time.monotonic()
         # Normally captured in _process_one before page-specific extractors.
         # Keep this idempotent call at the transport boundary for direct
         # callers and for any future path that enters with an already-open page.
@@ -2726,6 +2874,17 @@ class TransportMixin:
                 })
             except Exception as e:
                 sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
+            try:
+                from .events import publish_download_completion
+                publish_download_completion(
+                    self.config,
+                    downloaded_bytes=file_size_on_disk,
+                    duration_seconds=time.monotonic() - _download_started,
+                    site_id=self.site_id,
+                    status="completed",
+                )
+            except Exception as e:
+                sys.stderr.write(f"  kafka event hook failed: {e}\n")
             # v3.43.28: deep Stash enrichment. Runs after the basic scan
             # trigger (above, in fire_event) has had time to start. The
             # enrichment method polls Stash for ~10s waiting for the scene

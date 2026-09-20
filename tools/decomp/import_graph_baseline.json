@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4726,
+  "edge_count": 4734,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1901,6 +1901,7 @@
     "bulk_downloader/runner_extractors.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
+      "bulk_downloader/events.py",
       "bulk_downloader/extractors.py",
       "bulk_downloader/extractors_aylo.py",
       "bulk_downloader/extractors_dl8.py",
@@ -1999,6 +2000,7 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/download_supervisor.py",
+      "bulk_downloader/events.py",
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/hls_downloader.py",
@@ -4620,6 +4622,11 @@
       "bulk_downloader/embeddings_client.py",
       "tools/ssrf_client_census.py"
     ],
+    "tests/test_row825_kafka_event_streamer.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/events.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
     "tests/test_row826_satellite_reranker.py": [
       "bulk_downloader/semantic_search.py"
     ],
@@ -4725,6 +4732,11 @@
     ],
     "tests/test_row912.py": [
       "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_row916.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
