@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4768,
+  "edge_count": 4772,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3100,6 +3100,9 @@
     "tests/test_dom_overlay.py": [
       "bulk_downloader/dom_overlay.py"
     ],
+    "tests/test_dom_pruner.py": [
+      "bulk_downloader/dom_pruner.py"
+    ],
     "tests/test_dom_recorder_asi.py": [
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/dom_recorder.py"
@@ -4783,6 +4786,10 @@
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_row903.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
+    ],
     "tests/test_row904.py": [
       "bulk_downloader/runner_browser.py"
     ],
@@ -4803,6 +4810,9 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_row917.py": [
+      "bulk_downloader/app_sites_teach.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

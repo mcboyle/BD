@@ -4,6 +4,7 @@ Handlers attach to the SHARED sites_bp (imported from .app_sites); the routing s
 (rule, methods, bare-name) is byte-identical -- test_route_map_invariant diffs EMPTY.
 """
 from __future__ import annotations
+import ast
 import os as _os
 import json
 import os
@@ -29,6 +30,160 @@ from .app_sites import (
     _teach_cors_response,
     sites_bp,
 )
+
+
+# ── Row 917: bd-teach-auto -- schema synthesis from recorded teach sessions ──
+#
+# The manual teach flow (teach_commit, above/below) turns a recording into
+# selectors merged into ONE site's live config. bd-teach-auto instead turns
+# the same recording into a standalone, typed, executable extraction
+# template module under site_templates/ -- reusable across sites the same
+# way the hand-authored site_templates/_data_*.py files are, without a human
+# hand-transcribing DOM selectors from the recording.
+
+_SITE_TEMPLATES_DIR = Path(__file__).resolve().parent / "site_templates"
+_CLASS_NAME_SPLIT_RE = re.compile(r"[^0-9a-zA-Z]+")
+
+
+def _derive_selectors_for_synthesis(picks=None, raw_events=None):
+    """Same precedence rule as `TeachMixin.teach_commit`: selectors inferred
+    from `raw_events` (via the production click-classifier) are the base;
+    any selector explicitly present in `picks` overrides it. Kept as its own
+    function (rather than duplicated inline) so schema synthesis can never
+    silently drift from what a live teach_commit would have learned."""
+    picks = picks or {}
+    sels = {}
+    if raw_events:
+        try:
+            from .learn_impl.classify import classify_download
+            sels = classify_download({"clicks": raw_events}) or {}
+        except Exception:
+            sels = {}
+    if picks.get("row_selectors"):
+        sels["row_selectors"] = picks["row_selectors"]
+    if picks.get("trigger_selectors"):
+        sels["trigger_selectors"] = picks["trigger_selectors"]
+    if picks.get("url_attribute"):
+        sels["url_attribute"] = picks["url_attribute"]
+    return sels
+
+
+def _class_name_for_sid(sid: str) -> str:
+    parts = [p for p in _CLASS_NAME_SPLIT_RE.split(str(sid or "")) if p]
+    name = "".join(p[:1].upper() + p[1:] for p in parts) if parts else "Site"
+    if name[:1].isdigit():
+        name = "T" + name
+    return f"{name}AutoTemplate"
+
+
+def _module_name_for_sid(sid: str) -> str:
+    slug = _CLASS_NAME_SPLIT_RE.sub("_", str(sid or "site")).strip("_").lower()
+    return f"_data_{slug or 'site'}_auto"
+
+
+def synthesize_template_source(sid, picks=None, raw_events=None):
+    """Build the Python source for a typed, executable extraction template
+    class synthesized from one recorded teach session.
+
+    Returns (class_name, module_name, source_text). Raises ValueError when
+    no row_selectors could be derived -- a template with no selectors can
+    never extract anything, so it is refused rather than emitted as a
+    silently-empty stub that would look like a successful capture."""
+    sels = _derive_selectors_for_synthesis(picks, raw_events)
+    row_selectors = [str(s) for s in (sels.get("row_selectors") or []) if str(s).strip()]
+    if not row_selectors:
+        raise ValueError("no row_selectors could be derived from this teach session")
+    trigger_selectors = [str(s) for s in (sels.get("trigger_selectors") or []) if str(s).strip()]
+    url_attribute = str(sels.get("url_attribute") or "href")
+
+    tid = f"{sid}_auto"
+    class_name = _class_name_for_sid(sid)
+    module_name = _module_name_for_sid(sid)
+    from datetime import timezone
+    generated_at = datetime.now(timezone.utc).isoformat()
+    tmpl_name = f"Auto-taught template for {sid}"
+    description = ("Auto-synthesized by bd-teach-auto from a recorded teach "
+                   f"session ({generated_at}).")
+
+    source = f'''"""{module_name} -- auto-synthesized by bd-teach-auto (row917) from a
+recorded teach session for site {sid!r}. Generated {generated_at}.
+Regenerate by re-running the capture; do not hand-edit blindly -- a fresh
+capture overwrites this file.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
+
+
+@dataclass
+class {class_name}:
+    """Typed, executable extraction template synthesized from one teach
+    session. extract() runs row_selectors against a page's HTML and returns
+    the matched rows (selector, text, resolved url)."""
+
+    id: str = {tid!r}
+    name: str = {tmpl_name!r}
+    row_selectors: List[str] = field(default_factory=lambda: {row_selectors!r})
+    trigger_selectors: List[str] = field(default_factory=lambda: {trigger_selectors!r})
+    url_attribute: str = {url_attribute!r}
+
+    def extract(self, html: str) -> List[Dict[str, Any]]:
+        """Static extractor: no fetch, no download -- runs row_selectors
+        against html (a captured page or a test DOM fixture) via BS4."""
+        if not html:
+            return []
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            return []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            return []
+        rows: List[Dict[str, Any]] = []
+        for sel in self.row_selectors:
+            try:
+                nodes = soup.select(sel)
+            except Exception:
+                continue
+            for node in nodes:
+                url = node.get(self.url_attribute) if self.url_attribute else None
+                rows.append({{"selector": sel, "text": node.get_text(strip=True)[:200], "url": url}})
+        return rows
+
+
+ITEMS = [
+    {{
+        "id": {tid!r},
+        "name": {tmpl_name!r},
+        "description": {description!r},
+        "patterns": [],
+        "learned": {{
+            "download": {{
+                "row_selectors": {row_selectors!r},
+                "trigger_selectors": {trigger_selectors!r},
+                "url_attribute": {url_attribute!r},
+            }},
+        }},
+    }},
+]
+'''
+    return class_name, module_name, source
+
+
+def write_synthesized_template(sid, picks=None, raw_events=None, *, dest_dir=None):
+    """Synthesize + AST-validate + write the template module to disk.
+
+    A template that fails to parse must never land as a file bd-teach-auto
+    claims succeeded -- `ast.parse` runs before the write, not after."""
+    class_name, module_name, source = synthesize_template_source(sid, picks, raw_events)
+    ast.parse(source)
+    target_dir = Path(dest_dir) if dest_dir is not None else _SITE_TEMPLATES_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / f"{module_name}.py"
+    path.write_text(source, encoding="utf-8")
+    return path, class_name, source
 
 
 # B1: a conservative age backstop for an in-flight capture marker, used only when

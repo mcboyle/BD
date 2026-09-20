@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1601 - train26: 903-fx3 917 925-fx4 + 4 HB/process cuts + register folds
+
+Train: 7 refute-first-reviewed worker patches (O1009 census; process-test-shard dropped post-PR) + register-122-close fold (O1068). Rows 903 917 925 CLOSED @1601; 122 CLOSED @1354 by evidence; 127 operator-action (O1069). Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 834-rb11 851 process-test-shard.
+
+- 903-fx3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row903-fx3-local/DONE.md
+- 917-local: STAGED PATHS (3): - bulk_downloader/app_sites_teach.py - tests/test_row917.py - tools/decomp/import_graph_baseline.json (O906 item 3, deterministic regen)
+- 925-fx4-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row925-fx4-local/DONE.md
+- hb-precollect-guard-base-check-bd-worker-a1-a-local: REFUTE ADDRESSED (VERDICT-correctness.md round 2, bd-review-correctness-A2-A, 2026-09-20T19:37:10Z): WRONG E3 (the row's own reported symptom, still present aft
+- hb-underived-weekly-census-bd-agy-worker1-local: CHANGE: Fixed candidate bd-underived-census.sh per integrator review #2: default REPO uses detached git worktree `git -C "$CANON" worktree add --detach "$SCRATC
+- hb-worker-band-ratchets-bd-agy-worker2-local: ## CANDIDATE AND HARNESS STAGE (O1045) STAGED-HARNESS: /home/mboyle/bd-persist/harness-work/FIX/worker-band-ratchets/bd-worker-band.sh PATCH: /home/mboyle/bd-pe
+- register-127-operator-action-local: PATCH-SHA256: c353c38c04774ae2de6ea6026dc399b4ddc1bfdf700b9a5eadb4c7bcd7899387 (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/rowregister-127-ope
+- register-122-close: SUMMARY MISSING -- read /home/mboyle/bd-cuts/cut/register-122-close/DONE.md
+
 ## v3.66.1600 - train25: 847-rb10 915-rb10 ci-docsonlyb-rb3
 
 Train: 3 refute-first-reviewed worker patches (O1009 census; survivors-t18-o592 dropped post-PR). Base caf2c614. Rows 847 915 CLOSED @1600. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate.

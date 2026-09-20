@@ -456,6 +456,35 @@ def _content_range_complete_length(value):
     return n if n >= 0 else None
 
 
+# Row 903: transient network disconnects vs. permanent per-URL failures.
+# A read timeout / connection reset / incomplete read mid-stream leaves
+# recoverable bytes on disk (the `.part` file `_http_download_claimed`
+# already resumes from via `Range: bytes=<offset>-`); the right response is
+# to retry the SAME url so that resume machinery is used. A 404/DNS/TLS
+# failure on this url will not resolve by retrying it, so those (and
+# everything not matched here) fall through to the next mirror as before.
+_TRANSIENT_DOWNLOAD_ERROR_RE = re.compile(
+    r"connection reset|connection aborted|broken pipe|"
+    r"remote end closed connection|incomplete(?: chunked)? read|"
+    r"read timed? ?out|readtimeout|connecttimeout|\btimed out\b|"
+    r"eof occurred|protocol error|forcibly closed|peer closed connection",
+    re.I)
+
+
+def _is_transient_download_error(exc):
+    """Whether `exc` (an `_HTTPDownloadFailed`, wrapping the original
+    error's message) looks like a mid-transfer network hiccup rather than a
+    permanent per-URL failure. Message-text match, not exception type:
+    `_http_download_claimed` collapses every underlying transport exception
+    (httpx.ReadTimeout, ConnectionResetError, curl_cffi's own errors, ...)
+    into one `_HTTPDownloadFailed(str(e))`, so the original type is gone by
+    the time a caller sees it."""
+    text = str(exc).lower()
+    if "stopped" in text or "rate" in text:
+        return False
+    return bool(_TRANSIENT_DOWNLOAD_ERROR_RE.search(text))
+
+
 _DAILY_ACCUMULATOR_REGISTRY_BOOTSTRAP_LOCK = threading.Lock()
 
 
@@ -2602,26 +2631,8 @@ class TransportMixin:
                     # alternates synthesized by swapping subdomains. We cap the
                     # attempts so a misconfigured list can't loop forever.
                     attempt_urls = [file_url] + self._build_mirror_urls(file_url)
-                    last_err = None
-                    downloaded_size = 0
-                    for attempt_url in attempt_urls[:6]:
-                        try:
-                            if attempt_url != file_url:
-                                self._update_job(page_url, "running",
-                                    f"Trying mirror: {self._extract_host(attempt_url)}")
-                                self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
-                            downloaded_size, bytes_fetched = self._http_download(
-                                page_url, page, ctx, attempt_url, final_path,
-                                **({"resource_url": file_url} if attempt_url != file_url else {}))
-                            break  # success
-                        except _HTTPDownloadFailed as e:
-                            last_err = e
-                            # Don't retry on stop signal or rate-limit
-                            s = str(e).lower()
-                            if "stopped" in s or "rate" in s: raise
-                            continue
-                    if downloaded_size == 0 and last_err is not None:
-                        raise last_err
+                    downloaded_size, bytes_fetched = self._run_http_attempts_with_resume(
+                        page_url, page, ctx, file_url, attempt_urls, final_path)
                 except _StagingUnavailable as e:
                     # part-staging-collision: another live download owns the .part
                     # this transfer would have staged into, or ownership could not
@@ -3010,6 +3021,54 @@ class TransportMixin:
                     continue
                 if not has_bytes:
                     staging_claim.release(claimed_path, identity)
+
+    def _run_http_attempts_with_resume(self, page_url, page, ctx, file_url,
+                                       attempt_urls, final_path,
+                                       max_transient_retries=3):
+        """Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+        failure on the SAME url (up to `max_transient_retries` times)
+        before moving to the next mirror.
+
+        `_http_download_claimed` already resumes a retried url from the
+        `.part` file's on-disk byte offset (`Range: bytes=<offset>-`), so a
+        same-url retry after a transient disconnect continues the transfer
+        instead of restarting it. Before this method existed, ANY failure
+        (transient or not) advanced straight to the next mirror -- and with
+        the common single-URL config (no mirrors), that meant one failed
+        attempt fell through to the Playwright browser fallback, which does
+        not use the `.part`/resume machinery at all, so a mid-download
+        disconnect on a multi-gigabyte file restarted from byte 0 (row 903
+        register-row evidence). A mirror swap still starts at byte 0 on
+        purpose -- it has no `.part` of its own to resume, and may be a
+        different host entirely.
+
+        Returns (downloaded_size, bytes_fetched) on success; raises the
+        last `_HTTPDownloadFailed` once every url/retry is exhausted."""
+        last_err = None
+        for attempt_url in attempt_urls[:6]:
+            retries_left = max_transient_retries if attempt_url == file_url else 0
+            while True:
+                try:
+                    if attempt_url != file_url:
+                        self._update_job(page_url, "running",
+                            f"Trying mirror: {self._extract_host(attempt_url)}")
+                        self.log_event("mirror", f"Falling back to {attempt_url[:80]}", url=page_url)
+                    return self._http_download(
+                        page_url, page, ctx, attempt_url, final_path,
+                        **({"resource_url": file_url} if attempt_url != file_url else {}))
+                except _HTTPDownloadFailed as e:
+                    last_err = e
+                    # Don't retry on stop signal or rate-limit.
+                    s = str(e).lower()
+                    if "stopped" in s or "rate" in s:
+                        raise
+                    if retries_left > 0 and _is_transient_download_error(e):
+                        retries_left -= 1
+                        self._update_job(page_url, "running",
+                            "Connection interrupted — resuming...")
+                        continue
+                    break
+        raise last_err
 
     def _http_download_claimed(
             self, page_url, page, ctx, file_url, final_path, ramdisk_claims,
