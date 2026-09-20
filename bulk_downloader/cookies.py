@@ -30,6 +30,21 @@ def normalize_stored_cookie(c):
     return e
 
 def load_cookies_from_file(path):
+    p = Path(path)
+    if not p.exists():
+        # Row 893: fallback to cluster vault if local cookie file does not exist
+        try:
+            from .vault_sync import get_vault_sync
+            vs = get_vault_sync()
+            if vs is not None:
+                sid = p.stem
+                if sid:
+                    sess = vs.get_session(sid, "0")
+                    if sess and "cookies" in sess and isinstance(sess["cookies"], list):
+                        return [normalize_stored_cookie(c) for c in sess["cookies"]]
+        except Exception:
+            pass
+        return []
     with open(path,"r",encoding="utf-8") as f: raw=json.load(f)
     items=[]
     for v in (raw.values() if isinstance(raw,dict) else [raw]):
@@ -91,6 +106,16 @@ def save_cookies_to_file(path, cookies, *, validate: bool = True):
     tmp.replace(p)
     if validate:
         _verify_cookie_roundtrip(p, expected_count=len(cookies))
+    # Row 893: synchronize encrypted session state to cluster vault
+    try:
+        from .vault_sync import get_vault_sync
+        vs = get_vault_sync()
+        if vs is not None:
+            sid = p.stem
+            if sid:
+                vs.set_session(sid, "0", {"cookies": cookies})
+    except Exception:
+        pass
     return p
 
 

@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1603 - train28: VaultSync callers wired (session_keeper, cookies, login submit)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- row893-fx4: VaultSync callers wired in session_keeper (_persist_cookies/_load_cookies_as_playwright), cookies (save/load_cookies_from_file) and login_impl/submit (do_login); hermetic MockRespServer test fixture, fallback_local=False default, origin-host fingerprint + replay/TTL enforcement. Row 893 stays OPEN.
+
 ## v3.66.1602 - train27: row 849 spectral upscale detector replaces VMAF scorer
 
 Train: 1 refute-first-reviewed worker patches.

@@ -2382,7 +2382,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1809,
+    "edge_count": 1812,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4892,6 +4892,11 @@
         "tools/validation_corpus.py",
         "tools/validation_harness.py"
       ],
+      "bulk_downloader/vault_sync.py": [
+        "bulk_downloader/cookies.py",
+        "bulk_downloader/login_impl/submit.py",
+        "bulk_downloader/session_keeper.py"
+      ],
       "bulk_downloader/vector_index.py": [
         "bulk_downloader/semantic_search.py"
       ],
@@ -6481,6 +6486,9 @@
         "bulk_downloader/cookie_quality.py",
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/cookies.py": [
+        "bulk_downloader/vault_sync.py"
+      ],
       "bulk_downloader/cost_economics.py": [
         "bulk_downloader/db.py"
       ],
@@ -6937,7 +6945,8 @@
         "bulk_downloader/log.py",
         "bulk_downloader/registrable_domain.py",
         "bulk_downloader/secrets_store.py",
-        "bulk_downloader/stealth.py"
+        "bulk_downloader/stealth.py",
+        "bulk_downloader/vault_sync.py"
       ],
       "bulk_downloader/login_templates_data.py": [
         "bulk_downloader/registrable_domain.py"
@@ -7460,6 +7469,7 @@
         "bulk_downloader/egress_identity.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/ssrf_transport.py",
+        "bulk_downloader/vault_sync.py",
         "bulk_downloader/vpn_runtime.py"
       ],
       "bulk_downloader/shares.py": [
