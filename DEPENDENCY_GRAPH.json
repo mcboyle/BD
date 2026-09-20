@@ -2382,7 +2382,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1805,
+    "edge_count": 1809,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3806,7 +3806,8 @@
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/stream_verifier.py",
         "bulk_downloader/thumbnail_gen.py",
-        "bulk_downloader/thumbnail_sheets.py"
+        "bulk_downloader/thumbnail_sheets.py",
+        "bulk_downloader/upscale_detector.py"
       ],
       "bulk_downloader/flaresolverr_client.py": [
         "bulk_downloader/app.py",
@@ -4855,6 +4856,11 @@
       "bulk_downloader/ui_events.py": [
         "bulk_downloader/app_global_config.py",
         "bulk_downloader/app_ui_events.py"
+      ],
+      "bulk_downloader/upscale_detector.py": [
+        "bulk_downloader/enrichment.py",
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_integrity.py"
       ],
       "bulk_downloader/urllib_ssrf.py": [
         "bulk_downloader/app_template.py",
@@ -6732,7 +6738,8 @@
         "bulk_downloader/drm_detect.py"
       ],
       "bulk_downloader/enrichment.py": [
-        "bulk_downloader/ffmpeg_bin.py"
+        "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/upscale_detector.py"
       ],
       "bulk_downloader/eol_export.py": [
         "bulk_downloader/account_health.py",
@@ -7198,6 +7205,7 @@
         "bulk_downloader/tier_probe.py",
         "bulk_downloader/tombstone.py",
         "bulk_downloader/tpdb.py",
+        "bulk_downloader/upscale_detector.py",
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/vpn_stats.py",
         "bulk_downloader/webhooks.py",
@@ -7291,7 +7299,8 @@
         "bulk_downloader/fname.py",
         "bulk_downloader/integrity.py",
         "bulk_downloader/mp4_metadata.py",
-        "bulk_downloader/stream_verifier.py"
+        "bulk_downloader/stream_verifier.py",
+        "bulk_downloader/upscale_detector.py"
       ],
       "bulk_downloader/runner_manual.py": [
         "bulk_downloader/app.py",
@@ -7596,6 +7605,9 @@
       ],
       "bulk_downloader/tus_client.py": [
         "bulk_downloader/hooks.py"
+      ],
+      "bulk_downloader/upscale_detector.py": [
+        "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/user_templates.py": [
         "bulk_downloader/selector_lint.py",
