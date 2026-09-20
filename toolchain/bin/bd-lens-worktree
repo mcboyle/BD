@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""bd-lens-worktree: Scoped sparse worktree manager for review lenses (Row 866).
+
+Creates lightweight, scoped Git worktrees using `git worktree add --no-checkout`
+and `git sparse-checkout` without altering unrelated repository state or deleting/resetting
+existing worktrees (Fleet Rule 22).
+
+Keeps worktree footprint strictly under 50 MB for high-efficiency lens inspection
+and review execution on test5.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Sequence
+
+# Row 866 acceptance: a scoped lens worktree stays strictly under this many MB.
+MAX_WORKTREE_MB = 50.0
+
+# Default lens scope: the WHOLE tree (every gate finds what a full checkout has:
+# reports/, project-knowledge/, tools/ ...) MINUS the recorded corpora under tests/
+# (tests/corpus ~72 MB, tests/fixtures ~20 MB, tests/mutants ~4 MB of the repo's
+# 141 MB) that alone blow the bound: 48.3 MB measured at b9d1c8f7. Gates that
+# need a corpus pass --scope/--exclude explicitly and accept the size that comes
+# with it.
+DEFAULT_SCOPE: list[str] = []          # [] = whole tree
+DEFAULT_EXCLUDE = ["tests/corpus", "tests/fixtures", "tests/mutants"]
+
+
+def sparse_patterns(scope: Sequence[str], exclude: Sequence[str]) -> list[str]:
+    """Non-cone sparse-checkout patterns: an empty scope is the whole tree; otherwise
+    root files plus the scoped dirs; then the excluded subdirs carved out (cone mode
+    cannot carve a subdirectory out of a scoped dir)."""
+    if scope:
+        pats = ["/*", "!/*/"] + [f"/{d.strip('/')}/" for d in scope]
+    else:
+        pats = ["/*"]
+    pats += [f"!/{d.strip('/')}/" for d in exclude]
+    return pats
+
+
+def get_worktree_size_bytes(worktree_path: Path | str) -> int:
+    """Calculate the on-disk size in bytes of checked-out files in the worktree,
+    excluding .git metadata and symlinks.
+    """
+    root = Path(worktree_path)
+    if not root.is_dir():
+        return 0
+    total = 0
+    for p in root.rglob("*"):
+        try:
+            if p.is_symlink():
+                continue
+            if ".git" in p.parts:
+                continue
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def get_worktree_size_mb(worktree_path: Path | str) -> float:
+    """Return the on-disk size in megabytes."""
+    return get_worktree_size_bytes(worktree_path) / (1024.0 * 1024.0)
+
+
+def create_sparse_lens_worktree(
+    repo_path: Path | str,
+    worktree_path: Path | str,
+    commit: str,
+    scope_dirs: Sequence[str] | None = None,
+    exclude_dirs: Sequence[str] | None = None,
+) -> dict:
+    """Create a scoped worktree using no-checkout plus sparse-checkout."""
+    repo = Path(repo_path).resolve()
+    wt = Path(worktree_path).resolve()
+
+    # Fleet Rule 22: never delete or reset an existing worktree
+    if wt.exists():
+        return {
+            "ok": False,
+            "error": f"worktree path already exists: {wt} (Fleet Rule 22: refuses overwrite/reset)",
+        }
+
+    scope = list(scope_dirs) if scope_dirs else list(DEFAULT_SCOPE)
+    # the default excludes apply to a custom scope too (scope=["tests"] would
+    # otherwise carry tests/corpus and blow the bound); the filter below
+    # drops the ones outside the scope, so nothing is carved out needlessly
+    exclude = list(exclude_dirs) if exclude_dirs is not None else list(DEFAULT_EXCLUDE)
+    if scope:  # an exclude outside every scoped dir is a no-op: drop it
+        exclude = [e for e in exclude if any(e.strip("/").startswith(d.strip("/") + "/") for d in scope)]
+
+    try:
+        # Step 0: resolve the ref to a commit sha FIRST. A branch name that is checked
+        # out in the source repo (or any other worktree) cannot be checked out again;
+        # every later step works on the detached sha, so branch inputs always work.
+        rev_proc = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if rev_proc.returncode != 0 or not rev_proc.stdout.strip():
+            return {"ok": False, "error": f"cannot resolve commit {commit!r}: {rev_proc.stderr.strip()}"}
+        sha = rev_proc.stdout.strip()
+
+        # Step 1: Add worktree with no checkout
+        add_proc = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "add", "--no-checkout", "--detach", str(wt), sha],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if add_proc.returncode != 0:
+            return {"ok": False, "error": f"git worktree add failed: {add_proc.stderr.strip()}"}
+
+        # Step 2: Initialize sparse-checkout (per-worktree isolated; non-cone so a
+        # subdirectory can be excluded from a scoped directory)
+        init_proc = subprocess.run(
+            ["git", "-C", str(wt), "sparse-checkout", "init", "--no-cone"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if init_proc.returncode != 0:
+            return {"ok": False, "error": f"git sparse-checkout init failed: {init_proc.stderr.strip()}"}
+
+        # Step 3: Set sparse scope patterns
+        set_proc = subprocess.run(
+            ["git", "-C", str(wt), "sparse-checkout", "set", "--no-cone"] + sparse_patterns(scope, exclude),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if set_proc.returncode != 0:
+            return {"ok": False, "error": f"git sparse-checkout set failed: {set_proc.stderr.strip()}"}
+
+        # Step 4: Check out only the scoped files (detached, at the resolved sha)
+        checkout_proc = subprocess.run(
+            ["git", "-C", str(wt), "checkout", "--detach", sha],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if checkout_proc.returncode != 0:
+            return {"ok": False, "error": f"git checkout failed: {checkout_proc.stderr.strip()}"}
+
+        sz_bytes = get_worktree_size_bytes(wt)
+        sz_mb = sz_bytes / (1024.0 * 1024.0)
+
+        if sz_mb >= MAX_WORKTREE_MB:
+            # Bound violated: report it as a failure. The worktree is NOT deleted
+            # (Fleet Rule 22) -- the caller sees the path and the measured size.
+            return {
+                "ok": False,
+                "path": str(wt),
+                "size_bytes": sz_bytes,
+                "size_mb": sz_mb,
+                "scope": scope,
+                "exclude": exclude,
+                "commit": sha,
+                "error": (f"scoped worktree is {sz_mb:.2f} MB, not under the {MAX_WORKTREE_MB:.0f} MB bound; "
+                          f"left in place at {wt} (Fleet Rule 22: never deleted)"),
+            }
+
+        return {
+            "ok": True,
+            "path": str(wt),
+            "size_bytes": sz_bytes,
+            "size_mb": sz_mb,
+            "scope": scope,
+            "exclude": exclude,
+            "commit": sha,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": f"failed to create sparse worktree: {exc}"}
+
+
+def tracked_populated_paths(worktree_path: Path | str) -> list:
+    """Tracked files below a directory that git reports as checked out
+    (``ls-files -t`` tag H); the empty list is a torn-down worktree. Raises
+    on a git failure so the caller reports it instead of assuming a NO."""
+    proc = subprocess.run(
+        ["git", "-C", str(worktree_path), "ls-files", "-t"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    paths = []
+    for line in proc.stdout.splitlines():
+        tag, _, path = line.partition(" ")
+        if tag == "H" and "/" in path:
+            paths.append(path)
+    return sorted(paths)
+
+
+def teardown_sparse_lens_worktree(
+    repo_path: Path | str,
+    worktree_path: Path | str,
+) -> dict:
+    """Shrink the lens worktree to its bare root and clear the lens's sparse
+    patterns, without deleting the worktree (Fleet Rule 22) and without
+    populating it: ``git sparse-checkout disable`` would check out the FULL
+    tree (an 8.5 MB scoped worktree became 140 MB), the opposite of what a
+    teardown of a storage-bounded worktree must do. The worktree stays a
+    registered, sparse worktree holding only its top-level files; the
+    parent repository's config is never touched."""
+    wt = Path(worktree_path).resolve()
+    if not wt.is_dir():
+        return {"ok": True, "cleaned": str(wt), "note": "directory does not exist"}
+
+    try:
+        before = get_worktree_size_bytes(wt)
+        # an empty non-cone pattern set: only files at the root remain checked
+        # out; every scoped directory is dropped from the working tree
+        set_proc = subprocess.run(
+            ["git", "-C", str(wt), "sparse-checkout", "set", "--no-cone", "/*", "!/*/"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if set_proc.returncode != 0:
+            return {"ok": False, "error": f"git sparse-checkout set (teardown) failed: {set_proc.stderr.strip()}"}
+        after = get_worktree_size_bytes(wt)
+        # Assert the TARGET state against git's own record: no TRACKED file
+        # below a scoped directory is checked out any more (ls-files -t tags
+        # a checked-out entry H, a sparse-dropped one S), and the worktree did
+        # not grow. Untracked runtime leftovers of the lens that ran here
+        # (.review/, .pytest_cache/, __pycache__/, a venv symlink) are not
+        # populated scope: they are reported, never deleted (Fleet Rule 22).
+        populated = tracked_populated_paths(wt)
+        if populated or after > before:
+            return {
+                "ok": False,
+                "error": (f"teardown left the worktree populated: tracked={populated[:10]}"
+                          f"{' ...' if len(populated) > 10 else ''}, size {before} -> {after} bytes"),
+            }
+        leftovers = sorted(p.name for p in wt.iterdir() if p.is_dir() and p.name != ".git")
+        return {"ok": True, "cleaned": str(wt), "sparse": True,
+                "size_before_bytes": before, "size_after_bytes": after,
+                "untracked_dirs": leftovers}
+    except Exception as exc:
+        return {"ok": False, "error": f"teardown failed: {exc}"}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Scoped sparse worktree manager for review lenses.")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    create_p = subparsers.add_parser("create", help="Create scoped sparse worktree")
+    create_p.add_argument("--repo", default=".", help="Base repository path")
+    create_p.add_argument("--worktree", required=True, help="Destination worktree directory")
+    create_p.add_argument("--commit", default="HEAD", help="Commit or branch to check out")
+    create_p.add_argument("--scope", nargs="*", default=None, help="Scoped directories (default: whole tree minus --exclude)")
+    create_p.add_argument("--exclude", nargs="*", default=None,
+                          help=f"Subdirectories carved out of the scope (default with the default scope: {' '.join(DEFAULT_EXCLUDE)})")
+
+    teardown_p = subparsers.add_parser("teardown", help="Teardown sparse state in worktree")
+    teardown_p.add_argument("--repo", default=".", help="Base repository path")
+    teardown_p.add_argument("--worktree", required=True, help="Target worktree directory")
+
+    size_p = subparsers.add_parser("size", help="Compute worktree checkout size")
+    size_p.add_argument("--worktree", required=True, help="Target worktree directory")
+
+    args = parser.parse_args()
+
+    if args.action == "create":
+        res = create_sparse_lens_worktree(args.repo, args.worktree, args.commit, args.scope, args.exclude)
+        if not res.get("ok"):
+            sys.stderr.write(f"error: {res.get('error')}\n")
+            return 1
+        print(f"Created sparse worktree at {res['path']} ({res['size_mb']:.2f} MB)")
+        return 0
+
+    if args.action == "teardown":
+        res = teardown_sparse_lens_worktree(args.repo, args.worktree)
+        if not res.get("ok"):
+            sys.stderr.write(f"error: {res.get('error')}\n")
+            return 1
+        print(f"Cleaned sparse state for {res['cleaned']}")
+        return 0
+
+    if args.action == "size":
+        sz_mb = get_worktree_size_mb(args.worktree)
+        print(f"{sz_mb:.2f} MB")
+        return 0
+
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

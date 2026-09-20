@@ -211,32 +211,44 @@ class TestFlakeClassifierAcceptance:
             or "STDERR_CRITICAL_FAILURE_TRACEBACK_88" in res.stdout
         ), f"stderr suppressed: stdout={res.stdout!r}, stderr={res.stderr!r}"
 
-    def test_retry_has_no_sleep_backoff(self, tmp_path):
+    def test_retry_has_no_sleep_backoff(self, tmp_path, monkeypatch):
         """(5) Test execution retry loop must not inject sleep backoff (E3 fix)."""
+        mod = load_classifier_module()
+        sleep_calls: list[float] = []
+        monkeypatch.setattr(mod.time, "sleep", lambda s: sleep_calls.append(s))
+        monkeypatch.setattr(time, "sleep", lambda s: sleep_calls.append(s))
+
         fail_script = tmp_path / "quick_fail.sh"
         fail_script.write_text("#!/bin/bash\nexit 1\n")
         fail_script.chmod(0o755)
 
         flakes_dir = tmp_path / "flakes"
-        cmd = [
-            sys.executable,
-            str(TOOLCHAIN_BIN),
-            "--flakes-dir",
-            str(flakes_dir),
-            "--retries",
-            "1",
-            "--test-id",
-            "tests/test_perf.py::test_no_sleep",
-            "--",
-            str(fail_script),
-        ]
+        classifier = mod.FlakeClassifier(flakes_dir=str(flakes_dir))
 
-        t0 = time.time()
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        elapsed = time.time() - t0
-        assert res.returncode != 0
-        # With sleep(0.1), elapsed is always >= 0.10s. Without sleep, subshell execution is < 0.09s.
-        assert elapsed < 0.09, f"Retry loop took {elapsed:.3f}s, expected < 0.09s (sleep backoff present)"
+        # 1. run_command_with_retry executes without sleep backoff
+        rc, record = classifier.run_command_with_retry(
+            cmd=[str(fail_script)],
+            test_id="tests/test_perf.py::test_no_sleep",
+            max_retries=1,
+        )
+        assert rc != 0
+        assert record.status == "fail"
+        assert record.attempts == 2
+
+        # 2. classify_test executes without sleep backoff
+        def failing_test():
+            return False, "AssertionError: immediate failure"
+
+        rec2 = classifier.classify_test(
+            test_id="tests/test_perf.py::test_no_sleep_func",
+            test_func=failing_test,
+            max_retries=1,
+        )
+        assert rec2.status == "fail"
+        assert rec2.attempts == 2
+
+        # Deterministic invariant: zero calls to time.sleep on retry path
+        assert sleep_calls == [], f"Retry loop injected sleep backoff: {sleep_calls}"
 
     def test_cli_execution_flake_keeps_build_green(self, tmp_path):
         """CLI invocation: Flaky test that passes on retry exits 0 (keeps build green)."""

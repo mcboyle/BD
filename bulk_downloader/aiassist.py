@@ -26,10 +26,15 @@ Vision calls take 4-12s; non-vision calls 1-3s. We cap timeouts at
 import hashlib
 import ipaddress
 import json
+import os
+import queue
 import re
 import socket
 import threading
 import time
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -89,6 +94,246 @@ _health = {
     "recent_latencies": [],  # rolling [(ts, ms, kind, ok)] — capped at 50
 }
 _health_lock = threading.Lock()
+
+
+# ── Langfuse Async LLM Observability & Cost Tracing (Row 829) ─────────
+_trace_queue: Optional[queue.Queue] = None
+_trace_worker_thread: Optional[threading.Thread] = None
+_trace_lock = threading.Lock()
+_trace_stop_event = threading.Event()
+_trace_stats: Dict[str, int] = {
+    "enqueued": 0,
+    "sent": 0,
+    "dropped": 0,
+    "errors": 0,
+}
+
+
+def _get_langfuse_host() -> str:
+    """Return configured LANGFUSE_HOST or empty string."""
+    return os.environ.get("LANGFUSE_HOST", "").strip()
+
+
+def _langfuse_worker() -> None:
+    """Background daemon thread draining trace spans to Langfuse."""
+    while not _trace_stop_event.is_set():
+        try:
+            if _trace_queue is None:
+                break
+            item = _trace_queue.get(timeout=0.2)
+        except (queue.Empty, AttributeError):
+            continue
+        if item is None:
+            break
+        try:
+            _send_trace_batch(item)
+            with _trace_lock:
+                _trace_stats["sent"] += 1
+        except Exception:
+            with _trace_lock:
+                _trace_stats["errors"] += 1
+        finally:
+            try:
+                if _trace_queue is not None:
+                    _trace_queue.task_done()
+            except (ValueError, AttributeError):
+                pass
+
+
+def _ensure_trace_worker() -> bool:
+    """Ensure queue and background worker are active if LANGFUSE_HOST is set."""
+    global _trace_queue, _trace_worker_thread
+    host = _get_langfuse_host()
+    if not host:
+        return False
+    if _trace_worker_thread is not None and _trace_worker_thread.is_alive():
+        return True
+    with _trace_lock:
+        if _trace_worker_thread is not None and _trace_worker_thread.is_alive():
+            return True
+        _trace_stop_event.clear()
+        _trace_queue = queue.Queue(maxsize=1000)
+        t = threading.Thread(target=_langfuse_worker, name="LangfuseTracer", daemon=True)
+        t.start()
+        _trace_worker_thread = t
+        return True
+
+
+def build_trace_payload(kind: str,
+                        model: str = "",
+                        prompt_tokens: int = 0,
+                        completion_tokens: int = 0,
+                        latency_ms: float = 0.0,
+                        ok: bool = True,
+                        error_category: Optional[str] = "",
+                        trace_id: Optional[str] = None,
+                        prompt: Optional[str] = None,
+                        completion: Optional[str] = None,
+                        metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Construct a conforming Langfuse trace payload (Row 829)."""
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    start_iso = (now - timedelta(milliseconds=float(latency_ms or 0.0))).isoformat()
+    tid = trace_id or str(uuid.uuid4())
+    span_id = str(uuid.uuid4())
+    total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+
+    meta = dict(metadata or {})
+    if error_category:
+        meta["error_category"] = error_category
+
+    batch = [
+        {
+            "id": span_id,
+            "type": "trace-create",
+            "timestamp": now_iso,
+            "body": {
+                "id": tid,
+                "name": f"aiassist.{kind}",
+                "metadata": meta,
+                "tags": ["bulk_downloader", "aiassist", kind],
+            },
+        },
+        {
+            "id": f"{span_id}-gen",
+            "type": "generation-create",
+            "timestamp": now_iso,
+            "body": {
+                "traceId": tid,
+                "name": kind,
+                # Langfuse measures span duration from these, not from
+                # "latency": the generation ended now and began latency_ms
+                # earlier (fixer, correctness E3).
+                "startTime": start_iso,
+                "endTime": now_iso,
+                "model": model or "unknown",
+                "prompt": prompt,
+                "completion": completion,
+                "usage": {
+                    "promptTokens": prompt_tokens or 0,
+                    "completionTokens": completion_tokens or 0,
+                    "totalTokens": total_tokens,
+                },
+                "latency": round(float(latency_ms) / 1000.0, 4) if latency_ms else 0.0,
+                "level": "DEFAULT" if ok else "ERROR",
+                "statusMessage": error_category if not ok else None,
+            },
+        },
+    ]
+
+    return {
+        "trace_id": tid,
+        "span_id": span_id,
+        "kind": kind,
+        "model": model,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "latency_ms": latency_ms,
+        "ok": ok,
+        "error_category": error_category or "",
+        "timestamp": now_iso,
+        "batch": batch,
+    }
+
+
+def _send_trace_batch(payload: Dict[str, Any]) -> None:
+    """Send batch ingestion payload to Langfuse API (runs in background worker)."""
+    host = _get_langfuse_host()
+    if not host:
+        return
+    url = f"{host.rstrip('/')}/api/public/ingestion"
+    body_bytes = json.dumps({"batch": payload.get("batch", [])}).encode("utf-8")
+    req = Request(url, data=body_bytes, headers={"Content-Type": "application/json"})
+
+    pub_key = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+    sec_key = os.environ.get("LANGFUSE_SECRET_KEY", "")
+    if pub_key or sec_key:
+        import base64
+        auth_header = base64.b64encode(f"{pub_key}:{sec_key}".encode("utf-8")).decode("ascii")
+        req.add_header("Authorization", f"Basic {auth_header}")
+
+    timeout = float(os.environ.get("LANGFUSE_TIMEOUT", "2.0"))
+    try:
+        # the pinned, redirect-guarded opener (row 728): LANGFUSE_HOST is an
+        # operator-configured sink (LAN allowed, like a local webhook), but a
+        # redirect off it is never followed to an arbitrary address
+        from .hooks import _hook_urlopen
+        with _hook_urlopen(req, timeout=timeout) as resp:
+            pass
+    except Exception:
+        # Graceful swallow in background thread -- never raises or affects caller
+        pass
+
+
+def record_trace(kind: str,
+                 model: str = "",
+                 prompt_tokens: int = 0,
+                 completion_tokens: int = 0,
+                 latency_ms: float = 0.0,
+                 ok: bool = True,
+                 error_category: str = "",
+                 **kwargs) -> None:
+    """Non-blocking trace submission hook. 0 impact on caller execution."""
+    host = _get_langfuse_host()
+    if not host:
+        return
+    if not _ensure_trace_worker():
+        return
+
+    payload = build_trace_payload(
+        kind=kind,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        latency_ms=latency_ms,
+        ok=ok,
+        error_category=error_category,
+        **kwargs
+    )
+
+    try:
+        if _trace_queue is not None:
+            _trace_queue.put_nowait(payload)
+            with _trace_lock:
+                _trace_stats["enqueued"] += 1
+    except (queue.Full, AttributeError):
+        with _trace_lock:
+            _trace_stats["dropped"] += 1
+
+
+def flush_traces(timeout: float = 2.0) -> None:
+    """Flush pending trace queue up to timeout."""
+    global _trace_queue
+    if _trace_queue is None:
+        return
+    q = _trace_queue
+    end = time.time() + timeout
+    # wait for every enqueued item to be *finished* (task_done in the
+    # worker), not merely dequeued: an in-flight send still counts.
+    with q.all_tasks_done:
+        while q.unfinished_tasks and time.time() < end:
+            q.all_tasks_done.wait(max(0.0, end - time.time()))
+
+
+def _reset_tracing() -> None:
+    """Reset tracing state (used by test fixtures and cleanup)."""
+    global _trace_queue, _trace_worker_thread
+    _trace_stop_event.set()
+    if _trace_queue is not None:
+        try:
+            _trace_queue.put_nowait(None)
+        except Exception:
+            pass
+    if _trace_worker_thread is not None and _trace_worker_thread.is_alive():
+        _trace_worker_thread.join(timeout=0.5)
+    with _trace_lock:
+        _trace_queue = None
+        _trace_worker_thread = None
+        _trace_stats["enqueued"] = 0
+        _trace_stats["sent"] = 0
+        _trace_stats["dropped"] = 0
+        _trace_stats["errors"] = 0
+    _trace_stop_event.clear()
 
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -414,6 +659,17 @@ def _call_model(prompt: str,
                                   temperature=temperature,
                                   max_tokens=max_tokens,
                                   timeout=timeout)
+    record_trace(
+        kind="inference",
+        model=getattr(result, "model", "") or _config.get("model_text", ""),
+        prompt_tokens=getattr(result, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(result, "completion_tokens", 0) or 0,
+        latency_ms=getattr(result, "latency_ms", 0.0) or 0.0,
+        ok=getattr(result, "ok", False),
+        error_category=getattr(result, "error_kind", "") or "",
+        prompt=prompt[:200] if prompt else None,
+        completion=getattr(result, "text", "")[:200] if getattr(result, "text", "") else None
+    )
     return result
 
 

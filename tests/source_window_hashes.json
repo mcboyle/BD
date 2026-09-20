@@ -250,9 +250,9 @@
       "sha256": "727d80ddb339c664b92b4220e9c52fd399ba034e5199148352b2dfa3085d0989"
     },
     {
-      "bytes": 1006,
+      "bytes": 1000,
       "key": "tests/test_v3_43_39_captcha_resolver.py::test_legacy_turnstile_solve_kept_as_alias::src[pos:pos + 1000]::1",
-      "sha256": "74f6155f088984a3190ba83d2d83e8b7f1550b27758c95b0b596d091959c4a45"
+      "sha256": "845475403b295f56e2070e78c0c50a4ebd0d8a7e8669f360a4a89e50b3b1646f"
     },
     {
       "bytes": 576,

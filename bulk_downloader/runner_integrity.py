@@ -346,6 +346,31 @@ class IntegrityMixin:
             self.log_event("corruption_retry",
                 f"Retrying after integrity failure: {reason}", url=page_url)
             return False, True, reason
+        # Row 868: automated container recovery before marking jobs failed
+        try:
+            from . import container_repair as _cr
+            _repaired = _cr.repair(final_path)
+            if _repaired.recovered and _repaired.output_path and _repaired.output_path.is_file():
+                # Verify the remux IN PLACE; the original is replaced only by a
+                # file that passed. A remux that fails is removed so the
+                # quarantine below receives the ORIGINAL bytes (acceptance 3:
+                # zero data corruption -- the download is never destroyed).
+                _re_ok, _re_reason = verify_media_integrity(_repaired.output_path)
+                if _re_ok:
+                    os.replace(str(_repaired.output_path), str(final_path))
+                    self.log_event(
+                        "container_repair",
+                        f"Recovered corrupt container via bitstream repair: {final_path.name}",
+                        url=page_url,
+                    )
+                    return True, False, _re_reason
+                try:
+                    _repaired.output_path.unlink()
+                except OSError:
+                    pass
+        except Exception as _e:
+            sys.stderr.write(f"  container_repair: {type(_e).__name__}: {_e}\n")
+
         # Either retry_on_corruption disabled or we already retried once
         quarantine = final_path.parent / "_failed"
         quarantine.mkdir(exist_ok=True)

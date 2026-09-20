@@ -250,6 +250,9 @@ fi
 df -h / | awk 'NR==2{print "disk free at start: "$4}'
 
 # ============================================================ 0. system base
+if [ "$HAVE_REPO" = 1 ] && [ -x "$REPO/toolchain/bin/bd-apt-cache" ]; then
+  step "apt cache proxy" optional "$REPO/toolchain/bin/bd-apt-cache" --configure
+fi
 step "apt update" optional bash -c "$SUDO apt-get update -qq"
 
 # The venv command below needs python3.12-venv on a stock host.  This package

@@ -4,6 +4,57 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1585 - train10: one big train (O1009) -- 47 cuts
+
+Train: 46 refute-first-reviewed worker patches (O1009 one big train; row660c-fx1 dropped per O1019). Base 372bac82. Rows 829 833 836 837 PARKED->OPEN->CLOSED (O978/O978b). Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: see .train/bounced.tsv.
+
+- precut-ratchet-advisory-local: ACCEPTANCE EVIDENCE: 1. E1 fix: On bd-ratchet rc3 under default env (no BD_RATCHET_BLOCK), bd-precut continues with rc 0, prints delta line, writes <wt>/.review
+- 877-local: SEAMS: - bulk_downloader/db_maintenance.py: - detect_index_bloat: detects index page fragmentation and bloat across SQLite and PostgreSQL - run_postgres_mainten
+- 846-local: ## FIXER (O928) 2026-09-20T01:02:20Z bd-integrator-A -- VERDICT-correctness REFUTE E1-E4 (HIGH) E1: remux maps every stream (-map 0 -c copy): two-audio-track fi
+- 879-local: ## STAGED FILES - `bulk_downloader/telemetry_db.py` - `tests/test_row879_telemetry_db.py`
+- 859-zero-copy-assembly-local: BASE: 163c3f72156e6ffe9070042195b20a267e47efe3 Staged (git diff --cached <base> --name-only, 3 paths): bulk_downloader/file_assembler.py tests/test_zero_copy_as
+- 836-local: ## STAGED FILES - `bulk_downloader/media_server_sync.py` - `tests/test_row836_media_server_sync.py`
+- 880-local: RED: on unmodified base, tests/test_row880_sqlite_cdc.py does not exist (git stash -u; pytest -> "ERROR: file or directory not found"). GREEN: pytest tests/test
+- 842-local: ## FIXER (O928) bd-integrator-A 2026-09-20T02:36:43Z -- REFUTE items 1-4 (bd-review-wt/row842-local/.review/VERDICT-correctness.md) 1. _query_coredns CONNECTS t
+- 829-local: STAGED FILES: - bulk_downloader/aiassist.py - tests/test_row829_langfuse_tracing.py
+- 869-local: ## FIXER (O928) 2026-09-20T00:47:41Z bd-integrator-A -- VERDICT-correctness REFUTE P1/P1/P2/P2 P1 broadcast: broadcast_config(client, value) = SET key + PUBLISH
+- 866-local: ## STAGED FILES - `toolchain/bin/bd-lens-worktree` - `tests/test_sparse_worktree.py`
+- 843-r2-local: OBJECT: TREE a364976a570f9b540fda889604d40b4cc6cb6488 PATCH-SHA256: 37378c6b21b53b7eb4e69f060bc3cc7247ba98479ed8a090e6bcee60ec133376 BASE: b9d1c8f7855b54bf4ce7e
+- 883-flake-timing-local: BASE: e3ae6b5eb3c69e5a1c14ad17b109faf40b883e0a INDEX TREE: 47c392ffcc7c49129c6d4b01d9f696099e287c8a
+- 823-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row823-local-fx1-local/DONE.md
+- 833-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row833-local-fx1-local/DONE.md
+- 852-local: ## FIXER (O928) bd-integrator-A 2026-09-19T23:32:05Z PREP-REFUSED rc=3 at 23:03:31Z was a HARNESS race, not a cut defect: two preps of row852-local ran together
+- 857-a8-r2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row857-A8-r2-local/DONE.md
+- 868-r2-local: RED COMMAND: ./venv/bin/python -m pytest tests/test_row868_container_repair.py::test_pipeline_recovers_corrupt_container_before_marking_failed -q -> rc=1, Asser
+- 870-r2-local: BASE: b9d1c8f7855b54bf4ce7e1b35d62215c6a45ce6f TREE: b32ec5e1f33c4c68dd707c486ab3d14375f7e91c PATCH-SHA256: 08a215990a5e04c43ebae1cb36280e69b22fd7053800613d30c5
+- 872-local: ## STAGED FILES - `toolchain/bin/bd-snapshot-guard` - `tests/test_row872_snapshot_guard.py`
+- 882-local-fx1-local: ## STAGED PATHS (git diff --cached BASE --name-only, 2 files; 646+/0-) - tests/test_row882_test_sharding.py (A, verbatim from source) - toolchain/bin/bd-test-sh
+- 887-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row887-local-fx1-local/DONE.md
+- 891-r2-local: RED COMMAND: mv bulk_downloader/tls_normalizer.py bulk_downloader/tls_normalizer.py.bak && env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 ./venv/bin/pyth
+- 895-local: ROW: row895 MULTI-FACTOR-AUTHENTICATION-HELPER-INTEGRATION-RFC6238-TOTP BASE: 163c3f72156e6ffe9070042195b20a267e47efe3
+- 896-r2-local: RED COMMAND: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 ./venv/bin/python -m pytest tests/test_session_health_probe.py -q -p no:randomly' -> 3 failed
+- 898-local: BASE: 163c3f72156e6ffe9070042195b20a267e47efe3 TREE (index write-tree): c15a3278ecc1f930b397f8b6d9c3d283a483b54b HEAD: 163c3f72156e6ffe9070042195b20a267e47efe3
+- 899-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row899-local-fx1-local/DONE.md
+- 907-local: BASE: 163c3f72156e6ffe9070042195b20a267e47efe3 Staged (git diff --cached <base> --name-only, 3 paths): bulk_downloader/metadata_normalizer.py tests/test_row907.
+- 908-r2-local: RED-PROVENANCE: - Pre-patch unmodified base: 21 failed, 2 passed in 1.41s - All 21 failures were behavioral AssertionError (zero AttributeError/ImportError/Type
+- 910-local-fx2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row910-local-fx2-local/DONE.md
+- 914-local: BASE: b9d1c8f7855b54bf4ce7e1b35d62215c6a45ce6f (brief's declared base; `git fetch origin` confirmed origin/main is still at this same sha -- no O912 rebase was
+- 919-r2-local: OBJECT: TREE 9d4f8515aad04b8d1aa061f01affe178da6cffe9 PATCH-SHA256: 02f1669b0504049314651774201dc81a1dcc1f1a6438adde787988c30e533374 BASE: b9d1c8f7855b54bf4ce7e
+- 924-local: ## FIXER (O928) bd-integrator-A 2026-09-20T02:33:49Z -- REFUTE E1/E2 (bd-review-wt/row924-local/.review/VERDICT-correctness.md) E1 (fail-open scrub): scrub() us
+- 926-local: RED (FIXER, behavioural -- supersedes the original synthetic line): the reviewer-judged settlement.py blob against the re-offered tests: 5 failed / 5 passed rem
+- 928-local-fx2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row928-local-fx2-local/DONE.md
+- 929-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row929-local/DONE.md
+- 930-local: ## FIXER (O928) bd-integrator-A 20260920T080831Z -- correctness REFUTE E1/E2 re-offer (+ the loadingFailed note) Verdict: /home/mboyle/bd-review-wt/row930-local
+- 933-local: OBJECT: TREE 58f21341cd4364c5e987670fa9411194d4c8fd22 PATCH-SHA256: c396b4dd5f8e1d06e00b1785f05857bafaea75d30beaf2733eb21bccef46395a BASE: b9d1c8f7855b54bf4ce7e
+- 937-bd-agy-worker2-local: RED COMMAND: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 ./venv/bin/python -m pytest tests/test_operator_relay.py -q -p no:randomly' -> 6 failed, 2 pa
+- 940-local: STAGED: - bulk_downloader/challenge_circuit.py - tests/test_challenge_circuit.py
+- 941-bd-agy-worker4-local: RED: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 venv/bin/python -m pytest tests/test_visibility_filter.py -q -p no:randomly' AssertionError: BEHAVIOR
+- 942-local: RED COMMAND: ./venv/bin/pytest tests/test_offscreen_detector.py -q -> rc=1, 6 failed in 0.77s (AssertionError: bulk_downloader.offscreen_detector module not imp
+- 943-local: RED COMMAND: mv bulk_downloader/semantic_filter.py bulk_downloader/semantic_filter.py.bak && env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 ./venv/bin/py
+- 949-local: RED COMMAND: env -u BD_INSTALL_DIR bash -c 'BD_DISABLE_KEEPALIVE=1 ./venv/bin/python -m pytest tests/test_hydration_extractor.py -q -p no:randomly' -> 6 failed,
+- bd-cx-worker7-row775d-local-rb4-local: TEST RCS: - tests/test_turnstile_click.py: 9 passed (rc=0) - tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py: 40 passed (rc=0) - focused band (8 suites)
+- rework-rowcutf-gitignore-zero-denominator-20260909t1040z-cx-15-rb4-local: REWORK NOTES: - Removed brittle exact count pin `assert len(patterns) == 83`. Replaced with `assert len(patterns) >= 1`. - Direct duplicate detection: duplicate
+
 ## v3.66.1584 - train8: w6-reqconsolidate-rb5 + row449-mainred (main-red fix)
 
 Train: 2 refute-first-reviewed worker patches (base e3ae6b5e).

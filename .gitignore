@@ -176,7 +176,6 @@ project-knowledge/CURRENT_STATE.json
 .claude-env-report.md
 audit-venv/
 audit_venv/
-.claude-env-report.md
 .worktrees/
 
 # Ephemeral git worktrees created by isolated subagents. These are working

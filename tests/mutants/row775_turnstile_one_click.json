@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 775: replacing the explicit one-click safety switch with the unrelated takeover switch must be caught by the real checkbox effect.",
+  "subject": "Turnstile one-click safety switch",
+  "band": [
+    "tests/test_turnstile_click.py::test_enabled_without_solver_clicks_one_in_page_turnstile_checkbox"
+  ],
+  "mutants": [
+    {
+      "label": "one-click switch reads unrelated takeover flag",
+      "file": "bulk_downloader/runner_challenge.py",
+      "old": "if not _turnstile_one_click_enabled(self.config):",
+      "new": "if not _captcha_takeover_enabled(self.config):",
+      "direction": "regression",
+      "catcher": "tests/test_turnstile_click.py::test_enabled_without_solver_clicks_one_in_page_turnstile_checkbox"
+    }
+  ]
+}

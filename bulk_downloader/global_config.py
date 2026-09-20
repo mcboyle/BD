@@ -521,6 +521,7 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     # disabled unless explicitly enabled, and any config-integrity finding resets
     # it to OFF. captcha_takeover_max_concurrent caps simultaneous remote sessions.
     "captcha_takeover_enabled":    {"type": bool, "safety": True, "safe_default": False},
+    "turnstile_one_click_enabled": {"type": bool, "safety": True, "safe_default": False},
     "captcha_takeover_max_concurrent": {"type": str, "safety": False, "safe_default": "2"},
     # MOD-1 A-5b: a `solving` takeover session with no operator input for this
     # long is finalized by the sweep (dismissed + ender + channel closed); the

@@ -1016,6 +1016,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._url_queue=queue.Queue()
         self._worker_threads=[]
         self._state="idle"; self._login_thread=None; self._login_status=""
+        # Row 870: distributed work stealing coordinator
+        self._work_stealing_coordinator = None
+        self._stealable_sites: list[str] = []
+        self._active_stolen_jobs: dict[str, Any] = {}
         # Only resume() records this provenance.  start() publishes the same
         # public hold tokens before spawning workers, so the token alone can
         # never prove that a worker pool exists to resume.
@@ -1222,7 +1226,24 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
 
 
+    def configure_work_stealing(self, coordinator, stealable_sites: list[str] | None = None) -> None:
+        """Configure dynamic work stealing from other saturated site queues."""
+        self._work_stealing_coordinator = coordinator
+        self._stealable_sites = list(stealable_sites or [])
 
+    def _try_steal_job(self) -> str | None:
+        """Attempt to steal a pending job from another site's queue when idle."""
+        if not self._work_stealing_coordinator or not self._stealable_sites:
+            return None
+        for target_site in self._stealable_sites:
+            if target_site == self.site_id:
+                continue
+            stolen = self._work_stealing_coordinator.steal(target_site)
+            if stolen is not None:
+                payload = stolen.payload or stolen.job_id
+                self._active_stolen_jobs[payload] = stolen
+                return payload
+        return None
 
     def _scrape_listing_urls(self, listing_url):
         """Phase 73: same scrape logic as /api/scrape_listing endpoint —
@@ -4030,10 +4051,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # was the actual bug: it left STALE login cookies in place.
                 my_cookie_ts = self._refresh_worker_cookies(
                     persistent_ctx, my_cookie_ts)
+                from_local_queue = True
                 try: url=self._url_queue.get(timeout=1)
-                except queue.Empty: continue
+                except queue.Empty:
+                    stolen = self._try_steal_job()
+                    if stolen is not None:
+                        url = stolen
+                        from_local_queue = False
+                    else:
+                        continue
                 if url is None:
-                    self._url_queue.task_done(); break  # sentinel
+                    if from_local_queue:
+                        self._url_queue.task_done()
+                    break  # sentinel
                 queue_item = url
                 if (isinstance(queue_item, tuple) and len(queue_item) == 2
                         and isinstance(queue_item[0], int)):
@@ -4041,17 +4071,18 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 else:
                     with self._worker_heartbeats_lock:
                         item_generation = self._worker_run_generation
-                if item_generation != run_generation:
-                    self._requeue_generation_item(item_generation, url)
-                    self._url_queue.task_done()
-                    continue
-                # A status writer may legitimately run after queue insertion.
-                # Revalidate at dequeue so stopped/completed work is consumed,
-                # never resurrected into processing.
-                if not self._generation_item_is_processable(
-                        item_generation, url):
-                    self._url_queue.task_done()
-                    continue
+                if from_local_queue:
+                    if item_generation != run_generation:
+                        self._requeue_generation_item(item_generation, url)
+                        self._url_queue.task_done()
+                        continue
+                    # A status writer may legitimately run after queue insertion.
+                    # Revalidate at dequeue so stopped/completed work is consumed,
+                    # never resurrected into processing.
+                    if not self._generation_item_is_processable(
+                            item_generation, url):
+                        self._url_queue.task_done()
+                        continue
                 # v3.45.4 / v3.46.3 Phase 185: worker affinity by tag.
                 # When the site has `worker_affinity` config set, each
                 # worker only processes URLs whose pre-applied tags
@@ -4178,6 +4209,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         # explicitly stopped/completed before the claim.
                         pass
                 except Exception as e:
+                    if not from_local_queue:
+                        stolen_job = self._active_stolen_jobs.pop(url, None)
+                        if stolen_job and self._work_stealing_coordinator:
+                            try:
+                                self._work_stealing_coordinator.abandon(stolen_job)
+                            except Exception: pass
                     try:
                         self._publish_worker_exception(
                             url, e, run_generation=run_generation)
@@ -4186,7 +4223,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     if acquired_global and _global_sem is not None:
                         try: _global_sem.release()
                         except ValueError: pass  # already released; defensive
-                    self._url_queue.task_done()
+                    if from_local_queue:
+                        self._url_queue.task_done()
+                    else:
+                        stolen_job = self._active_stolen_jobs.pop(url, None)
+                        if stolen_job and self._work_stealing_coordinator:
+                            try:
+                                self._work_stealing_coordinator.complete(stolen_job)
+                            except Exception: pass
                     # Phase 5.8: cheap drift check after every URL.
                     try: self._maybe_drift_recover()
                     except Exception: pass
@@ -4544,6 +4588,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try: page.goto(url,wait_until="domcontentloaded",timeout=30000)
             except PWTimeout:
                 self._handle_failure(url,"Page load timeout"); return
+            # row914: an SPA mounts its view after the history API fires;
+            # wait (bounded) for the DOM to settle before anything reads it
+            try: self._settle_after_navigation(page)
+            except Exception as e:
+                sys.stderr.write(f"  spa settlement error (non-fatal): {str(e)[:80]}\n")
             # v3.45.8 Phase 186: pre-download macro replay. If the site
             # has `pre_download_macro` configured (a stored macro name),
             # run its actions against the freshly-loaded page. Useful for

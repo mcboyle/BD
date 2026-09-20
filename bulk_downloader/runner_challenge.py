@@ -6,9 +6,32 @@ free-name scan of the moved bodies (not the seams doc, which models module-top
 imports only). Cycle rule: imports nothing from .runner.
 """
 import collections, sys, threading, time
+from urllib.parse import urlparse
 
 from .db import db_log
 from .website_title import history_title_kwargs
+
+
+_TURNSTILE_IN_PAGE_CHECKBOX = ".cf-turnstile input[type='checkbox']"
+_TURNSTILE_FRAME_PATH = "/cdn-cgi/challenge-platform/"
+
+
+def _truthy(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return bool(v)
+
+
+def _turnstile_one_click_enabled(config) -> bool:
+    return _truthy((config or {}).get("turnstile_one_click_enabled", False))
+
+
+def _captcha_takeover_enabled(config) -> bool:
+    return _truthy((config or {}).get("captcha_takeover_enabled", False))
 
 
 class ChallengeMixin:
@@ -112,6 +135,38 @@ class ChallengeMixin:
         reference it; new code should call _try_captcha_solve
         directly for clarity."""
         return self._try_captcha_solve(page)
+
+    def _try_turnstile_one_click(self, page):
+        """Issue one operator-authorized tick, never a solver or foreign-frame click."""
+        if not _turnstile_one_click_enabled(self.config):
+            return False
+        try:
+            checkbox = page.locator(_TURNSTILE_IN_PAGE_CHECKBOX)
+            if checkbox.count() > 0:
+                checkbox.click(timeout=500)
+                self.log_event("captcha", "Turnstile checkbox clicked once")
+                return True
+        except Exception:
+            return False
+
+        page_origin = urlparse(str(getattr(page, "url", ""))).netloc
+        if not page_origin:
+            return False
+        for frame in getattr(page, "frames", ()):
+            frame_url = str(getattr(frame, "url", ""))
+            parsed = urlparse(frame_url)
+            if parsed.netloc != page_origin or not parsed.path.startswith(_TURNSTILE_FRAME_PATH):
+                continue
+            try:
+                checkbox = frame.locator("input[type='checkbox']")
+                if checkbox.count() > 0:
+                    checkbox.click(timeout=500)
+                    self.log_event("captcha", "Turnstile checkbox clicked once")
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _try_captcha_solve(self, page):
         """v3.43.39: type-aware captcha solving. Detects whether
         the visible captcha is Turnstile / reCAPTCHA v2 / v3 / hCaptcha,
@@ -131,7 +186,7 @@ class ChallengeMixin:
         Both are exposed via /api/sites/<sid>/captcha/stats."""
         api_key = (self.config.get("captcha_api_key") or "").strip()
         if not api_key:
-            return False
+            return self._try_turnstile_one_click(page)
         provider = (self.config.get("captcha_provider") or "2captcha").strip().lower()
         try:
             from . import captcha_resolver as _cr

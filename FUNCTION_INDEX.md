@@ -187,7 +187,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (71 entries)
+## `bulk_downloader/runner.py` (73 entries)
 
 ```
 - L0083 `captcha_egress_disclosure_error` — Return a refusal when a paid solver transition lacks acknowledgement.
@@ -209,58 +209,60 @@ Schema version: 2
 - L0964 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
 - L0982 `SiteRunner` `[class]`
   - L0987 `SiteRunner.__init__` `[dunder]`
-  - L1227 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L1320 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L1328 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L1341 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L1350 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
-  - L1381 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L1419 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
-  - L1429 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
-  - L1444 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
-  - L1458 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
-  - L1472 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
-  - L1477 `SiteRunner.start`
-  - L1533 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
-  - L1555 `SiteRunner._start_serialized` `[private]`
-  - L1920 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1930 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L1991 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L2069 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L2089 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L2131 `SiteRunner.stop`
-  - L2231 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
-  - L2554 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L2578 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L2680 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L2697 `SiteRunner.state`
-  - L2699 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L2735 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L2742 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L2749 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L2815 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L2846 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L2867 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L3384 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L3413 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L3464 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L3522 `SiteRunner._worker_generation_is_current` `[private]`
-  - L3526 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L3587 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L3647 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L3679 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L3710 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L3730 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L3739 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L3764 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L3789 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L3810 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L3892 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L4228 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L4243 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4273 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L4299 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L4333 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L1229 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
+  - L1234 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
+  - L1248 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L1341 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L1349 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L1362 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L1371 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
+  - L1402 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L1440 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
+  - L1450 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
+  - L1465 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
+  - L1479 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
+  - L1493 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
+  - L1498 `SiteRunner.start`
+  - L1554 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
+  - L1576 `SiteRunner._start_serialized` `[private]`
+  - L1941 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L1951 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L2012 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L2090 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L2110 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L2152 `SiteRunner.stop`
+  - L2252 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
+  - L2575 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L2599 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L2701 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L2718 `SiteRunner.state`
+  - L2720 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L2756 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L2763 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L2770 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L2836 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L2867 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L2888 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L3405 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L3434 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L3485 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L3543 `SiteRunner._worker_generation_is_current` `[private]`
+  - L3547 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L3608 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L3668 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L3700 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L3731 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L3751 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L3760 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L3785 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L3810 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L3831 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L3913 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L4272 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L4287 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L4317 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4343 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4377 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -332,16 +334,20 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_challenge.py` (7 entries)
+## `bulk_downloader/runner_challenge.py` (11 entries)
 
 ```
-- L0014 `ChallengeMixin` `[class]`
-  - L0015 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
-  - L0032 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
-  - L0095 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
-  - L0109 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
-  - L0115 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
-  - L0213 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
+- L0019 `_truthy` `[private]`
+- L0029 `_turnstile_one_click_enabled` `[private]`
+- L0033 `_captcha_takeover_enabled` `[private]`
+- L0037 `ChallengeMixin` `[class]`
+  - L0038 `ChallengeMixin._record_captcha_encounter` `[private]` — Record one detected challenge and retain exactly 24 hours.
+  - L0055 `ChallengeMixin._handle_captcha_check` `[private]` — Phase 7.2: detect a visible captcha on the current page, try
+  - L0118 `ChallengeMixin._has_captcha` `[private]` — Phase 7.2: quick check for visible captcha widgets on the page.
+  - L0132 `ChallengeMixin._try_turnstile_solve` `[private]` — Backward-compat alias for _try_captcha_solve. The name
+  - L0139 `ChallengeMixin._try_turnstile_one_click` `[private]` — Issue one operator-authorized tick, never a solver or foreign-frame click.
+  - L0170 `ChallengeMixin._try_captcha_solve` `[private]` — v3.43.39: type-aware captcha solving. Detects whether
+  - L0268 `ChallengeMixin._try_turnstile_solve_LEGACY` `[private]` — Phase 15.10: solve a Cloudflare Turnstile challenge via 2captcha.
 ```
 
 
@@ -372,8 +378,8 @@ Schema version: 2
   - L0164 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
   - L0241 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
   - L0294 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0360 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0468 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+  - L0385 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0493 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -393,23 +399,38 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (14 entries)
+## `bulk_downloader/runner_browser.py` (29 entries)
 
 ```
-- L0019 `BrowserMixin` `[class]`
-  - L0020 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
-  - L0036 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
-  - L0065 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
-  - L0129 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
-  - L0151 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0182 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
-  - L0203 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
-  - L0235 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0263 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L0465 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L0504 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
-  - L0559 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L0581 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+- L0032 `_adaptive_manifest_kind` `[private]` — Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
+- L0047 `_adaptive_manifest_kind_from_mime` `[private]`
+- L0052 `AdaptiveManifestWatcher` `[class]` — Groups ``Network.requestWillBeSent`` CDP events by ``requestId`` so a
+  - L0061 `AdaptiveManifestWatcher.__init__` `[dunder]`
+  - L0066 `AdaptiveManifestWatcher._detect` `[private]` — Record/refresh the detection for ``rid``: ``url`` is the FINAL
+  - L0084 `AdaptiveManifestWatcher.feed_playwright_response` — Feed a Playwright ``response`` (context-level ``response`` event):
+  - L0115 `AdaptiveManifestWatcher.feed` — Feed one raw CDP event. Returns the detection dict when this event
+- L0148 `BrowserMixin` `[class]`
+  - L0149 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
+  - L0200 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
+  - L0214 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
+  - L0223 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
+  - L0251 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
+  - L0267 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
+  - L0296 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
+  - L0360 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
+  - L0382 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
+  - L0413 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0434 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+  - L0466 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
+  - L0494 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L0698 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L0737 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L0792 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L0815 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
+  - L0904 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
+  - L0916 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
+  - L0928 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
+  - L0945 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
 ```
 
 
@@ -553,72 +574,79 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (63 entries)
+## `bulk_downloader/runner_transport.py` (70 entries)
 
 ```
-- L0077 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0120 `_is_bare_media_leaf` `[private]` — True when ``name`` (with or without an extension) is only a token.
-- L0128 `_scene_url_stem` `[private]` — The scene URL's last path segment that is not itself a bare token.
-- L0144 `resolve_media_leaf_name` — The destination name, with a bare format/tier leaf replaced.
-- L0185 `_is_click_only_download_grant` `[private]` — Whether the browser event, rather than a static URL, issued the grant.
-- L0190 `_DirectURLDownload` `[private]` — Stand-in for a Playwright ``Download`` when the URL is already known.
-  - L0193 `_DirectURLDownload.__init__` `[dunder]`
-  - L0197 `_DirectURLDownload.cancel`
-- L0228 `_resolve_popup_grant` `[private]` — The ``window.open`` argument as the browser would have resolved it.
-- L0261 `_arm_popup_grant_capture` `[private]` — Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
-- L0293 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
-- L0305 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
-- L0327 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
-- L0349 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0352 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0358 `_ParallelDailyByteAccounting.add`
-  - L0362 `_ParallelDailyByteAccounting.flush`
-  - L0366 `_ParallelDailyByteAccounting.worker_finished`
-- L0420 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
-- L0446 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
-- L0460 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
-- L0504 `_dropdown_visible` `[private]`
-- L0511 `_dropdown_menu_has_links` `[private]`
-- L0518 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
-- L0577 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
-- L0588 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
-- L0668 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
-- L0722 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
-- L0759 `TransportMixin` `[class]`
-  - L0760 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L0784 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L0795 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L0812 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L0821 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L0830 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L0850 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L0858 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L0912 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L1000 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L1129 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L1314 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L1347 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L1371 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
-  - L1405 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L1478 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L1533 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L1558 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L1568 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L1597 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L1739 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L1789 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L2704 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L2769 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L3330 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L3380 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L3785 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L3818 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L3842 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L3867 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L3893 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L3913 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L3937 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L3954 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+- L0078 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0121 `_is_bare_media_leaf` `[private]` — True when ``name`` (with or without an extension) is only a token.
+- L0129 `_scene_url_stem` `[private]` — The scene URL's last path segment that is not itself a bare token.
+- L0145 `resolve_media_leaf_name` — The destination name, with a bare format/tier leaf replaced.
+- L0186 `_is_click_only_download_grant` `[private]` — Whether the browser event, rather than a static URL, issued the grant.
+- L0191 `_DirectURLDownload` `[private]` — Stand-in for a Playwright ``Download`` when the URL is already known.
+  - L0194 `_DirectURLDownload.__init__` `[dunder]`
+  - L0198 `_DirectURLDownload.cancel`
+- L0229 `_resolve_popup_grant` `[private]` — The ``window.open`` argument as the browser would have resolved it.
+- L0262 `_arm_popup_grant_capture` `[private]` — Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
+- L0294 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0306 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
+- L0328 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
+- L0350 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0353 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0359 `_ParallelDailyByteAccounting.add`
+  - L0363 `_ParallelDailyByteAccounting.flush`
+  - L0367 `_ParallelDailyByteAccounting.worker_finished`
+- L0421 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
+- L0447 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
+- L0461 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
+- L0505 `_dropdown_visible` `[private]`
+- L0512 `_dropdown_menu_has_links` `[private]`
+- L0519 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
+- L0578 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
+- L0589 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
+- L0669 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
+- L0723 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
+- L0760 `TransportMixin` `[class]`
+  - L0761 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L0785 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L0796 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L0813 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L0822 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L0831 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L0851 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L0859 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L0913 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
+  - L1001 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L1130 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L1315 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L1348 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L1372 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
+  - L1406 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L1479 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L1534 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L1559 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L1568 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
+  - L1590 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
+  - L1641 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L1670 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L1812 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L1862 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L2790 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L2855 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L3427 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L3477 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L3882 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L3915 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L3939 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L3964 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L3990 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L4010 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L4034 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L4051 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L4069 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L4084 `_ManifestConsumers` `[private]`
+  - L4085 `_ManifestConsumers.__init__` `[dunder]`
+  - L4088 `_ManifestConsumers.join`
+- L4095 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
 ```
 
 
@@ -876,4 +904,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 700 across 22 files._
+_Total entries: 728 across 22 files._

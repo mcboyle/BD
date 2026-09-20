@@ -83,6 +83,234 @@ def parse_size_bytes(text):
     u=m.group(2).lower()
     return int(n*{"kb":1024,"mb":1048576,"gb":1073741824,"tb":1099511627776}.get(u,0))
 
+# ─── DURATION PARSING & PAYLOAD QUALIFICATION (Row 908) ───────────────────────
+_DURATION_HH_MM_SS_RE = re.compile(r"\b(?:(?:(\d{1,2}):)?(\d{1,2}):(\d{2}))\b")
+_DURATION_UNIT_RE = re.compile(
+    r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b",
+    re.I)
+_PROMO_SAMPLE_RE = re.compile(
+    r"\b(trailer|preview|teaser|sample|promo|promotional|short|clip)\b",
+    re.I)
+
+
+def parse_duration_seconds(text):
+    """Return duration in seconds from text like '1:30', '01:45:00', '90 min', '2h'.
+    Returns 0 if no duration found."""
+    if not text or not isinstance(text, str):
+        return 0
+    t = text.strip()
+    m = _DURATION_HH_MM_SS_RE.search(t)
+    if m:
+        h, m_val, s = m.group(1), m.group(2), m.group(3)
+        hours = int(h) if h else 0
+        minutes = int(m_val)
+        seconds = int(s)
+        if minutes < 60 and seconds < 60:
+            return hours * 3600 + minutes * 60 + seconds
+    matches = _DURATION_UNIT_RE.findall(t)
+    if matches:
+        total = 0.0
+        found = False
+        for val, unit in matches:
+            u = unit.lower()
+            try:
+                v = float(val)
+            except Exception:
+                continue
+            if u in ("h", "hr", "hrs", "hour", "hours"):
+                total += v * 3600
+                found = True
+            elif u in ("m", "min", "mins", "minute", "minutes"):
+                total += v * 60
+                found = True
+            elif u in ("s", "sec", "secs", "second", "seconds"):
+                total += v
+                found = True
+        if found and total > 0:
+            return int(total)
+    return 0
+
+
+def inspect_container_stream(target, page_url="", stream_meta=None, runner=None):
+    """Inspect container headers and stream metadata for duration and size."""
+    dur = 0
+    size = 0
+    headers = {}
+    meta = {}
+
+    if isinstance(stream_meta, dict):
+        meta.update(stream_meta)
+        fmt = stream_meta.get("format") or {}
+        if isinstance(fmt, dict):
+            d_val = fmt.get("duration") or stream_meta.get("duration") or stream_meta.get("duration_s")
+            s_val = fmt.get("size") or stream_meta.get("size") or stream_meta.get("size_bytes")
+        else:
+            d_val = stream_meta.get("duration") or stream_meta.get("duration_s")
+            s_val = stream_meta.get("size") or stream_meta.get("size_bytes")
+        if d_val:
+            try: dur = max(dur, int(float(d_val)))
+            except Exception: pass
+        if s_val:
+            try: size = max(size, int(float(s_val)))
+            except Exception: pass
+        hdrs = stream_meta.get("headers")
+        if isinstance(hdrs, dict):
+            headers.update(hdrs)
+
+    if isinstance(target, dict):
+        if not stream_meta and target.get("stream_meta"):
+            sub = inspect_container_stream(None, stream_meta=target["stream_meta"], runner=runner)
+            dur = max(dur, sub.get("duration_s", 0))
+            size = max(size, sub.get("size_bytes", 0))
+        d_val = target.get("duration") or target.get("duration_s")
+        s_val = target.get("size") or target.get("size_bytes")
+        if d_val:
+            try: dur = max(dur, int(float(d_val)))
+            except Exception: pass
+        if s_val:
+            try: size = max(size, int(float(s_val)))
+            except Exception: pass
+        hdrs = target.get("headers")
+        if isinstance(hdrs, dict):
+            headers.update(hdrs)
+
+    if target is not None and not isinstance(target, (str, dict)):
+        for attr in ("data-duration", "duration", "data-seconds", "data-duration-seconds", "data-length"):
+            try:
+                val = target.get_attribute(attr)
+                if val:
+                    p_dur = parse_duration_seconds(val)
+                    if p_dur:
+                        dur = max(dur, p_dur)
+                    else:
+                        try: dur = max(dur, int(float(val)))
+                        except Exception: pass
+            except Exception: pass
+        for attr in ("data-size", "data-filesize", "data-bytes", "data-file-size"):
+            try:
+                val = target.get_attribute(attr)
+                if val:
+                    p_size = parse_size_bytes(val)
+                    if p_size:
+                        size = max(size, p_size)
+                    else:
+                        try: size = max(size, int(float(val)))
+                        except Exception: pass
+            except Exception: pass
+
+    cl = headers.get("Content-Length") or headers.get("content-length")
+    if cl and not size:
+        try: size = max(size, int(cl))
+        except Exception: pass
+
+    return {"duration_s": dur, "size_bytes": size, "stream_meta": meta, "headers": headers}
+
+
+def _full_length_mode(runner=None) -> bool:
+    """Return True if full-length qualification is enabled via env, config or runner."""
+    raw = os.environ.get("BD_REQUIRE_FULL_LENGTH", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    try:
+        from bulk_downloader import global_config as _gc
+        if _gc.get("require_full_length", False) or _gc.get("full_length_only", False):
+            return True
+    except Exception:
+        pass
+    if runner is not None:
+        cfg = getattr(runner, "config", None)
+        if isinstance(cfg, dict):
+            if cfg.get("require_full_length") or cfg.get("full_length_only"):
+                return True
+    return False
+
+
+def _emit_qualification_event(runner, kind, message, extra=None):
+    if runner is not None:
+        try:
+            runner.log_event(kind, message, extra=extra)
+            return
+        except Exception:
+            pass
+    sys.stderr.write(f"  {message}\n")
+
+
+def qualifies_as_full_length(
+    candidate,
+    text=None,
+    full_length_requested=True,
+    min_duration_s=180,
+    min_size_bytes=50 * 1024 * 1024,
+    stream_meta=None,
+    runner=None,
+):
+    """Verify candidate payload satisfies duration and size thresholds for full-length content.
+
+    Reject items with duration < 180s or size < 50MB when full-length content is requested.
+    Inspects container headers and stream metadata.
+    """
+    t = ""
+    target = None
+    if isinstance(candidate, str):
+        t = candidate
+    elif isinstance(candidate, dict):
+        t = text or candidate.get("text") or ""
+        target = candidate.get("locator") or candidate.get("url")
+        if not stream_meta and candidate.get("stream_meta"):
+            stream_meta = candidate.get("stream_meta")
+    else:
+        target = candidate
+        t = text or ""
+
+    stream_info = inspect_container_stream(target or candidate, stream_meta=stream_meta, runner=runner)
+    dur_meta = stream_info.get("duration_s", 0)
+    size_meta = stream_info.get("size_bytes", 0)
+
+    dur_text = parse_duration_seconds(t)
+    size_text = parse_size_bytes(t)
+
+    duration_s = dur_meta or dur_text
+    size_bytes = size_meta or size_text
+
+    if not full_length_requested:
+        _emit_qualification_event(
+            runner,
+            "duration_size_qualify_skip",
+            f"duration_size_qualify_skip: full_length_requested=False duration_s={duration_s} size_bytes={size_bytes}",
+            {"duration_s": duration_s, "size_bytes": size_bytes, "reason": None},
+        )
+        return {"ok": True, "duration_s": duration_s, "size_bytes": size_bytes, "reason": None}
+
+    reasons = []
+    if duration_s and duration_s < min_duration_s:
+        reasons.append(f"duration {duration_s}s < {min_duration_s}s")
+    if size_bytes and size_bytes < min_size_bytes:
+        reasons.append(f"size {size_bytes}B < {min_size_bytes}B")
+
+    # E3 remedy: if text carries a promo/preview/sample marker and we do NOT have
+    # verified full-length duration/size, reject rather than failing open!
+    if _PROMO_SAMPLE_RE.search(t):
+        has_verified_full = (duration_s >= min_duration_s) and (size_bytes >= min_size_bytes or size_bytes == 0)
+        if not has_verified_full or (duration_s > 0 and duration_s < min_duration_s):
+            if not reasons:
+                reasons.append("promotional preview sample without verified full-length duration/size")
+
+    ok = not reasons
+    reason = "; ".join(reasons) if reasons else None
+    kind = "duration_size_qualify_admit" if ok else "duration_size_qualify_reject"
+    message = f"{kind}: duration_s={duration_s} size_bytes={size_bytes}"
+    if reason:
+        message += f" reason={reason}"
+
+    _emit_qualification_event(
+        runner,
+        kind,
+        message,
+        {"duration_s": duration_s, "size_bytes": size_bytes, "reason": reason},
+    )
+    return {"ok": ok, "duration_s": duration_s, "size_bytes": size_bytes, "reason": reason}
+
+
 # Resolution-label patterns checked AFTER explicit pixel heights. We take the
 # MAX score across all matches, so 'Full HD' (1080) correctly beats 'HD' (720)
 # even though both patterns will match inside 'Full HD'.
@@ -1696,7 +1924,7 @@ def _is_cross_origin_filter_query(el, page_url=""):
 
 
 def _candidate_admission(el, text, page_url="", require_signal=True,
-                         label=None):
+                         label=None, full_length_requested=None, runner=None):
     """Shared learned/wide admission. Returns None to admit, else the reason.
 
     ``label`` is the OPERATOR-VISIBLE half of ``text``: rendered text plus
@@ -1726,10 +1954,17 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         return "chrome_ghost"
     if _is_listing_filter_href(el, t, page_url):
         return "listing_filter"
+    if full_length_requested is None:
+        full_length_requested = _full_length_mode(runner)
+    if full_length_requested:
+        qual = qualifies_as_full_length(
+            el, text=t, full_length_requested=True, runner=runner)
+        if not qual.get("ok", True):
+            return "short_preview"
     return None
 
 
-def find_best_download(page,custom="",learned=None,runner=None):
+def find_best_download(page,custom="",learned=None,runner=None,full_length_requested=None):
     """Locate the best download candidate on the page — defensively.
 
     Phase 5.5: if `learned` is a dict with row_selectors, try those first.
@@ -1789,7 +2024,7 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # Identity is the harvested text, the same key ``seen`` already uses for
     # admitted candidates, so both halves of the page report one vocabulary.
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
-                          "listing_filter": 0}
+                          "listing_filter": 0, "short_preview": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
@@ -1828,7 +2063,8 @@ def find_best_download(page,custom="",learned=None,runner=None):
     # so a later exit that forgets to emit would reproduce it exactly (A7).
     try:
         return _find_best_download(
-            page, custom, learned, runner, _page_url, _note_admission_drop)
+            page, custom, learned, runner, _page_url, _note_admission_drop,
+            full_length_requested=full_length_requested)
     finally:
         _emit_admission_summary()
 
@@ -1868,12 +2104,15 @@ def _rank_custom_matches(loc_all, count, custom):
 
 
 def _find_best_download(page, custom, learned, runner, _page_url,
-                        _note_admission_drop):
+                        _note_admission_drop, full_length_requested=None):
     """Body of :func:`find_best_download`; see that function for the contract.
 
     Split out only so every exit reports its counted admission drops through
     one ``finally``.
     """
+    if full_length_requested is None:
+        full_length_requested = _full_length_mode(runner)
+
     if learned and isinstance(learned, dict):
         row_sels = learned.get("row_selectors") or []
         learned_excluded = []
@@ -1947,7 +2186,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                         continue
                     admission = _candidate_admission(
                         target, txt, _page_url,
-                        require_signal=require_signal, label=label)
+                        require_signal=require_signal, label=label,
+                        full_length_requested=full_length_requested, runner=runner)
                     if admission is not None:
                         _note_admission_drop(admission, txt)
                         continue
@@ -2141,7 +2381,9 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         # shaped control, and drop a weak resolution link only when its DOM
         # ancestry positively proves site chrome. A chrome deletion here is
         # counted for the same reason as on the learned path (row 499).
-        _admission=_candidate_admission(el, t, _page_url, label=label)
+        _admission = _candidate_admission(
+            el, t, _page_url, label=label,
+            full_length_requested=full_length_requested, runner=runner)
         if _admission is not None:
             _note_admission_drop(_admission, t)
             return

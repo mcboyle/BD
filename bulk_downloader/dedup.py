@@ -87,6 +87,7 @@ import math
 import re
 import unicodedata
 import sqlite3
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -143,6 +144,50 @@ class DuplicateGroup:
     duplicates of the seed."""
     files: list = field(default_factory=list)  # list of (path, hash_hex, size, computed_at)
     distance: int = 0       # Hamming distance threshold used
+
+
+@dataclass
+class HeaderHashResult:
+    """Result of compute_header_hash(): aHash of the first keyframes decoded
+    from a stream prefix. ``ok`` is False when no frame decoded (prefix too
+    short, moov atom at EOF, not a video) -- callers must fail OPEN on that."""
+    ok: bool
+    hash_hex: str = ""        # 16 hex chars, majority-combined 64-bit aHash
+    frames: int = 0
+    bytes_sampled: int = 0
+    elapsed_s: float = 0.0
+    error: str = ""
+
+
+@dataclass
+class RejectionRecord:
+    """Why a transfer was refused at the header stage."""
+    final_path: str
+    duplicate_of: str
+    distance: int
+    hash_hex: str
+    frames: int
+    bytes_sampled: int
+    source_url: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "final_path": self.final_path, "duplicate_of": self.duplicate_of,
+            "distance": self.distance, "hash": self.hash_hex, "frames": self.frames,
+            "bytes_sampled": self.bytes_sampled, "url": self.source_url,
+        }
+
+
+class HeaderDuplicateRejected(Exception):
+    """Raised by the transport when the header-stage index matched. Not an
+    _HTTPDownloadFailed: the Playwright fallback must not re-download it."""
+
+    def __init__(self, record: RejectionRecord):
+        super().__init__(
+            f"header-hash duplicate of {record.duplicate_of} "
+            f"(distance {record.distance}, {record.frames} keyframes, "
+            f"{record.bytes_sampled} bytes sampled)")
+        self.record = record
 
 
 # ─── Hamming distance ──────────────────────────────────────────────
@@ -297,6 +342,109 @@ def compute_hash(path: str, *,
 # ─── Registry ──────────────────────────────────────────────────────
 
 
+# ─── Header-stage sampling (row 857) ───────────────────────────────
+
+HEADER_SAMPLE_BYTES = 256 * 1024   # stream prefix handed to ffmpeg
+HEADER_KEYFRAMES = 3
+HEADER_DISTANCE = 4                # Hamming bits; same scale as find_duplicates
+
+_HEADER_FRAME_BYTES = 64           # 8x8 gray, one byte per pixel
+
+
+def _frame_ahash(gray64: bytes) -> str:
+    avg = sum(gray64) / len(gray64)
+    bits = "".join("1" if p >= avg else "0" for p in gray64)
+    return f"{int(bits, 2):016x}"
+
+
+def _combine_frame_hashes(hashes: list) -> str:
+    """Per-bit majority over the frame hashes. A tie (even frame count)
+    resolves to 1 so the result is symmetric in the frames: no frame is
+    privileged and none is discarded."""
+    n = len(hashes)
+    if n == 1:
+        return hashes[0]
+    vals = [int(h, 16) for h in hashes]
+    out = 0
+    for i in range(64):
+        ones = sum((v >> i) & 1 for v in vals)
+        if ones * 2 >= n:
+            out |= 1 << i
+    return f"{out:016x}"
+
+
+def compute_header_hash(prefix: bytes, *, max_frames: int = HEADER_KEYFRAMES,
+                        timeout_s: float = 20.0) -> HeaderHashResult:
+    """aHash the first ``max_frames`` keyframes of a stream prefix.
+
+    ffmpeg reads the prefix on stdin and writes 8x8 grayscale keyframes to
+    stdout (no intermediate files). Never raises."""
+    t0 = time.time()
+    n = len(prefix or b"")
+    if n == 0:
+        return HeaderHashResult(ok=False, error="empty prefix")
+    from . import ffmpeg_bin
+    exe = ffmpeg_bin.ffmpeg()
+    if not exe:
+        return HeaderHashResult(ok=False, bytes_sampled=n, error="ffmpeg unavailable")
+    cmd = [exe, "-v", "error", "-i", "pipe:0",
+           "-vf", "select=eq(pict_type\\,I),scale=8:8", "-vsync", "vfr",
+           "-frames:v", str(int(max_frames)),
+           "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
+    try:
+        proc = subprocess.run(cmd, input=prefix, capture_output=True, timeout=timeout_s)
+        raw = proc.stdout or b""
+    except Exception as e:
+        return HeaderHashResult(ok=False, bytes_sampled=n,
+                                elapsed_s=time.time() - t0, error=f"ffmpeg: {e}")
+    frames = [raw[i:i + _HEADER_FRAME_BYTES]
+              for i in range(0, len(raw) - len(raw) % _HEADER_FRAME_BYTES, _HEADER_FRAME_BYTES)]
+    if not frames:
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        return HeaderHashResult(ok=False, bytes_sampled=n, elapsed_s=time.time() - t0,
+                                error=("no keyframe decoded from prefix"
+                                       + (f": {err[-1][:120]}" if err else "")))
+    combined = _combine_frame_hashes([_frame_ahash(f) for f in frames])
+    return HeaderHashResult(ok=True, hash_hex=combined, frames=len(frames),
+                            bytes_sampled=n, elapsed_s=time.time() - t0)
+
+
+def preflight_header_reject(prefix: bytes, *, registry: "HashRegistry",
+                            final_path: str, source_url: str = "",
+                            distance: int = HEADER_DISTANCE) -> Optional[RejectionRecord]:
+    """Decide, from the stream prefix alone, whether ``final_path`` would be
+    a perceptual duplicate of something already indexed.
+
+    Returns a RejectionRecord (and logs it) on a match. Returns None -- and
+    registers ``final_path`` under the header hash -- when the content is
+    new. Also returns None when no keyframe decodes: unknown is never a
+    rejection. Never raises."""
+    final_path = str(final_path)
+    try:
+        res = compute_header_hash(prefix)
+        if not res.ok:
+            log.debug("dedup_header_skip path=%s reason=%s", final_path, res.error)
+            return None
+        hits = registry.find_header_duplicates(res.hash_hex, distance=distance,
+                                               exclude_path=final_path)
+        if hits:
+            rec = RejectionRecord(final_path=final_path, duplicate_of=hits[0]["path"],
+                                  distance=hits[0]["distance"], hash_hex=res.hash_hex,
+                                  frames=res.frames, bytes_sampled=res.bytes_sampled,
+                                  source_url=source_url)
+            log.info("dedup_header_reject path=%s duplicate_of=%s distance=%d hash=%s "
+                     "frames=%d bytes_sampled=%d url=%s",
+                     rec.final_path, rec.duplicate_of, rec.distance, rec.hash_hex,
+                     rec.frames, rec.bytes_sampled, rec.source_url)
+            return rec
+        registry.add_header(final_path, res.hash_hex, frames=res.frames,
+                            source_url=source_url)
+        return None
+    except Exception as e:
+        log.debug("dedup: preflight_header_reject() failed for %s: %s", final_path, e)
+        return None
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS video_hashes (
     path TEXT PRIMARY KEY,
@@ -308,6 +456,14 @@ CREATE TABLE IF NOT EXISTS video_hashes (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_video_hashes_hash ON video_hashes(hash_hex);
+CREATE TABLE IF NOT EXISTS header_hashes (
+    path TEXT PRIMARY KEY,
+    hash_hex TEXT NOT NULL,
+    frame_count INTEGER NOT NULL,
+    computed_at REAL NOT NULL,
+    source_url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_header_hashes_hash ON header_hashes(hash_hex);
 """
 
 
@@ -456,6 +612,71 @@ class HashRegistry:
                 "ffprobe_codec": r[5],
             })
         out.sort(key=lambda x: (x["distance"], -x["file_size_bytes"]))
+        return out
+
+    # ── header_hashes (row 857): keyed by the canonical destination path ──
+
+    def add_header(self, path: str, hash_hex: str, *, frames: int,
+                   source_url: str = "") -> bool:
+        hash_hex = _canon_hash_hex(hash_hex)
+        if not hash_hex or len(hash_hex) != 16:
+            return False
+        try:
+            with self._lock:
+                c = self._conn()
+                try:
+                    c.execute(
+                        "INSERT OR REPLACE INTO header_hashes "
+                        "(path, hash_hex, frame_count, computed_at, source_url) "
+                        "VALUES (?,?,?,?,?)",
+                        (str(path), hash_hex, int(frames), time.time(), source_url or ""))
+                    c.commit()
+                finally:
+                    c.close()
+            return True
+        except Exception as e:
+            log.debug("dedup: add_header() failed for %s: %s", path, e)
+            return False
+
+    def header_rows(self) -> list:
+        try:
+            with self._lock:
+                c = self._conn()
+                try:
+                    rows = c.execute(
+                        "SELECT path, hash_hex, frame_count, computed_at, source_url "
+                        "FROM header_hashes").fetchall()
+                finally:
+                    c.close()
+        except Exception as e:
+            log.debug("dedup: header_rows() failed: %s", e)
+            return []
+        return [{"path": r[0], "hash_hex": r[1], "frame_count": r[2],
+                 "computed_at": r[3], "source_url": r[4]} for r in rows]
+
+    def header_stats(self) -> dict:
+        return {"count": len(self.header_rows())}
+
+    def find_header_duplicates(self, hash_hex: str, distance: int = HEADER_DISTANCE,
+                               exclude_path: str = "") -> list:
+        """Indexed destinations within ``distance`` Hamming bits, nearest
+        first. Rows whose destination no longer exists on disk are skipped:
+        a transfer that never materialised is not something to be a
+        duplicate of."""
+        if not hash_hex or len(hash_hex) != 16:
+            return []
+        out: list = []
+        for r in self.header_rows():
+            if exclude_path and r["path"] == exclude_path:
+                continue
+            d = hamming_distance(hash_hex, r["hash_hex"])
+            if d < 0 or d > distance:
+                continue
+            if not os.path.exists(r["path"]):
+                continue
+            r["distance"] = d
+            out.append(r)
+        out.sort(key=lambda x: (x["distance"], x["path"]))
         return out
 
     def stats(self) -> dict:

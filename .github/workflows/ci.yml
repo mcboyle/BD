@@ -341,6 +341,7 @@ jobs:
           - name: toolchain
             suites: >-
               tests/test_toolchain_534.py
+              tests/test_row919.py
               tests/test_row698_corpus_guard_execution.py
               tests/test_row678_bandcheck_exclusion_tables.py
               tests/test_row724_preflight_bandcheck_counts_failures.py
@@ -507,6 +508,7 @@ jobs:
               tests/test_row363_affordance_learning.py
               tests/test_row356_cookie_quality_reports_unknown.py
               tests/test_row360_turnstile_bypass_is_installed.py
+              tests/test_turnstile_click.py
               tests/test_row763_child_frame_turnstile.py
               tests/test_row764_turnstile_bypass_verdict.py
               tests/test_row765_scrapling_selector_compatibility.py

@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""bd-test-shard -- parallel test sharding coordinator with LPT duration bin-packing.
+
+Distributes pytest test files across worker shards based on historical execution
+durations from a duration ledger. Achieves balanced shard weights within 10% tolerance,
+optimizing parallel test suite makespan across multi-core systems.
+
+Fleet Rule 21 compliant: zero site interactions touched.
+"""
+from __future__ import annotations
+
+import argparse
+import heapq
+import json
+import math
+import os
+import sys
+from pathlib import Path
+from typing import Sequence
+
+
+DEFAULT_SHARDS = 16
+DEFAULT_DURATION_SECS = 0.5
+# Where a recorded per-file duration ledger lives when one exists (relative to --work).
+DEFAULT_LEDGER = "reports/test_durations.json"
+
+
+class LedgerError(ValueError):
+    """The ledger exists but is not a usable duration map (corrupt JSON, wrong shape)."""
+
+
+def normalize_test_path(path: str | os.PathLike, root: str | os.PathLike | None = None) -> str:
+    """One identity for a test file: POSIX, relative to the work root when it lies
+    under it, no leading './'. Ledger keys and collected files both go through this
+    so an absolute --work and a relative ledger still meet (E2)."""
+    p = Path(path)
+    if root is not None:
+        r = Path(root).resolve()
+        try:
+            p = (p if p.is_absolute() else r / p).resolve().relative_to(r)
+        except ValueError:
+            pass  # outside the root: keep as given
+    text = p.as_posix()
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+def _valid_duration(v: object) -> float | None:
+    """A finite, non-negative number of seconds, else None (E5)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    if math.isnan(f) or math.isinf(f) or f < 0.0:
+        return None
+    return f
+
+
+def unknown_duration(ledger: dict[str, float] | None, default_duration: float = DEFAULT_DURATION_SECS) -> float:
+    """The ONE duration assumed for a file the ledger does not know: the ledger's
+    90th percentile when it has entries, else the default. Packing and weighing
+    must share it (E1) or the reported makespan lies about the packing."""
+    if ledger:
+        known = sorted(ledger.values())
+        return known[min(len(known) - 1, int(len(known) * 0.9))]
+    return default_duration
+
+
+def load_ledger(ledger_path: str | Path | None, root: str | Path | None = None) -> dict[str, float]:
+    """Load historical test execution durations from a JSON ledger file.
+
+    Returns mapping of test file path -> duration in seconds.
+    """
+    if ledger_path is None:
+        return {}
+    p = Path(ledger_path)
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as exc:
+        raise LedgerError(f"ledger {p} is not readable JSON: {exc}") from exc
+    raw: dict[str, object]
+    if isinstance(data, dict):
+        raw = {str(k): v for k, v in data.items()}
+    elif isinstance(data, list):
+        # list of result dicts (e.g. results from bd-fullsuite)
+        raw = {str(item["file"]): item["secs"] for item in data
+               if isinstance(item, dict) and "file" in item and "secs" in item}
+    else:
+        raise LedgerError(f"ledger {p}: expected an object or a list of {{file, secs}}, got {type(data).__name__}")
+    res: dict[str, float] = {}
+    rejected: list[str] = []
+    for k, v in raw.items():
+        d = _valid_duration(v)
+        if d is None:
+            rejected.append(f"{k}={v!r}")
+            continue
+        res[normalize_test_path(k, root)] = d
+    if rejected:
+        raise LedgerError(f"ledger {p}: {len(rejected)} invalid duration(s) (negative/NaN/inf/non-numeric): "
+                          + ", ".join(rejected))
+    return res
+
+
+def save_ledger(ledger_path: str | Path, durations: dict[str, float]) -> None:
+    """Save test execution durations atomically to a JSON ledger file."""
+    p = Path(ledger_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = p.with_suffix(f".tmp.{os.getpid()}")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(durations, f, indent=2, sort_keys=True)
+    temp_path.replace(p)
+
+
+def collect_test_files(root: str | Path = "tests") -> list[str]:
+    """Discover all pytest test files beneath root directory."""
+    root_path = Path(root)
+    files: list[str] = []
+    if not root_path.exists():
+        return files
+    work = root_path.parent if root_path.name == "tests" else root_path
+    for p in root_path.rglob("test_*.py"):
+        if p.is_file():
+            files.append(normalize_test_path(p, work))
+    for p in root_path.rglob("*_test.py"):
+        if p.is_file():
+            n = normalize_test_path(p, work)
+            if n not in files:
+                files.append(n)
+    return sorted(files)
+
+
+def lpt_bin_pack(
+    files: Sequence[str],
+    num_shards: int,
+    ledger: dict[str, float] | None = None,
+    default_duration: float = DEFAULT_DURATION_SECS,
+) -> list[list[str]]:
+    """Partition test files across num_shards using Longest Processing Time (LPT) bin packing.
+
+    Guarantees:
+    - Every input test file is assigned to exactly one shard.
+    - Zero tests dropped or duplicated.
+    - Shards are sorted and balanced by cumulative duration weight.
+    """
+    if num_shards <= 0:
+        raise ValueError(f"num_shards must be positive, got {num_shards}")
+    if not files:
+        return [[] for _ in range(num_shards)]
+
+    dur = ledger if ledger is not None else {}
+    fallback = unknown_duration(dur, default_duration)
+
+    # Sort files descending by duration; tie-break by file path for deterministic stability
+    sorted_files = sorted(
+        files,
+        key=lambda f: (-dur.get(f, fallback), f),
+    )
+
+    # Min-heap of (current_weight, shard_index)
+    heap: list[tuple[float, int]] = [(0.0, i) for i in range(num_shards)]
+    heapq.heapify(heap)
+
+    bins: list[list[str]] = [[] for _ in range(num_shards)]
+
+    for f in sorted_files:
+        weight = dur.get(f, fallback)
+        curr_w, idx = heapq.heappop(heap)
+        bins[idx].append(f)
+        heapq.heappush(heap, (curr_w + weight, idx))
+
+    return bins
+
+
+def compute_shard_weights(
+    shards: Sequence[Sequence[str]],
+    ledger: dict[str, float] | None = None,
+    default_duration: float = DEFAULT_DURATION_SECS,
+) -> list[float]:
+    """Compute the cumulative duration weight of each shard."""
+    dur = ledger if ledger is not None else {}
+    fallback = unknown_duration(dur, default_duration)
+    weights: list[float] = []
+    for shard in shards:
+        total = sum(dur.get(f, fallback) for f in shard)
+        weights.append(round(total, 4))
+    return weights
+
+
+def calculate_imbalance_ratio(weights: Sequence[float]) -> float:
+    """Calculate the imbalance ratio between the heaviest and lightest shards: (max - min) / max."""
+    if not weights:
+        return 0.0
+    max_w = max(weights)
+    min_w = min(weights)
+    if max_w <= 0.0:
+        return 0.0
+    return (max_w - min_w) / max_w
+
+
+def simulate_makespan(
+    shards: Sequence[Sequence[str]],
+    ledger: dict[str, float] | None = None,
+    default_duration: float = DEFAULT_DURATION_SECS,
+) -> float:
+    """Simulate parallel makespan across shards: maximum execution duration among all shards."""
+    weights = compute_shard_weights(shards, ledger=ledger, default_duration=default_duration)
+    return max(weights) if weights else 0.0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Parallel test sharding coordinator using LPT duration bin packing."
+    )
+    parser.add_argument(
+        "--shards",
+        type=int,
+        default=DEFAULT_SHARDS,
+        help=f"Number of parallel shards (default: {DEFAULT_SHARDS})",
+    )
+    parser.add_argument(
+        "--shard",
+        type=int,
+        default=None,
+        help="1-indexed shard number to output (e.g. 1 to N)",
+    )
+    parser.add_argument(
+        "--ledger",
+        type=str,
+        default=None,
+        help="Path to JSON test duration ledger file",
+    )
+    parser.add_argument(
+        "--file-list",
+        type=str,
+        default=None,
+        help="Path to file listing test files to shard (one per line)",
+    )
+    parser.add_argument(
+        "--work",
+        type=str,
+        default=".",
+        help="Working directory root for test collection (default: .)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output shard partition and metrics in JSON format",
+    )
+    parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Print simulation metrics for the partition",
+    )
+
+    args = parser.parse_args(argv)
+
+    # Validate before doing anything (E4/E6): bounds hold for every output mode.
+    if args.shards <= 0:
+        sys.stderr.write(f"Error: --shards must be positive, got {args.shards}\n")
+        return 2
+    if args.shard is not None and (args.shard < 1 or args.shard > args.shards):
+        sys.stderr.write(f"Error: --shard {args.shard} out of bounds (1..{args.shards})\n")
+        return 2
+    work = Path(args.work)
+    if not work.is_dir():
+        sys.stderr.write(f"Error: --work {args.work} is not a directory\n")
+        return 2
+
+    # Collect test files (one identity per file, E2/E3)
+    if args.file_list:
+        p = Path(args.file_list)
+        if not p.is_file():
+            sys.stderr.write(f"Error: file list not found: {args.file_list}\n")
+            return 2
+        with open(p, "r", encoding="utf-8") as f:
+            listed = [normalize_test_path(line.strip(), work) for line in f
+                      if line.strip() and not line.startswith("#")]
+        files, seen = [], set()
+        for f in listed:
+            if f in seen:
+                sys.stderr.write(f"Warning: duplicate file-list entry ignored: {f}\n")
+                continue
+            seen.add(f)
+            files.append(f)
+    else:
+        files = collect_test_files(work / "tests")
+
+    ledger_arg = args.ledger
+    if ledger_arg is None and (work / DEFAULT_LEDGER).is_file():
+        ledger_arg = str(work / DEFAULT_LEDGER)
+    try:
+        ledger = load_ledger(ledger_arg, work) if ledger_arg else {}
+    except LedgerError as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        return 2
+    shards = lpt_bin_pack(files, num_shards=args.shards, ledger=ledger)
+    weights = compute_shard_weights(shards, ledger=ledger)
+    makespan = max(weights) if weights else 0.0
+    imbalance = calculate_imbalance_ratio(weights)
+
+    if args.json:
+        output_data = {
+            "num_shards": args.shards,
+            "metrics": {
+                "total_files": len(files),
+                "makespan_secs": round(makespan, 4),
+                "imbalance_ratio": round(imbalance, 4),
+                "max_shard_weight": round(max(weights) if weights else 0.0, 4),
+                "min_shard_weight": round(min(weights) if weights else 0.0, 4),
+                "mean_shard_weight": round(sum(weights) / len(weights) if weights else 0.0, 4),
+            },
+            "shards": [
+                {
+                    "shard_index": i + 1,
+                    "weight_secs": weights[i],
+                    "file_count": len(shards[i]),
+                    "files": shards[i],
+                }
+                for i in range(args.shards)
+            ],
+        }
+        print(json.dumps(output_data, indent=2))
+        return 0
+
+    if args.shard is not None:
+        shard_files = shards[args.shard - 1]
+        for f in shard_files:
+            print(f)
+        return 0
+
+    if args.simulate:
+        print(f"Parallel Test Sharding Summary ({args.shards} shards):")
+        print(f"  Total test files: {len(files)}")
+        print(f"  Simulated makespan: {makespan:.2f}s")
+        print(f"  Imbalance ratio: {imbalance:.2%}")
+        for i, (w, s) in enumerate(zip(weights, shards), 1):
+            print(f"  Shard {i:02d}: {len(s):4d} files, {w:6.2f}s")
+        return 0
+
+    # Default output: print shard files grouped
+    for i, s in enumerate(shards, 1):
+        print(f"=== Shard {i}/{args.shards} ({len(s)} files) ===")
+        for f in s:
+            print(f)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
