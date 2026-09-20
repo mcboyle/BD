@@ -44,6 +44,7 @@ def _environment() -> dict[str, str]:
     env = dict(os.environ)
     env.pop("BD_INSTALL_DIR", None)
     env["BD_DISABLE_KEEPALIVE"] = "1"
+    env["BD_RUN_BANNERS"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONPATH"] = str(_REPO / "tests") + os.pathsep + env.get("PYTHONPATH", "")
     return env

@@ -1,0 +1,82 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "rowinstalldir. Nine exact-once value-free regex anchors cover install-tree selection, its visible source, both active-unit ownership checks, both unit writes, and both restarts. The fixture redirects unit paths under tmp_path and supplies fake service commands; no real installer or systemctl is contacted. The paired transform control removes the AI-unit guard while running only the subject-availability control and must ESCAPE.",
+  "subject": "the installer selects an authorized checkout and guards both owned units before mutation",
+  "band": [
+    "tests/test_rowinstalldir_service_installer.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 relocated script bypasses canonical directory refusal",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^if \\[ \"\\$SCRIPT_DIR\" != \"\\$)EXPECTED_INSTALL_DIR(?=\" \\]; then$)",
+      "new": "SCRIPT_DIR",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_relocated_script_refuses_before_rewriting_the_installed_unit"
+    },
+    {
+      "label": "M2 main service is omitted from the ownership census",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^for ACTIVE_SERVICE_NAME in \"\\$)SERVICE_NAME(?=\" \"\\$AI_SERVICE_NAME\"; do$)",
+      "new": "AI_SERVICE_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_running_service_at_another_directory_is_not_rewritten_or_restarted"
+    },
+    {
+      "label": "M3 AI service is omitted from the ownership census",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^for ACTIVE_SERVICE_NAME in \"\\$SERVICE_NAME\" \"\\$)AI_SERVICE_NAME(?=\"; do$)",
+      "new": "SERVICE_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_running_ai_service_at_another_directory_is_not_rewritten_or_restarted"
+    },
+    {
+      "label": "M4 install source is not printed",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^echo(?= \"  Install source : \\$INSTALL_SOURCE_DESC\"$)",
+      "new": ":",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_environment_install_directory_still_installs"
+    },
+    {
+      "label": "M5 deploy directory environment selection regresses to data directory",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^elif \\[ -n \"\\$\\{)BD_DEPLOY_DIR(?=:-\\}\" \\]; then$)",
+      "new": "BD_INSTALL_DIR",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_environment_install_directory_still_installs"
+    },
+    {
+      "label": "M6 main unit omits the selected WorkingDirectory",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^WorkingDirectory(?==\\$\\{APP_DIR\\}\\n# Bucket)",
+      "new": "# mutant omitted WorkingDirectory",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_default_canonical_directory_still_installs"
+    },
+    {
+      "label": "M7 AI unit omits the selected WorkingDirectory",
+      "file": "install_service.sh",
+      "old_regex": "(?m)^WorkingDirectory(?==\\$\\{APP_DIR\\}\\nEnvironmentFile=-\\$\\{APP_DIR\\}/\\.env$)",
+      "new": "# mutant omitted WorkingDirectory",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_default_canonical_directory_still_installs"
+    },
+    {
+      "label": "M8 main restart uses the companion service identity",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^sudo systemctl restart \"\\$\\{)SERVICE_NAME(?=\\}\" \\\\$)",
+      "new": "AI_SERVICE_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_default_canonical_directory_still_installs"
+    },
+    {
+      "label": "M9 AI restart uses the main service identity",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^if ! sudo systemctl restart \"\\$\\{)AI_SERVICE_NAME(?=\\}\"; then$)",
+      "new": "SERVICE_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_default_canonical_directory_still_installs"
+    }
+  ]
+}

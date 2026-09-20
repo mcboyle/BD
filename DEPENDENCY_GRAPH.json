@@ -2370,7 +2370,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1761,
+    "edge_count": 1764,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3660,6 +3660,7 @@
       "bulk_downloader/drm_detect.py": [
         "bulk_downloader/deep_detect/manifests.py",
         "bulk_downloader/eme_detect.py",
+        "bulk_downloader/hls.py",
         "bulk_downloader/netlog_classify.py"
       ],
       "bulk_downloader/dry_run.py": [
@@ -3867,6 +3868,7 @@
       "bulk_downloader/hls_downloader.py": [
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/housekeeping.py",
+        "bulk_downloader/mime_router.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_transport.py"
       ],
@@ -3886,6 +3888,7 @@
         "bulk_downloader/runner_queue.py",
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/runner_transport.py",
+        "bulk_downloader/tus_client.py",
         "bulk_downloader/webhooks.py"
       ],
       "bulk_downloader/host_enumerator.py": [
@@ -6692,6 +6695,9 @@
         "bulk_downloader/library_final.py",
         "bulk_downloader/ytdlp_updater.py"
       ],
+      "bulk_downloader/hls.py": [
+        "bulk_downloader/drm_detect.py"
+      ],
       "bulk_downloader/hls_downloader.py": [
         "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/runtime_flags.py"
@@ -6845,6 +6851,9 @@
       ],
       "bulk_downloader/migrations.py": [
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/mime_router.py": [
+        "bulk_downloader/hls_downloader.py"
       ],
       "bulk_downloader/model_registry.py": [
         "bulk_downloader/aiassist.py"
@@ -7434,6 +7443,9 @@
       ],
       "bulk_downloader/timeline.py": [
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/tus_client.py": [
+        "bulk_downloader/hooks.py"
       ],
       "bulk_downloader/user_templates.py": [
         "bulk_downloader/selector_lint.py",

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4608,
+  "edge_count": 4617,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1435,6 +1435,9 @@
       "bulk_downloader/library_final.py",
       "bulk_downloader/ytdlp_updater.py"
     ],
+    "bulk_downloader/hls.py": [
+      "bulk_downloader/drm_detect.py"
+    ],
     "bulk_downloader/hls_downloader.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runtime_flags.py"
@@ -1588,6 +1591,9 @@
     ],
     "bulk_downloader/migrations.py": [
       "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/mime_router.py": [
+      "bulk_downloader/hls_downloader.py"
     ],
     "bulk_downloader/model_registry.py": [
       "bulk_downloader/aiassist.py"
@@ -2178,6 +2184,9 @@
     "bulk_downloader/timeline.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/tus_client.py": [
+      "bulk_downloader/hooks.py"
+    ],
     "bulk_downloader/user_templates.py": [
       "bulk_downloader/selector_lint.py",
       "bulk_downloader/selector_versions.py",
@@ -2442,6 +2451,9 @@
     "tests/test_best_must_not_pick_a_page_link_over_4k.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_breadcrumb_extractor.py": [
+      "bulk_downloader/breadcrumb_extractor.py"
     ],
     "tests/test_browser_asset_filter.py": [
       "bulk_downloader/runner_browser.py"
@@ -3333,6 +3345,9 @@
     "tests/test_merge_url_attribute.py": [
       "bulk_downloader/learn.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_mime_router.py": [
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_mirror_probe_ssrf.py": [
       "bulk_downloader/runner_telemetry.py"
@@ -4497,8 +4512,16 @@
     "tests/test_row888_socks5_pool.py": [
       "bulk_downloader/socks5_pool.py"
     ],
+    "tests/test_row889_tus_upload.py": [
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/tus_client.py",
+      "bulk_downloader/urllib_ssrf.py"
+    ],
     "tests/test_row892_traffic_shaper.py": [
       "bulk_downloader/traffic_shaper.py"
+    ],
+    "tests/test_row900.py": [
+      "bulk_downloader/hls.py"
     ],
     "tests/test_row901.py": [
       "bulk_downloader/ffmpeg_bin.py",

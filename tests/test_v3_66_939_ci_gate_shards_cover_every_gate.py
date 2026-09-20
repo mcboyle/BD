@@ -109,6 +109,7 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_the_site_to_policy_map_is_asserted.py
 # CI-SHARD-CLAIM row-806 application-safety tests/test_row806_health_payload_names_the_deployed_cloak_state.py
 # CI-SHARD-CLAIM row-785 application-safety tests/test_row785_login_evidence_filenames_are_shell_safe.py
+# CI-SHARD-CLAIM row-780 application-safety tests/test_row780_sites_config_listing_url_round_trip.py
 # CI-SHARD-CLAIM row-772 application-safety tests/test_row772_astra_settling.py
 # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
 # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py

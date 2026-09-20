@@ -17,32 +17,80 @@ set -o pipefail
 
 APP_DIR="$(dirname "$(readlink -f "$0")")"
 
-# Authorize the code tree, independently of BD_INSTALL_DIR (the data tree).
-INSTALL_DIR_SOURCE=canonical
-AUTHORIZED_DIR="${BD_DEPLOY_DIR:-$HOME/BulkDownloader}"
-[ -z "${BD_DEPLOY_DIR:-}" ] || INSTALL_DIR_SOURCE=BD_DEPLOY_DIR
+INSTALL_DIR_ARG=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --install-dir)
             if [ "$#" -lt 2 ] || [ -z "$2" ]; then
                 echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=--install-dir"
                 echo "  ERROR: INSTALL-DIR-REFUSED: --install-dir requires PATH"
+                echo "  ERROR: --install-dir requires a path."
                 exit 1
             fi
-            AUTHORIZED_DIR="$2"
-            INSTALL_DIR_SOURCE=--install-dir
+            INSTALL_DIR_ARG="$2"
             shift 2
             ;;
+        --install-dir=*)
+            INSTALL_DIR_ARG="${1#--install-dir=}"
+            if [ -z "$INSTALL_DIR_ARG" ]; then
+                echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=--install-dir"
+                echo "  ERROR: INSTALL-DIR-REFUSED: --install-dir requires PATH"
+                echo "  ERROR: --install-dir requires a path."
+                exit 1
+            fi
+            shift
+            ;;
         *)
-            echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+            echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=${INSTALL_DIR_SOURCE:-canonical}"
             echo "  ERROR: INSTALL-DIR-REFUSED: unknown argument $1"
+            echo "  ERROR: unknown argument '$1'."
+            echo "  Usage: $0 [--install-dir PATH]"
             exit 1
             ;;
     esac
 done
+
+if [ -n "$INSTALL_DIR_ARG" ]; then
+    EXPECTED_INSTALL_DIR="$INSTALL_DIR_ARG"
+    INSTALL_DIR_SOURCE="--install-dir"
+elif [ -n "${BD_DEPLOY_DIR:-}" ]; then
+    EXPECTED_INSTALL_DIR="$BD_DEPLOY_DIR"
+    INSTALL_DIR_SOURCE="BD_DEPLOY_DIR"
+else
+    if [ -n "${SUDO_USER:-}" ]; then
+        RUN_HOME="$(getent passwd "${RUN_USER:-$SUDO_USER}" 2>/dev/null | cut -d: -f6 || true)"
+    else
+        RUN_HOME="${HOME:-}"
+    fi
+    if [ -z "$RUN_HOME" ]; then
+        RUN_HOME="${HOME:-}"
+    fi
+    EXPECTED_INSTALL_DIR="$RUN_HOME/BulkDownloader"
+    INSTALL_DIR_SOURCE="canonical ~/BulkDownloader"
+fi
+EXPECTED_INSTALL_DIR="$(readlink -f -- "$EXPECTED_INSTALL_DIR" 2>/dev/null || true)"
+AUTHORIZED_DIR="$EXPECTED_INSTALL_DIR"
+
 APP_DIR="$(readlink -f -- "$APP_DIR")"
-AUTHORIZED_DIR="$(readlink -f -- "$AUTHORIZED_DIR")"
-echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$INSTALL_DIR_SOURCE"
+SCRIPT_DIR="$APP_DIR"
+
+case "$INSTALL_DIR_SOURCE" in
+    canonical*) SOURCE_715="canonical" ;;
+    *) SOURCE_715="$INSTALL_DIR_SOURCE" ;;
+esac
+
+echo "  WorkingDirectory=$APP_DIR INSTALL_DIR_SOURCE=$SOURCE_715"
+echo "  WorkingDirectory: $SCRIPT_DIR"
+INSTALL_SOURCE_DESC="$INSTALL_DIR_SOURCE"
+echo "  Install source : $INSTALL_SOURCE_DESC"
+
+if [ "$SCRIPT_DIR" != "$EXPECTED_INSTALL_DIR" ]; then
+    echo "  ERROR: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR (script directory is not the canonical install directory)."
+    echo "  Script directory : $SCRIPT_DIR"
+    echo "  Expected from $INSTALL_DIR_SOURCE: $EXPECTED_INSTALL_DIR"
+    echo "  Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH."
+    exit 1
+fi
 if [ -z "$APP_DIR" ] || [ "$APP_DIR" != "$AUTHORIZED_DIR" ]; then
     echo "  ERROR: INSTALL-DIR-REFUSED: $APP_DIR is not the authorized tree $AUTHORIZED_DIR."
     echo "  Run from that tree, or explicitly name this tree with BD_DEPLOY_DIR or --install-dir PATH."
@@ -128,9 +176,9 @@ AI_UNIT_PATH="/etc/systemd/system/${AI_SERVICE_NAME}.service"
 
 # Inspect both loaded units before the helper or either unit can be written.
 # A failed or incomplete observation is not evidence that no service exists.
-for CHECK_SERVICE in "$SERVICE_NAME" "$AI_SERVICE_NAME"; do
-    if ! UNIT_PROPERTIES="$(systemctl show "$CHECK_SERVICE" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)"; then
-        echo "  ERROR: UNIT-DIR-UNKNOWN: cannot inspect $CHECK_SERVICE: $UNIT_PROPERTIES"
+for ACTIVE_SERVICE_NAME in "$SERVICE_NAME" "$AI_SERVICE_NAME"; do
+    if ! UNIT_PROPERTIES="$(systemctl show "$ACTIVE_SERVICE_NAME" --all --property=LoadState,ActiveState,WorkingDirectory 2>&1)"; then
+        echo "  ERROR: UNIT-DIR-UNKNOWN: cannot inspect $ACTIVE_SERVICE_NAME: $UNIT_PROPERTIES"
         exit 1
     fi
     UNIT_LOAD= UNIT_STATE= UNIT_DIR= UNIT_FIELDS=0
@@ -142,7 +190,7 @@ for CHECK_SERVICE in "$SERVICE_NAME" "$AI_SERVICE_NAME"; do
         esac
     done <<< "$UNIT_PROPERTIES"
     if [ "$UNIT_FIELDS" -ne 3 ] || [ -z "$UNIT_LOAD" ] || [ -z "$UNIT_STATE" ]; then
-        echo "  ERROR: UNIT-DIR-UNKNOWN: incomplete properties for $CHECK_SERVICE."
+        echo "  ERROR: UNIT-DIR-UNKNOWN: incomplete properties for $ACTIVE_SERVICE_NAME."
         exit 1
     fi
     case "$UNIT_STATE" in
@@ -153,16 +201,17 @@ for CHECK_SERVICE in "$SERVICE_NAME" "$AI_SERVICE_NAME"; do
                 *) UNIT_DIR= ;;
             esac
             if [ -z "$UNIT_DIR" ]; then
-                echo "  ERROR: UNIT-DIR-UNKNOWN: $CHECK_SERVICE has no resolved WorkingDirectory."
+                echo "  ERROR: UNIT-DIR-UNKNOWN: $ACTIVE_SERVICE_NAME has no resolved WorkingDirectory."
                 exit 1
             fi
             if [ "$UNIT_DIR" != "$APP_DIR" ]; then
-                echo "  ERROR: RUNNING-UNIT-DIR-REFUSED: $CHECK_SERVICE belongs to $UNIT_DIR, not $APP_DIR."
+                echo "  ERROR: RUNNING-UNIT-DIR-REFUSED: running $ACTIVE_SERVICE_NAME uses WorkingDirectory=$UNIT_DIR, not $APP_DIR."
                 echo "  Stop that service explicitly and review its unit before changing trees."
+                echo "  sudo systemctl stop $ACTIVE_SERVICE_NAME"
                 exit 1
             fi
             ;;
-        *) echo "  ERROR: UNIT-DIR-UNKNOWN: $CHECK_SERVICE state is $UNIT_STATE"; exit 1 ;;
+        *) echo "  ERROR: UNIT-DIR-UNKNOWN: $ACTIVE_SERVICE_NAME state is $UNIT_STATE"; exit 1 ;;
     esac
 done
 

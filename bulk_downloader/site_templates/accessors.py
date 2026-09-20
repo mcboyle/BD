@@ -3,7 +3,85 @@
 Each merges a user_templates overlay (lazy `from .. import user_templates as _ut`,
 and reads the package-level TEMPLATES list."""
 
+import logging
+
 from . import TEMPLATES
+
+# The template maintenance log (register row 918: "warning emitted to
+# template maintenance log"): selector degradation is routed here as a
+# WARNING record, as well as to warnings.warn for interactive callers.
+maintenance_log = logging.getLogger("bulk_downloader.site_templates.maintenance")
+
+
+class SelectorResolutionError(Exception):
+    """Every strategy in a resolve_selector_cascade() call failed."""
+
+
+def resolve_selector_cascade(page, strategies, *, warn=None):
+    """Resolve a DOM element via a prioritized fallback cascade.
+
+    `strategies` is an ordered list of {"type": <kind>, "value": str} dicts;
+    strategies[0] is the primary. Kinds, in the register's hierarchy:
+    "css" -> "xpath" -> "text" -> "aria" (alias "role": an ARIA role) ->
+    "ancestor" (the value is a CSS selector of a STABLE descendant --
+    a label, an icon -- and the element is its ancestor `levels` up,
+    default 1: a container whose own class drifted but whose child did not).
+    Returns the first locator whose element count is nonzero. Falling back
+    past the primary strategy is the maintenance signal a template's
+    selector has drifted, so `warn` (default: a WARNING record on
+    `maintenance_log` plus warnings.warn) is called with a diagnostic
+    message whenever that happens. Raises SelectorResolutionError if every
+    strategy fails, or if `strategies` is empty."""
+    if not strategies:
+        raise SelectorResolutionError("no strategies given")
+    warn = warn if warn is not None else _default_warn
+    for index, strategy in enumerate(strategies):
+        locator = _locate(page, strategy.get("type"), strategy.get("value"),
+                          strategy.get("levels", 1))
+        if locator is None:
+            continue
+        try:
+            found = locator.count() > 0
+        except Exception:
+            found = False
+        if not found:
+            continue
+        if index > 0:
+            primary = strategies[0]
+            warn(
+                f"selector cascade fell back to strategy #{index} "
+                f"({strategy.get('type')}={strategy.get('value')!r}); the "
+                f"primary ({primary.get('type')}={primary.get('value')!r}) "
+                f"did not resolve -- the template needs a refresh"
+            )
+        return locator
+    raise SelectorResolutionError(f"no strategy resolved an element: {strategies}")
+
+
+def _default_warn(message):
+    import warnings
+    maintenance_log.warning(message)
+    warnings.warn(message, stacklevel=3)
+
+
+def _locate(page, kind, value, levels=1):
+    try:
+        if kind == "css":
+            return page.locator(value)
+        if kind == "xpath":
+            return page.locator(f"xpath={value}")
+        if kind == "text":
+            return page.get_by_text(value)
+        if kind in ("aria", "role"):
+            return page.get_by_role(value)
+        if kind == "ancestor":
+            levels = int(levels)
+            if levels < 1:
+                return None
+            return page.locator(value).locator("xpath=" + "/".join([".."] * levels))
+    except Exception:
+        return None
+    return None
 
 
 def get(template_id):
