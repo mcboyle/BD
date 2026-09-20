@@ -19,6 +19,9 @@ import time
 from typing import Sequence
 
 import pytest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
 
 try:
     ds = importlib.import_module("bulk_downloader.db_search")
@@ -179,8 +182,11 @@ class TestZeroExternalEgress:
         assert host in ("127.0.0.1", "localhost", "::1", None), f"External egress prohibited: {host}"
 
     def test_zero_site_logins_touched(self):
-        # Fleet Rule 21 invariant: local pgvector search never touches site logins or external credentials
-        assert True
+        # Fleet Rule 21 invariant: local pgvector search never touches site logins or
+        # external credentials -- measured on the module source, not asserted by fiat.
+        src = (ROOT / "bulk_downloader" / "db_search.py").read_text(encoding="utf-8")
+        assert re.search(r"(?im)^\s*(from|import)\s+\S*(login|auth|cookie|credential)", src) is None
+        assert re.search(r"(?i)(cookie_file|login_url|password|site_login)", src) is None
 
 
 class TestPgvectorHybridSearchAcceptance:
