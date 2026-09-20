@@ -40,10 +40,10 @@
       "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
     },
     {
-      "label": "M5 the parked row is silently reopened, putting blocked work back in the queue",
+      "label": "M5 a successor-closed row is silently reopened, putting finished work back in the queue (O1054: 127 is OPEN again, no PARKED row remains)",
       "file": "project-knowledge/IMPROVEMENT_BACKLOG.md",
-      "old": "| 127 | PARKED @1195 |",
-      "new": "| 127 | OPEN |",
+      "old": "| 120 | CLOSED @1452 -- CLOSED-BY-SUCCESSOR 453 |",
+      "new": "| 120 | OPEN |",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1164_one_task_authority.py::test_the_backlog_publishes_and_matches_its_exact_denominator"
     }
