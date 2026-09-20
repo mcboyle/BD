@@ -61,13 +61,56 @@ def captcha_pending_one(url):
     return jsonify({"ok": True, "pending": p})
 
 
+def _server_side_egress_ip(url: str) -> str:
+    """The egress identity a clearance is scoped by, derived on the server:
+    the carrier the URL's pending site is bound to (egress_identity), never a
+    value from the request body -- a caller could otherwise read, write or
+    invalidate another session's cached clearance by naming its IP. Call it
+    BEFORE the pending record is resolved/dismissed."""
+    from . import captcha_relay
+    from .egress_identity import UNKNOWN_EGRESS, egress_ip_for_site
+    pending = captcha_relay.get_pending(url) or {}
+    site_id = pending.get("site_id")
+    if not site_id:
+        return UNKNOWN_EGRESS
+    return egress_ip_for_site(site_id)
+
+
 @captcha_bp.route("/api/captcha/start_solve", methods=["POST"]) if captcha_bp else (lambda f: f)
 def captcha_start_solve():
+    import time
+    from urllib.parse import urlparse
     from . import captcha_relay
+
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
+
+    domain = urlparse(url).netloc
+    egress_ip = _server_side_egress_ip(url)      # never data["egress_ip"]
+
+    try:
+        from .login_impl.token_manager import get_default_cache
+        cache = get_default_cache()
+        if not data.get("bypass_cache"):
+            cached_clearance = cache.get_clearance(egress_ip, domain)
+            if cached_clearance is not None:
+                session_id = f"cached-{int(time.time())}"
+                captcha_relay.mark_resolved(url)
+                return jsonify({
+                    "ok": True,
+                    "cached": True,
+                    "session": {
+                        "session_id": session_id,
+                        "url": url,
+                        "status": "resolved",
+                        "clearance": cached_clearance,
+                    },
+                })
+    except Exception:
+        pass
+
     try:
         info = captcha_relay.start_solve(url)
     except RuntimeError as e:
@@ -80,27 +123,54 @@ def captcha_start_solve():
 
 @captcha_bp.route("/api/captcha/resolved", methods=["POST"]) if captcha_bp else (lambda f: f)
 def captcha_resolved():
+    from urllib.parse import urlparse
     from . import captcha_relay
+
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
+    egress_ip = _server_side_egress_ip(url)      # from the pending record, before it is resolved
     ok = captcha_relay.mark_resolved(url)
     if not ok:
         return _err("url not pending", 404)
+
+    clearance = data.get("clearance") or data.get("cookies") or data.get("token")
+    if clearance:
+        try:
+            from .login_impl.token_manager import get_default_cache
+
+            domain = urlparse(url).netloc
+            ttl = float(data.get("ttl_seconds") or 7200.0)
+            get_default_cache().set_clearance(egress_ip, domain, clearance, ttl_seconds=ttl)
+        except Exception:
+            pass
+
     return jsonify({"ok": True, "url": url})
 
 
 @captcha_bp.route("/api/captcha/dismiss", methods=["POST"]) if captcha_bp else (lambda f: f)
 def captcha_dismiss():
+    from urllib.parse import urlparse
     from . import captcha_relay
+
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
         return _err("body.url required")
+    egress_ip = _server_side_egress_ip(url)      # from the pending record, before it is dismissed
     ok = captcha_relay.mark_dismissed(url)
     if not ok:
         return _err("url not pending", 404)
+
+    try:
+        from .login_impl.token_manager import get_default_cache
+
+        domain = urlparse(url).netloc
+        get_default_cache().invalidate_clearance(egress_ip, domain)
+    except Exception:
+        pass
+
     return jsonify({"ok": True, "url": url})
 
 

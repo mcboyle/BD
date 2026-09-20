@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1788**
+- internal import edges: **1790**
 - tools: 231 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 162 · config stores: 5
 
@@ -60,7 +60,7 @@ Graph version: 1
 - **bulk** (`app_bulk.py`) — routes 1, providers 0
 - **bw_chart** (`app_bw_chart.py`) — routes 3, providers 1
 - **capacity** (`app_capacity.py`) — routes 1, providers 1
-- **captcha_relay_api** (`app_captcha_relay.py`) — routes 7, providers 1
+- **captcha_relay_api** (`app_captcha_relay.py`) — routes 7, providers 2
 - **captures** (`app_captures.py`) — routes 10, providers 8
 - **changelog** (`app_changelog.py`) — routes 2, providers 1
 - **circuit** (`app_circuit.py`) — routes 2, providers 1

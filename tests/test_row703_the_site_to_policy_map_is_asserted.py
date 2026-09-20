@@ -110,7 +110,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_transport.py:3467": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
     "bulk_downloader/runner_transport.py:3548": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
     "bulk_downloader/runner_transport.py:3699": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/session_keeper.py:1431": PINNED,
+    "bulk_downloader/session_keeper.py:1498": PINNED,
     "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,
     "bulk_downloader/tg_bot.py:185": PINNED,

@@ -440,6 +440,9 @@ def open_persistent_context(
                 args.append(_f)
     except Exception:
         pass
+    extra = dict(extra)
+    domain = extra.pop("domain", None)
+    egress_ip = extra.pop("egress_ip", None)
     backend = resolve_backend(config)
     shim, ns_env = _netns_launch_plan(netns, backend)
 
@@ -461,6 +464,8 @@ def open_persistent_context(
             # cloakbrowser patches context.close() to also stop its own
             # Playwright, so we return pw=None and let the caller close
             # the context normally.
+            if domain:
+                _apply_clearance_to_context(context, domain=domain, egress_ip=egress_ip, config=config)
             return context, None, CLOAKBROWSER
         except Exception as e:
             if not _WARNED_LAUNCH_FALLBACK:
@@ -508,6 +513,8 @@ def open_persistent_context(
         if clarified is None:
             raise
         raise clarified from e
+    if domain:
+        _apply_clearance_to_context(context, domain=domain, egress_ip=egress_ip, config=config)
     return context, pw, PLAYWRIGHT
 
 
@@ -714,6 +721,58 @@ def cloaked_page(
                 pass
 
 
+def _apply_clearance_to_context(
+    context: Any,
+    domain: str,
+    egress_ip: str | None = None,
+    config: dict | None = None,
+) -> bool:
+    """Inject valid cached clearance tokens/cookies into browser context.
+
+    Falls back non-blocking on empty cache.
+    """
+    try:
+        from .login_impl.token_manager import get_default_cache
+
+        ip = egress_ip or "UNKNOWN"
+        clearance = get_default_cache().get_clearance(ip, domain)
+        if clearance:
+            if isinstance(clearance, list):
+                context.add_cookies(clearance)
+                return True
+            elif isinstance(clearance, dict) and "cookies" in clearance:
+                context.add_cookies(clearance["cookies"])
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def save_clearance_from_context(
+    context: Any,
+    domain: str,
+    egress_ip: str | None = None,
+    config: dict | None = None,
+    ttl_seconds: float = 7200.0,
+) -> bool:
+    """Save clearance cookies from a browser context into the lifecycle cache."""
+    try:
+        from .login_impl.token_manager import get_default_cache
+
+        ip = egress_ip or "UNKNOWN"
+        raw_cookies = context.cookies()
+        clearance_cookies = [
+            c for c in raw_cookies
+            if c.get("name") in ("cf_clearance", "__cf_bm") or "clearance" in c.get("name", "").lower()
+        ]
+        if clearance_cookies:
+            get_default_cache().set_clearance(ip, domain, clearance_cookies, ttl_seconds=ttl_seconds)
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def reset_cache_for_tests() -> None:
     """Reset the module-level probe + warn caches (test isolation)."""
     global _AVAILABLE, _IMPORT_ERR, _CLOAK_LPC, _WARNED_LAUNCH_FALLBACK
@@ -723,6 +782,11 @@ def reset_cache_for_tests() -> None:
     _WARNED_LAUNCH_FALLBACK = False
     with _CHANNEL_FALLBACK_LOCK:
         _CHANNEL_FALLBACKS.clear()
+    try:
+        from .login_impl.token_manager import reset_cache_for_tests as _reset_tokens
+        _reset_tokens()
+    except Exception:
+        pass
 
 
 def get_stealth_args() -> list[str]:
@@ -988,4 +1052,5 @@ def discover_frames(page: Any) -> dict[str, Any]:
     Delegates to :func:`bulk_downloader.frame_hierarchy.discover_frame_hierarchy`."""
     from .frame_hierarchy import discover_frame_hierarchy
     return discover_frame_hierarchy(page)
+
 

@@ -576,7 +576,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (70 entries)
+## `bulk_downloader/runner_transport.py` (75 entries)
 
 ```
 - L0078 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -644,11 +644,16 @@ Schema version: 2
   - L4010 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
   - L4034 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
   - L4051 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L4069 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L4084 `_ManifestConsumers` `[private]`
-  - L4085 `_ManifestConsumers.__init__` `[dunder]`
-  - L4088 `_ManifestConsumers.join`
-- L4095 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+  - L4068 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L4083 `_ManifestConsumers` `[private]`
+  - L4084 `_ManifestConsumers.__init__` `[dunder]`
+  - L4087 `_ManifestConsumers.join`
+- L4094 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L4142 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L4152 `HTTP3Transport.__init__` `[dunder]`
+  - L4160 `HTTP3Transport.allocate_stream_id`
+  - L4165 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L4188 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
 ```
 
 
@@ -906,4 +911,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 730 across 22 files._
+_Total entries: 735 across 22 files._

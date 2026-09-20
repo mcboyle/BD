@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4708,
+  "edge_count": 4721,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -348,7 +348,8 @@
       "bulk_downloader/capacity.py"
     ],
     "bulk_downloader/app_captcha_relay.py": [
-      "bulk_downloader/captcha_relay.py"
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/egress_identity.py"
     ],
     "bulk_downloader/app_captures.py": [
       "bulk_downloader/affordance_learning.py",
@@ -2124,6 +2125,9 @@
     "bulk_downloader/sse_broker.py": [
       "bulk_downloader/dev_events.py"
     ],
+    "bulk_downloader/ssrf_transport.py": [
+      "bulk_downloader/happy_eyeballs.py"
+    ],
     "bulk_downloader/stash_deep.py": [
       "bulk_downloader/deep_http.py"
     ],
@@ -3229,6 +3233,10 @@
       "tools/config_surface_inventory.py",
       "tools/gui_parity_inventory.py"
     ],
+    "tests/test_happy_eyeballs.py": [
+      "bulk_downloader/happy_eyeballs.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "tests/test_har_compactor.py": [
       "bulk_downloader/har_compactor.py"
     ],
@@ -3387,6 +3395,9 @@
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_login_circuit_breaker.py": [
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_login_classify_submit_shape.py": [
       "bulk_downloader/learn.py"
@@ -4606,6 +4617,9 @@
       "bulk_downloader/embeddings_client.py",
       "tools/ssrf_client_census.py"
     ],
+    "tests/test_row827_minio_storage_tier.py": [
+      "bulk_downloader/storage_tier.py"
+    ],
     "tests/test_row829_langfuse_tracing.py": [
       "bulk_downloader/ai_provider.py",
       "bulk_downloader/aiassist.py",
@@ -4886,6 +4900,9 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_browser.py"
     ],
+    "tests/test_spatial_hit_test_fuzzer.py": [
+      "bulk_downloader/spatial_hit_test_fuzzer.py"
+    ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"
     ],
@@ -5126,6 +5143,15 @@
       "bulk_downloader/download_egress.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_transport_http3.py": [
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_turnstile_cache.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/egress_identity.py"
     ],
     "tests/test_turnstile_click.py": [
       "bulk_downloader/runner_challenge.py"
@@ -7671,6 +7697,9 @@
     ],
     "tests/test_video_magic_bytes.py": [
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_viewport_clipping_filter.py": [
+      "bulk_downloader/viewport_clipping_filter.py"
     ],
     "tests/test_viewport_telemetry_bridge.py": [
       "bulk_downloader/viewport_telemetry_bridge.py"

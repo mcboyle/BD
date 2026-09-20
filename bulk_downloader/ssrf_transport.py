@@ -55,6 +55,9 @@ import sys
 from typing import Optional, Tuple
 
 import httpx
+from httpcore._backends.sync import SyncBackend
+
+from bulk_downloader.happy_eyeballs import race_connect
 
 PUBLIC_ONLY = "public-only"
 PINNED = "pinned"
@@ -117,6 +120,18 @@ class PinnedTransport(httpx.HTTPTransport):
 
     policy = PINNED
 
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        # Row 867: the vetted sibling literals of every pinned literal, for the
+        # backend to race (IPv6 first, RFC 8305).  Filled by pin(), read by
+        # _HappyEyeballsBackend.connect_tcp on the same request; a literal the
+        # backend does not find here connects plainly.  Keyed by the pinned
+        # literal, so the wire still only ever sees literals pin() admitted.
+        self._vetted_siblings: dict[str, tuple[str, ...]] = {}
+        # HTTPTransport exposes the pool as its transport seam.  Replacing only
+        # its network backend keeps httpx's TLS, proxy and pooling semantics.
+        self._pool._network_backend = _HappyEyeballsBackend(self)
+
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         # httpx uses this request again after the transport returns to process
         # cookies and relative/same-origin redirects.  Pin only while crossing
@@ -164,7 +179,12 @@ class PinnedTransport(httpx.HTTPTransport):
                 f"{type(exc).__name__}: {exc}",
                 host=host, reason="resolution-failed") from exc
 
+        # Row 867: keep the first admissible literal of EACH family.  The URL
+        # is pinned to the IPv4 one (a black-holed IPv6 route must never be
+        # the only thing the wire tries); the backend races both.  Every
+        # answer is still validated before either is kept.
         chosen: Optional[str] = None
+        ipv6_candidate: Optional[str] = None
         for family, _stype, _proto, _canon, sockaddr in infos:
             if family not in (socket.AF_INET, socket.AF_INET6):
                 continue
@@ -180,16 +200,48 @@ class PinnedTransport(httpx.HTTPTransport):
                 raise GuardedTransportRefused(
                     f"SSRF guard (pinned transport): {host!r} resolves to {reason} address {addr}",
                     host=host, reason=reason)
-            if chosen is None:
+            if family == socket.AF_INET and chosen is None:
                 chosen = sockaddr[0]
+            elif family == socket.AF_INET6 and ipv6_candidate is None:
+                ipv6_candidate = sockaddr[0]
+        if chosen is None:
+            chosen = ipv6_candidate
         if chosen is None:
             raise GuardedTransportRefused(
                 f"SSRF guard (pinned transport): no usable address for {host!r}",
                 host=host, reason="no-address")
+        if ipv6_candidate is not None and ipv6_candidate != chosen:
+            self._vetted_siblings[chosen] = (ipv6_candidate, chosen)
+        else:
+            self._vetted_siblings.pop(chosen, None)
 
         request.url = request.url.copy_with(host=chosen)
         request.extensions["sni_hostname"] = host
         return chosen
+
+
+class _HappyEyeballsBackend:
+    """httpcore network backend for PinnedTransport (row 867): connects the
+    pinned literal httpcore hands it, racing the vetted sibling of the other
+    family when pin() recorded one.  No name is ever resolved here -- the
+    literals come from pin(), the row 703 single resolution."""
+
+    def __init__(self, transport: "PinnedTransport") -> None:
+        self._base = SyncBackend()
+        self._transport = transport
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        candidates = self._transport._vetted_siblings.get(host) or (host,)
+        return race_connect(
+            candidates, port,
+            connect=lambda ip, p, t: self._base.connect_tcp(ip, p, t, local_address, socket_options),
+            timeout=timeout)
+
+    def connect_unix_socket(self, path, timeout=None, socket_options=None):
+        return self._base.connect_unix_socket(path, timeout, socket_options)
+
+    def sleep(self, seconds):
+        return self._base.sleep(seconds)
 
 
 _ESTABLISHED_GUARD_CLS: Optional[type] = None

@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1589 - train14: rb9 rebases + 867-r2 957 960 on 2766f609
+
+Train: 7 refute-first-reviewed worker patches (O1009 census). Base 2766f609. Rows 827 853 867 894 897 957 960 CLOSED @1589. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drop: w4-cdn403d-fx2-rb9 (in-train conflict).
+
+- 827-local-fx1-local-rb9-local: TEST RCS: - tests/test_row827_minio_storage_tier.py: 9 passed (rc=0)
+- 853-r2-local-rb9-local: TEST RCS: - tests/test_transport_http3.py: 9 passed (rc=0)
+- 867-r2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row867-r2-local/DONE.md
+- 894-r2-local-rb9-local: TEST RCS: - tests/test_auth_token_cache.py tests/test_row894.py tests/test_turnstile_cache.py: 22 passed (rc=0)
+- 897-local-fx1-local-rb9-local: TEST RCS: - tests/test_login_circuit_breaker.py: 6 passed (rc=0) - tests/test_row703_the_site_to_policy_map_is_asserted.py: 12 passed (rc=0)
+- 957-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_spatial_hit_test_fuzzer.py::test_behavioral_red_centroid_only_coordinates -x Fa
+- 960-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_viewport_clipping_filter.py::test_behavioral_red_off_canvas_nodes_pass_through
+
 ## v3.66.1588 - train13: rows 954 958 959 on 5b832252
 
 Train: 3 refute-first-reviewed worker patches (O1009 census). Base 5b832252. Tier T2 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Rows 954 958 959 CLOSED @1588 (register rows 953-960 folded from cut register-953-960, O1023).

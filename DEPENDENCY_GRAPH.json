@@ -277,7 +277,8 @@
     "captcha_relay_api": {
       "module": "app_captcha_relay.py",
       "providers": [
-        "bulk_downloader/captcha_relay.py"
+        "bulk_downloader/captcha_relay.py",
+        "bulk_downloader/egress_identity.py"
       ],
       "route_count": 7,
       "routes": [
@@ -2380,7 +2381,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1788,
+    "edge_count": 1790,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3696,6 +3697,7 @@
         "bulk_downloader/app_edge_deploy.py"
       ],
       "bulk_downloader/egress_identity.py": [
+        "bulk_downloader/app_captcha_relay.py",
         "bulk_downloader/db.py",
         "bulk_downloader/download_egress.py",
         "bulk_downloader/session_keeper.py",
@@ -3879,6 +3881,9 @@
         "tools/cockpit_shell.py",
         "tools/config_surface_inventory.py",
         "tools/framework_fleet.py"
+      ],
+      "bulk_downloader/happy_eyeballs.py": [
+        "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/healthcheck.py": [
         "bulk_downloader/app_health.py",
@@ -5658,7 +5663,8 @@
         "bulk_downloader/capacity.py"
       ],
       "bulk_downloader/app_captcha_relay.py": [
-        "bulk_downloader/captcha_relay.py"
+        "bulk_downloader/captcha_relay.py",
+        "bulk_downloader/egress_identity.py"
       ],
       "bulk_downloader/app_captures.py": [
         "bulk_downloader/affordance_learning.py",
@@ -7433,6 +7439,9 @@
       ],
       "bulk_downloader/sse_broker.py": [
         "bulk_downloader/dev_events.py"
+      ],
+      "bulk_downloader/ssrf_transport.py": [
+        "bulk_downloader/happy_eyeballs.py"
       ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/deep_http.py"

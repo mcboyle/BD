@@ -365,3 +365,10 @@ youtube-dl>=2021.12.17,<2022.0
 # fails every venv build. bulk_downloader/http3_client.py loads aioquic by
 # name through importlib and falls back to the guarded httpx TCP transport
 # when it is absent.
+
+# Row 827: S3/MinIO cold storage tier (storage_tier._s3_client_from_config).
+# Guarded import: absent, the sweep reports "S3 client unavailable" and never
+# archives. Declared HERE and not in a new optional manifest because deploy
+# converges only the manifests it names (test_v3_66_880's stranded gate).
+boto3>=1.34,<2.0
+
