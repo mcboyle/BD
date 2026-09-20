@@ -77,7 +77,7 @@ class PerThreadBrowser:
     ``__call__`` on that thread; ``close_thread()`` (call it on the worker
     thread before it exits) closes that thread's browser and Playwright.
     ``launch(playwright)`` returns the Browser (e.g.
-    ``lambda pw: pw.chromium.launch(headless=True)``). A thread that exits
+    ``lambda pw: cloak.launch_browser(pw)``). A thread that exits
     without ``close_thread()`` leaves a browser NO thread can close any
     more; ``leaked_threads()`` names those so the leak is measured, never
     silent."""

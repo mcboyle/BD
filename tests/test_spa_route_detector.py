@@ -251,11 +251,12 @@ def test_settle_after_navigation_is_the_workers_post_goto_hook():
     calls.clear()
     assert r._settle_after_navigation(Page()) is None and calls == []
     # the worker wires it right after the page load (runner.py)
+    import ast
     import inspect
     from bulk_downloader import runner as _runner
-    src = inspect.getsource(_runner)
-    i = src.index('page.goto(url,wait_until="domcontentloaded",timeout=30000)')
-    assert "_settle_after_navigation(page)" in src[i:i + 600]
+    fn = ast.unparse(ast.parse(inspect.getsource(_runner.SiteRunner._process_one)))
+    assert "page.goto(url, wait_until='domcontentloaded', timeout=30000)" in fn
+    assert "self._settle_after_navigation(page)" in fn
 
 
 def test_observer_attaches_when_installed_through_add_init_script():
