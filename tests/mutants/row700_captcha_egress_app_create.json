@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 700 seam 1/5: the shared create writer must execute the paid-captcha disclosure guard.",
+  "subject": "row 700 -- shared site creation cannot bypass paid-captcha disclosure",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_site_creation_cannot_bypass_the_enablement_ack"
+  ],
+  "mutants": [
+    {
+      "label": "M1 shared creation ignores the disclosure verdict",
+      "file": "bulk_downloader/app.py",
+      "old_regex": "(?m)captcha_egress_disclosure_error(?=\\(data\\)$)",
+      "new": "(lambda *_args, **_kwargs: \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_site_creation_cannot_bypass_the_enablement_ack"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 """v3.66.1191 -- capture vault ownership is keyed and serialized."""
 from __future__ import annotations
 
+import ast
 import fcntl
 import importlib.machinery
 import importlib.util
@@ -20,6 +21,44 @@ CAPTURE = REPO / "capture.sh"
 GC_PATH = REPO / "toolchain" / "bin" / "bd-gc"
 HEARTBEAT = REPO / "scripts" / "lib" / "heartbeat.sh"
 
+_SCHEDULE_INDEPENDENT_POLICY_TESTS = frozenset({
+    "test_vault_gc_never_takes_a_live_vault",
+    "test_keyed_vault_forensics_are_bounded",
+})
+
+
+def _ambient_policy_clock_calls(source: str, names: frozenset[str]):
+    """Return ambient time/monotonic calls in the named test functions."""
+    functions = {
+        node.name: node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in names
+    }
+    return {
+        name: [
+            f"time.{node.func.attr}"
+            for node in ast.walk(functions[name])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "time"
+            and node.func.attr in {"time", "monotonic"}
+        ]
+        for name in sorted(functions)
+    }
+
+
+def test_vault_policy_tests_do_not_make_age_depend_on_the_host_clock():
+    detector_control = _ambient_policy_clock_calls(
+        "def probe():\n    return time.time()\n", frozenset({"probe"}))
+    assert detector_control == {"probe": ["time.time"]}
+    calls = _ambient_policy_clock_calls(
+        Path(__file__).read_text(), _SCHEDULE_INDEPENDENT_POLICY_TESTS)
+    assert set(calls) == _SCHEDULE_INDEPENDENT_POLICY_TESTS
+    assert calls == {name: [] for name in sorted(
+        _SCHEDULE_INDEPENDENT_POLICY_TESTS)}
+
 
 def _load_gc(name: str):
     spec = importlib.util.spec_from_loader(
@@ -27,6 +66,11 @@ def _load_gc(name: str):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_mutation_transform_control_only_imports_bd_gc():
+    """Intentional no-verdict control: valid bd-gc mutants must still import."""
+    _load_gc("bd_gc_1191_transform_control")
 
 
 def _vault_block() -> str:
@@ -274,7 +318,9 @@ def test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it(tmp_path):
         "bash -c 'echo CHILD-RAN'\n"
     )
     result = subprocess.run(
-        ["env", "--default-signal=INT,TERM,HUP", "bash", "-c", script],
+        ["bash", "-c",
+         "trap '' HUP; exec env --default-signal=INT,TERM,HUP "
+         'bash -c "$1"', "bd-heartbeat-invalid-fd", script],
         capture_output=True, text=True,
         env={**os.environ, "HEARTBEAT": str(HEARTBEAT), "LOG": str(log),
              "SIGNAL_PRECONDITION": str(signal_precondition),
@@ -621,37 +667,77 @@ def test_a_replaced_vault_path_is_refused_and_the_foreign_peer_survives(tmp_path
 def test_vault_gc_never_takes_a_live_vault(tmp_path, monkeypatch):
     gc = _load_gc("bd_gc_1186_live")
     monkeypatch.setattr(gc, "PREFIXES", (str(tmp_path / "bd_capture_vault-"),))
+    # A zero forensic floor makes a false ABANDONED classification eligible;
+    # retention cannot hide a broken live-lock refusal from this test.
+    monkeypatch.setattr(gc, "FORENSICS_KEEP", 0)
     vault = tmp_path / "bd_capture_vault-live"
     vault.mkdir()
     lock_path = vault / ".bd-capture-vault.lock"
     lock_path.touch()
-    os.utime(vault, (1, 1))
+    now = float(2 * gc.POLICY_MIN_AGE_S)
+    old_mtime = now - gc.POLICY_MIN_AGE_S - 300
+    os.utime(vault, (old_mtime, old_mtime))
+    assert list(tmp_path.glob("bd_capture_vault-*")) == [vault]
+    assert list(vault.iterdir()) == [lock_path]
+    assert os.lstat(vault).st_mtime == old_mtime
+    assert now - old_mtime > max(60, gc.POLICY_MIN_AGE_S)
     fd = os.open(lock_path, os.O_RDWR)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        ok, why = gc.is_candidate(vault, time.time(), 60)
-        assert not ok and "LIVE" in why
+        eligible, skipped = gc.scan(now, 60, root=str(tmp_path))
+        assert eligible == []
+        assert skipped == [
+            (str(vault), "[LIVE] capture-vault lock is held"),
+        ]
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
-    ok, why = gc.is_candidate(vault, time.time(), 60)
-    assert ok and "ABANDONED" in why
+    # Negative control: the same exact old vault becomes eligible when its
+    # lock is released, proving age or namespace did not cause the refusal.
+    eligible, skipped = gc.scan(now, 60, root=str(tmp_path))
+    assert eligible == [(str(vault), "[ABANDONED] eligible")]
+    assert skipped == []
 
 
 def test_keyed_vault_forensics_are_bounded(tmp_path, monkeypatch):
     gc = _load_gc("bd_gc_1186_bound")
     monkeypatch.setattr(gc, "PREFIXES", (str(tmp_path / "bd_capture_vault-"),))
-    monkeypatch.setattr(gc, "FORENSICS_KEEP", 2)
+    now = float(2 * gc.POLICY_MIN_AGE_S)
+    oldest_mtime = now - gc.POLICY_MIN_AGE_S - 300
     made = []
     for index in range(3):
         vault = tmp_path / f"bd_capture_vault-{index}"
         vault.mkdir()
         (vault / ".bd-capture-vault.lock").touch()
-        os.utime(vault, (100 + index, 100 + index))
+        mtime = oldest_mtime + index
+        os.utime(vault, (mtime, mtime))
         made.append(vault)
-    eligible, skipped = gc.scan(time.time(), 60, root=str(tmp_path))
-    assert {Path(path) for path, _ in eligible} == {made[0]}
-    assert sum("newest" in why for _path, why in skipped) == 2
+    assert len(made) == 3
+    assert sorted(tmp_path.glob("bd_capture_vault-*")) == made
+    assert [os.lstat(path).st_mtime for path in made] == [
+        oldest_mtime + index for index in range(3)]
+    states = [gc._capture_vault_state(path, now) for path in made]
+    assert states == [
+        ("ABANDONED", oldest_mtime + index,
+         "keyed vault has no held lock")
+        for index in range(3)
+    ]
+
+    # Negative control: without the forensic floor, all three members of the
+    # independently constructed population are eligible.
+    monkeypatch.setattr(gc, "FORENSICS_KEEP", 0)
+    eligible, skipped = gc.scan(now, 60, root=str(tmp_path))
+    assert eligible == [
+        (str(path), "[ABANDONED] eligible") for path in made]
+    assert skipped == []
+
+    monkeypatch.setattr(gc, "FORENSICS_KEEP", 2)
+    eligible, skipped = gc.scan(now, 60, root=str(tmp_path))
+    assert eligible == [(str(made[0]), "[ABANDONED] eligible")]
+    assert skipped == [
+        (str(path), "[ABANDONED] protected as one of newest 2")
+        for path in made[1:]
+    ]
 
 
 def test_the_keyed_vault_is_still_not_in_the_bundle_namespace():

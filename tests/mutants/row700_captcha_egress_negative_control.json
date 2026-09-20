@@ -1,0 +1,22 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Negative control: an acknowledged transition must remain accepted, so making acknowledgement ineffective must fail the acceptance-path assertion.",
+  "subject": "row 700 -- acknowledgement authorizes exactly one paid-captcha transition",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_acknowledged_solver_key_is_persisted_but_ack_is_not",
+    "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL a true acknowledgement is ignored",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "updates\\.get\\(CAPTCHA_EGRESS_ACK_FIELD\\)(?= is True:)",
+      "new": "False and updates.get(CAPTCHA_EGRESS_ACK_FIELD)",
+      "direction": "overcorrection",
+      "control": "tests/test_row700_captcha_egress_disclosure.py::test_acknowledged_solver_key_is_persisted_but_ack_is_not",
+      "preserves": [
+        "tests/test_row700_captcha_egress_disclosure.py::test_new_solver_key_without_egress_ack_is_refused_and_not_persisted"
+      ]
+    }
+  ]
+}

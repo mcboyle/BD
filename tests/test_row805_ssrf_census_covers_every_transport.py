@@ -66,8 +66,8 @@ def test_every_tracked_non_httpx_egress_site_is_accounted_for_in_the_tree():
 def test_the_declaration_accounts_for_exactly_the_tree_derived_population():
     """One exact count, over a population proven nonzero first."""
     result = census_tool.egress_census(ROOT)
-    assert len(result.sites) == 24, (
-        f"the tree holds {len(result.sites)} non-httpx egress sites, not 24:\n  "
+    assert len(result.sites) == 25, (
+        f"the tree holds {len(result.sites)} non-httpx egress sites, not 25:\n  "
         + "\n  ".join(f"{s.where} {s.transport} {s.dispatch}" for s in result.sites))
     assert set(result.keys) == set(result.declared_keys), (
         "declaration and tree disagree; unaccounted="

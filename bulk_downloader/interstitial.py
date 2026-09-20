@@ -214,6 +214,10 @@ SAFETY_UNKNOWN_OUTCOMES = frozenset({
 # set). It is reported on its own so no caller can read it as members content.
 BLOCKED_AFTER_GATE_OUTCOMES = frozenset({
     "blocked_after_gate", "gate_landing_unknown",
+    # Row 912: a gate measured still covering the viewport after its click is
+    # a blocked page at the consumer (runner._page_gates_are_safe), not a
+    # cleared one.
+    "viewport_blocked",
 })
 
 # Generic controls that accept/continue, in the order a person encounters the
@@ -650,6 +654,75 @@ def _visible_first(page: Any, selector: str) -> Any:
     return locator.first
 
 
+_VIEWPORT_BLOCKED_JS = """
+el => {
+  if (!el.isConnected) return false;
+  const r = el.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0)) return false;
+  const cs = getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+  // The OVERLAY root: the outermost positioned ancestor. A fixed/sticky
+  // root is an overlay wherever it sits (bottom bars, top bars, modals);
+  // an absolute root only when it covers a quarter of the viewport. A
+  // static control (an inline link that merely stays in the page) is not
+  // an overlay at all.
+  let root = null, rootPos = '';
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    const p = getComputedStyle(n).position;
+    if (p === 'fixed' || p === 'sticky' || p === 'absolute') { root = n; rootPos = p; }
+  }
+  if (!root) return false;
+  const rr = root.getBoundingClientRect();
+  const vw = innerWidth, vh = innerHeight;
+  const ix = Math.max(0, Math.min(rr.right, vw) - Math.max(rr.left, 0));
+  const iy = Math.max(0, Math.min(rr.bottom, vh) - Math.max(rr.top, 0));
+  if (ix <= 0 || iy <= 0) return false;                     // off-screen
+  if (rootPos === 'absolute' && (ix * iy) < 0.25 * vw * vh) return false;
+  // Is it actually on top? Sample the visible part of the root: its
+  // centre plus a 3x3 grid inset from its edges.
+  const x0 = Math.max(rr.left, 0), y0 = Math.max(rr.top, 0);
+  const pts = [];
+  for (const fx of [0.1, 0.5, 0.9]) for (const fy of [0.1, 0.5, 0.9]) pts.push([x0 + ix * fx, y0 + iy * fy]);
+  for (const [x, y] of pts) {
+    const hit = document.elementFromPoint(x, y);
+    if (hit && (hit === root || root.contains(hit))) return true;
+  }
+  return false;
+}
+"""
+
+_VIEWPORT_PROBE_TIMEOUT_MS = 1000
+
+
+def _viewport_cleared(locator) -> Optional[bool]:
+    """Row 912: True when the clicked control is gone from the document or
+    its overlay root no longer covers any part of the viewport, False when
+    the overlay still covers it, None when the locator cannot be asked."""
+    evaluate = getattr(locator, "evaluate", None)
+    if not callable(evaluate):
+        return None
+    # A dismissed gate is normally REMOVED from the DOM; a locator that no
+    # longer resolves must not wait Playwright's 30s default -- count() is
+    # an immediate read, and 0 is clearance (round 2, E1).
+    count = getattr(locator, "count", None)
+    if callable(count):
+        try:
+            if count() == 0:
+                return True
+        except Exception:
+            return None
+    try:
+        try:
+            blocked = evaluate(_VIEWPORT_BLOCKED_JS, timeout=_VIEWPORT_PROBE_TIMEOUT_MS)
+        except TypeError:
+            blocked = evaluate(_VIEWPORT_BLOCKED_JS)  # duck-typed locators without a timeout kwarg
+    except Exception:
+        return None
+    if blocked is None:
+        return None
+    return not bool(blocked)
+
+
 def _click_gate(page: Any, locator: Any, *, source: str, tier: str,
                 label: str, selector: str = "", destination_url: str = "",
                 timeout_ms: int, navigation_timeout_ms: int,
@@ -795,11 +868,36 @@ def _click_gate(page: Any, locator: Any, *, source: str, tier: str,
             ),
             "destination_re_requested": re_requested,
         }
+    # Row 912: "cleared" above is proven from the click's own silence (no
+    # exception, origin unchanged) -- it is not proof the gate actually left
+    # the viewport (an animation delay, or a backdrop the control itself
+    # does not own, can leave the page blocked while every check above
+    # reports success). Ask the page: is the control, or the fixed/absolute
+    # overlay it belongs to, still sitting over the viewport centre? One
+    # ``locator.evaluate`` on the SAME already-matched element -- never a
+    # scan of the candidates row 371 counts. A control that merely stays in
+    # the document (an inline link, a footer button) is not an overlay and
+    # does not block. A gate measured still blocking is NOT cleared: callers
+    # key off ``outcome``, and a stuck overlay reported as ``cleared`` is the
+    # fake verification this row exists to remove. A locator without
+    # ``evaluate`` yields ``viewport_cleared: None`` (UNKNOWN) and the
+    # click's own evidence stands as before.
+    viewport_cleared = _viewport_cleared(locator)
+    if viewport_cleared is False:
+        return {
+            **base,
+            "outcome": "viewport_blocked",
+            "reason": (f"clicked {tier} gate via {label!r} but the control is "
+                       "still visible afterwards: the overlay was not cleared"),
+            "destination_re_requested": re_requested,
+            "viewport_cleared": False,
+        }
     return {
         **base,
         "outcome": "cleared",
         "reason": f"cleared {tier} gate via {label!r}",
         "destination_re_requested": re_requested,
+        "viewport_cleared": viewport_cleared,
     }
 
 

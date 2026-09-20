@@ -1128,6 +1128,45 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_row722_upsell_checkbox_unchecked.py",
             r"(?m)^def test_upsell_boxes_unchecked_and_verified_remember_me_and_unknown_untouched\(",
         ),
+    # h1191: these are deliberately fixed regression transforms.  None is
+    # emitted by a producer; each evidence pattern pins the behavior its
+    # value-bearing source text exercises.
+    "2c15cfc6773dd5aa336afd56f4357e5b2a618c0beff32a99135f566ff4f87235":
+        StableValueException(
+            "fixed policy-age fixture; the test forbids ambient clock reads",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"def test_vault_policy_tests_do_not_make_age_depend_on_the_host_clock\(\):",
+        ),
+    "80442b970d1974f50b43ec1e343e8b5a2d2904759b7afbf43a26294d20c17ac8":
+        StableValueException(
+            "fixed forensic-age fixture; the test forbids ambient clock reads",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"def test_keyed_vault_forensics_are_bounded\(tmp_path, monkeypatch\):",
+        ),
+    "eff849d30e983ab620f67ae1578809283b481c479eca66c3035774ceefacf0f5":
+        StableValueException(
+            "fixed live-lock verdict transform, not a producer-derived value",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"def test_vault_gc_never_takes_a_live_vault\(tmp_path, monkeypatch\):",
+        ),
+    "8db359e181a870a52939ea81138eb05b0b11e015c6f5a39932e455188d47399d":
+        StableValueException(
+            "fixed invalid-descriptor branch transform, not a derived value",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"def test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it\(tmp_path\):",
+        ),
+    "49613ebdb64cfb9cd8c8f31cdbf28e5951e9b71f5c40e1fdcec205c46ec6c8ae":
+        StableValueException(
+            "fixed inherited-signal reset transform, not a derived value",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"trap '' HUP; exec env --default-signal=INT,TERM,HUP",
+        ),
+    "e915edb55e9a6f89bd1bac54928abcfdca569bbebf0dc259b2c01116fe329c1c":
+        StableValueException(
+            "duplicate control for the fixed live-lock verdict transform",
+            "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+            r"def test_mutation_transform_control_only_imports_bd_gc\(\):",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1176,6 +1215,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 5
 # one train instead of rewriting the absolute pin.  Exact equality in
 # _validate_exceptions is unchanged.
 _STABLE_VALUE_EXCEPTION_MAX += 70
+
+# h1191: six value-bearing mutation anchors registered as audited fixed-value exceptions
+_STABLE_VALUE_EXCEPTION_MAX += 6
 
 _FRAGILE_RULES = (
     *_family(

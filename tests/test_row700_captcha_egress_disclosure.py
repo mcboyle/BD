@@ -7,6 +7,10 @@ solver cannot happen through the canonical writer without a one-shot
 acknowledgement, and that a rejected write leaves the solver off.
 """
 
+import json
+
+from bulk_downloader.runner import CAPTCHA_EGRESS_ACK_FIELD
+
 BD_GATE_SCOPE = "module"
 
 
@@ -37,6 +41,12 @@ def test_transform_control_imports_disclosure_module_without_judging_the_gate():
     assert callable(runner.captcha_egress_disclosure_error)
 
 
+def test_ack_persistence_transform_control_imports_writer_without_judging_behavior():
+    from bulk_downloader import app_config as config_api
+
+    assert callable(config_api.api_config_import)
+
+
 def _new_site(client) -> str:
     response = client.post("/api/sites", json={"name": "captcha-disclosure"})
     assert response.status_code == 200
@@ -47,6 +57,27 @@ def _captcha_status(client, sid: str) -> dict:
     response = client.get(f"/api/sites/{sid}/captcha/stats")
     assert response.status_code == 200
     return response.get_json()
+
+
+def _count_real_saves(monkeypatch, writer_module) -> list[bool]:
+    real_save = writer_module._save_sites_config
+    results = []
+
+    def counted_save():
+        result = real_save()
+        results.append(result)
+        return result
+
+    monkeypatch.setattr(writer_module, "_save_sites_config", counted_save)
+    return results
+
+
+def _persisted_site(clean_workdir, sid: str) -> dict:
+    config_path = clean_workdir / "sites_config.json"
+    assert config_path.is_file()
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert sid in persisted
+    return persisted[sid]
 
 
 def test_new_solver_key_without_egress_ack_is_refused_and_not_persisted(fresh_app):
@@ -131,6 +162,103 @@ def test_site_creation_cannot_bypass_the_enablement_ack(fresh_app):
     assert status["provider"] == "2captcha"
 
 
+def test_site_update_ack_is_absent_from_persisted_config(
+        fresh_app, clean_workdir, monkeypatch):
+    from bulk_downloader import app_sites_id_core as site_core
+
+    sid = _new_site(fresh_app)
+    save_results = _count_real_saves(monkeypatch, site_core)
+
+    response = fresh_app.put(
+        f"/api/sites/{sid}",
+        json={
+            "captcha_provider": "capsolver",
+            "captcha_api_key": "row395-zero-entropy-test-key",
+            CAPTCHA_EGRESS_ACK_FIELD: True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert save_results == [True]
+    persisted = _persisted_site(clean_workdir, sid)
+    assert persisted["captcha_provider"] == "capsolver"
+    assert persisted["captcha_api_key"] == "row395-zero-entropy-test-key"
+    assert CAPTCHA_EGRESS_ACK_FIELD not in persisted
+
+
+def test_config_import_existing_site_ack_is_absent_from_persisted_config(
+        fresh_app, clean_workdir, monkeypatch):
+    from bulk_downloader import app_config as config_api
+
+    sid = _new_site(fresh_app)
+    response = fresh_app.put(
+        f"/api/sites/{sid}",
+        json={
+            "name": "captcha-import-existing",
+            "captcha_api_key": "row395-zero-entropy-test-key",
+            CAPTCHA_EGRESS_ACK_FIELD: True,
+        },
+    )
+    assert response.status_code == 200
+    assert _captcha_status(fresh_app, sid)["provider"] == "2captcha"
+    save_results = _count_real_saves(monkeypatch, config_api)
+
+    response = fresh_app.post(
+        "/api/config/import",
+        json={
+            CAPTCHA_EGRESS_ACK_FIELD: True,
+            "sites": [{
+                "name": "captcha-import-existing",
+                "captcha_provider": "capsolver",
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["updated"] == 1
+    assert response.get_json()["imported"] == 0
+    assert save_results == [True]
+    persisted = _persisted_site(clean_workdir, sid)
+    assert persisted["captcha_provider"] == "capsolver"
+    assert persisted["captcha_api_key"] == "row395-zero-entropy-test-key"
+    assert CAPTCHA_EGRESS_ACK_FIELD not in persisted
+
+
+def test_config_import_created_site_ack_is_absent_from_persisted_config(
+        fresh_app, clean_workdir, monkeypatch):
+    from bulk_downloader import app_config as config_api
+
+    save_results = _count_real_saves(monkeypatch, config_api)
+    response = fresh_app.post(
+        "/api/config/import",
+        json={
+            CAPTCHA_EGRESS_ACK_FIELD: True,
+            "sites": [{
+                "name": "captcha-import-created",
+                "captcha_provider": "capsolver",
+                "captcha_api_key": "row395-zero-entropy-test-key",
+            }],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["updated"] == 0
+    assert response.get_json()["imported"] == 1
+    assert save_results == [True]
+    persisted = json.loads(
+        (clean_workdir / "sites_config.json").read_text(encoding="utf-8")
+    )
+    created = [
+        (sid, cfg) for sid, cfg in persisted.items()
+        if cfg.get("name") == "captcha-import-created"
+    ]
+    assert len(created) == 1
+    _sid, config = created[0]
+    assert config["captcha_provider"] == "capsolver"
+    assert config["captcha_api_key"] == "row395-zero-entropy-test-key"
+    assert CAPTCHA_EGRESS_ACK_FIELD not in config
+
+
 def test_import_writers_apply_the_same_nonpersistent_gate(fresh_app):
     site_payload = {
         "name": "single-import-captcha",
@@ -168,11 +296,36 @@ def test_import_writers_apply_the_same_nonpersistent_gate(fresh_app):
     )
     assert _captcha_status(fresh_app, imported_sid)["has_key"] is True
 
+    # Exercise the existing-site branch independently from the create branch.
+    response = fresh_app.put(
+        f"/api/sites/{imported_sid}",
+        json={
+            "captcha_provider": "capsolver",
+            "captcha_egress_disclosure_ack": True,
+        },
+    )
+    assert response.status_code == 200
+    assert _captcha_status(fresh_app, imported_sid)["provider"] == "capsolver"
+
+    response = fresh_app.post(
+        "/api/config/import",
+        json={"sites": [{
+            "name": "bulk-import-captcha",
+            "captcha_provider": "2captcha",
+        }]},
+    )
+    assert response.status_code == 400
+    assert "captcha_egress_disclosure_ack=true" in response.get_json()["error"]
+    assert _captcha_status(fresh_app, imported_sid)["provider"] == "capsolver"
+
     # A normal merge export omits secrets. Preserving an already-enabled key is
     # not another point of enablement and must not demand a second ack.
     response = fresh_app.post(
         "/api/config/import",
-        json={"sites": [{"name": "bulk-import-captcha"}]},
+        json={"sites": [{
+            "name": "bulk-import-captcha",
+            "captcha_provider": "capsolver",
+        }]},
     )
     assert response.status_code == 200
     assert _captcha_status(fresh_app, imported_sid)["has_key"] is True

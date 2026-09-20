@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 700 seam 5/5: config-import creation must execute the paid-captcha disclosure guard.",
+  "subject": "row 700 -- config-import creation cannot bypass paid-captcha disclosure",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_import_writers_apply_the_same_nonpersistent_gate"
+  ],
+  "mutants": [
+    {
+      "label": "M1 new-site config import ignores the disclosure verdict",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "captcha_egress_disclosure_error(?=\\(\\n                _captcha_gate_input\\))",
+      "new": "(lambda *_args, **_kwargs: \"\")",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_import_writers_apply_the_same_nonpersistent_gate"
+    }
+  ]
+}
