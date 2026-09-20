@@ -88,6 +88,11 @@ def _parser() -> argparse.ArgumentParser:
         help="compile every committed selector; no browser/network",
     )
     parser.add_argument(
+        "--canary-matrix",
+        metavar="PATH",
+        help="compare committed templates against offline baseline/current HTML fixtures",
+    )
+    parser.add_argument(
         "--headed", action="store_true", help="show browser for login/navigation"
     )
     parser.add_argument("--wait-for", help="wait for this selector before measuring")
@@ -355,12 +360,116 @@ def _dependency_unknown() -> int:
     return 2
 
 
+def _offline_fixture(value: Any, field: str) -> tuple[Path | None, str]:
+    """Accept exactly one readable saved HTML fixture, never a URL."""
+    if not isinstance(value, str) or not value:
+        return None, f"canary {field} must name a saved HTML file"
+    if value.startswith(("http://", "https://")):
+        return None, f"canary {field} must be a saved HTML file, not a URL"
+    path = Path(value)
+    if not path.is_file():
+        return None, f"canary {field} is not a file: {path}"
+    return path, ""
+
+
+def _selector_rows(report: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    return {
+        (str(row.get("path", "")), str(row.get("selector", ""))): row
+        for row in report.get("selectors", [])
+    }
+
+
+def run_canary_matrix(
+    matrix_path: str | os.PathLike[str], *, verifier: Callable[..., dict[str, Any]] = verify_template_source,
+) -> dict[str, Any]:
+    """Measure offline fixture pairs and return a selector-level drift report.
+
+    Matrix entries are deliberately limited to ``baseline`` and ``subject``
+    saved HTML paths. This monitor is a regression canary, not a navigation or
+    authentication mechanism; URL and session inputs are refused before the
+    verifier is called.
+    """
+    try:
+        raw = json.loads(Path(matrix_path).read_text(encoding="utf-8"))
+        entries = raw.get("canaries") if isinstance(raw, dict) else None
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("matrix must contain a non-empty canaries list")
+    except (OSError, ValueError, TypeError) as exc:
+        return {"verdict": "UNKNOWN", "error": f"matrix unreadable: {exc}", "canaries": [],
+                "changed_count": 0, "daily_digest": {"template_canaries_healthy": 0,
+                "template_canaries_drifted": 0, "template_canaries_unknown": 1}}
+
+    canaries: list[dict[str, Any]] = []
+    for index, item in enumerate(entries):
+        row: dict[str, Any] = {"index": index, "changes": []}
+        if not isinstance(item, dict):
+            row.update({"verdict": "UNKNOWN", "error": "canary must be an object"})
+            canaries.append(row)
+            continue
+        template_id = item.get("template_id")
+        row["template_id"] = template_id
+        baseline, error = _offline_fixture(item.get("baseline"), "baseline")
+        if not error:
+            subject, error = _offline_fixture(item.get("subject"), "subject")
+        else:
+            subject = None
+        if error:
+            row.update({"verdict": "UNKNOWN", "error": error})
+            canaries.append(row)
+            continue
+        if not isinstance(template_id, str) or not template_id:
+            row.update({"verdict": "UNKNOWN", "error": "canary template_id must be a string"})
+            canaries.append(row)
+            continue
+        resolved, refusal = _resolve_template_argument(template_id)
+        if refusal:
+            row.update({"verdict": "UNKNOWN", "error": refusal})
+            canaries.append(row)
+            continue
+        baseline_report = verifier(resolved, baseline)
+        current_report = verifier(resolved, subject)
+        if baseline_report.get("verdict") in {"UNKNOWN", "MALFORMED"} or current_report.get("verdict") in {"UNKNOWN", "MALFORMED"}:
+            row.update({"verdict": "UNKNOWN", "error": "canary fixture could not be measured"})
+            canaries.append(row)
+            continue
+        before, after = _selector_rows(baseline_report), _selector_rows(current_report)
+        changes = []
+        for key in sorted(set(before) | set(after)):
+            old, new = before.get(key), after.get(key)
+            old_view = {"status": old.get("status"), "count": old.get("count")} if old else None
+            new_view = {"status": new.get("status"), "count": new.get("count")} if new else None
+            if old_view != new_view:
+                changes.append({"path": key[0], "selector": key[1], "baseline": old_view, "current": new_view})
+        row.update({"verdict": "DRIFT" if changes else "OK", "changes": changes,
+                    "baseline": str(baseline), "subject": str(subject)})
+        canaries.append(row)
+
+    healthy = sum(row["verdict"] == "OK" for row in canaries)
+    drifted = sum(row["verdict"] == "DRIFT" for row in canaries)
+    unknown = len(canaries) - healthy - drifted
+    verdict = "UNKNOWN" if unknown else ("DRIFT" if drifted else "OK")
+    return {"verdict": verdict, "canaries": canaries,
+            "changed_count": sum(len(row["changes"]) for row in canaries),
+            "daily_digest": {"template_canaries_healthy": healthy,
+                             "template_canaries_drifted": drifted,
+                             "template_canaries_unknown": unknown}}
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.selftest:
         return _selftest()
     if _IMPORT_ERROR is not None:
         return _dependency_unknown()
+    if args.canary_matrix:
+        report = run_canary_matrix(args.canary_matrix)
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            digest = report["daily_digest"]
+            print(f"canaries verdict={report['verdict']} changed={report['changed_count']}")
+            print("daily-digest " + " ".join(f"{key}={value}" for key, value in digest.items()))
+        return 0 if report["verdict"] == "OK" else (2 if report["verdict"] == "UNKNOWN" else 1)
     if args.audit_corpus:
         report = audit_committed_selector_syntax()
         if args.json:

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Statically validate literal site-template modules without importing them."""
+from __future__ import annotations
+
+import argparse
+import ast
+from pathlib import Path
+import re
+import sys
+
+
+REQUIRED = ("id", "name", "patterns")
+
+
+def _items(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "ITEMS" for target in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise ValueError("missing ITEMS assignment")
+
+
+def lint(path: Path) -> list[str]:
+    try:
+        items = _items(path)
+    except (OSError, SyntaxError, ValueError) as exc:
+        return [f"{path}: invalid template module: {exc}"]
+    if not isinstance(items, list):
+        return [f"{path}: ITEMS must be a list"]
+    errors = []
+    for index, item in enumerate(items):
+        label = f"{path}:{index}"
+        if not isinstance(item, dict):
+            errors.append(f"{label}: template must be a mapping")
+            continue
+        for attribute in REQUIRED:
+            if attribute not in item:
+                errors.append(f"{label}: missing required attribute: {attribute}")
+        patterns = item.get("patterns")
+        if patterns is not None and not isinstance(patterns, list):
+            errors.append(f"{label}: patterns must be a list")
+            continue
+        for pattern in patterns or []:
+            if not isinstance(pattern, str):
+                errors.append(f"{label}: pattern must be a string")
+                continue
+            # row921 fixer: the runtime matcher (site_templates/accessors.py)
+            # compiles pat.lower() against the lowercased URL and, on
+            # re.error, silently falls back to a substring test. Lint must
+            # therefore judge the pattern AS THE RUNTIME COMPILES IT: the
+            # lowercased form -- and refuse any escape whose meaning changes
+            # under lowercasing (\D \S \W \B invert; \Z becomes the invalid
+            # \z; \A \N etc.), since the raw form compiling proves nothing.
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                errors.append(f"{label}: invalid regex {pattern!r}: {exc}")
+                continue
+            lowered = pattern.lower()
+            if lowered != pattern:
+                changed = _case_sensitive_escapes(pattern)
+                if changed:
+                    errors.append(
+                        f"{label}: pattern {pattern!r} uses escape(s) {', '.join(changed)} whose "
+                        "meaning changes when the runtime lowercases it (accessors.py matches "
+                        "pat.lower()); rewrite without upper-case escapes")
+                    continue
+                try:
+                    re.compile(lowered)
+                except re.error as exc:
+                    errors.append(
+                        f"{label}: pattern {pattern!r} is valid raw but INVALID as the runtime "
+                        f"compiles it ({lowered!r}): {exc}")
+    return errors
+
+
+_ESCAPE_RE = re.compile(r"\\\\|\\([A-Za-z])")
+
+
+def _case_sensitive_escapes(pattern: str) -> list[str]:
+    """Regex escapes in ``pattern`` whose upper-case letter is not the same
+    escape once lowercased: class inversions (\\D \\S \\W \\B), anchors (\\A \\Z)
+    and any other upper-case escape letter."""
+    found = []
+    for match in _ESCAPE_RE.finditer(pattern):
+        letter = match.group(1)
+        if letter and letter.isupper():
+            found.append("\\" + letter)
+    return found
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("paths", nargs="*", type=Path)
+    args = parser.parse_args(argv)
+    paths = args.paths or sorted((Path(__file__).parents[2] / "bulk_downloader" / "site_templates").glob("_data_*.py"))
+    errors = [error for path in paths for error in lint(path)]
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
