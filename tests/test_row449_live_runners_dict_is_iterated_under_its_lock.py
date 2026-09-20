@@ -662,6 +662,29 @@ def test_the_forked_route_scan_collects_every_shard_while_the_lock_churns(
             "GET /metrics did not reach runners_snapshot() on this tree; the "
             "shard payload below cannot exhibit the inherited-lock hang")
 
+        # REACH THE FORK PATH.  Since cleanup-20260917 _scan_all() refuses to
+        # fork when mp.get_context is the real multiprocessing function (a
+        # multi-threaded pytest process inheriting held locks is exactly the
+        # hazard this row is about) and scans sequentially instead, which
+        # would make expected_shards 1 and this a different experiment.  This
+        # test IS the controlled fork-hazard experiment, so it opts in the way
+        # the gate's own tests do -- a get_context whose __module__ is this
+        # module -- while delegating to the REAL fork context: the children
+        # below are genuine forks of this process, taken while the churn
+        # thread holds and releases the registry lock.
+        import multiprocessing as mp
+        real_get_context = mp.get_context
+
+        def forking_get_context(method=None):
+            return real_get_context(method)
+
+        forking_get_context.__module__ = __name__
+        monkeypatch.setattr(mp, "get_context", forking_get_context)
+        assert not getattr(mp.get_context, "__module__", "").startswith(
+            "multiprocessing"), (
+            "precondition failed: the fork opt-in was not installed, so "
+            "_scan_all would scan sequentially and never fork")
+
         # PIN THE SHARD COUNT.  _scan_all derives its worker count from
         # os.cpu_count(), so an exact-count assertion written against this
         # 48-core host would fail on a 2-vCPU CI runner for a reason that

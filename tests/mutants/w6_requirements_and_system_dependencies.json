@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w6-reqconsolidate. Four structural exact-once mutations remove one fresh-host package group at its executable bd_system_pkgs seam. The catcher invokes each named group and `all` and proves exact nonzero group sizes. The companion syntax-only transform control applies SD-M2 byte-for-byte and must ESCAPE.",
+  "subject": "fresh-host font, tool, psql-client, and VPN package groups",
+  "band": [
+    "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_fresh_host_support_packages_and_database_server_are_in_all"
+  ],
+  "mutants": [
+    {
+      "label": "SD-M1 the headed-rendering font group is disconnected",
+      "file": "scripts/lib/system_deps.sh",
+      "old_regex": "(?m)^    local fonts",
+      "new": "    local skipped_fonts",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_fresh_host_support_packages_and_database_server_are_in_all"
+    },
+    {
+      "label": "SD-M2 the CLI tool group is disconnected",
+      "file": "scripts/lib/system_deps.sh",
+      "old_regex": "(?m)^    local tools",
+      "new": "    local skipped_tools",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_fresh_host_support_packages_and_database_server_are_in_all"
+    },
+    {
+      "label": "SD-M3 the PostgreSQL server group is disconnected",
+      "file": "scripts/lib/system_deps.sh",
+      "old_regex": "(?m)^    local db",
+      "new": "    local skipped_db",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_fresh_host_support_packages_and_database_server_are_in_all"
+    },
+    {
+      "label": "SD-M4 the VPN client group is disconnected",
+      "file": "scripts/lib/system_deps.sh",
+      "old_regex": "(?m)^    local vpn",
+      "new": "    local skipped_vpn",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1048_live_backends_are_provisioned.py::test_fresh_host_support_packages_and_database_server_are_in_all"
+    }
+  ]
+}

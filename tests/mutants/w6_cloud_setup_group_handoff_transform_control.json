@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w6-reqconsolidate transform control. CS-M1 is byte-identical to the behavioral mutant, but the selected node only imports the parser and makes no package-handoff assertion, so this valid mutant must ESCAPE.",
+  "subject": "transform control for the cloud package handoff seam",
+  "band": [
+    "tests/test_cloud_setup_truthfulness.py::test_group_handoff_transform_control_only_imports_the_parser"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL CS-M1 missing fonts handoff escapes import-only test",
+      "file": "scripts/cloud-setup.sh",
+      "old_regex": "(?m)(?<=^    )step(?= \"system packages \\(fonts\\)\" optional apt_i \\$FONTS_PKGS$)",
+      "new": "row \"system packages (fonts)\" \"OK\" \"installed\"\n    #",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_group_handoff_transform_control_only_imports_the_parser"
+    }
+  ]
+}

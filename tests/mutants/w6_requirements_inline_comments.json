@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "The structural newline anchor restores one trailing inline comment without pinning a package/version value. The manifest parser must catch it as InvalidRequirement.",
+  "subject": "requirements.txt keeps comments on whole lines so every manifest consumer can parse every pin",
+  "band": [
+    "tests/test_row360_turnstile_bypass_is_installed.py::test_the_core_manifest_installs_the_turnstile_fetcher_extra"
+  ],
+  "mutants": [
+    {
+      "label": "M1 restore an inline comment after the pyyaml pin",
+      "file": "requirements.txt",
+      "old_regex": "(?m)(?<=^pyyaml>=6\\.0,<7\\.0)\\n(?=# bd-tool-smoke)",
+      "new": " # mutant: inline comments break Requirement parsing\n",
+      "direction": "regression",
+      "catcher": "tests/test_row360_turnstile_bypass_is_installed.py::test_the_core_manifest_installs_the_turnstile_fetcher_extra"
+    }
+  ]
+}

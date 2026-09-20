@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the same valid inline-comment mutant must escape a row360 test that imports modules but never parses requirements.txt.",
+  "subject": "import-only control does not constrain requirements.txt line format",
+  "band": [
+    "tests/test_row360_turnstile_bypass_is_installed.py::test_declared_but_incomplete_scrapling_is_not_available"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL restore an inline comment after the pyyaml pin",
+      "file": "requirements.txt",
+      "old_regex": "(?m)(?<=^pyyaml>=6\\.0,<7\\.0)\\n(?=# bd-tool-smoke)",
+      "new": " # mutant: inline comments break Requirement parsing\n",
+      "direction": "regression",
+      "catcher": "tests/test_row360_turnstile_bypass_is_installed.py::test_declared_but_incomplete_scrapling_is_not_available"
+    }
+  ]
+}

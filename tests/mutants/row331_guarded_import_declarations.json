@@ -1,6 +1,6 @@
 {
   "schema": "bd-mutate-spec/1",
-  "_comment": "Row 331. Seven exact-once regressions cover the declaration verdict, case-normalized distribution joining, repo-local subtraction, unreadable-manifest UNKNOWN, AST-parse UNKNOWN, git-ls-files UNKNOWN, and the explicit psycopg2/psycopg2-binary alias needed when the optional distribution is absent. The companion transform control applies M1 byte-for-byte to a census-only test and must ESCAPE.",
+  "_comment": "Row 331. Eight exact-once regressions cover the import and managed-executable declaration verdicts, case-normalized distribution joining, repo-local subtraction, unreadable-manifest UNKNOWN, AST-parse UNKNOWN, git-ls-files UNKNOWN, and the explicit psycopg2/psycopg2-binary alias needed when the optional distribution is absent. The companion transform control applies M1 byte-for-byte to a census-only test and must ESCAPE.",
   "subject": "every third-party application import has a measured requirements declaration",
   "band": [
     "tests/test_row331_guarded_imports_are_declared.py"
@@ -61,6 +61,14 @@
       "new": "    \"psycopg2\": \"psycopg2\",\n",
       "direction": "regression",
       "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_every_third_party_application_import_is_declared"
+    },
+    {
+      "label": "M8 missing managed executable declarations are silently accepted",
+      "file": "tests/test_row331_guarded_imports_are_declared.py",
+      "old_regex": "(?m)^    return used\\.difference\\(declared\\)\\n",
+      "new": "    return set()\n",
+      "direction": "regression",
+      "catcher": "tests/test_row331_guarded_imports_are_declared.py::test_a_synthetic_managed_executable_without_declaration_is_caught"
     }
   ]
 }

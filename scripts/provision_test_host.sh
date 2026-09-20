@@ -284,7 +284,7 @@ export DEBIAN_FRONTEND=noninteractive
 # shellcheck disable=SC2086  # $SUDO is empty when already root
 run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update || true
 
-# install_group <slug> <label> <core|node|gtk> <core|optional>
+# install_group <slug> <label> <package-group> <core|optional>
 #
 # ONE transaction PER GROUP, never one transaction for `all`.
 #
@@ -454,6 +454,10 @@ install_group 03d_pkgs_gtk  "system packages (gtk)"  gtk  optional || true
 # failure mode is a visible absence rather than a false pass.
 install_group 03e_pkgs_lint "system packages (lint)" lint optional || true
 install_group 03f_pkgs_media "system packages (media)" media optional || true
+install_group 03g_pkgs_fonts "system packages (fonts)" fonts optional || true
+install_group 03h_pkgs_tools "system packages (tools)" tools optional || true
+install_group 03i_pkgs_db "system packages (db)" db optional || true
+install_group 03j_pkgs_vpn "system packages (vpn)" vpn optional || true
 
 # ------------------------------------------------------ [4/9] repo install
 echo

@@ -185,6 +185,12 @@ Worth backing up periodically (these are gitignored, so git won't):
 
 Everything else is rebuilt from git on a fresh clone.
 
+Continuous SQLite replication is optional and requires an operator-managed
+`litestream` executable on `PATH`. `install_linux.sh` intentionally does not
+install this standalone Go binary; install it separately through the host's
+managed software process before enabling replication. Bulk Downloader remains
+usable without it and reports replication as unavailable.
+
 ---
 
 ## Verifying what's actually active (System Status)

@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1584 - train8: w6-reqconsolidate-rb5 + row449-mainred (main-red fix)
+
+Train: 2 refute-first-reviewed worker patches (base e3ae6b5e).
+
+- roww6-reqconsolidate-cx-e-cx-b-rb5 (requirements.txt, requirements-test.txt + mutants/tests): consolidate test-suite and system dependencies into the declared manifests (pyyaml, pyflakes, pytest-timeout, gallery-dl pins) so a fresh install_linux host passes the guarded-import and deploy manifest gates (rebased RB5).
+- row449-mainred (tests/test_row449_live_runners_dict_is_iterated_under_its_lock.py): forked route-scan test fakes the fork context again so the 16-shard denominator holds; clears the main-side red inherited since cleanup-20260917.
+- Held for train9 (O996): DP-ratchet cuts pending the precut-ratchet-advisory cut. Precut: browser gates green after H604 (per-cut venv installs Playwright browsers); remaining red is the main-side row883 timing flake (O998 benign, fix rides train9).
+
 ## v3.66.1583 - train7c: rows 889 900 913 918 932 950 + RB installdirb pytest-banners-r8 780-rb8
 
 Train: 9 refute-first-reviewed worker patches (base 412cb80e). Rows 889 900 913 918 932 950 CLOSED @1583.

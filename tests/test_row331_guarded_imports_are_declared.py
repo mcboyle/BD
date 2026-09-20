@@ -35,6 +35,15 @@ _DIST_ALIAS_OVERRIDES = {
     "psycopg2": "psycopg2-binary",
 }
 
+# Pip-distributed extractor executables reached through PATH probes rather than
+# Python imports.  This recognition table is independent of both the source
+# census and the requirements manifests compared by the gate.
+_MANAGED_EXECUTABLE_DISTS = {
+    "gallery-dl": "gallery-dl",
+    "youtube-dl": "youtube-dl",
+    "yt-dlp": "yt-dlp",
+}
+
 
 class UnknownMeasurement(AssertionError):
     """The gate could not construct its population or declaration set."""
@@ -66,8 +75,19 @@ def _distribution_aliases(package_map=None) -> dict[str, str]:
 
 
 def _tracked_paths(repo: Path) -> tuple[str, ...]:
+    if not (repo / ".git").exists() and (repo / "bulk_downloader").is_dir():
+        paths = []
+        for path in repo.rglob("*"):
+            if path.is_file():
+                rel = path.relative_to(repo).as_posix()
+                if not any(part.startswith(".") or part == "__pycache__"
+                           for part in path.relative_to(repo).parts):
+                    paths.append(rel)
+        if paths:
+            return tuple(sorted(paths))
     try:
         result = subprocess.run(
+
             ["git", "ls-files", "-z"], cwd=repo, capture_output=True,
             check=False)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -123,6 +143,7 @@ def _scan_sources(repo: Path, source_paths: tuple[str, ...],
     roots: dict[str, set[str]] = {}
     parsed = 0
     import_nodes = 0
+    managed_executable_calls: dict[str, set[str]] = {}
     for relative in source_paths:
         body = _read_utf8(repo, relative, "tracked Python source")
         try:
@@ -131,6 +152,22 @@ def _scan_sources(repo: Path, source_paths: tuple[str, ...],
             _unknown(f"cannot parse tracked Python source {relative}: {exc}")
         parsed += 1
         for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and node.args:
+                function = node.func
+                function_name = (
+                    function.id if isinstance(function, ast.Name)
+                    else function.attr if isinstance(function, ast.Attribute)
+                    else "")
+                first = node.args[0]
+                executable = (
+                    first.value
+                    if (function_name in {"which", "_which"}
+                        and isinstance(first, ast.Constant)
+                        and isinstance(first.value, str))
+                    else None)
+                if executable in _MANAGED_EXECUTABLE_DISTS:
+                    managed_executable_calls.setdefault(
+                        executable, set()).add(relative)
             if isinstance(node, ast.Import):
                 names = [alias.name.split(".", 1)[0] for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
@@ -146,7 +183,12 @@ def _scan_sources(repo: Path, source_paths: tuple[str, ...],
                 if _repo_local_target(name, relative, tracked):
                     continue
                 roots.setdefault(name, set()).add(relative)
-    return {"parsed": parsed, "import_nodes": import_nodes, "roots": roots}
+    return {
+        "parsed": parsed,
+        "import_nodes": import_nodes,
+        "roots": roots,
+        "managed_executable_calls": managed_executable_calls,
+    }
 
 
 def _read_requirements(repo: Path,
@@ -240,6 +282,7 @@ def _audit_repository(repo: Path, *, package_map=None) -> dict:
         "resolved": resolved,
         "joined": joined,
         "undeclared": undeclared,
+        "managed_executable_calls": scanned["managed_executable_calls"],
     }
 
 
@@ -253,6 +296,28 @@ def _assert_every_import_is_declared(report: dict) -> None:
         f"{len(report['third_party_roots'])} third-party roots, and "
         f"{report['read_manifests']}/{len(report['manifest_paths'])} "
         "requirements manifests")
+
+
+def _missing_declarations(used: set[str], declared: set[str]) -> set[str]:
+    return used.difference(declared)
+
+
+def _assert_managed_executables_are_declared(report: dict) -> None:
+    used = {
+        _canonical_name(_MANAGED_EXECUTABLE_DISTS[executable])
+        for executable in report["managed_executable_calls"]
+    }
+    missing = _missing_declarations(used, set(report["declared"]))
+    assert not missing, (
+        "managed extractor executable(s) declared in no tracked "
+        f"requirements*.txt: {', '.join(sorted(missing))}")
+    not_core = {
+        distribution for distribution in used
+        if "requirements.txt" not in report["declared"].get(distribution, set())
+    }
+    assert not not_core, (
+        "managed extractor executable(s) absent from the fresh-install "
+        f"requirements.txt manifest: {', '.join(sorted(not_core))}")
 
 
 def _init_tracked_repo(tmp_path: Path, *, source: str,
@@ -284,6 +349,31 @@ def test_every_third_party_application_import_is_declared():
     _assert_every_import_is_declared(report)
 
 
+def test_every_managed_extractor_executable_is_declared():
+    report = _audit_repository(_REPO)
+    calls = report["managed_executable_calls"]
+    assert {name: len(paths) for name, paths in calls.items()} == {
+        "gallery-dl": 2,
+        "youtube-dl": 2,
+        "yt-dlp": 3,
+    }, f"managed extractor call-site precondition changed: {calls}"
+    assert set(calls) == set(_MANAGED_EXECUTABLE_DISTS)
+    assert all(calls.values())
+    _assert_managed_executables_are_declared(report)
+
+
+def test_capture_suite_dependencies_are_declared_in_both_manifests():
+    report = _audit_repository(_REPO)
+    expected = {"httpcore", "psycopg", "pyflakes", "pyyaml", "pytest-timeout"}
+    assert len(expected) == 5
+    declarations = {
+        name: report["declared"].get(name, set()) for name in expected}
+    assert declarations == {
+        name: {"requirements-test.txt", "requirements.txt"}
+        for name in expected
+    }, f"fresh-install/test-manifest duplication is incomplete: {declarations}"
+
+
 def test_a_synthetic_ninth_guarded_import_is_caught(tmp_path):
     repo = _init_tracked_repo(
         tmp_path,
@@ -301,6 +391,26 @@ def test_a_synthetic_ninth_guarded_import_is_caught(tmp_path):
     assert set(report["undeclared"]) == {"ninth_guarded_dependency"}
     with pytest.raises(AssertionError, match="ninth_guarded_dependency"):
         _assert_every_import_is_declared(report)
+
+
+def test_a_synthetic_managed_executable_without_declaration_is_caught(
+        tmp_path):
+    repo = _init_tracked_repo(
+        tmp_path,
+        source=("import shutil\n"
+                "gallery_dl = shutil.which('gallery-dl')\n"
+                "import werkzeug\n"))
+    report = _audit_repository(repo, package_map={})
+    assert report["managed_executable_calls"] == {
+        "gallery-dl": {"bulk_downloader/sample.py"}}
+    assert set(report["declared"]) == {"werkzeug"}
+    assert _missing_declarations({"gallery-dl"}, set(report["declared"])) == {
+        "gallery-dl"}
+    with pytest.raises(
+            AssertionError,
+            match=(r"managed extractor executable\(s\) declared in no tracked "
+                   r"requirements\*\.txt: gallery-dl")):
+        _assert_managed_executables_are_declared(report)
 
 
 def test_distribution_name_case_does_not_make_werkzeug_a_false_positive(

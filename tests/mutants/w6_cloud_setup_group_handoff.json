@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w6-reqconsolidate cloud handoff seam. Each exact-once structural anchor replaces a real apt_i handoff with a lying OK row while preserving the package capture and nonempty guard. The parameterized catcher must reject both valid-shell regressions.",
+  "subject": "cloud package groups are handed to apt_i before an OK row is possible",
+  "band": [
+    "tests/test_cloud_setup_truthfulness.py::test_each_group_install_refuses_an_empty_package_list"
+  ],
+  "mutants": [
+    {
+      "label": "CS-M1 fonts capture and guard remain but apt_i handoff disappears",
+      "file": "scripts/cloud-setup.sh",
+      "old_regex": "(?m)(?<=^    )step(?= \"system packages \\(fonts\\)\" optional apt_i \\$FONTS_PKGS$)",
+      "new": "row \"system packages (fonts)\" \"OK\" \"installed\"\n    #",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_each_group_install_refuses_an_empty_package_list[fonts]"
+    },
+    {
+      "label": "CS-M2 database capture and guard remain but apt_i handoff disappears",
+      "file": "scripts/cloud-setup.sh",
+      "old_regex": "(?m)(?<=^    )step(?= \"system packages \\(db\\)\" optional apt_i \\$DB_PKGS$)",
+      "new": "row \"system packages (db)\" \"OK\" \"installed\"\n    #",
+      "direction": "regression",
+      "catcher": "tests/test_cloud_setup_truthfulness.py::test_each_group_install_refuses_an_empty_package_list[db]"
+    }
+  ]
+}
