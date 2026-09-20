@@ -251,6 +251,19 @@ def cmd_add(args):
         urls = [l.strip() for l in sys.stdin if l.strip()]
     if not urls:
         raise SystemExit("No URLs to add (pass as args or pipe to stdin)")
+    if getattr(args, "enable_guardrails", False):
+        import asyncio
+        from bulk_downloader import guardrails
+        filtered_urls = []
+        for u in urls:
+            metadata = {"title": u, "url": u}
+            if asyncio.run(guardrails.pre_download_safety_check(metadata, enabled=True)):
+                filtered_urls.append(u)
+            else:
+                print(f"Blocked unsafe download: {u}", file=sys.stderr)
+        urls = filtered_urls
+        if not urls:
+            raise SystemExit("All URLs blocked by safety filter")
     if sid:
         text = "\n".join(urls)
         r = _request("POST", f"/api/sites/{sid}/load_urls",
@@ -1486,6 +1499,12 @@ def main():
         epilog=__doc__,
     )
     p.add_argument("--version", action="version", version=f"bdctl {VERSION}")
+    p.add_argument(
+        "--enable-guardrails",
+        action="store_true",
+        default=False,
+        help="enable llama-guard3 pre-download safety filter",
+    )
     sub = p.add_subparsers(dest="cmd")
 
     sp = sub.add_parser("status", help="show site overview or one site")
@@ -1782,6 +1801,11 @@ def main():
             _sub_parser.add_argument(
                 "--json", action="store_true",
                 help="emit machine-readable JSON instead of text")
+        if not any(getattr(a, "dest", None) == "enable_guardrails"
+                   for a in _sub_parser._actions):
+            _sub_parser.add_argument(
+                "--enable-guardrails", action="store_true", default=argparse.SUPPRESS,
+                help="enable llama-guard3 pre-download safety filter")
         # Sub-subcommand parsers (learned/dedup/site/library/scrapers)
         for _act in _sub_parser._actions:
             choices = getattr(_act, "choices", None)
@@ -1792,6 +1816,11 @@ def main():
                         _ss.add_argument(
                             "--json", action="store_true",
                             help="emit JSON instead of text")
+                    if not any(getattr(a, "dest", None) == "enable_guardrails"
+                               for a in _ss._actions):
+                        _ss.add_argument(
+                            "--enable-guardrails", action="store_true", default=argparse.SUPPRESS,
+                            help="enable llama-guard3 pre-download safety filter")
 
     args = p.parse_args()
     if not args.cmd:

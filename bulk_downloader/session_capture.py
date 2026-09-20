@@ -95,6 +95,7 @@ class SessionCapture:
         self.websocket_log: List[Dict[str, Any]] = []
         self._ws: Dict[str, Dict[str, Any]] = {}
         self.capture_ws_payloads: bool = False
+        self.frame_hierarchy: Optional[Dict[str, Any]] = None
         self.page_context: Dict[str, Any] = {
             "capture_version": RECON_CAPTURE_VERSION,
             "captured_at": _iso(),
@@ -293,6 +294,8 @@ class SessionCapture:
         if self.websocket_log:
             out["websocket_log"] = list(self.websocket_log)
             out["websocket_log_count"] = len(self.websocket_log)
+        if self.frame_hierarchy is not None:
+            out["frame_hierarchy"] = dict(self.frame_hierarchy)
         out["fingerprint_detection"] = detect_fingerprinting(out)
         # If a dev raw-inspection redactor is active (never in the release),
         # stamp the capture loudly so a raw capture can never be mistaken for
@@ -475,6 +478,22 @@ def capture_via_cdp(page, capture: Optional[SessionCapture] = None,
         capture = SessionCapture(url=getattr(page, "url", None), redact=redact)
     client = page.context.new_cdp_session(page)
     client.send("Network.enable")
+
+    # Row 931: auto-attach OOPIFs and discover nested frame hierarchies during capture
+    try:
+        from .frame_hierarchy import AUTO_ATTACH_PARAMS, inspect_frame_hierarchy, MEDIA_PROBE_JS
+        client.send("Target.setAutoAttach", dict(AUTO_ATTACH_PARAMS))
+        pw_frames = {getattr(fr, "url", ""): fr for fr in getattr(page, "frames", [])}
+
+        def _eval_frame(f):
+            fr = pw_frames.get(f.get("url"))
+            if fr is not None and hasattr(fr, "evaluate"):
+                return fr.evaluate(MEDIA_PROBE_JS)
+            return {"media": [], "controls": []}
+
+        capture.frame_hierarchy = inspect_frame_hierarchy(client, _eval_frame)
+    except Exception:
+        pass
 
     def _fetch_body(rid):
         """Fetch a completed response body over CDP. Returns the body text,

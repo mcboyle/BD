@@ -5,11 +5,13 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (the seams doc omitted the dedup +
 mp4_metadata conditionals). Cycle rule: imports nothing from .runner.
 """
+import math
 import os, sys, shutil
 
 from .db import db_log
 from .fname import format_duration_for_filename
-from .integrity import verify_media_integrity
+from .integrity import verify_media_integrity, _IMAGE_MAGIC
+from . import stream_verifier
 
 # dedup soft import (moved verbatim from runner.py; flat sibling). _dedup + _DEDUP_AVAILABLE.
 try:
@@ -28,6 +30,13 @@ except Exception as _e:
     sys.stderr.write(f"[runner_integrity] mp4_metadata import failed (degraded): {_e}\n")
     _mp4_metadata = None
     _MP4_METADATA_AVAILABLE = False
+
+
+def _is_stream_container(path) -> bool:
+    """True for the files verify_media_integrity checks with ffprobe (video/audio/unknown);
+    False for the zip and image extensions it verifies structurally."""
+    ext = os.path.splitext(str(path))[1].lower()
+    return ext != ".zip" and ext not in _IMAGE_MAGIC
 
 
 class IntegrityMixin:
@@ -238,6 +247,20 @@ class IntegrityMixin:
         except Exception as e:
             self.log.warning("dedup preflight failed (proceeding): %s", e)
         return None
+    def _job_expected_duration(self, page_url):
+        """The job's known media length in seconds (extractor/playlist metadata), or None."""
+        with self._lock:
+            j = self.jobs.get(page_url, {}) or {}
+        for key in ("duration_sec", "duration", "expected_duration"):
+            try:
+                value = float(j.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(value):
+                continue
+            if value > 0:
+                return value
+        return None
     def _verify_hash_or_quarantine(self, page_url, expected_algo, expected_hash,
                                    final_path, filename, downloaded_size):
         """Verify the downloaded file's hash matches `expected_algo:expected_hash`.
@@ -304,6 +327,22 @@ class IntegrityMixin:
         previous inline block, including the Phase 72 retry-on-corruption
         path."""
         ok, reason = verify_media_integrity(final_path)
+        if ok and _is_stream_container(final_path):
+            # Row 952: a container that opens can still be a cut-short or gappy stream. Run the
+            # packet continuity / tail-completeness verifier before the job is marked complete;
+            # a probe that could not run (checked=False) fails open like verify_media_integrity
+            # does, but its reason travels with the OK verdict. Only files verify_media_integrity
+            # sent down its ffprobe route are streams: zips and images are never probed.
+            sv = stream_verifier.verify_stream(
+                final_path,
+                expected_duration=self._job_expected_duration(page_url),
+                timeout=int(self.config.get("stream_verify_timeout", stream_verifier.DEFAULT_TIMEOUT) or stream_verifier.DEFAULT_TIMEOUT),
+            )
+            if sv.checked and not sv.valid:
+                ok, reason = False, (sv.errors[0] if sv.errors
+                                     else f"packet continuity failed ({len(sv.discontinuities)} discontinuities, ~{sv.dropped_packets} dropped)")
+            elif not sv.checked:
+                reason = (reason + "; " if reason else "") + f"stream continuity unverified: {sv.errors[0] if sv.errors else 'probe did not run'}"
         if ok:
             # Propagate the reason on the OK path. verify_media_integrity fails
             # OPEN when ffprobe is absent -- it returns (True, "ffprobe not

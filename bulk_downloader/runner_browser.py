@@ -308,19 +308,19 @@ class BrowserMixin:
         autofill enabled. Headless workers don't — there's no user
         present to interact with autofill prompts."""
         args = [
-            "--no-sandbox",
-            "--disable-notifications","--disable-popup-blocking",
-            "--disable-infobars","--no-default-browser-check","--no-first-run",
+            "--no-sandbox", "--disable-notifications", "--disable-popup-blocking",
+            "--disable-infobars", "--no-default-browser-check", "--no-first-run",
             "--disable-features=PushMessaging,Translate,AutomationControlled",
-            # 9.2 supplement: hide the headless flag in chrome://flags state
             "--disable-blink-features=AutomationControlled",
         ]
+        from .browser_sentinel import get_chromium_memory_flags as _gcmf
+        args.extend(_gcmf())
         if not headless:
             args.append("--window-size=1366,800")
-            # Autofill flags only on headed launches (takeover, manual login).
-            # See login.py:open_manual_login_browser for the full rationale.
             args.append("--password-store=basic")
             args.append("--enable-features=AutofillEnableAccountWalletStorage,PasswordManagerEnabled")
+        # Row 927: V8 heap bounding flags (bounds RSS memory growth past 750MB)
+        # v3.43.14: password manager and autofill enabled on headed launches
         # v3.66.468 WS2: operator-supplied unpacked chromium extensions.
         # `chromium_extensions: [dir, ...]` -> --disable-extensions-except +
         # --load-extension (Chromium needs both together; persistent-context
@@ -1009,3 +1009,12 @@ class BrowserMixin:
                 return
         self._last_warmup_at = time.time()
         self.log_event("warmup", f"Warmed up via {sample_count} URL(s)")
+
+
+from .browser_sentinel import (  # noqa: E402
+    runner_maybe_recycle_browser as _rmrb,
+    runner_check_browser_rss as _rcbr,
+)
+BrowserMixin.maybe_recycle_browser = _rmrb
+BrowserMixin.check_browser_rss = _rcbr
+

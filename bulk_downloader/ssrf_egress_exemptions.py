@@ -133,4 +133,9 @@ ACCOUNTED = {
         "exempt",
         "the only caller passes the literal PyPI JSON URL defined in that "
         "module to learn the latest yt-dlp version at boot"),
+    "bulk_downloader/guardrails.py::_default_request": (
+        "exempt",
+        "the only caller passes the fixed local guardrails endpoint constant; "
+        "untrusted metadata is sent in the JSON body, never used as a destination"),
 }
+

@@ -74,7 +74,9 @@ def guarded_open(url, *, data=None, method="GET", headers=None, timeout,
                                          method=request_method,
                                          headers=request_headers)
         try:
-            return _OPENER.open(request, timeout=timeout)
+            from . import http_client
+            return http_client.proxy_open(request, timeout=timeout,
+                                          direct_open=_OPENER.open)
         except urllib.error.HTTPError as exc:
             if exc.code not in {301, 302, 303, 307, 308}:
                 raise

@@ -433,6 +433,13 @@ def open_persistent_context(
     """
     global _WARNED_LAUNCH_FALLBACK
     args = list(args or [])
+    try:
+        from .browser_sentinel import get_chromium_memory_flags as _gcmf
+        for _f in _gcmf():
+            if not any(a.startswith(_f.split("=")[0]) for a in args):
+                args.append(_f)
+    except Exception:
+        pass
     backend = resolve_backend(config)
     shim, ns_env = _netns_launch_plan(netns, backend)
 
@@ -528,6 +535,13 @@ def launch_browser(
     """
     global _WARNED_LAUNCH_FALLBACK
     args = list(args or [])
+    try:
+        from .browser_sentinel import get_chromium_memory_flags as _gcmf
+        for _f in _gcmf():
+            if not any(a.startswith(_f.split("=")[0]) for a in args):
+                args.append(_f)
+    except Exception:
+        pass
     backend = resolve_backend(config)
     shim, ns_env = _netns_launch_plan(netns, backend)
     _no_fallback = bool(extra.pop("_no_fallback", False))
@@ -709,6 +723,25 @@ def reset_cache_for_tests() -> None:
     _WARNED_LAUNCH_FALLBACK = False
     with _CHANNEL_FALLBACK_LOCK:
         _CHANNEL_FALLBACKS.clear()
+
+
+def get_stealth_args() -> list[str]:
+    """Default launch arguments including V8 heap bounding (Row 927)."""
+    try:
+        from .browser_sentinel import get_chromium_memory_flags
+        extra = get_chromium_memory_flags()
+    except Exception:
+        extra = ["--js-flags=--max-old-space-size=512", "--disable-dev-shm-usage"]
+    return [
+        "--no-sandbox",
+        "--disable-notifications",
+        "--disable-popup-blocking",
+        "--disable-infobars",
+        "--no-default-browser-check",
+        "--no-first-run",
+        "--disable-features=PushMessaging,Translate,AutomationControlled",
+        "--disable-blink-features=AutomationControlled",
+    ] + extra
 
 
 # ---------------------------------------------------------------------------
@@ -948,4 +981,11 @@ def cloaked_mouse_click(
 generate_bezier_trajectory = generate_bezier_mouse_path
 bezier_mouse_move = cloaked_mouse_move
 bezier_mouse_click = cloaked_mouse_click
+
+
+def discover_frames(page: Any) -> dict[str, Any]:
+    """Discover nested frame hierarchy and media elements on a Playwright page.
+    Delegates to :func:`bulk_downloader.frame_hierarchy.discover_frame_hierarchy`."""
+    from .frame_hierarchy import discover_frame_hierarchy
+    return discover_frame_hierarchy(page)
 

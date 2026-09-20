@@ -2371,7 +2371,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1779,
+    "edge_count": 1787,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3131,6 +3131,10 @@
         "bulk_downloader/healthcheck.py",
         "bulk_downloader/metrics_prom.py"
       ],
+      "bulk_downloader/browser_sentinel.py": [
+        "bulk_downloader/cloak.py",
+        "bulk_downloader/runner_browser.py"
+      ],
       "bulk_downloader/bw_chart.py": [
         "bulk_downloader/app_bw_chart.py"
       ],
@@ -3773,7 +3777,9 @@
         "bulk_downloader/hls_downloader.py",
         "bulk_downloader/integrity.py",
         "bulk_downloader/live_recorder.py",
+        "bulk_downloader/render_diagnostics.py",
         "bulk_downloader/runner_transport.py",
+        "bulk_downloader/stream_verifier.py",
         "bulk_downloader/thumbnail_gen.py",
         "bulk_downloader/thumbnail_sheets.py"
       ],
@@ -3792,6 +3798,10 @@
         "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/fp_detect.py": [
+        "bulk_downloader/session_capture.py"
+      ],
+      "bulk_downloader/frame_hierarchy.py": [
+        "bulk_downloader/cloak.py",
         "bulk_downloader/session_capture.py"
       ],
       "bulk_downloader/friendly_error.py": [
@@ -3907,6 +3917,9 @@
       "bulk_downloader/host_enumerator.py": [
         "bulk_downloader/disco_runner.py",
         "bulk_downloader/disco_triage.py"
+      ],
+      "bulk_downloader/http_client.py": [
+        "bulk_downloader/deep_http.py"
       ],
       "bulk_downloader/i18n.py": [
         "bulk_downloader/app_i18n.py",
@@ -4664,6 +4677,9 @@
       "bulk_downloader/stream_relay.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_stream.py"
+      ],
+      "bulk_downloader/stream_verifier.py": [
+        "bulk_downloader/runner_integrity.py"
       ],
       "bulk_downloader/subprocess_helpers.py": [
         "bulk_downloader/dev_tools.py"
@@ -6385,6 +6401,8 @@
         "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/cloak.py": [
+        "bulk_downloader/browser_sentinel.py",
+        "bulk_downloader/frame_hierarchy.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/netns_isolation.py"
       ],
@@ -6460,6 +6478,9 @@
         "bulk_downloader/login.py",
         "bulk_downloader/provider_resolve.py",
         "bulk_downloader/ssrf_transport.py"
+      ],
+      "bulk_downloader/deep_http.py": [
+        "bulk_downloader/http_client.py"
       ],
       "bulk_downloader/detect.py": [
         "bulk_downloader/candidate_filter.py",
@@ -7025,6 +7046,9 @@
       "bulk_downloader/redaction_profile.py": [
         "bulk_downloader/global_config.py"
       ],
+      "bulk_downloader/render_diagnostics.py": [
+        "bulk_downloader/ffmpeg_bin.py"
+      ],
       "bulk_downloader/request_replay.py": [
         "bulk_downloader/feature_flags.py"
       ],
@@ -7150,6 +7174,7 @@
         "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/runner_browser.py": [
+        "bulk_downloader/browser_sentinel.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/eme_detect.py",
@@ -7207,7 +7232,8 @@
         "bulk_downloader/dedup.py",
         "bulk_downloader/fname.py",
         "bulk_downloader/integrity.py",
-        "bulk_downloader/mp4_metadata.py"
+        "bulk_downloader/mp4_metadata.py",
+        "bulk_downloader/stream_verifier.py"
       ],
       "bulk_downloader/runner_manual.py": [
         "bulk_downloader/app.py",
@@ -7353,7 +7379,8 @@
         "bulk_downloader/capture_bodies.py",
         "bulk_downloader/capture_redactor.py",
         "bulk_downloader/challenge_handling.py",
-        "bulk_downloader/fp_detect.py"
+        "bulk_downloader/fp_detect.py",
+        "bulk_downloader/frame_hierarchy.py"
       ],
       "bulk_downloader/session_keeper.py": [
         "bulk_downloader/cloak.py",
@@ -7406,6 +7433,9 @@
       ],
       "bulk_downloader/stream_relay.py": [
         "bulk_downloader/global_config.py"
+      ],
+      "bulk_downloader/stream_verifier.py": [
+        "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/subtitles.py": [
         "bulk_downloader/ssrf_transport.py"

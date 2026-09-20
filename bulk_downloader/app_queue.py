@@ -580,6 +580,12 @@ def enqueue_one_url(site_id, url, *, runners=None):
     if sid not in runners or not runners[sid]:
         raise KeyError(f"unknown site_id {sid!r}")
     added, dupes, skipped = runners[sid].load_urls([target])
+    try:
+        import importlib
+        _eg = importlib.import_module("bulk_downloader.event_gateway")
+        _eg.notify_queue_event("queue_add", {"site_id": sid, "url": target, "added": int(added)})
+    except Exception:
+        pass
     return {
         "ok": True,
         "site_id": sid,
