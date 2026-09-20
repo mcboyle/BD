@@ -71,6 +71,8 @@
     "/api/plex_advanced/mark/<sid>/<int:rating_key>": "CLI-ONLY [triaged @720]: maintenance/updater; CLI or dev surface",
     "/api/provenance/verify": "INTERNAL [triaged @720]: lifecycle/telemetry-internal; no operator action",
     "/api/queue/dead_letter/requeue": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
+    "/api/queue/tombstone": "CONTROL [row 847]: queue hygiene tombstone detector; API surface for manual or automated tombstoning (no SPA control yet).",
+    "/api/queue/tombstone/untombstone": "CONTROL [row 847]: queue hygiene tombstone detector; API surface for untombstoning (no SPA control yet).",
     "/api/queue_templates": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
     "/api/queue_templates/<int:tid>": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
     "/api/queue_templates/<int:tid>/apply/<sid>": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
@@ -195,6 +197,8 @@
     "/api/phoenix/lookup",
     "/api/plex_advanced/mark/<sid>/<int:rating_key>",
     "/api/provenance/verify",
+    "/api/queue/tombstone",
+    "/api/queue/tombstone/untombstone",
     "/api/retention/mark_excluded/<int:hid>",
     "/api/retry_policy/classify",
     "/api/saved_searches/<int:search_id>",
@@ -240,5 +244,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 99
+  "dark_count": 101
 }

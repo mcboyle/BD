@@ -339,6 +339,17 @@ _VIRTUAL_SCROLL_BY_JS = """
 }
 """
 
+# Row 915: browser environment state normalization -- the standard profile and
+# launch args live in cloak; re-exported here so callers and tests reach them
+# through the mixin's module.
+from . import cloak as _cloak
+STANDARD_VIEWPORT = _cloak.STANDARD_VIEWPORT
+STANDARD_TIMEZONE = _cloak.STANDARD_TIMEZONE
+STANDARD_LOCALE = _cloak.STANDARD_LOCALE
+STANDARD_USER_AGENT = _cloak.STANDARD_USER_AGENT
+standard_launch_args = _cloak.standard_launch_args
+normalized_context_options = _cloak.normalized_context_options
+
 
 class BrowserMixin:
     def _install_adaptive_manifest_capture(self, ctx):
@@ -628,18 +639,8 @@ class BrowserMixin:
             Playwright scale-fits the content — visually a "huge zoom in"
             on text fields. For headed mode, Chrome's actual window size
             should drive the viewport."""
-        fp=self.config.get("fingerprint") or {}
-        opts={"accept_downloads":True}
-        if fp.get("user_agent"): opts["user_agent"]=fp["user_agent"]
-        if headless and fp.get("viewport_w") and fp.get("viewport_h"):
-            try: opts["viewport"]={"width":int(fp["viewport_w"]),"height":int(fp["viewport_h"])}
-            except Exception: pass
-        elif not headless:
-            # Track Chrome's actual window size — no virtual viewport.
-            opts["no_viewport"] = True
-        if fp.get("timezone"): opts["timezone_id"]=fp["timezone"]
-        if fp.get("locale"): opts["locale"]=fp["locale"]
-        return opts
+        fp = self.config.get("fingerprint") if isinstance(self.config, dict) else {}
+        return normalized_context_options(fp, headless=headless)
     def _launch_args(self, headless=True):
         """Common chromium launch args. Suppresses notifications, popups,
         infobars, and other automation-blocking prompts. The
@@ -654,12 +655,7 @@ class BrowserMixin:
         download, manual login) get Chromium's password manager and
         autofill enabled. Headless workers don't — there's no user
         present to interact with autofill prompts."""
-        args = [
-            "--no-sandbox", "--disable-notifications", "--disable-popup-blocking",
-            "--disable-infobars", "--no-default-browser-check", "--no-first-run",
-            "--disable-features=PushMessaging,Translate,AutomationControlled",
-            "--disable-blink-features=AutomationControlled",
-        ]
+        args = standard_launch_args(headless=headless)
         from .browser_sentinel import get_chromium_memory_flags as _gcmf
         args.extend(_gcmf())
         if not headless:

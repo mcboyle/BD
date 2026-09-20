@@ -249,6 +249,16 @@ class SchedulerMixin:
             mutated = False
             for url, j in self.jobs.items():
                 st = j.get("status", "")
+                try:
+                    from . import tombstone as _tb
+                    if _tb.is_tombstoned(self.site_id, url) or (st == "failed" and _tb.classify(status_code=j.get("status_code"), message=j.get("message", ""))):
+                        _tb.tombstone_url(self.site_id, url, reason=j.get("message", "tombstoned"), _runner=self)
+                        j["status"] = "tombstone"
+                        j["next_auto_retry_at"] = -1
+                        mutated = True
+                        continue
+                except Exception:
+                    pass
                 if st == "needs_review":
                     if not do_review: continue
                 elif st == "failed":

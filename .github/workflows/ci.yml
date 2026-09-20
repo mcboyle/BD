@@ -19,7 +19,49 @@ permissions:
   pull-requests: read
 
 jobs:
+  ci_docs_only:
+    name: docs-only CI selection
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      selected_shards: ${{ steps.classify.outputs.selected_shards }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Classify the exact-head diff for CI selection
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="${HEAD_SHA}~1"
+          fi
+          set +e
+          python toolchain/bin/bd-docs-only classify \
+            --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" --json \
+            > "$RUNNER_TEMP/docs-only-classification.json"
+          classify_rc=$?
+          set -e
+          python tools/generate_ci_docsonly_shards.py select \
+            --repo "$GITHUB_WORKSPACE" --classification-exit "$classify_rc" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Generated docs-only shard manifest is current
+        run: |
+          python -m pip install PyYAML
+          python tools/generate_ci_docsonly_shards.py check --repo "$GITHUB_WORKSPACE"
+
   postgres-integration:
+    needs: ci_docs_only
+    if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), 'postgres-integration')
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -281,6 +323,8 @@ jobs:
   # Do not "fix" a slow shard by trimming its list. Every entry is a gate that
   # was RED somewhere nothing else could see; see the @850 note below.
   frontend-vitest:
+    needs: ci_docs_only
+    if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), 'frontend-vitest')
     # 122 TRACKED SPEC FILES AND 499 TESTS THAT CI HAS NEVER RUN. vitest.config.ts
     # calls itself "a sandbox-cut gate only" and bd-cut:368 runs it before a
     # deploy, so these specs were not unrun -- they were UN-CI'd, which means no
@@ -325,6 +369,7 @@ jobs:
         run: python tools/check_vitest_denominator.py /tmp/vitest.json --root "$GITHUB_WORKSPACE"
 
   gate-suites:
+    needs: ci_docs_only
     runs-on: ubuntu-latest
     # pytest-timeout runs inside pytest. This is the independent owner bound
     # for a dead interpreter/runner, kept well below Actions' six-hour default.
@@ -916,6 +961,7 @@ jobs:
     name: gate-suites (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         with:
           # LOAD-BEARING for the toolchain shard, and the reason changed at
           # v3.66.884. test_toolchain_534 runs bd-freshcheck, which asserts the
@@ -942,6 +988,7 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-python@v5
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         with:
           python-version: '3.12'
           # v3.66.1363 row 420: pip wheel cache, keyed on both requirements
@@ -966,6 +1013,7 @@ jobs:
       # FileNotFoundError: 'xdpyinfo', which is the honest version of the same
       # condition. CLAUDE.md: a gate CI does not run does not exist.
       - name: install X11 utilities for display-ownership gates
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends xvfb x11-utils
@@ -984,17 +1032,18 @@ jobs:
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
       - uses: actions/setup-node@v4
-        if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b')
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies (shards whose gates need node)
-        if: matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b'
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b')
         working-directory: frontend
         run: npm ci
 
       - name: Install dependencies
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         # BOTH manifests. requirements-test.txt carries the test-only chain
         # (PyYAML among them, which the shard-coverage gate imports), and
         # omitting it would present as a SKIP rather than a failure -- a gate
@@ -1010,10 +1059,11 @@ jobs:
       # pairing is asserted by tests/test_row386_the_download_chain_is_gated.py,
       # so a shard that gains a browser-driven gate cannot silently lose it.
       - name: Install Chromium for browser-driven fixture gates
-        if: matrix.name == 'template-selectors' || matrix.name == 'download-chain'
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'template-selectors' || matrix.name == 'download-chain')
         run: python -m playwright install --with-deps chromium
 
       - name: ${{ matrix.name }} gates
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         run: >-
           python toolchain/bin/bd-flake-classifier --
           python -m pytest -q -p no:randomly

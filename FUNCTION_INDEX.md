@@ -243,26 +243,26 @@ Schema version: 2
   - L2836 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
   - L2867 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
   - L2888 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L3405 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L3434 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L3489 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L3547 `SiteRunner._worker_generation_is_current` `[private]`
-  - L3551 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L3612 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L3672 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L3704 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L3735 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L3755 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L3764 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L3789 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L3814 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L3835 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L3917 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L4276 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L4291 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4321 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L4347 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L4381 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L3414 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L3443 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L3498 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L3556 `SiteRunner._worker_generation_is_current` `[private]`
+  - L3560 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L3621 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L3681 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L3713 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L3744 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L3764 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L3773 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L3798 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L3823 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L3844 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L3926 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L4285 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L4300 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L4330 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4356 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4390 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -418,35 +418,35 @@ Schema version: 2
   - L0243 `WebSocketFrameDispatcher.drain` — Every queued message so far, in arrival order.
   - L0252 `WebSocketFrameDispatcher.media_urls` — Media URLs carried by every message captured since the last call,
   - L0263 `WebSocketFrameDispatcher.close` — Detach the CDP session (if any) and stop routing frames.
-- L0343 `BrowserMixin` `[class]`
-  - L0344 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
-  - L0395 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
-  - L0409 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
-  - L0418 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
-  - L0447 `BrowserMixin._watch_websocket_json` `[private]` — Row904: attach a CDP ``Network`` session to ``page`` and route
-  - L0469 `BrowserMixin._maybe_install_websocket_json_capture` `[private]` — Production wiring: every page of a persistent playback context
-  - L0496 `BrowserMixin.drain_websocket_media_urls` — The consumer: media URLs carried by every JSON WebSocket message
-  - L0507 `BrowserMixin._close_websocket_capture` `[private]`
-  - L0513 `BrowserMixin._collect_virtualized_media_urls` `[private]` — Collect media URLs from each rendered viewport of an opt-in catalog.
-  - L0586 `BrowserMixin._virtual_scroll_step` `[private]` — Scroll step strictly inside one viewport so consecutive snapshots
-  - L0598 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
-  - L0614 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
-  - L0643 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
-  - L0707 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
-  - L0729 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0760 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
-  - L0781 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
-  - L0813 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0841 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L1047 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L1086 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
-  - L1141 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L1164 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
-  - L1253 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
-  - L1265 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
-  - L1277 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
-  - L1294 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
-  - L1362 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
+- L0354 `BrowserMixin` `[class]`
+  - L0355 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
+  - L0406 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
+  - L0420 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
+  - L0429 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
+  - L0458 `BrowserMixin._watch_websocket_json` `[private]` — Row904: attach a CDP ``Network`` session to ``page`` and route
+  - L0480 `BrowserMixin._maybe_install_websocket_json_capture` `[private]` — Production wiring: every page of a persistent playback context
+  - L0507 `BrowserMixin.drain_websocket_media_urls` — The consumer: media URLs carried by every JSON WebSocket message
+  - L0518 `BrowserMixin._close_websocket_capture` `[private]`
+  - L0524 `BrowserMixin._collect_virtualized_media_urls` `[private]` — Collect media URLs from each rendered viewport of an opt-in catalog.
+  - L0597 `BrowserMixin._virtual_scroll_step` `[private]` — Scroll step strictly inside one viewport so consecutive snapshots
+  - L0609 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
+  - L0625 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
+  - L0644 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
+  - L0703 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
+  - L0725 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
+  - L0756 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0777 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+  - L0809 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
+  - L0837 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L1043 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L1082 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L1137 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L1160 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
+  - L1249 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
+  - L1261 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
+  - L1273 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
+  - L1290 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L1358 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
 ```
 
 
@@ -464,17 +464,17 @@ Schema version: 2
   - L0115 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
   - L0143 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
   - L0214 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0347 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0372 `SchedulerMixin._load_rl` `[private]`
-  - L0384 `SchedulerMixin._save_rl` `[private]`
-  - L0399 `SchedulerMixin._clear_rl` `[private]`
-  - L0403 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0413 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0423 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0463 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
-  - L0483 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
-  - L0495 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
-  - L0505 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+  - L0357 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0382 `SchedulerMixin._load_rl` `[private]`
+  - L0394 `SchedulerMixin._save_rl` `[private]`
+  - L0409 `SchedulerMixin._clear_rl` `[private]`
+  - L0413 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0423 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0433 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0473 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
+  - L0493 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
+  - L0505 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
+  - L0515 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4755,
+  "edge_count": 4768,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -629,7 +629,8 @@
       "bulk_downloader/cookie_health.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
-      "bulk_downloader/selector_drift.py"
+      "bulk_downloader/selector_drift.py",
+      "bulk_downloader/tombstone.py"
     ],
     "bulk_downloader/app_queue_templates.py": [
       "bulk_downloader/db.py",
@@ -1771,6 +1772,9 @@
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/tags.py"
     ],
+    "bulk_downloader/retry_policy.py": [
+      "bulk_downloader/tombstone.py"
+    ],
     "bulk_downloader/run_history.py": [
       "bulk_downloader/db.py"
     ],
@@ -1855,6 +1859,7 @@
       "bulk_downloader/template_assist.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/tier_probe.py",
+      "bulk_downloader/tombstone.py",
       "bulk_downloader/tpdb.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/vpn_stats.py",
@@ -1975,7 +1980,8 @@
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
       "bulk_downloader/retry_policy.py",
-      "bulk_downloader/runner_util.py"
+      "bulk_downloader/runner_util.py",
+      "bulk_downloader/tombstone.py"
     ],
     "bulk_downloader/runner_teach.py": [
       "bulk_downloader/app.py",
@@ -2244,6 +2250,11 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/timeline.py": [
+      "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/tombstone.py": [
+      "bulk_downloader/app_queue.py",
+      "bulk_downloader/app_state.py",
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/tus_client.py": [
@@ -4695,6 +4706,14 @@
     ],
     "tests/test_row845_prom_latency_histograms.py": [
       "bulk_downloader/metrics_prom.py"
+    ],
+    "tests/test_row847_queue_tombstone.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/retry_policy.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_scheduler.py",
+      "bulk_downloader/tombstone.py"
     ],
     "tests/test_row848_hls_prefetch.py": [
       "bulk_downloader/hls_prefetch.py"

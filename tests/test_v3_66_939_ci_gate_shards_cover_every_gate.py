@@ -51,7 +51,9 @@ from __future__ import annotations
 
 import ast
 import io
+import json
 import re
+import runpy
 import shlex
 import subprocess
 import sys
@@ -1503,3 +1505,248 @@ def test_the_derivation_control_names_a_severed_marker_reader(monkeypatch):
     # which is exactly what test (1) asserts and why it catches the mutant.
     assert f"missing from CI: ['{_SELF_REL}']" not in str(excinfo.value)
     assert "expected exactly" in str(excinfo.value)
+
+
+# ── docs-only exact-head shard selection ────────────────────────────────────
+
+_DOCS_ONLY_TOOL = _REPO / "toolchain" / "bin" / "bd-docs-only"
+_DOCSONLY_GENERATOR = _REPO / "tools" / "generate_ci_docsonly_shards.py"
+_DOCSONLY_MANIFEST = _REPO / "project-knowledge" / "CI_DOCSONLY_SHARDS.json"
+_ROW530_PATH = "tests/test_row530_docs_only_lane_fails_closed.py"
+
+
+def _ci_docs_git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True,
+        check=False, timeout=60,
+    )
+    if check:
+        assert result.returncode == 0, (
+            f"fixture git {' '.join(args)} failed: {result.stderr}")
+    return result
+
+
+def _ci_docs_commit(repo: Path, message: str) -> str:
+    _ci_docs_git(repo, "add", "-A")
+    _ci_docs_git(
+        repo, "-c", "user.email=ci-docsonly@example.invalid",
+        "-c", "user.name=ci-docsonly", "commit", "-q", "-m", message,
+    )
+    return _ci_docs_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+@pytest.fixture()
+def ci_docs_only_candidates(tmp_path):
+    """Reuse bd-docs-only's own complete miniature repository authority."""
+    tool = runpy.run_path(str(_DOCS_ONLY_TOOL))
+    repo = tool["_fixture_repo"](tmp_path / "candidate")
+    row530 = repo / _ROW530_PATH
+    row530.write_text("def test_row530_fixture():\n    assert 1 == 1\n", encoding="utf-8")
+    _ci_docs_git(repo, "init", "-q", "-b", "main")
+    tool["_fixture_regen"](repo)
+    base = _ci_docs_commit(repo, "base")
+
+    def branch(name: str, mutate) -> str:
+        _ci_docs_git(repo, "checkout", "-q", "-B", name, base)
+        mutate()
+        return _ci_docs_commit(repo, name)
+
+    def docs_change() -> None:
+        docs = repo / "docs" / "repo" / "TOPOLOGY.md"
+        docs.write_text(docs.read_text("utf-8") + "\nDocs-only selection.\n", "utf-8")
+        knowledge = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
+        knowledge.write_text(
+            knowledge.read_text("utf-8") + "\nDocs-only evidence.\n", "utf-8")
+        tool["_fixture_regen"](repo)
+
+    docs = branch("docs", docs_change)
+
+    def mixed_change() -> None:
+        docs_change()
+        (repo / "bulk_downloader" / "ci_docsonly_probe.py").write_text(
+            "RUNTIME_PROBE = object()\n", encoding="utf-8")
+
+    mixed = branch("mixed", mixed_change)
+
+    def test_change() -> None:
+        row530.write_text(
+            row530.read_text("utf-8") + "\ndef test_runtime_change():\n    assert 2 == 2\n",
+            encoding="utf-8",
+        )
+
+    test_only = branch("test-only", test_change)
+    _ci_docs_git(repo, "checkout", "-q", "--detach", base)
+    return {"repo": repo, "base": base, "docs": docs, "mixed": mixed,
+            "test-only": test_only}
+
+
+def _classify_fixture(repo: Path, base: str, head: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(_DOCS_ONLY_TOOL), "classify", "--repo", str(repo),
+         "--base", base, "--head", head, "--json"],
+        capture_output=True, text=True, check=False, timeout=180,
+    )
+
+
+def _selected_shards(classification_exit: int) -> dict:
+    result = subprocess.run(
+        [sys.executable, str(_DOCSONLY_GENERATOR), "select", "--repo", str(_REPO),
+         "--classification-exit", str(classification_exit)],
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _independent_test_jobs(workflow: dict) -> set[str]:
+    jobs = workflow.get("jobs") or {}
+    expected = {"postgres-integration", "frontend-vitest"}
+    assert expected <= set(jobs), "independent test-job denominator is incomplete"
+    for name in expected:
+        body = "\n".join(str(step.get("run", "")) for step in jobs[name]["steps"])
+        assert ("pytest" in body) if name == "postgres-integration" else ("vitest" in body)
+    return expected
+
+
+def _expected_docs_shards() -> dict[str, list[str]]:
+    return {
+        name: sorted(set(suites) & _DECLARED)
+        for name, suites in _shard_lists().items()
+        if set(suites) & _DECLARED
+    }
+
+
+def test_ci_docs_only_selection_is_wired_only_to_the_real_classifier():
+    assert _DOCSONLY_MANIFEST.is_file(), (
+        "CI docs-only shard manifest is absent: "
+        "project-knowledge/CI_DOCSONLY_SHARDS.json")
+    assert _DOCSONLY_GENERATOR.is_file(), "CI docs-only shard generator is absent"
+    workflow = _workflow()
+    job = (workflow.get("jobs") or {}).get("ci_docs_only")
+    assert isinstance(job, dict), "ci.yml has no ci_docs_only classification job"
+    steps = job.get("steps") or []
+    assert steps and str(steps[0].get("uses", "")).startswith("actions/checkout@v4")
+    assert (steps[0].get("with") or {}).get("fetch-depth") == 0
+    commands = [str(step.get("run", "")) for step in steps]
+    assert sum("bd-docs-only classify" in command for command in commands) == 1, (
+        "ci.yml must call bd-docs-only classify exactly once")
+    outputs = job.get("outputs") or {}
+    assert "steps.classify.outputs.docs_only" in str(outputs.get("docs_only", ""))
+    assert "steps.classify.outputs.selected_shards" in str(
+        outputs.get("selected_shards", ""))
+    executable = repr(job)
+    assert "pull_request.labels" not in executable
+    assert "head_commit.message" not in executable
+    manifest_checks = [command for command in commands
+                       if "generate_ci_docsonly_shards.py check" in command]
+    assert len(manifest_checks) == 1
+
+    selected_ref = "needs.ci_docs_only.outputs.selected_shards"
+    jobs = workflow["jobs"]
+    for name in _independent_test_jobs(workflow):
+        assert jobs[name].get("needs") == "ci_docs_only"
+        condition = str(jobs[name].get("if", ""))
+        assert selected_ref in condition and name in condition
+    gate_name, gate_job = _gate_suite_job()
+    assert gate_name == "gate-suites"
+    assert gate_job.get("needs") == "ci_docs_only"
+    gated_steps = gate_job.get("steps") or []
+    assert gated_steps, "gate-suites has zero steps"
+    assert sum(selected_ref in str(step.get("if", ""))
+               for step in gated_steps) == len(gated_steps)
+
+
+def test_generated_docs_only_manifest_is_the_exact_measured_intersection():
+    manifest = json.loads(_DOCSONLY_MANIFEST.read_text("utf-8"))
+    expected_docs = _expected_docs_shards()
+    expected_all = sorted(set(_shard_lists()) | _independent_test_jobs(_workflow()))
+    assert expected_docs, "zero shards intersect _DECLARED"
+    assert expected_all, "full test-shard denominator is zero"
+    assert manifest.get("docs_only_shards") == sorted(expected_docs)
+    assert manifest.get("all_shards") == expected_all
+    declared_in_independent = {
+        name: sorted(set(re.findall(
+            r"tests/test[A-Za-z0-9_./-]*\.py",
+            "\n".join(str(step.get("run", ""))
+                       for step in _workflow()["jobs"][name]["steps"]))) & _DECLARED)
+        for name in _independent_test_jobs(_workflow())
+    }
+    assert declared_in_independent == {
+        "frontend-vitest": [], "postgres-integration": []}
+    check = subprocess.run(
+        [sys.executable, str(_DOCSONLY_GENERATOR), "check", "--repo", str(_REPO)],
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert check.returncode == 0, check.stderr
+
+    victim = sorted(expected_docs)[0]
+    omitted = set(manifest["docs_only_shards"])
+    assert victim in omitted, "negative-control victim held no declared gate"
+    omitted.remove(victim)
+    escaped = sorted(
+        name for name, suites in _shard_lists().items()
+        if set(suites) & _DECLARED and name not in omitted)
+    assert escaped == [victim], (
+        f"omitting one manifest shard must expose exactly that shard, got {escaped}")
+
+
+@pytest.mark.parametrize(
+    "candidate,base_ref,expected_exit,expect_docs",
+    [
+        ("docs", "base", 0, True),
+        ("mixed", "base", 1, False),
+        ("test-only", "base", 1, False),
+        ("docs", "missing-base-ref", 2, False),
+    ],
+)
+def test_real_diff_classification_selects_the_exact_shard_population(
+        ci_docs_only_candidates, candidate, base_ref, expected_exit, expect_docs):
+    fixture = ci_docs_only_candidates
+    repo, base, head = fixture["repo"], fixture["base"], fixture[candidate]
+    changed = _ci_docs_git(repo, "diff", "--name-only", base, head).stdout.splitlines()
+    assert changed, "fixture changed-path denominator is zero"
+    if candidate == "docs":
+        assert any(path.startswith("docs/") for path in changed)
+        assert any(path.startswith("project-knowledge/") for path in changed)
+        assert not any(path.startswith("tests/") for path in changed)
+    elif candidate == "mixed":
+        assert sum(path.startswith("bulk_downloader/") for path in changed) == 1
+    else:
+        assert changed == [_ROW530_PATH]
+
+    selected_base = base if base_ref == "base" else base_ref
+    if base_ref != "base":
+        assert _ci_docs_git(repo, "rev-parse", "--verify", selected_base,
+                            check=False).returncode != 0
+    classification = _classify_fixture(repo, selected_base, head)
+    assert classification.returncode == expected_exit, (
+        classification.stdout + classification.stderr)
+    selection = _selected_shards(classification.returncode)
+    expected = (set(_expected_docs_shards()) if expect_docs else
+                set(_shard_lists()) | _independent_test_jobs(_workflow()))
+    assert selection.get("docs_only") is expect_docs
+    assert len(selection.get("selected_shards", [])) == len(expected) > 0
+    assert set(selection["selected_shards"]) == expected
+
+
+def test_generator_refuses_and_names_each_unreadable_input(tmp_path):
+    missing_workflow = subprocess.run(
+        [sys.executable, str(_DOCSONLY_GENERATOR), "check", "--repo", str(tmp_path)],
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert missing_workflow.returncode != 0
+    assert "workflow" in missing_workflow.stderr.lower()
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_bytes(_CI.read_bytes())
+    missing_declaration = subprocess.run(
+        [sys.executable, str(_DOCSONLY_GENERATOR), "check", "--repo", str(tmp_path)],
+        capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert missing_declaration.returncode != 0
+    assert "declaration" in missing_declaration.stderr.lower()
+
+
+def test_docs_only_transform_control_imports_without_judging_selection():
+    subject = runpy.run_path(str(_DOCSONLY_GENERATOR))
+    assert callable(subject.get("select_shards"))

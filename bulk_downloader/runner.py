@@ -2910,6 +2910,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 message = _translate_failed_message(message)
             except Exception:
                 pass  # translator failure must never block queue update
+        if status == "failed":
+            try:
+                from . import tombstone
+                status_code = extra.get("status_code")
+                if tombstone.classify(status_code=status_code, message=message):
+                    status = "tombstone"
+                    tombstone.tombstone_url(self.site_id, url, reason=message, _runner=self)
+            except Exception:
+                pass
         byte_advanced = False
         with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
@@ -3013,7 +3022,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try:
                 from . import run_history as _rh
                 _RUN_TERMINAL = ("done", "failed", "error",
-                                 "skipped_duplicate", "cancelled")
+                                 "skipped_duplicate", "cancelled", "tombstone")
                 if status == "running" and prev_status != "running":
                     rid = _rh.record_run_start(self.site_id, url)
                     if rid:

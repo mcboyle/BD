@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: the identical valid status-hardcoding transform is pointed at a node that imports the generator without judging selection. It must ESCAPE, proving the main battery is caught by assertions rather than syntax or import failure.",
+  "subject": "a valid docs-only status transform does not fail merely because the generator imports",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_docs_only_transform_control_imports_without_judging_selection"
+  ],
+  "mutants": [
+    {
+      "label": "TC1 hardcoded status escapes import-only control",
+      "file": "tools/generate_ci_docsonly_shards.py",
+      "old_regex": "(?m)(?<=^    docs_only = )classification_exit(?= == 0$)",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_docs_only_transform_control_imports_without_judging_selection"
+    }
+  ]
+}

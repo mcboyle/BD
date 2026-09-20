@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1600 - train25: 847-rb10 915-rb10 ci-docsonlyb-rb3 survivors-t18
+
+Train: 4 refute-first-reviewed worker patches (O1009 census). Base caf2c614. Rows 847 915 CLOSED @1600. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate.
+
+- 847-rb10-local: STAGED PATHS: DEPENDENCY_GRAPH.json DEPENDENCY_GRAPH.md FUNCTION_INDEX.md bulk_downloader/app_queue.py bulk_downloader/retry_policy.py bulk_downloader/runner.py
+- 915-rb10-local: STAGED PATHS: FUNCTION_INDEX.md bulk_downloader/cloak.py bulk_downloader/runner_browser.py tests/test_row915.py tests/test_stealth_hardening.py
+- ci-docsonlyb-lu-cx-b-rb3-local: REBASE: Rebased onto origin/main 6d3a489932df2cc556544fb11f501a42633f046a. Resolved conflict in tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py retainin
+- survivors-t18-o592-local: DEFECT: gates_for()'s FG-FUNCTION-INDEX-LINESHIFT remedy said "`./venv/bin/python tools/build_function_index.py` + band ...", contradicting the TRIO RULE (FUNCT
+
 ## v3.66.1599 - train24: HB assign-lens codex-remote root
 
 Train: 1 refute-first-reviewed worker patch (O1009 census; tests-only). Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: gate-fix-2 (stale base conflict).

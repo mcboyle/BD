@@ -1,0 +1,55 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "ci-docsonly operator objective. Five structural mutants remove the classifier, force its status to docs-only, invert the selection branch, rename one declared-bearing shard out of the generated manifest, or empty the selected population. The companion control applies the status transform to an import-only node and must ESCAPE.",
+  "subject": "docs-only CI selection is computed from bd-docs-only and preserves every shard holding a declared gate",
+  "band": [
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_ci_docs_only_selection_is_wired_only_to_the_real_classifier",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_generated_docs_only_manifest_is_the_exact_measured_intersection",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[docs-base-0-True]",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[mixed-base-1-False]",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[test-only-base-1-False]",
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[docs-missing-base-ref-2-False]"
+  ],
+  "mutants": [
+    {
+      "label": "M1 delete the bd-docs-only classifier invocation",
+      "file": ".github/workflows/ci.yml",
+      "old_regex": "(?m)(?<=python toolchain/bin/)bd-docs-only(?= classify \\\\$)",
+      "new": "bd-docs-only-removed",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_ci_docs_only_selection_is_wired_only_to_the_real_classifier"
+    },
+    {
+      "label": "M2 hardcode the docs-only computation true",
+      "file": "tools/generate_ci_docsonly_shards.py",
+      "old_regex": "(?m)(?<=^    docs_only = )classification_exit(?= == 0$)",
+      "new": "0",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[mixed-base-1-False]"
+    },
+    {
+      "label": "M3 invert the docs-only selection branch",
+      "file": "tools/generate_ci_docsonly_shards.py",
+      "old_regex": "(?m)^    if(?= docs_only:$)",
+      "new": "    if not",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[docs-base-0-True]"
+    },
+    {
+      "label": "M4 drop one declared-bearing shard from the manifest",
+      "file": "project-knowledge/CI_DOCSONLY_SHARDS.json",
+      "old_regex": "(?m)(?<=\\\"docs_only_shards\\\": \\[\\n    \\\")application-safety(?=\\\",$)",
+      "new": "application-safety-omitted",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_generated_docs_only_manifest_is_the_exact_measured_intersection"
+    },
+    {
+      "label": "M5 make the generator return an empty selection",
+      "file": "tools/generate_ci_docsonly_shards.py",
+      "old_regex": "(?m)^    return docs_only, selected$",
+      "new": "    return docs_only, []",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_real_diff_classification_selects_the_exact_shard_population[docs-base-0-True]"
+    }
+  ]
+}

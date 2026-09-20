@@ -112,8 +112,13 @@ def gates_for(work, module, moves_route):
          "(NOT in this cut) + band tests/test_import_graph_no_new_edges.py"),
         ("FG-FUNCTION-INDEX-LINESHIFT",
          "moving functions shifts lines in a tracked module",
-         "`./venv/bin/python tools/build_function_index.py` + band "
-         "tests/test_function_index_in_sync.py"),
+         "do NOT run tools/build_function_index.py or stage FUNCTION_INDEX.md "
+         "(TRIO RULE): record the drift in DONE.md under OWED TO THE "
+         "INTEGRATOR with the expected delta "
+         "(`./venv/bin/python tools/build_function_index.py --check` in a "
+         "scratch git-archive of your tree) + band "
+         "tests/test_function_index_in_sync.py; the integrator regenerates on "
+         "the train (O592)"),
         ("DEPENDENCY_GRAPH",
          "the moved code's imports change the graph",
          "`./venv/bin/python tools/dependency_graph.py --check` must be clean"),
