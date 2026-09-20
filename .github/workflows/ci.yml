@@ -607,6 +607,7 @@ jobs:
           - name: install-dir-isolation
             suites: >-
               tests/test_child_test_install_dir_isolation.py
+              tests/test_rowinstalldir_service_installer.py
           # @1207 determinism review. The former measurement-tools entry had
           # doubled and serialized every file in one Actions job. Four files
           # are irreducible long poles (1043 consumed 158s of a measured 172s

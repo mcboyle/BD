@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "rowinstalldir transform control. The valid AI-service ownership-census bypass is applied while the band only confirms the installer fixture exists and deliberately never executes or judges its behavior. It must ESCAPE, proving the primary CAUGHT verdict is behavioral rather than a malformed shell transform or collection failure.",
+  "subject": "transform control for the AI service WorkingDirectory refusal",
+  "band": [
+    "tests/test_rowinstalldir_service_installer.py::test_transform_control_only_confirms_the_installer_fixture_is_available"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL AI service census bypass remains a valid shell transform",
+      "file": "install_service.sh",
+      "old_regex": "(?m)(?<=^for ACTIVE_SERVICE_NAME in \"\\$SERVICE_NAME\" \"\\$)AI_SERVICE_NAME(?=\"; do$)",
+      "new": "SERVICE_NAME",
+      "direction": "regression",
+      "catcher": "tests/test_rowinstalldir_service_installer.py::test_transform_control_only_confirms_the_installer_fixture_is_available"
+    }
+  ]
+}

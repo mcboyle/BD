@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1583 - train7c: rows 889 900 913 918 932 950 + RB installdirb pytest-banners-r8 780-rb8
+
+Train: 9 refute-first-reviewed worker patches (base 412cb80e). Rows 889 900 913 918 932 950 CLOSED @1583.
+
+- row889 (tus_client.py): resumable TUS chunk-upload protocol for storage tiers.
+- row900 (hls.py): automated stream segment key retrieval and decryption.
+- row913 (cloak.py, tests/test_bezier_mouse.py): natural input-trajectory simulation for web interactivity.
+- row918 (site_templates/accessors.py, tests/test_self_healing_selectors.py): adaptive multi-strategy DOM selector fallback engine.
+- row932 (mime_router.py): progressive HTTP MIME-type detector and payload router.
+- row950 (breadcrumb_extractor.py): resilient breadcrumb and parent-category path extractor.
+- rowinstalldirb-rb5 (tests + mutants): service-installer install-dir isolation gates (rebased RB5).
+- rowpytest-banners-r8-rb5 (tests): pytest banner gates (rebased RB5).
+- row780-rb8 (tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py): socket recorder keeps its measurements (rebased RB8; row780 CLOSED @1551).
+- Dropped from train7 (O965 drop rule, re-review): row928 (redis undeclared); DP pre-screen 949 919-r2 908-r2 929 930 857-A8-r2; seam-revert 899 904 915-r3; roww6-reqconsolidate-rb5 held (devpi outage, now fixed O990) -> train8.
+
 ## v3.66.1582 - train6b: rows 875 881 883 909 923 945 946
 
 Train: 7 refute-first-reviewed worker patches (base 5e5f1e75). Rows 875 881 883 909 923 945 946 CLOSED @1582.

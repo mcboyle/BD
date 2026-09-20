@@ -944,6 +944,7 @@ def _run_tool_state_suite(suite):
     before = snapshot()
     run_marker = "1046-%d-%d" % (os.getpid(), time.time_ns())
     env = dict(os.environ, BD_DISABLE_KEEPALIVE="1", NO_COLOR="1",
+               BD_RUN_BANNERS="1",
                BD_NESTED_PYTEST="1", BD_JOBS_RUN_MARKER=run_marker)
     env.pop("FORCE_COLOR", None)
     started = time.monotonic()

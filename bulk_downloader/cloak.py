@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import math
 import os
+import random
 import sys
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 # Module-level cache. ``None`` = not yet probed; ``True``/``False`` = result.
@@ -706,3 +709,243 @@ def reset_cache_for_tests() -> None:
     _WARNED_LAUNCH_FALLBACK = False
     with _CHANNEL_FALLBACK_LOCK:
         _CHANNEL_FALLBACKS.clear()
+
+
+# ---------------------------------------------------------------------------
+# Natural input trajectory simulation (Row 913)
+# ---------------------------------------------------------------------------
+
+def calculate_click_intervals(
+    *,
+    min_hold_ms: float = 40.0,
+    max_hold_ms: float = 120.0,
+    min_pre_click_ms: float = 15.0,
+    max_pre_click_ms: float = 50.0,
+    min_post_click_ms: float = 10.0,
+    max_post_click_ms: float = 40.0,
+) -> dict[str, float]:
+    """Calculate realistic human timing intervals for mouse interactions.
+
+    Returns millisecond delays for:
+      - pre_click_ms: pause after moving to target before mousedown
+      - hold_ms: duration between mousedown and mouseup (human click duration)
+      - post_click_ms: pause after mouseup before subsequent interaction
+    """
+    return {
+        "pre_click_ms": round(random.uniform(min_pre_click_ms, max_pre_click_ms), 2),
+        "hold_ms": round(random.uniform(min_hold_ms, max_hold_ms), 2),
+        "post_click_ms": round(random.uniform(min_post_click_ms, max_post_click_ms), 2),
+    }
+
+
+def generate_bezier_mouse_path(
+    start: tuple[float, float],
+    target: tuple[float, float],
+    *,
+    steps: int = 18,
+    deviation: float = 0.2,
+    pacing: str = "ease_in_out",
+    wobble: float = 0.5,
+) -> list[tuple[float, float]]:
+    """Generate curved Bezier mouse path with variable speed pacing.
+
+    Simulates natural human arm/hand movements:
+      1. Cubic Bezier curve with perpendicular offset control points.
+      2. Variable speed pacing (acceleration at start, peak velocity in middle,
+         deceleration at target) via smoothstep/cosine pacing.
+      3. Sub-pixel micro-jitter (wobble) modeling human motor tremor.
+      4. Exact target landing.
+    """
+    x0, y0 = float(start[0]), float(start[1])
+    x1, y1 = float(target[0]), float(target[1])
+
+    dx = x1 - x0
+    dy = y1 - y0
+    distance = math.hypot(dx, dy)
+
+    if steps <= 1 or distance < 1e-4:
+        return [(x0, y0), (x1, y1)] if (x0, y0) != (x1, y1) else [(x1, y1)]
+
+    # Tangent and perpendicular normal vectors
+    tangent_x = dx / distance
+    tangent_y = dy / distance
+    normal_x = -tangent_y
+    normal_y = tangent_x
+
+    # Lateral deviation: side offset for control points
+    dev_scale = deviation * distance
+    sign = 1.0 if random.random() < 0.5 else -1.0
+    offset1 = sign * dev_scale * (0.8 + 0.4 * random.random()) if deviation > 0 else 0.0
+    offset2 = sign * dev_scale * (0.7 + 0.5 * random.random()) if deviation > 0 else 0.0
+
+    # Two intermediate cubic control points at 1/3 and 2/3 along path
+    c1_x = x0 + tangent_x * (distance * 0.33) + normal_x * offset1
+    c1_y = y0 + tangent_y * (distance * 0.33) + normal_y * offset1
+
+    c2_x = x0 + tangent_x * (distance * 0.67) + normal_x * offset2
+    c2_y = y0 + tangent_y * (distance * 0.67) + normal_y * offset2
+
+    points: list[tuple[float, float]] = []
+    for i in range(steps + 1):
+        u = i / steps
+        # Variable speed pacing: smoothstep 3u^2 - 2u^3
+        if pacing == "ease_in_out":
+            t = 3 * (u ** 2) - 2 * (u ** 3)
+        elif pacing == "cosine":
+            t = (1.0 - math.cos(math.pi * u)) / 2.0
+        else:
+            t = u
+
+        # Cubic Bezier evaluation
+        omt = 1.0 - t
+        bx = (omt ** 3) * x0 + 3 * (omt ** 2) * t * c1_x + 3 * omt * (t ** 2) * c2_x + (t ** 3) * x1
+        by = (omt ** 3) * y0 + 3 * (omt ** 2) * t * c1_y + 3 * omt * (t ** 2) * c2_y + (t ** 3) * y1
+
+        # Micro-tremor / wobble (0 at endpoints)
+        if 0 < i < steps and wobble > 0:
+            bx += random.uniform(-wobble, wobble)
+            by += random.uniform(-wobble, wobble)
+
+        # Pin endpoints
+        if i == 0:
+            points.append((x0, y0))
+        elif i == steps:
+            points.append((x1, y1))
+        else:
+            points.append((round(bx, 2), round(by, 2)))
+
+    return points
+
+
+def cloaked_mouse_move(
+    page: Any,
+    target_x: float,
+    target_y: float,
+    *,
+    start_pos: tuple[float, float] | None = None,
+    steps: int = 18,
+    deviation: float = 0.2,
+    pacing: str = "ease_in_out",
+    wobble: float = 0.5,
+    step_delay_s: float = 0.008,
+    sleep_fn: Callable[[float], None] | None = time.sleep,
+) -> list[tuple[float, float]]:
+    """Dispatch a human-like mouse movement along a curved Bezier trajectory.
+
+    Dispatches a cascade of mousemove events on page.mouse.
+    If sleep_fn is None or step_delay_s <= 0, executes without blocking (zero test suite overhead).
+    """
+    mouse = getattr(page, "mouse", page)
+    if start_pos is None:
+        current_x = getattr(mouse, "current_x", 0.0)
+        current_y = getattr(mouse, "current_y", 0.0)
+        start_pos = (float(current_x), float(current_y))
+
+    path = generate_bezier_mouse_path(
+        start=start_pos,
+        target=(float(target_x), float(target_y)),
+        steps=steps,
+        deviation=deviation,
+        pacing=pacing,
+        wobble=wobble,
+    )
+
+    for pt in path:
+        mouse.move(pt[0], pt[1])
+        if sleep_fn is not None and step_delay_s > 0:
+            jittered = step_delay_s * random.uniform(0.7, 1.3)
+            sleep_fn(jittered)
+
+    return path
+
+
+def cloaked_mouse_click(
+    page: Any,
+    target_x: float | None = None,
+    target_y: float | None = None,
+    *,
+    selector: str | None = None,
+    start_pos: tuple[float, float] | None = None,
+    button: str = "left",
+    steps: int = 18,
+    deviation: float = 0.2,
+    step_delay_s: float = 0.008,
+    click_intervals: dict[str, float] | None = None,
+    sleep_fn: Callable[[float], None] | None = time.sleep,
+) -> dict[str, Any]:
+    """Execute realistic human mouse click on page or targeted element.
+
+    Follows human interaction lifecycle:
+      1. Curved Bezier movement to target
+      2. Pre-click pause (orientation delay)
+      3. Mousedown event
+      4. Realistic hold delay (40-120ms)
+      5. Mouseup event
+      6. Post-click pause
+
+    Zero test suite overhead when sleep_fn is None or delays are zero.
+    """
+    mouse = getattr(page, "mouse", page)
+
+    # If selector provided, resolve target coordinates from bounding box
+    if selector is not None:
+        loc = page.locator(selector).first
+        box = loc.bounding_box() if loc else None
+        if box is None:
+            raise ValueError(f"Target selector {selector!r} not found or not visible")
+        target_x = box["x"] + box["width"] / 2.0
+        target_y = box["y"] + box["height"] / 2.0
+
+    if target_x is None or target_y is None:
+        raise ValueError("Must provide either (target_x, target_y) or selector")
+
+    intervals = click_intervals or calculate_click_intervals()
+
+    # Step 1: Trajectory movement
+    path = cloaked_mouse_move(
+        page=page,
+        target_x=target_x,
+        target_y=target_y,
+        start_pos=start_pos,
+        steps=steps,
+        deviation=deviation,
+        step_delay_s=step_delay_s,
+        sleep_fn=sleep_fn,
+    )
+
+    # Step 2: Pre-click pause
+    pre_click_s = intervals.get("pre_click_ms", 30.0) / 1000.0
+    if sleep_fn is not None and pre_click_s > 0:
+        sleep_fn(pre_click_s)
+
+    # Step 3: Mousedown
+    if hasattr(mouse, "down"):
+        mouse.down(button=button)
+
+    # Step 4: Hold delay
+    hold_s = intervals.get("hold_ms", 75.0) / 1000.0
+    if sleep_fn is not None and hold_s > 0:
+        sleep_fn(hold_s)
+
+    # Step 5: Mouseup
+    if hasattr(mouse, "up"):
+        mouse.up(button=button)
+
+    # Step 6: Post-click pause
+    post_click_s = intervals.get("post_click_ms", 20.0) / 1000.0
+    if sleep_fn is not None and post_click_s > 0:
+        sleep_fn(post_click_s)
+
+    return {
+        "success": True,
+        "target": (target_x, target_y),
+        "steps": len(path),
+        "intervals": intervals,
+    }
+
+
+# Canonical aliases
+generate_bezier_trajectory = generate_bezier_mouse_path
+bezier_mouse_move = cloaked_mouse_move
+bezier_mouse_click = cloaked_mouse_click
+
