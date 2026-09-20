@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1605 - train30: register rows 834 and 851 CLOSED (landed v3.66.1604)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- register-834-851-close: rows 834 (Elasticsearch subtitle/dialogue indexer) and 851 (EBU R128 audio normalizer) OPEN -> CLOSED @1605; both landed on train29 v3.66.1604. Register-only closure (FLEET_RULE 31); open 3 -> 1.
+
 ## v3.66.1604 - train29: subtitle full-text search + R128 audio normalizer; register 893 CLOSED
 
 Train: 3 refute-first-reviewed worker patches.
