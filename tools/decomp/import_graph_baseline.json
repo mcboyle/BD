@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4754,
+  "edge_count": 4755,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3427,6 +3427,9 @@
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_local_wheelhouse.py": [
+      "tools/local_wheelhouse.py"
     ],
     "tests/test_login_circuit_breaker.py": [
       "bulk_downloader/session_keeper.py"

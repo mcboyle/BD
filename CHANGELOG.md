@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1598 - train23: 861-wt + O1054 register reconcile fold
+
+Train: 2 refute-first-reviewed worker patches.
+
+- 861-wt-local: INDEX TREE: e25eb195457b90f81a1df717e8eaa22b4f01cf7a
+- reconcile-120-127: SUMMARY MISSING -- read /home/mboyle/bd-cuts/cut/reconcile-120-127/DONE.md
+
 ## v3.66.1597 - train22b: 863-fx3 934-rb10 935-fx3 w4-rb10 + register rescope fold
 
 Train: 5 refute-first-reviewed worker patches.

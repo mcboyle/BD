@@ -1167,6 +1167,16 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
             r"def test_mutation_transform_control_only_imports_bd_gc\(\):",
         ),
+    # O1054 (2026-09-20): reconcile 120-127 re-anchors 1228::M5 -- no PARKED row
+    # remains, so the "silently reopened" mutant flips successor-closed row 120
+    # instead; row id and successor id are fixed register facts no producer
+    # re-derives; the same exact-denominator catcher audits it.
+    "88d1e7d679693bd999d2acb087f9e060681bcabfca23cd93bf4f78a52af3de1c":
+        StableValueException(
+            "row 120 CLOSED-BY-SUCCESSOR 453 is a fixed register fact (O1054); reopening it must move the exact denominator",
+            "tests/test_v3_66_1164_one_task_authority.py",
+            r"(?m)^def test_the_backlog_publishes_and_matches_its_exact_denominator\(",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1218,6 +1228,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 70
 
 # h1191: six value-bearing mutation anchors registered as audited fixed-value exceptions
 _STABLE_VALUE_EXCEPTION_MAX += 6
+
+# O1054: 1228::M5 re-anchored onto row 120 (reconcile 120-127); one audited exception
+_STABLE_VALUE_EXCEPTION_MAX += 1
 
 _FRAGILE_RULES = (
     *_family(
