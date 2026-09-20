@@ -14,7 +14,6 @@ Train: 9 refute-first-reviewed worker patches.
 - hb-precollect-guard-base-check-bd-worker-a1-a-local: REFUTE ADDRESSED (VERDICT-correctness.md round 2, bd-review-correctness-A2-A, 2026-09-20T19:37:10Z): WRONG E3 (the row's own reported symptom, still present aft
 - hb-underived-weekly-census-bd-agy-worker1-local: CHANGE: Fixed candidate bd-underived-census.sh per integrator review #2: default REPO uses detached git worktree `git -C "$CANON" worktree add --detach "$SCRATC
 - hb-worker-band-ratchets-bd-agy-worker2-local: ## CANDIDATE AND HARNESS STAGE (O1045) STAGED-HARNESS: /home/mboyle/bd-persist/harness-work/FIX/worker-band-ratchets/bd-worker-band.sh PATCH: /home/mboyle/bd-pe
-- process-test-shard-local: PATHS (git diff --cached <base> --name-only, 5): .github/workflows/ci.yml tests/PROCESS_TESTS.txt tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py tes
 - register-127-operator-action-local: PATCH-SHA256: c353c38c04774ae2de6ea6026dc399b4ddc1bfdf700b9a5eadb4c7bcd7899387 (recomputed by bd-review-prep.sh in /home/mboyle/bd-review-wt/rowregister-127-ope
 - register-122-close: SUMMARY MISSING -- read /home/mboyle/bd-cuts/cut/register-122-close/DONE.md
 

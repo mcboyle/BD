@@ -562,12 +562,8 @@ _BENIGN_VARIANTS = {
         PULL_REQUEST,
         PULL_REQUEST + "    types: [opened, synchronize, reopened, ready_for_review]\n"),
     # An additional push branch. Narrowing is the hazard; adding is not.
-    # O934.1 (process-test-shard) added 'train/**' to the real anchor so a
-    # release train's push triggers the nightly-equivalent full-tree job;
-    # this fixture's anchor tracks that literal text, same as ci.yml's own.
     "extra-push-branch": lambda: _rewrite(
-        "  push:\n    branches: [main, 'train/**']\n",
-        "  push:\n    branches: [main, 'train/**', release]\n"),
+        "  push:\n    branches: [main]\n", "  push:\n    branches: [main, release]\n"),
 }
 
 
