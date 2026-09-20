@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1587 - train12: 5 census cuts on 868e5ae5
+
+Train: 5 refute-first-reviewed worker patches (O1009 census). Base 868e5ae5. Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Rows 953/955/956 not yet in the register (see .train/NOTES.md).
+
+- 841-local: ## FIXER (O928) bd-integrator-A 20260920T130921Z V: row841-local/.review/VERDICT-correctness.md (E1 HTTPError passthrough, E2 InvalidURL->400, E3 row805 census
+- 858-r2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row858-r2-local/DONE.md
+- 953-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_ingress_flow_controller.py::test_behavioral_red_blocking_documents_unrecognized
+- 955-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_viewport_telemetry_bridge.py::test_behavioral_red_no_framebuffer_streaming -x F
+- 956-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_session_cache_service.py::test_behavioral_red_no_session_mutation_detection -x
+
 ## v3.66.1586 - train11: 13 census cuts on 2c38520a
 
 Train: 13 refute-first-reviewed worker patches (O1009 census). Base 2c38520a. Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 825-r3 853-r2 915-r3-fx2 (.train/bounced.tsv).

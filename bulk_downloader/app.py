@@ -340,6 +340,10 @@ app = Flask(__name__,
             template_folder="templates",
             static_folder="static",
             static_url_path="/static")
+app.config.setdefault(
+    "SERVICE_MESH_ENABLED",
+    os.environ.get("SERVICE_MESH_ENABLED", "").strip().lower() in {"1", "true", "yes"},
+)
 
 
 @app.before_request
@@ -6649,6 +6653,14 @@ try:
 except Exception as _cockpit_err:
     import sys as _sys
     _sys.stderr.write(f"[app] Cockpit console routes not registered: {_cockpit_err}\n")
+
+# Row 841: gateway routes are opt-in until the deployment config enables them.
+try:
+    from . import service_mesh
+    service_mesh.register_service_mesh(app)
+except Exception as _service_mesh_err:
+    import sys as _sys
+    _sys.stderr.write(f"[app] service mesh routes not registered: {_service_mesh_err}\n")
 
 # v3.66.158.1: read-only backlog dashboards — cockpit home (nav hub), template
 # manager, data layer (analytics providers), monitoring, and report center. All
