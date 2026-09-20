@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1588 - train13: rows 954 958 959 on 5b832252
+
+Train: 3 refute-first-reviewed worker patches (O1009 census). Base 5b832252. Tier T2 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Rows 954 958 959 CLOSED @1588 (register rows 953-960 folded from cut register-953-960, O1023).
+
+- 954-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_dom_event_dispatcher.py::test_behavioral_red_no_conformant_event_dispatch -x Fa
+- 958-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_task_circuit_breaker.py::test_behavioral_red_no_deadline_enforcement -x Failure
+- 959-bd-worker-op-a-local: ## RED Command: /home/mboyle/BulkDownloader/venv/bin/python -m pytest tests/test_render_box_evaluator.py::test_behavioral_red_non_rendered_nodes_distort_extract
+
 ## v3.66.1587 - train12: 5 census cuts on 868e5ae5
 
 Train: 5 refute-first-reviewed worker patches (O1009 census). Base 868e5ae5. Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Rows 953/955/956 not yet in the register (see .train/NOTES.md).
