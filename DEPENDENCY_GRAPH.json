@@ -1626,6 +1626,15 @@
       ],
       "var": "semantic_bp"
     },
+    "service_mesh": {
+      "module": "service_mesh.py",
+      "providers": [],
+      "route_count": 1,
+      "routes": [
+        "POST /api/service-mesh/<service>"
+      ],
+      "var": "service_mesh_bp"
+    },
     "session_history": {
       "module": "app_session_history.py",
       "providers": [
@@ -2371,7 +2380,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1787,
+    "edge_count": 1788,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4540,6 +4549,9 @@
       "bulk_downloader/semantic_search.py": [
         "bulk_downloader/app_semantic_search.py"
       ],
+      "bulk_downloader/service_mesh.py": [
+        "bulk_downloader/app.py"
+      ],
       "bulk_downloader/session_capture.py": [
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/dom_recorder.py",
@@ -5566,6 +5578,7 @@
         "bulk_downloader/search_extractor.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/selftest.py",
+        "bulk_downloader/service_mesh.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/shares.py",
         "bulk_downloader/storage_tier.py",

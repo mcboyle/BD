@@ -20,6 +20,7 @@ State per (site_id, account_idx):
               | "inconclusive" | "needs_takeover" | "disconnected"
               | "disabled",
       "last_login_ts": float,
+      "last_renewal_ts": float,   # row858: last navigation that renewed
       "last_heartbeat_ts": float,
       "next_check_ts": float,
       "predicted_expiry_ts": float | None,
@@ -466,6 +467,35 @@ JITTER_FRACTION = 0.2
 # Fallback session lifetime when we have no observations yet.
 DEFAULT_SESSION_LIFETIME_SEC = 4 * 3600  # assume 4h sessions
 
+# row858: proactively refresh once no more than this fraction of the
+# session's total predicted lifetime remains. A fixed lead time (above)
+# is fine for a long session but can exceed a SHORT session's own
+# lifetime -- e.g. a 20min-lifetime site against a 30min fixed lead
+# never gets a "before expiry" refresh at all, it just falls through to
+# the default fetch cadence and can heartbeat again only after expiry.
+# The margin used is whichever is LARGER: the fixed lead time (a floor
+# for long sessions) or this fraction of the observed/assumed lifetime.
+PROACTIVE_REFRESH_FRACTION = 0.15
+
+# How soon to re-check once we're already inside the refresh margin.
+# Short enough that a heartbeat still lands comfortably before a
+# 15%-remaining-lifetime session actually expires; not zero, so a
+# transient failure backs off through the normal consecutive-failure
+# path rather than busy-looping.
+PROACTIVE_REFRESH_RETRY_SEC = 60.0
+
+# row858: the proactive renewal is a full-page NAVIGATION, not the
+# cheap in-page fetch -- a fetch keeps a sliding cookie alive on some
+# sites but is exactly the heartbeat that does NOT renew on others. A
+# navigation that comes back authenticated is the effective renewal: it
+# re-bases the expiry prediction (last_renewal_ts), so a session that is
+# renewed every lifetime keeps sliding instead of running off a stale
+# login-time prediction. The navigation is due once the remaining
+# predicted validity is within the refresh margin, capped at half the
+# lifetime so a fixed lead time longer than the session (30min lead vs a
+# 20min session) yields one renewal per half-lifetime, not one per check.
+RENEWAL_MARGIN_MAX_LIFETIME_FRACTION = 0.5
+
 # ── Heartbeat verdicts (row 424) ──────────────────────────────────────────
 #
 # All three probes used to enumerate their failure signatures and return True
@@ -587,8 +617,8 @@ def get_takeover_lock(site_id: str, account_idx: int) -> threading.RLock:
 
 def predict_next_expiry(site_id: str, account_idx: int) -> float:
     """Predict when the current session will expire, in absolute unix
-    timestamp. Returns last_login_ts + median(observed_lifetimes), or
-    last_login_ts + DEFAULT_SESSION_LIFETIME_SEC if we have no data.
+    timestamp. Returns base + median(observed_lifetimes), or
+    base + DEFAULT_SESSION_LIFETIME_SEC if we have no data.
 
     If we've never seen a successful login, returns 0 (meaning 'check
     immediately')."""
@@ -596,10 +626,14 @@ def predict_next_expiry(site_id: str, account_idx: int) -> float:
     if keeper is None: return 0.0
     last_login = keeper.state.get("last_login_ts", 0)
     if not last_login: return 0.0
+    # row858: for renewable/sliding sessions, an authenticated navigation
+    # renewed the server session; validity runs from that renewal, not
+    # from the (possibly several lifetimes old) login.
+    base = _renewal_base(keeper)
 
     lifetimes = db.session_lifetime_observations(site_id, account_idx)
     if not lifetimes:
-        return last_login + DEFAULT_SESSION_LIFETIME_SEC
+        return base + DEFAULT_SESSION_LIFETIME_SEC
     # Median (sorted middle element) — robust to outliers
     sorted_lts = sorted(lifetimes)
     n = len(sorted_lts)
@@ -607,7 +641,29 @@ def predict_next_expiry(site_id: str, account_idx: int) -> float:
         median = sorted_lts[n // 2]
     else:
         median = (sorted_lts[n // 2 - 1] + sorted_lts[n // 2]) / 2
-    return last_login + median
+    return base + median
+
+
+def _renewal_base(keeper: SessionKeeper) -> float:
+    """Timestamp the current session validity runs from: for renewable/sliding
+    sessions, the later of the last login and the last effective (navigation)
+    renewal. For absolute sessions, strictly the last login. 0 if never logged in."""
+    last_login = keeper.state.get("last_login_ts", 0) or 0.0
+    if not last_login:
+        return 0.0
+    if _session_renewable(keeper):
+        last_renewal = keeper.state.get("last_renewal_ts", 0) or 0.0
+        return max(last_login, last_renewal)
+    return last_login
+
+
+def _session_renewable(keeper: SessionKeeper) -> bool:
+    """row858: True when the site declares that a navigation extends the
+    server session (sliding/renewable). Absent (the default) the session
+    is absolute: nothing the keeper does moves its expiry."""
+    cfg = getattr(keeper, "config", None) or {}
+    return bool(cfg.get("session_renewable", False)
+                or cfg.get("sliding_session", False))
 
 
 # ─── SessionKeeper class ─────────────────────────────────────────────
@@ -648,6 +704,7 @@ class SessionKeeper:
         self.state: dict = {
             "state": "starting",
             "last_login_ts": 0.0,
+            "last_renewal_ts": 0.0,
             "last_heartbeat_ts": 0.0,
             "next_check_ts": 0.0,
             "predicted_expiry_ts": None,
@@ -720,22 +777,111 @@ class SessionKeeper:
 
         1. We've been failing repeatedly → back off to hourly so we
            don't hammer a site that's down or has revoked our creds.
-        2. Normal: schedule at min(next_predicted_expiry - 10min,
-           now + 5min). Whichever's sooner.
+        2. Normal: schedule at min(next_predicted_expiry - margin,
+           now + fetch_interval). Whichever's sooner. `margin` is
+           whichever is larger of the fixed operator lead time or
+           PROACTIVE_REFRESH_FRACTION (15%) of the session's total
+           predicted lifetime (row858) -- a fixed lead time alone
+           can exceed a short session's own lifetime and never fire
+           before expiry.
         """
         if self.state["consecutive_failures"] >= BACKOFF_AFTER_N_FAILURES:
             return _now() + _jitter(BACKOFF_INTERVAL_SEC)
         predicted = predict_next_expiry(self.site_id, self.account_idx)
         fetch_interval = _fetch_interval_sec()
         if predicted and predicted > _now():
-            time_to_lead = predicted - _now() - _lead_time_sec()
+            base = _renewal_base(self)
+            total_lifetime = (predicted - base if base
+                              else DEFAULT_SESSION_LIFETIME_SEC)
+            margin = self._refresh_margin_sec(total_lifetime)
+            time_to_lead = predicted - _now() - margin
             if time_to_lead > 0:
                 # Refresh BEFORE the predicted expiry
                 return _now() + min(time_to_lead,
                                     _jitter(fetch_interval))
+            # Already inside the refresh margin (<=15% of the session's
+            # lifetime remains, or less than the fixed lead time is
+            # left) — check again almost immediately rather than
+            # falling through to the full fetch cadence, which could
+            # push the next check past the predicted expiry itself.
+            #
+            # row858 correctness-lens finding: PROACTIVE_REFRESH_RETRY_SEC
+            # alone (even jittered) can EXCEED the time actually left for a
+            # short-lived session -- e.g. a 60s observed lifetime, checked
+            # right after login: remaining=60s, but a jittered 60s retry
+            # can land at 72s, past both the 15%-remaining deadline (51s)
+            # and the session's own expiry (60s). The retry must be bounded
+            # by the remaining lifetime, not just by a fixed constant:
+            # take whichever is SMALLER of the fixed retry or
+            # PROACTIVE_REFRESH_FRACTION of what's actually left, then
+            # clamp the jittered result so it can never exceed `remaining`.
+            remaining = predicted - _now()
+            if remaining <= 0:
+                return _now() + 1.0
+            if self._absolute_session_already_checked(predicted):
+                # row858-r2 correctness-lens finding (E1): on an ABSOLUTE
+                # session the in-margin navigation cannot renew anything,
+                # so re-checking at a retry that shrinks with `remaining`
+                # only bursts full page loads (57 for a 2h session, 25 of
+                # them in the last 120s) for zero benefit. One check inside
+                # the margin is the whole proactive step; the next check is
+                # the one that can act -- just past the predicted expiry,
+                # where the lapsed prediction forces a navigation and a
+                # dead session goes down the relogin path -- or the normal
+                # fetch cadence if that comes first.
+                return _now() + min(remaining + 1.0, _jitter(fetch_interval))
+            retry = min(PROACTIVE_REFRESH_RETRY_SEC,
+                        PROACTIVE_REFRESH_FRACTION * remaining)
+            return _now() + max(1.0, min(_jitter(retry), remaining))
         # No prediction yet, or predicted expiry already passed —
         # heartbeat at the default cadence
         return _now() + _jitter(fetch_interval)
+
+    def _renewal_due(self) -> bool:
+        """row858: True when the remaining predicted validity is inside
+        the renewal margin, i.e. this heartbeat must be a full navigation
+        (the effective renewal) rather than an in-page fetch. Also True
+        once the prediction has lapsed: a fetch-only site may still be
+        alive there, but only a navigation can re-base the prediction."""
+        predicted = predict_next_expiry(self.site_id, self.account_idx)
+        if not predicted:
+            return False
+        now = _now()
+        if predicted <= now:
+            return True
+        if self._absolute_session_already_checked(predicted):
+            return False
+        return predicted - now <= self._renewal_margin_sec(predicted)
+
+    def _renewal_margin_sec(self, predicted: float) -> float:
+        """row858: the window before `predicted` inside which a heartbeat
+        is a navigation: the refresh margin, capped at half the lifetime."""
+        base = _renewal_base(self)
+        total_lifetime = predicted - base if base else DEFAULT_SESSION_LIFETIME_SEC
+        return min(self._refresh_margin_sec(total_lifetime),
+                   RENEWAL_MARGIN_MAX_LIFETIME_FRACTION * total_lifetime)
+
+    def _refresh_margin_sec(self, total_lifetime: float) -> float:
+        """row858: how long before the predicted expiry the proactive check
+        runs. Renewable session: the larger of the operator lead time (a
+        floor for long sessions) and PROACTIVE_REFRESH_FRACTION of the
+        lifetime. Absolute session (r2 E1): the fraction alone -- nothing
+        renews at the lead time, and the ONE proactive check the session
+        gets must land inside the last 15% (row858-A9)."""
+        fraction = PROACTIVE_REFRESH_FRACTION * total_lifetime
+        if not _session_renewable(self):
+            return fraction
+        return max(_lead_time_sec(), fraction)
+
+    def _absolute_session_already_checked(self, predicted: float) -> bool:
+        """row858-r2 (E1): True when the session is absolute (not declared
+        renewable) and a navigation has already run inside the renewal
+        window of the current prediction. Further in-margin navigations
+        cannot move the expiry, so neither the scheduler nor the heartbeat
+        forces another one before the prediction lapses."""
+        if _session_renewable(self):
+            return False
+        return self._last_navigate_at >= predicted - self._renewal_margin_sec(predicted)
 
     # ── Main loop ───────────────────────────────────────────────────
 
@@ -786,6 +932,7 @@ class SessionKeeper:
             return
 
         self._set_state("refreshing", "running heartbeat")
+        check_started = _now()
         verdict, detail = self._heartbeat()
         verdict = _as_verdict(verdict)
 
@@ -811,6 +958,10 @@ class SessionKeeper:
             with _state_lock:
                 self.state["last_heartbeat_ts"] = now
                 self.state["consecutive_failures"] = 0
+                if self._last_navigate_at >= check_started:
+                    # row858: an authenticated navigation is the effective
+                    # renewal -- validity now runs from it.
+                    self.state["last_renewal_ts"] = self._last_navigate_at
                 self.state["predicted_expiry_ts"] = predict_next_expiry(
                     self.site_id, self.account_idx)
             self._set_state("connected", "heartbeat ok")
@@ -879,7 +1030,7 @@ class SessionKeeper:
         # Decide between navigate or fetch this cycle
         now = _now()
         time_since_nav = now - self._last_navigate_at
-        if time_since_nav > _navigate_interval_sec():
+        if time_since_nav > _navigate_interval_sec() or self._renewal_due():
             return self._heartbeat_navigate()
         else:
             return self._heartbeat_in_page_fetch()

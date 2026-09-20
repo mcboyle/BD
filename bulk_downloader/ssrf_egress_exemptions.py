@@ -58,6 +58,10 @@ ACCOUNTED = {
         "guarded",
         "_pin_lan_endpoint resolves the operator's endpoint and sends to the "
         "pinned literal with a Host header (F-CBD03-01)"),
+    "bulk_downloader/service_mesh.py::_default_transport": (
+        "exempt",
+        "the route table is application configuration and the request may add "
+        "only a validated relative path; it cannot select a destination host"),
 
     # -- exempt: no attacker-reachable input steers the destination -------
     "bulk_downloader/ai_provider.py::AIProvider._http_post": (
