@@ -401,7 +401,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (42 entries)
+## `bulk_downloader/runner_browser.py` (43 entries)
 
 ```
 - L0032 `_adaptive_manifest_kind` `[private]` — Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
@@ -446,6 +446,7 @@ Schema version: 2
   - L1265 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
   - L1277 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
   - L1294 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+  - L1362 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
 ```
 
 
@@ -498,7 +499,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_queue.py` (21 entries)
+## `bulk_downloader/runner_queue.py` (23 entries)
 
 ```
 - L0041 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
@@ -522,6 +523,8 @@ Schema version: 2
   - L0675 `QueueMixin.clear`
   - L0677 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
   - L0683 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0700 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0705 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -589,7 +592,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (86 entries)
+## `bulk_downloader/runner_transport.py` (87 entries)
 
 ```
 - L0079 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -678,6 +681,7 @@ Schema version: 2
   - L4319 `HTTP3Transport.allocate_stream_id`
   - L4324 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
 - L4347 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L4360 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -935,4 +939,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 759 across 22 files._
+_Total entries: 763 across 22 files._

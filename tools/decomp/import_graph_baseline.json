@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4750,
+  "edge_count": 4754,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1889,6 +1889,7 @@
     ],
     "bulk_downloader/runner_browser.py": [
       "bulk_downloader/browser_sentinel.py",
+      "bulk_downloader/challenge_detector.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/eme_detect.py",
@@ -1961,6 +1962,7 @@
       "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/runner_queue.py": [
+      "bulk_downloader/challenge_detector.py",
       "bulk_downloader/content_rights.py",
       "bulk_downloader/db.py",
       "bulk_downloader/hooks.py",
@@ -2604,6 +2606,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/federation.py"
     ],
+    "tests/test_canvas_capture.py": [
+      "bulk_downloader/canvas_capture.py"
+    ],
     "tests/test_cap01_watch_override_host.py": [
       "bulk_downloader/live_recorder.py"
     ],
@@ -2701,6 +2706,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/library_final.py",
       "tools/census_file_size_drift.py"
+    ],
+    "tests/test_challenge_detector.py": [
+      "bulk_downloader/challenge_detector.py"
     ],
     "tests/test_child_test_install_dir_isolation.py": [
       "bulk_downloader/db.py"

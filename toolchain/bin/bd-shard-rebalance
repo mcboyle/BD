@@ -1,0 +1,710 @@
+#!/usr/bin/env python3
+"""bd-shard-rebalance -- deterministic JUnit-duration CI shard partitioning.
+
+Balances test suites across CI shards targeting five-minute bins (~300s).
+Enforces:
+- Deterministic partitioning (identical input yields identical output).
+- Max bin duration within 15% of mean duration.
+- Every test file mapped exactly once (union preserved, zero duplicates).
+- Preservation of capability boundaries (node/vitest, playwright/chromium,
+  and independent long-pole isolation).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import sys
+import xml.etree.ElementTree as ET
+from typing import Any
+
+
+class EvidenceError(ValueError):
+    """Missing or invalid input evidence. Never substituted, never a PASS."""
+
+
+class InfeasiblePlan(ValueError):
+    """No shard can take a file (capability set offered by no shard)."""
+
+
+def _finite_duration(value: Any, where: str) -> float:
+    """A duration is a finite, non-negative number; anything else is invalid evidence."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError) as exc:
+        raise EvidenceError(f"{where}: duration {value!r} is not a number") from exc
+    if f != f or f in (float("inf"), float("-inf")) or f < 0:
+        raise EvidenceError(f"{where}: duration {value!r} is not finite and non-negative")
+    return f
+
+
+def _classname_to_file(classname: str, repo_root: pathlib.Path) -> str | None:
+    """pytest's JUnit classname is ``pkg.module[.Class[.Nested]]``. Resolve it to
+    the module FILE by stripping trailing components until ``<prefix>.py`` exists
+    under repo_root; never invent ``tests/test_x/Class.py`` (F2)."""
+    parts = [x for x in classname.split(".") if x]
+    for i in range(len(parts), 0, -1):
+        candidate = "/".join(parts[:i]) + ".py"
+        if (repo_root / candidate).is_file():
+            return candidate
+    return None
+
+
+def parse_junit_xml(files: list[pathlib.Path], repo_root: pathlib.Path | None = None) -> dict[str, float]:
+    """Parse one or more JUnit XML reports and aggregate total runtime per test file.
+
+    Every listed report must exist and parse (F4: absent evidence is an error,
+    not an empty result). A testcase without a ``file`` attribute is resolved
+    from its classname against ``repo_root`` (F2); an unresolvable one is an error.
+    """
+    durations: dict[str, float] = {}
+    root_dir = repo_root or pathlib.Path.cwd()
+
+    for xml_file in files:
+        if not xml_file.is_file():
+            raise EvidenceError(f"JUnit report not found: {xml_file}")
+        try:
+            tree = ET.parse(xml_file)
+        except (ET.ParseError, OSError) as exc:
+            raise EvidenceError(f"failed to parse JUnit report {xml_file}: {exc}") from exc
+
+        root = tree.getroot()
+
+        # Handle testsuite elements
+        suites = [root] if root.tag == "testsuite" else root.findall(".//testsuite")
+        for suite in suites:
+            suite_file = suite.attrib.get("file")
+            for tc in suite.findall("testcase"):
+                file_attr = tc.attrib.get("file") or suite_file
+                if not file_attr:
+                    classname = tc.attrib.get("classname", "")
+                    file_attr = _classname_to_file(classname, root_dir) if classname else None
+                    if not file_attr:
+                        raise EvidenceError(
+                            f"{xml_file}: testcase {tc.attrib.get('name', '?')!r} has no file attribute "
+                            f"and classname {classname!r} resolves to no file under {root_dir}"
+                        )
+
+                time_val = _finite_duration(tc.attrib.get("time", "0.0"), f"{xml_file}:{tc.attrib.get('name', '?')}")
+
+                # Standardize path relative to repository root if possible
+                norm_path = os.path.normpath(file_attr)
+                durations[norm_path] = durations.get(norm_path, 0.0) + time_val
+
+    return durations
+
+
+def load_capabilities(path: pathlib.Path) -> tuple[dict[str, list[str]], set[str], dict[str, list[str]]]:
+    """Load capability specifications.
+
+    Returns:
+      (file_capabilities, independent_long_poles, shard_capabilities)
+    A named file that is absent or malformed is an EvidenceError (F4), never an
+    empty specification that would let every assignment pass.
+    """
+    if not path.is_file():
+        raise EvidenceError(f"capability file not found: {path}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise EvidenceError(f"failed to parse capability file {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise EvidenceError(f"capability file {path}: top level must be an object")
+
+    file_caps: dict[str, list[str]] = data.get("file_capabilities", {})
+    long_poles: set[str] = set(data.get("independent_long_poles", []))
+    shard_caps: dict[str, list[str]] = data.get("shard_capabilities", {})
+
+    return file_caps, long_poles, shard_caps
+
+
+class ShardBin:
+    def __init__(self, name: str, capabilities: list[str] | None = None):
+        self.name = name
+        self.capabilities: set[str] = set(capabilities or [])
+        self.duration: float = 0.0
+        self.suites: list[str] = []
+
+    def can_accommodate(self, test_file: str, file_reqs: set[str], long_poles: set[str]) -> bool:
+        # Check required capabilities
+        if not file_reqs.issubset(self.capabilities):
+            return False
+        # Check independent long poles isolation
+        if test_file in long_poles:
+            for s in self.suites:
+                if s in long_poles:
+                    return False
+        return True
+
+    def add(self, test_file: str, duration: float) -> None:
+        self.suites.append(test_file)
+        self.duration += duration
+
+
+EXACT_SEARCH_MAX_ITEMS = 24        # exact partition below this size (bounded DFS)
+EXACT_SEARCH_NODE_BUDGET = 400_000  # deterministic fallback to LPT+refine beyond it
+
+
+def _loads_key(shards: list[ShardBin]) -> tuple[float, ...]:
+    """Objective: the load vector sorted descending, compared lexicographically --
+    minimise the max, then the second max, and so on (a 15% rule is about the max)."""
+    return tuple(sorted((round(s.duration, 6) for s in shards), reverse=True))
+
+
+def _exact_partition(
+    sorted_items: list[tuple[str, float, set[str]]],
+    shards: list[ShardBin],
+    long_poles: set[str],
+) -> bool:
+    """Bounded branch-and-bound over item->shard assignments (items in LPT order).
+    Returns True when the search completed within the node budget and the best
+    assignment found has been applied to ``shards``; False leaves them untouched
+    so the caller falls back to LPT + refinement. Symmetry: among still-empty
+    shards with the same capabilities only the first is tried."""
+    n = len(sorted_items)
+    k = len(shards)
+    loads = [0.0] * k
+    poles = [0] * k
+    assign = [-1] * n
+    best: list[int] | None = None
+    best_key: tuple[float, ...] | None = None
+    nodes = 0
+    remaining_after = [0.0] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        remaining_after[i] = remaining_after[i + 1] + sorted_items[i][1]
+
+    def rec(i: int) -> bool:
+        nonlocal best, best_key, nodes
+        nodes += 1
+        if nodes > EXACT_SEARCH_NODE_BUDGET:
+            return False
+        if i == n:
+            key = tuple(sorted((round(x, 6) for x in loads), reverse=True))
+            if best_key is None or key < best_key:
+                best_key = key
+                best = list(assign)
+            return True
+        # bound: the max load can only grow; a lower bound on the final max is
+        # max(current max, (sum of loads + remaining) / k)
+        cur_max = max(loads)
+        lb = max(cur_max, (sum(loads) + remaining_after[i]) / k)
+        if best_key is not None and round(lb, 6) >= best_key[0]:
+            return True
+        name, dur, reqs = sorted_items[i]
+        seen_empty: set[frozenset[str]] = set()
+        for j in range(k):
+            sb = shards[j]
+            if not reqs.issubset(sb.capabilities):
+                continue
+            if name in long_poles and poles[j]:
+                continue
+            if loads[j] == 0.0:
+                sig = frozenset(sb.capabilities)
+                if sig in seen_empty:
+                    continue
+                seen_empty.add(sig)
+            if best_key is not None and round(loads[j] + dur, 6) >= best_key[0]:
+                continue
+            loads[j] += dur
+            poles[j] += name in long_poles
+            assign[i] = j
+            ok = rec(i + 1)
+            assign[i] = -1
+            poles[j] -= name in long_poles
+            loads[j] -= dur
+            if not ok:
+                return False
+        return True
+
+    completed = rec(0)
+    if not completed or best is None:
+        return False
+    for i, j in enumerate(best):
+        shards[j].add(sorted_items[i][0], sorted_items[i][1])
+    for sb in shards:
+        sb.suites.sort()
+    return True
+
+
+def balance_bins_deterministic(
+    items: list[tuple[str, float, set[str]]],
+    shards: list[ShardBin],
+    long_poles: set[str],
+) -> None:
+    """Deterministic partition: exact branch-and-bound for small inputs, else
+    greedy LPT (Longest Processing Time first) followed by an all-pairs local
+    search (1-0 moves, 1-1 and 2-1 exchanges) on the sorted-load objective.
+
+    Raises InfeasiblePlan when a file's capabilities are offered by no shard (F3):
+    an assignment that violates a boundary is never emitted.
+    """
+    # Sort items deterministically: duration descending, then file path ascending
+    sorted_items = sorted(items, key=lambda x: (-x[1], x[0]))
+
+    # F3: feasibility first -- every file must have at least one shard offering its capabilities
+    for test_file, _, req_caps in sorted_items:
+        if not any(req_caps.issubset(sb.capabilities) for sb in shards):
+            offered = sorted({c for sb in shards for c in sb.capabilities})
+            raise InfeasiblePlan(
+                f"{test_file} requires {sorted(req_caps)} but no shard offers them (shards offer {offered})"
+            )
+    if len(sorted_items) <= EXACT_SEARCH_MAX_ITEMS and len(shards) > 1:
+        if _exact_partition(sorted_items, shards, long_poles):
+            return
+
+    # Phase 1: Greedy LPT allocation
+    for test_file, duration, req_caps in sorted_items:
+        best_bin: ShardBin | None = None
+        best_key: tuple[float, int] | None = None
+        for idx, sbin in enumerate(shards):
+            if sbin.can_accommodate(test_file, req_caps, long_poles):
+                key = (sbin.duration, idx)
+                if best_key is None or key < best_key:
+                    best_key = key
+                    best_bin = sbin
+        if best_bin is None:
+            # every capable shard already holds a long pole: isolation is a
+            # preference the check reports, capability is a boundary -- take the
+            # lightest capable shard rather than violate a capability.
+            capable = [(sbin.duration, idx, sbin) for idx, sbin in enumerate(shards) if req_caps.issubset(sbin.capabilities)]
+            best_bin = min(capable)[2]
+        best_bin.add(test_file, duration)
+
+    for sbin in shards:
+        sbin.suites.sort()
+
+    # Phase 2: all-pairs local search on the sorted-load vector
+    if len(shards) <= 1:
+        return
+    dur_map = {item[0]: item[1] for item in items}
+    req_map = {item[0]: item[2] for item in items}
+
+    def can_take(sb: ShardBin, f: str, exclude: set[str]) -> bool:
+        if not req_map.get(f, set()).issubset(sb.capabilities):
+            return False
+        if f in long_poles and any(s in long_poles and s not in exclude for s in sb.suites):
+            return False
+        return True
+
+    def apply(src: ShardBin, dst: ShardBin, give: list[str], take: list[str]) -> None:
+        for f in give:
+            src.suites.remove(f); src.duration -= dur_map[f]
+            dst.suites.append(f); dst.duration += dur_map[f]
+        for f in take:
+            dst.suites.remove(f); dst.duration -= dur_map[f]
+            src.suites.append(f); src.duration += dur_map[f]
+        src.suites.sort(); dst.suites.sort()
+
+    # Refinement: 1-0 moves and 1-1 swaps out of the heaviest shard (the only
+    # shard whose lightening can lower the max) into every other shard, best
+    # improvement of the sorted-load vector first. Linear in the heaviest
+    # shard's size per destination, so a 1,700-file repo stays in seconds; the
+    # pathological small cases a pairwise search cannot escape are handled by
+    # the exact search above.
+    loads = [s.duration for s in shards]
+    for _ in range(5000):
+        a = min(range(len(shards)), key=lambda i: (-loads[i], shards[i].name))
+        src = shards[a]
+        current = tuple(sorted((round(x, 6) for x in loads), reverse=True))
+        best_gain: tuple[tuple[float, ...], int, str, str | None] | None = None
+        for b in range(len(shards)):
+            if b == a:
+                continue
+            dst = shards[b]
+            others = [round(x, 6) for i, x in enumerate(loads) if i not in (a, b)]
+            for f in sorted(src.suites):
+                fd = dur_map[f]
+                options: list[tuple[float, str | None]] = [(fd, None)]
+                options.extend((fd - dur_map[g], g) for g in sorted(dst.suites) if dur_map[g] < fd)
+                for delta, g in options:
+                    if delta <= 1e-9:
+                        continue
+                    key = tuple(sorted(others + [round(loads[a] - delta, 6), round(loads[b] + delta, 6)], reverse=True))
+                    if key >= current or (best_gain is not None and key >= best_gain[0]):
+                        continue
+                    if not can_take(dst, f, {g} if g else set()):
+                        continue
+                    if g is not None and not can_take(src, g, {f}):
+                        continue
+                    best_gain = (key, b, f, g)
+        if best_gain is None:
+            break
+        _, b, f, g = best_gain
+        apply(src, shards[b], [f], [g] if g else [])
+        loads = [s.duration for s in shards]
+
+
+def rebalance(
+    durations: dict[str, float],
+    target_bin_duration: float = 300.0,
+    num_shards: int | None = None,
+    file_caps: dict[str, list[str]] | None = None,
+    long_poles: set[str] | None = None,
+    shard_caps: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Calculate deterministic balanced shard partitioning."""
+    file_caps = file_caps or {}
+    long_poles = long_poles or set()
+    shard_caps = shard_caps or {}
+
+    total_duration = sum(durations.values())
+
+    # Build list of items
+    items: list[tuple[str, float, set[str]]] = []
+    for fpath in sorted(durations.keys()):
+        dur = durations[fpath]
+        reqs = set(file_caps.get(fpath, []))
+        items.append((fpath, dur, reqs))
+
+    # Determine shards
+    shards: list[ShardBin] = []
+    if shard_caps:
+        # Use declared shards from capabilities
+        for sname in sorted(shard_caps.keys()):
+            shards.append(ShardBin(name=sname, capabilities=shard_caps[sname]))
+    else:
+        # Calculate number of shards
+        if num_shards is not None and num_shards > 0:
+            k = num_shards
+        else:
+            k = max(1, round(total_duration / target_bin_duration)) if total_duration > 0 else 1
+
+        # Check all required capabilities across files
+        all_req_caps: set[str] = set()
+        for _, _, reqs in items:
+            all_req_caps.update(reqs)
+
+        for i in range(k):
+            sname = f"shard-{i + 1:02d}"
+            # By default, generated shards have all required capabilities
+            shards.append(ShardBin(name=sname, capabilities=list(all_req_caps)))
+
+    # Balance bins
+    balance_bins_deterministic(items, shards, long_poles)
+
+    # Sort shards by name
+    shards.sort(key=lambda s: s.name)
+
+    # Collect statistics
+    shard_durations = [s.duration for s in shards]
+    mean_dur = sum(shard_durations) / len(shards) if shards else 0.0
+    max_dur = max(shard_durations) if shard_durations else 0.0
+    min_dur = min(shard_durations) if shard_durations else 0.0
+    max_dev = ((max_dur - mean_dur) / mean_dur * 100.0) if mean_dur > 0 else 0.0
+
+    result = {
+        "summary": {
+            "total_files": len(items),
+            "total_duration": round(total_duration, 4),
+            "num_shards": len(shards),
+            "mean_duration": round(mean_dur, 4),
+            "max_duration": round(max_dur, 4),
+            "min_duration": round(min_dur, 4),
+            "max_deviation_percent": round(max_dev, 2),
+        },
+        "shards": [
+            {
+                "name": s.name,
+                "duration": round(s.duration, 4),
+                "suites": list(s.suites),
+            }
+            for s in shards
+        ],
+    }
+    return result
+
+
+def check_plan(
+    plan: dict[str, Any],
+    durations: dict[str, float],
+    file_caps: dict[str, list[str]] | None = None,
+    long_poles: set[str] | None = None,
+    shard_caps: dict[str, list[str]] | None = None,
+    max_deviation_threshold: float = 0.15,
+) -> tuple[bool, list[str]]:
+    """Validate plan against Row 863 acceptance rules."""
+    file_caps = file_caps or {}
+    long_poles = long_poles or set()
+    shard_caps = shard_caps or {}
+
+    errors: list[str] = []
+
+    shards = plan.get("shards", [])
+    if not shards:
+        errors.append("Plan contains no shards")
+        return False, errors
+
+    mapped_files: list[str] = []
+    shard_durations: list[float] = []
+
+    for shard in shards:
+        sname = shard["name"]
+        suites = shard["suites"]
+        mapped_files.extend(suites)
+
+        # Compute real duration from input durations
+        s_dur = sum(durations.get(f, 0.0) for f in suites)
+        shard_durations.append(s_dur)
+
+        # Capability check
+        allowed_caps = set(shard_caps.get(sname, []))
+        if shard_caps:
+            for f in suites:
+                reqs = set(file_caps.get(f, []))
+                if not reqs.issubset(allowed_caps):
+                    errors.append(f"File {f} requires {reqs} but shard {sname} has {allowed_caps}")
+
+        # Long poles check
+        poles_in_shard = [f for f in suites if f in long_poles]
+        if len(poles_in_shard) > 1:
+            errors.append(f"Shard {sname} contains multiple independent long poles: {poles_in_shard}")
+
+    # 1. Exact disjoint mapping
+    input_files_set = set(durations.keys())
+    mapped_set = set(mapped_files)
+    if mapped_set != input_files_set:
+        missing = input_files_set - mapped_set
+        extra = mapped_set - input_files_set
+        if missing:
+            errors.append(f"Missing files from plan ({len(missing)}): {sorted(missing)[:5]}")
+        if extra:
+            errors.append(f"Unexpected extra files in plan ({len(extra)}): {sorted(extra)[:5]}")
+
+    if len(mapped_files) != len(mapped_set):
+        duplicates = [f for f in mapped_set if mapped_files.count(f) > 1]
+        errors.append(f"Duplicate mapped files ({len(duplicates)}): {duplicates[:5]}")
+
+    # 2. Balance: max duration <= (1 + threshold) * mean duration
+    mean_dur = sum(shard_durations) / len(shard_durations) if shard_durations else 0.0
+    max_dur = max(shard_durations) if shard_durations else 0.0
+    if mean_dur > 0:
+        ratio = (max_dur - mean_dur) / mean_dur
+        if ratio > max_deviation_threshold:
+            errors.append(
+                f"Max bin duration {max_dur:.2f}s is {ratio * 100:.2f}% above mean {mean_dur:.2f}s "
+                f"(allowed budget <= {max_deviation_threshold * 100:.0f}%)"
+            )
+
+    return len(errors) == 0, errors
+
+
+def format_matrix_yaml(plan: dict[str, Any]) -> str:
+    lines = ["strategy:", "  fail-fast: false", "  matrix:", "    include:"]
+    for shard in plan["shards"]:
+        lines.append(f"      - name: {shard['name']}")
+        lines.append("        suites: >-")
+        for suite in shard["suites"]:
+            lines.append(f"          {suite}")
+    return "\n".join(lines) + "\n"
+
+
+def selftest() -> int:
+    """In-memory self-test validating partitioning, balance, and determinism."""
+    # Synthetic dataset of 30 files totaling 900s -> 3 shards of 300s
+    durations = {f"tests/test_{i:02d}.py": float((i * 11) % 40 + 10) for i in range(30)}
+    plan1 = rebalance(durations, target_bin_duration=300.0)
+    plan2 = rebalance(durations, target_bin_duration=300.0)
+
+    if plan1 != plan2:
+        print("SELFTEST FAIL: Determinism check failed", file=sys.stderr)
+        return 1
+
+    ok, errors = check_plan(plan1, durations)
+    if not ok:
+        print(f"SELFTEST FAIL: Check failed: {errors}", file=sys.stderr)
+        return 1
+
+    print("SELFTEST PASS: Deterministic 5-minute binning within 15% budget verified")
+    return 0
+
+
+def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
+
+    parser = argparse.ArgumentParser(
+        description="Deterministic JUnit-duration CI shard rebalancer (Row 863)"
+    )
+    parser.add_argument(
+        "--selftest",
+        action="store_true",
+        help="Run self-test suite and exit",
+    )
+    parser.add_argument(
+        "--junit",
+        dest="junit_files",
+        action="append",
+        type=pathlib.Path,
+        default=[],
+        help="Path to JUnit XML file (may be specified multiple times)",
+    )
+    parser.add_argument(
+        "--durations",
+        type=pathlib.Path,
+        help="JSON file containing {file_path: duration_seconds}",
+    )
+    parser.add_argument(
+        "--test-files",
+        type=pathlib.Path,
+        help="Optional file containing newline-separated test file paths",
+    )
+    parser.add_argument(
+        "--default-duration",
+        type=float,
+        default=1.0,
+        help="Default duration in seconds for files without measurement (default: 1.0s)",
+    )
+    parser.add_argument(
+        "--dump-durations",
+        action="store_true",
+        help="Dump aggregated durations as JSON and exit",
+    )
+    parser.add_argument(
+        "--target-bin-duration",
+        type=float,
+        default=300.0,
+        help="Target duration per shard in seconds (default: 300s = 5m)",
+    )
+    parser.add_argument(
+        "--num-shards",
+        type=int,
+        help="Explicit number of shards to partition into",
+    )
+    parser.add_argument(
+        "--capabilities",
+        type=pathlib.Path,
+        help="JSON file defining capability requirements and shard provisions",
+    )
+    parser.add_argument(
+        "--plan",
+        type=pathlib.Path,
+        help="Input shard plan JSON to validate with --check",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check plan against acceptance criteria (exit 0 on pass, 1 on fail)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "yaml", "matrix"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
+    args = parser.parse_args()
+
+    durations: dict[str, float] = {}
+
+    try:
+        return _run(args, durations)
+    except EvidenceError as exc:
+        sys.stderr.write(f"error: invalid or missing evidence -- {exc}\n")
+        return 2
+    except InfeasiblePlan as exc:
+        sys.stderr.write(f"error: infeasible capability assignment -- {exc}\n")
+        return 1
+
+
+def _run(args: argparse.Namespace, durations: dict[str, float]) -> int:
+    if args.junit_files:
+        durations.update(parse_junit_xml(args.junit_files))
+
+    if args.durations:
+        if not args.durations.is_file():
+            raise EvidenceError(f"durations file not found: {args.durations}")
+        try:
+            extra_dur = json.loads(args.durations.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise EvidenceError(f"error loading durations from {args.durations}: {exc}") from exc
+        if not isinstance(extra_dur, dict):
+            raise EvidenceError(f"durations file {args.durations}: top level must be an object")
+        for k, v in extra_dur.items():
+            durations[os.path.normpath(k)] = _finite_duration(v, f"{args.durations}:{k}")
+
+    if args.test_files and not args.test_files.is_file():
+        raise EvidenceError(f"test-files list not found: {args.test_files}")
+    if args.test_files and args.test_files.is_file():
+        try:
+            lines = args.test_files.read_text(encoding="utf-8").splitlines()
+            for line in lines:
+                fpath = line.strip()
+                if fpath and not fpath.startswith("#"):
+                    norm = os.path.normpath(fpath)
+                    if norm not in durations:
+                        durations[norm] = args.default_duration
+        except OSError as exc:
+            sys.stderr.write(f"error reading test files from {args.test_files}: {exc}\n")
+            return 2
+
+    if args.dump_durations and not durations:
+        raise EvidenceError("no test durations parsed from the given evidence")
+    if args.dump_durations:
+        sorted_dur = {k: round(durations[k], 4) for k in sorted(durations.keys())}
+        print(json.dumps(sorted_dur, indent=2))
+        return 0
+
+    file_caps: dict[str, list[str]] = {}
+    long_poles: set[str] = set()
+    shard_caps: dict[str, list[str]] = {}
+    if args.capabilities:
+        file_caps, long_poles, shard_caps = load_capabilities(args.capabilities)
+
+    if not durations:
+        raise EvidenceError("no test durations: give --junit, --durations or --test-files with at least one file")
+
+    if args.check:
+        if args.plan:
+            if not args.plan.is_file():
+                raise EvidenceError(f"plan file not found: {args.plan} (a named plan is never substituted)")
+            try:
+                plan = json.loads(args.plan.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                raise EvidenceError(f"error loading plan {args.plan}: {exc}") from exc
+            if not isinstance(plan, dict) or not isinstance(plan.get("shards"), list):
+                raise EvidenceError(f"plan {args.plan}: expected an object with a 'shards' list")
+        else:
+            plan = rebalance(
+                durations=durations,
+                target_bin_duration=args.target_bin_duration,
+                num_shards=args.num_shards,
+                file_caps=file_caps,
+                long_poles=long_poles,
+                shard_caps=shard_caps,
+            )
+
+        ok, errors = check_plan(
+            plan=plan,
+            durations=durations,
+            file_caps=file_caps,
+            long_poles=long_poles,
+            shard_caps=shard_caps,
+        )
+        if not ok:
+            print("REBALANCE CHECK FAILED:")
+            for err in errors:
+                print(f"  - {err}")
+            return 1
+        print("REBALANCE CHECK PASSED: All shards balanced within 15% of mean, capabilities satisfied.")
+        return 0
+
+    plan = rebalance(
+        durations=durations,
+        target_bin_duration=args.target_bin_duration,
+        num_shards=args.num_shards,
+        file_caps=file_caps,
+        long_poles=long_poles,
+        shard_caps=shard_caps,
+    )
+
+    if args.format == "json":
+        print(json.dumps(plan, indent=2))
+    elif args.format in ("yaml", "matrix"):
+        print(format_matrix_yaml(plan))
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

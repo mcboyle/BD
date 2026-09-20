@@ -1359,6 +1359,22 @@ class BrowserMixin:
         self._last_warmup_at = time.time()
         self.log_event("warmup", f"Warmed up via {sample_count} URL(s)")
 
+    def check_challenge_and_pause(self, page, *, site_id=None, lane=None):
+        """Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match."""
+        try:
+            from .challenge_detector import default_detector
+            target_site = site_id or getattr(self, "site_id", "default")
+            target_lane = lane or target_site
+            frames = []
+            for f in getattr(page, "frames", []):
+                try:
+                    frames.append({"url": f.url, "name": f.name})
+                except Exception:
+                    pass
+            return default_detector.inspect_and_handle(frames, site_id=target_site, lane=target_lane)
+        except Exception:
+            return None
+
 
 from .browser_sentinel import (  # noqa: E402
     runner_maybe_recycle_browser as _rmrb,

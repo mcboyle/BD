@@ -1836,7 +1836,7 @@ class TransportMixin:
         try: dl.cancel()
         except Exception: pass
         try:
-            cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+            cookies = _extract_scoped_cookies(ctx, file_url)
         except Exception:
             cookies = {}
         ua = (self.config.get("fingerprint") or {}).get("user_agent") or \
@@ -3085,7 +3085,7 @@ class TransportMixin:
                     # sequential rather than failing entirely.
                     sys.stderr.write(f"  parallel setup error, falling back: {str(e)[:80]}\n")
 
-        cookies={c["name"]:c["value"] for c in ctx.cookies()}
+        cookies = _extract_scoped_cookies(ctx, file_url)
         ua=(self.config.get("fingerprint") or {}).get("user_agent") or \
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         headers={"User-Agent":ua,"Referer":page_url,"Accept":"*/*"}
@@ -3588,7 +3588,7 @@ class TransportMixin:
         total size in bytes on success, 0 if size is unknown OR server
         doesn't support Range (in which case sequential is mandatory).
         Quick — 10s timeout — non-fatal on failure (caller falls back)."""
-        cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+        cookies = _extract_scoped_cookies(ctx, file_url)
         ua = (self.config.get("fingerprint") or {}).get("user_agent") or \
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         headers = {"User-Agent": ua, "Referer": page_url}
@@ -3653,7 +3653,7 @@ class TransportMixin:
         caller catches and tries the non-parallel path."""
         import threading as _t
 
-        cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+        cookies = _extract_scoped_cookies(ctx, file_url)
         ua = (self.config.get("fingerprint") or {}).get("user_agent") or \
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         headers_base = {"User-Agent": ua, "Referer": page_url, "Accept": "*/*"}
@@ -4355,3 +4355,23 @@ def _request_download_stream(
     """Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback."""
     h3_transport = transport if transport is not None else HTTP3Transport(prefer_http3=prefer_http3)
     return h3_transport.request(cffi_requests, "GET", url, stream=True, **kwargs)
+
+
+def _extract_scoped_cookies(ctx, file_url):
+    """Extract cookies scoped to file_url; fallback safely for mocks or closed contexts."""
+    if ctx is None:
+        return {}
+    raw = None
+    try:
+        raw = ctx.cookies([file_url]) if file_url else ctx.cookies()
+    except TypeError:
+        try:
+            raw = ctx.cookies()
+        except Exception:
+            return {}
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    return {c["name"]: c["value"] for c in raw if isinstance(c, dict) and "name" in c and "value" in c}
+

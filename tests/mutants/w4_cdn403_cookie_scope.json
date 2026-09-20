@@ -1,0 +1,76 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "w4-cdn403d. Each old_regex matches only the structural context-cookie call; zero-width context uniquely selects one of the four executable flatten sites without putting source values in the matched span. Each seam is tested against both empty and unscoped cookie collection.",
+  "subject": "all four HTTP transport paths ask Playwright for cookies scoped to the media URL before flattening names",
+  "band": [
+    "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-sequential]",
+    "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-parallel]",
+    "tests/test_the_transport_proves_the_bytes_it_claims.py::test_probe_fetch_uses_only_cookies_scoped_to_the_media_url"
+  ],
+  "mutants": [
+    {
+      "label": "CDN403-M1 restore unscoped context-cookie collection",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=\\n        ua=\\(self\\.config\\.get\\(\"fingerprint\"\\))",
+      "new": "{}",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-sequential]"
+    },
+    {
+      "label": "CDN403-M2 probe fetch drops media-URL-scoped cookies",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?\"Range\": f\"bytes=0-\\{PROBE_CAP - 1\\}\")",
+      "new": "{}",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_probe_fetch_uses_only_cookies_scoped_to_the_media_url"
+    },
+    {
+      "label": "CDN403-M3 parallel size probe drops media-URL-scoped cookies",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?headers = \\{\"User-Agent\": ua, \"Referer\": page_url\\}\\n        # v3\\.66\\.390 \\(Track-K\\): fail-closed -- a vpn_required)",
+      "new": "{}",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-parallel]"
+    },
+    {
+      "label": "CDN403-M4 parallel workers drop media-URL-scoped cookies",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?headers_base = \\{\"User-Agent\": ua, \"Referer\": page_url, \"Accept\": \"\\*/\\*\"\\}\\n        # v3\\.66\\.390 \\(Track-K\\): fail-closed VPN proxy)",
+      "new": "{}",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-parallel]"
+    },
+    {
+      "label": "CDN403-M5 claimed download restores unscoped context-cookie collection",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=\\n        ua=\\(self\\.config\\.get\\(\"fingerprint\"\\))",
+      "new": "_extract_scoped_cookies(ctx, None)",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-sequential]"
+    },
+    {
+      "label": "CDN403-M6 probe fetch restores unscoped context-cookie collection",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?\"Range\": f\"bytes=0-\\{PROBE_CAP - 1\\}\")",
+      "new": "_extract_scoped_cookies(ctx, None)",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_probe_fetch_uses_only_cookies_scoped_to_the_media_url"
+    },
+    {
+      "label": "CDN403-M7 parallel size probe restores unscoped context-cookie collection",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?headers = \\{\"User-Agent\": ua, \"Referer\": page_url\\}\\n        # v3\\.66\\.390 \\(Track-K\\): fail-closed -- a vpn_required)",
+      "new": "_extract_scoped_cookies(ctx, None)",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-parallel]"
+    },
+    {
+      "label": "CDN403-M8 parallel workers restore unscoped context-cookie collection",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=cookies = )_extract_scoped_cookies\\(ctx, file_url\\)(?=[\\s\\S]{0,400}?headers_base = \\{\"User-Agent\": ua, \"Referer\": page_url, \"Accept\": \"\\*/\\*\"\\}\\n        # v3\\.66\\.390 \\(Track-K\\): fail-closed VPN proxy)",
+      "new": "_extract_scoped_cookies(ctx, None)",
+      "direction": "regression",
+      "catcher": "tests/test_the_transport_proves_the_bytes_it_claims.py::test_signed_cdn_fetch_uses_only_cookies_scoped_to_the_media_url[httpx-parallel]"
+    }
+  ]
+}
