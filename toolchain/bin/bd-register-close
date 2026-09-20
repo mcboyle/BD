@@ -161,6 +161,9 @@ def close_row(repo: Path, row: int, version: str) -> tuple[int, int, str]:
                 # reached MOOT @1534); stamp the integrator's release so the
                 # tag is authoritative, matching the OPEN/CLOSED pattern.
                 replacement = f"MOOT @{release}"
+            elif status == "PARKED" or status.startswith("PARKED"):
+                # Guarded status transition: PARKED -> CLOSED @release
+                replacement = f"CLOSED @{release}"
             else:
                 raise ValueError(f"row {row} is {status!r}, not OPEN, CLOSED, or MOOT")
 

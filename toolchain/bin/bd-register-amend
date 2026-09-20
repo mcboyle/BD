@@ -239,8 +239,14 @@ def amend(repo: Path, request_path: Path) -> int:
                     "compare-and-swap find text must occur exactly once in target row"
                 )
             new_row = old_row.replace(request["find"], request["replace"], 1)
-            if _row_status(row, new_row) != request["expected_status"]:
-                raise ValueError("amendment may not change the target row status")
+            new_status = _row_status(row, new_row)
+            if new_status != request["expected_status"]:
+                old_status = request["expected_status"]
+                is_parked = old_status == "PARKED" or old_status.startswith("PARKED ")
+                is_valid_open = new_status == "OPEN"
+                is_valid_closed = bool(re.fullmatch(r"CLOSED\s+@\d+", new_status))
+                if not (is_parked and (is_valid_open or is_valid_closed)):
+                    raise ValueError("amendment may not change the target row status")
 
             expected_amended = text[:row_start] + new_row + text[row_end:]
             amended = expected_amended

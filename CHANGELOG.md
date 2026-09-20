@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1594 - train19: 828 + HB register-status-amend tool
+
+Train: 2 refute-first-reviewed worker patches (O1009 census). Base 4860f28d. Row 828 CLOSED @1594. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 865-r2 (stale base conflict).
+
+- 828-local: ## STAGED FILES (git diff --cached --stat) bulk_downloader/cluster_rate.py | 438 ++++++++++++++++++++++++++++---- tests/test_row828_redis_cluster_rate.py | 215
+- hb-register-status-amend-tool-bd-agy-worker10-local: RED: 4 failed on base c2a6320f (3 amend tests: "amendment may not change the target row status"; 1 close test: "row 263 is 'PARKED', not OPEN, CLOSED, or MOOT")
+
 ## v3.66.1593 - train18: row371 main-red fix (O1046)
 
 Train: 1 refute-first-reviewed worker patch (O1046; stacked on train17). Tier T2. Local precut/band waived (O1010); exact-head CI is the gate.
