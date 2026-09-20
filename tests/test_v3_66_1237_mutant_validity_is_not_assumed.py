@@ -57,9 +57,9 @@ def _run_counted_battery(tmp_path, monkeypatch, mutant, nodeid):
     grade_calls = []
     original_grade = mutate._grade_mutant
 
-    def counted_grade(candidate, result):
+    def counted_grade(candidate, result, **kwargs):
         grade_calls.append(candidate["label"])
-        return original_grade(candidate, result)
+        return original_grade(candidate, result, **kwargs)
 
     monkeypatch.setattr(mutate, "_grade_mutant", counted_grade)
     rc, rows = mutate.run_battery(

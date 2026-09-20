@@ -3,7 +3,7 @@
 import math, os, re, shutil, sys, uuid
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
-from .constants import NON_VIDEO_RE, SIZE_RE
+from .constants import NON_VIDEO_RE, QUALITY_LADDER, SIZE_RE
 
 
 # P5-3 DOM honeypot filter — opt-in via BD_DOM_HONEYPOT_FILTER env var.
@@ -236,6 +236,70 @@ def codec_label(score):
     for _,sc,lbl in _CODEC_PATTERNS:
         if score==sc: return lbl
     return "" if score<=0 else "unknown"
+
+# ─── QUALITY LADDER (row905) ────────────────────────────────────────────
+# row905 fixer: a target_codec is matched against the codec PATTERNS the
+# candidate text actually hits, never against codec_label(codec_score(c)) --
+# that label is lossy ("remux/source" and "AV1" share score 4, so AV1 could
+# never be requested, and "remux/source" matched every AV1 candidate).
+# Aliases let a user say what the ladder says ("AVC" == "H.264").
+_CODEC_LABEL_ALIASES = {
+    "avc": "H.264", "h264": "H.264", "h.264": "H.264", "x264": "H.264",
+    "hevc": "HEVC", "h265": "HEVC", "h.265": "HEVC", "x265": "HEVC",
+    "av1": "AV1", "av01": "AV1", "vp9": "VP9", "vp09": "VP9",
+    "remux": "remux/source", "source": "remux/source", "remux/source": "remux/source",
+}
+
+def _normalize_codec_label(target):
+    key = str(target).strip().lower()
+    return _CODEC_LABEL_ALIASES.get(key, str(target).strip())
+
+def _candidate_codec_labels(text):
+    """Labels of every codec pattern *text* matches (may be several)."""
+    if not text: return set()
+    return {lbl for pat, _, lbl in _CODEC_PATTERNS if pat.search(text)}
+
+def _ladder_tier_index(text):
+    """Index into QUALITY_LADDER of the best (lowest-index) tier *text*
+    clears, reusing res_score/codec_score -- or None if it clears none."""
+    res = res_score(text)
+    if res < 0: return None
+    codec = codec_score(text)
+    for i, (_, min_res, min_codec) in enumerate(QUALITY_LADDER):
+        if res >= min_res and codec >= min_codec:
+            return i
+    return None
+
+def select_quality_tier(candidates, target_resolution=None, target_codec=None):
+    """Pick the best of *candidates* (text strings, scored like res_score/
+    codec_score) per the structured ladder 2160p:AV1 > 1080p:HEVC >
+    1080p:AVC > 720p:ANY (QUALITY_LADDER).
+
+    target_resolution / target_codec are a USER OVERRIDE: when given, only
+    candidates meeting the requested resolution floor and/or exact codec
+    label are considered, with the ladder still ordering among them. When
+    the override matches nothing, or when no candidate clears the ladder's
+    bottom tier, this falls back to the single best-scoring candidate in
+    the (possibly unfiltered) pool -- a conservative choice beats an empty
+    result and never raises.
+
+    Returns the winning candidate, or None if *candidates* is empty.
+    """
+    pool = list(candidates)
+    if not pool: return None
+    if target_resolution is not None or target_codec is not None:
+        wanted = None if target_codec is None else _normalize_codec_label(target_codec)
+        filtered = [
+            c for c in pool
+            if (target_resolution is None or res_score(c) >= target_resolution)
+            and (wanted is None or wanted in _candidate_codec_labels(c))
+        ]
+        if filtered: pool = filtered
+    on_ladder = [(i, c) for c in pool for i in [_ladder_tier_index(c)] if i is not None]
+    if on_ladder:
+        best_index = min(i for i, _ in on_ladder)
+        pool = [c for i, c in on_ladder if i == best_index]
+    return max(pool, key=lambda c: (res_score(c), codec_score(c), parse_size_bytes(c)))
 
 # ─── SAME-WORK IDENTITY ───────────────────────────────────────────────────────
 # v3.66.x row 388 -- THE THIRD ROUTING DECISION, AS A PURE FUNCTION, in the

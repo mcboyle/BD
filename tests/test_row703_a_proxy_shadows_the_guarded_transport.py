@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:309",
-    "bulk_downloader/runner_transport.py:3001",
-    "bulk_downloader/runner_transport.py:3368",
-    "bulk_downloader/runner_transport.py:3600",
+    "bulk_downloader/runner_transport.py:3003",  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3370",  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3602",  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
 }
 
 

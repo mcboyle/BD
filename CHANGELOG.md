@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1578 - train2d: rows 854 901 902 905 951 gate-fix-1 + O957 register correction (O972)
+
+Train: 6 refute-first-reviewed worker patches (base 6d3a4899) plus one register correction.
+
+- row854 (chunked_transfer.py): adaptive dynamic chunk sizing for high-bandwidth CDNs (T1 transport).
+- row901 (runner_transport.py): synchronized audio/video multiplexing for split tracks via ffmpeg_bin (T1 media assembly).
+- row902 (har_compactor.py): compact HAR network-trace archival filter (T2 capture storage).
+- row905 (detect.py, constants.py): dynamic quality-preference matrix with multi-codec ranking (T1 media pipeline).
+- row951 (rate_adapter.py): HTTP 429 / Retry-After backoff adapter (T2 transport reliability).
+- gate-fix-1: tests/test_v3_66_1237_mutant_validity_is_not_assumed.py gate correction.
+- O972 register correction for O957 (6d3a4899 removed rows 936/938/939 without regen): canonical marker rows=275 open=117 -> rows=272 open=114 (bd-register-close._derive_backlog); rows 936/938/939 archived verbatim in IMPROVEMENT_BACKLOG_ARCHIVE.md as MOOT @1578 (archive-inventory 620 -> 623).
+- Dropped (O965 drop rule): row879 (defect ratchet DP-10 x2 in telemetry_db.py) -> re-review.
+
 ## v3.66.1577 - Publish approved proposal backlog
 
 Register approved proposals and their parked or moot dispositions so product cuts can satisfy canonical-row checks. Register-only train; implementations follow separately.

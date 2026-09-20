@@ -37,6 +37,8 @@ from .download_egress import (
     EgressCarrierError, effective_download_proxy, prepare_http_proxy,
 )
 from . import proxy_pool
+from . import ffmpeg_bin
+import subprocess
 
 # httpx soft import (moved verbatim from runner.py; flat sibling).
 try:
@@ -3854,3 +3856,115 @@ class TransportMixin:
             alpha = 0.3
             self._throughput_ewma_bps = alpha * bps + (1 - alpha) * self._throughput_ewma_bps
         self._throughput_samples += 1
+
+    # -- Row 901: dual-stream audio/video multiplexing pipeline -----------
+    # Engine only, like the row 834 pattern: these are self-contained
+    # staticmethods (GOTCHA-A static-dispatch convention, called as
+    # ``TransportMixin._foo(...)``) with no wiring into the download call
+    # sites above -- OWNS is scoped to this module and its test.
+
+    @staticmethod
+    def _dual_stream_fetch_concurrent(video_fetch, audio_fetch, timeout=None):
+        """Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+        same time and return ``(video_result, audio_result)`` only once BOTH
+        have finished -- synchronized ingestion, not one track staggered
+        after the other. Either fetcher's exception propagates to the
+        caller (re-raised here, on the calling thread)."""
+        results = {}
+        errors = {}
+
+        def _run(key, fn):
+            try:
+                results[key] = fn()
+            except Exception as exc:
+                errors[key] = exc
+
+        t_video = threading.Thread(target=_run, args=("video", video_fetch))
+        t_audio = threading.Thread(target=_run, args=("audio", audio_fetch))
+        t_video.start()
+        t_audio.start()
+        t_video.join(timeout)
+        t_audio.join(timeout)
+        if errors:
+            raise next(iter(errors.values()))
+        return results["video"], results["audio"]
+
+    @staticmethod
+    def _mux_streams_lossless(video_path, audio_path, output_path):
+        """Multiplex separately-retrieved video/audio elementary streams
+        into one container with ``ffmpeg -c copy`` -- a zero-transcode
+        remux; the bitstreams are never re-encoded."""
+        ffmpeg_exe = ffmpeg_bin.ffmpeg()
+        if not ffmpeg_exe:
+            return {"ok": False, "error": "ffmpeg not available", "output_path": None}
+        cmd = [ffmpeg_exe, "-y",
+               "-i", str(video_path), "-i", str(audio_path),
+               "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
+               str(output_path)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "output_path": None}
+        if proc.returncode != 0:
+            return {"ok": False, "error": proc.stderr[-2000:], "output_path": None}
+        return {"ok": True, "error": None, "output_path": str(output_path)}
+
+    @staticmethod
+    def _probe_stream_duration_ms(path, stream_selector):
+        """ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+        milliseconds. Returns ``None`` when it cannot be measured (no
+        ffprobe, no such stream, unreadable file) -- callers must treat
+        ``None`` as "could not verify", never as a zero-length match."""
+        ffprobe_exe = ffmpeg_bin.ffprobe()
+        if not ffprobe_exe:
+            return None
+        cmd = [ffprobe_exe, "-v", "error", "-select_streams", stream_selector,
+               "-show_entries", "stream=duration", "-of",
+               "default=noprint_wrappers=1:nokey=1", str(path)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except Exception:
+            return None
+        out = (proc.stdout or "").strip()
+        if proc.returncode != 0 or not out:
+            return None
+        try:
+            return int(round(float(out) * 1000))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _verify_av_sync(output_path, tolerance_ms=250):
+        """Verify a muxed container's video and audio tracks are in sync:
+        their durations must agree within ``tolerance_ms``. Fail-soft when
+        ffprobe cannot measure one side -- ``degraded=True``, never a false
+        ``ok=True``."""
+        video_ms = TransportMixin._probe_stream_duration_ms(output_path, "v:0")
+        audio_ms = TransportMixin._probe_stream_duration_ms(output_path, "a:0")
+        if video_ms is None or audio_ms is None:
+            return {"ok": False, "degraded": True, "video_ms": video_ms,
+                     "audio_ms": audio_ms, "diff_ms": None,
+                     "error": "could not measure one or both stream durations"}
+        diff_ms = abs(video_ms - audio_ms)
+        return {"ok": diff_ms <= tolerance_ms, "degraded": False,
+                 "video_ms": video_ms, "audio_ms": audio_ms, "diff_ms": diff_ms,
+                 "error": None}
+
+    @staticmethod
+    def dual_stream_mux(video_fetch, audio_fetch, output_path, tolerance_ms=250, timeout=None):
+        """Top-level pipeline: concurrently retrieve two separately-fetched
+        elementary streams (``video_fetch()``/``audio_fetch()`` each return
+        a filesystem path), multiplex them losslessly, and verify A/V sync
+        in the resulting container. Fail-soft throughout: a fetch or mux
+        failure returns a result dict, never an exception."""
+        try:
+            video_path, audio_path = TransportMixin._dual_stream_fetch_concurrent(
+                video_fetch, audio_fetch, timeout=timeout)
+        except Exception as exc:
+            return {"ok": False, "error": f"stream retrieval failed: {exc}",
+                     "output_path": None, "sync": None}
+        mux_result = TransportMixin._mux_streams_lossless(video_path, audio_path, output_path)
+        if not mux_result["ok"]:
+            return {**mux_result, "sync": None}
+        sync_result = TransportMixin._verify_av_sync(output_path, tolerance_ms=tolerance_ms)
+        return {**mux_result, "sync": sync_result}
