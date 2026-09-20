@@ -1401,6 +1401,7 @@ def dismiss_gates(page: Any, raw: Any, *,
                 else:
                     continue
             locator = record["locator"]
+            index_resolved = locator is None
             if locator is None:
                 try:
                     locator = controls.nth(record["index"])
@@ -1480,35 +1481,36 @@ def dismiss_gates(page: Any, raw: Any, *,
                 # control that was measured, so it is used. A control that
                 # keeps changing gets the original refusal, verbatim.
                 stabilised_labels = None
-                for attempt in range(2, GENERIC_REMEASURE_ATTEMPTS + 2):
-                    sleep(GENERIC_REMEASURE_INTERVAL_S)
-                    try:
-                        retry_is_visible = getattr(locator, "is_visible", None)
-                        if (retry_is_visible is not None
-                                and not retry_is_visible()):
+                if not index_resolved:
+                    for attempt in range(2, GENERIC_REMEASURE_ATTEMPTS + 2):
+                        sleep(GENERIC_REMEASURE_INTERVAL_S)
+                        try:
+                            retry_is_visible = getattr(locator, "is_visible", None)
+                            if (retry_is_visible is not None
+                                    and not retry_is_visible()):
+                                break
+                            retry_labels = _control_labels(locator)
+                        except _LabelMeasurementUnavailable:
                             break
-                        retry_labels = _control_labels(locator)
-                    except _LabelMeasurementUnavailable:
-                        break
-                    except Exception:
-                        break
-                    if retry_labels == labels:
-                        stabilised_labels = retry_labels
-                        actions.append({
-                            "source": "generic",
-                            "tier": tier,
-                            "label": label,
-                            "selector": "",
-                            "outcome": "re_measured",
-                            "reason": (
-                                "gate: re-measured %r after a DOM change "
-                                "(attempt %d/%d)"
-                                % (label, attempt,
-                                   GENERIC_REMEASURE_ATTEMPTS + 1)
-                            ),
-                            "destination_re_requested": False,
-                        })
-                        break
+                        except Exception:
+                            break
+                        if retry_labels == labels:
+                            stabilised_labels = retry_labels
+                            actions.append({
+                                "source": "generic",
+                                "tier": tier,
+                                "label": label,
+                                "selector": "",
+                                "outcome": "re_measured",
+                                "reason": (
+                                    "gate: re-measured %r after a DOM change "
+                                    "(attempt %d/%d)"
+                                    % (label, attempt,
+                                       GENERIC_REMEASURE_ATTEMPTS + 1)
+                                ),
+                                "destination_re_requested": False,
+                            })
+                            break
                 if stabilised_labels is None:
                     actions.append(_measurement_unknown(
                         "generic", tier, GENERIC_CONTROL_SELECTOR,

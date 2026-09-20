@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1593 - train18: row371 main-red fix (O1046)
+
+Train: 1 refute-first-reviewed worker patch (O1046; stacked on train17). Tier T2. Local precut/band waived (O1010); exact-head CI is the gate.
+
+- 371-main-red-local: BASE: c2a6320fcc47658f2f2bea9a162546cba8762c16 ROW: row371-main-red TARGET: HB row371-main-red (T2) -- harness backlog fix (O992 / O1031) WORKTREE: /home/mboyle
+
 ## v3.66.1592 - train17: 832 838-r2 865b 911-r3 + 2 HB pins
 
 Train: 6 refute-first-reviewed worker patches (O1008 pipeline, stacked on train16). Rows 832 838 865 911 CLOSED @1592. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate.
