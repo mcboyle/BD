@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: retaining the acknowledgement must escape an import-only test, proving the behavioral catches are assertion failures.",
+  "subject": "row 700 -- import-only control does not judge acknowledgement persistence",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_ack_persistence_transform_control_imports_writer_without_judging_behavior"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL existing-site config import aliases the persisted config",
+      "file": "bulk_downloader/app_config.py",
+      "old_regex": "dict(?=\\(cfg\\)\\n                _captcha_gate_input\\[CAPTCHA_EGRESS_ACK_FIELD\\])",
+      "new": "(lambda item: item)",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_ack_persistence_transform_control_imports_writer_without_judging_behavior"
+    }
+  ]
+}

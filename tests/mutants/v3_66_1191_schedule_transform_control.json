@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: this battery must ESCAPE because its sole test imports bd-gc without asserting the mutated live-lock behavior.",
+  "subject": "v3.66.1191 mutation transform control distinguishes assertion catches from valid imports",
+  "band": [
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_mutation_transform_control_only_imports_bd_gc"
+  ],
+  "mutants": [
+    {
+      "label": "transform control misclassifies a held capture-vault lock",
+      "file": "toolchain/bin/bd-gc",
+      "old": "        except BlockingIOError:\n            return \"LIVE\", None, \"capture-vault lock is held\"",
+      "new": "        except BlockingIOError:\n            return \"ABANDONED\", root_st.st_mtime, \"keyed vault has no held lock\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_mutation_transform_control_only_imports_bd_gc"
+    }
+  ]
+}

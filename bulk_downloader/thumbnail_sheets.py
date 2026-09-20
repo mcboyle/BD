@@ -84,11 +84,12 @@ def single_thumb(path: str, *, at_pct: float = 50.0,
     if not ffmpeg:
         return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
-        subprocess.check_call(
-            [ffmpeg, "-y", "-loglevel", "error",
+        ffmpeg_bin.check_call_ffmpeg(  # row835: NVDEC + CPU fallback
+            ffmpeg_bin.build_ffmpeg_command(
+                [ffmpeg, "-y", "-loglevel", "error",
              "-ss", f"{timestamp:.2f}", "-i", path,
              "-frames:v", "1", "-vf", f"scale={size}",
-             "-q:v", "3", out],
+             "-q:v", "3", out]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=60)
         return {"ok": True, "out_path": out,
@@ -137,11 +138,12 @@ def contact_sheet(path: str, *, rows: int = 4, cols: int = 4,
     if not ffmpeg:
         return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
-        subprocess.check_call(
-            [ffmpeg, "-y", "-loglevel", "error", "-i", path,
+        ffmpeg_bin.check_call_ffmpeg(  # row835: NVDEC + CPU fallback
+            ffmpeg_bin.build_ffmpeg_command(
+                [ffmpeg, "-y", "-loglevel", "error", "-i", path,
              "-vf",
              f"fps={fps},scale={tile_width}:-1,tile={cols}x{rows}",
-             "-frames:v", "1", "-q:v", "3", out],
+             "-frames:v", "1", "-q:v", "3", out]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=120)
         return {"ok": True, "out_path": out,
@@ -187,11 +189,12 @@ def sprite_sheet(path: str, *, count: int = 100,
     if not ffmpeg:
         return {"ok": False, "error": "ffmpeg_unavailable"}
     try:
-        subprocess.check_call(
-            [ffmpeg, "-y", "-loglevel", "error", "-i", path,
+        ffmpeg_bin.check_call_ffmpeg(  # row835: NVDEC + CPU fallback
+            ffmpeg_bin.build_ffmpeg_command(
+                [ffmpeg, "-y", "-loglevel", "error", "-i", path,
              "-vf",
              f"fps={fps},scale={tile_width}:-1,tile=1x{count}",
-             "-frames:v", "1", "-q:v", "4", str(sprite_path)],
+             "-frames:v", "1", "-q:v", "4", str(sprite_path)]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=180)
     except subprocess.CalledProcessError as e:

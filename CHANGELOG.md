@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1580 - train4b: rows 700b 835 856 912 922 + RB4 gitea-ci-compat h1191b
+
+Train: 7 refute-first-reviewed worker patches (base 79a07557). Rows 835 856 912 922 CLOSED @1580 (835: PARKED @1576 -> OPEN -> CLOSED per PM O978).
+
+- rowgitea-ci-compat-rb4 (.gitea/workflows/ci.yaml): Gitea CI workflow compatibility (rebased RB4).
+- rowh1191b-rb4 (harness_run.py + mutants): harness batch-worker isolation (rebased RB4).
+- row700b-cx-c-rb1 (tests + mutants): captcha egress disclosure test/mutant hardening for row700 (CLOSED @1559).
+- row835 (thumbnails): GPU NVDEC-accelerated thumbnail and contact-sheet extraction.
+- row856 (audio_transcriber.py, ssrf_egress_exemptions.py): whisper audio transcription indexer with SSRF census entry.
+- row912 (interstitial.py): standard cookie-consent and compliance-dialog auto-dismissal.
+- row922 (ffmpeg_bin.py, tests/test_row922.py): template extraction performance and memory benchmark suite.
+- Dropped from train4 (O965 drop rule, re-review): row827 (boto3 undeclared + DNS census), row833 (600s budget bound), row846 and row859 (defect ratchet), roww4-cdn403d-rb4 (rebase no-carry).
+
 ## v3.66.1579 - train3b: rows 860 862 874 876 888 892 920 921
 
 Train: 8 refute-first-reviewed worker patches (base e020e3b7). Rows 860 862 874 876 888 892 920 921 CLOSED @1579.

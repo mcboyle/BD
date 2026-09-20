@@ -1,0 +1,18 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Transform control: bypassing the disclosure decision must escape the import-only test, proving behavioral catches are assertion failures.",
+  "subject": "row 700 -- import-only control does not judge paid-captcha disclosure",
+  "band": [
+    "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+  ],
+  "mutants": [
+    {
+      "label": "CONTROL paid-captcha disclosure is bypassed",
+      "file": "bulk_downloader/runner.py",
+      "old_regex": "(?m)^    if not \\(key_will_enable or provider_moves_active_key\\):$",
+      "new": "    if True:",
+      "direction": "regression",
+      "catcher": "tests/test_row700_captcha_egress_disclosure.py::test_transform_control_imports_disclosure_module_without_judging_the_gate"
+    }
+  ]
+}

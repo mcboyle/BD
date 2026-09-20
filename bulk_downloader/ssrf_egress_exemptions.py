@@ -84,6 +84,11 @@ ACCOUNTED = {
         "exempt",
         "every call builds the URL from the boot probe's operator-configured "
         "endpoint attribute plus a fixed path"),
+    "bulk_downloader/audio_transcriber.py::_request_json": (
+        "exempt",
+        "every call builds the URL from AudioTranscriber's declared satellite "
+        "endpoint attribute plus a fixed path (row856); tests inject a "
+        "fixture transport and never reach this function"),
     "bulk_downloader/request_replay.py::replay": (
         "exempt",
         "replays a captured request against the operator's own app, whose "

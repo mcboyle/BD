@@ -1,0 +1,61 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Schedule-independent vault-test regressions. Re-run in a detached scratch clone: toolchain/bin/bd-mutate --spec tests/mutants/v3_66_1191_schedule_independent_vault_tests.json --work SCRATCH",
+  "subject": "v3.66.1191 vault tests measure fixed-age retention, held-lock refusal, and invalid-FD rejection without ambient scheduling inputs",
+  "band": [
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_vault_policy_tests_do_not_make_age_depend_on_the_host_clock",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_vault_gc_never_takes_a_live_vault",
+    "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_keyed_vault_forensics_are_bounded"
+  ],
+  "mutants": [
+    {
+      "label": "live-vault policy test reads the ambient host clock again",
+      "file": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+      "old": "    now = float(2 * gc.POLICY_MIN_AGE_S)\n    old_mtime = now - gc.POLICY_MIN_AGE_S - 300",
+      "new": "    now = time.time()\n    old_mtime = now - gc.POLICY_MIN_AGE_S - 300",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_vault_policy_tests_do_not_make_age_depend_on_the_host_clock"
+    },
+    {
+      "label": "forensic-retention policy test reads the ambient host clock again",
+      "file": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+      "old": "    now = float(2 * gc.POLICY_MIN_AGE_S)\n    oldest_mtime = now - gc.POLICY_MIN_AGE_S - 300",
+      "new": "    now = time.time()\n    oldest_mtime = now - gc.POLICY_MIN_AGE_S - 300",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_vault_policy_tests_do_not_make_age_depend_on_the_host_clock"
+    },
+    {
+      "label": "held capture-vault lock is classified as abandoned",
+      "file": "toolchain/bin/bd-gc",
+      "old": "        except BlockingIOError:\n            return \"LIVE\", None, \"capture-vault lock is held\"",
+      "new": "        except BlockingIOError:\n            return \"ABANDONED\", root_st.st_mtime, \"keyed vault has no held lock\"",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_vault_gc_never_takes_a_live_vault"
+    },
+    {
+      "label": "capture-vault forensic floor retains no abandoned roots",
+      "file": "toolchain/bin/bd-gc",
+      "old": "        keep.update(path for path, _ in group[:FORENSICS_KEEP])",
+      "new": "        keep.update(path for path, _ in group[:0])",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_keyed_vault_forensics_are_bounded"
+    },
+    {
+      "label": "heartbeat accepts non-decimal descriptor text",
+      "file": "scripts/lib/heartbeat.sh",
+      "old": "    *[!0-9]*)\n      printf 'run_with_heartbeat: invalid BD_HEARTBEAT_CLOSE_FD (decimal descriptor required); ignoring it safely\\n' >&2\n      ;;",
+      "new": "    *[!0-9]*) _CAPTURE_CLOSE_FDS+=(\"$BD_HEARTBEAT_CLOSE_FD\") ;;",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it"
+    },
+    {
+      "label": "invalid-FD test stops resetting an inherited ignored HUP",
+      "file": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
+      "old": "         \"trap '' HUP; exec env --default-signal=INT,TERM,HUP \"\n         'bash -c \"$1\"', \"bd-heartbeat-invalid-fd\", script],",
+      "new": "         \"trap '' HUP; exec bash \"\n         '-c \"$1\"', \"bd-heartbeat-invalid-fd\", script],",
+      "direction": "regression",
+      "catcher": "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py::test_heartbeat_rejects_non_decimal_fd_text_without_evaluating_it"
+    }
+  ]
+}

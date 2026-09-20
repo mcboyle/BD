@@ -259,8 +259,10 @@ def generate_single_frame(
         output_path,
     ]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
+        # row835: NVDEC when the box has it, transparent CPU retry when not.
+        result = ffmpeg_bin.run_ffmpeg(
+            ffmpeg_bin.build_ffmpeg_command(cmd),
+            capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
         )
         if result.returncode != 0:
             return ThumbnailResult(
@@ -398,8 +400,10 @@ def generate_contact_sheet(
         output_path,
     ]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
+        # row835: NVDEC when the box has it, transparent CPU retry when not.
+        result = ffmpeg_bin.run_ffmpeg(
+            ffmpeg_bin.build_ffmpeg_command(cmd),
+            capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
         )
         if result.returncode != 0:
             return ThumbnailResult(

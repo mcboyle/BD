@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4593,
+  "edge_count": 4600,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4154,6 +4154,8 @@
       "bulk_downloader/challenge_classify.py"
     ],
     "tests/test_row700_captcha_egress_disclosure.py": [
+      "bulk_downloader/app_config.py",
+      "bulk_downloader/app_sites_id_core.py",
       "bulk_downloader/runner.py"
     ],
     "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py": [
@@ -4465,6 +4467,11 @@
       "bulk_downloader/app_config.py",
       "bulk_downloader/app_sites_id_core.py"
     ],
+    "tests/test_row835_nvdec_thumbnails.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/thumbnail_gen.py",
+      "bulk_downloader/thumbnail_sheets.py"
+    ],
     "tests/test_row874_direct_writer.py": [
       "bulk_downloader/direct_writer.py"
     ],
@@ -4484,6 +4491,9 @@
     "tests/test_row905.py": [
       "bulk_downloader/constants.py",
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_row912.py": [
+      "bulk_downloader/interstitial.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
@@ -7515,6 +7525,9 @@
       "bulk_downloader/session_capture.py",
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_whisper_indexer.py": [
+      "bulk_downloader/audio_transcriber.py"
     ],
     "tests/test_widget_live_sources.py": [
       "bulk_downloader/app_state.py",
