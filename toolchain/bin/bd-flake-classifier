@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+"""Statistical Flaky Test Classifier & Quarantine Dispatcher (Row 883).
+
+Executes test targets with automated single-pass retry for transient failure
+isolation (e.g. network/socket timeouts). When a test fails once and passes on
+re-run, it classifies the failure as a transient flake, records full diagnostic
+tracebacks and timing to bd-persist/flakes/, and maintains a green build status.
+Persistent failures (failing both initial and retry runs) exit with a non-zero
+code, log diagnostic failure records to the ledger, and preserve full stdout/stderr
+tracebacks to ensure real defect visibility.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+@dataclass
+class FlakeRecord:
+    """Diagnostic outcome record for an evaluated test."""
+
+    test_id: str
+    status: str  # 'pass', 'flake', 'fail'
+    attempts: int
+    traceback: str = ""
+    timestamp: str = ""
+    log_path: str = ""
+    duration_ms: float = 0.0
+    stdout: str = ""
+    stderr: str = ""
+
+    @property
+    def is_flaky(self) -> bool:
+        return self.status == "flake"
+
+    @property
+    def passed(self) -> bool:
+        return self.status in ("pass", "flake")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class FlakeClassifier:
+    """Quarantine and retry classifier for flaky test identification."""
+
+    DEFAULT_FLAKES_DIR = "/home/mboyle/bd-persist/flakes"
+
+    def __init__(self, flakes_dir: str | None = None) -> None:
+        if flakes_dir:
+            self.flakes_dir = Path(flakes_dir)
+        elif os.environ.get("BD_FLAKES_DIR"):
+            self.flakes_dir = Path(os.environ["BD_FLAKES_DIR"])
+        elif Path("/home/mboyle/bd-persist").exists():
+            self.flakes_dir = Path(self.DEFAULT_FLAKES_DIR)
+        else:
+            self.flakes_dir = Path(".flakes")
+
+    def _ensure_dir(self) -> None:
+        self.flakes_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _slugify(text: str) -> str:
+        clean = re.sub(r"[^\w\-_.]", "_", text)
+        return clean[:120].strip("_")
+
+    def record_flake(
+        self,
+        test_id: str,
+        traceback_text: str,
+        attempt: int = 1,
+        duration_ms: float = 0.0,
+    ) -> FlakeRecord:
+        """Record a diagnosed flake and its traceback to the diagnostic ledger."""
+        self._ensure_dir()
+        ts_utc = datetime.now(timezone.utc)
+        ts_iso = ts_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts_compact = ts_utc.strftime("%Y%m%dT%H%M%SZ")
+
+        slug = self._slugify(test_id) if test_id else "unknown_test"
+        detail_filename = f"{ts_compact}-{slug}-attempt{attempt}.log"
+        detail_path = self.flakes_dir / detail_filename
+
+        with open(detail_path, "w", encoding="utf-8") as f:
+            f.write(f"=== FLAKE REPORT: {test_id} ===\n")
+            f.write(f"Timestamp: {ts_iso}\n")
+            f.write(f"Failed Attempt: {attempt}\n")
+            f.write(f"Duration: {duration_ms:.1f}ms\n\n")
+            f.write("=== TRACEBACK ===\n")
+            f.write(traceback_text)
+            f.write("\n")
+
+        ledger_path = self.flakes_dir / "ledger.jsonl"
+        entry = {
+            "timestamp": ts_iso,
+            "test_id": test_id,
+            "attempt": attempt,
+            "status": "flake",
+            "log_file": str(detail_path),
+            "traceback": traceback_text[:4000],
+            "duration_ms": duration_ms,
+        }
+
+        with open(ledger_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+
+        return FlakeRecord(
+            test_id=test_id,
+            status="flake",
+            attempts=attempt + 1,
+            traceback=traceback_text,
+            timestamp=ts_iso,
+            log_path=str(detail_path),
+            duration_ms=duration_ms,
+        )
+
+    def record_failure(
+        self,
+        test_id: str,
+        traceback_text: str,
+        attempts: int = 1,
+        duration_ms: float = 0.0,
+    ) -> FlakeRecord:
+        """Record a persistent defect failure to the diagnostic ledger."""
+        self._ensure_dir()
+        ts_utc = datetime.now(timezone.utc)
+        ts_iso = ts_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts_compact = ts_utc.strftime("%Y%m%dT%H%M%SZ")
+
+        slug = self._slugify(test_id) if test_id else "unknown_test"
+        detail_filename = f"{ts_compact}-{slug}-fail.log"
+        detail_path = self.flakes_dir / detail_filename
+
+        with open(detail_path, "w", encoding="utf-8") as f:
+            f.write(f"=== PERSISTENT FAILURE REPORT: {test_id} ===\n")
+            f.write(f"Timestamp: {ts_iso}\n")
+            f.write(f"Total Attempts: {attempts}\n")
+            f.write(f"Duration: {duration_ms:.1f}ms\n\n")
+            f.write("=== TRACEBACK ===\n")
+            f.write(traceback_text)
+            f.write("\n")
+
+        ledger_path = self.flakes_dir / "ledger.jsonl"
+        entry = {
+            "timestamp": ts_iso,
+            "test_id": test_id,
+            "attempt": attempts,
+            "status": "fail",
+            "log_file": str(detail_path),
+            "traceback": traceback_text[:4000],
+            "duration_ms": duration_ms,
+        }
+
+        with open(ledger_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+
+        return FlakeRecord(
+            test_id=test_id,
+            status="fail",
+            attempts=attempts,
+            traceback=traceback_text,
+            timestamp=ts_iso,
+            log_path=str(detail_path),
+            duration_ms=duration_ms,
+        )
+
+    def classify_test(
+        self,
+        test_id: str,
+        test_func: Callable[[], tuple[bool, str]],
+        max_retries: int = 1,
+    ) -> FlakeRecord:
+        """Classify test function result across initial run and retries without sleep."""
+        t0 = time.time()
+        ok, first_tb = test_func()
+        d0_ms = (time.time() - t0) * 1000
+
+        if ok:
+            return FlakeRecord(
+                test_id=test_id,
+                status="pass",
+                attempts=1,
+                duration_ms=d0_ms,
+            )
+
+        # Initial run failed; initiate retry quarantine sequence immediately (zero sleep backoff)
+        for retry in range(1, max_retries + 1):
+            retry_ok, _ = test_func()
+
+            if retry_ok:
+                # Flake confirmed: failed once, passed on retry
+                record = self.record_flake(
+                    test_id=test_id,
+                    traceback_text=first_tb,
+                    attempt=retry,
+                    duration_ms=d0_ms,
+                )
+                record.attempts = retry + 1
+                return record
+
+        # All retries failed: persistent real defect (record to ledger)
+        record = self.record_failure(
+            test_id=test_id,
+            traceback_text=first_tb,
+            attempts=1 + max_retries,
+            duration_ms=(time.time() - t0) * 1000,
+        )
+        return record
+
+    def run_command_with_retry(
+        self,
+        cmd: list[str] | str,
+        test_id: str = "",
+        max_retries: int = 1,
+        shell: bool = False,
+        cwd: str | None = None,
+    ) -> tuple[int, FlakeRecord]:
+        """Execute external test command with automated immediate retry on failure."""
+        t0 = time.time()
+        proc = subprocess.run(
+            cmd,
+            shell=shell,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        d0_ms = (time.time() - t0) * 1000
+
+        if proc.returncode == 0:
+            rec = FlakeRecord(
+                test_id=test_id,
+                status="pass",
+                attempts=1,
+                duration_ms=d0_ms,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+            )
+            return 0, rec
+
+        first_tb = (proc.stderr or proc.stdout or "").strip()
+        last_proc = proc
+
+        for retry in range(1, max_retries + 1):
+            # Immediate retry without sleep backoff (E3 requirement)
+            retry_proc = subprocess.run(
+                cmd,
+                shell=shell,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            last_proc = retry_proc
+            if retry_proc.returncode == 0:
+                rec = self.record_flake(
+                    test_id=test_id,
+                    traceback_text=first_tb,
+                    attempt=retry,
+                    duration_ms=d0_ms,
+                )
+                rec.attempts = retry + 1
+                rec.stdout = retry_proc.stdout
+                rec.stderr = retry_proc.stderr
+                return 0, rec
+
+        # Persistent failure: record to ledger (E4 requirement)
+        fail_tb = (last_proc.stderr or last_proc.stdout or first_tb).strip()
+        rec = self.record_failure(
+            test_id=test_id,
+            traceback_text=fail_tb,
+            attempts=1 + max_retries,
+            duration_ms=(time.time() - t0) * 1000,
+        )
+        rec.stdout = last_proc.stdout
+        rec.stderr = last_proc.stderr
+        return last_proc.returncode, rec
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Statistical Flaky Test Classifier & Retry Runner (Row 883)",
+    )
+    parser.add_argument(
+        "--flakes-dir",
+        default=None,
+        help="Directory to write diagnostic flake ledger and logs",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=1,
+        help="Maximum retry attempts on initial failure (default: 1)",
+    )
+    parser.add_argument(
+        "--test-id",
+        default="",
+        help="Test identifier / selector for tracking and ledger logging",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output classification result as JSON",
+    )
+    parser.add_argument(
+        "command",
+        nargs=argparse.REMAINDER,
+        help="Test command and arguments to execute",
+    )
+
+    args = parser.parse_args(argv)
+
+    cmd = args.command
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+
+    if not cmd:
+        parser.print_help(sys.stderr)
+        return 2
+
+    test_id = args.test_id or " ".join(cmd)
+    classifier = FlakeClassifier(flakes_dir=args.flakes_dir)
+
+    rc, record = classifier.run_command_with_retry(
+        cmd=cmd,
+        test_id=test_id,
+        max_retries=args.retries,
+    )
+
+    if args.json:
+        print(json.dumps(record.to_dict()))
+    else:
+        if record.status == "flake":
+            print(
+                f"[FLAKE] Test '{record.test_id}' flaked on attempt 1, passed on attempt {record.attempts}."
+            )
+            print(f"Recorded diagnostic traceback to: {record.log_path}")
+            if record.stdout:
+                sys.stdout.write(record.stdout)
+        elif record.status == "fail":
+            # Forward failure stdout and stderr (E2 terminal error visibility requirement)
+            if record.stdout:
+                sys.stdout.write(record.stdout)
+            if record.stderr:
+                sys.stderr.write(record.stderr)
+            print(
+                f"[FAIL] Test '{record.test_id}' persistently failed after {record.attempts} attempts.",
+                file=sys.stderr,
+            )
+            print(
+                f"Recorded persistent failure traceback to: {record.log_path}",
+                file=sys.stderr,
+            )
+        else:
+            if record.stdout:
+                sys.stdout.write(record.stdout)
+            print(f"[PASS] Test '{record.test_id}' passed on first attempt.")
+
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

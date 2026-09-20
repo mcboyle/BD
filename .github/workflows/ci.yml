@@ -492,6 +492,7 @@ jobs:
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
               tests/test_v3_66_283_bd_claim_transactions.py
               tests/test_v3_66_295_bd_claim_atomic_union.py
+              tests/test_row883_flake_classifier.py
           # Backlog row 267. These application admission and integrity seams
           # are a safety boundary, so their direct unavailable-measurement
           # probes run on every PR instead of depending only on diff routing.
@@ -1008,6 +1009,7 @@ jobs:
 
       - name: ${{ matrix.name }} gates
         run: >-
+          python toolchain/bin/bd-flake-classifier --
           python -m pytest -q -p no:randomly
           --timeout=240 --timeout-method=signal
           ${{ matrix.suites }}

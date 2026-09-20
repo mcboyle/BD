@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1582 - train6b: rows 875 881 883 909 923 945 946
+
+Train: 7 refute-first-reviewed worker patches (base 5e5f1e75). Rows 875 881 883 909 923 945 946 CLOSED @1582.
+
+- row875 (pg_vector.py): pgvector HNSW indexing for sub-millisecond similarity search.
+- row881 (toolchain/bin/bd-ast-mutate): AST-based automated footgun mutant generator.
+- row883 (toolchain/bin/bd-flake-classifier): flaky-test quarantine and auto-retry statistical classifier.
+- row909 (dedup.py): canonical title deduplication via string-similarity index.
+- row923 (runner_browser.py): headless-browser static-asset and telemetry request filter.
+- row945 (crawl_sentinel.py): recursive navigation depth and cyclic-path anomaly sentinel.
+- row946 (pointer_inspector.py): overlapping z-index and pointer-events overlay inspector.
+- Dropped from train6 (O965 drop rule, re-review): row890 (undeclared SSRF consumer + DNS census); pre-screened for defect-ratchet regressions: rows 843-r2 866 868-r2 869 872 896-r2 924 933 943.
+
 ## v3.66.1581 - train5d: rows 837 884 906 + RB h360b 677 contract-relit
 
 Train: 6 refute-first-reviewed worker patches (base 6510725b). Rows 884 906 CLOSED @1581; row837 (PARKED @1576) ships its cut, register status pending PM ruling.
