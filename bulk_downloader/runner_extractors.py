@@ -7,7 +7,7 @@ soft-import blocks). Cycle rule: kernel from .runner_util, nothing from .runner.
 The adapter soft-import blocks are DUPLICATED here (the core dispatch in
 runner.py still references the same flags); flat-sibling imports are idempotent.
 """
-import os, re, subprocess, sys
+import os, re, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path as _P
 
@@ -1273,6 +1273,7 @@ class ExtractorsMixin:
 
         self._update_job(url, "running",
                          f"API/media: downloading {height}p ({chosen.get('source')})...")
+        _download_started = time.monotonic()
         transfer_mode = None
         if is_hls:
             transfer_mode = "segmented"
@@ -1334,6 +1335,17 @@ class ExtractorsMixin:
                file_path=output_path, **history_title_kwargs(self, url))
         self.log_event("spa_api_done",
                        f"{height}p via {chosen.get('source')} (saw: {summary})", url=url)
+        try:
+            from .events import publish_download_completion
+            publish_download_completion(
+                self.config,
+                downloaded_bytes=file_size_on_disk,
+                duration_seconds=time.monotonic() - _download_started,
+                site_id=self.site_id,
+                status="completed",
+            )
+        except Exception as e:
+            sys.stderr.write(f"  kafka event hook failed: {e}\n")
         return True
 
     def _try_vixen_extractor(self, url: str, page) -> bool:

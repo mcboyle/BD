@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:309",
-    "bulk_downloader/runner_transport.py:3089",  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3467",  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3699",  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:3236",  # row 916 moved it (retry/backoff block above)
+    "bulk_downloader/runner_transport.py:3614",  # row 916 moved it (retry/backoff block above)
+    "bulk_downloader/runner_transport.py:3846",  # row 916 moved it (retry/backoff block above)
 }
 
 

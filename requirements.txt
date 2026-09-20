@@ -372,3 +372,6 @@ youtube-dl>=2021.12.17,<2022.0
 # converges only the manifests it names (test_v3_66_880's stranded gate).
 boto3>=1.34,<2.0
 
+
+# Row 825: optional Kafka telemetry client for cluster LAN event streaming
+kafka-python==3.0.11

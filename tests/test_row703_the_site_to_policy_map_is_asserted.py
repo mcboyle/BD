@@ -104,12 +104,12 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_extractors.py:629": PUBLIC_ONLY,
     "bulk_downloader/runner_manual.py:422": PUBLIC_ONLY,
     "bulk_downloader/runner_telemetry.py:309": PUBLIC_ONLY,
-    "bulk_downloader/runner_transport.py:1075": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:1720": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3089": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3467": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3548": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
-    "bulk_downloader/runner_transport.py:3699": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:1214": PINNED,
+    "bulk_downloader/runner_transport.py:1867": PINNED,
+    "bulk_downloader/runner_transport.py:3236": PINNED,
+    "bulk_downloader/runner_transport.py:3614": PINNED,
+    "bulk_downloader/runner_transport.py:3695": PINNED,
+    "bulk_downloader/runner_transport.py:3846": PINNED,
     "bulk_downloader/session_keeper.py:1498": PINNED,
     "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,
