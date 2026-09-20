@@ -14,11 +14,13 @@ Or:
     pytest tests/ -v -x          # verbose, stop on first failure
     pytest tests/test_validators.py::test_path_traversal_blocked
 """
+import atexit
 import builtins
 import os
 import warnings
 import pathlib
 import shutil
+import signal
 import socket
 import sys
 import threading
@@ -463,6 +465,183 @@ import _tmproot
 import _sys_modules_guard
 
 
+# ── Row 885: process exit cleanup trap ────────────────────────────────────────
+# Automatic untracked file, leaked FD, and dangling socket cleanup trap.
+# Audits and purges dangling test sockets, open file descriptors, and temporary
+# artifacts on process exit or SIGTERM.
+
+
+class ProcessExitCleanupTrap:
+    """Automatic untracked file and leaked FD cleanup trap (Row 885).
+
+    Registers an atexit hook and SIGTERM handler to audit and purge dangling
+    test sockets, open file descriptors, and temporary artifacts/untracked files.
+    """
+
+    def __init__(self, repo_root: Path | None = None) -> None:
+        self.repo_root = Path(repo_root) if repo_root else PKG_ROOT
+        self.tracked_fds: set[int] = set()
+        self.tracked_sockets: set[socket.socket] = set()
+        self.tracked_temp_paths: set[Path] = set()
+        self.tracked_artifacts: set[Path] = set()
+        self.installed = False
+        self.cleaned = False
+        self._prior_sigterm = None
+        self._lock = threading.Lock()
+
+    def install(self, config=None) -> None:
+        with self._lock:
+            if self.installed:
+                return
+            atexit.register(self.run_cleanup)
+            try:
+                self._prior_sigterm = signal.signal(signal.SIGTERM, self._on_sigterm)
+            except (ValueError, OSError):
+                pass
+            self.installed = True
+
+    def _on_sigterm(self, signum, frame):
+        self.run_cleanup()
+        prior = self._prior_sigterm
+        if callable(prior) and prior not in (signal.SIG_DFL, signal.SIG_IGN):
+            prior(signum, frame)
+        else:
+            sys.exit(128 + signum)
+
+    def track_fd(self, fd: int) -> int:
+        with self._lock:
+            self.tracked_fds.add(fd)
+        return fd
+
+    def track_socket(self, sock: socket.socket) -> socket.socket:
+        with self._lock:
+            self.tracked_sockets.add(sock)
+        return sock
+
+    def track_temp_path(self, path: str | Path) -> Path:
+        p = Path(path).resolve()
+        with self._lock:
+            self.tracked_temp_paths.add(p)
+        return p
+
+    def track_artifact(self, path: str | Path) -> Path:
+        p = Path(path).resolve()
+        with self._lock:
+            self.tracked_artifacts.add(p)
+        return p
+
+    def audit_and_purge_fds(self) -> list[int]:
+        closed = []
+        with self._lock:
+            fds_to_close = list(self.tracked_fds)
+            self.tracked_fds.clear()
+        for fd in fds_to_close:
+            try:
+                os.close(fd)
+                closed.append(fd)
+            except OSError:
+                pass
+        return closed
+
+    def audit_and_purge_sockets(self) -> list[socket.socket]:
+        closed = []
+        with self._lock:
+            socks_to_close = list(self.tracked_sockets)
+            self.tracked_sockets.clear()
+        for sock in socks_to_close:
+            try:
+                sock.close()
+                closed.append(sock)
+            except Exception:
+                pass
+        return closed
+
+    def audit_and_purge_temp_paths(self) -> list[Path]:
+        purged = []
+        with self._lock:
+            paths_to_purge = list(self.tracked_temp_paths)
+            self.tracked_temp_paths.clear()
+        for p in paths_to_purge:
+            try:
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                    purged.append(p)
+                elif p.exists():
+                    p.unlink(missing_ok=True)
+                    purged.append(p)
+            except Exception:
+                pass
+        return purged
+
+    def audit_and_purge_untracked(self, repo_root: Path | None = None) -> list[Path]:
+        root = Path(repo_root) if repo_root else self.repo_root
+        purged = []
+        with self._lock:
+            artifacts_to_purge = list(self.tracked_artifacts)
+            self.tracked_artifacts.clear()
+        for art in artifacts_to_purge:
+            try:
+                resolved = art.resolve()
+                if resolved.exists() and resolved != root:
+                    if resolved.is_dir():
+                        shutil.rmtree(resolved, ignore_errors=True)
+                        purged.append(resolved)
+                    else:
+                        resolved.unlink(missing_ok=True)
+                        purged.append(resolved)
+            except Exception:
+                pass
+        return purged
+
+    def run_cleanup(self) -> dict:
+        with self._lock:
+            self.cleaned = True
+        closed_fds = self.audit_and_purge_fds()
+        closed_socks = self.audit_and_purge_sockets()
+        purged_temps = self.audit_and_purge_temp_paths()
+        purged_arts = self.audit_and_purge_untracked()
+        return {
+            "closed_fds": closed_fds,
+            "closed_sockets": closed_socks,
+            "purged_temp_paths": purged_temps,
+            "purged_artifacts": purged_arts,
+        }
+
+    def disarm(self) -> None:
+        with self._lock:
+            self.installed = False
+
+
+CLEANUP_TRAP = ProcessExitCleanupTrap(repo_root=PKG_ROOT)
+
+
+def get_cleanup_trap() -> ProcessExitCleanupTrap:
+    return CLEANUP_TRAP
+
+
+def track_test_fd(fd: int) -> int:
+    return CLEANUP_TRAP.track_fd(fd)
+
+
+def track_test_socket(sock: socket.socket) -> socket.socket:
+    return CLEANUP_TRAP.track_socket(sock)
+
+
+def track_test_temp_path(path: str | Path) -> Path:
+    return CLEANUP_TRAP.track_temp_path(path)
+
+
+def track_test_artifact(path: str | Path) -> Path:
+    return CLEANUP_TRAP.track_artifact(path)
+
+
+@pytest.fixture
+def cleanup_trap():
+    """Fixture providing access to the process exit cleanup trap."""
+    return CLEANUP_TRAP
+
+
+
 def pytest_sessionfinish(session, exitstatus):
     # finish_session, not finish (v3.66.1152): this call site DISCARDED the
     # return value, so a per-run temp root that could not be reclaimed left the
@@ -475,6 +654,7 @@ def pytest_sessionfinish(session, exitstatus):
 def pytest_configure(config):
     """Register the bd_module_wipe marker so pytest doesn't warn."""
     _tmproot.install()
+    CLEANUP_TRAP.install(config)
     config.addinivalue_line(
         "markers",
         "bd_module_wipe: also drop all bulk_downloader.* modules from "
@@ -562,6 +742,7 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
+    CLEANUP_TRAP.run_cleanup()
     _socket_recorder.disarm()
     _sys_modules_guard.disarm()
     # Master only -- workers share the run directory and must not race on it.
