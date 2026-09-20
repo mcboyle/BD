@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1590 - train15: 826 831 + rb9 890 904 on 4fade28a
+
+Train: 4 refute-first-reviewed worker patches (O1009 census). Base 4fade28a. Rows 826 831 890 904 CLOSED @1590. Tier T2 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 825-r3-rb9 916-r2-fx2-rb9 834 (.train/bounced.tsv).
+
+- 826-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row826-local/DONE.md
+- 831-local: ## STAGED FILES - `toolchain/bin/bd-venv` - `tests/test_row831_devpi_bootstrap.py`
+- 890-local-fx1-local-rb9-local: TEST RCS: - tests/test_row890_doh_resolver.py: 28 passed (rc=0) - tests/test_rowssrf_loopback_reason_is_structured.py: 47 passed (rc=0)
+- 904-local-fx1-local-rb9-local: TEST RCS: - tests/test_row904.py: 15 passed (rc=0)
+
 ## v3.66.1589 - train14: rb9 rebases + 867-r2 957 960 on 2766f609
 
 Train: 7 refute-first-reviewed worker patches (O1009 census). Base 2766f609. Rows 827 853 867 894 897 957 960 CLOSED @1589. Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drop: w4-cdn403d-fx2-rb9 (in-train conflict).

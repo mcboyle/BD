@@ -21,11 +21,15 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from . import embeddings as _emb
 from . import vector_index as _vi
 
 _DEFAULT_DIMS = 256
+_RERANK_TIMEOUT_S = 0.15
+_RERANK_CANDIDATE_LIMIT = 50
 
 
 def _load_cfg(base_dir: str | os.PathLike | None = None) -> dict:
@@ -87,6 +91,44 @@ def _live_templates() -> list:
         return []
 
 
+def _rerank_endpoint() -> str | None:
+    """Return the configured local reranker URL, never an external endpoint."""
+    raw = os.environ.get("RERANKER_ENDPOINT", "").strip().rstrip("/")
+    parsed = urlparse(raw)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
+        return None
+    return f"{raw}/rerank"
+
+
+def _rerank(query: str, results: list[dict]) -> list[dict] | None:
+    endpoint = _rerank_endpoint()
+    if not endpoint or not results:
+        return None
+    try:
+        payload = json.dumps({"query": query, "documents": [row["summary"] for row in results]}).encode("utf-8")
+        request = Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(request, timeout=_RERANK_TIMEOUT_S) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        scores = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(scores, list) or len(scores) != len(results):
+            return None
+        ordered = []
+        for item in scores:
+            if not isinstance(item, dict) or not isinstance(item.get("index"), int):
+                return None
+            index = item["index"]
+            if index < 0 or index >= len(results) or not isinstance(item.get("score"), (int, float)):
+                return None
+            row = dict(results[index])
+            row["score"] = float(item["score"])
+            ordered.append(row)
+        if len({item["index"] for item in scores}) != len(results):
+            return None
+        return sorted(ordered, key=lambda row: row["score"], reverse=True)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+
+
 # ── reindex / search / status ───────────────────────────────────────────
 
 def reindex(captures=None, templates=None,
@@ -138,7 +180,7 @@ def search(query: str, k: int = 10,
         if not q:
             return {"ok": True, "query": "", "results": []}
         qv = _emb.embed(q, dims=cfg["dims"])
-        hits = _vi.search(qv, k=k, base_dir=base_dir)
+        hits = _vi.search(qv, k=_RERANK_CANDIDATE_LIMIT, base_dir=base_dir)
         results = []
         for h in hits:
             meta = h.get("meta") or {}
@@ -148,6 +190,10 @@ def search(query: str, k: int = 10,
             if meta.get("host"):
                 row["host"] = meta["host"]
             results.append(row)
+        reranked = _rerank(q, results)
+        if reranked is not None:
+            results = reranked
+        results = results[:k]
         return {"ok": True, "query": q, "results": results}
     except Exception as e:
         return {"ok": False, "query": query, "results": [], "error": str(e)[:200]}

@@ -4,8 +4,7 @@ Extracted from runner.py (SiteRunner) @v3.66.401, PHASE 3 runner cut 4.
 Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies. Cycle rule: nothing from .runner.
 """
-import re
-import sys, time
+import json, queue, re, sys, threading, time
 import urllib.parse
 
 # vpn_runtime soft import (moved verbatim from runner.py; flat sibling).
@@ -15,6 +14,7 @@ try:
 except Exception as _e:
     sys.stderr.write(f"[runner_browser] vpn_runtime import failed (degraded): {_e}\n")
     _VPN_RUNTIME_AVAILABLE = False
+
 
 # Row 899: adaptive-streaming manifest detection (HLS .m3u8 / DASH .mpd).
 # Player pages fetch these via async Fetch/XHR that a static scraper never
@@ -145,6 +145,142 @@ class AdaptiveManifestWatcher:
         return None
 
 
+# Row 904: same CDP event session_capture.py already listens for
+# (Network.webSocketFrameReceived rides the Network domain that capture
+# already enables); this is a second, independent listener for callers that
+# want parsed JSON messages routed to a queue, not the raw capture log.
+_CDP_WS_FRAME_RECEIVED = "Network.webSocketFrameReceived"
+_WS_OPCODE_TEXT = 1          # RFC 6455: only a text frame carries a JSON message;
+                             # 2 is binary (CDP base64-encodes payloadData), 8/9/10 are control frames
+_WS_URL_RE = re.compile(r"^https?://[^\s\"'<>]+$", re.IGNORECASE)
+_WS_MAX_QUEUED_MESSAGES = 1000   # ring of raw messages kept for a consumer (oldest evicted)
+_WS_MAX_QUEUED_URLS = 5000       # distinct media URLs kept between drains
+_WS_URL_KEYS = ("url", "src", "href", "file", "media_url", "mediaurl", "playback_url", "stream_url",
+                "manifest", "hls", "dash", "download", "source")
+
+
+def extract_media_urls(message):
+    """Every http(s) URL string carried by a parsed WebSocket message
+    (recursively through objects/arrays), in document order, de-duplicated.
+    A key from _WS_URL_KEYS is listed first so a consumer sees the field the
+    app names as the media before incidental links."""
+    named, others, seen = [], [], set()
+
+    def walk(node, key=None):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, str(k).lower())
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif isinstance(node, str) and _WS_URL_RE.match(node.strip()):
+            url = node.strip()
+            if url in seen:
+                return
+            seen.add(url)
+            (named if key in _WS_URL_KEYS else others).append(url)
+    walk(message)
+    return named + others
+
+
+class WebSocketFrameDispatcher:
+    """Row904: routes JSON WebSocket frames captured over CDP into a plain
+    ``queue.Queue``, decoupling the browser's own CDP event-delivery thread
+    from whatever loop later consumes asynchronous state updates / media
+    tokens. A frame whose payload is not a JSON object/array/value is
+    dropped -- a queue consumer expecting parsed messages has nothing useful
+    to do with raw text. A frame arriving after :meth:`close` is dropped too,
+    so a CDP event racing the teardown can never enqueue into an
+    already-abandoned queue."""
+
+    def __init__(self, max_messages=_WS_MAX_QUEUED_MESSAGES, max_urls=_WS_MAX_QUEUED_URLS):
+        # Bounded (measured, rb9 review): the dispatcher is installed on every
+        # page of a persistent context and nothing in the runner's lifecycle is
+        # obliged to drain it; an unbounded queue grew by ~106 MB over 200k
+        # presence-style frames on real Chromium. Oldest messages are evicted,
+        # counted in ``dropped``; the media URLs a message carried are lifted
+        # out at arrival so a chatty channel cannot evict an announcement
+        # before the consumer reads it.
+        self.queue = queue.Queue(maxsize=max(1, int(max_messages)))
+        self.dropped = 0
+        self._max_urls = max(1, int(max_urls))
+        self._urls = {}                 # url -> None, arrival order, de-duplicated
+        self._client = None
+        self._closed = False
+        self._lock = threading.Lock()   # closed-check and enqueue are one step (a parse in flight cannot enqueue after close)
+
+    def _on_frame(self, params):
+        if self._closed:
+            return
+        response = params.get("response") or {}
+        if response.get("opcode", _WS_OPCODE_TEXT) != _WS_OPCODE_TEXT:
+            return                       # binary (base64) or control frame: not a JSON message
+        payload = response.get("payloadData")
+        if not isinstance(payload, str):
+            return
+        try:
+            message = json.loads(payload)
+        except ValueError:
+            return
+        if not isinstance(message, (dict, list)):
+            return                       # a bare scalar is not a protocol message
+        with self._lock:
+            if self._closed:
+                return
+            for url in extract_media_urls(message):
+                if url not in self._urls and len(self._urls) >= self._max_urls:
+                    del self._urls[next(iter(self._urls))]
+                    self.dropped += 1
+                self._urls[url] = None
+            if self.queue.full():
+                try:
+                    self.queue.get_nowait()
+                    self.dropped += 1
+                except queue.Empty:
+                    pass
+            self.queue.put_nowait(message)
+
+    def drain(self):
+        """Every queued message so far, in arrival order."""
+        out = []
+        while True:
+            try:
+                out.append(self.queue.get_nowait())
+            except queue.Empty:
+                return out
+
+    def media_urls(self):
+        """Media URLs carried by every message captured since the last call,
+        in arrival order, de-duplicated -- taken from the arrival-time store,
+        so an announcement survives even if its message was evicted from
+        ``queue`` by later traffic. Drains the queue as well."""
+        with self._lock:
+            urls = list(self._urls)
+            self._urls = {}
+        self.drain()
+        return urls
+
+    def close(self):
+        """Detach the CDP session (if any) and stop routing frames.
+
+        Safe to call more than once -- the second call is a no-op. Setting
+        ``_closed`` before detaching means a frame already in flight when
+        ``close()`` runs is still dropped by ``_on_frame`` even if the
+        underlying transport delivers it a moment after ``detach()``
+        returns."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        client, self._client = self._client, None
+        if client is None:
+            return
+        try:
+            client.detach()
+        except Exception:
+            return
+
+
 class BrowserMixin:
     def _install_adaptive_manifest_capture(self, ctx):
         """Row 899: attach a live CDP ``Network`` listener to every page of
@@ -248,6 +384,72 @@ class BrowserMixin:
                  + f": {entry['url'][:120]}",
                  extra={"kind": entry["kind"], "url": entry["url"],
                         "redirect_chain": entry["redirect_chain"]})
+
+    def _watch_websocket_json(self, page):
+        """Row904: attach a CDP ``Network`` session to ``page`` and route
+        every JSON-parseable ``Network.webSocketFrameReceived`` payload into
+        a :class:`WebSocketFrameDispatcher` queue, so a caller can poll for
+        asynchronous state updates / media authorization tokens delivered
+        over the page's own WebSocket connections without blocking on
+        Playwright's own page event loop.
+
+        Returns the dispatcher. Caller MUST call ``dispatcher.close()`` when
+        done -- it detaches the CDP session and stops further routing."""
+        dispatcher = WebSocketFrameDispatcher()
+        client = page.context.new_cdp_session(page)
+        dispatcher._client = client
+        try:
+            client.send("Network.enable")
+            client.on(_CDP_WS_FRAME_RECEIVED, dispatcher._on_frame)
+        except Exception:
+            # a session created but never fully wired is torn down here, not leaked
+            dispatcher.close()
+            raise
+        return dispatcher
+
+    def _maybe_install_websocket_json_capture(self, ctx):
+        """Production wiring: every page of a persistent playback context
+        (open now or opened later) gets a WebSocket JSON dispatcher unless
+        the site config says ``websocket_capture: false``. Dispatchers are
+        kept on ``self._websocket_dispatchers``; ``drain_websocket_media_urls``
+        is the read side; ``_close_websocket_capture`` tears them down."""
+        config = getattr(self, "config", None) or {}
+        if config.get("websocket_capture", True) is False:
+            return None
+        dispatchers = getattr(self, "_websocket_dispatchers", None)
+        if dispatchers is None:
+            dispatchers = self._websocket_dispatchers = []
+
+        def _wire(page):
+            try:
+                dispatchers.append(self._watch_websocket_json(page))
+            except Exception as e:
+                sys.stderr.write(f"  [runner_browser] websocket capture not installed: {str(e)[:100]}\n")
+
+        for page in getattr(ctx, "pages", None) or []:
+            _wire(page)
+        try:
+            ctx.on("page", _wire)
+        except Exception:
+            pass
+        return dispatchers
+
+    def drain_websocket_media_urls(self):
+        """The consumer: media URLs carried by every JSON WebSocket message
+        captured so far across the context's pages (de-duplicated)."""
+        urls, seen = [], set()
+        for dispatcher in list(getattr(self, "_websocket_dispatchers", None) or []):
+            for url in dispatcher.media_urls():
+                if url not in seen:
+                    seen.add(url)
+                    urls.append(url)
+        return urls
+
+    def _close_websocket_capture(self):
+        for dispatcher in list(getattr(self, "_websocket_dispatchers", None) or []):
+            dispatcher.close()
+        self._websocket_dispatchers = []
+
     def _pw_save(self,dl,final_path):
         """Fallback: let Playwright stream the download to disk.
 
@@ -616,6 +818,7 @@ class BrowserMixin:
                 self._apply_persistent_cookie_file(ctx)
                 self._install_stealth(ctx)
                 self._maybe_install_adaptive_manifest_capture(ctx)
+                self._maybe_install_websocket_json_capture(ctx)
                 # v3.66.465: GATED full-access after_context hook. Live ctx +
                 # first page (if any). No-op unless allow_full_access is on.
                 try:
@@ -655,6 +858,7 @@ class BrowserMixin:
                         self._apply_persistent_cookie_file(ctx)
                         self._install_stealth(ctx)
                         self._maybe_install_adaptive_manifest_capture(ctx)
+                        self._maybe_install_websocket_json_capture(ctx)
                         _cloak.log_choice(flow,backend,detail+" (bundled)")
                         self._record_channel_fallback(flow,channel,msg,True)
                         return None,ctx,used_pw,backend

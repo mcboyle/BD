@@ -2381,7 +2381,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1790,
+    "edge_count": 1791,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4838,6 +4838,7 @@
       "bulk_downloader/urllib_ssrf.py": [
         "bulk_downloader/app_template.py",
         "bulk_downloader/dev_suite/capture_diag.py",
+        "bulk_downloader/doh_resolver.py",
         "bulk_downloader/hooks.py"
       ],
       "bulk_downloader/user_accounts.py": [
@@ -6638,6 +6639,9 @@
       "bulk_downloader/doctor.py": [
         "bulk_downloader/scrapling_adapter.py",
         "bulk_downloader/selftest.py"
+      ],
+      "bulk_downloader/doh_resolver.py": [
+        "bulk_downloader/urllib_ssrf.py"
       ],
       "bulk_downloader/dom_analyzer.py": [
         "bulk_downloader/capture_artifact_redact.py",

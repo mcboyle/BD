@@ -90,7 +90,8 @@ acquire_venv_lock() {
     flock -x 9 || return 1
 }
 
-MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1
+MODE="ensure"; WANT_STEALTH=1; OFFLINE=0; FRESH=0; WANT_DEV=1; USE_DEVPI=1
+[ "${BD_NO_DEVPI:-0}" = "1" ] && USE_DEVPI=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) MODE="check"; shift ;;
@@ -99,6 +100,8 @@ while [ $# -gt 0 ]; do
         --no-dev) WANT_DEV=0; shift ;;
         --dev) WANT_DEV=1; shift ;;
         --offline) OFFLINE=1; shift ;;
+        --no-devpi) USE_DEVPI=0; shift ;;
+        --devpi) USE_DEVPI=1; shift ;;
         -h|--help) sed -n '2,55p' "$0"; exit 0 ;;
         *) echo "bd-venv: unknown arg '$1'" >&2; exit 2 ;;
     esac
@@ -222,9 +225,48 @@ win_fonts_ok() {
     fc-list 2>/dev/null | grep -qiE "segoe ui|calibri|marlett|ms ui gothic|franklin gothic"
 }
 
+DEVPI_API="${BD_DEVPI_API:-http://127.0.0.1:3141/+api}"
+DEVPI_URL="${BD_DEVPI_URL:-http://127.0.0.1:3141/root/pypi/+simple/}"
+
+probe_devpi() {
+    [ "$USE_DEVPI" -eq 1 ] || return 1
+    [ "$OFFLINE" -eq 0 ] || return 1
+    if command -v curl >/dev/null 2>&1; then
+        curl -s -f -m 0.6 "$DEVPI_API" >/dev/null 2>&1 && return 0
+    fi
+    python3 -c '
+import sys, urllib.request
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=0.6) as r:
+        sys.exit(0 if r.status in (200, 204, 301, 302) else 1)
+except Exception:
+    sys.exit(1)
+' "$DEVPI_API" 2>/dev/null
+}
+
+configure_devpi_index() {
+    if [ "$USE_DEVPI" -eq 0 ]; then
+        warn "devpi disabled (--no-devpi) -- using public PyPI fallback"
+        return 0
+    fi
+    if [ -n "${PIP_INDEX_URL:-}" ] && [ "${BD_FORCE_DEVPI:-0}" != "1" ]; then
+        return 0
+    fi
+    if probe_devpi; then
+        export PIP_INDEX_URL="$DEVPI_URL"
+        export PIP_TRUSTED_HOST="${BD_DEVPI_HOST:-127.0.0.1}"
+        ok "Devpi caching proxy active ($DEVPI_URL)"
+        return 0
+    else
+        warn "local Devpi proxy offline ($DEVPI_API) -- falling back to public PyPI"
+        return 1
+    fi
+}
+
 # ------------------------------- CHECK MODE --------------------------------
 if [ "$MODE" = "check" ]; then
     echo "bd-venv --check  (work=$WORK)"
+    configure_devpi_index || true
     if [ -x "$PY" ]; then ok "venv python present ($(vpy --version 2>&1))"; else bad "no venv python at $PY"; fi
     _mr="$(venv_reqs_ok)" && ok "requirements.txt satisfied" || bad "requirements.txt NOT satisfied (missing: $_mr)"
     venv_flask_ok      && ok "flask imports"                  || bad "flask import fails"
@@ -245,6 +287,7 @@ acquire_venv_lock || {
     bad "could not acquire the target venv provisioning lock"; exit 1;
 }
 echo "== bd-venv: provisioning service venv + stealth =="
+configure_devpi_index || true
 PACK="$(find_cloak_pack || true)"
 _extract_cache=""
 _candidate_extract_cache="${PACK%%/unpacked*}"
