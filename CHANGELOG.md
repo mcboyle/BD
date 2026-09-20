@@ -6,7 +6,7 @@ archive is not present in this repository; consult source-control history.
 
 ## v3.66.1601 - train26: 903-fx3 917 925-fx4 + 4 HB/process cuts + register folds
 
-Train: 9 refute-first-reviewed worker patches.
+Train: 7 refute-first-reviewed worker patches (O1009 census; process-test-shard dropped post-PR) + register-122-close fold (O1068). Rows 903 917 925 CLOSED @1601; 122 CLOSED @1354 by evidence; 127 operator-action (O1069). Tier T3 (O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 834-rb11 851 process-test-shard.
 
 - 903-fx3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row903-fx3-local/DONE.md
 - 917-local: STAGED PATHS (3): - bulk_downloader/app_sites_teach.py - tests/test_row917.py - tools/decomp/import_graph_baseline.json (O906 item 3, deterministic regen)
