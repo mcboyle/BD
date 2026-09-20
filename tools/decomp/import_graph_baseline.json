@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4721,
+  "edge_count": 4726,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1323,6 +1323,9 @@
     "bulk_downloader/doctor.py": [
       "bulk_downloader/scrapling_adapter.py",
       "bulk_downloader/selftest.py"
+    ],
+    "bulk_downloader/doh_resolver.py": [
+      "bulk_downloader/urllib_ssrf.py"
     ],
     "bulk_downloader/dom_analyzer.py": [
       "bulk_downloader/capture_artifact_redact.py",
@@ -4617,6 +4620,9 @@
       "bulk_downloader/embeddings_client.py",
       "tools/ssrf_client_census.py"
     ],
+    "tests/test_row826_satellite_reranker.py": [
+      "bulk_downloader/semantic_search.py"
+    ],
     "tests/test_row827_minio_storage_tier.py": [
       "bulk_downloader/storage_tier.py"
     ],
@@ -4684,6 +4690,10 @@
       "bulk_downloader/tus_client.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
+    "tests/test_row890_doh_resolver.py": [
+      "bulk_downloader/doh_resolver.py",
+      "bulk_downloader/urllib_ssrf.py"
+    ],
     "tests/test_row892_traffic_shaper.py": [
       "bulk_downloader/traffic_shaper.py"
     ],
@@ -4699,6 +4709,9 @@
     "tests/test_row901.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row904.py": [
+      "bulk_downloader/runner_browser.py"
     ],
     "tests/test_row905.py": [
       "bulk_downloader/constants.py",

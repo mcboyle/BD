@@ -401,7 +401,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (29 entries)
+## `bulk_downloader/runner_browser.py` (40 entries)
 
 ```
 - L0032 `_adaptive_manifest_kind` `[private]` — Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
@@ -411,28 +411,39 @@ Schema version: 2
   - L0066 `AdaptiveManifestWatcher._detect` `[private]` — Record/refresh the detection for ``rid``: ``url`` is the FINAL
   - L0084 `AdaptiveManifestWatcher.feed_playwright_response` — Feed a Playwright ``response`` (context-level ``response`` event):
   - L0115 `AdaptiveManifestWatcher.feed` — Feed one raw CDP event. Returns the detection dict when this event
-- L0148 `BrowserMixin` `[class]`
-  - L0149 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
-  - L0200 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
-  - L0214 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
-  - L0223 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
-  - L0251 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
-  - L0267 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
-  - L0296 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
-  - L0360 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
-  - L0382 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0413 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
-  - L0434 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
-  - L0466 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0494 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L0698 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L0737 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
-  - L0792 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L0815 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
-  - L0904 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
-  - L0916 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
-  - L0928 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
-  - L0945 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+- L0162 `extract_media_urls` — Every http(s) URL string carried by a parsed WebSocket message
+- L0186 `WebSocketFrameDispatcher` `[class]` — Row904: routes JSON WebSocket frames captured over CDP into a plain
+  - L0196 `WebSocketFrameDispatcher.__init__` `[dunder]`
+  - L0212 `WebSocketFrameDispatcher._on_frame` `[private]`
+  - L0243 `WebSocketFrameDispatcher.drain` — Every queued message so far, in arrival order.
+  - L0252 `WebSocketFrameDispatcher.media_urls` — Media URLs carried by every message captured since the last call,
+  - L0263 `WebSocketFrameDispatcher.close` — Detach the CDP session (if any) and stop routing frames.
+- L0284 `BrowserMixin` `[class]`
+  - L0285 `BrowserMixin._install_adaptive_manifest_capture` `[private]` — Row 899: attach a live CDP ``Network`` listener to every page of
+  - L0336 `BrowserMixin._maybe_install_adaptive_manifest_capture` `[private]` — Production wiring: every persistent playback context gets the
+  - L0350 `BrowserMixin.drain_manifest_urls` — The transport pipeline's read side: hand over every manifest
+  - L0359 `BrowserMixin._on_adaptive_manifest_detected` `[private]` — Handoff point for a detected adaptive-streaming manifest: queue
+  - L0388 `BrowserMixin._watch_websocket_json` `[private]` — Row904: attach a CDP ``Network`` session to ``page`` and route
+  - L0410 `BrowserMixin._maybe_install_websocket_json_capture` `[private]` — Production wiring: every page of a persistent playback context
+  - L0437 `BrowserMixin.drain_websocket_media_urls` — The consumer: media URLs carried by every JSON WebSocket message
+  - L0448 `BrowserMixin._close_websocket_capture` `[private]`
+  - L0453 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
+  - L0469 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
+  - L0498 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
+  - L0562 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
+  - L0584 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
+  - L0615 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0636 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+  - L0668 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
+  - L0696 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L0902 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L0941 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L0996 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L1019 `BrowserMixin._spa_settlement_script` `[private]` — Row 914: JS installed on a page to detect SPA route transitions
+  - L1108 `BrowserMixin._install_spa_settlement_hooks` `[private]` — Arm the pushState/replaceState + MutationObserver settlement
+  - L1120 `BrowserMixin._settle_after_navigation` `[private]` — The worker's post-``goto`` hook (runner.py): arm the barrier on
+  - L1132 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
+  - L1149 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
 ```
 
 
@@ -911,4 +922,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 735 across 22 files._
+_Total entries: 746 across 22 files._

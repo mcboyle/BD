@@ -141,5 +141,9 @@ ACCOUNTED = {
         "exempt",
         "the only caller passes the fixed local guardrails endpoint constant; "
         "untrusted metadata is sent in the JSON body, never used as a destination"),
+    "bulk_downloader/semantic_search.py::_rerank": (
+        "exempt",
+        "the configured endpoint is restricted to a loopback host before the "
+        "reranker request is constructed, so no caller can select external egress"),
 }
 

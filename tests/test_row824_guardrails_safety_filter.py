@@ -104,8 +104,8 @@ def test_negative_control_unhandled_violation_never_passes():
 
 
 def test_exact_count_of_accounted_egress_and_max_metadata_chars():
-    """Exact count assertion: exactly 26 egress exemptions and 4096 char limit."""
-    assert len(ssrf_egress_exemptions.ACCOUNTED) == 26
+    """Exact count assertion: exactly 27 egress exemptions (row826 +1: semantic_search::_rerank) and 4096 char limit."""
+    assert len(ssrf_egress_exemptions.ACCOUNTED) == 27
     assert guardrails._MAX_METADATA_CHARS == 4096
     assert "bulk_downloader/guardrails.py::_default_request" in ssrf_egress_exemptions.ACCOUNTED
 
