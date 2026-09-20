@@ -393,22 +393,23 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (13 entries)
+## `bulk_downloader/runner_browser.py` (14 entries)
 
 ```
-- L0018 `BrowserMixin` `[class]`
-  - L0019 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
-  - L0035 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
-  - L0064 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
-  - L0128 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
-  - L0150 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
-  - L0181 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
-  - L0202 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
-  - L0234 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
-  - L0262 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
-  - L0463 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
-  - L0482 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
-  - L0503 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
+- L0019 `BrowserMixin` `[class]`
+  - L0020 `BrowserMixin._pw_save` `[private]` — Fallback: let Playwright stream the download to disk.
+  - L0036 `BrowserMixin._context_options` `[private]` — Phase 7.1: build browser_context kwargs from the site's
+  - L0065 `BrowserMixin._launch_args` `[private]` — Common chromium launch args. Suppresses notifications, popups,
+  - L0129 `BrowserMixin._manual_profile_dir` `[private]` — Phase 41.6: dedicated profile dir for manual login / manual teach
+  - L0151 `BrowserMixin._profile_dir` `[private]` — Phase 9.3 / 19.fix: persistent profile dir.
+  - L0182 `BrowserMixin._apply_persistent_cookie_file` `[private]` — Apply a configured, usable cookie jar to a persistent context.
+  - L0203 `BrowserMixin._record_channel_fallback` `[private]` — Row 723: surface a real-Chrome -> bundled-Chromium degradation in the
+  - L0235 `BrowserMixin._surface_pending_channel_fallbacks` `[private]` — Drain degradations recorded by flows that have no runner (login
+  - L0263 `BrowserMixin._launch_browser` `[private]` — Phase 9 / v3.66.141: unified browser launcher routed through the
+  - L0465 `BrowserMixin._install_stealth` `[private]` — Phase 9.2: install the stealth init script on this context. Runs
+  - L0504 `BrowserMixin._install_browser_asset_filter` `[private]` — Abort disposable browser assets without touching page data or media.
+  - L0559 `BrowserMixin._apply_stealth_library_to_page` `[private]` — v3.43.56: if `use_stealth_library` is set AND the
+  - L0581 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
 ```
 
 
@@ -875,4 +876,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 699 across 22 files._
+_Total entries: 700 across 22 files._

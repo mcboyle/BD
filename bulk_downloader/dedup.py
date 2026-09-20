@@ -83,7 +83,9 @@ from __future__ import annotations
 
 import logging
 import os
+import math
 import re
+import unicodedata
 import sqlite3
 import threading
 import time
@@ -607,6 +609,231 @@ def apply_policy(group: list, policy: str = "keep_all") -> dict:
     return {"keep": keep, "remove_candidates": remove}
 
 
+# ─── Row 909: textual similarity indexing (title dedup) ───────────
+
+_TITLE_WORD_RE = re.compile(r"[\W_]+", re.UNICODE)
+# Labeled episode identity: "season 1", "s01", "episode 2", "ep 2", "e02",
+# "part 3", "pt 3", "chapter 4", "vol 5", "episode IV" (roman). Unlabeled
+# numbers ("2024", "the great adventure 2") keep an empty label.
+_TITLE_MARKER_RE = re.compile(
+    r"(?:\b(?P<label>season|series|episode|ep|part|pt|chapter|ch|volume|vol)"
+    r"\s*)?\b(?P<num>\d+|[ivxlcdm]+)\b", re.UNICODE)
+_TITLE_SXXEYY_RE = re.compile(r"\bs(\d+)\s*e(\d+)\b")
+# compact notations: "s02" / "s2" -> season, "e05" / "ep05" -> episode,
+# "2x05" -> season 2 episode 5 (a bare "\b\d+\b" never sees them: the
+# letter prefix denies the word boundary)
+_TITLE_COMPACT_RES = (
+    (re.compile(r"\b(\d+)x(\d+)\b"), r"season \1 episode \2"),
+    (re.compile(r"\bs(\d+)\b"), r"season \1"),
+    (re.compile(r"\be(?:p)?(\d+)\b"), r"episode \1"),
+)
+_MARKER_LABELS = {
+    "season": "season", "series": "season",
+    "episode": "episode", "ep": "episode",
+    "part": "part", "pt": "part", "chapter": "chapter", "ch": "chapter",
+    "volume": "volume", "vol": "volume",
+}
+_ROMAN = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+# a WELL-FORMED roman numeral (subtractive forms only where the notation
+# allows them): "iv", "xii", "mix" match; "civil", "mm i", "ivx" do not
+_ROMAN_WELL_FORMED_RE = re.compile(
+    r"^m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})$")
+# no labeled season/episode/part/chapter/volume is numbered beyond this in
+# roman numerals; anything larger is a word made of roman letters
+_ROMAN_MAX_MARKER = 200
+
+
+def _normalize_title(title: str) -> str:
+    """NFKC-fold, casefold and collapse punctuation/whitespace to single
+    spaces. Unicode letters and digits (CJK, Cyrillic, Arabic, ...) are
+    retained: two unrelated Chinese titles must not both collapse to ""."""
+    if not isinstance(title, str):
+        return ""
+    folded = unicodedata.normalize("NFKC", title).casefold()
+    return _TITLE_WORD_RE.sub(" ", folded).strip()
+
+
+def _title_trigrams(text: str) -> frozenset:
+    """Padded character 3-grams of `text`; blank text yields no trigrams
+    and never matches anything."""
+    if not text:
+        return frozenset()
+    padded = f"  {text}  "
+    return frozenset(padded[i:i + 3] for i in range(len(padded) - 2))
+
+
+def _roman_to_int(text: str) -> int:
+    """Value of a well-formed roman numeral, 0 when `text` is not one (a
+    natural word spelled in roman letters -- "mix", "civil", "dim" -- is
+    never an episode number)."""
+    if not text or not _ROMAN_WELL_FORMED_RE.match(text):
+        return 0
+    total = 0
+    prev = 0
+    for ch in reversed(text):
+        val = _ROMAN[ch]
+        total = total - val if val < prev else total + val
+        prev = max(prev, val)
+    return total
+
+
+def _episode_markers(text: str) -> tuple:
+    """Episode identity of a normalized title: a sorted tuple of
+    (label, number) pairs. Labeled markers keep their label ("season 1
+    episode 2" != "episode 1 season 2"); roman numerals count only when
+    labeled ("episode iv" -> ("episode", 4); a bare "i"/"v" word is not a
+    number); bare numbers carry an empty label so "01" and "1" compare
+    equal and a sequel's added number still distinguishes it."""
+    markers = []
+    text = _TITLE_SXXEYY_RE.sub(r"season \1 episode \2", text)
+    for compact_re, spelled in _TITLE_COMPACT_RES:
+        text = compact_re.sub(spelled, text)
+    for m in _TITLE_MARKER_RE.finditer(text):
+        label = _MARKER_LABELS.get(m.group("label") or "", "")
+        num = m.group("num")
+        if num.isdigit():
+            value = int(num)
+        elif label:
+            value = _roman_to_int(num)
+            if not 0 < value <= _ROMAN_MAX_MARKER:
+                continue
+        else:
+            continue
+        markers.append((label, value))
+    return tuple(sorted(markers))
+
+
+@dataclass(frozen=True)
+class SimilarityMatch:
+    catalog_id: object
+    title: str
+    score: float
+
+
+class TitleSimilarityIndex:
+    """In-memory trigram index over catalog titles (Row 909).
+
+    `add(catalog_id, title)` once per catalog record; `find_duplicates(title)`
+    returns catalog matches at or above `threshold` (Jaccard similarity over
+    character trigrams: |intersection| / |union|), excluding any candidate
+    whose episode identity (labeled season/episode/part numbers) differs
+    from the query -- those are different episodes, not duplicates.
+
+    Candidate generation is threshold-aware (prefix filtering): for Jaccard
+    >= t a match must share at least ceil(t*|Q|) of the query's |Q| trigrams,
+    so it must appear in the postings of at least one of the query's
+    |Q| - ceil(t*|Q|) + 1 RAREST trigrams; only those postings are read.
+    Scoring uses per-title trigram bitmasks over the index vocabulary, so a
+    candidate's intersection size is one AND + popcount, and a candidate is
+    dropped by the exact bound |A&B| >= t*(|A|+|B|)/(1+t) before any
+    division. Neither step depends on episode markers: a catalog of 2000
+    titles sharing a long common prefix (all markers equal) still scores
+    in well under a millisecond on the author's host.
+    """
+
+    def __init__(self) -> None:
+        self._catalog: dict = {}        # catalog_id -> (title, mask, markers)
+        self._vocab: dict = {}          # trigram -> bit position
+        self._rows: list = []           # row -> catalog_id
+        self._masks: list = []          # row -> trigram bitmask
+        self._sizes: list = []          # row -> trigram count
+        self._postings: dict = {}       # trigram -> [row, ...]
+        self._row_of: dict = {}         # catalog_id -> live row (None if blank)
+
+    def _retire(self, catalog_id) -> None:
+        """Detach the row a catalog_id currently owns (re-add / update): the
+        row stays in the parallel lists and postings but can never score --
+        otherwise the old title's bitmask would be reported under the new
+        title (fixer, correctness item 1)."""
+        row = self._row_of.pop(catalog_id, None)
+        if row is not None:
+            title, _mask, _markers = self._catalog[catalog_id]
+            for gram in _title_trigrams(_normalize_title(title)):
+                rows = self._postings.get(gram)
+                if rows:
+                    rows.remove(row)
+                    if not rows:
+                        del self._postings[gram]
+            self._rows[row] = None
+            self._masks[row] = 0
+            self._sizes[row] = 0
+
+    def add(self, catalog_id, title: str) -> None:
+        if catalog_id in self._catalog:
+            self._retire(catalog_id)
+        norm = _normalize_title(title)
+        grams = _title_trigrams(norm)
+        if not grams:
+            # blank after normalization: recorded, never a match candidate
+            self._catalog[catalog_id] = (title, 0, ())
+            self._row_of[catalog_id] = None
+            return
+        row = len(self._rows)
+        self._row_of[catalog_id] = row
+        mask = 0
+        for gram in grams:
+            bit = self._vocab.setdefault(gram, len(self._vocab))
+            mask |= 1 << bit
+            self._postings.setdefault(gram, []).append(row)
+        self._catalog[catalog_id] = (title, mask, _episode_markers(norm))
+        self._rows.append(catalog_id)
+        self._masks.append(mask)
+        self._sizes.append(len(grams))
+
+    def _candidates(self, q_grams: frozenset, threshold: float) -> set:
+        q_len = len(q_grams)
+        min_shared = max(1, math.ceil(threshold * q_len - 1e-9))
+        by_rarity = sorted(q_grams, key=lambda g: len(self._postings.get(g, ())))
+        rows: set = set()
+        for gram in by_rarity[:q_len - min_shared + 1]:
+            rows.update(self._postings.get(gram, ()))
+        ids = self._rows
+        return {row for row in rows if ids[row] is not None}
+
+    def find_duplicates(self, title: str, threshold: float = 0.9) -> list:
+        norm = _normalize_title(title)
+        q_grams = _title_trigrams(norm)
+        if not q_grams:
+            return []
+        threshold = min(max(float(threshold), 0.0), 1.0)
+        q_markers = _episode_markers(norm)
+        q_len = len(q_grams)
+        q_mask = 0
+        for gram in q_grams:
+            bit = self._vocab.get(gram)
+            if bit is not None:
+                q_mask |= 1 << bit
+        rows = self._candidates(q_grams, threshold)
+        masks, sizes, catalog, ids = self._masks, self._sizes, self._catalog, self._rows
+        bit_count = int.bit_count
+        shared = [bit_count(q_mask & masks[row]) for row in rows]
+        matches = []
+        for row, inter in zip(rows, shared):
+            size = sizes[row]
+            if inter * (1.0 + threshold) < threshold * (q_len + size):
+                continue
+            cid = ids[row]
+            title_, _mask, markers = catalog[cid]
+            if markers != q_markers:
+                continue
+            score = inter / (q_len + size - inter)
+            if score >= threshold:
+                matches.append(SimilarityMatch(cid, title_, score))
+        matches.sort(key=lambda m: m.score, reverse=True)
+        return matches
+
+    def candidate_count(self, title: str, threshold: float = 0.9) -> int:
+        """Number of catalog records the prefix filter admits for `title`
+        (diagnostic; lets tests prove pruning without timing)."""
+        q_grams = _title_trigrams(_normalize_title(title))
+        if not q_grams:
+            return 0
+        return len(self._candidates(q_grams, min(max(float(threshold), 0.0), 1.0)))
+
+    def __len__(self) -> int:
+        return len(self._catalog)
+
+
 __all__ = [
     "is_videohash_available",
     "is_ffmpeg_available",
@@ -618,4 +845,6 @@ __all__ = [
     "HashRegistry",
     "get_default_registry",
     "apply_policy",
+    "SimilarityMatch",
+    "TitleSimilarityIndex",
 ]

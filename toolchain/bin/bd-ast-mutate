@@ -1,0 +1,356 @@
+#!/usr/bin/env python3
+"""bd-ast-mutate -- AST-guided mutant generator for security-relevant sites.
+
+WHY. The existing mutation harness (``bd-mutate``, see its docstring) runs a
+battery once mutants are chosen; choosing mutants by deleting random lines
+mostly produces mutants that do not parse -- ``bd-mutate`` calls that INVALID,
+a third outcome distinct from CAUGHT/ESCAPED, and an invalid mutant proves
+nothing about the subject. Walking the AST and rewriting exactly one node
+with ``ast.unparse`` on a copy of that node keeps every emitted mutant
+syntactically valid Python by construction, and lets the generator target
+three specific invariant classes instead of an arbitrary line:
+
+  security_boundary    a comparison inside an ``if`` test whose source
+                        mentions a security-relevant name (role, auth, token,
+                        admin, permission, login, credential, allow, deny,
+                        site) has its operator flipped to its logical inverse
+                        (``==``/``!=``, ``in``/``not in``, ``is``/``is not``,
+                        and the four ordering operators pairwise).
+  credential_redactor   a string constant inside a function whose name
+                        contains redact/mask/scrub/sanitize is replaced with
+                        a different string, so a test asserting the exact
+                        masked value must exist.
+  exit_code             an integer literal passed to ``sys.exit(...)`` or
+                        ``raise SystemExit(...)`` is replaced with a
+                        different integer.
+
+CONTRACT
+
+  bd-ast-mutate --target FILE --repo-root DIR --emit-spec OUT.json \\
+      --subject "what this battery pins" --band "tests/a.py tests/b.py"
+
+  FILE must resolve inside DIR (a target outside the repo root is refused,
+  exit 2, before any AST work). The emitted document is a
+  ``bd-mutate-spec/1`` object -- ``schema``, ``subject``, ``band`` (as given,
+  split on whitespace), and ``mutants``, each with ``label``, ``kind`` (one of
+  the three classes above, additive to bd-mutate's own schema and ignored by
+  it), ``file`` (repo-relative), ``old``, ``new`` and ``direction``:
+  "regression". Every mutant is proven, before being emitted: ``old`` occurs
+  exactly once in the target's source (bd-mutate's own anchor-uniqueness
+  requirement, checked here too so a bad mutant is refused at generation time
+  rather than discovered at battery time), ``old != new``, and the full file
+  with ``old`` replaced by ``new`` still parses (``ast.parse``) -- this is
+  what makes every generated mutant syntactically valid.
+
+  Exit 0 with at least one mutant emitted. Exit 2 if the target is outside
+  --repo-root, unreadable, contains no designated invariant site, or if any
+  candidate mutant fails an anchor/parse check (an ambiguous or invalid
+  candidate is a generator defect, not a mutant to skip silently).
+
+WHAT IT DELIBERATELY DOES NOT DO. It does not run the mutants -- that is
+``bd-mutate``'s job, and this tool never reimplements the runner, the JUnit
+parsing, the process-tree kill, or the CAUGHT/ESCAPED verdict logic.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import re
+import sys
+from pathlib import Path
+
+SCHEMA = "bd-mutate-spec/1"
+
+_SECURITY_KEYWORDS = (
+    "role", "auth", "token", "admin", "permission", "login", "credential",
+    "allow", "deny", "site", "password", "secret", "session",
+)
+_REDACTOR_NAME_RE = ("redact", "mask", "scrub", "sanitize")
+
+_ORDER_FLIP = {
+    ast.Eq: ast.NotEq, ast.NotEq: ast.Eq,
+    ast.In: ast.NotIn, ast.NotIn: ast.In,
+    ast.Is: ast.IsNot, ast.IsNot: ast.Is,
+    ast.Lt: ast.GtE, ast.GtE: ast.Lt,
+    ast.LtE: ast.Gt, ast.Gt: ast.LtE,
+}
+
+
+class GeneratorRefused(RuntimeError):
+    pass
+
+
+def _designated_compares(tree: ast.AST, source: str) -> list[tuple[ast.Compare, int, type]]:
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+            continue
+        op_type = type(test.ops[0])
+        if op_type not in _ORDER_FLIP:
+            continue
+        segment = ast.get_source_segment(source, test) or ""
+        if not any(k in segment.lower() for k in _SECURITY_KEYWORDS):
+            continue
+        found.append((test, 0, op_type))
+    return found
+
+
+def _docstring_constants(tree: ast.AST) -> set[int]:
+    """ids of every Constant that is a docstring (first statement of a module,
+    class or function body). Changing documentation is not a behaviour mutant:
+    no test can catch it, so it must never be emitted."""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", None) or []
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                ids.add(id(body[0].value))
+    return ids
+
+
+def _designated_redactor_strings(tree: ast.AST, source: str) -> list[ast.Constant]:
+    found = []
+    docstrings = _docstring_constants(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not any(kw in node.name.lower() for kw in _REDACTOR_NAME_RE):
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Constant) and isinstance(inner.value, str) and inner.value
+                    and id(inner) not in docstrings):
+                found.append(inner)
+    return found
+
+
+def _enclosing_function_name(tree: ast.AST, target: ast.AST) -> str | None:
+    """Name of the innermost function whose body contains ``target``."""
+    best: tuple[int, str] | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if inner is target:
+                if best is None or node.lineno > best[0]:
+                    best = (node.lineno, node.name)
+                break
+    return best[1] if best else None
+
+
+def derive_catchers(band: list[str], repo_root: Path, function_name: str | None) -> list[str]:
+    """Test nodeids in the band whose source names ``function_name`` -- the
+    candidates that can see a mutant inside that function. Empty when none."""
+    if not function_name:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for member in band:
+        # a band entry may be a file or a pytest nodeid (file::Class::test);
+        # the file part is what is parsed, the nodeid part restricts the pick
+        file_part, _, node_part = member.partition("::")
+        path = (repo_root / file_part)
+        if not path.is_file():
+            continue
+        try:
+            msource = path.read_text(encoding="utf-8")
+            mtree = ast.parse(msource, filename=str(path))
+        except (OSError, SyntaxError):
+            continue
+        for nodeid, fn in _test_functions(mtree, file_part):
+            if node_part and not (nodeid == member or nodeid.startswith(member + "::")):
+                continue
+            segment = ast.get_source_segment(msource, fn) or ""
+            if re.search(rf"\b{re.escape(function_name)}\b", segment) and nodeid not in seen:
+                seen.add(nodeid)
+                out.append(nodeid)
+    return out
+
+
+def _test_functions(tree: ast.Module, file_part: str):
+    """(pytest nodeid, FunctionDef) for every test function, class-qualified
+    (``file::TestX::test_y``) so the nodeid collects."""
+    def walk(body, prefix):
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                yield from walk(node.body, f"{prefix}::{node.name}")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+                yield f"{prefix}::{node.name}", node
+    yield from walk(tree.body, file_part)
+
+
+def _designated_exit_codes(tree: ast.AST, source: str) -> list[ast.Constant]:
+    found = []
+    for node in ast.walk(tree):
+        # ast.walk visits the Call inside `raise SystemExit(2)` on its own;
+        # matching ast.Raise as well emitted the same mutant twice
+        if not isinstance(node, ast.Call):
+            continue
+        call = node
+        name = call.func.id if isinstance(call.func, ast.Name) else (
+            call.func.attr if isinstance(call.func, ast.Attribute) else None
+        )
+        if name not in ("exit", "SystemExit"):
+            continue
+        for arg in call.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+                found.append(arg)
+    return found
+
+
+def _mutated_operator_text(compare: ast.Compare, new_op_type: type) -> str:
+    mutated = ast.Compare(left=compare.left, ops=[new_op_type()], comparators=compare.comparators)
+    ast.copy_location(mutated, compare)
+    ast.fix_missing_locations(mutated)
+    return ast.unparse(mutated)
+
+
+def _mutated_constant_text(node: ast.Constant, new_value) -> str:
+    mutated = ast.Constant(value=new_value)
+    ast.copy_location(mutated, node)
+    return ast.unparse(mutated)
+
+
+def _prove_mutant(source: str, old: str, new: str, label: str) -> None:
+    if old == new:
+        raise GeneratorRefused(f"{label}: mutant is a no-op (old == new)")
+    if source.count(old) != 1:
+        raise GeneratorRefused(
+            f"{label}: anchor occurs {source.count(old)} times, need exactly 1: {old!r}"
+        )
+    mutated_source = source.replace(old, new, 1)
+    try:
+        ast.parse(mutated_source)
+    except SyntaxError as exc:
+        raise GeneratorRefused(f"{label}: mutant does not parse: {exc}") from exc
+
+
+def generate(target: Path, repo_root: Path, band: list[str] | None = None,
+             catcher_overrides: dict[str, str] | None = None) -> list[dict]:
+    """Mutants for ``target``. With a ``band``, every mutant is bound to a
+    catcher (the band test that names the mutated function, or the
+    ``catcher_overrides`` entry for its kind/label) so the emitted durable spec
+    is directly runnable by bd-mutate; a mutant with no catcher is a refusal."""
+    band = list(band or [])
+    overrides = dict(catcher_overrides or {})
+    resolved_target = target.resolve()
+    resolved_root = repo_root.resolve()
+    try:
+        rel_file = resolved_target.relative_to(resolved_root)
+    except ValueError:
+        raise GeneratorRefused(
+            f"target {resolved_target} is not inside repo-root {resolved_root}"
+        )
+
+    source = resolved_target.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(resolved_target))
+
+    mutants: list[dict] = []
+
+    for index, (compare, _, op_type) in enumerate(_designated_compares(tree, source)):
+        old = ast.get_source_segment(source, compare)
+        new = _mutated_operator_text(compare, _ORDER_FLIP[op_type])
+        label = f"security_boundary[{index}]: flip {op_type.__name__} at line {compare.lineno}"
+        _prove_mutant(source, old, new, label)
+        mutants.append({
+            "label": label, "kind": "security_boundary", "file": str(rel_file),
+            "old": old, "new": new, "direction": "regression",
+            "_function": _enclosing_function_name(tree, compare),
+        })
+
+    for index, node in enumerate(_designated_redactor_strings(tree, source)):
+        old = ast.get_source_segment(source, node)
+        new_value = node.value + "\u0000MUTATED" if node.value else "MUTATED"
+        new = _mutated_constant_text(node, new_value)
+        label = f"credential_redactor[{index}]: change mask literal at line {node.lineno}"
+        _prove_mutant(source, old, new, label)
+        mutants.append({
+            "label": label, "kind": "credential_redactor", "file": str(rel_file),
+            "old": old, "new": new, "direction": "regression",
+            "_function": _enclosing_function_name(tree, node),
+        })
+
+    for index, node in enumerate(_designated_exit_codes(tree, source)):
+        old = ast.get_source_segment(source, node)
+        new_value = node.value + 1 if node.value != 255 else node.value - 1
+        new = _mutated_constant_text(node, new_value)
+        label = f"exit_code[{index}]: change exit code at line {node.lineno}"
+        _prove_mutant(source, old, new, label)
+        mutants.append({
+            "label": label, "kind": "exit_code", "file": str(rel_file),
+            "old": old, "new": new, "direction": "regression",
+            "_function": _enclosing_function_name(tree, node),
+        })
+
+    if not mutants:
+        raise GeneratorRefused(f"no designated invariant site found in {resolved_target}")
+
+    if band:
+        unbound: list[str] = []
+        for mutant in mutants:
+            catcher = overrides.get(mutant["label"]) or overrides.get(mutant["kind"])
+            if not catcher:
+                candidates = derive_catchers(band, resolved_root, mutant.pop("_function", None))
+                catcher = candidates[0] if candidates else None
+            mutant.pop("_function", None)
+            if not catcher:
+                unbound.append(mutant["label"])
+                continue
+            mutant["catcher"] = catcher
+        if unbound:
+            raise GeneratorRefused(
+                "no catcher in the band names the mutated function for: "
+                + "; ".join(unbound) + " (pass --catcher KIND=nodeid or LABEL=nodeid)")
+    else:
+        for mutant in mutants:
+            mutant.pop("_function", None)
+    return mutants
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--target", required=True)
+    ap.add_argument("--repo-root", required=True)
+    ap.add_argument("--emit-spec", required=True)
+    ap.add_argument("--subject", required=True)
+    ap.add_argument("--band", required=True, help="whitespace-separated test targets")
+    ap.add_argument("--catcher", action="append", default=[], metavar="KIND=NODEID",
+                    help="bind a catcher by mutant kind (security_boundary|credential_redactor|exit_code) "
+                         "or exact label; repeatable. Without it the band test naming the mutated function is used.")
+    args = ap.parse_args(argv)
+
+    overrides: dict[str, str] = {}
+    for item in args.catcher:
+        key, sep, nodeid = item.partition("=")
+        if not sep or not key or not nodeid:
+            print(f"bd-ast-mutate: REFUSED -- --catcher expects KIND=NODEID, got {item!r}", file=sys.stderr)
+            return 2
+        overrides[key] = nodeid
+
+    try:
+        mutants = generate(Path(args.target), Path(args.repo_root), args.band.split(), overrides)
+    except GeneratorRefused as exc:
+        print(f"bd-ast-mutate: REFUSED -- {exc}", file=sys.stderr)
+        return 2
+    except (OSError, SyntaxError) as exc:
+        print(f"bd-ast-mutate: REFUSED -- {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+
+    document = {
+        "schema": SCHEMA,
+        "subject": args.subject,
+        "band": args.band.split(),
+        "mutants": mutants,
+    }
+    Path(args.emit_spec).write_text(json.dumps(document, indent=2), encoding="utf-8")
+    print(f"bd-ast-mutate: emitted {len(mutants)} mutant(s) to {args.emit_spec}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

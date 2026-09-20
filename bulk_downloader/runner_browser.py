@@ -4,7 +4,8 @@ Extracted from runner.py (SiteRunner) @v3.66.401, PHASE 3 runner cut 4.
 Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies. Cycle rule: nothing from .runner.
 """
-import sys, time
+import re, sys, time
+import urllib.parse
 
 # vpn_runtime soft import (moved verbatim from runner.py; flat sibling).
 try:
@@ -298,6 +299,7 @@ class BrowserMixin:
         except Exception:
             pass
         if headless is None: headless=bool(self.config.get("headless", True))
+        self._launched_headless = headless  # row923: the asset filter keys off this
         if use_persistent is None:
             use_persistent=bool(self.config.get("use_persistent_profile",True))
         channel=None
@@ -479,6 +481,81 @@ class BrowserMixin:
             ctx.add_init_script(STEALTH_JS)
         except Exception as e:
             sys.stderr.write(f"  stealth install failed: {str(e)[:80]}\n")
+    # row923: telemetry is judged by HOST (third-party trackers) or by a
+    # path SEGMENT (a first-party /collect, /beacon, /analytics, /telemetry
+    # endpoint) -- never by a bare substring of the whole URL
+    # ("/collections/12" is a document, not a beacon) -- and only on the
+    # resource types a tracker uses. Documents, API calls (xhr/fetch),
+    # media and manifests are never subject to the telemetry rule.
+    # Stylesheets are NEVER aborted (round 4): CSS decides what is VISIBLE,
+    # and every gate/selector path in this product keys off visibility
+    # (interstitial._visible_first, is_visible counts, trigger selectors,
+    # clearance) -- a CSS-hidden duplicate control must stay hidden. A
+    # site's own CSS often comes from a CDN host, so no first-party rule
+    # can make aborting it safe either.
+    _ASSET_FILTER_BLOCKED_TYPES = frozenset({"image", "font"})
+    _TELEMETRY_TYPES = frozenset({"script", "ping", "beacon", "other", "eventsource"})
+    _TELEMETRY_HOSTS = (
+        "google-analytics.com", "googletagmanager.com", "doubleclick.net",
+        "segment.io", "mixpanel.com",
+    )
+    _TELEMETRY_PATH_RE = re.compile(r"/(?:analytics|telemetry|beacon|collect)(?:/|$)")
+
+    def _install_browser_asset_filter(self, page, *, headless=None):
+        """Abort disposable browser assets without touching page data or media.
+
+        Installed only on HEADLESS worker pages: the operator's headed
+        manual/teach window (runner_manual) must render exactly what the site
+        serves. ``headless`` defaults to the mode this runner launched with
+        (``_launch_browser``); a runner whose browser was launched elsewhere
+        (a sub-crawler, an alternate harness) falls back to its own
+        ``config["headless"]`` -- the same default ``_launch_browser`` uses --
+        so a headless worker is never silently left unfiltered.
+        """
+        if not self.config.get("browser_asset_filter", True):
+            return
+        if headless is None:
+            headless = getattr(self, "_launched_headless", None)
+        if headless is None:
+            headless = bool(self.config.get("headless", True))
+        if headless is not True:
+            return
+        blocked_types = self._ASSET_FILTER_BLOCKED_TYPES
+        telemetry_types = self._TELEMETRY_TYPES
+        telemetry_hosts = self._TELEMETRY_HOSTS
+        telemetry_path_re = self._TELEMETRY_PATH_RE
+
+        def first_party(host):
+            # the page's own site (or a sub/parent domain of it) serves its
+            # player and UI bundles from wherever it likes -- a first-party
+            # /analytics/app.js is application code, not a tracker
+            page_url = str(getattr(page, "url", "") or "")
+            page_host = (urllib.parse.urlsplit(page_url.lower()).hostname or "") if page_url else ""
+            if not page_host or not host:
+                return None  # unknown: the path rule does not judge scripts
+            return host == page_host or host.endswith("." + page_host) or page_host.endswith("." + host)
+
+        def filter_request(route, request):
+            resource_type = str(getattr(request, "resource_type", "") or "")
+            if resource_type in blocked_types:
+                route.abort()
+                return
+            if resource_type in telemetry_types:
+                url = str(getattr(request, "url", "") or "").lower()
+                parsed = urllib.parse.urlsplit(url)
+                host = parsed.hostname or ""
+                if any(host == h or host.endswith("." + h) for h in telemetry_hosts):
+                    route.abort()
+                    return
+                if telemetry_path_re.search(parsed.path or ""):
+                    # a script is judged by its path only when it is
+                    # THIRD-PARTY to the page; pings/beacons/other always
+                    if resource_type != "script" or first_party(host) is False:
+                        route.abort()
+                        return
+            route.continue_()
+
+        page.route("**/*", filter_request)
     def _apply_stealth_library_to_page(self, page):
         """v3.43.56: if `use_stealth_library` is set AND the
         playwright-stealth library is installed, apply its evasions
@@ -489,6 +566,7 @@ class BrowserMixin:
         Fail-open: any error is logged once and ignored. The page
         is still usable via the built-in stealth.
         """
+        self._install_browser_asset_filter(page)
         try:
             from . import stealth as _stealth
             applied, detail = _stealth.apply_to_page(page, self.config)

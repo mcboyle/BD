@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4604,
+  "edge_count": 4608,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2443,6 +2443,9 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_browser_asset_filter.py": [
+      "bulk_downloader/runner_browser.py"
+    ],
     "tests/test_bug1_idle_site_delete.py": [
       "bulk_downloader/account_pool.py",
       "bulk_downloader/cookie_health.py",
@@ -2719,6 +2722,9 @@
     ],
     "tests/test_coverage_map_frontend.py": [
       "tools/risk_score.py"
+    ],
+    "tests/test_crawl_sentinel.py": [
+      "bulk_downloader/crawl_sentinel.py"
     ],
     "tests/test_credential_persistence.py": [
       "bulk_downloader/app.py",
@@ -3635,6 +3641,9 @@
     "tests/test_plugin_uninstall.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/plugins.py"
+    ],
+    "tests/test_pointer_inspector.py": [
+      "bulk_downloader/pointer_inspector.py"
     ],
     "tests/test_popup_download_capture.py": [
       "bulk_downloader/runner_transport.py"
@@ -4889,6 +4898,9 @@
       "bulk_downloader/resume.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_title_similarity.py": [
+      "bulk_downloader/dedup.py"
     ],
     "tests/test_tools_other02_review_host_confine.py": [
       "bulk_downloader/template_normalize.py",
