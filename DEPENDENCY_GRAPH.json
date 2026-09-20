@@ -2381,7 +2381,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1794,
+    "edge_count": 1796,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3494,6 +3494,7 @@
         "bulk_downloader/gamification.py",
         "bulk_downloader/healthcheck.py",
         "bulk_downloader/honeypot_threshold.py",
+        "bulk_downloader/hybrid_search.py",
         "bulk_downloader/knowledge.py",
         "bulk_downloader/library.py",
         "bulk_downloader/library_final.py",
@@ -4557,7 +4558,8 @@
         "bulk_downloader/doctor.py"
       ],
       "bulk_downloader/semantic_search.py": [
-        "bulk_downloader/app_semantic_search.py"
+        "bulk_downloader/app_semantic_search.py",
+        "bulk_downloader/hybrid_search.py"
       ],
       "bulk_downloader/service_mesh.py": [
         "bulk_downloader/app.py"
@@ -6801,6 +6803,10 @@
       ],
       "bulk_downloader/http3_client.py": [
         "bulk_downloader/ssrf_transport.py"
+      ],
+      "bulk_downloader/hybrid_search.py": [
+        "bulk_downloader/db.py",
+        "bulk_downloader/semantic_search.py"
       ],
       "bulk_downloader/i18n.py": [
         "bulk_downloader/constants.py"

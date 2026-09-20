@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1596 - train21: 845-fx3 855 871-fx3 878-fx3 on 920fbb98
+
+Train: 4 refute-first-reviewed worker patches (O1009 census). Base 920fbb98. Rows 845 855 871 878 CLOSED @1596. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 885-fx3 (conflict with landed 885).
+
+- 845-fx3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row845-fx3-local/DONE.md
+- 855-bd-agy-worker1-local: RED COMMAND: ./venv/bin/pytest tests/test_pgvector_hybrid_search.py RED: 17 failed, 3 passed in 1.22s (replay on c2a6320f archive + new test file, live Postgres
+- 871-fx3-local: STAGED PATHS: bulk_downloader/node_sentinel.py tests/test_row871_node_sentinel.py
+- 878-fx3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row878-fx3-local/DONE.md
+
 ## v3.66.1595 - train20: 849 885 on train19
 
 Train: 2 refute-first-reviewed worker patches (O1008 pipeline, stacked on train19). Rows 849 885 CLOSED @1595. Tier T2. Local precut/band waived (O1010); exact-head CI is the gate. Drop: 915-r3-fx2-rb9 (runner_browser.py conflict).

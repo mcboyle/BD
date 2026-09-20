@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4744,
+  "edge_count": 4750,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1480,6 +1480,10 @@
     ],
     "bulk_downloader/http3_client.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/hybrid_search.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/semantic_search.py"
     ],
     "bulk_downloader/i18n.py": [
       "bulk_downloader/constants.py"
@@ -4678,6 +4682,9 @@
     "tests/test_row840_render_diagnostics.py": [
       "bulk_downloader/render_diagnostics.py"
     ],
+    "tests/test_row845_prom_latency_histograms.py": [
+      "bulk_downloader/metrics_prom.py"
+    ],
     "tests/test_row848_hls_prefetch.py": [
       "bulk_downloader/hls_prefetch.py"
     ],
@@ -4703,6 +4710,11 @@
     ],
     "tests/test_row877_db_maintenance.py": [
       "bulk_downloader/db_maintenance.py"
+    ],
+    "tests/test_row878_hybrid_search.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/hybrid_search.py",
+      "bulk_downloader/semantic_search.py"
     ],
     "tests/test_row879_telemetry_db.py": [
       "bulk_downloader/telemetry_db.py"
