@@ -686,5 +686,10 @@ def api_queue_dead_letter_requeue():
 
 def register_routes(app) -> int:
     app.register_blueprint(queue_bp)
+    try:
+        from . import tombstone
+        tombstone.register_routes(app)
+    except Exception:
+        pass
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("queue."))

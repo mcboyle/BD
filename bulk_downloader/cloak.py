@@ -264,6 +264,153 @@ def use_cloak(config: dict | None = None) -> bool:
     return resolve_backend(config) == CLOAKBROWSER
 
 
+# ── Row 915: Browser Environment State Normalization ─────────────────────────
+STANDARD_VIEWPORT = {"width": 1920, "height": 1080}
+STANDARD_TIMEZONE = "America/New_York"
+STANDARD_LOCALE = "en-US"
+STANDARD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+
+STANDARD_LAUNCH_FLAGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-features=PushMessaging,Translate,AutomationControlled",
+    "--no-sandbox",
+    "--disable-notifications",
+    "--disable-popup-blocking",
+    "--disable-infobars",
+    "--no-default-browser-check",
+    "--no-first-run",
+]
+
+DEFAULT_NORMALIZATION_SCRIPT = r"""
+(() => {
+  if (window.__bd_norm_applied) return;
+  window.__bd_norm_applied = true;
+
+  const _define = (obj, prop, getVal) => {
+    try {
+      Object.defineProperty(obj, prop, {
+        get: getVal,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch (e) {}
+  };
+
+  const navProto = Object.getPrototypeOf(navigator) || navigator;
+
+  // 1. Acceptance (1): navigator.webdriver reports the real-Chrome default (false, NOT an own
+  //    property). --disable-blink-features=AutomationControlled already yields that; only a
+  //    launch that still reports true gets the prototype getter, and navigator itself never
+  //    gains an own "webdriver" property (an own property is itself an automation artefact).
+  if (navigator.webdriver === true) {
+    _define(navProto, 'webdriver', () => false);
+  }
+
+  // 2. Acceptance (2): plugins and languages match the real-Chrome profile (5 PDF plugins).
+  //    Built as a PluginArray-shaped OBJECT: defining "length" on a real Array throws
+  //    "Cannot redefine property: length" and aborted the whole block (measured, REFUTE E1).
+  if (!navigator.plugins || navigator.plugins.length === 0) {
+    try {
+      const pluginData = [
+        { name: 'PDF Viewer',           filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chrome PDF Viewer',    filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Chromium PDF Viewer',  filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'Microsoft Edge PDF',   filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+        { name: 'WebKit built-in PDF',  filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+      ];
+      const proto = (typeof PluginArray !== 'undefined') ? PluginArray.prototype : Object.prototype;
+      const plugins = Object.create(proto);
+      const items = pluginData.map(p => {
+        const item = Object.create((typeof Plugin !== 'undefined') ? Plugin.prototype : Object.prototype);
+        for (const k of Object.keys(p)) Object.defineProperty(item, k, { value: p[k], enumerable: true });
+        Object.defineProperty(item, 'length', { value: 1 });
+        return item;
+      });
+      items.forEach((item, i) => Object.defineProperty(plugins, i, { value: item, enumerable: true }));
+      Object.defineProperty(plugins, 'length', { get: () => items.length });
+      Object.defineProperty(plugins, 'item', { value: i => items[i] || null });
+      Object.defineProperty(plugins, 'namedItem', { value: name => items.find(p => p.name === name) || null });
+      Object.defineProperty(plugins, 'refresh', { value: () => {} });
+      Object.defineProperty(plugins, Symbol.iterator, { value: () => items[Symbol.iterator]() });
+      _define(navProto, 'plugins', () => plugins);
+    } catch (e) {}
+  }
+
+  if (!navigator.languages || !navigator.languages.length) {
+    _define(navProto, 'languages', () => ['en-US', 'en']);
+  }
+
+  // 3. Acceptance (3): CDP permissions UNALTERED. navigator.permissions.query stays the native
+  //    function (its toString() keeps "[native code]"); the previous override replaced it with a
+  //    plain JS function, the exact detectable artefact the row forbids (REFUTE E2).
+})();
+"""
+
+
+def _install_normalization_script(context: Any, seam: str) -> bool:
+    """Install DEFAULT_NORMALIZATION_SCRIPT on a context. False (and one stderr line naming the seam)
+    when the backend has no add_init_script or it raises -- the launch proceeds un-normalized and
+    SAYS so, never silently (a swallowed failure here is an invisible fingerprint change)."""
+    if not hasattr(context, "add_init_script"):
+        sys.stderr.write(f"[cloak] {seam}: context has no add_init_script; normalization script NOT installed\n")
+        return False
+    try:
+        context.add_init_script(DEFAULT_NORMALIZATION_SCRIPT)
+    except Exception as exc:
+        sys.stderr.write(f"[cloak] {seam}: add_init_script failed ({type(exc).__name__}: {str(exc)[:120]}); normalization script NOT installed\n")
+        return False
+    return True
+
+
+def standard_launch_flags(headless: bool = True, user_args: list[str] | None = None) -> list[str]:
+    """Standardized launch flags for browser environment state normalization."""
+    flags = list(STANDARD_LAUNCH_FLAGS)
+    if headless:
+        flags.insert(0, "--headless=new")
+    if user_args:
+        for a in user_args:
+            if a not in flags:
+                flags.append(a)
+    return flags
+
+
+def standard_launch_args(headless: bool = True) -> list[str]:
+    """Frozen base launch-arg profile for headless/headed launches."""
+    return standard_launch_flags(headless=headless)
+
+
+def normalized_context_options(fingerprint: dict | None = None, headless: bool = True) -> dict[str, Any]:
+    """Standard browser_context options ensuring standard default state reporting.
+
+    User agent, timezone and locale are set ONLY when the fingerprint provides them: an
+    unconfigured fingerprint keeps the browser's own values (a hard-coded Windows/Chrome 128 UA on
+    a Linux build of Chromium 151 is a platform/version mismatch that did not exist before this
+    row -- REFUTE E4). The headless viewport is the one standardized default (a fixed
+    STANDARD_VIEWPORT when the fingerprint does not pin one); headed tracks the real window.
+    """
+    fp = fingerprint or {}
+    opts: dict[str, Any] = {"accept_downloads": True}
+    if fp.get("user_agent"):
+        opts["user_agent"] = fp["user_agent"]
+    if headless:
+        try:
+            w = int(fp.get("viewport_w") or STANDARD_VIEWPORT["width"])
+            h = int(fp.get("viewport_h") or STANDARD_VIEWPORT["height"])
+            opts["viewport"] = {"width": w, "height": h}
+        except (TypeError, ValueError):
+            opts["viewport"] = dict(STANDARD_VIEWPORT)
+    else:
+        opts["no_viewport"] = True
+    if fp.get("timezone"):
+        opts["timezone_id"] = fp["timezone"]
+    if fp.get("locale"):
+        opts["locale"] = fp["locale"]
+    return opts
+
+
 # ── row 723: real-Chrome -> bundled-Chromium degradation ledger ──────────────
 # `use_real_chrome` sets Playwright channel="chrome", which ONLY a Google Chrome
 # install satisfies -- bundled Chromium does not. Every launch seam retries
@@ -432,7 +579,7 @@ def open_persistent_context(
     still gets a working browser.
     """
     global _WARNED_LAUNCH_FALLBACK
-    args = list(args or [])
+    args = standard_launch_flags(headless=headless, user_args=args)
     try:
         from .browser_sentinel import get_chromium_memory_flags as _gcmf
         for _f in _gcmf():
@@ -461,6 +608,7 @@ def open_persistent_context(
                     user_agent=user_agent,
                     **cloak_kwargs,
                 )
+            _install_normalization_script(context, "open_persistent_context(cloak)")
             # cloakbrowser patches context.close() to also stop its own
             # Playwright, so we return pw=None and let the caller close
             # the context normally.
@@ -495,6 +643,7 @@ def open_persistent_context(
             user_agent=user_agent,
             **pw_extra,
         )
+        _install_normalization_script(context, "open_persistent_context(playwright)")
     except Exception as e:
         # Finding B: launch_persistent_context failed AFTER
         # sync_playwright().start() succeeded, so ``pw`` owns a live node/driver
@@ -541,7 +690,7 @@ def launch_browser(
     Chromium). Falls back to Playwright if a cloak launch raises.
     """
     global _WARNED_LAUNCH_FALLBACK
-    args = list(args or [])
+    args = standard_launch_flags(headless=headless, user_args=args)
     try:
         from .browser_sentinel import get_chromium_memory_flags as _gcmf
         for _f in _gcmf():
@@ -702,6 +851,7 @@ def cloaked_page(
         if user_agent and backend != CLOAKBROWSER:
             ctx_kwargs["user_agent"] = user_agent
         context = browser.new_context(**ctx_kwargs)
+        _install_normalization_script(context, "cloaked_page")
         page = context.new_page()
         yield page
     finally:

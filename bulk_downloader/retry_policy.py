@@ -209,6 +209,13 @@ def classify_failure(message: str = "",
         except (TypeError, ValueError):
             sc = None
 
+    try:
+        from . import tombstone
+        if tombstone.classify(status_code=sc, message=msg):
+            return "permanent"
+    except Exception:
+        pass
+
     # Status code takes precedence — explicit signal from the server
     if sc is not None:
         if sc in _PERMANENT_STATUS:

@@ -215,24 +215,24 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
-      "bytes": 8020,
+      "bytes": 8016,
       "key": "tests/test_v3_43_37_retry_policy.py::test_runner_falls_back_to_legacy_schedule::src[pos:pos + 8000]::1",
-      "sha256": "93581d368a4d3c9fb25b8982fa09d22ae6327545878fa1315b98dd7641498e24"
+      "sha256": "bd24eb0e9e477602285a7a24232e252a71c2813037e76ec6205e4e3c5a5fd32d"
     },
     {
-      "bytes": 8020,
+      "bytes": 8016,
       "key": "tests/test_v3_43_37_retry_policy.py::test_runner_per_class_max_attempts_caps_below_site_max::src[pos:pos + 8000]::1",
-      "sha256": "93581d368a4d3c9fb25b8982fa09d22ae6327545878fa1315b98dd7641498e24"
+      "sha256": "bd24eb0e9e477602285a7a24232e252a71c2813037e76ec6205e4e3c5a5fd32d"
     },
     {
-      "bytes": 8020,
+      "bytes": 8016,
       "key": "tests/test_v3_43_37_retry_policy.py::test_runner_permanent_failure_logs_once::src[pos:pos + 8000]::1",
-      "sha256": "93581d368a4d3c9fb25b8982fa09d22ae6327545878fa1315b98dd7641498e24"
+      "sha256": "bd24eb0e9e477602285a7a24232e252a71c2813037e76ec6205e4e3c5a5fd32d"
     },
     {
-      "bytes": 8020,
+      "bytes": 8016,
       "key": "tests/test_v3_43_37_retry_policy.py::test_runner_uses_retry_policy::src[pos:pos + 8000]::1",
-      "sha256": "93581d368a4d3c9fb25b8982fa09d22ae6327545878fa1315b98dd7641498e24"
+      "sha256": "bd24eb0e9e477602285a7a24232e252a71c2813037e76ec6205e4e3c5a5fd32d"
     },
     {
       "bytes": 4002,

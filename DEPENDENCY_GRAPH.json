@@ -1254,7 +1254,8 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
-        "bulk_downloader/selector_drift.py"
+        "bulk_downloader/selector_drift.py",
+        "bulk_downloader/tombstone.py"
       ],
       "route_count": 9,
       "routes": [
@@ -2381,7 +2382,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1798,
+    "edge_count": 1805,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2824,7 +2825,8 @@
       ],
       "bulk_downloader/app_queue.py": [
         "bulk_downloader/app.py",
-        "bulk_downloader/app_discovery.py"
+        "bulk_downloader/app_discovery.py",
+        "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/app_queue_templates.py": [
         "bulk_downloader/app.py"
@@ -2970,7 +2972,8 @@
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/cookie_health.py",
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/app_stats.py": [
         "bulk_downloader/app.py"
@@ -3543,6 +3546,7 @@
         "bulk_downloader/storage_tier.py",
         "bulk_downloader/tags.py",
         "bulk_downloader/timeline.py",
+        "bulk_downloader/tombstone.py",
         "bulk_downloader/vpn_stats.py",
         "bulk_downloader/webhooks.py",
         "tools/_probe_lib.py",
@@ -4835,6 +4839,12 @@
       "bulk_downloader/timeline.py": [
         "bulk_downloader/daily_digest.py"
       ],
+      "bulk_downloader/tombstone.py": [
+        "bulk_downloader/app_queue.py",
+        "bulk_downloader/retry_policy.py",
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_scheduler.py"
+      ],
       "bulk_downloader/tool_bridge.py": [
         "bulk_downloader/app_tool_bridge.py"
       ],
@@ -5956,7 +5966,8 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
-        "bulk_downloader/selector_drift.py"
+        "bulk_downloader/selector_drift.py",
+        "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/app_queue_templates.py": [
         "bulk_downloader/db.py",
@@ -7098,6 +7109,9 @@
         "bulk_downloader/dom_analyzer.py",
         "bulk_downloader/tags.py"
       ],
+      "bulk_downloader/retry_policy.py": [
+        "bulk_downloader/tombstone.py"
+      ],
       "bulk_downloader/run_history.py": [
         "bulk_downloader/db.py"
       ],
@@ -7182,6 +7196,7 @@
         "bulk_downloader/template_assist.py",
         "bulk_downloader/thumbnail_gen.py",
         "bulk_downloader/tier_probe.py",
+        "bulk_downloader/tombstone.py",
         "bulk_downloader/tpdb.py",
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/vpn_stats.py",
@@ -7302,7 +7317,8 @@
         "bulk_downloader/app.py",
         "bulk_downloader/db.py",
         "bulk_downloader/retry_policy.py",
-        "bulk_downloader/runner_util.py"
+        "bulk_downloader/runner_util.py",
+        "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/runner_teach.py": [
         "bulk_downloader/app.py",
@@ -7571,6 +7587,11 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/timeline.py": [
+        "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/tombstone.py": [
+        "bulk_downloader/app_queue.py",
+        "bulk_downloader/app_state.py",
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/tus_client.py": [
@@ -8336,7 +8357,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 232,
+    "total": 233,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
