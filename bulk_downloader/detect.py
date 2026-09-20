@@ -208,7 +208,7 @@ def inspect_container_stream(target, page_url="", stream_meta=None, runner=None)
 
 def _full_length_mode(runner=None) -> bool:
     """Return True if full-length qualification is enabled via env, config or runner."""
-    raw = os.environ.get("BD_REQUIRE_FULL_LENGTH", "").strip().lower()
+    raw = os.environ.get("REQUIRE_FULL_LENGTH", "").strip().lower()
     if raw in ("1", "true", "yes", "on"):
         return True
     try:

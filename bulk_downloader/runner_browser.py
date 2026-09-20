@@ -281,6 +281,65 @@ class WebSocketFrameDispatcher:
             return
 
 
+_VIRTUAL_SCROLL_MEDIA_JS = """
+(selector) => {
+    // The catalog's own scroll container when it has one (react-window /
+    // react-virtualized / TanStack lists own an overflow:auto element and the
+    // window never scrolls), else the document.
+    const scroller = (() => {
+        const first = document.querySelector(selector);
+        for (let el = first ? first.parentElement : null; el; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+                return el;
+            }
+        }
+        return document.scrollingElement || document.documentElement;
+    })();
+    const attrs = ['data-media-url', 'data-src', 'src', 'href'];
+    const read = (node) => {
+        for (const attr of attrs) {
+            const value = node.getAttribute(attr);
+            if (value) return value;
+        }
+        return null;
+    };
+    const urls = [];
+    for (const item of document.querySelectorAll(selector)) {
+        const nodes = [item, ...item.querySelectorAll('[href], [src], [data-src], [data-media-url]')];
+        for (const node of nodes) {
+            const value = read(node);
+            if (!value) continue;
+            try { urls.push(new URL(value, document.baseURI).href); } catch (_) {}
+        }
+    }
+    const isWindow = scroller === (document.scrollingElement || document.documentElement);
+    const top = isWindow ? window.scrollY : scroller.scrollTop;
+    const viewport = isWindow ? window.innerHeight : scroller.clientHeight;
+    return {
+        urls,
+        scroll_y: top,
+        viewport,
+        at_end: top + viewport >= scroller.scrollHeight - 1,
+    };
+}
+"""
+
+_VIRTUAL_SCROLL_BY_JS = """
+([selector, step]) => {
+    const first = document.querySelector(selector);
+    for (let el = first ? first.parentElement : null; el; el = el.parentElement) {
+        const style = getComputedStyle(el);
+        if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+            el.scrollBy(0, step);
+            return;
+        }
+    }
+    window.scrollBy(0, step);
+}
+"""
+
+
 class BrowserMixin:
     def _install_adaptive_manifest_capture(self, ctx):
         """Row 899: attach a live CDP ``Network`` listener to every page of
@@ -449,6 +508,92 @@ class BrowserMixin:
         for dispatcher in list(getattr(self, "_websocket_dispatchers", None) or []):
             dispatcher.close()
         self._websocket_dispatchers = []
+
+
+    def _collect_virtualized_media_urls(self, page, selector, *, max_rounds=200,
+                                        idle_rounds_to_stop=3, settle_ms=250,
+                                        end_settle_ms=1500, max_seconds=90.0):
+        """Collect media URLs from each rendered viewport of an opt-in catalog.
+
+        Properties of real catalogs bound the traversal (row 911, measured on
+        headless Chromium): a virtualizer without overscan mounts only the band on
+        screen, so each scroll step must be SHORTER than the viewport or the band
+        between two snapshots is never rendered (an 800px step over a 720px viewport
+        skipped every 20th 40px item); a virtualizer that paints placeholders while
+        scrolling (react-window's isScrolling, 150ms debounce) needs a settle longer
+        than its debounce or no row ever carries its href; an infinite-scroll catalog
+        appends its next batch asynchronously after the bottom is reached, so
+        ``at_end`` is a reason to WAIT (``idle_rounds_to_stop`` x ``end_settle_ms``),
+        not to stop; and a catalog inside its own overflow:auto container never moves
+        the window, so the scroll (and the end test) target that container.
+
+        Fail-soft: a page error mid-traversal (navigation, closed target, invalid
+        selector) ends the traversal with what was collected so far; the caller
+        merges this with the pager's own result and must not lose it.
+        """
+        if not isinstance(selector, str) or not selector.strip():
+            return []
+        seen = set()
+        urls = []
+        stalled_rounds = 0
+        end_rounds = 0
+        last_scroll_y = object()  # never equal to a reported position
+        started = time.monotonic()
+        try:
+            for _round in range(max_rounds):
+                if time.monotonic() - started > max_seconds:
+                    break
+                snapshot = page.evaluate(_VIRTUAL_SCROLL_MEDIA_JS, selector) or {}
+                new_urls = 0
+                for url in snapshot.get("urls") or []:
+                    if (not isinstance(url, str) or not url.startswith(("http://", "https://"))
+                            or url in seen):
+                        continue
+                    seen.add(url)
+                    urls.append(url)
+                    new_urls += 1
+                if snapshot.get("at_end"):
+                    # Bottom reached: nothing left to scroll to, but the catalog may
+                    # still be appending. Poll (no scroll) until idle_rounds_to_stop
+                    # consecutive end snapshots add nothing.
+                    end_rounds = 0 if new_urls else end_rounds + 1
+                    if end_rounds >= idle_rounds_to_stop:
+                        break
+                    page.wait_for_timeout(end_settle_ms)
+                    continue
+                end_rounds = 0
+                # Not at the end yet: a snapshot with nothing new is only "idle"
+                # when the scroll also failed to move the catalog (a page that
+                # ignores scrolling); a run of empty spacer rows is not a stop.
+                scroll_y = snapshot.get("scroll_y")
+                if new_urls or scroll_y != last_scroll_y:
+                    stalled_rounds = 0
+                else:
+                    stalled_rounds += 1
+                    if stalled_rounds >= idle_rounds_to_stop:
+                        break
+                last_scroll_y = scroll_y
+                step = self._virtual_scroll_step(snapshot.get("viewport"))
+                page.evaluate(_VIRTUAL_SCROLL_BY_JS, [selector, step])
+                page.wait_for_timeout(settle_ms)
+        except Exception as e:
+            sys.stderr.write(
+                f"  virtual_scroll: stopped after {len(urls)} url(s): "
+                f"{type(e).__name__}: {e}\n")
+        return urls
+
+    @staticmethod
+    def _virtual_scroll_step(viewport, *, fraction=0.75, fallback=400, floor=100):
+        """Scroll step strictly inside one viewport so consecutive snapshots
+        overlap; a page that cannot report its viewport gets a conservative
+        fallback (a 400px step is inside any viewport this runner opens)."""
+        try:
+            viewport = int(viewport or 0)
+        except (TypeError, ValueError):
+            viewport = 0
+        if viewport <= 0:
+            return fallback
+        return max(floor, int(viewport * fraction))
 
     def _pw_save(self,dl,final_path):
         """Fallback: let Playwright stream the download to disk.

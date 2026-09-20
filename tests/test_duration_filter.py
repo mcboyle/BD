@@ -109,7 +109,7 @@ def test_container_stream_metadata_rejects_undersized_stream():
 
 def test_candidate_admission_filters_short_preview(monkeypatch):
     """Integration with detect._candidate_admission."""
-    monkeypatch.setenv("BD_REQUIRE_FULL_LENGTH", "1")
+    monkeypatch.setenv("REQUIRE_FULL_LENGTH", "1")
     reason = detect._candidate_admission(None, "Bonus Scene 1:30 (720p) 200MB")
     assert reason == "short_preview", f"expected 'short_preview', got {reason!r}"
 
@@ -157,7 +157,7 @@ def test_unmeasurable_non_promo_does_not_spuriously_reject():
 
 def test_candidate_admission_admits_complete_payload(monkeypatch):
     """Integration with detect._candidate_admission."""
-    monkeypatch.setenv("BD_REQUIRE_FULL_LENGTH", "1")
+    monkeypatch.setenv("REQUIRE_FULL_LENGTH", "1")
     reason = detect._candidate_admission(None, "Full movie 1:45:00 (1080p) 2.1GB")
     assert reason is None
 
@@ -207,3 +207,35 @@ def test_broken_log_event_fails_open_to_stderr(capsys):
     assert result["ok"] is False
     captured = capsys.readouterr()
     assert "duration_size_qualify_reject" in captured.err
+
+
+def test_require_full_length_env_controls(monkeypatch):
+    """Verifies REQUIRE_FULL_LENGTH env behavior, negative controls, and zero BD_ prefix."""
+    import pathlib
+    import subprocess
+    from bulk_downloader import detect
+
+    # Positive control: REQUIRE_FULL_LENGTH=1 enables full length mode
+    monkeypatch.setenv("REQUIRE_FULL_LENGTH", "1")
+    assert detect._full_length_mode() is True
+
+    # Negative control 1: REQUIRE_FULL_LENGTH=0 disables full length mode
+    monkeypatch.setenv("REQUIRE_FULL_LENGTH", "0")
+    assert detect._full_length_mode() is False
+
+    # Negative control 2: REQUIRE_FULL_LENGTH unset disables full length mode
+    monkeypatch.delenv("REQUIRE_FULL_LENGTH", raising=False)
+    assert detect._full_length_mode() is False
+
+    # Negative control 3: old name is NOT honored (FG-ENV-TRANCHE-BD-LITERAL compliance)
+    old_key = "BD_" + "REQUIRE_FULL_LENGTH"
+    monkeypatch.setenv(old_key, "1")
+    assert detect._full_length_mode() is False
+
+    # Exact count assertion: 0 occurrences of old key in shipped production code (bulk_downloader/)
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    cmd = ["git", "-C", str(repo), "grep", "-n", old_key, "bulk_downloader/"]
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    assert res.returncode != 0, f"Found unexpected {old_key} occurrences in production code:\n{res.stdout}"
+    assert len(res.stdout.strip()) == 0, f"Exact count: 0 occurrences of {old_key} allowed in bulk_downloader/"
+

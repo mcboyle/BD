@@ -2381,7 +2381,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1793,
+    "edge_count": 1794,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2445,6 +2445,7 @@
       "bulk_downloader/ai_provider.py": [
         "bulk_downloader/aiassist.py",
         "bulk_downloader/dev_suite/integrations_diag.py",
+        "bulk_downloader/dom_structure_analyzer.py",
         "bulk_downloader/embeddings_client.py"
       ],
       "bulk_downloader/aiassist.py": [
@@ -6671,6 +6672,9 @@
       ],
       "bulk_downloader/dom_recorder.py": [
         "bulk_downloader/session_capture.py"
+      ],
+      "bulk_downloader/dom_structure_analyzer.py": [
+        "bulk_downloader/ai_provider.py"
       ],
       "bulk_downloader/download_egress.py": [
         "bulk_downloader/egress_identity.py"
