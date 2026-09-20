@@ -193,24 +193,30 @@ def test_negative_control_circuit_transitions_exact_counts():
 
     cb = TaskCircuitBreaker(deadline_seconds=60, failure_threshold=2, cooldown_seconds=0.0)
 
+    seen = [cb.state]
+
     # 0 timeouts -> CLOSED
     assert cb.state == CircuitState.CLOSED
 
     # 1 timeout -> still CLOSED
     cb.record_timeout("a")
+    seen.append(cb.state)
     assert cb.state == CircuitState.CLOSED
 
     # 2 timeouts -> OPEN
     cb.record_timeout("b")
+    seen.append(cb.state)
     assert cb.state == CircuitState.OPEN
 
     # Reset -> HALF_OPEN
     cb.attempt_reset()
+    seen.append(cb.state)
     assert cb.state == CircuitState.HALF_OPEN
 
     # Success -> CLOSED again
     cb.record_success("c")
+    seen.append(cb.state)
     assert cb.state == CircuitState.CLOSED
 
-    transitions = 4
-    assert transitions == 4, f"Expected 4 verified transitions, got {transitions}"
+    transitions = sum(1 for a, b in zip(seen, seen[1:]) if a != b)
+    assert transitions == 3, f"Expected 3 observed state changes, got {transitions}: {seen}"
