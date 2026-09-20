@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""bd-diff-coverage -- Row 886: Code coverage diff heatmap and defect correlator.
+
+Asserts 100% test coverage on newly added or modified lines in pull requests.
+Follows Fleet Rule 21 (zero site logins touched).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def parse_diff_added_lines(diff_text: str) -> dict[str, list[int]]:
+    """Parse git unified diff and return mapping of file paths to added/modified line numbers."""
+    added_lines: dict[str, list[int]] = {}
+    current_file: str | None = None
+    current_line_num: int = 0
+
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            # a new file section: nothing from the previous file carries over
+            current_file = None
+            current_line_num = 0
+            continue
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            if target == "/dev/null":
+                current_file = None  # deleted file: it has no added lines
+            else:
+                current_file = target[2:] if target.startswith("b/") else target
+                added_lines.setdefault(current_file, [])
+            continue
+        if line.startswith("--- "):
+            continue
+
+        hunk_match = _HUNK_RE.match(line)
+        if hunk_match:
+            current_line_num = int(hunk_match.group(1))
+            continue
+
+        if current_file is None:
+            continue
+
+        if line.startswith("+"):
+            added_lines[current_file].append(current_line_num)
+            current_line_num += 1
+        elif line.startswith(" "):
+            current_line_num += 1
+        # '-' lines do not advance current_line_num in the new file
+
+    return added_lines
+
+
+def analyze_diff_coverage(
+    diff_text: str,
+    coverage_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Analyze coverage of added/modified lines in diff against coverage report data."""
+    diff_lines = parse_diff_added_lines(diff_text)
+
+    # Normalize coverage structure (support raw or {"files": ...})
+    files_cov = coverage_data.get("files", coverage_data)
+
+    covered_count = 0
+    missing_count = 0
+    missing_lines: dict[str, list[int]] = {}
+
+    for file_path, lines in diff_lines.items():
+        if not lines:
+            continue
+
+        # FAIL CLOSED: a file absent from the coverage report, or a line the report never
+        # executed, is UNCOVERED. Only a recorded execution counts as covered -- an empty or
+        # missing report must never read as 100% (correctness REFUTE E1).
+        cov_entry = files_cov.get(file_path) or {}
+        executed = set(cov_entry.get("executed_lines", []))
+
+        uncovered_in_file = []
+        for line_num in lines:
+            if line_num in executed:
+                covered_count += 1
+            else:
+                missing_count += 1
+                uncovered_in_file.append(line_num)
+
+        if uncovered_in_file:
+            missing_lines[file_path] = sorted(uncovered_in_file)
+
+    total_tracked = covered_count + missing_count
+    ratio = (covered_count / total_tracked) if total_tracked > 0 else 1.0
+
+    return {
+        "covered_count": covered_count,
+        "missing_count": missing_count,
+        "missing_lines": missing_lines,
+        "coverage_ratio": round(ratio, 4),
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Assert 100% coverage on git diff lines.")
+    parser.add_argument("--diff", type=Path, help="Path to diff file")
+    parser.add_argument("--coverage", type=Path, help="Path to coverage.json file")
+    parser.add_argument("--base", default="HEAD~1", help="Git base commit for diff")
+    args = parser.parse_args()
+
+    if args.diff and args.diff.is_file():
+        diff_text = args.diff.read_text(encoding="utf-8")
+    else:
+        diff_cmd = ["git", "diff", args.base]
+        diff_text = subprocess.check_output(diff_cmd, text=True)
+
+    if not args.coverage or not args.coverage.is_file():
+        # No report is UNKNOWN, not a pass and not a per-line finding: refuse with its own rc.
+        print(f"COULD NOT LOOK: coverage report not found ({args.coverage}); diff coverage UNKNOWN")
+        return 2
+    cov_data = json.loads(args.coverage.read_text(encoding="utf-8"))
+
+    result = analyze_diff_coverage(diff_text, cov_data)
+
+    if result["missing_count"] > 0:
+        print(f"UNCOVERED lines found ({result['missing_count']} line(s)):")
+        for f, lns in result["missing_lines"].items():
+            print(f"  {f}: {lns}")
+        return 1
+
+    if result["covered_count"] == 0:
+        print("PASS: no added lines in the diff (0 line(s) to cover).")
+        return 0
+    print(f"PASS: 100% diff coverage passed cleanly ({result['covered_count']} line(s) covered).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -33,10 +33,10 @@ ACCOUNTED = {
         "guarded",
         "PinnedUrlOpener resolves every host answer, rejects a disallowed one, "
         "and dispatches urllib only to the selected vetted IP literal (row 728)"),
-    "bulk_downloader/deep_http.py::guarded_open": (
-        "guarded",
-        "_check classifies each hop and the _NoRedirect opener refuses "
-        "urllib's own header-copying redirect; hops must stay same-origin"),
+    # deep_http.guarded_open no longer dispatches urllib itself: row 839 routes
+    # it through http_client.proxy_open(direct_open=_OPENER.open), so the
+    # census no longer derives a site there (the _NoRedirect opener + _check
+    # still guard the direct path).
     "bulk_downloader/deep_http.py::_GuardedSession": (
         "guarded",
         "the request override disables requests' redirects, classifies every "
@@ -133,4 +133,9 @@ ACCOUNTED = {
         "exempt",
         "the only caller passes the literal PyPI JSON URL defined in that "
         "module to learn the latest yt-dlp version at boot"),
+    "bulk_downloader/guardrails.py::_default_request": (
+        "exempt",
+        "the only caller passes the fixed local guardrails endpoint constant; "
+        "untrusted metadata is sent in the JSON body, never used as a destination"),
 }
+

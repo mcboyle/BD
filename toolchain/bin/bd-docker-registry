@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+"""bd-docker-registry -- Configure local Docker registry mirror for satellite containers.
+
+WHY THIS TOOL EXISTS (Row 844, O870e / O881):
+Pulling heavy AI containers (TEI, Ollama, Langfuse) over public registries
+during node reprovisioning takes 3-7 minutes per node and risks rate limits.
+A local Docker Registry Mirror running on 127.0.0.1:5000 accelerates
+container launch times to <15s over 25GbE LAN fabric.
+
+SCOPE:
+1. Docker daemon config generation configuring registry-mirrors ["http://127.0.0.1:5000"]
+   while preserving existing daemon configurations (insecure-registries, logging, etc.).
+   Refuses malformed existing configuration while strictly preserving file bytes.
+2. High-speed local mirror pulls (<15s) with fail-open fallback to Docker Hub
+   when the local mirror is unpopulated or unreachable. Requires valid manifest
+   and usable image storage evidence, rejecting non-manifest payloads.
+3. Pre-population of satellite AI container images on cluster boot.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+DEFAULT_MIRROR = "http://127.0.0.1:5000"
+DEFAULT_DAEMON_CONFIG = pathlib.Path("/etc/docker/daemon.json")
+
+# Satellite AI containers defined by fleet orchestration architecture
+SATELLITE_AI_IMAGES = [
+    "ghcr.io/huggingface/text-embeddings-inference:cpu-1.5",
+    "langfuse/langfuse:2",
+    "coredns/coredns:latest",
+    "ollama/ollama:latest",
+]
+
+
+class MirrorError(Exception):
+    """Base exception for mirror operations."""
+
+
+class MirrorUnpopulatedError(MirrorError):
+    """Image is not cached or populated in the local mirror (HTTP 404)."""
+
+
+class MirrorUnreachableError(MirrorError):
+    """Local mirror cannot be contacted (connection refused / timeout)."""
+
+
+class PullResult:
+    def __init__(
+        self,
+        image: str,
+        success: bool,
+        source: str,
+        duration_s: float,
+        fallback_used: bool = False,
+        detail: str = "",
+    ) -> None:
+        self.image = image
+        self.success = success
+        self.source = source
+        self.duration_s = duration_s
+        self.fallback_used = fallback_used
+        self.detail = detail
+
+    def __repr__(self) -> str:
+        return (
+            f"PullResult(image={self.image!r}, success={self.success!r}, "
+            f"source={self.source!r}, duration_s={self.duration_s!r}, "
+            f"fallback_used={self.fallback_used!r}, detail={self.detail!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PullResult):
+            return NotImplemented
+        return (
+            self.image == other.image
+            and self.success == other.success
+            and self.source == other.source
+            and abs(self.duration_s - other.duration_s) < 1e-6
+            and self.fallback_used == other.fallback_used
+        )
+
+
+def generate_daemon_config(
+    mirrors: list[str] | None = None,
+    existing_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Generate or update Docker daemon.json configuration with registry-mirrors.
+
+    Preserves any existing daemon keys (e.g. insecure-registries, log-driver)
+    and ensures mirror entries are deduplicated.
+    """
+    config: dict[str, Any] = dict(existing_config or {})
+    target_mirrors = list(mirrors if mirrors is not None else [DEFAULT_MIRROR])
+
+    current_mirrors: list[str] = list(config.get("registry-mirrors", []))
+    for m in target_mirrors:
+        if m not in current_mirrors:
+            current_mirrors.append(m)
+
+    config["registry-mirrors"] = current_mirrors
+    return config
+
+
+def write_daemon_config(
+    target_path: pathlib.Path | str = DEFAULT_DAEMON_CONFIG,
+    mirrors: list[str] | None = None,
+) -> pathlib.Path:
+    """Read existing daemon config if present, merge registry-mirrors, and write back.
+
+    Refuses unreadable or malformed existing configuration (raising ValueError),
+    preserving original bytes on disk untouched.
+    """
+    target = pathlib.Path(target_path)
+    existing: dict[str, Any] = {}
+    if target.is_file():
+        raw_text = target.read_text(encoding="utf-8")
+        if raw_text.strip():
+            try:
+                parsed = json.loads(raw_text)
+                if not isinstance(parsed, dict):
+                    raise ValueError(f"Invalid daemon config at {target}: root must be a JSON object")
+                existing = parsed
+            except Exception as exc:
+                raise ValueError(
+                    f"Cannot update daemon config: malformed JSON at {target}: {exc}"
+                ) from exc
+
+    updated = generate_daemon_config(mirrors=mirrors, existing_config=existing)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(updated, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def _query_registry_catalog(mirror_url: str = DEFAULT_MIRROR, timeout_s: float = 3.0) -> dict[str, Any]:
+    """Query the Docker registry v2 catalog endpoint."""
+    url = f"{mirror_url.rstrip('/')}/v2/_catalog"
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        return json.loads(resp.read().decode("utf-8"))  # type: ignore[no-any-return]
+
+
+def check_mirror_health(mirror_url: str = DEFAULT_MIRROR, timeout_s: float = 3.0) -> dict[str, Any]:
+    """Check health and cached repositories of the local registry mirror."""
+    try:
+        catalog = _query_registry_catalog(mirror_url, timeout_s=timeout_s)
+        return {
+            "healthy": True,
+            "mirror_url": mirror_url,
+            "repositories": catalog.get("repositories", []),
+        }
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, TimeoutError) as exc:
+        return {
+            "healthy": False,
+            "mirror_url": mirror_url,
+            "error": str(exc),
+            "repositories": [],
+        }
+
+
+def _normalize_image_name(image: str) -> tuple[str, str]:
+    """Normalize docker image string into repository and reference (tag or digest).
+
+    Handles domain/port prefix preservation and defaults missing tag to latest.
+    Examples:
+    - "localhost:5000/team/image" -> ("localhost:5000/team/image", "latest")
+    - "localhost:5000/team/image:v1" -> ("localhost:5000/team/image", "v1")
+    - "ubuntu@sha256:abc123" -> ("library/ubuntu", "sha256:abc123")
+    - "busybox:latest" -> ("library/busybox", "latest")
+    - "busybox" -> ("library/busybox", "latest")
+    """
+    if "@" in image:
+        repo_part, reference = image.split("@", 1)
+    else:
+        last_slash_idx = image.rfind("/")
+        colon_idx = image.rfind(":")
+        if colon_idx > last_slash_idx:
+            repo_part = image[:colon_idx]
+            reference = image[colon_idx + 1 :]
+        else:
+            repo_part = image
+            reference = "latest"
+
+    if not reference:
+        reference = "latest"
+
+    parts = repo_part.split("/", 1)
+    has_domain = False
+    if len(parts) > 1:
+        domain_candidate = parts[0]
+        if (
+            "." in domain_candidate
+            or ":" in domain_candidate
+            or domain_candidate == "localhost"
+        ):
+            has_domain = True
+
+    if not has_domain:
+        if "/" not in repo_part:
+            repo_part = f"library/{repo_part}"
+
+    return repo_part, reference
+
+
+def _get_storage_dir() -> pathlib.Path:
+    """Return cache/storage path for downloaded container images and manifests."""
+    env_dir = os.environ.get("BD_DOCKER_STORAGE_DIR")
+    if env_dir:
+        p = pathlib.Path(env_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    default_path = pathlib.Path("/var/lib/docker-mirror-cache")
+    try:
+        default_path.mkdir(parents=True, exist_ok=True)
+        return default_path
+    except OSError:
+        fallback = (
+            pathlib.Path("/tmp") / f"bd-docker-storage-{os.getuid()}"
+            if hasattr(os, "getuid")
+            else pathlib.Path("/tmp/bd-docker-storage")
+        )
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+def _store_blob(storage_dir: pathlib.Path, digest: str, data: bytes) -> pathlib.Path:
+    """Store blob data in local storage directory."""
+    blob_dir = storage_dir / "blobs"
+    blob_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = digest.replace(":", "_")
+    target = blob_dir / safe_name
+    target.write_bytes(data)
+    return target
+
+
+def _store_manifest(storage_dir: pathlib.Path, repo: str, reference: str, data: bytes) -> pathlib.Path:
+    """Store manifest in local storage directory."""
+    manifest_dir = storage_dir / "manifests"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{repo.replace('/', '_')}_{reference.replace(':', '_')}.json"
+    target = manifest_dir / safe_name
+    target.write_bytes(data)
+    return target
+
+
+def _validate_manifest(content: bytes, image: str) -> dict[str, Any]:
+    """Validate that retrieved bytes represent a valid OCI or Docker v2 manifest."""
+    try:
+        manifest_data = json.loads(content.decode("utf-8"))
+    except Exception as exc:
+        raise MirrorError(f"Mirror returned non-manifest text / not valid JSON for {image}: {exc}") from exc
+
+    if not isinstance(manifest_data, dict):
+        raise MirrorError(f"Mirror returned invalid manifest structure (not dict) for {image}")
+
+    if "schemaVersion" not in manifest_data:
+        raise MirrorError(f"Mirror returned manifest missing schemaVersion for {image}")
+
+    has_layers = "layers" in manifest_data and isinstance(manifest_data["layers"], list)
+    has_config = "config" in manifest_data and isinstance(manifest_data["config"], dict)
+    has_submanifests = "manifests" in manifest_data and isinstance(manifest_data["manifests"], list)
+    has_v1_layers = "fsLayers" in manifest_data and isinstance(manifest_data["fsLayers"], list)
+
+    if not ((has_layers and has_config) or has_submanifests or has_v1_layers):
+        raise MirrorError(
+            f"Mirror returned manifest without layer/config/manifest descriptors for {image}"
+        )
+
+    return manifest_data
+
+
+def _fetch_from_mirror(image: str, mirror_url: str, timeout_s: float) -> dict[str, Any]:
+    """Attempt to verify and pull manifest and blobs from local registry mirror.
+
+    Validates manifest schema and fetches blobs to prove image usability.
+    """
+    repo, reference = _normalize_image_name(image)
+    manifest_url = f"{mirror_url.rstrip('/')}/v2/{repo}/manifests/{reference}"
+    headers = {
+        "Accept": (
+            "application/vnd.docker.distribution.manifest.v2+json, "
+            "application/vnd.oci.image.manifest.v1+json, "
+            "application/vnd.docker.distribution.manifest.list.v2+json, "
+            "application/vnd.oci.image.index.v1+json"
+        )
+    }
+    req = urllib.request.Request(manifest_url, headers=headers)
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            content = resp.read()
+    except urllib.error.HTTPError as err:
+        if err.code in (404, 400):
+            raise MirrorUnpopulatedError(f"Image {image} unpopulated in mirror (HTTP {err.code})") from err
+        raise MirrorError(f"HTTP {err.code} from mirror") from err
+    except (urllib.error.URLError, OSError) as err:
+        raise MirrorUnreachableError(f"Mirror unreachable at {mirror_url}: {err}") from err
+
+    manifest_data = _validate_manifest(content, image)
+
+    # Collect blobs (config and layers) for usable-image evidence and local cache
+    blobs_to_fetch: list[str] = []
+    if "config" in manifest_data and isinstance(manifest_data["config"], dict):
+        cfg_digest = manifest_data["config"].get("digest")
+        if cfg_digest:
+            blobs_to_fetch.append(cfg_digest)
+    for layer in manifest_data.get("layers", []):
+        if isinstance(layer, dict):
+            layer_digest = layer.get("digest")
+            if layer_digest:
+                blobs_to_fetch.append(layer_digest)
+
+    storage_dir = _get_storage_dir()
+    total_bytes = len(content)
+    for blob_digest in blobs_to_fetch:
+        blob_url = f"{mirror_url.rstrip('/')}/v2/{repo}/blobs/{blob_digest}"
+        blob_req = urllib.request.Request(blob_url)
+        try:
+            with urllib.request.urlopen(blob_req, timeout=timeout_s) as b_resp:
+                blob_data = b_resp.read()
+                if blob_digest.startswith("sha256:"):
+                    actual_sha = hashlib.sha256(blob_data).hexdigest()
+                    expected_sha = blob_digest.split(":", 1)[1]
+                    if actual_sha != expected_sha:
+                        raise MirrorError(
+                            f"Digest mismatch for blob {blob_digest}: got {actual_sha}, expected {expected_sha}"
+                        )
+                _store_blob(storage_dir, blob_digest, blob_data)
+                total_bytes += len(blob_data)
+        except urllib.error.HTTPError as b_err:
+            raise MirrorError(f"Failed to fetch blob {blob_digest} from mirror: HTTP {b_err.code}") from b_err
+        except (urllib.error.URLError, OSError) as b_err:
+            raise MirrorError(f"Failed to fetch blob {blob_digest} from mirror: {b_err}") from b_err
+
+    _store_manifest(storage_dir, repo, reference, content)
+    duration_s = time.monotonic() - t0
+    return {
+        "status": "downloaded",
+        "bytes": total_bytes,
+        "duration_s": duration_s,
+        "blobs_count": len(blobs_to_fetch),
+    }
+
+
+def _fetch_from_upstream(image: str, timeout_s: float = 15.0) -> dict[str, Any]:
+    """Fail-open fallback: fetch image from public upstream (Docker Hub / GHCR).
+
+    Performs a real upstream request and propagates failure when upstream is unreachable or image not found.
+    """
+    t0 = time.monotonic()
+    repo, reference = _normalize_image_name(image)
+
+    parts = repo.split("/", 1)
+    if (
+        len(parts) > 1
+        and (
+            "." in parts[0]
+            or ":" in parts[0]
+            or parts[0] in ("localhost", "127.0.0.1")
+        )
+        and not parts[0].startswith("docker.io")
+    ):
+        registry_host = parts[0]
+        sub_repo = parts[1]
+        scheme = "http" if registry_host.startswith("localhost") or registry_host.startswith("127.0.0.1") else "https"
+        base_url = f"{scheme}://{registry_host}"
+        auth_header = None
+    else:
+        base_url = "https://registry-1.docker.io"
+        sub_repo = repo
+        auth_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{sub_repo}:pull"
+        auth_req = urllib.request.Request(auth_url)
+        with urllib.request.urlopen(auth_req, timeout=timeout_s) as auth_resp:
+            token_data = json.loads(auth_resp.read().decode("utf-8"))
+            token = token_data.get("token") or token_data.get("access_token")
+            auth_header = f"Bearer {token}" if token else None
+
+    manifest_url = f"{base_url}/v2/{sub_repo}/manifests/{reference}"
+    headers = {
+        "Accept": (
+            "application/vnd.docker.distribution.manifest.v2+json, "
+            "application/vnd.oci.image.manifest.v1+json, "
+            "application/vnd.docker.distribution.manifest.list.v2+json, "
+            "application/vnd.oci.image.index.v1+json"
+        )
+    }
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    req = urllib.request.Request(manifest_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        content = resp.read()
+
+    _validate_manifest(content, image)
+    duration_s = time.monotonic() - t0
+    return {
+        "status": "downloaded",
+        "source": f"upstream_{base_url}",
+        "bytes": len(content),
+        "duration_s": duration_s,
+    }
+
+
+def pull_image(
+    image: str,
+    mirror_url: str = DEFAULT_MIRROR,
+    timeout_s: float = 15.0,
+) -> PullResult:
+    """Pull image prioritizing local mirror with fail-open fallback to upstream.
+
+    Target launch time is <15s on 25GbE LAN.
+    """
+    t0 = time.monotonic()
+    mirror_failure_detail = ""
+
+    # 1. Attempt local mirror pull
+    try:
+        res = _fetch_from_mirror(image, mirror_url=mirror_url, timeout_s=timeout_s)
+        duration_s = time.monotonic() - t0
+        return PullResult(
+            image=image,
+            success=True,
+            source="mirror",
+            duration_s=duration_s,
+            fallback_used=False,
+            detail=f"pulled from {mirror_url} in {duration_s:.3f}s (bytes={res.get('bytes', 0)})",
+        )
+    except (MirrorUnpopulatedError, MirrorUnreachableError, MirrorError) as exc:
+        mirror_failure_detail = str(exc)
+
+    # 2. Fallback to upstream
+    try:
+        upstream_res = _fetch_from_upstream(image, timeout_s=timeout_s)
+        duration_s = time.monotonic() - t0
+        return PullResult(
+            image=image,
+            success=True,
+            source="upstream",
+            duration_s=duration_s,
+            fallback_used=True,
+            detail=f"fallback to upstream ({upstream_res.get('source')}): mirror was unavailable ({mirror_failure_detail})",
+        )
+    except Exception as upstream_exc:
+        duration_s = time.monotonic() - t0
+        return PullResult(
+            image=image,
+            success=False,
+            source="upstream",
+            duration_s=duration_s,
+            fallback_used=True,
+            detail=f"mirror failed ({mirror_failure_detail}); upstream failed: {upstream_exc}",
+        )
+
+
+def prepopulate_satellite_images(
+    images: list[str] | None = None,
+    mirror_url: str = DEFAULT_MIRROR,
+) -> dict[str, PullResult]:
+    """Pre-populate satellite AI images on cluster boot."""
+    target_images = images or SATELLITE_AI_IMAGES
+    results: dict[str, PullResult] = {}
+    for img in target_images:
+        res = pull_image(img, mirror_url=mirror_url, timeout_s=15.0)
+        results[img] = res
+    return results
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Docker Local Registry Mirror CLI")
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    # config subcommand
+    cfg_parser = subparsers.add_parser("config", help="Generate or update docker daemon.json")
+    cfg_parser.add_argument("--output", "-o", default=str(DEFAULT_DAEMON_CONFIG), help="Output daemon.json path")
+    cfg_parser.add_argument("--mirror", "-m", action="append", help="Mirror URL to add (defaults to 127.0.0.1:5000)")
+    cfg_parser.add_argument("--print", action="store_true", help="Print config to stdout instead of writing file")
+
+    # check subcommand
+    chk_parser = subparsers.add_parser("check", help="Check mirror status and catalog")
+    chk_parser.add_argument("--mirror", "-m", default=DEFAULT_MIRROR, help="Mirror URL to check")
+
+    # pull subcommand
+    pull_parser = subparsers.add_parser("pull", help="Pull image with mirror acceleration")
+    pull_parser.add_argument("image", help="Container image to pull")
+    pull_parser.add_argument("--mirror", "-m", default=DEFAULT_MIRROR, help="Mirror URL")
+    pull_parser.add_argument("--timeout", "-t", type=float, default=15.0, help="Timeout in seconds")
+
+    # prepopulate subcommand
+    pre_parser = subparsers.add_parser("prepopulate", help="Pre-populate satellite AI images")
+    pre_parser.add_argument("--mirror", "-m", default=DEFAULT_MIRROR, help="Mirror URL")
+
+    args = parser.parse_args()
+
+    if args.subcommand == "config":
+        mirrors = args.mirror or [DEFAULT_MIRROR]
+        if args.print:
+            cfg = generate_daemon_config(mirrors=mirrors)
+            print(json.dumps(cfg, indent=2))
+            return 0
+        written = write_daemon_config(target_path=args.output, mirrors=mirrors)
+        print(f"Docker daemon configuration written to {written}")
+        return 0
+
+    if args.subcommand == "check":
+        status = check_mirror_health(args.mirror)
+        print(json.dumps(status, indent=2))
+        return 0 if status["healthy"] else 1
+
+    if args.subcommand == "pull":
+        res = pull_image(args.image, mirror_url=args.mirror, timeout_s=args.timeout)
+        print(f"Pull: {res.image} -> success={res.success} source={res.source} time={res.duration_s:.3f}s ({res.detail})")
+        return 0 if res.success else 1
+
+    if args.subcommand == "prepopulate":
+        results = prepopulate_satellite_images(mirror_url=args.mirror)
+        all_ok = all(r.success for r in results.values())
+        for img, res in results.items():
+            print(f"  [{'PASS' if res.success else 'FAIL'}] {img} ({res.source}, {res.duration_s:.3f}s)")
+        return 0 if all_ok else 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

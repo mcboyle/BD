@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4675,
+  "edge_count": 4698,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1103,6 +1103,8 @@
       "bulk_downloader/staging_claim.py"
     ],
     "bulk_downloader/cloak.py": [
+      "bulk_downloader/browser_sentinel.py",
+      "bulk_downloader/frame_hierarchy.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/netns_isolation.py"
     ],
@@ -1178,6 +1180,9 @@
       "bulk_downloader/login.py",
       "bulk_downloader/provider_resolve.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/deep_http.py": [
+      "bulk_downloader/http_client.py"
     ],
     "bulk_downloader/detect.py": [
       "bulk_downloader/candidate_filter.py",
@@ -1743,6 +1748,9 @@
     "bulk_downloader/redaction_profile.py": [
       "bulk_downloader/global_config.py"
     ],
+    "bulk_downloader/render_diagnostics.py": [
+      "bulk_downloader/ffmpeg_bin.py"
+    ],
     "bulk_downloader/request_replay.py": [
       "bulk_downloader/feature_flags.py"
     ],
@@ -1868,6 +1876,7 @@
       "bulk_downloader/takeover_vnc.py"
     ],
     "bulk_downloader/runner_browser.py": [
+      "bulk_downloader/browser_sentinel.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/eme_detect.py",
@@ -1925,7 +1934,8 @@
       "bulk_downloader/dedup.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/integrity.py",
-      "bulk_downloader/mp4_metadata.py"
+      "bulk_downloader/mp4_metadata.py",
+      "bulk_downloader/stream_verifier.py"
     ],
     "bulk_downloader/runner_manual.py": [
       "bulk_downloader/app.py",
@@ -2071,7 +2081,8 @@
       "bulk_downloader/capture_bodies.py",
       "bulk_downloader/capture_redactor.py",
       "bulk_downloader/challenge_handling.py",
-      "bulk_downloader/fp_detect.py"
+      "bulk_downloader/fp_detect.py",
+      "bulk_downloader/frame_hierarchy.py"
     ],
     "bulk_downloader/session_keeper.py": [
       "bulk_downloader/cloak.py",
@@ -2124,6 +2135,9 @@
     ],
     "bulk_downloader/stream_relay.py": [
       "bulk_downloader/global_config.py"
+    ],
+    "bulk_downloader/stream_verifier.py": [
+      "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/subtitles.py": [
       "bulk_downloader/ssrf_transport.py"
@@ -2493,6 +2507,11 @@
     "tests/test_browser_context_pool.py": [
       "bulk_downloader/browser_pool.py"
     ],
+    "tests/test_browser_heap_sentinel.py": [
+      "bulk_downloader/browser_sentinel.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/runner_browser.py"
+    ],
     "tests/test_bug1_idle_site_delete.py": [
       "bulk_downloader/account_pool.py",
       "bulk_downloader/cookie_health.py",
@@ -2669,6 +2688,9 @@
     "tests/test_child_test_install_dir_isolation.py": [
       "bulk_downloader/db.py"
     ],
+    "tests/test_class_normalizer.py": [
+      "bulk_downloader/class_normalizer.py"
+    ],
     "tests/test_cloak_persistent_context_fallback.py": [
       "bulk_downloader/cloak.py"
     ],
@@ -2728,6 +2750,9 @@
     ],
     "tests/test_contracts.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_contrast_analyzer.py": [
+      "bulk_downloader/contrast_analyzer.py"
     ],
     "tests/test_cookie_health_canonical_config.py": [
       "bulk_downloader/cookie_health.py",
@@ -3158,6 +3183,11 @@
     "tests/test_fixture_site2.py": [
       "tools/fixture_site2.py"
     ],
+    "tests/test_frame_hierarchy.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/frame_hierarchy.py",
+      "bulk_downloader/session_capture.py"
+    ],
     "tests/test_framework_gui.py": [
       "tools/framework_dashboard.py",
       "tools/framework_fleet.py"
@@ -3376,6 +3406,9 @@
     "tests/test_macro_secret_scrub.py": [
       "bulk_downloader/macro_recorder.py",
       "bulk_downloader/macro_replay.py"
+    ],
+    "tests/test_main_content_isolator.py": [
+      "bulk_downloader/main_content.py"
     ],
     "tests/test_mass_import_jobs_bounded.py": [
       "bulk_downloader/mass_import.py"
@@ -4575,6 +4608,16 @@
       "bulk_downloader/audio_fingerprint.py",
       "bulk_downloader/ffmpeg_bin.py"
     ],
+    "tests/test_row839_squid_proxy_pooling.py": [
+      "bulk_downloader/deep_http.py",
+      "bulk_downloader/http_client.py"
+    ],
+    "tests/test_row840_render_diagnostics.py": [
+      "bulk_downloader/render_diagnostics.py"
+    ],
+    "tests/test_row848_hls_prefetch.py": [
+      "bulk_downloader/hls_prefetch.py"
+    ],
     "tests/test_row852_zstd_compression.py": [
       "bulk_downloader/archive_compression.py"
     ],
@@ -4833,6 +4876,10 @@
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_stream_verifier.py": [
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/stream_verifier.py"
     ],
     "tests/test_subtitle_chapter_harvester.py": [
       "bulk_downloader/mp4_metadata.py",

@@ -4,6 +4,24 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1586 - train11: 13 census cuts on 2c38520a
+
+Train: 13 refute-first-reviewed worker patches (O1009 census). Base 2c38520a. Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: 825-r3 853-r2 915-r3-fx2 (.train/bounced.tsv).
+
+- 824-r3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row824-r3-local/DONE.md
+- 839-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row839-local/DONE.md
+- 840-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row840-local/DONE.md
+- 844-r3-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row844-r3-local/DONE.md
+- 848-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row848-local/DONE.md
+- 873-r3-local: BASE: 372bac82564deb86c7988c697b5b9d17b114d394 ROW: 873-r3 TARGET: REDIS-CLUSTER-PUBSUB-LIVE-EVENT-BROADCASTER WORKTREE: /home/mboyle/bd-cuts/cut/row873-r3 INDE
+- 886-local: SEAMS: - toolchain/bin/bd-diff-coverage: - parse_diff_added_lines: parses unified git diff to extract added/modified line numbers - analyze_diff_coverage: check
+- 927-r2-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row927-r2-local/DONE.md
+- 931-r2-local: OBJECT: TREE e1c2d36f96de63c02b430b9c0d73601ae82dc645 PATCH-SHA256: d426d31e8183c33ae0cfe4e95e9115ccb215bac8e266180e0c64533d9b4795f9 CONTENT-SHA256: d699e34f5f4
+- 944-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row944-local/DONE.md
+- 947-local: STAGED (git diff --cached e020e3b7658d182aacaef497f940abbf0ea01c4f --name-only = 2, both NEW): bulk_downloader/main_content.py tests/test_main_content_isolator.
+- 948-local: OBJECT: TREE 98f13c48480e74cd549cb4a4cf6cd25dcddc2de9 (pre-E-fix; superseded by TREE line below) TREE: 6121c645b4d2484f2dbde5c9bfb1495717143026 PATCH-SHA256: 16
+- 952-local: RED COMMAND: ./venv/bin/python -m pytest tests/test_stream_verifier.py::test_detects_truncated_media_stream_and_dropped_packets -q -> rc=1, AssertionError: stre
+
 ## v3.66.1585 - train10: one big train (O1009) -- 47 cuts
 
 Train: 46 refute-first-reviewed worker patches (O1009 one big train; row660c-fx1 dropped per O1019). Base 372bac82. Rows 829 833 836 837 PARKED->OPEN->CLOSED (O978/O978b). Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: see .train/bounced.tsv.

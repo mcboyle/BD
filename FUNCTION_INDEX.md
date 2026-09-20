@@ -369,17 +369,19 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_integrity.py` (8 entries)
+## `bulk_downloader/runner_integrity.py` (10 entries)
 
 ```
-- L0033 `IntegrityMixin` `[class]`
-  - L0034 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
-  - L0095 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
-  - L0164 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
-  - L0241 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
-  - L0294 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0385 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0493 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+- L0035 `_is_stream_container` `[private]` — True for the files verify_media_integrity checks with ffprobe (video/audio/unknown);
+- L0042 `IntegrityMixin` `[class]`
+  - L0043 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
+  - L0104 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
+  - L0173 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
+  - L0250 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
+  - L0264 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
+  - L0317 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
+  - L0424 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0532 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -904,4 +906,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 728 across 22 files._
+_Total entries: 730 across 22 files._
