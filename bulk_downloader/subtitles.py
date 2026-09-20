@@ -30,6 +30,7 @@ calls — providers throttle hard.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional, List
@@ -190,6 +191,95 @@ def download_for_file(
         sys.stderr.write(f"[subtitles] {p.name}: {e}\n")
         return {"ok": False, "downloaded": [], "skipped": [],
                 "error": str(e)[:300]}
+
+
+# ─── Source-page text-track discovery (Row 910) ────────────────────
+#
+# subliminal above queries third-party subtitle providers by filename
+# guess. This is a different, additive path: the source web page
+# itself often already serves .vtt/.srt caption tracks (player
+# subtitle menus, chapter text tracks) that a static scraper skips
+# because they load via the player's own XHR/fetch, not the media
+# URL. When the caller already has a list of URLs seen on the page
+# (e.g. from a network capture), discover_page_track_urls() picks out
+# the caption-looking ones and download_track() saves them as sidecars
+# next to the video -- byte-for-byte, so the source page's original
+# character encoding survives untouched.
+
+_TRACK_URL_RE = re.compile(r"\.(vtt|srt)(?:[?#]|$)", re.IGNORECASE)
+
+
+def discover_page_track_urls(urls) -> List[dict]:
+    """Given an iterable of URLs observed on a source page (network
+    requests, <track> src attributes, etc.), return the subset that
+    look like caption/subtitle text tracks.
+
+    Returns a list of {"url": str, "kind": "vtt"|"srt"}, in input
+    order, skipping non-string/empty entries. Never raises."""
+    out: List[dict] = []
+    for u in urls or []:
+        if not u or not isinstance(u, str):
+            continue
+        m = _TRACK_URL_RE.search(u)
+        if not m:
+            continue
+        out.append({"url": u, "kind": m.group(1).lower()})
+    return out
+
+
+def download_track(
+    url: str,
+    dest_path,
+    *,
+    timeout: float = 10.0,
+    referer: str = "",
+    user_agent: str = "",
+) -> dict:
+    """Fetch a source-page .vtt/.srt text track and save it as a
+    sidecar file at `dest_path`.
+
+    Writes the response bytes verbatim (no decode/re-encode step), so
+    whatever character encoding the source page served (UTF-8, UTF-8
+    with BOM, Latin-1, etc.) round-trips exactly -- we never guess or
+    normalize an encoding.
+
+    Returns {"ok": bool, "path": str|None, "error": str|None}.
+    Never raises -- egress goes through the same SSRF-guarded
+    transport as mp4_metadata.fetch_cover.
+    """
+    if not url or not isinstance(url, str):
+        return {"ok": False, "path": None, "error": "empty url"}
+    if not url.lower().startswith(("http://", "https://")):
+        return {"ok": False, "path": None, "error": "unsupported scheme"}
+    try:
+        import httpx
+    except ImportError:
+        return {"ok": False, "path": None, "error": "httpx not available"}
+    headers = {}
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    if referer:
+        headers["Referer"] = referer
+    try:
+        from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+        with httpx.Client(timeout=timeout, follow_redirects=True,
+                           transport=guarded_transport(PINNED)) as client:
+            r = client.get(url, headers=headers)
+            if r.status_code != 200:
+                return {"ok": False, "path": None,
+                        "error": f"HTTP {r.status_code}"}
+            data = r.content
+    except httpx.RequestError as e:
+        return {"ok": False, "path": None, "error": str(e)[:300]}
+    except Exception as e:
+        return {"ok": False, "path": None, "error": str(e)[:300]}
+    try:
+        p = Path(dest_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    except OSError as e:
+        return {"ok": False, "path": None, "error": str(e)[:300]}
+    return {"ok": True, "path": str(p), "error": None}
 
 
 def status_dict() -> dict:

@@ -281,6 +281,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Index refresh is optional: a stale-but-present index can still satisfy the
 # installs, and when it cannot, the group steps below fail and say so.
+if [ -n "$REPO" ] && [ -x "$REPO/toolchain/bin/bd-apt-cache" ]; then
+    run_step 03a_apt_cache "apt cache proxy" optional "$REPO/toolchain/bin/bd-apt-cache" --configure || true
+fi
 # shellcheck disable=SC2086  # $SUDO is empty when already root
 run_step 03a_apt_update "package index refresh" optional $SUDO apt-get update || true
 

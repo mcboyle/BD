@@ -107,10 +107,12 @@
           "bd-regen-order",
           "--check",
           "--work",
-          "{tree}"
+          "{tree}",
+          "--check-reachability"
         ],
         "block_on_exit": [
-          1
+          1,
+          2
         ],
         "cost_hint": 16
       },

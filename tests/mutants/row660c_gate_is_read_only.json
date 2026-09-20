@@ -1,0 +1,72 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 660. M1 replaces measurement with a dry run; M2 bypasses the read-only branch; M3 accepts an empty population; M4 removes UNKNOWN from the blocking declaration; M5 ignores endpoint-total drift; M6 writes the wrong endpoint total; M7 deletes measurement validity checks. Each anchor uses old_regex. The transform control applies behavioral transforms to an import-only spec and must ESCAPE.",
+  "subject": "the footgun gate measures reachability without rewriting tracked generated artifacts",
+  "band": [
+    "tests/test_row660_gate_is_read_only.py::test_footgun_gate_does_not_rewrite_the_tree_it_checks",
+    "tests/test_row660_gate_is_read_only.py::test_footgun_detector_still_refuses_real_reachability_drift",
+    "tests/test_row660_gate_is_read_only.py::test_zero_reachability_denominator_is_unknown",
+    "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut",
+    "tests/test_row660_gate_is_read_only.py::test_endpoint_disappearance_is_drift_even_when_dark_total_holds",
+    "tests/test_row660_gate_is_read_only.py::test_update_writes_endpoint_count_measured_from_the_same_tree",
+    "tests/test_row660_gate_is_read_only.py::test_invalid_reachability_measurements_are_unknown"
+  ],
+  "mutants": [
+    {
+      "label": "M1 detector dry-runs instead of measuring reachability",
+      "file": "FOOTGUNS.json",
+      "old_regex": "(?m)(?<=^          \\\"--)check-reachability(?=\\\"$)",
+      "new": "dry-run",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_footgun_detector_still_refuses_real_reachability_drift"
+    },
+    {
+      "label": "M2 read-only reachability branch is bypassed",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)^    if a\\.check_reachability:$",
+      "new": "    if False:  # mutant: bypass the read-only detector path",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_footgun_gate_does_not_rewrite_the_tree_it_checks"
+    },
+    {
+      "label": "M3 an empty endpoint population is treated as measured drift",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    if )not(?= total:$)",
+      "new": "False and",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_zero_reachability_denominator_is_unknown"
+    },
+    {
+      "label": "M4 UNKNOWN is removed from the blocking exit declaration",
+      "file": "FOOTGUNS.json",
+      "old_regex": "(?<=          1,\n          )(?=2\n        \\],\n        \"cost_hint\": 16)",
+      "new": "-",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut"
+    },
+    {
+      "label": "M5 endpoint-total drift is ignored",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^    if )total(?= != base_total:$)",
+      "new": "base_total",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_endpoint_disappearance_is_drift_even_when_dark_total_holds"
+    },
+    {
+      "label": "M6 writer records dark count as endpoint count",
+      "file": "tools/endpoint_reachability.py",
+      "old_regex": "(?m)(?<=^                   \\\"endpoint_count\\\": d\\[\\\"counts\\\"\\]\\[\\\")mutating(?=\\\"\\],$)",
+      "new": "dark",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_update_writes_endpoint_count_measured_from_the_same_tree"
+    },
+    {
+      "label": "M7 invalid endpoint measurements are accepted",
+      "file": "toolchain/bin/bd-regen-order",
+      "old_regex": "(?m)(?<=^        if )type\\(total\\) is not int or type\\(now\\) is not int or not(?= \\(0 <= now <= total\\):$)",
+      "new": "False and",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_invalid_reachability_measurements_are_unknown"
+    }
+  ]
+}

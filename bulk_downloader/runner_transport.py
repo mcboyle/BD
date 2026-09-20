@@ -33,6 +33,7 @@ from .constants import (
     _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
 )
 from . import staging_claim
+from .dedup import HeaderDuplicateRejected
 from .download_egress import (
     EgressCarrierError, effective_download_proxy, prepare_http_proxy,
 )
@@ -1564,6 +1565,78 @@ class TransportMixin:
         if total <= 0:
             return True
         return downloaded >= total
+    def _header_dedup_bytes(self, page_url) -> int:
+        """Prefix length the header-stage dedup samples; 0 = gate off
+        (config dedup_header_preflight=False, force_download on the job, or
+        ffmpeg absent)."""
+        if not self.config.get("dedup_header_preflight", True):
+            return 0
+        try:
+            with self._lock:
+                if (self.jobs.get(page_url) or {}).get("force_download"):
+                    return 0
+        except Exception:
+            pass
+        if not ffmpeg_bin.available():
+            return 0
+        from . import dedup as _dedup
+        try:
+            n = int(self.config.get("dedup_header_bytes",
+                                    _dedup.HEADER_SAMPLE_BYTES) or 0)
+        except (TypeError, ValueError):
+            n = _dedup.HEADER_SAMPLE_BYTES
+        return max(0, n)
+
+    def _header_dedup_gate(self, tmp_path, final_path, page_url, header_bytes,
+                           cleanup):
+        """Sample the staged prefix; on a perceptual match drop the staging
+        artefacts and raise HeaderDuplicateRejected. A miss registers
+        ``final_path`` in the index. Anything undecidable lets the transfer
+        continue."""
+        from . import dedup as _dedup
+        try:
+            with open(tmp_path, "rb") as src:
+                prefix = src.read(header_bytes)
+            # Not get_default_registry(): that singleton pins whichever
+            # db_path it saw first, so a per-site dedup_db_path would be
+            # silently ignored. Connections are per-operation anyway.
+            registry = _dedup.HashRegistry(
+                self.config.get("dedup_db_path", "video_hashes.db"))
+            try:
+                distance = max(0, min(32, int(self.config.get(
+                    "dedup_distance", _dedup.HEADER_DISTANCE))))
+            except (TypeError, ValueError):
+                distance = _dedup.HEADER_DISTANCE
+            rec = _dedup.preflight_header_reject(
+                prefix, registry=registry, final_path=str(final_path),
+                source_url=page_url, distance=distance)
+        except Exception as e:
+            self.log.warning("header dedup skipped for %s: %s", page_url, e)
+            return
+        if rec is None:
+            return
+        self.log_event("dedup_header_reject",
+                       f"Duplicate of {Path(rec.duplicate_of).name} "
+                       f"(distance {rec.distance}, {rec.frames} keyframes); "
+                       f"stopped after {rec.bytes_sampled} bytes",
+                       url=page_url, extra=rec.as_dict())
+        meta_path, reserved_staging_path, ramdisk_path, identity = cleanup
+        for _p in (ramdisk_path, tmp_path, meta_path):
+            if not _p:
+                continue
+            try: Path(_p).unlink(missing_ok=True)
+            except Exception: pass
+        if ramdisk_path:
+            try:
+                from . import ramdisk_stage as _rd
+                _rd.release(ramdisk_path)
+            except Exception:
+                pass
+        staging_claim.release(Path(reserved_staging_path), identity)
+        if ramdisk_path:
+            staging_claim.release(Path(ramdisk_path), identity)
+        raise HeaderDuplicateRejected(rec)
+
     @staticmethod
     def _promote_or_abort(tmp_path, final_path, downloaded, total, meta_path=None,
                           identity=None):
@@ -2425,6 +2498,19 @@ class TransportMixin:
                     db_log(self.site_id, self.config.get("name","?"), page_url,
                            "needs_review", "", 0, f"integrity: {e}")
                     return
+                except HeaderDuplicateRejected as e:
+                    # row857: the header-stage perceptual index matched an
+                    # existing destination. The .part is already gone. Same
+                    # terminal status as the history-match preflight; an
+                    # operator Approve (force_download) re-queues past it.
+                    note = f"Duplicate (header hash): {e}"
+                    self._update_job(page_url, "skipped_duplicate", note,
+                                     filename=Path(e.record.duplicate_of).name,
+                                     file_size=0)
+                    db_log(self.site_id, self.config.get("name","?"), page_url,
+                           "skipped_duplicate", Path(e.record.duplicate_of).name,
+                           0, note, bytes_fetched=e.record.bytes_sampled)
+                    return
                 except _HTTPDownloadFailed as e:
                     if click_only_grant:
                         self._handle_failure(
@@ -3126,6 +3212,10 @@ class TransportMixin:
                 # written since window_start; if cap exceeded mid-window,
                 # we sleep the difference. Reset every 1.0s.
                 window_start=start; window_bytes=0
+                # row857: header-stage perceptual dedup. Fires once, the
+                # first time the staged prefix reaches dedup_header_bytes.
+                _hdr_bytes = self._header_dedup_bytes(page_url)
+                _hdr_pending = _hdr_bytes > 0
                 # Phase 6.2: persist resume position to the queue table at
                 # start so a crash doesn't lose track of where we are.
                 if resume_from>0:
@@ -3183,6 +3273,13 @@ class TransportMixin:
                         downloaded+=len(buf)
                         streamed+=len(buf)
                         window_bytes+=len(buf)
+                        if _hdr_pending and downloaded >= _hdr_bytes:
+                            _hdr_pending = False
+                            f.flush()
+                            self._header_dedup_gate(
+                                tmp_path, final_path, page_url, _hdr_bytes,
+                                cleanup=(meta_path, reserved_staging_path,
+                                         _ramdisk_staging_path, identity))
                         if _daily_bytes is not None:
                             _daily_bytes.add(len(buf))
                         # Phase 8.3: feed the rolling bandwidth tracker
@@ -3230,7 +3327,7 @@ class TransportMixin:
                             report_progress(downloaded, msg)
         except httpx.HTTPError as e:
             raise _HTTPDownloadFailed(f"http error: {e}")
-        except _HTTPDownloadFailed:
+        except (_HTTPDownloadFailed, HeaderDuplicateRejected):
             raise
         except Exception as e:
             raise _HTTPDownloadFailed(f"unexpected: {e}")
@@ -3968,3 +4065,63 @@ class TransportMixin:
             return {**mux_result, "sync": None}
         sync_result = TransportMixin._verify_av_sync(output_path, tolerance_ms=tolerance_ms)
         return {**mux_result, "sync": sync_result}
+
+    def _run_transport_consumers(self, manifest_queue, *, workers, stats=None,
+                                 stop_event=None):
+        """Transport-worker entry point for the discovery queue (row 928):
+        each manifest becomes one ``_do_direct_http_download`` call."""
+        def _transfer(manifest):
+            return self._do_direct_http_download(
+                manifest["page_url"], manifest["file_url"], manifest["output_path"],
+                manifest.get("referer", ""))
+        return consume_manifest_queue(manifest_queue, _transfer, workers=workers,
+                                      stats=stats, stop_event=stop_event)
+
+
+from .pipeline_orchestrator import PipelineStats, is_close_marker
+
+
+class _ManifestConsumers:
+    def __init__(self, threads):
+        self.threads = threads
+
+    def join(self, timeout=None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        for t in self.threads:
+            t.join(None if deadline is None else max(0.0, deadline - time.monotonic()))
+        return not any(t.is_alive() for t in self.threads)
+
+
+def consume_manifest_queue(manifest_queue, transfer, *, workers, stats=None,
+                           stop_event=None, poll_timeout=1.0):
+    """Consumer side of row 928: ``workers`` threads pull manifests from
+    ``manifest_queue`` and run ``transfer(manifest) -> bool`` on each.
+    Exits on the producer's close marker (re-queued for the other workers)
+    or when ``stop_event`` is set."""
+    if workers < 1:
+        raise ValueError(f"workers must be >= 1, got {workers!r}")
+    stats = stats if stats is not None else PipelineStats()
+    stop_event = stop_event or threading.Event()
+
+    def _worker():
+        while not stop_event.is_set():
+            manifest = manifest_queue.get(timeout=poll_timeout)
+            if manifest is None:
+                continue
+            if is_close_marker(manifest):
+                manifest_queue.put(manifest)
+                return
+            stats.transfer_started()
+            ok = False
+            try:
+                ok = bool(transfer(manifest))
+            except Exception as e:
+                sys.stderr.write(f"[runner_transport] manifest transfer failed: {e}\n")
+            finally:
+                stats.transfer_finished(ok)
+
+    threads = [threading.Thread(target=_worker, name=f"bd-transport-{i}", daemon=True)
+               for i in range(workers)]
+    for t in threads:
+        t.start()
+    return _ManifestConsumers(threads)

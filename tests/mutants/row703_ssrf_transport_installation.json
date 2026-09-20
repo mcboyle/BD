@@ -359,6 +359,14 @@
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
     },
     {
+      "label": "unpin bulk_downloader/subtitles.py::download_track",
+      "file": "bulk_downloader/subtitles.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
       "label": "unpin bulk_downloader/tg_bot.py::_http_get_json",
       "file": "bulk_downloader/tg_bot.py",
       "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ log\\.info\\(\"tg_bot:\\ httpx\\ not\\ installed;\\ bot\\ disabled\"\\)\\\n\\ \\ \\ \\ \\ \\ \\ \\ return\\ None\\\n\\ \\ \\ \\ try:\\\n\\ \\ \\ \\ \\ \\ \\ \\ import\\ httpx\\\n\\ \\ \\ \\ \\ \\ \\ \\ from\\ bulk_downloader\\.ssrf_transport\\ import\\ guarded_transport,\\ PINNED\\\n\\ \\ \\ \\ \\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=timeout_s,\\ transport)(?==guarded_transport\\()",
@@ -434,6 +442,14 @@
       "label": "unpin bulk_downloader/vpn_providers/pia.py::_pia_addkey",
       "file": "bulk_downloader/vpn_providers/pia.py",
       "old_regex": "(?<=\\ \\ \\ \\ with\\ httpx\\.Client\\(timeout=PIA_API_TIMEOUT_S,\\ verify=False,\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/http3_client.py::_fetch_sync",
+      "file": "bulk_downloader/http3_client.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\()",
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"

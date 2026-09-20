@@ -14,6 +14,13 @@ from ._common import (
     _css_escape_for_id,
     _ms_since,
 )
+from .mfa_helper import (
+    MfaConfigError,
+    generate_totp,
+    verify_totp,
+    site_totp_key,
+    resolve_totp_secret,
+)
 from .manual import (
     _MANUAL_LOGIN_BANNER_JS,
     ManualLoginSession,
@@ -49,6 +56,11 @@ from .submit import (
 )
 
 __all__ = [
+    "MfaConfigError",
+    "generate_totp",
+    "verify_totp",
+    "site_totp_key",
+    "resolve_totp_secret",
     "ManualLoginSession",
     "open_manual_login_browser",
     "finalize_manual_login",

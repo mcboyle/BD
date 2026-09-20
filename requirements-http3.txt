@@ -1,0 +1,11 @@
+# Bulk Downloader -- HTTP/3 (QUIC) media transport (OPTIONAL, row887 / O963a)
+#
+# Install (online package index):  pip install -U -r requirements-http3.txt
+#
+# Why a separate file: the fleet package index has no aioquic distribution, so a
+# pin in requirements.txt would fail every venv build and deploy convergence.
+# bulk_downloader/http3_client.py imports aioquic by name through importlib;
+# when it is absent every download falls back to the guarded httpx TCP
+# transport (AIOQUIC_AVAILABLE=False) and nothing else changes. Installing it is
+# therefore NON-FATAL by design.
+aioquic>=1.2,<2.0

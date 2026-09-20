@@ -492,6 +492,70 @@ def context_to_template_vars(ctx: MetadataContext) -> dict:
     }
 
 
+# ─── Chapter marker embedding (Row 910) ─────────────────────────────
+#
+# mutagen has no writer for a real QuickTime chapter track (that needs
+# a second video track + sample table, well beyond a tagging module).
+# Instead we embed the interval list as a JSON-encoded iTunes freeform
+# atom, the same mechanism iTunes/Plex-adjacent tools use for custom
+# metadata that isn't one of the standard \xa9 atoms -- it round-trips
+# through mutagen's normal MP4() read/write path and survives a
+# save()/reload() cycle intact. enrichment.detect_chapters() is the
+# producer of the interval list; this module only embeds, it does not
+# re-derive chapter boundaries itself.
+
+CHAPTERS_ATOM_KEY = "----:com.apple.iTunes:chapters"
+
+
+def embed_chapter_markers(path, *, chapters: Optional[list] = None,
+                           video_path: Optional[str] = None) -> bool:
+    """Embed chapter interval markers into an MP4 container at `path`.
+
+    `chapters` follows enrichment.detect_chapters()'s format:
+        [{"start": float, "end": float, "duration": float}, ...]
+    When omitted, calls bulk_downloader.enrichment.detect_chapters on
+    `video_path` (default: `path` itself) to produce them.
+
+    Returns True on success, False for: mutagen unavailable, `path`
+    not an MP4, no chapters (given or detected), or any write failure.
+    Never raises.
+    """
+    mod = _try_import_mutagen()
+    if mod is None:
+        return False
+    if not is_mp4_path(path):
+        log.info("mp4_metadata: %s is not an MP4 file; skipping chapters", path)
+        return False
+    if chapters is None:
+        try:
+            from bulk_downloader.enrichment import detect_chapters
+        except ImportError as e:
+            log.info("mp4_metadata: enrichment.detect_chapters unavailable: %s", e)
+            return False
+        chapters = detect_chapters(video_path or str(path))
+    if not chapters:
+        log.info("mp4_metadata: no chapter markers to embed for %s", path)
+        return False
+    try:
+        import json
+        MP4 = getattr(mod, "MP4", None)
+        MP4FreeForm = getattr(mod, "MP4FreeForm", None)
+        if MP4 is None or MP4FreeForm is None:
+            log.warning("mp4_metadata: mutagen.mp4 missing MP4/MP4FreeForm class")
+            return False
+        payload = json.dumps(chapters, separators=(",", ":")).encode("utf-8")
+        f = MP4(str(path))
+        f[CHAPTERS_ATOM_KEY] = [MP4FreeForm(payload)]
+        f.save()
+        log.info("mp4_metadata: embedded %d chapter marker(s) in %s",
+                 len(chapters), path)
+        return True
+    except Exception as e:
+        log.warning("mp4_metadata: chapter embed failed for %s: %s: %s",
+                    path, type(e).__name__, e)
+        return False
+
+
 __all__ = [
     "MetadataContext",
     "is_available",
@@ -500,4 +564,6 @@ __all__ = [
     "fetch_cover",
     "build_context_from_extract_result",
     "context_to_template_vars",
+    "embed_chapter_markers",
+    "CHAPTERS_ATOM_KEY",
 ]

@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""bd-fixture-gen -- Deterministic test fixture synthesis from sanitized network traces.
+
+Converts recorded HAR network traces into sanitized, credential-free, deterministic
+mock fixtures and executable offline pytest test suites. 0 site logins touched (Rule 21).
+
+Usage:
+  bd-fixture-gen <trace.har> --out <dir> [--name <name>]
+  bd-fixture-gen --selftest
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import json
+import re
+import sys
+import tempfile
+import urllib.parse
+from pathlib import Path
+from typing import Any
+
+# Sensitive terms for query params, headers, and payload sanitization
+SENSITIVE_KEYS = {
+    "token", "key", "session", "password", "email", "phone", "auth",
+    "jwt", "sig", "signature", "api_key", "apikey", "access_key",
+    "access_token", "secret", "bearer", "authorization", "credential",
+    "sid", "code", "passwd", "secretkey", "authtoken",
+}
+
+MEDIA_MIME_RE = re.compile(r"^(video|audio|application/octet-stream|application/x-mpegURL)", re.IGNORECASE)
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+
+# Minimal valid MP4 container box header (ftyp + free + mdat)
+MOCK_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isommp42\x00\x00\x00\x08free\x00\x00\x00\x10mdat"
+MOCK_MP4_BASE64 = base64.b64encode(MOCK_MP4_BYTES).decode("ascii")
+
+
+def _sanitize_url(raw_url: str) -> str:
+    """Sanitize URL by removing netloc user/pass and sensitive query parameters."""
+    if not raw_url:
+        return ""
+
+    parsed = urllib.parse.urlsplit(raw_url)
+
+    # 1. Strip netloc credentials: user:pass@host -> host
+    netloc = parsed.netloc
+    if "@" in netloc:
+        netloc = netloc.split("@", 1)[1]
+
+    # 2. Scrub sensitive query parameters
+    clean_query_pairs = []
+    for k, v in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        k_lower = k.lower()
+        if k_lower in SENSITIVE_KEYS or any(k_lower.endswith(s) for s in ("token", "key", "secret", "sig", "auth")):
+            continue  # Drop or redact sensitive query tokens
+        clean_query_pairs.append((k, v))
+
+    clean_query = urllib.parse.urlencode(clean_query_pairs)
+    return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, clean_query, ""))
+
+
+def _sanitize_data(data: Any) -> Any:
+    """Recursively scrub sensitive keys and email patterns from dicts/lists."""
+    if isinstance(data, dict):
+        cleaned = {}
+        for k, v in data.items():
+            k_lower = str(k).lower()
+            if k_lower in SENSITIVE_KEYS or any(k_lower.endswith(s) for s in ("token", "key", "secret", "password", "auth")):
+                cleaned[k] = "[REDACTED]"
+            else:
+                cleaned[k] = _sanitize_data(v)
+        return cleaned
+    elif isinstance(data, list):
+        return [_sanitize_data(item) for item in data]
+    elif isinstance(data, str):
+        return EMAIL_RE.sub("user@sanitized.local", data)
+    return data
+
+
+def _sanitize_post_data(post_data: dict[str, Any]) -> dict[str, Any]:
+    """Sanitize request postData payload."""
+    if not post_data or not isinstance(post_data, dict):
+        return post_data
+
+    mime = post_data.get("mimeType", "").lower()
+    text = post_data.get("text", "")
+
+    if text:
+        if "json" in mime or text.strip().startswith(("{", "[")):
+            try:
+                parsed_json = json.loads(text)
+                sanitized_json = _sanitize_data(parsed_json)
+                post_data["text"] = json.dumps(sanitized_json)
+            except Exception:
+                post_data["text"] = EMAIL_RE.sub("user@sanitized.local", text)
+        else:
+            post_data["text"] = EMAIL_RE.sub("user@sanitized.local", text)
+
+    return post_data
+
+
+def sanitize_har(trace: dict[str, Any]) -> dict[str, Any]:
+    """Exhaustively scrub credentials, netloc userinfo, and mock media in HAR."""
+    log = trace.get("log", {})
+    for entry in log.get("entries", []):
+        req = entry.get("request", {})
+
+        # URL sanitization
+        req["url"] = _sanitize_url(req.get("url", ""))
+
+        # Headers sanitization
+        clean_headers = []
+        for h in req.get("headers", []):
+            hname = h.get("name", "").lower()
+            if hname in {"authorization", "cookie", "set-cookie", "proxy-authorization"}:
+                continue
+            if hname.startswith(("x-auth", "x-token", "x-api", "x-secret", "x-amz-security-token")):
+                continue
+            if any(hname.endswith(s) for s in ("token", "key", "secret", "auth", "cookie")):
+                continue
+            clean_headers.append(h)
+        req["headers"] = clean_headers
+
+        # Cookies in request
+        if "cookies" in req:
+            req["cookies"] = []
+
+        # PostData sanitization
+        if "postData" in req:
+            req["postData"] = _sanitize_post_data(req["postData"])
+
+        # Response content mocking for media
+        resp = entry.get("response", {})
+        if "cookies" in resp:
+            resp["cookies"] = []
+        content = resp.get("content", {})
+        mime = content.get("mimeType", "")
+        if MEDIA_MIME_RE.match(mime):
+            if content.get("encoding") == "base64":
+                content["text"] = MOCK_MP4_BASE64
+                content["size"] = len(MOCK_MP4_BYTES)
+            else:
+                content["text"] = "# Mock media playlist / stream placeholder\n"
+                content["size"] = len(content["text"])
+
+    return trace
+
+
+def generate_pytest_suite(sanitized_trace: dict[str, Any], name: str) -> str:
+    """Generate an executable, hermetic pytest test suite using a mock HTTP server."""
+    entries = sanitized_trace.get("log", {}).get("entries", [])
+    routes = []
+    for e in entries:
+        req = e.get("request", {})
+        resp = e.get("response", {})
+        url = req.get("url", "")
+        parsed = urllib.parse.urlsplit(url)
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        status = resp.get("status", 200)
+        content_type = resp.get("content", {}).get("mimeType", "application/octet-stream")
+        is_b64 = resp.get("content", {}).get("encoding") == "base64"
+        body_text = resp.get("content", {}).get("text", "")
+        routes.append({
+            "path": path,
+            "status": status,
+            "content_type": content_type,
+            "is_base64": is_b64,
+            "body": body_text,
+        })
+
+    routes_b64 = base64.b64encode(json.dumps(routes).encode("utf-8")).decode("ascii")
+    code = f'''"""Generated offline deterministic fixture test suite for {name}."""
+from __future__ import annotations
+
+import base64
+import json
+import threading
+import urllib.request
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+import pytest
+
+BD_GATE_SCOPE = "module"
+
+_ROUTES_DATA = "{routes_b64}"
+_ROUTES = json.loads(base64.b64decode(_ROUTES_DATA.encode("ascii")).decode("utf-8"))
+
+
+class MockFixtureHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self._serve()
+
+    def do_POST(self):
+        self._serve()
+
+    def _serve(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        req_path = parsed.path
+        # Match by path or path+query
+        matched = next((r for r in _ROUTES if r["path"] == self.path or r["path"].split("?")[0] == req_path), None)
+        if matched:
+            self.send_response(matched["status"])
+            self.send_header("Content-Type", matched["content_type"])
+            if matched["is_base64"]:
+                data = base64.b64decode(matched["body"])
+            else:
+                data = matched["body"].encode("utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture(scope="module")
+def mock_server():
+    server = HTTPServer(("127.0.0.1", 0), MockFixtureHandler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{{port}}"
+    try:
+        yield base_url
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
+def test_{name}_replay_offline(mock_server: str):
+    """Verify mock HTTP server replays recorded endpoints offline."""
+    assert len(_ROUTES) > 0, "No routes defined in fixture"
+    for r in _ROUTES:
+        url = f"{{mock_server}}{{r['path']}}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            assert resp.getcode() == r["status"]
+            assert resp.headers.get("Content-Type") == r["content_type"]
+            body = resp.read()
+            assert len(body) > 0
+
+
+def test_{name}_credentials_clean():
+    """Verify no leaked tokens or passwords in synthesized test suite."""
+    raw_text = json.dumps(_ROUTES)
+    for forbidden in ("password", "myPlainPassword", "superSecret", "mySecretBearerToken"):
+        assert forbidden not in raw_text, f"Forbidden credential leaked: {{forbidden}}"
+'''
+    return code
+
+
+def run_selftest() -> bool:
+    """Internal hermetic self-test for bd-fixture-gen."""
+    print("Running bd-fixture-gen selftest...")
+    sample_trace = {
+        "log": {
+            "version": "1.2",
+            "entries": [
+                {
+                    "request": {
+                        "url": "https://admin:pass123@api.test.org/v1?token=xyz999&id=1",
+                        "headers": [{"name": "Authorization", "value": "Bearer token"}],
+                        "postData": {"mimeType": "application/json", "text": '{"secret": "data"}'}
+                    },
+                    "response": {
+                        "status": 200,
+                        "content": {
+                            "mimeType": "video/mp4",
+                            "encoding": "base64",
+                            "text": "b64placeholder"
+                        }
+                    }
+                }
+            ]
+        }
+    }
+
+    with tempfile.TemporaryDirectory() as td:
+        har_file = Path(td) / "test.har"
+        har_file.write_text(json.dumps(sample_trace), encoding="utf-8")
+
+        out_dir = Path(td) / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        sanitized = sanitize_har(sample_trace)
+        req = sanitized["log"]["entries"][0]["request"]
+        assert "pass123" not in req["url"]
+        assert "token=xyz999" not in req["url"]
+        assert len(req["headers"]) == 0
+        assert "[REDACTED]" in req["postData"]["text"]
+
+        content = sanitized["log"]["entries"][0]["response"]["content"]
+        assert content["text"] == MOCK_MP4_BASE64
+
+        code = generate_pytest_suite(sanitized, "selftest")
+        assert "def test_selftest_replay_offline" in code
+
+        print("SELFTEST PASS")
+        return True
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Deterministic fixture synthesizer from HAR traces")
+    parser.add_argument("trace", nargs="?", default="", help="Path to input HAR file")
+    parser.add_argument("--out", type=str, default="", help="Output directory for generated fixtures")
+    parser.add_argument("--name", type=str, default="trace", help="Fixture name prefix")
+    parser.add_argument("--selftest", action="store_true", help="Run internal self-tests")
+
+    args = parser.parse_args(argv)
+
+    if args.selftest:
+        return 0 if run_selftest() else 1
+
+    if not args.trace or not args.out:
+        parser.print_help(file=sys.stderr)
+        return 2
+
+    trace_path = Path(args.trace)
+    if not trace_path.is_file():
+        print(f"Error: trace file not found: {trace_path}", file=sys.stderr)
+        return 3
+
+    try:
+        raw_trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        if not isinstance(raw_trace.get("log", {}).get("entries"), list):
+            raise ValueError("Invalid HAR format: log.entries missing")
+    except Exception as exc:
+        print(f"Error reading HAR file: {exc}", file=sys.stderr)
+        return 3
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    sanitized = sanitize_har(raw_trace)
+
+    # 1. Write sanitized HAR
+    (out_dir / "trace.sanitized.har").write_text(
+        json.dumps(sanitized, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    # 2. Write executable pytest test suite
+    test_code = generate_pytest_suite(sanitized, args.name)
+    (out_dir / f"test_{args.name}_fixture.py").write_text(test_code, encoding="utf-8")
+
+    print(f"Generated sanitized fixture and test suite at {out_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

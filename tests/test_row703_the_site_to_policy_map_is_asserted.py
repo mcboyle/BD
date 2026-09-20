@@ -86,6 +86,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/flaresolverr_client.py:443": PINNED,
     "bulk_downloader/flaresolverr_client.py:465": PINNED,
     "bulk_downloader/flaresolverr_client.py:483": PINNED,
+    "bulk_downloader/http3_client.py:278": PUBLIC_ONLY,
     "bulk_downloader/jd_bridge.py:184": PINNED,
     "bulk_downloader/mp4_metadata.py:317": PINNED,
     "bulk_downloader/multi_conn.py:186": PUBLIC_ONLY,
@@ -103,13 +104,14 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_extractors.py:629": PUBLIC_ONLY,
     "bulk_downloader/runner_manual.py:422": PUBLIC_ONLY,
     "bulk_downloader/runner_telemetry.py:309": PUBLIC_ONLY,
-    "bulk_downloader/runner_transport.py:1074": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
-    "bulk_downloader/runner_transport.py:1647": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
-    "bulk_downloader/runner_transport.py:3003": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
-    "bulk_downloader/runner_transport.py:3370": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
-    "bulk_downloader/runner_transport.py:3451": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
-    "bulk_downloader/runner_transport.py:3602": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:1075": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:1720": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:3089": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:3467": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:3548": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
+    "bulk_downloader/runner_transport.py:3699": PINNED,  # row 857 moved it (dedup import + header-dedup gate helpers)
     "bulk_downloader/session_keeper.py:1280": PINNED,
+    "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,
     "bulk_downloader/tg_bot.py:185": PINNED,
     "bulk_downloader/tier_probe.py:299": PUBLIC_ONLY,

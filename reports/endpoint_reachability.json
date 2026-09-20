@@ -240,5 +240,6 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 99
+  "dark_count": 99,
+  "endpoint_count": 401
 }

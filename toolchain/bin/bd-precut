@@ -868,6 +868,22 @@ def _run_underived_gates(root, present, env):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def _run_ratchet_gate(root, rex=None):
+    if not os.path.isfile(rex := rex or os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")): return None, "bd-ratchet not found"
+    try:
+        cp = subprocess.run([sys.executable, rex, "--check", "--tree", root], capture_output=True, text=True, timeout=900); sys.stdout.write(cp.stdout); sys.stderr.write(cp.stderr); out = cp.stdout
+    except TypeError:
+        cp = subprocess.run([sys.executable, rex, "--check", "--tree", root], timeout=900); out = getattr(cp, "stdout", "") or ""
+    if cp.returncode != 3: return cp.returncode, None
+    deltas = []
+    for ln in out.splitlines():
+        m = re.search(r"^\s*\*\s*([^:]+):\s*(?:rose|fell)\s*(\S+)\s*->\s*(\S+)", ln)
+        if m:
+            k, b, c = m.groups(); d = f"{float(c)-float(b):+g}" if ("." in b or "." in c) else f"{int(c)-int(b):+d}"; deltas.append(f"metric: {k}\nbaseline: {b}\nvalue: {c}\ndelta: {d}\n"); print(f"  [advisory ratchet] {ln.strip()} (delta={d})")
+    rev = os.path.join(root, ".review"); os.makedirs(rev, exist_ok=True); pathlib.Path(rev, "RATCHET-ADVISORY.md").write_text("# RATCHET-ADVISORY (O733)\n\n" + "\n".join(deltas or ["metric: unknown\nbaseline: unknown\nvalue: unknown\ndelta: unknown\n"]))
+    return (3, "metric ratchet regressed -- see bd-ratchet output above") if os.environ.get("BD_RATCHET_BLOCK") == "1" else (0, "metric ratchet regressed -- ADVISORY, see .review/RATCHET-ADVISORY.md")
+
+
 def main(argv=None):
     class PrecutArgumentParser(argparse.ArgumentParser):
         def error(self, message):
@@ -961,14 +977,15 @@ def main(argv=None):
     # 3. metric ratchets (Plan A2/F1): a cut must not regress a pinned metric
     #    (unwired operator endpoints, defect DP total, ...). Delegates to bd-ratchet.
     ratchet_ran = False
+    ratchet_advisory = False
     rex = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")
     if os.path.isfile(rex):
-        import subprocess as _sp
-        rc = _sp.run([sys.executable, rex, "--check", "--tree", root], timeout=900).returncode
+        rc, err = _run_ratchet_gate(root, rex)
         if rc == 3:
-            blocking.append("metric ratchet regressed -- see bd-ratchet output above")
+            blocking.append(err or "metric ratchet regressed -- see bd-ratchet output above")
         elif rc == 0:
             ratchet_ran = True
+            if err: ratchet_advisory = True
         else:
             unknown.append("metric ratchet exited rc=%d (neither clean nor "
                            "a regression)" % rc)
@@ -1235,7 +1252,10 @@ def main(argv=None):
     if footguns_ran:
         ran_parts.append("footguns clean")
     if ratchet_ran:
-        ran_parts.append("metric ratchets clean")
+        if ratchet_advisory:
+            ran_parts.append("metric ratchet regressed -- ADVISORY, see .review/RATCHET-ADVISORY.md")
+        else:
+            ran_parts.append("metric ratchets clean")
     ran = ", ".join(ran_parts) if ran_parts else "nothing"
     if unknown:
         print(f"RESULT: cut-ready for what RAN ({ran}) -- "

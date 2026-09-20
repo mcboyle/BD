@@ -1,0 +1,69 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 660 helper-seam census. One structural old_regex mutant per helper introduced by the gate test; each named catcher reaches the real helper and fails an explicit assertion.",
+  "subject": "every row660 test-helper seam is exercised by a behavioral assertion",
+  "band": [
+    "tests/test_row660_gate_is_read_only.py::test_footgun_gate_does_not_rewrite_the_tree_it_checks",
+    "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut",
+    "tests/test_row660_gate_is_read_only.py::test_invalid_reachability_measurements_are_unknown",
+    "tests/test_row660_gate_is_read_only.py::test_explicit_regeneration_still_updates_one_real_drift"
+  ],
+  "mutants": [
+    {
+      "label": "S1 snapshot drops the observed bytes and timestamp",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)(?<=^    return )path\\.read_bytes\\(\\), path\\.stat\\(\\)\\.st_mtime_ns$",
+      "new": "b\"\", 0",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_footgun_gate_does_not_rewrite_the_tree_it_checks"
+    },
+    {
+      "label": "S2 regen loader replaces the checker with an unconditional pass",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)^    loader\\.exec_module\\(module\\)(?=\\n    return module\\n\\n\\ndef _load_footguns)",
+      "new": "    loader.exec_module(module); module.check_reach = lambda _work: (True, \"mutant\")",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_invalid_reachability_measurements_are_unknown"
+    },
+    {
+      "label": "S3 footgun loader replaces the detector with an unconditional pass",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)^    loader\\.exec_module\\(module\\)(?=\\n    return module\\n\\n\\ndef _pin_tree)",
+      "new": "    loader.exec_module(module); module._check_one = lambda _row, _tree: (\"pass\", \"mutant\")",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut"
+    },
+    {
+      "label": "S4 pin-tree helper returns its parent instead of the built tree",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)(?<=^    return )work(?=\\n\\n\\ndef _detector_row)",
+      "new": "tmp_path",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_explicit_regeneration_still_updates_one_real_drift"
+    },
+    {
+      "label": "S5 detector-row helper returns an unrelated row",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)(?<=^    return )matches(?=\\[0\\]$)",
+      "new": "[{}]",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut"
+    },
+    {
+      "label": "S6 census-tree helper returns its parent instead of the fixture",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)(?<=^    return )work(?=\\n\\n\\ndef _precut_copy)",
+      "new": "tmp_path",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut"
+    },
+    {
+      "label": "S7 precut-copy helper returns a path outside the copied bin",
+      "file": "tests/test_row660_gate_is_read_only.py",
+      "old_regex": "(?m)(?<=^    return )bindir / PRECUT\\.name$",
+      "new": "work / PRECUT.name",
+      "direction": "regression",
+      "catcher": "tests/test_row660_gate_is_read_only.py::test_unmeasurable_reachability_blocks_the_registry_and_precut"
+    }
+  ]
+}

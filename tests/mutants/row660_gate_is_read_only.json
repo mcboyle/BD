@@ -12,7 +12,7 @@
       "old_regex": "(?m)(?<=^    if )(?=a\\.check:$)",
       "new": "not ",
       "direction": "regression",
-      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_the_census_detector_does_not_run_the_regeneration_chain"
+      "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_check_mode_still_judges_the_subject_the_detector_blocks_on"
     },
     {
       "label": "disarm the read-only/write refusal so --check silently accepts a write request",
@@ -33,7 +33,7 @@
     {
       "label": "skip the reachability ratchet in read-only mode so --check stops judging dark endpoints",
       "file": "toolchain/bin/bd-regen-order",
-      "old_regex": "(?m)(?<=^        good, msg = )check_reach(?=\\(work\\)$)",
+      "old_regex": "(?m)(?<=^    else:\n        good, msg = )check_reach(?=\\(work\\)$)",
       "new": "(lambda w: (True, \"skipped\") if a.check else check_reach(w))",
       "direction": "regression",
       "catcher": "tests/test_row660_gate_is_read_only_over_generated_artifacts.py::test_row660_check_mode_still_judges_the_subject_the_detector_blocks_on"

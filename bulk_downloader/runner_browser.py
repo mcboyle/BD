@@ -4,7 +4,8 @@ Extracted from runner.py (SiteRunner) @v3.66.401, PHASE 3 runner cut 4.
 Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies. Cycle rule: nothing from .runner.
 """
-import re, sys, time
+import re
+import sys, time
 import urllib.parse
 
 # vpn_runtime soft import (moved verbatim from runner.py; flat sibling).
@@ -15,8 +16,238 @@ except Exception as _e:
     sys.stderr.write(f"[runner_browser] vpn_runtime import failed (degraded): {_e}\n")
     _VPN_RUNTIME_AVAILABLE = False
 
+# Row 899: adaptive-streaming manifest detection (HLS .m3u8 / DASH .mpd).
+# Player pages fetch these via async Fetch/XHR that a static scraper never
+# sees; only a live CDP Network listener catches them during playback setup.
+_ADAPTIVE_MANIFEST_RE = re.compile(r"\.(m3u8|mpd)$", re.IGNORECASE)
+# the manifest content types a server may answer with when the URL carries no
+# extension (a signed playlist endpoint): the response, not the path, says so
+_ADAPTIVE_MANIFEST_MIME = {
+    "application/vnd.apple.mpegurl": "hls", "application/x-mpegurl": "hls",
+    "audio/mpegurl": "hls", "audio/x-mpegurl": "hls",
+    "application/dash+xml": "dash",
+}
+
+
+def _adaptive_manifest_kind(url):
+    """Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
+    else None. The extension must be in the path: a player URL that merely
+    carries ``?next=master.m3u8`` in a query value is not a manifest."""
+    from urllib.parse import urlsplit
+    try:
+        path = urlsplit(url or "").path
+    except ValueError:
+        return None
+    m = _ADAPTIVE_MANIFEST_RE.search(path)
+    if not m:
+        return None
+    return "hls" if m.group(1).lower() == "m3u8" else "dash"
+
+
+def _adaptive_manifest_kind_from_mime(mime_type):
+    base = (mime_type or "").split(";", 1)[0].strip().lower()
+    return _ADAPTIVE_MANIFEST_MIME.get(base)
+
+
+class AdaptiveManifestWatcher:
+    """Groups ``Network.requestWillBeSent`` CDP events by ``requestId`` so a
+    manifest reached through one or more HTTP redirects is reported with its
+    full hop-by-hop chain, not just the final URL. Pure/testable with
+    synthetic event dicts -- no browser required (mirrors
+    ``session_capture.feed_cdp_event``'s redirect-joining approach, scoped
+    down to only the adaptive-manifest question this row asks).
+    """
+
+    def __init__(self):
+        self._chains = {}    # requestId -> [url, ...] legs seen so far
+        self._entries = {}   # requestId -> the detection dict (updated as the chain resolves)
+        self.manifests = []  # completed detections, in arrival order
+
+    def _detect(self, rid, url, kind):
+        """Record/refresh the detection for ``rid``: ``url`` is the FINAL
+        resolved URL so far, the chain is every earlier hop (redirects share
+        one CDP requestId). One entry per request: a manifest that redirects
+        is reported once, with its resolved URL and the complete chain, not
+        once per leg."""
+        chain = self._chains.get(rid) or [url]
+        entry = self._entries.get(rid)
+        if entry is None:
+            entry = {"url": url, "kind": kind, "redirect_chain": list(chain[:-1]), "request_id": rid}
+            self._entries[rid] = entry
+            self.manifests.append(entry)
+        else:
+            entry["url"] = url
+            entry["kind"] = kind
+            entry["redirect_chain"] = list(chain[:-1])
+        return entry
+
+    def feed_playwright_response(self, response):
+        """Feed a Playwright ``response`` (context-level ``response`` event):
+        the manifest question is answered by the final URL's path or the
+        Content-Type, and the chain by ``request.redirected_from``."""
+        try:
+            request = response.request
+            url = response.url
+            headers = response.headers or {}
+            status = int(response.status)
+        except Exception:
+            return None
+        if 300 <= status < 400:
+            return None                      # an intermediate hop: the final response carries the chain
+        kind = _adaptive_manifest_kind(url) or _adaptive_manifest_kind_from_mime(headers.get("content-type"))
+        chain = []
+        hop = getattr(request, "redirected_from", None)
+        root = request
+        depth = 0
+        while hop is not None and depth < 32:
+            chain.insert(0, hop.url)
+            if kind is None:
+                kind = _adaptive_manifest_kind(hop.url)
+            root = hop
+            hop = getattr(hop, "redirected_from", None)
+            depth += 1
+        if kind is None:
+            return None
+        rid = f"pw:{id(root)}"
+        self._chains[rid] = chain + [url]
+        return self._detect(rid, url, kind)
+
+    def feed(self, method, params):
+        """Feed one raw CDP event. Returns the detection dict when this event
+        makes (or resolves) an adaptive-streaming manifest request, else None:
+        a ``Network.requestWillBeSent`` leg whose path is .m3u8/.mpd, a later
+        redirect leg of such a request (the resolved URL, whatever it is
+        called), or a ``Network.responseReceived`` whose mimeType is a
+        manifest type."""
+        params = params or {}
+        rid = params.get("requestId")
+        if method == "Network.requestWillBeSent":
+            url = (params.get("request") or {}).get("url", "")
+            chain = self._chains.setdefault(rid, [])
+            chain.append(url)
+            kind = _adaptive_manifest_kind(url)
+            if kind is None and rid in self._entries and len(chain) > 1:
+                kind = self._entries[rid]["kind"]          # the manifest resolved to a differently named URL
+            if kind is None:
+                return None
+            return self._detect(rid, url, kind)
+        if method == "Network.responseReceived":
+            response = params.get("response") or {}
+            kind = _adaptive_manifest_kind_from_mime(response.get("mimeType"))
+            if kind is None:
+                return None
+            url = response.get("url") or (self._chains.get(rid) or [""])[-1]
+            if rid not in self._chains:
+                self._chains[rid] = [url]
+            elif self._chains[rid][-1] != url:
+                self._chains[rid].append(url)
+            return self._detect(rid, url, kind)
+        return None
+
 
 class BrowserMixin:
+    def _install_adaptive_manifest_capture(self, ctx):
+        """Row 899: attach a live CDP ``Network`` listener to every page of
+        ``ctx`` and watch for adaptive-streaming manifest requests
+        (.m3u8/.mpd) during playback setup, with their redirect chains.
+        Detections hand off to ``self.manifest_urls`` -- the queue a
+        transport pipeline consumer reads -- via
+        ``self._on_adaptive_manifest_detected``.
+
+        Not exercised by the unit suite (needs a real browser/CDP session);
+        the detection + redirect-chain logic it delegates to
+        (``AdaptiveManifestWatcher.feed``) is unit-tested with synthetic
+        events, same split as ``session_capture.capture_via_cdp`` /
+        ``feed_cdp_event``. Caller still drives navigation/playback; this
+        only wires the listener onto pages already open or opened later."""
+        watcher = AdaptiveManifestWatcher()
+
+        def _wire(page):
+            try:
+                client = ctx.new_cdp_session(page)
+                client.send("Network.enable")
+            except Exception as e:
+                sys.stderr.write(
+                    f"  [runner_browser] manifest CDP session failed: {str(e)[:100]}\n")
+                return
+            client.on("Network.requestWillBeSent", lambda params: (
+                self._on_adaptive_manifest_detected(watcher.feed(
+                    "Network.requestWillBeSent", params))))
+            client.on("Network.responseReceived", lambda params: (
+                self._on_adaptive_manifest_detected(watcher.feed(
+                    "Network.responseReceived", params))))
+
+        # Primary: the context-level Playwright response event covers every
+        # page of the context from the moment of installation, with no
+        # per-page wiring race (a CDP session opened from the "page" event
+        # can miss the first requests of a page). The per-page CDP session
+        # below stays for the raw-event path.
+        try:
+            ctx.on("response", lambda response: (
+                self._on_adaptive_manifest_detected(watcher.feed_playwright_response(response))))
+        except Exception as e:
+            sys.stderr.write(
+                f"  [runner_browser] manifest response listener not attached: {str(e)[:100]}\n")
+        for page in getattr(ctx, "pages", None) or []:
+            _wire(page)
+        try:
+            ctx.on("page", _wire)
+        except Exception as e:
+            sys.stderr.write(
+                f"  [runner_browser] manifest page listener not attached: {str(e)[:100]}\n")
+        return watcher
+
+    def _maybe_install_adaptive_manifest_capture(self, ctx):
+        """Production wiring: every persistent playback context gets the
+        capture unless the site config says ``adaptive_manifest_capture:
+        false``. The watcher handle is kept on the runner."""
+        config = getattr(self, "config", None) or {}
+        if config.get("adaptive_manifest_capture", True) is False:
+            return None
+        try:
+            self._adaptive_manifest_watcher = self._install_adaptive_manifest_capture(ctx)
+        except Exception as e:
+            sys.stderr.write(f"  [runner_browser] manifest capture not installed: {str(e)[:100]}\n")
+            return None
+        return self._adaptive_manifest_watcher
+
+    def drain_manifest_urls(self):
+        """The transport pipeline's read side: hand over every manifest
+        detected so far (resolved URL + redirect chain) and empty the queue.
+        Snapshots each entry so a later redirect leg cannot rewrite what a
+        consumer already took."""
+        queued = getattr(self, "manifest_urls", None) or []
+        self.manifest_urls = []
+        return [dict(e, redirect_chain=list(e.get("redirect_chain") or [])) for e in queued]
+
+    def _on_adaptive_manifest_detected(self, entry):
+        """Handoff point for a detected adaptive-streaming manifest: queue
+        it on ``self.manifest_urls`` for the transport pipeline to consume,
+        and log it if this runner has an event log. ``entry`` is None for
+        every non-manifest CDP event (the common case); a no-op then."""
+        if entry is None:
+            return
+        if not hasattr(self, "manifest_urls"):
+            self.manifest_urls = []
+        if any(e is entry for e in self.manifest_urls):
+            return                                   # a redirect leg refreshed an entry already queued
+        for queued in self.manifest_urls:
+            if queued["url"] == entry["url"]:
+                # the CDP and Playwright paths saw the same request: keep one
+                # entry, with the most complete chain
+                if len(entry.get("redirect_chain") or ()) > len(queued.get("redirect_chain") or ()):
+                    queued["redirect_chain"] = list(entry["redirect_chain"])
+                return
+        self.manifest_urls.append(entry)
+        _log = getattr(self, "log_event", None)
+        if _log is not None:
+            hops = len(entry["redirect_chain"])
+            _log("manifest",
+                 f"{entry['kind']} manifest detected"
+                 + (f" after {hops} redirect(s)" if hops else "")
+                 + f": {entry['url'][:120]}",
+                 extra={"kind": entry["kind"], "url": entry["url"],
+                        "redirect_chain": entry["redirect_chain"]})
     def _pw_save(self,dl,final_path):
         """Fallback: let Playwright stream the download to disk.
 
@@ -384,6 +615,7 @@ class BrowserMixin:
                     netns=netns,**extra)
                 self._apply_persistent_cookie_file(ctx)
                 self._install_stealth(ctx)
+                self._maybe_install_adaptive_manifest_capture(ctx)
                 # v3.66.465: GATED full-access after_context hook. Live ctx +
                 # first page (if any). No-op unless allow_full_access is on.
                 try:
@@ -422,6 +654,7 @@ class BrowserMixin:
                             netns=netns,**extra)
                         self._apply_persistent_cookie_file(ctx)
                         self._install_stealth(ctx)
+                        self._maybe_install_adaptive_manifest_capture(ctx)
                         _cloak.log_choice(flow,backend,detail+" (bundled)")
                         self._record_channel_fallback(flow,channel,msg,True)
                         return None,ctx,used_pw,backend
@@ -578,6 +811,137 @@ class BrowserMixin:
             sys.stderr.write(
                 f"  stealth-library: unexpected error: "
                 f"{type(e).__name__}: {str(e)[:80]}\n")
+    @staticmethod
+    def _spa_settlement_script():
+        """Row 914: JS installed on a page to detect SPA route transitions
+        (``history.pushState``/``replaceState``) and expose a settlement
+        barrier that only flips true once the DOM has gone quiet (no
+        MutationObserver activity for ``quietMs``) since the LATEST
+        transition -- so an extractor waiting on it never reads a route's
+        DOM before its async render has actually finished, and never reads
+        a stale route's DOM if another navigation fired in the meantime.
+
+        Exposes: ``window.__bd_spa_nav_count`` (increments per transition),
+        ``window.__bd_spa_settled`` (bool), ``window.__bd_spa_settled_nav``
+        (the nav_count value the current ``settled=true`` applies to).
+        """
+        return """
+(function(){
+  if (window.__bd_spa_hooked) return true;
+  window.__bd_spa_hooked = true;
+  window.__bd_spa_nav_count = 0;
+  window.__bd_spa_settled = true;
+  window.__bd_spa_settled_nav = 0;
+  var quietMs = 150;
+  // a DOM that never goes quiet (spinner, ticker, animation loop) must not
+  // starve the barrier: at most maxSettleMs after the latest transition
+  // the route is declared settled whatever the observer still sees
+  var maxSettleMs = 1500;
+  var timer = null;
+  var navStartedAt = Date.now();
+  function settleNow(navAt){
+    window.__bd_spa_settled = true;
+    window.__bd_spa_settled_nav = navAt;
+  }
+  function scheduleSettle(){
+    if (timer) { clearTimeout(timer); timer = null; }
+    var navAtSchedule = window.__bd_spa_nav_count;
+    var elapsed = Date.now() - navStartedAt;
+    if (elapsed >= maxSettleMs) { settleNow(navAtSchedule); return; }
+    timer = setTimeout(function(){
+      timer = null;
+      settleNow(navAtSchedule);
+    }, Math.min(quietMs, maxSettleMs - elapsed));
+  }
+  function markUnsettled(){
+    window.__bd_spa_nav_count += 1;
+    window.__bd_spa_settled = false;
+    navStartedAt = Date.now();
+    scheduleSettle();
+  }
+  var origPush = history.pushState;
+  var origReplace = history.replaceState;
+  history.pushState = function(){
+    var r = origPush.apply(this, arguments);
+    markUnsettled();
+    return r;
+  };
+  history.replaceState = function(){
+    var r = origReplace.apply(this, arguments);
+    markUnsettled();
+    return r;
+  };
+  window.addEventListener('popstate', markUnsettled);
+  var observer = new MutationObserver(function(mutations){
+    if (mutations.length === 0) return;
+    // past the settle window of the latest transition, mutations are the
+    // page's own life (tickers, players), not a route still mounting
+    if (Date.now() - navStartedAt >= maxSettleMs) return;
+    window.__bd_spa_settled = false;
+    scheduleSettle();
+  });
+  // via add_init_script this runs at document start, when neither
+  // documentElement nor body exists yet: observe() would throw and the
+  // barrier would silently degrade to navigation-only (no mutation
+  // settlement at all). Attach to the root as soon as there is one.
+  function attach(){
+    var root = document.documentElement || document.body;
+    if (!root) return false;
+    observer.observe(root, {
+      childList: true, subtree: true, attributes: true, characterData: true,
+    });
+    window.__bd_spa_observer = observer;
+    return true;
+  }
+  if (!attach()) {
+    var probe = setInterval(function(){ if (attach()) clearInterval(probe); }, 0);
+    document.addEventListener('DOMContentLoaded', function(){ attach(); clearInterval(probe); }, {once: true});
+  }
+  return true;
+})()
+"""
+
+    def _install_spa_settlement_hooks(self, page):
+        """Arm the pushState/replaceState + MutationObserver settlement
+        barrier on ``page``. ``add_init_script`` covers future navigations;
+        the immediate ``evaluate`` also covers a page that has already
+        loaded (matches affordance_learning.py's operator-activity hook)."""
+        script = self._spa_settlement_script()
+        try:
+            page.add_init_script(script=script)
+            return bool(page.evaluate(script))
+        except Exception:
+            return False
+
+    def _settle_after_navigation(self, page, timeout_ms=5000):
+        """The worker's post-``goto`` hook (runner.py): arm the barrier on
+        this page (idempotent) and wait for the DOM to settle since the
+        latest route transition. Off with config ``spa_settlement`` false.
+        Never raises; a timeout returns False and the extractor proceeds
+        with what is there (bounded wait, same as before this row)."""
+        if not self.config.get("spa_settlement", True):
+            return None
+        if not self._install_spa_settlement_hooks(page):
+            return False
+        return self._wait_for_spa_settlement(page, timeout_ms=timeout_ms)
+
+    def _wait_for_spa_settlement(self, page, timeout_ms=5000):
+        """Block until the DOM has settled since the LATEST route
+        transition (``__bd_spa_settled_nav`` catches up to
+        ``__bd_spa_nav_count``), or return False on timeout. Comparing the
+        nav count (not just the settled flag) is what prevents an
+        extractor from reading a stale route's DOM during a fast flurry of
+        navigations."""
+        try:
+            page.wait_for_function(
+                "window.__bd_spa_settled === true && "
+                "window.__bd_spa_settled_nav === window.__bd_spa_nav_count",
+                timeout=timeout_ms,
+            )
+            return True
+        except Exception:
+            return False
+
     def _warm_session(self, page):
         """Phase 15.7: visit configured warmup URLs before deep-linking
         to a video page. The first request to a deep URL with no cookies
@@ -594,6 +958,7 @@ class BrowserMixin:
           - The site already has cookies from a successful login (we're
             already known to the server)"""
         import random as _rnd
+        from .settlement import wait_for_settlement
         warmup_raw = (self.config.get("warmup_urls") or "").strip()
         if not warmup_raw: return
         every = int(self.config.get("warmup_every", 1800) or 1800)
@@ -624,6 +989,14 @@ class BrowserMixin:
             try:
                 self.log_event("warmup", f"Visiting {u[:80]}", url=u)
                 page.goto(u, wait_until="domcontentloaded", timeout=20000)
+                # Row 926 / O989: readiness is event-driven -- in-flight requests
+                # at zero and the DOM quiet for 250ms -- before the page is
+                # "read". The reading pause below is pacing, not readiness,
+                # and stays. A page that never settles just proceeds after the
+                # timeout (fail-soft: warmup is best effort).
+                settled = wait_for_settlement(page, timeout=5.0)
+                self.log_event("warmup", f"Settled: {settled.reason} in {settled.duration_ms:.0f}ms "
+                                         f"({settled.requests_seen} requests, {settled.long_polls_ignored} long-polls ignored)", url=u)
                 # Random scroll to look like reading
                 scroll_y = _rnd.randint(200, 800)
                 try: page.mouse.wheel(0, scroll_y)

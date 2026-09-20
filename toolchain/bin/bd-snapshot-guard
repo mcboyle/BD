@@ -1,0 +1,346 @@
+#!/usr/bin/env python3
+"""bd-snapshot-guard: Automated VM snapshot rollback on catastrophic test fault (Row 872).
+
+Monitors destructive test execution inside VMware ESXi VMs. If a test suite crashes,
+causes systemd corruption, or panics the operating system, triggers an automated
+hypervisor snapshot revert (`govc snapshot.revert -vm <vm> GOLDEN-READY`), verifies
+clean post-revert state, and guarantees zero host mutation on test5.
+
+Zero site logins touched (Fleet Rule 21).
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, Optional, Sequence
+
+
+def revert_snapshot(
+    vm_name: str,
+    snapshot: str = "GOLDEN-READY",
+    govc_bin: str = "govc",
+    govc_env: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Trigger govc snapshot.revert to restore the VM to its golden snapshot."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    cmd = [govc_bin, "snapshot.revert", "-vm", vm_name, snapshot]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+        if proc.returncode != 0:
+            return {"ok": False, "error": proc.stderr.strip(), "output": proc.stdout}
+        return {"ok": True, "vm": vm_name, "snapshot": snapshot, "output": proc.stdout.strip()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+# `systemctl is-system-running` vocabulary (systemctl(1)). Anything outside these two
+# sets is not a guest answer at all.
+HEALTHY_SYSTEMD_STATES = frozenset({"running", "degraded"})
+UNHEALTHY_SYSTEMD_STATES = frozenset({"initializing", "starting", "maintenance", "stopping", "offline", "unknown"})
+
+# Exit codes the guard itself owns (never collide with a guest's own 0..127 / signal codes
+# that we pass through untouched).
+EXIT_CORRUPTED_RECOVERED = 3     # corruption proven, revert succeeded, post-revert clean; guest exited 0
+EXIT_RECOVERY_FAILED = 4         # corruption proven but the revert failed or post-revert state is not clean
+EXIT_HEALTH_UNKNOWN = 5          # the health observer could not say (no revert was authorized)
+EXIT_HOST_DATA_CHANGED = 6       # a guarded host path changed during the run/revert (criterion 3)
+PROBE_TIMEOUT_S = 30             # a guest probe that does not answer in this long is not answering
+UNRESPONSIVE_RETRY_DELAY_S = 5   # one retry before a responsive-before guest is declared frozen
+
+
+def check_system_health(
+    vm_name: str,
+    govc_bin: str = "govc",
+    govc_env: Optional[Dict[str, str]] = None,
+    timeout: float = PROBE_TIMEOUT_S,
+) -> Dict[str, Any]:
+    """Check VM system running state via guest execution."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    cmd = [govc_bin, "guest.run", "-vm", vm_name, "systemctl", "is-system-running"]
+    try:
+        # bounded: a kernel panic or a frozen vmtoolsd would otherwise hang govc
+        # -- and the CI runner -- forever (E1)
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"healthy": False, "status": "timeout", "detail": f"no answer in {timeout}s"}
+    except Exception as exc:
+        # The OBSERVER failed (govc missing/crashed): nothing is known about the guest.
+        return {"healthy": False, "status": "unknown", "detail": f"unreachable: {exc}"}
+    output = proc.stdout.strip()
+    if output in HEALTHY_SYSTEMD_STATES:
+        return {"healthy": True, "status": "clean"}
+    if output in UNHEALTHY_SYSTEMD_STATES:
+        # systemd itself answered with an unhealthy state: proven OS corruption.
+        return {"healthy": False, "status": "corrupted", "detail": output}
+    # No systemd state word came back: bad guest credentials, systemctl absent
+    # (exit 127), govc fault, empty output. That is an observer failure, not a
+    # corruption finding -- it never authorizes a destructive revert.
+    return {
+        "healthy": False,
+        "status": "unknown",
+        "detail": f"rc={proc.returncode} stdout={output!r} stderr={proc.stderr.strip()!r}",
+    }
+
+
+def check_guest_responsive(
+    vm_name: str,
+    govc_bin: str = "govc",
+    govc_env: Optional[Dict[str, str]] = None,
+    timeout: float = PROBE_TIMEOUT_S,
+) -> Dict[str, Any]:
+    """The POSITIVE CONTROL taken before the run: can the guest answer at
+    all? Only a guest that answered here and then stops answering after the
+    run is a run-caused freeze; a guest that never answered is an observer
+    problem, and unknown is never permission to revert."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+    cmd = [govc_bin, "guest.run", "-vm", vm_name, "true"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"responsive": False, "detail": f"no answer in {timeout}s"}
+    except Exception as exc:
+        return {"responsive": False, "detail": f"unreachable: {exc}"}
+    return {"responsive": proc.returncode == 0, "detail": proc.stderr.strip()[:200]}
+
+
+def _fingerprint_host_paths(paths: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """(size, mtime_ns) of every file under the guarded host paths; a missing
+    path is recorded as absent. The guard only ever READS these."""
+    out: Dict[str, Any] = {}
+    for raw in paths or ():
+        root = Path(raw)
+        if root.is_file():
+            st = root.stat()
+            out[str(root)] = (st.st_size, st.st_mtime_ns)
+        elif root.is_dir():
+            for f in sorted(root.rglob("*")):
+                if f.is_file():
+                    st = f.stat()
+                    out[str(f)] = (st.st_size, st.st_mtime_ns)
+        else:
+            out[str(root)] = None
+    return out
+
+
+def execute_in_vm(
+    vm_name: str,
+    cmd: Sequence[str] | str,
+    govc_bin: str = "govc",
+    timeout: Optional[int] = 600,
+    govc_env: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Execute a command inside the target VM."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    if isinstance(cmd, str):
+        full_cmd = [govc_bin, "guest.run", "-vm", vm_name, cmd]
+    else:
+        full_cmd = [govc_bin, "guest.run", "-vm", vm_name] + list(cmd)
+
+    try:
+        proc = subprocess.run(
+            full_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            check=False,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "exit_code": 124,
+            "error": f"timeout after {timeout}s: {exc}",
+            "stdout": "",
+            "stderr": str(exc),
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "exit_code": 1,
+            "error": str(exc),
+            "stdout": "",
+            "stderr": str(exc),
+        }
+
+
+def run_with_snapshot_guard(
+    cmd: Sequence[str] | str,
+    vm_name: str,
+    snapshot: str = "GOLDEN-READY",
+    govc_bin: str = "govc",
+    govc_env: Optional[Dict[str, str]] = None,
+    host_data_paths: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Run test command in VM, automatically reverting snapshot on catastrophic fault."""
+    # positive control before the run (FLEET_RULE 7): a guest that answers now
+    # and not after the run was frozen BY the run
+    baseline = check_guest_responsive(vm_name=vm_name, govc_bin=govc_bin, govc_env=govc_env)
+    host_before = _fingerprint_host_paths(host_data_paths)
+
+    exec_res = execute_in_vm(
+        vm_name=vm_name,
+        cmd=cmd,
+        govc_bin=govc_bin,
+        govc_env=govc_env,
+    )
+
+    # Check system integrity post-execution
+    health = check_system_health(vm_name=vm_name, govc_bin=govc_bin, govc_env=govc_env)
+    frozen = False
+    if health.get("status") in ("unknown", "timeout") and baseline.get("responsive"):
+        # answered before the run, silent after it: one retry, then it is a
+        # run-caused freeze (kernel panic, dead guest agent) -- catastrophic
+        time.sleep(UNRESPONSIVE_RETRY_DELAY_S)
+        health = check_system_health(vm_name=vm_name, govc_bin=govc_bin, govc_env=govc_env)
+        if health.get("status") in ("unknown", "timeout"):
+            frozen = True
+            health = {**health, "status": "unresponsive",
+                      "detail": f"answered before the run, not after (twice): {health.get('detail', '')}"}
+
+    # Catastrophic fault triggers: PROVEN corruption (systemd reports an unhealthy
+    # state), a fatal guest exit (139 segfault / 255 / 124 govc timeout), or a
+    # guest that stopped answering after the run (baseline proved it could).
+    # An observer failure with no baseline ("unknown") is reported, never rolled
+    # back on: unknown is not permission.
+    proven_corruption = (not health.get("healthy", False)) and health.get("status") == "corrupted"
+    is_corrupted = proven_corruption or frozen or exec_res.get("exit_code") in (139, 255, 124)
+
+    if is_corrupted:
+        revert_res = revert_snapshot(
+            vm_name=vm_name,
+            snapshot=snapshot,
+            govc_bin=govc_bin,
+            govc_env=govc_env,
+        )
+        # Verify clean operational state post-revert
+        post_revert_state = check_system_health(
+            vm_name=vm_name,
+            govc_bin=govc_bin,
+            govc_env=govc_env,
+        )
+        reverted = bool(revert_res.get("ok", False))
+        recovered = reverted and bool(post_revert_state.get("healthy", False))
+        guest_rc = exec_res.get("exit_code", 1)
+        if not recovered:
+            exit_code = EXIT_RECOVERY_FAILED
+        elif guest_rc == 0:
+            exit_code = EXIT_CORRUPTED_RECOVERED
+        else:
+            exit_code = guest_rc
+        return _with_host_data({
+            "ok": False,
+            "corrupted": True,
+            "reverted": reverted,
+            "recovered": recovered,
+            "revert_result": revert_res,
+            "post_revert_state": post_revert_state,
+            "health": health,
+            "baseline": baseline,
+            "guest_exit_code": guest_rc,
+            "exit_code": exit_code,
+            "stdout": exec_res.get("stdout", ""),
+            "stderr": exec_res.get("stderr", ""),
+        }, host_before, host_data_paths)
+
+    health_unknown = not health.get("healthy", False)
+    guest_rc = exec_res.get("exit_code", 0)
+    return _with_host_data({
+        "ok": bool(exec_res.get("ok", True)) and not health_unknown,
+        "corrupted": False,
+        "reverted": False,
+        "recovered": False,
+        "health_unknown": health_unknown,
+        "post_revert_state": health,
+        "health": health,
+        "baseline": baseline,
+        "guest_exit_code": guest_rc,
+        "exit_code": guest_rc if guest_rc != 0 else (EXIT_HEALTH_UNKNOWN if health_unknown else 0),
+        "stdout": exec_res.get("stdout", ""),
+        "stderr": exec_res.get("stderr", ""),
+    }, host_before, host_data_paths)
+
+
+def _with_host_data(result: Dict[str, Any], host_before: Dict[str, Any],
+                    host_data_paths: Optional[Sequence[str]]) -> Dict[str, Any]:
+    """Criterion 3 (zero host data loss) is MEASURED, not assumed: the guarded
+    host paths are fingerprinted before the run and after the revert; any
+    difference is reported, fails the run and takes exit 6."""
+    if not host_data_paths:
+        return result
+    host_after = _fingerprint_host_paths(host_data_paths)
+    changed = sorted(k for k in set(host_before) | set(host_after) if host_before.get(k) != host_after.get(k))
+    result["host_data_intact"] = not changed
+    result["host_data_changed"] = changed
+    if changed:
+        result["ok"] = False
+        result["exit_code"] = EXIT_HOST_DATA_CHANGED
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Automated VM snapshot rollback guard.")
+    parser.add_argument("--vm", required=True, help="Target VM name on ESXi")
+    parser.add_argument("--snapshot", default="GOLDEN-READY", help="Snapshot to revert to on fault")
+    parser.add_argument("--govc-bin", default="govc", help="Path to govc executable")
+    parser.add_argument("--host-data-path", action="append", default=[], dest="host_data_paths",
+                        help="Host file/dir that must be byte-for-byte untouched by the run and any revert "
+                             "(fingerprinted before/after; a change fails with exit 6). Repeatable.")
+    parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Test command to execute in VM")
+
+    args = parser.parse_args()
+    if not args.cmd:
+        sys.stderr.write("error: no command specified to run\n")
+        return 2
+
+    cmd = args.cmd
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+
+    result = run_with_snapshot_guard(
+        cmd=cmd,
+        vm_name=args.vm,
+        snapshot=args.snapshot,
+        govc_bin=args.govc_bin,
+        host_data_paths=args.host_data_paths,
+    )
+    if result.get("stdout"):
+        sys.stdout.write(result["stdout"])
+    if result.get("stderr"):
+        sys.stderr.write(result["stderr"])
+    if result.get("reverted"):
+        sys.stderr.write(f"bd-snapshot-guard: VM {args.vm} was reverted to snapshot {args.snapshot}\n")
+    if result.get("corrupted") and not result.get("recovered"):
+        sys.stderr.write(f"bd-snapshot-guard: RECOVERY FAILED for VM {args.vm}: revert={result.get('revert_result')} post_revert={result.get('post_revert_state')}\n")
+    if result.get("host_data_changed"):
+        sys.stderr.write(f"bd-snapshot-guard: HOST DATA CHANGED under the guard: {result['host_data_changed']}\n")
+    if result.get("health_unknown"):
+        sys.stderr.write(f"bd-snapshot-guard: health of VM {args.vm} UNKNOWN (observer failure, no revert): {result.get('health')}\n")
+    rc = result.get("exit_code")
+    if rc is None:
+        rc = 0 if result.get("ok") else 1
+    return int(rc)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

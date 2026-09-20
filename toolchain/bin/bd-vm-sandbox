@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""bd-vm-sandbox: ESXi instant-clone ephemeral sandbox runner (Row 833).
+
+Spawns disposable VM instant-clones from GOLDEN-READY snapshots on VMware ESXi
+hypervisors via govc, executes designated destructive or heavy test suites in the
+isolated VM, and unconditionally destroys the clone upon test completion, failure,
+or timeout.
+
+Protects test5 and CI runners from workspace mutation, lingering background processes,
+or disk exhaustion.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+from typing import Sequence
+
+DEFAULT_EXEC_TIMEOUT_S = 600
+
+
+def clone_vm(
+    vm_template: str,
+    snapshot: str,
+    clone_name: str,
+    govc_bin: str = "govc",
+    govc_env: dict | None = None,
+) -> dict:
+    """Clone an instant VM from a snapshot on ESXi."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    cmd = [
+        govc_bin,
+        "vm.clone",
+        "-vm",
+        vm_template,
+        "-snapshot",
+        snapshot,
+        "-on=true",
+        clone_name,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+        if proc.returncode != 0:
+            return {"ok": False, "error": proc.stderr.strip(), "output": proc.stdout}
+        return {"ok": True, "clone_name": clone_name, "output": proc.stdout.strip()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def destroy_vm(
+    clone_name: str,
+    govc_bin: str = "govc",
+    govc_env: dict | None = None,
+) -> dict:
+    """Destroy an ephemeral instant clone VM."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    cmd = [govc_bin, "vm.destroy", clone_name]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+        if proc.returncode != 0:
+            return {"ok": False, "error": proc.stderr.strip(), "output": proc.stdout}
+        return {"ok": True, "output": proc.stdout.strip()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def execute_in_vm(
+    clone_name: str,
+    cmd: Sequence[str] | str,
+    govc_bin: str = "govc",
+    timeout: int | None = None,
+    govc_env: dict | None = None,
+) -> dict:
+    """Execute a test command inside the ephemeral VM."""
+    env = os.environ.copy()
+    if govc_env:
+        env.update(govc_env)
+
+    if isinstance(cmd, str):
+        full_cmd = [govc_bin, "guest.run", "-vm", clone_name, cmd]
+    else:
+        full_cmd = [govc_bin, "guest.run", "-vm", clone_name] + list(cmd)
+
+    proc = subprocess.run(
+        full_cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+        check=False,
+    )
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+    }
+
+
+def run_sandbox_workflow(
+    cmd: Sequence[str] | str,
+    *,
+    vm_template: str = "test-template",
+    snapshot: str = "GOLDEN-READY",
+    clone_name: str | None = None,
+    timeout: int | None = DEFAULT_EXEC_TIMEOUT_S,
+    govc_bin: str = "govc",
+    govc_env: dict | None = None,
+    host_workspace: str | None = None,
+) -> dict:
+    """Execute the full lifecycle: clone VM -> run suite -> trap & destroy VM.
+
+    Destruction is authorized ONLY for a clone this run PROVABLY created (the
+    clone command succeeded and returned the clone's own name, never the
+    template's); it runs at most once (signal handler and finally share one
+    idempotent cleanup); and its failure is propagated (ok=False, exit code 3,
+    the clone name in the result) so a surviving VM is never reported as a
+    clean run."""
+    ephemeral_name = clone_name or f"bd-ephemeral-{uuid.uuid4().hex[:8]}"
+    if ephemeral_name == vm_template:
+        return {"ok": False, "error": "clone name must differ from the template (refusing to destroy the source)",
+                "exit_code": 2, "clone_name": None}
+
+    # Ownership state shared by the signal trap and the normal path.
+    owned: dict = {"clone": None, "destroyed": False, "destroy_result": None}
+
+    def _cleanup() -> dict | None:
+        """Destroy the OWNED clone exactly once; None when there is nothing to destroy."""
+        if owned["destroyed"] or owned["clone"] is None:
+            return owned["destroy_result"]
+        owned["destroyed"] = True
+        owned["destroy_result"] = destroy_vm(clone_name=owned["clone"], govc_bin=govc_bin, govc_env=govc_env)
+        return owned["destroy_result"]
+
+    # Termination trap: destroys only an owned clone, then exits 128+signum.
+    def _sig_handler(_signum, _frame):
+        _cleanup()
+        sys.exit(128 + _signum)
+
+    prev_sigint = signal.getsignal(signal.SIGINT)
+    prev_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+
+    try:
+        clone_res = clone_vm(
+            vm_template=vm_template,
+            snapshot=snapshot,
+            clone_name=ephemeral_name,
+            govc_bin=govc_bin,
+            govc_env=govc_env,
+        )
+        if not clone_res.get("ok"):
+            return {"ok": False, "error": f"clone failed: {clone_res.get('error')}", "exit_code": 1,
+                    "clone_name": None}
+        created = clone_res.get("clone_name")
+        if created != ephemeral_name or created == vm_template:
+            # The clone command did not hand back the identity we asked for: we do
+            # not own whatever it made, and we never guess what to destroy.
+            return {"ok": False, "exit_code": 3, "clone_name": None,
+                    "error": f"clone identity unresolved: asked for {ephemeral_name!r}, got {created!r}; "
+                             "nothing destroyed (unowned)"}
+        owned["clone"] = created
+
+        try:
+            res = execute_in_vm(
+                clone_name=ephemeral_name,
+                cmd=cmd,
+                govc_bin=govc_bin,
+                timeout=timeout,
+                govc_env=govc_env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            res = {
+                "ok": False,
+                "error": f"timeout: sandbox execution timed out after {timeout}s: {exc}",
+                "exit_code": 124,
+            }
+        except Exception as exc:
+            res = {
+                "ok": False,
+                "error": f"sandbox execution error: {exc}",
+                "exit_code": 1,
+            }
+        res = dict(res)
+        res["clone_name"] = ephemeral_name
+        destroy_res = _cleanup()
+        res["destroyed"] = bool(destroy_res and destroy_res.get("ok"))
+        if not res["destroyed"]:
+            # A surviving VM is a failed run whatever the guest said.
+            res["ok"] = False
+            res["destroy_error"] = (destroy_res or {}).get("error", "destroy not attempted")
+            res["guest_exit_code"] = res.get("exit_code", 0)
+            res["exit_code"] = 3
+            res["error"] = (f"{res.get('error') + '; ' if res.get('error') else ''}"
+                            f"ephemeral VM {ephemeral_name} NOT destroyed: {res['destroy_error']}")
+        return res
+    finally:
+        _cleanup()   # idempotent: a no-op when the normal path already ran it
+        signal.signal(signal.SIGINT, prev_sigint)
+        signal.signal(signal.SIGTERM, prev_sigterm)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="ESXi instant-clone ephemeral sandbox runner.")
+    parser.add_argument("--template", default="test-template", help="VM template or base VM name")
+    parser.add_argument("--snapshot", default="GOLDEN-READY", help="Snapshot name to instant clone from")
+    parser.add_argument("--clone-name", default=None, help="Explicit ephemeral clone name")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_EXEC_TIMEOUT_S, help="Timeout in seconds for execution")
+    parser.add_argument("--govc-bin", default="govc", help="Path to govc executable")
+    parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Command to execute inside sandbox VM")
+
+    args = parser.parse_args()
+    if not args.cmd:
+        sys.stderr.write("error: no command specified to run in sandbox\n")
+        return 2
+
+    # Remove leading '--' if passed
+    cmd = args.cmd
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+
+    result = run_sandbox_workflow(
+        cmd=cmd,
+        vm_template=args.template,
+        snapshot=args.snapshot,
+        clone_name=args.clone_name,
+        timeout=args.timeout,
+        govc_bin=args.govc_bin,
+    )
+    if result.get("stdout"):
+        sys.stdout.write(result["stdout"])
+    if result.get("stderr"):
+        sys.stderr.write(result["stderr"])
+    if not result.get("ok") and result.get("error"):
+        sys.stderr.write(f"bd-vm-sandbox error: {result['error']}\n")
+    return result.get("exit_code", 0 if result.get("ok") else 1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

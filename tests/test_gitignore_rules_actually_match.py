@@ -73,6 +73,45 @@ def test_the_scan_finds_the_gitignore_files():
     assert found, "no tracked .gitignore found -- the scan cannot see its subject"
 
 
+def _root_active_patterns(body: str) -> list[str]:
+    """Return active root .gitignore patterns, excluding blank/comment lines."""
+    patterns = []
+    for lineno, raw in enumerate(body.splitlines(), 1):
+        pattern = raw.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        patterns.append(pattern)
+    return patterns
+
+
+def _assert_unique_root_active_patterns(body: str) -> None:
+    patterns = _root_active_patterns(body)
+    assert len(patterns) >= 1, "root active .gitignore pattern population is empty"
+    duplicates = sorted({pattern for pattern in patterns if patterns.count(pattern) > 1})
+    assert not duplicates, f"duplicate active .gitignore pattern(s): {duplicates}"
+
+
+def test_root_gitignore_has_no_duplicate_active_pattern():
+    """A root rule must be unique over a nonempty active population."""
+    _assert_unique_root_active_patterns(
+        (ROOT / ".gitignore").read_text(encoding="utf-8"))
+
+
+def test_root_gitignore_empty_population_fails_distinctively():
+    """The uniqueness guard must not certify an empty active-pattern population."""
+    with pytest.raises(
+            AssertionError, match="root active .gitignore pattern population is empty"):
+        _assert_unique_root_active_patterns("# comment only\n\n")
+
+
+def test_root_gitignore_duplicate_population_fails_distinctively():
+    """A duplicate within the active population must fail on duplicate check."""
+    body = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    duplicate_body = body + "\n.claude-env-report.md\n"
+    with pytest.raises(AssertionError, match="duplicate active .gitignore pattern"):
+        _assert_unique_root_active_patterns(duplicate_body)
+
+
 # ── the defect ───────────────────────────────────────────────────────────────
 
 def test_no_pattern_carries_an_inline_comment():

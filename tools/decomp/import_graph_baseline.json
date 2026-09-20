@@ -1,12 +1,13 @@
 {
   "baseline_version": "1",
-  "edge_count": 4617,
+  "edge_count": 4675,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
     ],
     "bulk_downloader/account_health.py": [
-      "bulk_downloader/account_pool.py"
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/hooks.py"
     ],
     "bulk_downloader/admission.py": [
       "bulk_downloader/cookies.py",
@@ -44,6 +45,7 @@
     "bulk_downloader/aiassist.py": [
       "bulk_downloader/ai_provider.py",
       "bulk_downloader/detect.py",
+      "bulk_downloader/hooks.py",
       "bulk_downloader/secrets_store.py"
     ],
     "bulk_downloader/alerts_engine.py": [
@@ -1028,6 +1030,9 @@
       "bulk_downloader/library_final.py",
       "bulk_downloader/provenance.py"
     ],
+    "bulk_downloader/blob_resolver.py": [
+      "bulk_downloader/hls_downloader.py"
+    ],
     "bulk_downloader/bw_chart.py": [
       "bulk_downloader/db.py"
     ],
@@ -1106,6 +1111,9 @@
     ],
     "bulk_downloader/community_scrapers.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/container_repair.py": [
+      "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/content_rights.py": [
       "bulk_downloader/db.py"
@@ -1365,6 +1373,10 @@
     "bulk_downloader/element_pick.py": [
       "bulk_downloader/capture_artifact_redact.py"
     ],
+    "bulk_downloader/embeddings_client.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/embeddings.py"
+    ],
     "bulk_downloader/eme_detect.py": [
       "bulk_downloader/drm_detect.py"
     ],
@@ -1453,6 +1465,9 @@
     "bulk_downloader/host_enumerator.py": [
       "bulk_downloader/registrable_domain.py"
     ],
+    "bulk_downloader/http3_client.py": [
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "bulk_downloader/i18n.py": [
       "bulk_downloader/constants.py"
     ],
@@ -1534,6 +1549,9 @@
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/stealth.py"
     ],
+    "bulk_downloader/login_impl/mfa_helper.py": [
+      "bulk_downloader/secrets_store.py"
+    ],
     "bulk_downloader/login_impl/replay.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
@@ -1579,6 +1597,9 @@
     "bulk_downloader/mass_import.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/media_server_sync.py": [
+      "bulk_downloader/hooks.py"
+    ],
     "bulk_downloader/metrics_prom.py": [
       "bulk_downloader/account_health.py",
       "bulk_downloader/bitrot.py",
@@ -1599,6 +1620,7 @@
       "bulk_downloader/aiassist.py"
     ],
     "bulk_downloader/mp4_metadata.py": [
+      "bulk_downloader/enrichment.py",
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_conn.py": [
@@ -1851,6 +1873,7 @@
       "bulk_downloader/eme_detect.py",
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/plugins.py",
+      "bulk_downloader/settlement.py",
       "bulk_downloader/stealth.py",
       "bulk_downloader/vpn_runtime.py"
     ],
@@ -1897,6 +1920,7 @@
       "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_integrity.py": [
+      "bulk_downloader/container_repair.py",
       "bulk_downloader/db.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/fname.py",
@@ -1956,6 +1980,7 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/download_supervisor.py",
@@ -1965,6 +1990,7 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/jellyfin_deep.py",
       "bulk_downloader/multi_conn.py",
+      "bulk_downloader/pipeline_orchestrator.py",
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/proxy_pool.py",
       "bulk_downloader/ramdisk_stage.py",
@@ -2098,6 +2124,9 @@
     ],
     "bulk_downloader/stream_relay.py": [
       "bulk_downloader/global_config.py"
+    ],
+    "bulk_downloader/subtitles.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/synthetic_tests.py": [
       "bulk_downloader/constants.py"
@@ -2452,11 +2481,17 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_blob_resolver.py": [
+      "bulk_downloader/blob_resolver.py"
+    ],
     "tests/test_breadcrumb_extractor.py": [
       "bulk_downloader/breadcrumb_extractor.py"
     ],
     "tests/test_browser_asset_filter.py": [
       "bulk_downloader/runner_browser.py"
+    ],
+    "tests/test_browser_context_pool.py": [
+      "bulk_downloader/browser_pool.py"
     ],
     "tests/test_bug1_idle_site_delete.py": [
       "bulk_downloader/account_pool.py",
@@ -3209,6 +3244,9 @@
     "tests/test_hooks_webhook_ssrf.py": [
       "bulk_downloader/hooks.py"
     ],
+    "tests/test_hydration_extractor.py": [
+      "bulk_downloader/hydration_extractor.py"
+    ],
     "tests/test_i18n_phase191.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
@@ -3346,6 +3384,9 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_mfa_totp.py": [
+      "bulk_downloader/secrets_store.py"
+    ],
     "tests/test_mime_router.py": [
       "bulk_downloader/runner_transport.py"
     ],
@@ -3400,6 +3441,10 @@
       "bulk_downloader/global_config.py",
       "tools/config_surface_inventory.py"
     ],
+    "tests/test_mse_monitor.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/mse_monitor.py"
+    ],
     "tests/test_multi_conn_ssrf.py": [
       "bulk_downloader/multi_conn.py"
     ],
@@ -3411,6 +3456,10 @@
       "bulk_downloader/doctor.py",
       "bulk_downloader/site_editor.py",
       "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_network_settlement_barrier.py": [
+      "bulk_downloader/runner_browser.py",
+      "bulk_downloader/settlement.py"
     ],
     "tests/test_no_test_writes_the_real_vpn_config.py": [
       "bulk_downloader/vpn_config.py"
@@ -3438,6 +3487,9 @@
     ],
     "tests/test_ollama_unknown_model.py": [
       "bulk_downloader/ai_provider.py"
+    ],
+    "tests/test_operator_relay.py": [
+      "bulk_downloader/operator_relay.py"
     ],
     "tests/test_p1_release_tooling.py": [
       "tools/check_doc_drift.py",
@@ -3635,6 +3687,13 @@
     "tests/test_pin_index_in_sync.py": [
       "bulk_downloader/__init__.py",
       "tools/build_pin_index.py"
+    ],
+    "tests/test_pipeline_decoupling.py": [
+      "bulk_downloader/pipeline_orchestrator.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_player_config_extractor.py": [
+      "bulk_downloader/player_config.py"
     ],
     "tests/test_player_recognition_edge.py": [
       "tools/player_recognition.py"
@@ -4494,20 +4553,56 @@
       "bulk_downloader/app_config.py",
       "bulk_downloader/app_sites_id_core.py"
     ],
+    "tests/test_row823_satellite_embeddings_client.py": [
+      "bulk_downloader/embeddings.py",
+      "bulk_downloader/embeddings_client.py",
+      "tools/ssrf_client_census.py"
+    ],
+    "tests/test_row829_langfuse_tracing.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/hooks.py"
+    ],
     "tests/test_row835_nvdec_thumbnails.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/thumbnail_sheets.py"
     ],
+    "tests/test_row836_media_server_sync.py": [
+      "bulk_downloader/media_server_sync.py"
+    ],
     "tests/test_row837_audio_fingerprint.py": [
       "bulk_downloader/audio_fingerprint.py",
       "bulk_downloader/ffmpeg_bin.py"
+    ],
+    "tests/test_row852_zstd_compression.py": [
+      "bulk_downloader/archive_compression.py"
+    ],
+    "tests/test_row868_container_repair.py": [
+      "bulk_downloader/container_repair.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_integrity.py"
+    ],
+    "tests/test_row869_distributed_config.py": [
+      "bulk_downloader/distributed_config.py"
     ],
     "tests/test_row874_direct_writer.py": [
       "bulk_downloader/direct_writer.py"
     ],
     "tests/test_row876_entity_resolver.py": [
       "bulk_downloader/entity_resolver.py"
+    ],
+    "tests/test_row877_db_maintenance.py": [
+      "bulk_downloader/db_maintenance.py"
+    ],
+    "tests/test_row879_telemetry_db.py": [
+      "bulk_downloader/telemetry_db.py"
+    ],
+    "tests/test_row880_sqlite_cdc.py": [
+      "bulk_downloader/sqlite_cdc.py"
+    ],
+    "tests/test_row887_http3_transport.py": [
+      "bulk_downloader/http3_client.py"
     ],
     "tests/test_row888_socks5_pool.py": [
       "bulk_downloader/socks5_pool.py"
@@ -4519,6 +4614,12 @@
     ],
     "tests/test_row892_traffic_shaper.py": [
       "bulk_downloader/traffic_shaper.py"
+    ],
+    "tests/test_row898.py": [
+      "bulk_downloader/client_config.py"
+    ],
+    "tests/test_row899.py": [
+      "bulk_downloader/runner_browser.py"
     ],
     "tests/test_row900.py": [
       "bulk_downloader/hls.py"
@@ -4533,6 +4634,9 @@
     ],
     "tests/test_row906.py": [
       "bulk_downloader/playlist_extractor.py"
+    ],
+    "tests/test_row907.py": [
+      "bulk_downloader/metadata_normalizer.py"
     ],
     "tests/test_row912.py": [
       "bulk_downloader/interstitial.py"
@@ -4665,6 +4769,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/selftest.py"
     ],
+    "tests/test_semantic_filter.py": [
+      "bulk_downloader/semantic_filter.py"
+    ],
     "tests/test_semantic_search.py": [
       "bulk_downloader/semantic_search.py"
     ],
@@ -4714,6 +4821,10 @@
     "tests/test_spa_root_routing_contract.py": [
       "bulk_downloader/app.py"
     ],
+    "tests/test_spa_route_detector.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_browser.py"
+    ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"
     ],
@@ -4722,6 +4833,10 @@
       "bulk_downloader/dom_capture.py",
       "bulk_downloader/wacz_export.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_subtitle_chapter_harvester.py": [
+      "bulk_downloader/mp4_metadata.py",
+      "bulk_downloader/subtitles.py"
     ],
     "tests/test_supplemental_recognizers_197.py": [
       "bulk_downloader/extraction_core.py",
@@ -4943,6 +5058,9 @@
       "bulk_downloader/download_egress.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/vpn_runtime.py"
+    ],
+    "tests/test_turnstile_click.py": [
+      "bulk_downloader/runner_challenge.py"
     ],
     "tests/test_u15_config_import.py": [
       "bulk_downloader/__init__.py"
@@ -7477,8 +7595,17 @@
     "tests/test_vector_index.py": [
       "bulk_downloader/vector_index.py"
     ],
+    "tests/test_video_dedup.py": [
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/detect.py",
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_video_magic_bytes.py": [
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_visibility_filter.py": [
+      "bulk_downloader/visibility_filter.py"
     ],
     "tests/test_vpn_config_load_quarantine.py": [
       "bulk_downloader/app_store_raw_editor.py",
@@ -7599,6 +7726,9 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/template_manager.py",
       "tools/wow_promote_golden.py"
+    ],
+    "tests/test_zero_copy_assembly.py": [
+      "bulk_downloader/file_assembler.py"
     ],
     "tools/_probe_lib.py": [
       "bulk_downloader/app.py",

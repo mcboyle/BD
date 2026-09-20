@@ -226,6 +226,11 @@ rich>=15.0,<16.0
 # explicitly supplied Postgres DSN when the modern psycopg driver is absent.
 psycopg2-binary>=2.9,<3.0
 
+# Row 928: pipeline manifest queue backend. The default queue is in-process
+# memory; open_manifest_queue("redis://...") selects this client and fails
+# closed (QueueBackendUnavailable) when it is absent.
+redis>=5.0,<9.0
+
 # Phase 15.4: TLS fingerprint impersonation. Provides a drop-in `requests`-
 # style API that mimics real Chrome's TLS handshake (JA3, ALPN, HTTP/2
 # SETTINGS) at the wire level — defeats fingerprint-based bot detection
@@ -353,3 +358,10 @@ yt-dlp>=2025.1,<2026.0
 gallery-dl>=1.26,<2.0
 youtube-dl>=2021.12.17,<2022.0
 
+# row887 (O963a, 2026-09-20): HTTP/3 (QUIC) media transport lives in
+# requirements-http3.txt as an OPTIONAL extra (pip install -r
+# requirements-http3.txt). NOT pinned here: the fleet index
+# (devpi 10.0.70.182:3141) has no aioquic distribution, and a hard pin here
+# fails every venv build. bulk_downloader/http3_client.py loads aioquic by
+# name through importlib and falls back to the guarded httpx TCP transport
+# when it is absent.
