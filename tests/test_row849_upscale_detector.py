@@ -163,7 +163,9 @@ class TestErrorHandlingAndProcessBoundaries:
 
     def test_missing_ffmpeg_returns_distinct_error_no_exception(self):
         """Missing ffmpeg returns distinct error 'ffmpeg_not_installed' without raising an exception."""
-        with patch("shutil.which", return_value=None):
+        with patch("shutil.which", return_value=None), \
+                patch.dict("bulk_downloader.ffmpeg_bin._CACHE", {}, clear=True), \
+                patch("bulk_downloader.ffmpeg_bin._pinned_dir", return_value=""):
             with patch("bulk_downloader.upscale_detector._FFMPEG_AVAILABLE", None):
                 verdict = detect_upscale("/any/path/video.mp4")
                 assert isinstance(verdict, UpscaleVerdict)

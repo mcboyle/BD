@@ -2382,7 +2382,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1808,
+    "edge_count": 1809,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3806,7 +3806,8 @@
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/stream_verifier.py",
         "bulk_downloader/thumbnail_gen.py",
-        "bulk_downloader/thumbnail_sheets.py"
+        "bulk_downloader/thumbnail_sheets.py",
+        "bulk_downloader/upscale_detector.py"
       ],
       "bulk_downloader/flaresolverr_client.py": [
         "bulk_downloader/app.py",
@@ -7604,6 +7605,9 @@
       ],
       "bulk_downloader/tus_client.py": [
         "bulk_downloader/hooks.py"
+      ],
+      "bulk_downloader/upscale_detector.py": [
+        "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/user_templates.py": [
         "bulk_downloader/selector_lint.py",

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import signal
 import subprocess
 import threading
@@ -50,10 +49,11 @@ _FFMPEG_AVAILABLE: Optional[bool] = None
 
 
 def is_ffmpeg_available() -> bool:
-    """Return True if ffmpeg and ffprobe are executable on PATH."""
+    """Return True if ffmpeg and ffprobe both resolve (honours the ffmpeg_path pin)."""
     global _FFMPEG_AVAILABLE
     if _FFMPEG_AVAILABLE is None:
-        _FFMPEG_AVAILABLE = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+        from . import ffmpeg_bin          # MOD-4: one resolver, honours the pin
+        _FFMPEG_AVAILABLE = ffmpeg_bin.both_available()
     return _FFMPEG_AVAILABLE
 
 
@@ -64,11 +64,13 @@ def is_upscale_detector_available() -> bool:
 
 def probe_video_metadata(path: str, timeout: float = 5.0) -> Tuple[int, int, float, int]:
     """Probe width, height, duration, and frame count via ffprobe."""
-    if not is_ffmpeg_available():
+    from . import ffmpeg_bin          # MOD-4: the executed binary is the pinned one
+    ffprobe = ffmpeg_bin.ffprobe() if is_ffmpeg_available() else None
+    if not ffprobe:
         raise FileNotFoundError("ffprobe not found")
 
     cmd = [
-        "ffprobe",
+        ffprobe,
         "-v",
         "error",
         "-select_streams",
@@ -128,7 +130,9 @@ def extract_sampled_frames(
     nb_frames: int = 0,
 ) -> Tuple[Optional[np.ndarray], Optional[str]]:
     """Sample N frames from video using ffmpeg select filter, returning raw gray frames of fixed size."""
-    if not is_ffmpeg_available():
+    from . import ffmpeg_bin          # MOD-4: the executed binary is the pinned one
+    ffmpeg = ffmpeg_bin.ffmpeg() if is_ffmpeg_available() else None
+    if not ffmpeg:
         return None, "ffmpeg_not_installed"
 
     # Frame sampling expression
@@ -142,7 +146,7 @@ def extract_sampled_frames(
     vf = f"select='{select_expr}',crop={size}:{size}"
 
     cmd = [
-        "ffmpeg",
+        ffmpeg,
         "-y",
         "-v",
         "error",

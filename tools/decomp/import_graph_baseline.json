@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4777,
+  "edge_count": 4778,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2262,6 +2262,9 @@
     ],
     "bulk_downloader/tus_client.py": [
       "bulk_downloader/hooks.py"
+    ],
+    "bulk_downloader/upscale_detector.py": [
+      "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/user_templates.py": [
       "bulk_downloader/selector_lint.py",
