@@ -306,3 +306,26 @@ def test_H306_a_moot_row_is_stamped_moot_at_release(tmp_path: Path) -> None:
     result2 = _run_close(repo2)
     assert result2.returncode != 0
     assert "not OPEN, CLOSED, or MOOT" in result2.stderr
+
+
+def test_parked_row_is_closed_at_release(tmp_path: Path) -> None:
+    """bd-register-close accepts PARKED (and PARKED @ver) status and stamps CLOSED @release."""
+    # Positive control: PARKED row gets stamped CLOSED @release
+    repo = _synthetic_repo(tmp_path, "PARKED")
+    result = _run_close(repo)
+    assert result.returncode == 0, result.stderr
+    register = (repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md").read_text(
+        encoding="ascii"
+    )
+    assert "| 263 | CLOSED @4321 | fixture row |" in register
+    assert "rows=1 open=0" in register
+
+    # Positive control 2: PARKED @1253 row gets stamped CLOSED @release
+    repo2 = _synthetic_repo(tmp_path / "parked_ver", "PARKED @1253")
+    result2 = _run_close(repo2)
+    assert result2.returncode == 0, result2.stderr
+    register2 = (repo2 / "project-knowledge" / "IMPROVEMENT_BACKLOG.md").read_text(
+        encoding="ascii"
+    )
+    assert "| 263 | CLOSED @4321 | fixture row |" in register2
+    assert "rows=1 open=0" in register2

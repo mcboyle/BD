@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4742,
+  "edge_count": 4743,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4647,6 +4647,9 @@
     ],
     "tests/test_row827_minio_storage_tier.py": [
       "bulk_downloader/storage_tier.py"
+    ],
+    "tests/test_row828_redis_cluster_rate.py": [
+      "bulk_downloader/cluster_rate.py"
     ],
     "tests/test_row829_langfuse_tracing.py": [
       "bulk_downloader/ai_provider.py",

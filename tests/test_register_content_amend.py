@@ -509,3 +509,137 @@ def test_help_describes_the_guarded_request_interface() -> None:
     assert result.returncode == 0, result.stderr
     assert "--repo" in result.stdout
     assert "--request" in result.stdout
+
+
+def _fixture_repo_with_parked_row(tmp_path: Path, parked_status: str = "PARKED") -> tuple[Path, Path, str]:
+    repo = tmp_path / "repo"
+    knowledge = repo / "project-knowledge"
+    knowledge.mkdir(parents=True)
+    shutil.copyfile(PARSER, knowledge / "build_current_overlay.py")
+    row = f"| 402 | {parked_status} | Acceptance: example task |\n"
+    provisional = (
+        "# fixture\n\n"
+        "<!-- canonical-task-register schema=1 rows=0 open=0 "
+        "ids-sha256=" + "0" * 64 + " -->\n\n"
+        "| 401 | OPEN | preserved before |\n"
+        + row
+        + "| 403 | OPEN | preserved after |\n"
+    )
+    register = knowledge / "IMPROVEMENT_BACKLOG.md"
+    register.write_text(provisional, encoding="ascii")
+    marker = _marker(repo, provisional)
+    register.write_text(
+        provisional.replace("<!-- canonical-task-register schema=1 rows=0 open=0 ids-sha256=" + "0" * 64 + " -->", marker),
+        encoding="ascii",
+    )
+    register.chmod(0o640)
+    return repo, register, row.rstrip("\n")
+
+
+def test_amend_accepts_guarded_parked_to_open_transition(tmp_path: Path) -> None:
+    """A row in PARKED status can transition to OPEN via bd-register-amend.
+    The canonical header open count increases by 1 and is verified."""
+    repo, register, old_row = _fixture_repo_with_parked_row(tmp_path, "PARKED")
+    initial_text = register.read_text(encoding="ascii")
+    assert "rows=3 open=2" in initial_text
+
+    request_path = tmp_path / "amend_open.json"
+    payload = {
+        "schema": "bd-register-amend/v1",
+        "row": 402,
+        "expected_status": "PARKED",
+        "expected_row_sha256": hashlib.sha256(old_row.encode("ascii")).hexdigest(),
+        "find": "PARKED",
+        "replace": "OPEN",
+    }
+    _write_request(request_path, payload)
+
+    result = _run(repo, request_path)
+    assert result.returncode == 0, result.stderr
+    assert "row 402 amended; canonical header verified" in result.stdout
+
+    amended_text = register.read_text(encoding="ascii")
+    assert "| 402 | OPEN | Acceptance: example task |" in amended_text
+    assert "rows=3 open=3" in amended_text
+
+
+def test_amend_accepts_guarded_parked_at_ver_to_open_transition(tmp_path: Path) -> None:
+    """A row in PARKED @1253 status can transition to OPEN via bd-register-amend."""
+    repo, register, old_row = _fixture_repo_with_parked_row(tmp_path, "PARKED @1253")
+    request_path = tmp_path / "amend_parked_ver.json"
+    payload = {
+        "schema": "bd-register-amend/v1",
+        "row": 402,
+        "expected_status": "PARKED @1253",
+        "expected_row_sha256": hashlib.sha256(old_row.encode("ascii")).hexdigest(),
+        "find": "PARKED @1253",
+        "replace": "OPEN",
+    }
+    _write_request(request_path, payload)
+
+    result = _run(repo, request_path)
+    assert result.returncode == 0, result.stderr
+    amended_text = register.read_text(encoding="ascii")
+    assert "| 402 | OPEN | Acceptance: example task |" in amended_text
+    assert "rows=3 open=3" in amended_text
+
+
+def test_amend_accepts_guarded_parked_to_closed_transition(tmp_path: Path) -> None:
+    """A row in PARKED status can transition to CLOSED @ver via bd-register-amend."""
+    repo, register, old_row = _fixture_repo_with_parked_row(tmp_path, "PARKED")
+    request_path = tmp_path / "amend_closed.json"
+    payload = {
+        "schema": "bd-register-amend/v1",
+        "row": 402,
+        "expected_status": "PARKED",
+        "expected_row_sha256": hashlib.sha256(old_row.encode("ascii")).hexdigest(),
+        "find": "PARKED",
+        "replace": "CLOSED @1590",
+    }
+    _write_request(request_path, payload)
+
+    result = _run(repo, request_path)
+    assert result.returncode == 0, result.stderr
+    amended_text = register.read_text(encoding="ascii")
+    assert "| 402 | CLOSED @1590 | Acceptance: example task |" in amended_text
+    assert "rows=3 open=2" in amended_text
+
+
+def test_amend_refuses_unguarded_status_transitions(tmp_path: Path) -> None:
+    """Negative control: unguarded status changes (e.g. OPEN->CLOSED, OPEN->PARKED,
+    CLOSED->OPEN, or PARKED->INVALID) are strictly refused."""
+    repo, register, old_row = _fixture_repo_with_parked_row(tmp_path, "PARKED")
+    before = register.read_bytes()
+
+    # 1. PARKED -> arbitrary invalid status
+    req1 = {
+        "schema": "bd-register-amend/v1",
+        "row": 402,
+        "expected_status": "PARKED",
+        "expected_row_sha256": hashlib.sha256(old_row.encode("ascii")).hexdigest(),
+        "find": "PARKED",
+        "replace": "IN_PROGRESS",
+    }
+    req1_path = tmp_path / "bad1.json"
+    _write_request(req1_path, req1)
+    res1 = _run(repo, req1_path)
+    assert res1.returncode != 0
+    assert "amendment may not change the target row status" in res1.stderr
+    assert register.read_bytes() == before
+
+    # 2. OPEN -> CLOSED via amend (owned by bd-register-close, not bd-register-amend)
+    open_row = "| 401 | OPEN | preserved before |"
+    req2 = {
+        "schema": "bd-register-amend/v1",
+        "row": 401,
+        "expected_status": "OPEN",
+        "expected_row_sha256": hashlib.sha256(open_row.encode("ascii")).hexdigest(),
+        "find": "OPEN",
+        "replace": "CLOSED @1590",
+    }
+    req2_path = tmp_path / "bad2.json"
+    _write_request(req2_path, req2)
+    res2 = _run(repo, req2_path)
+    assert res2.returncode != 0
+    assert "amendment may not change the target row status" in res2.stderr
+    assert register.read_bytes() == before
