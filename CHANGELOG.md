@@ -6,7 +6,7 @@ archive is not present in this repository; consult source-control history.
 
 ## v3.66.1585 - train10: one big train (O1009) -- 47 cuts
 
-Train: 47 refute-first-reviewed worker patches (O1009 one big train). Base 372bac82. Rows 829 833 836 837 PARKED->OPEN->CLOSED (O978/O978b). Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: see .train/bounced.tsv.
+Train: 46 refute-first-reviewed worker patches (O1009 one big train; row660c-fx1 dropped per O1019). Base 372bac82. Rows 829 833 836 837 PARKED->OPEN->CLOSED (O978/O978b). Tier T3 (max member, O1001). Local precut/band waived (O1010); exact-head CI is the gate. Drops: see .train/bounced.tsv.
 
 - precut-ratchet-advisory-local: ACCEPTANCE EVIDENCE: 1. E1 fix: On bd-ratchet rc3 under default env (no BD_RATCHET_BLOCK), bd-precut continues with rc 0, prints delta line, writes <wt>/.review
 - 877-local: SEAMS: - bulk_downloader/db_maintenance.py: - detect_index_bloat: detects index page fragmentation and bloat across SQLite and PostgreSQL - run_postgres_mainten
@@ -21,7 +21,6 @@ Train: 47 refute-first-reviewed worker patches (O1009 one big train). Base 372ba
 - 866-local: ## STAGED FILES - `toolchain/bin/bd-lens-worktree` - `tests/test_sparse_worktree.py`
 - 843-r2-local: OBJECT: TREE a364976a570f9b540fda889604d40b4cc6cb6488 PATCH-SHA256: 37378c6b21b53b7eb4e69f060bc3cc7247ba98479ed8a090e6bcee60ec133376 BASE: b9d1c8f7855b54bf4ce7e
 - 883-flake-timing-local: BASE: e3ae6b5eb3c69e5a1c14ad17b109faf40b883e0a INDEX TREE: 47c392ffcc7c49129c6d4b01d9f696099e287c8a
-- 660c-lu-rb1-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row660c-lu-rb1-local-fx1-local/DONE.md
 - 823-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row823-local-fx1-local/DONE.md
 - 833-local-fx1-local: SUMMARY MISSING -- read /home/mboyle/fleet-run-artifacts/codex-remote/row833-local-fx1-local/DONE.md
 - 852-local: ## FIXER (O928) bd-integrator-A 2026-09-19T23:32:05Z PREP-REFUSED rc=3 at 23:03:31Z was a HARNESS race, not a cut defect: two preps of row852-local ran together

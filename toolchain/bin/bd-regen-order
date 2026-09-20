@@ -38,9 +38,7 @@ removal of 4 routes was declared deliberate. A regen tool that silently re-froze
 defeat both gates -- it would turn "you changed the route surface, say so" into "the tool
 said so for you". If you meant it, say so with --declare-surface / --declare-edges.
 
-Read-only until it runs the generators. --dry-run prints the chain. The narrow
---check-reachability mode measures that ratchet without running any generator.
---selftest.
+Read-only until it runs the generators. --dry-run prints the chain. --selftest.
 """
 import argparse
 import json
@@ -236,7 +234,7 @@ def _run_venv(work, argv):
 
 
 def check_reach(work):
-    """Is the reachability ratchet in sync over a measured nonzero population?"""
+    """Is the reachability ratchet in sync? Report DRIFT here, not on stash."""
     tool = os.path.join(work, "tools", "endpoint_reachability.py")
     base_p = os.path.join(work, "reports", "endpoint_reachability.json")
     if not os.path.isfile(tool) or not os.path.isfile(base_p):
@@ -245,50 +243,25 @@ def check_reach(work):
         "import json,sys;sys.path.insert(0,'.');"
         "from tools import endpoint_reachability as er;"
         "d=er.build('.');"
-        "print(json.dumps({'endpoints':len(d['endpoints']),"
-        "'dark':len([e for e in d['endpoints'] if e['reach']=='dark'])},"
-        "sort_keys=True))"])
+        "print(len([e for e in d['endpoints'] if e['reach']=='dark']))"])
     if rc is None:
-        return None, "UNKNOWN reachability: %s" % out
+        return False, out
     if rc != 0:
-        return None, "UNKNOWN reachability build failed: %s" % out.strip().splitlines()[-1:]
+        return False, "reachability build failed: %s" % out.strip().splitlines()[-1:]
     try:
-        measurements = []
-        for line in out.splitlines():
-            try:
-                candidate = json.loads(line)
-            except (TypeError, ValueError):
-                continue
-            if isinstance(candidate, dict) and set(candidate) == {"endpoints", "dark"}:
-                measurements.append(candidate)
-        if len(measurements) != 1:
-            raise ValueError("expected exactly one endpoint-count record, got %d"
-                             % len(measurements))
-        measurement = measurements[0]
-        total = measurement["endpoints"]
-        now = measurement["dark"]
-        if type(total) is not int or type(now) is not int or not (0 <= now <= total):
-            raise ValueError("endpoint/dark counts are not valid integers")
-        ledger = json.load(open(base_p, encoding="utf-8"))
-        base = ledger["dark_count"]
-        base_total = ledger["endpoint_count"]
+        now = int([l for l in out.strip().splitlines() if l.strip().isdigit()][-1])
+        base = json.load(open(base_p, encoding="utf-8"))["dark_count"]
     except Exception as ex:
-        return None, "UNKNOWN reachability counts: %s" % ex
-    if not total:
-        return None, "UNKNOWN reachability: endpoint denominator is zero"
-    if total != base_total:
-        return False, ("endpoints=%d but the ledger pins %d -- an endpoint appeared "
-                       "or vanished. Re-pin IN THIS CUT with --declare-reach "
-                       "(stash WILL catch this)." % (total, base_total))
+        return False, "could not read dark_count (%s)" % ex
     if now == base:
-        return True, "endpoints=%d, dark=%d, in sync" % (total, now)
-    return False, ("endpoints=%d, dark=%d but the ledger pins %d -- a wiring cut changed reachability. "
+        return True, "dark=%d, in sync" % now
+    return False, ("dark=%d but the ledger pins %d -- a wiring cut changed reachability. "
                    "Re-pin IN THIS CUT with --declare-reach (stash WILL catch this)."
-                   % (total, now, base))
+                   % (now, base))
 
 
 def declare_reach(work):
-    """Re-pin endpoint and dark totals. ONLY for an operator-approved change."""
+    """Re-pin the dark_count ratchet. ONLY when the operator says the change is intended."""
     rc, out = _run_venv(work, ["tools/endpoint_reachability.py", "--update"])
     if rc is None:
         return False, out
@@ -447,8 +420,6 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--tracked-outputs", action="store_true",
                     help="print the tracked CHAIN outputs, one path per line")
-    ap.add_argument("--check-reachability", action="store_true",
-                    help="read-only: verify the endpoint-reachability ratchet under the work-tree venv")
     a = ap.parse_args()
     if a.check and (a.declare_surface or a.declare_edges or a.declare_reach):
         print("bd-regen-order: --check is READ-ONLY and --declare-* asks for a write; "
@@ -480,21 +451,6 @@ def main():
     if not os.path.isdir(work):
         print("  %sXX%s %-18s work tree not found" % (R, RST, "work"))
         return 1
-    if a.check_reachability:
-        good, msg = check_reach(work)
-        print("  %s %-18s %s" % (
-            (G + "OK" + RST) if good else (R + "XX" + RST),
-            "reachability",
-            msg,
-        ))
-        if good is None:
-            print("%sREACHABILITY UNKNOWN%s" % (R, RST))
-            return 2
-        if not good:
-            print("%sREACHABILITY DRIFT%s" % (R, RST))
-            return 1
-        print("%sREACHABILITY CHECK OK%s" % (G, RST))
-        return 0
     census_ok, census_message = check_census_expiry(work)
     print("  %s %-18s %s" % (
         (G + "OK" + RST) if census_ok else (R + "XX" + RST),

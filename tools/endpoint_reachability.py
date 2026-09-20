@@ -286,13 +286,11 @@ def main():
         p = os.path.join(a.root, "reports", "endpoint_reachability.json")
         prev = _load_classes(a.root)
         json.dump({"dark_count": d["counts"]["dark"],
-                   "endpoint_count": d["counts"]["mutating"],
                    "dark": sorted(e["rule"] for e in d["endpoints"]
                                   if e["reach"] == "dark"),
                    "classified": prev},
                   open(p, "w", encoding="utf-8"), indent=2, sort_keys=True)
-        print("pinned endpoint_count=%d, dark_count=%d -> %s"
-              % (d["counts"]["mutating"], d["counts"]["dark"], p))
+        print("pinned dark_count=%d -> %s" % (d["counts"]["dark"], p))
         return 0
     if a.json:
         print(json.dumps(d, indent=2, sort_keys=True))

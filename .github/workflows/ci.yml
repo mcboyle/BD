@@ -843,7 +843,6 @@ jobs:
               tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py
               tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py
               tests/test_generated_artifact_workflow.py
-              tests/test_row660_gate_is_read_only.py
               tests/test_v3_66_918_tracked_source_denominator.py
           - name: tree-gates-5
             suites: >-
