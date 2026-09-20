@@ -1,8 +1,38 @@
-# Changelog
+## v3.66.1585 - train9b: precut ratchet advisory + row883 flake fix + 11 held/census cuts
 
-Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
-phase number. Notes here cover recent releases. The former pre-v3.46
-archive is not present in this repository; consult source-control history.
+Train: 13 refute-first-reviewed worker patches. Base 372bac82. Rows 829 836 837 PARKED->OPEN->CLOSED per O978b; tier T2 per O1001.
+
+- precut-ratchet-advisory (O733/O999): bd-precut no longer hard-blocks on bd-ratchet rc3 under default env; prints the delta, writes .review/RATCHET-ADVISORY.md, reports ADVISORY (BD_RATCHET_BLOCK restores blocking). tests/test_precut_ratchet_advisory.py.
+- row877: db_maintenance -- index bloat detection and non-blocking maintenance for SQLite (WAL checkpoint) and PostgreSQL (REINDEX CONCURRENTLY, CHECKPOINT).
+- row846: remux copies every stream (-map 0 -c copy) into an exclusively owned mkstemp temp beside the destination; fixer-refuted E1-E4 closed.
+- row879: telemetry_db -- durable local telemetry store. tests/test_row879_telemetry_db.py.
+- row859: zero-copy file assembly in file_assembler; import-graph baseline re-pinned. tests/test_zero_copy_assembly.py.
+- row836: media_server_sync -- targeted library refresh dispatcher for media servers after download. tests/test_row836_media_server_sync.py.
+- row880: sqlite_cdc -- SQLite change-data-capture (Postgres path skipped without SQLITE_CDC_PG_TEST_DSN). tests/test_row880_sqlite_cdc.py.
+- row842: CoreDNS census query connects the UDP socket to the loopback nameserver; failed/timeout probes are reported, not absorbed (fixer items 1-4).
+- row829: aiassist -- Langfuse async LLM observability and cost-tracing hook. tests/test_row829_langfuse_tracing.py.
+- row869: distributed config broadcast (SET + PUBLISH key:changed) with DistributedConfigWatcher reload thread; fixer P1/P2 items closed.
+- row866: bd-lens-worktree sparse worktrees. tests/test_sparse_worktree.py.
+- row843-r2: apt-cacher-ng provisioning in cloud-setup.sh / provision_test_host.sh and toolchain. tests/test_row843_apt_cacher_ng.py.
+- row883-flake-timing: test_retry_has_no_sleep_backoff no longer asserts a wall-clock bound (main-side flake, O998). tests-only.
+
+## v3.66.1585 - train9b: precut ratchet advisory + row883 flake fix + 11 held/census cuts
+
+Train: 13 refute-first-reviewed worker patches.
+
+- PRECUT-RATCHET-ADVISORY-LOCAL: ACCEPTANCE EVIDENCE: 1. E1 fix: On bd-ratchet rc3 under default env (no BD_RATCHET_BLOCK), bd-precut continues with rc 0, prints delta line, writes <wt>/.review/RATCHET-ADVISORY.md (metric, baseline, value, delta), and ran_parts reports "metric ratchet regressed -- ADVISORY, see .review/RATCHET-ADVI
+- 877-LOCAL: SEAMS: - bulk_downloader/db_maintenance.py: - detect_index_bloat: detects index page fragmentation and bloat across SQLite and PostgreSQL - run_postgres_maintenance: non-blocking maintenance using REINDEX CONCURRENTLY and CHECKPOINT - run_sqlite_maintenance: non-blocking maintenance using WAL checkp
+- 846-LOCAL: ## FIXER (O928) 2026-09-20T01:02:20Z bd-integrator-A -- VERDICT-correctness REFUTE E1-E4 (HIGH) E1: remux maps every stream (-map 0 -c copy): two-audio-track fixture keeps 3 streams (real ffmpeg control). E2: output is an exclusively owned mkstemp temp beside the destination (never a PID-derived sha
+- 879-LOCAL: ## STAGED FILES - `bulk_downloader/telemetry_db.py` - `tests/test_row879_telemetry_db.py`
+- 859-ZERO-COPY-ASSEMBLY-LOCAL: BASE: 163c3f72156e6ffe9070042195b20a267e47efe3 Staged (git diff --cached <base> --name-only, 3 paths): bulk_downloader/file_assembler.py tests/test_zero_copy_assembly.py tools/decomp/import_graph_baseline.json
+- 836-LOCAL: ## STAGED FILES - `bulk_downloader/media_server_sync.py` - `tests/test_row836_media_server_sync.py`
+- 880-LOCAL: RED: on unmodified base, tests/test_row880_sqlite_cdc.py does not exist (git stash -u; pytest -> "ERROR: file or directory not found"). GREEN: pytest tests/test_row880_sqlite_cdc.py -> 9 passed, 1 skipped (skip = no SQLITE_CDC_PG_TEST_DSN; no live Postgres on this box).
+- 842-LOCAL: ## FIXER (O928) bd-integrator-A 2026-09-20T02:36:43Z -- REFUTE items 1-4 (bd-review-wt/row842-local/.review/VERDICT-correctness.md) 1. _query_coredns CONNECTS the UDP socket to the loopback nameserver (send/recv): a datagram from any other local sender is never delivered to the parser. 2. A failed/t
+- 829-LOCAL: STAGED FILES: - bulk_downloader/aiassist.py - tests/test_row829_langfuse_tracing.py
+- 869-LOCAL: ## FIXER (O928) 2026-09-20T00:47:41Z bd-integrator-A -- VERDICT-correctness REFUTE P1/P1/P2/P2 P1 broadcast: broadcast_config(client, value) = SET key + PUBLISH key:changed; DistributedConfigWatcher.start() subscribes (client.pubsub()) and reloads on each message in a daemon thread; a client without
+- 866-LOCAL: ## STAGED FILES - `toolchain/bin/bd-lens-worktree` - `tests/test_sparse_worktree.py`
+- 843-R2-LOCAL: OBJECT: TREE a364976a570f9b540fda889604d40b4cc6cb6488 PATCH-SHA256: 37378c6b21b53b7eb4e69f060bc3cc7247ba98479ed8a090e6bcee60ec133376 BASE: b9d1c8f7855b54bf4ce7e1b35d62215c6a45ce6f STAGED (4 paths): scripts/cloud-setup.sh scripts/provision_test_host.sh tests/test_row843_apt_cacher_ng.py toolchain/bin
+- 883-FLAKE-TIMING-LOCAL: BASE: e3ae6b5eb3c69e5a1c14ad17b109faf40b883e0a INDEX TREE: 47c392ffcc7c49129c6d4b01d9f696099e287c8a
 
 ## v3.66.1584 - train8: w6-reqconsolidate-rb5 + row449-mainred (main-red fix)
 

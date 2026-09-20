@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4617,
+  "edge_count": 4628,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -44,6 +44,7 @@
     "bulk_downloader/aiassist.py": [
       "bulk_downloader/ai_provider.py",
       "bulk_downloader/detect.py",
+      "bulk_downloader/hooks.py",
       "bulk_downloader/secrets_store.py"
     ],
     "bulk_downloader/alerts_engine.py": [
@@ -1578,6 +1579,9 @@
     ],
     "bulk_downloader/mass_import.py": [
       "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/media_server_sync.py": [
+      "bulk_downloader/hooks.py"
     ],
     "bulk_downloader/metrics_prom.py": [
       "bulk_downloader/account_health.py",
@@ -4494,20 +4498,40 @@
       "bulk_downloader/app_config.py",
       "bulk_downloader/app_sites_id_core.py"
     ],
+    "tests/test_row829_langfuse_tracing.py": [
+      "bulk_downloader/ai_provider.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/hooks.py"
+    ],
     "tests/test_row835_nvdec_thumbnails.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/thumbnail_sheets.py"
     ],
+    "tests/test_row836_media_server_sync.py": [
+      "bulk_downloader/media_server_sync.py"
+    ],
     "tests/test_row837_audio_fingerprint.py": [
       "bulk_downloader/audio_fingerprint.py",
       "bulk_downloader/ffmpeg_bin.py"
+    ],
+    "tests/test_row869_distributed_config.py": [
+      "bulk_downloader/distributed_config.py"
     ],
     "tests/test_row874_direct_writer.py": [
       "bulk_downloader/direct_writer.py"
     ],
     "tests/test_row876_entity_resolver.py": [
       "bulk_downloader/entity_resolver.py"
+    ],
+    "tests/test_row877_db_maintenance.py": [
+      "bulk_downloader/db_maintenance.py"
+    ],
+    "tests/test_row879_telemetry_db.py": [
+      "bulk_downloader/telemetry_db.py"
+    ],
+    "tests/test_row880_sqlite_cdc.py": [
+      "bulk_downloader/sqlite_cdc.py"
     ],
     "tests/test_row888_socks5_pool.py": [
       "bulk_downloader/socks5_pool.py"
@@ -7599,6 +7623,9 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/template_manager.py",
       "tools/wow_promote_golden.py"
+    ],
+    "tests/test_zero_copy_assembly.py": [
+      "bulk_downloader/file_assembler.py"
     ],
     "tools/_probe_lib.py": [
       "bulk_downloader/app.py",
