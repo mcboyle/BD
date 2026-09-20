@@ -103,12 +103,12 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_extractors.py:629": PUBLIC_ONLY,
     "bulk_downloader/runner_manual.py:422": PUBLIC_ONLY,
     "bulk_downloader/runner_telemetry.py:309": PUBLIC_ONLY,
-    "bulk_downloader/runner_transport.py:1072": PINNED,
-    "bulk_downloader/runner_transport.py:1645": PINNED,
-    "bulk_downloader/runner_transport.py:3001": PINNED,
-    "bulk_downloader/runner_transport.py:3368": PINNED,
-    "bulk_downloader/runner_transport.py:3449": PINNED,
-    "bulk_downloader/runner_transport.py:3600": PINNED,
+    "bulk_downloader/runner_transport.py:1074": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:1647": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3003": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3370": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3451": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
+    "bulk_downloader/runner_transport.py:3602": PINNED,  # row 901 moved it down 2 lines (ffmpeg_bin/subprocess imports)
     "bulk_downloader/session_keeper.py:1280": PINNED,
     "bulk_downloader/tg_bot.py:162": PINNED,
     "bulk_downloader/tg_bot.py:185": PINNED,

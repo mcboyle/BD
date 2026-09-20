@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4576,
+  "edge_count": 4584,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1949,6 +1949,7 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
       "bulk_downloader/download_supervisor.py",
+      "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/fname.py",
       "bulk_downloader/hls_downloader.py",
       "bulk_downloader/hooks.py",
@@ -2283,6 +2284,9 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_adaptive_chunk_sizing.py": [
+      "bulk_downloader/chunked_transfer.py"
     ],
     "tests/test_ai3_storage_promote_300.py": [
       "tools/build_template_from_wacz.py",
@@ -3131,6 +3135,9 @@
       "tools/config_surface_inventory.py",
       "tools/gui_parity_inventory.py"
     ],
+    "tests/test_har_compactor.py": [
+      "bulk_downloader/har_compactor.py"
+    ],
     "tests/test_headless_default.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
@@ -3662,6 +3669,9 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py",
       "bulk_downloader/runner_util.py"
+    ],
+    "tests/test_rate_adapter.py": [
+      "bulk_downloader/rate_adapter.py"
     ],
     "tests/test_reap_orphan_tempdirs.py": [
       "tools/reap_orphan_tempdirs.py"
@@ -4450,6 +4460,14 @@
     "tests/test_row817_astra_ack_consumption.py": [
       "bulk_downloader/app_config.py",
       "bulk_downloader/app_sites_id_core.py"
+    ],
+    "tests/test_row901.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_row905.py": [
+      "bulk_downloader/constants.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

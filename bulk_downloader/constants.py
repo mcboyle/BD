@@ -21,6 +21,20 @@ INSTALL_DIR = Path(os.environ.get("BD_INSTALL_DIR", "")).resolve() \
 # `os.chdir(tmpdir); db_init()` and expect the DB to land in tmpdir).
 # The launcher and INSTALL_DIR-aware callers can join with INSTALL_DIR
 # explicitly. See db.py::db_conn() for the resolution logic.
+# row905: DYNAMIC-QUALITY-AND-CODEC-NEGOTIATION-POLICY (O883). Structured quality
+# ladder, best tier first. Each entry is (label, min_res_score, min_codec_score),
+# thresholds against detect.res_score/detect.codec_score (0 = any codec, the
+# floor tier). Thresholds, not exact codec labels: detect.codec_score's own
+# scale gives "remux/source" and "AV1" the same score (4) -- a source-grade
+# remux at 2160p is at least as good as AV1 and belongs in the same tier, not
+# excluded by a label match. detect.select_quality_tier walks this in order.
+QUALITY_LADDER = (
+    ("2160p:AV1", 2160, 4),
+    ("1080p:HEVC", 1080, 3),
+    ("1080p:AVC", 1080, 1),
+    ("720p:ANY", 720, 0),
+)
+
 DB_PATH = "downloader_history.db"
 SCREENSHOTS_DIR = Path("screenshots")
 # v3.66.11: was `SCREENSHOTS_DIR.mkdir(exist_ok=True)` at module load.
