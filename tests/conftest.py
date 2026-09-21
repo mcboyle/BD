@@ -24,6 +24,7 @@ import signal
 import socket
 import sys
 import threading
+import sqlite3
 import time
 from types import ModuleType
 from pathlib import Path
@@ -953,14 +954,51 @@ def isolated_bd_home(request, tmp_path):
             )
 
 
+# O1164: monotonic within a process; combined with the pid it is unique fleet-wide.
+_URI_SERIAL = 0
+_LOCK_RETRY_SECONDS = 10.0
+
+
 @pytest.fixture
 def inmemory_sqlite(tmp_path, monkeypatch):
     """Opt into one shared SQLite database held entirely in RAM."""
     from bulk_downloader import db
 
-    uri = f"file:row865-{tmp_path.name}?mode=memory&cache=shared"
+    # O1164 / FLEET_RULE 47. THE DATABASE STAYS IN RAM -- tests/test_inmemory_sqlite_fixture.py is
+    # the tracked gate that says so, and a disk fallback would silently change what all 87
+    # conftest consumers test against. Two changes, both inside this fixture:
+    #
+    # 1. THE NAME IS UNIQUE PER TEST *AND* PER PROCESS. tmp_path.name is only the leaf
+    #    ("test_put_with_explicit_opt_in_0"), which xdist repeats verbatim in every worker, and
+    #    _uri_serial makes it unique even if two tests in one worker ever produce the same leaf.
+    #    No two databases that should be distinct can collide on one shared cache.
+    #
+    # 2. A SHARED-CACHE TABLE LOCK IS RETRIED. MEASURED: with another connection holding an open
+    #    read transaction on the same cache=shared URI, CREATE TABLE fails in 0.000s with
+    #    "database table is locked: sqlite_master" -- SQLITE_LOCKED, which SQLite's busy handler
+    #    does NOT retry, so PRAGMA busy_timeout=10000 (db.py:701) never fires. read_uncommitted=1
+    #    on either side does not change it either. The documented remedy for shared cache is
+    #    application-level retry, so the fixture retries the OPEN briefly. This is NOT
+    #    retry-to-green on a failing assertion: no test outcome is retried, only the connect.
+    global _URI_SERIAL
+    _URI_SERIAL += 1
+    uri = (
+        f"file:row865-{os.getpid()}-{_URI_SERIAL}-{tmp_path.name}"
+        "?mode=memory&cache=shared"
+    )
     original_connect = db.sqlite3.connect
-    anchor = original_connect(uri, uri=True)
+
+    def _connect_with_retry(target, *args, **kwargs):
+        deadline = time.monotonic() + _LOCK_RETRY_SECONDS
+        while True:
+            try:
+                return original_connect(target, *args, **kwargs)
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+
+    anchor = _connect_with_retry(uri, uri=True)
 
     def connect(path, *args, **kwargs):
         # Any file: URI (ours, or ours after path handling) or references to
@@ -972,8 +1010,8 @@ def inmemory_sqlite(tmp_path, monkeypatch):
             or path == "downloader_history.db"
         ):
             kwargs["uri"] = True
-            return original_connect(uri, *args, **kwargs)
-        return original_connect(path, *args, **kwargs)
+            return _connect_with_retry(uri, *args, **kwargs)
+        return _connect_with_retry(path, *args, **kwargs)
 
     monkeypatch.setattr(db, "DB_PATH", uri)
     # The resolution seam, not just DB_PATH: with BD_INSTALL_DIR set (clean_workdir /

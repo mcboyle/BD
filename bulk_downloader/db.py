@@ -8,6 +8,7 @@ Two tables:
 Indexes on both keep filtering sub-millisecond at any size."""
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
 import sqlite3
+from time import monotonic as _monotonic, sleep as _sleep
 import os as _os
 import threading as _threading
 import weakref as _weakref
@@ -41,7 +42,43 @@ def _resolve_db_path():
         return str(_Path_top(install_dir).resolve() / DB_PATH)
     return DB_PATH
 
-def db_init():
+def db_init(_retry_seconds=10.0):
+    """Create the schema, retrying while another connection holds the lock.
+
+    O1164 / FLEET_RULE 47: a SHARED-CACHE table lock is reported as
+    SQLITE_LOCKED, and SQLite's busy handler does NOT consult it -- so
+    ``PRAGMA busy_timeout`` (set below on every connection) never fires and DDL
+    fails INSTANTLY with "database table is locked: sqlite_master" whenever any
+    other connection is mid-transaction. MEASURED at 0.000s, with
+    busy_timeout=10000 already in force, and ``read_uncommitted=1`` on either
+    side does not change it. The documented remedy for shared cache is an
+    application-level retry, which is what this is: a bounded wait for a lock,
+    exactly what busy_timeout does for the non-shared case. It retries only the
+    LOCK, re-raises everything else, and gives up at the deadline rather than
+    hanging.
+    """
+    deadline = _monotonic() + _retry_seconds
+    while True:
+        try:
+            return _db_init_once()
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or _monotonic() >= deadline:
+                raise
+            # The failed attempt leaves its own half-open read transaction in
+            # the thread-local pool; retrying on top of it would block on our
+            # OWN residue for the whole deadline. Evict it and reopen clean.
+            idle = getattr(_DB_CONN_LOCAL, "idle", None)
+            if idle is not None:
+                _DB_CONN_LOCAL.idle = None
+                try:
+                    idle[1].rollback()
+                except Exception:
+                    pass
+                _close_history_conn(idle[1])
+            _sleep(0.01)
+
+
+def _db_init_once():
     with db_conn() as cx:
         cx.execute("""CREATE TABLE IF NOT EXISTS history(
             id INTEGER PRIMARY KEY AUTOINCREMENT,

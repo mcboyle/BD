@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4794,
+  "edge_count": 4795,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3587,6 +3587,9 @@
     ],
     "tests/test_novnc_url_defaults.py": [
       "tools/cockpit_core.py"
+    ],
+    "tests/test_o1164_sqlite_lock_isolation.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
