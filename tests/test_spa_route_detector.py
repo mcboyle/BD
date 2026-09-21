@@ -254,7 +254,9 @@ def test_settle_after_navigation_is_the_workers_post_goto_hook():
     import ast
     import inspect
     from bulk_downloader import runner as _runner
-    fn = ast.unparse(ast.parse(inspect.getsource(_runner.SiteRunner._process_one)))
+    import textwrap
+    fn = ast.unparse(ast.parse(textwrap.dedent(
+        inspect.getsource(_runner.SiteRunner._process_one))))
     assert "page.goto(url, wait_until='domcontentloaded', timeout=30000)" in fn
     assert "self._settle_after_navigation(page)" in fn
 

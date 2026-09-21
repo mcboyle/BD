@@ -75,13 +75,14 @@ class _Stub:
 
 
 def _bind_helpers():
-    """Bind the three B2 SiteRunner helpers onto the stub from the fresh
+    """Bind the B2 SiteRunner helpers and their delegate onto the stub from the fresh
     (module-wiped) runner import."""
     from bulk_downloader.runner import SiteRunner
     _Stub._draft_override_template = SiteRunner._draft_override_template
     _Stub._override_suppresses_persist = SiteRunner._override_suppresses_persist
     _Stub._persist_learned_to_draft = SiteRunner._persist_learned_to_draft
     _Stub._try_captcha_solve = SiteRunner._try_captcha_solve
+    _Stub._try_turnstile_one_click = SiteRunner._try_turnstile_one_click
 
 
 # ====================================================================
@@ -199,7 +200,7 @@ def test_captcha_solver_failopen_default_and_override_parity():
     through to the manual handoff. An active override does NOT change that:
     B2 adds no auto-solve and no bypass."""
     _bind_helpers()
-    # no key -> returns False before touching the page (page arg unused)
+    # no key and default one-click disabled -> False before touching the page
     assert _Stub({})._try_captcha_solve(None) is False
     # override active, still no key -> identical fail-open result
     s = _Stub({"draft_test_override": {"template": _DRAFT, "persist": False}})
