@@ -3453,9 +3453,19 @@ class TransportMixin:
                     # curl_cffi may yield much smaller transport buffers, so
                     # hot-loop work must not assume one yield per requested
                     # chunk.
-                    iterator = (resp.iter_content(chunk_size=chunk)
-                                if cffi_streamer is not None
-                                else resp.iter_bytes(chunk_size=chunk))
+                    if self.config.get("auto_chunk_size", False):
+                        from .chunked_transfer import AIMDChunkController, adaptive_chunks
+                        # Consume decoded client buffers without httpx's fixed
+                        # batching, so observations measure upstream waits.
+                        source = (resp.iter_content(chunk_size=2 * 1024 * 1024)
+                                  if cffi_streamer is not None
+                                  else resp.iter_bytes())
+                        iterator = adaptive_chunks(
+                            source, AIMDChunkController(initial_bytes=chunk))
+                    else:
+                        iterator = (resp.iter_content(chunk_size=chunk)
+                                    if cffi_streamer is not None
+                                    else resp.iter_bytes(chunk_size=chunk))
                     # v3.45.5 Phase 182: opt-in token-bucket throttle.
                     # When `use_token_bucket` config is True AND a cap
                     # is in effect, acquire bytes from the per-site

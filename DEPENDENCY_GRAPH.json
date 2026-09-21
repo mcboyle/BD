@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1815,
+    "edge_count": 1816,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3288,6 +3288,9 @@
       "bulk_downloader/challenge_handling.py": [
         "bulk_downloader/session_capture.py",
         "tools/capture_session.py"
+      ],
+      "bulk_downloader/chunked_transfer.py": [
+        "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/circuit_breaker.py": [
         "bulk_downloader/alerts_engine.py",
@@ -7375,6 +7378,7 @@
       "bulk_downloader/runner_transport.py": [
         "bulk_downloader/affordance_learning.py",
         "bulk_downloader/bandwidth_shape.py",
+        "bulk_downloader/chunked_transfer.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/daily_budget.py",

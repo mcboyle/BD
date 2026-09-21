@@ -85,8 +85,8 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:309",
     "bulk_downloader/runner_transport.py:3307",  # row 916 moved it (retry/backoff block above)
-    "bulk_downloader/runner_transport.py:3685",  # row 916 moved it (retry/backoff block above)
-    "bulk_downloader/runner_transport.py:3917",  # row 916 moved it (retry/backoff block above)
+    "bulk_downloader/runner_transport.py:3695",  # row 916 moved it (retry/backoff block above)
+    "bulk_downloader/runner_transport.py:3927",  # row 916 moved it (retry/backoff block above)
 }
 
 
