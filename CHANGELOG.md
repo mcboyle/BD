@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1616 - train39: WAVE3 duplicate register rows closed MOOT-DUPLICATE
+
+Train: 1 refute-first-reviewed register correction cut.
+
+- register: WAVE3 rows 962, 964, 967, 968, 969 and 970 OPEN -> CLOSED @1616 as MOOT-DUPLICATE. They duplicated work already tracked elsewhere, so closing them is a correction, not a claim that anything shipped. Rows 961, 963 and 965 stay OPEN. open 10 -> 4; rows unchanged at 290 and ids-sha256 unchanged at 87335dcd, since no id was added or removed. Register correction cut, single path, no product source; the closure rides the train that makes it (FLEET_RULE 31).
+
 ## v3.66.1615 - train37: sparse-checkout test scoping + config manifest compliance
 
 Train: 2 refute-first-reviewed worker patches.
