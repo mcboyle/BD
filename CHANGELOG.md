@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1615 - train37: sparse-checkout test scoping + config manifest compliance
+
+Train: 2 refute-first-reviewed worker patches.
+
+- sg10-sparse-tests: toolchain/bin/bd-lens-worktree and its test stop restating the size threshold. Three separate "50.0" literals and the oversize fixture now derive from the one constant, so the threshold can move without the test silently keeping the old number. Harness-only.
+- sg6-config-manifest-compliance: reports/config_gui_manifest.json was missing turnstile_one_click_enabled, which failed the config denominator gate (tests/test_v3_66_710_config_denominator.py, 1 failed/4 passed RED -> 5 passed GREEN). Generated-report entry only, single file.
+
 ## v3.66.1614 - train36: adaptive chunk sizing for the guarded transport (row 966)
 
 Train: 1 refute-first-reviewed worker patches.

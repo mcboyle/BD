@@ -18,7 +18,27 @@ from pathlib import Path
 from typing import Sequence
 
 # Row 866 acceptance: a scoped lens worktree stays strictly under this many MB.
-MAX_WORKTREE_MB = 50.0
+#
+# sg10: 50.0 was a MEASUREMENT of the default scope at b9d1c8f7 (48.3 MB) written
+# down as a constant, so it went stale the moment the tree grew: at 4ce70fc1 the
+# same default scope is 51.14 MB and create_sparse_lens_worktree returns ok=False
+# for a worktree that is doing exactly what it is supposed to do. Nothing fat was
+# added -- the growth is diffuse (tests/ minus the corpora is 22.6 MB of 53.6 MB
+# of blob bytes; the largest single non-excluded directory is bulk_downloader at
+# 10.6 MB), so there is no new corpus to carve into DEFAULT_EXCLUDE.
+#
+# Raising a ceiling on its own is a loosened ratchet, so the absolute cap is paired
+# with MAX_WORKTREE_SHARE below, which pins the property the row actually wanted --
+# a scoped worktree is a FRACTION of a full checkout -- and which cannot go stale
+# as the repository grows, because both sides grow together.
+MAX_WORKTREE_MB = 64.0
+
+# sg10: the scoped worktree must be at most this share of a FULL checkout of the
+# same commit (measured from git ls-tree, so no second checkout is needed). At
+# 4ce70fc1: 51.14 MB scoped against 143.7 MB full = 0.356. The bound is the
+# ratchet: a change that stops excluding the corpora lands at ~1.0 and fails here
+# even while it is still under the absolute cap.
+MAX_WORKTREE_SHARE = 0.45
 
 # Default lens scope: the WHOLE tree (every gate finds what a full checkout has:
 # reports/, project-knowledge/, tools/ ...) MINUS the recorded corpora under tests/
@@ -40,6 +60,27 @@ def sparse_patterns(scope: Sequence[str], exclude: Sequence[str]) -> list[str]:
         pats = ["/*"]
     pats += [f"!/{d.strip('/')}/" for d in exclude]
     return pats
+
+
+def full_checkout_size_bytes(repo_path: Path | str, commit: str) -> int | None:
+    """Blob bytes of a FULL checkout of `commit`, read from git rather than checked
+    out. Returns None -- never a number -- when git cannot answer, so that callers
+    REFUSE instead of dividing by a denominator nobody measured. The first cut
+    returned 0 here and let `share` fall to 0.0, which turned COULD NOT LOOK into
+    a passing ratio (FLEET_RULE 6: UNKNOWN is never permission).
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(repo_path), "ls-tree", "-r", "-l", commit],
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        return None
+    total = 0
+    for line in proc.stdout.splitlines():
+        meta = line.split("\t", 1)[0].split()
+        if len(meta) >= 4 and meta[1] == "blob" and meta[3].isdigit():
+            total += int(meta[3])
+    return total
 
 
 def get_worktree_size_bytes(worktree_path: Path | str) -> int:
@@ -151,7 +192,10 @@ def create_sparse_lens_worktree(
 
         sz_bytes = get_worktree_size_bytes(wt)
         sz_mb = sz_bytes / (1024.0 * 1024.0)
-
+        full_bytes = full_checkout_size_bytes(repo_path, sha)
+        # An unmeasurable (None) or degenerate (0-byte) denominator is a refusal, not
+        # a free pass: `share` stays None so no caller can assert a bound against it.
+        share = (sz_bytes / full_bytes) if full_bytes else None
         if sz_mb >= MAX_WORKTREE_MB:
             # Bound violated: report it as a failure. The worktree is NOT deleted
             # (Fleet Rule 22) -- the caller sees the path and the measured size.
@@ -160,6 +204,8 @@ def create_sparse_lens_worktree(
                 "path": str(wt),
                 "size_bytes": sz_bytes,
                 "size_mb": sz_mb,
+                "full_size_bytes": full_bytes,
+                "share": share,
                 "scope": scope,
                 "exclude": exclude,
                 "commit": sha,
@@ -167,11 +213,46 @@ def create_sparse_lens_worktree(
                           f"left in place at {wt} (Fleet Rule 22: never deleted)"),
             }
 
+        if share is None:
+            return {
+                "ok": False,
+                "path": str(wt),
+                "size_bytes": sz_bytes,
+                "size_mb": sz_mb,
+                "full_size_bytes": full_bytes,
+                "share": None,
+                "scope": scope,
+                "exclude": exclude,
+                "commit": sha,
+                "error": (f"could not measure a full checkout of {sha} (git ls-tree gave "
+                          f"{full_bytes!r}), so the {MAX_WORKTREE_SHARE:.2f} share bound could "
+                          f"not be applied to {sz_mb:.2f} MB; left in place at {wt} "
+                          f"(Fleet Rule 22: never deleted)"),
+            }
+
+        if share > MAX_WORKTREE_SHARE:
+            return {
+                "ok": False,
+                "path": str(wt),
+                "size_bytes": sz_bytes,
+                "size_mb": sz_mb,
+                "full_size_bytes": full_bytes,
+                "share": share,
+                "scope": scope,
+                "exclude": exclude,
+                "commit": sha,
+                "error": (f"scoped worktree is {share:.3f} of a full checkout, over the "
+                          f"{MAX_WORKTREE_SHARE:.2f} share bound; left in place at {wt} "
+                          f"(Fleet Rule 22: never deleted)"),
+            }
+
         return {
             "ok": True,
             "path": str(wt),
             "size_bytes": sz_bytes,
             "size_mb": sz_mb,
+            "full_size_bytes": full_bytes,
+            "share": share,
             "scope": scope,
             "exclude": exclude,
             "commit": sha,
