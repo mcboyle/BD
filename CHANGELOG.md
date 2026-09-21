@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1608 - train33: stale-test repairs (mainred-stale) + WAVE3 register promotions
+
+Train: 1 refute-first-reviewed worker patch + the register promotion.
+
+- mainred-stale: five stale-test repairs, test-repair provenance only, no product source touched (tests/test_curl_cffi_api.py missing regex match; tests/test_runner_scheduler_delete_fence.py and tests/test_wave_b2_test_extract.py fixture TypeErrors on a missing monkeypatch; tests/test_spa_route_detector.py IndentationError; tests/test_v3_66_926_app_import_does_not_boot_db.py missing _try_turnstile_one_click stub delegate). 482/482 predicates and 79/79 test definitions retained; all five named ids plus 80 own-file tests pass. FG-ENV-TRANCHE-BD-LITERAL is pre-existing on base 2294a21cf and is not addressed here.
+- register: rows 961-970 appended OPEN (WAVE3 promotions, O1143/O1155); 280 -> 290 rows, open 1 -> 11, ids-sha256 87335dcd9f1d1bf197b4eb9735b90d2448fbb3884b46f2b4fe2350745148ac7e. Register change rides the train (FLEET_RULE 31).
+
 ## v3.66.1607 - train32: cut-root drift census gate (lessons-3 fx4)
 
 Train: 1 refute-first-reviewed worker patches.

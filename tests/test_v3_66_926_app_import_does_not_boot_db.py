@@ -807,14 +807,15 @@ def test_watch_start_racing_delete_cannot_publish_an_orphan(tmp_path):
 
 
 def test_fresh_app_teardown_waits_for_detached_runner_workers(
-        tmp_path, monkeypatch):
+        clean_workdir, inmemory_sqlite, monkeypatch):
     """A process-reset fixture cannot discard its only join handles."""
     import threading
     import time
     import conftest as fixture_module
     import bulk_downloader.app as app_module
 
-    fixture_gen = fixture_module.fresh_app.__wrapped__(tmp_path, monkeypatch)
+    fixture_gen = fixture_module.fresh_app.__wrapped__(
+        clean_workdir, inmemory_sqlite, monkeypatch)
     next(fixture_gen)
 
     class SlowCleanupRunner:

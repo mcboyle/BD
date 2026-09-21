@@ -1333,12 +1333,13 @@ def test_global_url_router_cannot_enqueue_after_captured_runner_is_deleted(
 
 
 def test_fresh_app_reset_joins_retained_scheduler_and_auto_retry_handles(
-        tmp_path, monkeypatch):
+        clean_workdir, inmemory_sqlite, monkeypatch):
     """Process reset cannot restore cwd/env beside detached live writers."""
     import conftest as fixture_module
     import bulk_downloader.app as app_module
 
-    fixture_gen = fixture_module.fresh_app.__wrapped__(tmp_path, monkeypatch)
+    fixture_gen = fixture_module.fresh_app.__wrapped__(
+        clean_workdir, inmemory_sqlite, monkeypatch)
     next(fixture_gen)
 
     class _SlowBackgroundRunner:

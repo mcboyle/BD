@@ -69,26 +69,20 @@ def test_runner_does_not_call_module_level_cffi_stream():
 
 
 def test_runner_uses_request_stream_true_for_cffi():
-    """Positive shape pin: runner.py must contain at least one
-    `<cffi-binding>.request("GET", ..., stream=True, ...)` call.
-    If both call sites get deleted in some future refactor this test
-    fails and the maintainer must update the test along with the
-    deletion (rather than the test silently passing on absence)."""
+    """Positive shape pin: the shared download helper must pass the cffi
+    binding to h3_transport.request("GET", ..., stream=True, ...).
+    Removing the streaming request must fail rather than pass on absence."""
     text = _bd_runner_src()
-    # Look for `request(` followed by a method, then `stream=True`
-    # within a reasonable window (single call expression).
+    # The transport wrapper takes the cffi binding before the method.
     pattern = re.compile(
-        r"\b(?:cffi_requests|_cffi|cr)\.request\s*\(\s*['\"]GET['\"]"
+        r"\bh3_transport\.request\s*\(\s*(?:cffi_requests|_cffi|cr)\s*,\s*['\"]GET['\"]"
         r"[^)]{0,400}?stream\s*=\s*True",
         re.DOTALL,
     )
     matches = pattern.findall(text)
     assert len(matches) >= 1, (
         "runner.py is missing the expected curl_cffi streaming-call "
-        "shape `<binding>.request(\"GET\", ..., stream=True, ...)`. "
-        "The v3.63.10 fix used this shape at two call sites. If the "
-        "fix has been intentionally removed/restructured, update this "
-        "test to match the new shape (or delete it with a note)."
+        "shape `h3_transport.request(<binding>, \"GET\", ..., stream=True, ...)`."
     )
 
 
