@@ -122,6 +122,7 @@ def test_capture_launch_persists_the_process_identity(
     sid = "row350-capture-launch"
     bd_app.s_cfg[sid] = {
         "name": sid,
+        "start_url": "https://row350.invalid/content",
         "login_url": "https://row350.invalid/",
     }
     info = {

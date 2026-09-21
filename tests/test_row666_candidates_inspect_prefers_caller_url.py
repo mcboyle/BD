@@ -31,7 +31,7 @@ _RELATIVE_HTML = (
 
 
 def _configure_site(monkeypatch):
-    config = {"name": _SITE_ID, "login_url": _PRIMARY_URL}
+    config = {"name": _SITE_ID, "start_url": _PRIMARY_URL, "login_url": _PRIMARY_URL}
     monkeypatch.setattr(site_core, "_app_s_cfg", lambda: {_SITE_ID: config})
     primary_url = site_core._site_primary_url(config)
     assert primary_url == _PRIMARY_URL

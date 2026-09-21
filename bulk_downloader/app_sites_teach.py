@@ -305,7 +305,7 @@ def api_template_status(sid):
         download_template = None
         job_url = ""
         for _k in ("start_url", "base_url", "url", "homepage",
-                   "member_url", "site_url", "login_url"):
+                   "member_url", "site_url"):
             _v = (cfg.get(_k) or "").strip()
             if _v.startswith(("http://", "https://")):
                 job_url = _v
@@ -448,8 +448,13 @@ def api_template_onboard(sid):
         _save_sites_config()
         result = {"ok": True, "site": sid, **plan, "launched": False}
         if run and plan.get("template_onboarding") == "capture_required":
+            content_url = _site_primary_url(cfg)
+            if not content_url:
+                return jsonify({"ok": False,
+                                "error": "site has only a login URL; "
+                                "no content URL to capture"}), 400
             display = _os.environ.get("DISPLAY", ":99")
-            info = build_capture_command(sid, _site_primary_url(cfg), display)
+            info = build_capture_command(sid, content_url, display)
             # B1: record started_at + the capture-wrapper pid so a marker left
             # behind by a DIED capture (no draft) can be self-healed in
             # /template_status. Launch first to obtain the pid, then persist the

@@ -137,7 +137,7 @@ def test_inspect_endpoint(fresh_app):
 
 
 def test_dry_run_endpoint(fresh_app):
-    _seed("d2", login_url=REPTYLE)
+    _seed("d2", start_url=REPTYLE, login_url=REPTYLE)
     r = fresh_app.post("/api/sites/d2/template/dry_run", json={"html": SAMPLE_HTML})
     assert r.status_code == 200
     body = r.get_json()
