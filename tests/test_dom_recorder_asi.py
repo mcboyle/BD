@@ -230,3 +230,176 @@ def test_direct_rrweb_record_still_works():
         browser.close(); p.stop()
     assert len(kinds) >= 1, "direct rrweb.record emitted nothing"
     assert 2 in kinds, "direct rrweb.record produced no full snapshot (type 2)"
+
+
+# Rule 45: exercise each real launcher body with a real driver, without
+# starting the E2E server or depending on a usable Chromium executable.
+_LAUNCH_FAILURE_SEAMS = [
+    ("test_dom_recorder_asi.py", "_launch"),
+    ("test_e2e_smoke.py", "setUpClass"),
+    ("test_row373_login_trigger.py", "launch_for_test"),
+    ("test_v3_66_1016_login_interstitial.py", "_fake"),
+    ("test_v3_66_1020_residues.py", "_fake"),
+]
+
+
+def _check_launch_failure_cleanup(monkeypatch, tmp_path, filename, function, *, delete_stop=False):
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    import unittest
+    import urllib.request
+    from playwright.sync_api import sync_playwright as real_playwright
+
+    source = Path(__file__).with_name(filename).read_text()
+    matches = [n for n in ast.walk(ast.parse(source))
+               if isinstance(n, ast.FunctionDef) and n.name == function]
+    assert len(matches) == 1, "PW-PROBE-AMBIGUOUS-SUBJECT"
+    node = matches[0]
+    node.decorator_list = []  # bind setUpClass explicitly below
+    if delete_stop:
+        class DeleteStop(ast.NodeTransformer):
+            removed = 0
+
+            def visit_Expr(self, statement):
+                call = statement.value
+                if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "stop"):
+                    self.removed += 1
+                    return ast.copy_location(ast.Pass(), statement)
+                return self.generic_visit(statement)
+
+        mutation = DeleteStop()
+        node = mutation.visit(node)
+        assert mutation.removed == 1, "PW-MUTANT-INVALID-STOP-CENSUS"
+
+    counts = {"start": 0, "stop": 0, "launch": 0}
+    active = []
+
+    class Driver:
+        def __init__(self, real):
+            self.real = real
+            self.closed = False
+            self.chromium = self
+
+        def launch(self, **kwargs):
+            counts["launch"] += 1
+            kwargs["executable_path"] = str(tmp_path / "nonexistent-chromium")
+            return self.real.chromium.launch(**kwargs)
+
+        def stop(self):
+            counts["stop"] += 1
+            self.real.stop()
+            self.closed = True
+
+    class Manager:
+        def start(self):
+            driver = Driver(real_playwright().start())
+            active.append(driver)
+            counts["start"] += 1
+            return driver
+
+    class Harness:
+        base_url = "http://fixture.invalid"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    namespace = {"sync_playwright": Manager, "pytest": pytest,
+                 "unittest": unittest, "_BDServerHarness": Harness}
+    # These are executable fixture bodies, not comment/substring anchors.
+    exec(compile(ast.Module(body=[node], type_ignores=[]), filename, "exec"), namespace)
+    try:
+        with monkeypatch.context() as scoped:
+            scoped.setattr(urllib.request, "urlopen", lambda *a, **kw: Response())
+            expected = pytest.skip.Exception if function == "_launch" else Exception
+            with pytest.raises(expected, match="[Ee]xecutable"):
+                if function == "setUpClass":
+                    namespace[function](SimpleNamespace())
+                else:
+                    namespace[function]()
+        assert counts["start"] == counts["launch"] == 1, "PW-PROBE-NOT-REACHED"
+        second_error = None
+        try:
+            with real_playwright():
+                pass
+        except Exception as exc:
+            second_error = str(exc)
+        assert counts["stop"] == 1 and second_error is None, (
+            f"PW-LAUNCH-LEAK: {filename}; stop={counts['stop']}; next={second_error}")
+    finally:
+        # Also clean deliberately broken BASE/mutant cases before the next
+        # pytest test runs in this worker. This happens AFTER the assertions.
+        for driver in active:
+            if not driver.closed:
+                driver.real.stop()
+                driver.closed = True
+
+
+@pytest.mark.parametrize("filename,function", _LAUNCH_FAILURE_SEAMS)
+def test_launch_failure_releases_playwright(monkeypatch, tmp_path, filename, function):
+    _check_launch_failure_cleanup(monkeypatch, tmp_path, filename, function)
+
+
+@pytest.mark.parametrize("filename,function", _LAUNCH_FAILURE_SEAMS)
+def test_launch_cleanup_deletion_is_caught(monkeypatch, tmp_path, filename, function):
+    with pytest.raises(AssertionError, match="PW-LAUNCH-LEAK"):
+        _check_launch_failure_cleanup(
+            monkeypatch, tmp_path, filename, function, delete_stop=True)
+
+
+@pytest.mark.parametrize("remove_guard", [False, True])
+def test_driver_start_failure_preserves_original_skip(monkeypatch, remove_guard):
+    import ast
+    import inspect
+
+    starts = []
+
+    class Manager:
+        def start(self):
+            starts.append(1)
+            raise RuntimeError("PW-START-FAILURE")
+
+    subject = _launch
+    if remove_guard:
+        tree = ast.parse(inspect.getsource(_launch))
+        guards = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                  and ast.unparse(n.test) == "p is not None"]
+        assert len(guards) == 1, "PW-MUTANT-INVALID-GUARD-CENSUS"
+        guards[0].test = ast.Constant(True)
+        namespace = {"pytest": pytest, "sync_playwright": Manager}
+        exec(compile(ast.fix_missing_locations(tree), __file__, "exec"), namespace)
+        subject = namespace["_launch"]
+
+    def check():
+        with monkeypatch.context() as scoped:
+            scoped.setitem(subject.__globals__, "sync_playwright", Manager)
+            outcome = None
+            try:
+                subject()
+            except pytest.skip.Exception as exc:
+                outcome = str(exc)
+            except Exception as exc:
+                outcome = type(exc).__name__
+            assert outcome and "PW-START-FAILURE" in outcome, (
+                f"PW-START-CLEANUP-MASKED-ERROR: {outcome}")
+        assert len(starts) == 1
+
+    if remove_guard:
+        with pytest.raises(AssertionError, match="PW-START-CLEANUP-MASKED-ERROR"):
+            check()
+        assert len(starts) == 1
+    else:
+        check()

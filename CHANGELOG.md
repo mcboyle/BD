@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1610 - train35: worker-band ratchet suite-set equality + playwright loop-leak T1 controls
+
+Train: 2 refute-first-reviewed worker patches.
+
+- sg2-worker-band: the O1058 ratchet gate in tests/test_worker_band_ratchets.py tested suite MEMBERSHIP only, so seven canonical suites plus an eighth still returned OK. Cause: the bash fixture restated the seven file names as a second literal beside the O1058_RATCHET_SUITES tuple, so the tuple could grow and the fixture could not see it. The fixture is now DERIVED from the tuple (_ratchet_loop_fixture) and exact suite-set equality is restored. Rebuilt after the O1156d bounce; the escape is reproduced and closed on both intruder kinds. Tests-only.
+- playwright-loop-leak-t1: real-driver launch-failure regression controls for the five cleanup fixtures whose fixes landed in train34, added to tests/test_dom_recorder_asi.py. Covers the start-failure guard and the deletion controls (PW-LAUNCH-LEAK on stop deletion, PW-START-CLEANUP-MASKED-ERROR on guard deletion): 6 controls caught, 0 escaped. Exercises a real missing-executable launch rather than a mocked one. Tests-only.
+
 ## v3.66.1609 - train34: playwright/asyncio teardown parity in the harness test band
 
 Train: 1 refute-first-reviewed worker patches.
