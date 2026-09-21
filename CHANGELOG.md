@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1617 - train40: prompt-cache + token-refresh test repairs; rows 961 and 965 closed
+
+Train: 2 refute-first-reviewed worker patches + a register promotion.
+
+- register: rows 971, 972 and 973 promoted OPEN (register-971-onboard-login, BOARD); rows 961 and 965 OPEN -> CLOSED @1617. rows 290 -> 293, open 4 -> 5, ids-sha256 87335dcd -> 352f6410. Both changes ride the train that makes them (FLEET_RULE 31).
+
+- row961 (prompt-cache prefix stability): repairs to tests/test_prompt_cache_prefix_stability.py. E1, the gate emitted the literal role `worker` while its own cases named five others, so a leak confined to a non-worker seat left every assertion green; the real role is passed and its selected body checked. E2, three host prompt paths defaulted to untracked locations and a missing host failed rc127; they are opt-in env vars with no default. E3 from the prior round is addressed in this generation. Test-only. Closes register row 961 @1617.
+- row965 (proactive token refresh): repairs to tests/test_proactive_token_refresh.py. One loose floor becomes four assertions pinning the ceiling case (breaker_trips == 1 and circuit_open among them), so a fixed-interval mutant can no longer satisfy it. Reviewed as a CORRECT test rather than a loosened one: the floor moved to the ceiling case. Test-only, 0 source paths. Closes register row 965 @1617.
+
 ## v3.66.1616 - train39: WAVE3 duplicate register rows closed MOOT-DUPLICATE
 
 Train: 1 refute-first-reviewed register correction cut.
