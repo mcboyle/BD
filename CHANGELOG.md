@@ -9,7 +9,7 @@ archive is not present in this repository; consult source-control history.
 Train: 1 refute-first-reviewed worker patches.
 
 - row966 (adaptive chunk sizing): opt-in AIMD chunk sizing for the streamed guarded transport, 2..64 MiB, in bulk_downloader/chunked_transfer.py and bulk_downloader/runner_transport.py. A fast read grows the chunk; a slow read or jitter backs it off. Off unless opted into. Covered by tests/test_adaptive_chunk_sizing.py, with the two row703 transport tests re-pinned. BOARD bd-review-correctness-B1-B against the review copy tree 1863dd19, declared base 4ce70fc12 == HEAD == main at review time.
-- register: row 966 OPEN -> CLOSED @1611; its ACCEPTANCE named tests/test_adaptive_chunk_sizing.py, which this train adds. open 11 -> 10, rows unchanged at 290. Closure rides the train that closes it (FLEET_RULE 31).
+- register: row 966 OPEN -> CLOSED @1614; its ACCEPTANCE named tests/test_adaptive_chunk_sizing.py, which this train adds. open 11 -> 10, rows unchanged at 290. Closure rides the train that closes it (FLEET_RULE 31).
 
 ## v3.66.1613 - train38: per-worker sqlite isolation -- unblocks the gate shard (O1164)
 
