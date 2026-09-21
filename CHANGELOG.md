@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1613 - train38: per-worker sqlite isolation -- unblocks the gate shard (O1164)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- sqlite-lock (O1164, FLEET_RULE 47): the parallel gate shard shared one in-RAM sqlite database across xdist workers, so db_init() hit "database table is locked: sqlite_master" at db.py:605 -- a SETUP error that failed every test in its file and reddened gate-suites for four consecutive heads. Two fixes, neither moving the database to disk (the URI stays mode=memory&cache=shared): the fixture name becomes row865-<pid>-<serial>-<tmp_path.name>, since tmp_path.name is only the leaf and xdist repeats it verbatim in every worker; and db_init() waits out a lock with a bounded retry, evicting the thread-local pooled handle between attempts. A bounded retry is required because a shared-cache table lock is SQLITE_LOCKED, which the busy handler never consults -- busy_timeout=10000 was already set at db.py:701 and never fired, DDL failing at 0.000s. Three negative controls ship with the gate (give-up rather than hang, re-raise a non-lock error, and the isolation assertion itself), so a swallow-forever wrapper cannot pass. Rebuilt after RULING O1171 refuted the first object for breaking tests/test_inmemory_sqlite_fixture.py; that file now passes 8/8 untouched.
+
 ## v3.66.1610 - train35: worker-band ratchet suite-set equality + playwright loop-leak T1 controls
 
 Train: 2 refute-first-reviewed worker patches.
