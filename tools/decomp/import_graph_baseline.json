@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4795,
+  "edge_count": 4799,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2017,6 +2017,7 @@
     "bulk_downloader/runner_transport.py": [
       "bulk_downloader/affordance_learning.py",
       "bulk_downloader/bandwidth_shape.py",
+      "bulk_downloader/chunked_transfer.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/daily_budget.py",
@@ -2389,7 +2390,10 @@
       "bulk_downloader/runner_transport.py"
     ],
     "tests/test_adaptive_chunk_sizing.py": [
-      "bulk_downloader/chunked_transfer.py"
+      "bulk_downloader/chunked_transfer.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_ai3_storage_promote_300.py": [
       "tools/build_template_from_wacz.py",

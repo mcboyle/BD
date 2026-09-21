@@ -9,7 +9,8 @@ regardless of how chunk sizes changed mid-transfer.
 """
 from __future__ import annotations
 
-from typing import Callable, Optional
+from time import monotonic
+from typing import Callable, Iterable, Iterator, Optional
 
 MIN_CHUNK_BYTES = 2 * 1024 * 1024   # 2 MiB
 MAX_CHUNK_BYTES = 64 * 1024 * 1024  # 64 MiB
@@ -72,11 +73,16 @@ class AIMDChunkController:
         if latency_ms is not None:
             self._last_latency_ms = latency_ms
 
-        if latency_ms is not None and jitter_ms >= self.jitter_threshold_ms:
+        too_slow = (throughput_bps is not None
+                    and 0 <= throughput_bps * 0.5 < self._chunk_bytes)
+        if too_slow or (latency_ms is not None and jitter_ms >= self.jitter_threshold_ms):
             self._chunk_bytes = max(
                 self.min_bytes, int(self._chunk_bytes * self.backoff_factor)
             )
-        elif throughput_bps is not None and throughput_bps > 0:
+        elif (throughput_bps is not None
+              and throughput_bps * 0.5 >= self._chunk_bytes + self.additive_step):
+            # Grow only if the next chunk fits half a second of measured
+            # throughput. Positive-but-slow links must not grow to 64 MiB.
             self._chunk_bytes = min(
                 self.max_bytes, self._chunk_bytes + self.additive_step
             )
@@ -120,3 +126,46 @@ def split_into_chunks(
         offset += size
         i += 1
     return chunks
+
+
+def adaptive_chunks(
+    source: Iterable[bytes], controller: AIMDChunkController
+) -> Iterator[bytes]:
+    """Batch decoded response bytes using actual upstream wait observations.
+
+    Time only next(source), excluding caller disk writes, pauses and throttles.
+    Backoff is applied synchronously on the next received buffer; this cannot
+    interrupt a socket read already blocked in the HTTP client. Pending storage
+    never exceeds the selected chunk size; even an oversized upstream buffer
+    is consumed in contiguous slices. No new HTTP requests are made here.
+    """
+    iterator = iter(source)
+    pending = bytearray()
+    while True:
+        started = monotonic()
+        try:
+            buf = next(iterator)
+        except StopIteration:
+            break
+        elapsed = monotonic() - started
+        if not buf:
+            continue
+        target = controller.observe(
+            throughput_bps=len(buf) / elapsed if elapsed > 0 else None,
+            latency_ms=max(0.0, elapsed) * 1000.0,
+        )
+        # A decrease can leave several new-sized chunks already pending.
+        while len(pending) >= target:
+            yield bytes(pending[:target])
+            del pending[:target]
+        view = memoryview(buf)
+        offset = 0
+        while offset < len(view):
+            take = min(target - len(pending), len(view) - offset)
+            pending.extend(view[offset:offset + take])
+            offset += take
+            if len(pending) == target:
+                yield bytes(pending)
+                pending.clear()
+    if pending:
+        yield bytes(pending)

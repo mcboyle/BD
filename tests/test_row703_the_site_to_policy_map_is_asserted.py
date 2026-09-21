@@ -107,9 +107,9 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_transport.py:1243": PINNED,
     "bulk_downloader/runner_transport.py:1896": PINNED,
     "bulk_downloader/runner_transport.py:3307": PINNED,
-    "bulk_downloader/runner_transport.py:3685": PINNED,
-    "bulk_downloader/runner_transport.py:3766": PINNED,
-    "bulk_downloader/runner_transport.py:3917": PINNED,
+    "bulk_downloader/runner_transport.py:3695": PINNED,
+    "bulk_downloader/runner_transport.py:3776": PINNED,
+    "bulk_downloader/runner_transport.py:3927": PINNED,
     "bulk_downloader/session_keeper.py:1522": PINNED,
     "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,
