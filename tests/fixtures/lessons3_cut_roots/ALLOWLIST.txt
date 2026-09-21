@@ -1,0 +1,3 @@
+# seeded exemptions, one path per line (absolute, or relative to this file); comments and blanks ignored
+
+root_drift/seeded.sh

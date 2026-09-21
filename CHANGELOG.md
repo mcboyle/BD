@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1607 - train32: cut-root drift census gate (lessons-3 fx4)
+
+Train: 1 refute-first-reviewed worker patches.
+
+- lessons-3 (fx4): cut-root drift census gate tests/test_lessons3_cut_roots_no_drift.py + portable fixtures under tests/fixtures/lessons3_cut_roots/ (script_population/load_allowlist/find_drift; MissingRoot on an absent or non-directory root, UNREADABLE directory is a hit, snapshot exclusion anchored to the name end; 8 hermetic tests, O1104 split; live harness literals stay reported for SYN-80).
+
 ## v3.66.1606 - train31: registrable-domain drain census cache (H582 fx1) + generated-artifacts band-noise test
 
 Train: 2 refute-first-reviewed worker patches.
