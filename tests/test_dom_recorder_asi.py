@@ -122,6 +122,7 @@ def test_vendored_assets_loaded_from_disk():
 def _launch():
     if sync_playwright is None:
         pytest.skip("playwright not available in this environment")
+    p = None
     try:
         p = sync_playwright().start()
         # Explicit timeout + CI-safe flags so a degraded/sandbox host SKIPS
@@ -132,6 +133,11 @@ def _launch():
         )
         return p, browser
     except Exception as e:  # pragma: no cover - env without a usable browser
+        # Rule 45: a launch failure must not orphan an already-started p --
+        # otherwise its event loop leaks into whatever test the xdist worker
+        # picks up next, since pytest.skip() does not run this cleanup itself.
+        if p is not None:
+            p.stop()
         pytest.skip(f"chromium not launchable here: {e}")
 
 

@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1609 - train34: playwright/asyncio teardown parity in the harness test band
+
+Train: 1 refute-first-reviewed worker patches.
+
+- harness-playwright-loop-leak: root-cause fix for the FLEET_RULE 45 asyncio/Playwright event-loop leak in the test band. Five fixtures (tests/test_dom_recorder_asi.py, tests/test_e2e_smoke.py, tests/test_row373_login_trigger.py, tests/test_v3_66_1016_login_interstitial.py, tests/test_v3_66_1020_residues.py) called sync_playwright().start() then chromium.launch() with no try/except: a launch failure under -n 12 contention left the already-started Playwright instance and its background asyncio loop orphaned, because the caller's pw name was never bound and _hard_close() could not see it. The next sync_playwright().start() in the same xdist worker then died with "Sync API inside the asyncio loop". The previously blamed tests (row380, row761, row362, 1174, heartbeat_logged_out) are innocent bystanders and pass serially. Tests-only; no product source touched.
+
 ## v3.66.1608 - train33: stale-test repairs (mainred-stale) + WAVE3 register promotions
 
 Train: 1 refute-first-reviewed worker patch + the register promotion.
