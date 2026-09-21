@@ -431,6 +431,7 @@
     "tpdb_api_key": "full",
     "trigger_selector": "full",
     "turnstile_one_click": "full",
+    "turnstile_one_click_enabled": "none",
     "url_fingerprint": "full",
     "url_patterns": "full",
     "use_aylo_extractor": "full",

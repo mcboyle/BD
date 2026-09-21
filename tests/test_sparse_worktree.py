@@ -66,7 +66,7 @@ def test_registrations_do_not_accumulate(tmp_path):
 
 def test_custom_scope_keeps_the_default_excludes(tmp_path):
     """Round 2 E1: scope_dirs=["tests"] without exclude_dirs used to carry
-    tests/corpus + fixtures + mutants (117 MB) and fail the 50 MB bound."""
+    tests/corpus + fixtures + mutants (117 MB) and fail the size bound."""
     lw = _load_lens_worktree_module()
     base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
                                  capture_output=True, text=True, check=True).stdout.strip()
@@ -76,13 +76,15 @@ def test_custom_scope_keeps_the_default_excludes(tmp_path):
     assert res["ok"] is True, res
     assert (wt / "tests").is_dir() and not (wt / "tests" / "corpus").exists()
     assert not (wt / "tests" / "fixtures").exists() and not (wt / "tests" / "mutants").exists()
-    assert lw.get_worktree_size_mb(wt) < 50.0
+    assert lw.get_worktree_size_mb(wt) < lw.MAX_WORKTREE_MB
     # explicit exclude_dirs still wins (an empty list carves nothing out)
     assert lw.sparse_patterns(["tests"], []) == lw.sparse_patterns(["tests"], [])
 
 
 def test_scoped_checkout_is_under_50_mb(tmp_path):
-    """Verify that a scoped worktree uses no-checkout + sparse-checkout and is < 50 MB."""
+    """Verify that a scoped worktree uses no-checkout + sparse-checkout and is under
+    the bound. sg10: the bound is read from lw.MAX_WORKTREE_MB rather than restated
+    as a literal here, so the tool and its gate can never disagree about it."""
     lw = _load_lens_worktree_module()
 
     wt_dest = tmp_path / "sparse_wt"
@@ -109,7 +111,8 @@ def test_scoped_checkout_is_under_50_mb(tmp_path):
 
     # Size check: must be strictly under 50 MB
     size_mb = lw.get_worktree_size_mb(wt_dest)
-    assert size_mb < 50.0, f"Scoped checkout size {size_mb:.2f} MB exceeds 50 MB limit"
+    assert size_mb < lw.MAX_WORKTREE_MB, (
+        f"Scoped checkout size {size_mb:.2f} MB exceeds the {lw.MAX_WORKTREE_MB:.0f} MB limit")
 
 
 # A real, fast gate that lives entirely inside the default scope (bulk_downloader/tests/toolchain).
@@ -142,7 +145,8 @@ def test_scoped_gates_match_full_checkout(tmp_path):
     scoped = tmp_path / "gate_wt"
     res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=scoped, commit=base_commit)
     assert res["ok"] is True, res
-    assert res["size_mb"] < 50.0 and res["exclude"] == lw.DEFAULT_EXCLUDE
+    assert res["size_mb"] < lw.MAX_WORKTREE_MB and res["exclude"] == lw.DEFAULT_EXCLUDE
+    assert res["share"] is not None and res["share"] <= lw.MAX_WORKTREE_SHARE, res
     assert not (scoped / "tests" / "corpus").exists()
 
     full = tmp_path / "full_wt"
@@ -190,17 +194,20 @@ def test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path):
 
 
 def test_size_bound_is_enforced_without_deleting(tmp_path, monkeypatch):
-    """P2: a scoped checkout at/over 50 MB is ok=False (bound violated) and the
-    worktree is left in place (Fleet Rule 22)."""
+    """P2: a scoped checkout at/over the bound is ok=False (bound violated) and the
+    worktree is left in place (Fleet Rule 22). sg10: the forced size is derived from
+    lw.MAX_WORKTREE_MB, so raising the cap can never silently stop exercising this."""
     lw = _load_lens_worktree_module()
     base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
                                  capture_output=True, text=True, check=True).stdout.strip()
     wt = tmp_path / "big_wt"
-    monkeypatch.setattr(lw, "get_worktree_size_bytes", lambda _p: 51 * 1024 * 1024 + 7)
+    over = int((lw.MAX_WORKTREE_MB + 1) * 1024 * 1024) + 7
+    monkeypatch.setattr(lw, "get_worktree_size_bytes", lambda _p: over)
     res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=wt, commit=base_commit,
                                          scope_dirs=["toolchain"])
     assert res["ok"] is False
-    assert res["size_mb"] > 50.0 and "50 MB" in res["error"]
+    assert res["size_mb"] > lw.MAX_WORKTREE_MB
+    assert f"{lw.MAX_WORKTREE_MB:.0f} MB bound" in res["error"], res["error"]
     assert wt.is_dir() and (wt / "toolchain").is_dir(), "worktree must be left in place"
 
 
@@ -334,3 +341,94 @@ def test_teardown_tolerates_lens_runtime_leftovers_and_judges_tracked_files(tmp_
     assert {".pytest_cache", ".review", "toolchain", "venv"} <= set(good["untracked_dirs"]), good
     assert (wt / ".review" / "VERDICT-correctness.md").read_text() == "VERDICT: BOARD\n"
     assert (wt / "toolchain" / "__pycache__" / "a.cpython-312.pyc").exists() and (wt / "venv").is_symlink()
+
+
+def test_share_bound_is_a_ratchet_the_absolute_cap_cannot_be(tmp_path, monkeypatch):
+    """sg10: 50.0 MB was a measurement of the default scope at b9d1c8f7 written down
+    as a constant, so ordinary repository growth (51.14 MB at 4ce70fc1) turned a
+    correct worktree into ok=False. The cap was raised, which on its own is a
+    loosened ratchet -- so the tool also pins the SHARE of a full checkout, which
+    cannot go stale because both sides grow together.
+    """
+    lw = _load_lens_worktree_module()
+    base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+
+    full = lw.full_checkout_size_bytes(REPO_ROOT, base_commit)
+    assert full is not None and full > 100 * 1024 * 1024, f"denominator looks wrong: {full} bytes"
+    # the denominator refuses to invent a number it could not read (FLEET_RULE 6)
+    assert lw.full_checkout_size_bytes(REPO_ROOT, "no-such-ref-sg10") is None
+
+    wt = tmp_path / "share_wt"
+    res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=wt,
+                                         commit=base_commit, scope_dirs=["toolchain"])
+    assert res["ok"] is True, res
+    assert 0.0 < res["share"] <= lw.MAX_WORKTREE_SHARE, res
+
+    # negative control: a worktree that stopped excluding the corpora is ~a full
+    # checkout. It is REFUSED by the share bound while still under the absolute cap,
+    # which is the whole point of adding it.
+    fat = int(full * 0.9)
+    assert fat / (1024.0 * 1024.0) < lw.MAX_WORKTREE_MB * 3, "control sizing sanity"
+    monkeypatch.setattr(lw, "get_worktree_size_bytes", lambda _p: fat)
+    monkeypatch.setattr(lw, "MAX_WORKTREE_MB", 10_000.0)
+    bad = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=tmp_path / "fat_wt",
+                                         commit=base_commit, scope_dirs=["toolchain"])
+    assert bad["ok"] is False and "share bound" in bad["error"], bad
+    assert (tmp_path / "fat_wt").is_dir(), "worktree must be left in place (Fleet Rule 22)"
+
+
+def test_unreadable_denominator_is_a_refusal_not_a_passing_share(tmp_path, monkeypatch, capsys):
+    """sg10 REFUTE (bd-cx-lens-1): the first cut turned an UNREADABLE denominator into
+    ``share = 0.0`` and then skipped the share bound on the falsy ``full_bytes``, so a
+    worktree at 90% of a full checkout was CREATED with ok=True and rc 0. UNKNOWN is not
+    permission (FLEET_RULE 6). The creator -- and the CLI above it -- must refuse when the
+    denominator cannot be read, and ``share`` must be None rather than a number nobody
+    measured. Line 358 tested only the helper; this drives the real creator and main().
+    """
+    lw = _load_lens_worktree_module()
+    base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+
+    full = lw.full_checkout_size_bytes(REPO_ROOT, base_commit)
+    assert full and full > 100 * 1024 * 1024, f"denominator looks wrong: {full}"
+    fat = int(full * 0.9)
+    monkeypatch.setattr(lw, "get_worktree_size_bytes", lambda _p: fat)
+    monkeypatch.setattr(lw, "MAX_WORKTREE_MB", 10_000.0)
+
+    # POSITIVE CONTROL (rule 7): with the denominator READABLE the same 90% worktree is
+    # refused by the share bound, so the probe below is not passing for want of a signal.
+    seen = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=tmp_path / "seen_wt",
+                                          commit=base_commit, scope_dirs=["toolchain"])
+    assert seen["ok"] is False and "share bound" in seen["error"], seen
+    assert seen["share"] > lw.MAX_WORKTREE_SHARE
+
+    # THE ESCAPE: same worktree, same 90%, only the denominator unreadable.
+    for unreadable in (None, 0):
+        monkeypatch.setattr(lw, "full_checkout_size_bytes", lambda _r, _c, _v=unreadable: _v)
+        blind = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=tmp_path / f"blind_{unreadable}",
+                                               commit=base_commit, scope_dirs=["toolchain"])
+        assert blind["ok"] is False, blind
+        assert "could not measure" in blind["error"], blind
+        assert blind["share"] is None, blind
+        assert (tmp_path / f"blind_{unreadable}").is_dir(), "left in place (Fleet Rule 22)"
+
+    # the CLI is the caller that actually reports a verdict: it must exit 1, not print Created.
+    monkeypatch.setattr(sys, "argv", ["bd-lens-worktree", "create", "--repo", str(REPO_ROOT),
+                                      "--worktree", str(tmp_path / "cli_wt"), "--commit", base_commit,
+                                      "--scope", "toolchain"])
+    rc = lw.main()
+    captured = capsys.readouterr()
+    assert rc == 1, captured
+    assert "Created" not in captured.out and "could not measure" in captured.err
+
+
+def test_the_helper_distinguishes_unreadable_from_measured(tmp_path):
+    """Negative control for the refusal above: a ref git CANNOT read yields None, while a
+    real commit yields a positive int. A helper that always returned None would make the
+    refusal above pass for the wrong reason."""
+    lw = _load_lens_worktree_module()
+    assert lw.full_checkout_size_bytes(REPO_ROOT, "no-such-ref-sg10") is None
+    head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    assert isinstance(lw.full_checkout_size_bytes(REPO_ROOT, head), int)
