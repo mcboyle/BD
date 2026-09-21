@@ -145,7 +145,8 @@ def test_site_primary_url_uses_each_content_source_before_login(
 def test_site_primary_url_falls_back_to_login_without_content():
     cfg = {"login_url": LOGIN}
     assert len(cfg) == 1
-    assert bd_app._site_primary_url(cfg) == LOGIN
+    # Row 971: content mode no longer falls back to login_url.
+    assert bd_app._site_primary_url(cfg) == ""
 
 
 def test_site_primary_url_skips_unusable_content_before_login():
@@ -160,7 +161,8 @@ def test_site_primary_url_skips_unusable_content_before_login():
     }
     assert len(cfg["url_fingerprint"]["known_hosts"]) == 1
     assert len(cfg["url_fingerprint"]["known_path_prefixes"]) == 1
-    assert bd_app._site_primary_url(cfg) == LOGIN
+    # Row 971: content mode no longer falls back to login_url.
+    assert bd_app._site_primary_url(cfg) == ""
 
 
 @pytest.mark.parametrize(
@@ -176,7 +178,8 @@ def test_site_primary_url_malformed_fingerprint_falls_back_to_login(
 ):
     cfg = {"login_url": LOGIN, "url_fingerprint": fingerprint}
     assert len(fingerprint) == 2
-    assert bd_app._site_primary_url(cfg) == LOGIN
+    # Row 971: content mode no longer falls back to login_url.
+    assert bd_app._site_primary_url(cfg) == ""
 
 def test_onboard_capture_required_does_not_launch(fresh_app):
     _seed("x2", login_url=NOHOST)
@@ -190,6 +193,18 @@ def test_onboard_capture_required_does_not_launch(fresh_app):
     # persisted onto the in-memory config
     assert bd_app.s_cfg["x2"]["template_onboarding"] == "capture_required"
     assert bd_app.s_cfg["x2"]["auto_teach_first_run"] is False
+
+
+def test_onboard_login_only_refuses_capture_with_reason(fresh_app):
+    """Row 971: a login-only config must refuse onboarding (400) instead of
+    launching a capture at an empty URL.  run defaults to True."""
+    _seed("lo1", login_url=NOHOST)
+    r = fresh_app.post("/api/sites/lo1/template_onboard", json={})
+    assert r.status_code == 400, f"expected 400, got {r.status_code}"
+    body = r.get_json()
+    assert body["ok"] is False
+    assert "login URL" in body["error"]
+    assert "no content URL" in body["error"]
 
 
 def test_onboard_approved_template_never_launches(fresh_app):

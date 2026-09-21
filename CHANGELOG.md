@@ -4,6 +4,26 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1618 - train41: template onboarding no longer picks the login page; row 971 closed
+
+Train: 1 refute-first-reviewed worker patch (3 lens BOARDs @ tree e036dcf4; the earlier tree aed33e52
+was REFUTED by bd-cx-worker-3 for three fixtures it reddened, and that refutation is answered here).
+
+- row971 (template onboarding picks the login page): `_site_primary_url` in CONTENT mode
+  (`prefer_login=False`) no longer falls back to `login_url`, so a site configured with only a login
+  URL no longer onboards against its own login form. bulk_downloader/app.py drops the fallback;
+  bulk_downloader/app_sites_teach.py drops login_url from the job_url tuple and adds an empty-URL
+  guard that refuses capture with `400 site has only a login URL; no content URL to capture`
+  BEFORE any capture command is built. `prefer_login=True` callers (the status card) are unchanged.
+  Acceptance tests/test_row971_onboarding_picks_content_not_login.py (6 cases incl. a negative
+  control) plus one refuse test in tests/test_v3_66_144_template_endpoints.py, both wired into the
+  `application-safety` gate shard in .github/workflows/ci.yml in this same commit (H622).
+  Three existing fixtures that had leaned on the removed fallback are repaired fixture-only, with
+  their assertions kept: tests/test_row350_job_api_durable_truth.py,
+  tests/test_row666_candidates_inspect_prefers_caller_url.py, tests/test_v3_66_147_dry_run.py.
+  FIXTURE-ONLY, no browser, no network, no site, and no login is ever started (FLEET_RULE 21).
+  Closes register row 971 @1618.
+
 ## v3.66.1617 - train40: prompt-cache + token-refresh test repairs; rows 961 and 965 closed
 
 Train: 2 refute-first-reviewed worker patches + a register promotion.

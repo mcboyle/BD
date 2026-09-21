@@ -4174,7 +4174,7 @@ def _site_primary_url(cfg, *, prefer_login=False):
                             and "?" not in prefix and "#" not in prefix):
                         return f"https://{host}{prefix}"
 
-        for key in login_first[1:] + ("login_url",):
+        for key in login_first[1:]:
             value = cfg.get(key)
             v = value.strip() if isinstance(value, str) else ""
             if v.startswith(("http://", "https://")):
