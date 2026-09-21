@@ -172,7 +172,14 @@ class _RealE2ESmoke(unittest.TestCase):
                 "is absent. These end-to-end assertions have no subject here. "
                 "Build the SPA (npm run build) to run them for real.")
         cls.pw_ctx = sync_playwright().start()
-        cls.browser = cls.pw_ctx.chromium.launch(headless=True)
+        try:
+            cls.browser = cls.pw_ctx.chromium.launch(headless=True)
+        except Exception:
+            # Rule 45: unittest does NOT call tearDownClass when setUpClass
+            # raises, so an uncaught launch failure here would leak pw_ctx's
+            # event loop into whatever test the xdist worker picks up next.
+            cls.pw_ctx.stop()
+            raise
         # Create a test site via the BD API so tab panels become visible
         # (most depend on `det` becoming non-empty). The /api/sites POST
         # IGNORES any "id" field in the request and generates a random

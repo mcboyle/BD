@@ -250,7 +250,17 @@ def _headless(monkeypatch):
 
     def _fake(*, headless=True, args=None, config=None, **kw):
         pw = sync_playwright().start()
-        return pw.chromium.launch(headless=True), pw, "playwright-test"
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception:
+            # Rule 45: a launch failure here (plausible under xdist
+            # parallelism) must not orphan the already-started pw -- the
+            # exception happens mid-assignment in do_login's caller, so its
+            # own _hard_close() never sees this pw and its event loop leaks
+            # into whatever test the worker picks up next.
+            pw.stop()
+            raise
+        return browser, pw, "playwright-test"
 
     monkeypatch.setattr(cloak, "launch_browser", _fake)
 
