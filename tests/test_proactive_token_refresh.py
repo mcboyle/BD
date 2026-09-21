@@ -207,9 +207,21 @@ def test_run_loop_actually_uses_the_percentage_margin(monkeypatch):
 
 def test_fail_soft_backoff_unaffected_and_never_initiates_login():
     """Negative control / regression: a keeper in backoff (repeated heartbeat
-    failures) still gets the hourly backoff interval, not the new proactive
+    failures) is scheduled by the BACKOFF branch, not by the new proactive
     margin, and computing the schedule never calls the login callback --
-    scheduling is fail-soft and passive, it must never itself log in."""
+    scheduling is fail-soft and passive, it must never itself log in.
+
+    row965: this test asserted a FLAT hourly first wait, which row897 had
+    already superseded. That fixer replaced the flat interval with a jittered
+    exponential ladder driven by breaker_trips (first trip BACKOFF_BASE_SEC,
+    ceiling BACKOFF_INTERVAL_SEC) precisely because the hour was unreachable in
+    the old state machine -- so on main this assertion failed at 55s against a
+    2879s floor, and the red was the assertion, not the scheduler. The subject
+    of this test is the BRANCH and the login prohibition, never the magnitude
+    of one step, so both ends of the ladder are pinned here instead: the first
+    trip is one base interval, and repeated trips still climb to the hour the
+    original assertion was reaching for.
+    """
     from bulk_downloader import session_keeper as sk
     with _isolated_cwd():
         from bulk_downloader import db
@@ -224,9 +236,34 @@ def test_fail_soft_backoff_unaffected_and_never_initiates_login():
 
             now = time.time()
             next_check = keeper._compute_next_check_time()
-            # Backoff branch is evaluated before the margin logic and is
-            # unchanged by this fix: ~1h out, never immediate, never a login.
-            assert (next_check - now) >= sk.BACKOFF_INTERVAL_SEC * (1 - sk.JITTER_FRACTION) - 1
+            delay = next_check - now
+            # THE BRANCH: repeated failures trip the circuit breaker. If the
+            # margin logic had swallowed this case the keeper would be in no
+            # trip at all and would be scheduled off the predicted expiry.
+            assert keeper.state["breaker_trips"] == 1, (
+                "repeated failures did not reach the backoff branch: "
+                f"breaker_trips={keeper.state['breaker_trips']}, state="
+                f"{keeper.state['state']}")
+            assert keeper.state["state"] == "circuit_open"
+            # FIRST RUNG: one jittered base interval, never immediate.
+            lo = sk.BACKOFF_BASE_SEC * (1 - sk.JITTER_FRACTION) - 1
+            hi = sk.BACKOFF_BASE_SEC * (1 + sk.JITTER_FRACTION) + 1
+            assert lo <= delay <= hi, (
+                f"first trip waited {delay:.1f}s, outside the jittered base "
+                f"interval [{lo:.1f}, {hi:.1f}]")
+            # LAST RUNG: the ladder still reaches the hour the pre-row897
+            # assertion was reaching for. Each iteration clears the open
+            # window so _compute_next_check_time re-trips at the next exponent.
+            for _ in range(12):
+                keeper.state["open_until_ts"] = 0.0
+                keeper.state["consecutive_failures"] = sk.BACKOFF_AFTER_N_FAILURES
+                ceiling_delay = keeper._compute_next_check_time() - time.time()
+            assert keeper.state["breaker_trips"] == 13
+            assert ceiling_delay >= sk.BACKOFF_INTERVAL_SEC * (1 - sk.JITTER_FRACTION) - 1, (
+                f"the backoff ladder tops out at {ceiling_delay:.1f}s, short of "
+                f"the {sk.BACKOFF_INTERVAL_SEC}s ceiling")
+            # NO LOGIN, at any rung: scheduling is passive (Rule 21 in spirit --
+            # this suite never initiates a login flow on any site).
             assert login_calls == []
         finally:
             sk.stop_all()
