@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1606 - train31: registrable-domain drain census cache (H582 fx1) + generated-artifacts band-noise test
+
+Train: 2 refute-first-reviewed worker patches.
+
+- h582-1018-drain-bound-fx1: tests/test_v3_66_1018_registrable_domain_drain.py _remaining_copies() delegates to tests/registrable_domain_census.scan_repo (blob-SHA cache) instead of re-parsing every tracked .py; E1 fix: a path counts as scanned only after a successful read+parse, failed parses are recorded in parse_failed and never cached; 4 paired controls added (60 passed).
+- HB-generated-artifacts-band-noise: tests/test_generated_artifacts_band_noise.py pins the bd-worker-band derived-band exclusion set (only the 4 train-regen gates excluded, O1058 ratchets retained; O1055/O1064/O1066); skips where no bd-worker-band.sh is present (CI).
+
 ## v3.66.1605 - train30: register rows 834 and 851 CLOSED (landed v3.66.1604)
 
 Train: 1 refute-first-reviewed worker patches.

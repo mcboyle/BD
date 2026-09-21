@@ -289,7 +289,8 @@ def _make_logic_key():
 _LOGIC_KEY = _make_logic_key()
 
 
-def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader/registrable_domain.py")):
+def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader/registrable_domain.py"),
+              scanned_out=None):
     """Scan every tracked .py file for last-two-labels copies; return offenders.
 
     FULL DENOMINATOR PRESERVED. Every path from `git ls-files *.py` is
@@ -297,10 +298,22 @@ def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader
     git blob SHA has not changed since the last run. A cache miss (new or
     modified file) always recomputes from source.
 
+    ``scanned_out``, if given a list, is cleared and filled with every
+    non-exempt path whose source was actually read and parsed (or served
+    from the cache, which only ever holds successful parses) -- so a
+    caller's own population assertion measures what THIS scan looked at
+    instead of recomputing the denominator itself. A path whose read or
+    parse fails is NOT scanned coverage and is never appended (H582 E1:
+    publishing failed parses as population made the anti-empty gate green
+    with zero real coverage).
+
     Returns a list of strings of the form ``"rel/path.py:<lineno> <funcname>"``
     (same format as the test assertion message).
     """
     root = pathlib.Path(repo_root)
+
+    if scanned_out is not None:
+        del scanned_out[:]
 
     if files is None:
         # Full denominator: git ls-files (every tracked .py, nothing omitted).
@@ -323,12 +336,14 @@ def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader
             continue
 
         blob_sha = blob_map.get(rel)
+        parse_failed = []          # non-empty after _compute() could not read/parse rel
 
-        def _compute(rel=rel, root=root):
+        def _compute(rel=rel, root=root, parse_failed=parse_failed):
             try:
                 src = (root / rel).read_text(encoding="utf-8", errors="replace")
                 tree = ast.parse(src)
             except (SyntaxError, OSError):
+                parse_failed.append(rel)
                 return []
             return ["%s:%d %s" % (rel, n.lineno, n.name)
                     for n in ast.walk(tree)
@@ -338,6 +353,8 @@ def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader
         if cache is not None and blob_sha:
             if hasattr(cache, "get_or_compute_sha"):
                 result = cache.get_or_compute_sha(blob_sha, _compute)
+                if parse_failed:              # never let a failed parse persist as a hit
+                    getattr(cache, "_data", {}).pop(blob_sha, None)
             else:
                 hit = cache._data.get(blob_sha)
                 if hit is not None:
@@ -346,15 +363,19 @@ def scan_repo(repo_root, *, files=None, exempt_paths=("tests/", "bulk_downloader
                 else:
                     cache.misses += 1
                     result = _compute()
-                    try:
-                        import json
-                        json.dumps(result)
-                        cache._data[blob_sha] = result
-                    except Exception:
-                        pass
+                    if not parse_failed:      # a failed parse is never cached as coverage
+                        try:
+                            import json
+                            json.dumps(result)
+                            cache._data[blob_sha] = result
+                        except Exception:
+                            pass
             found.extend(result)
         else:
             found.extend(_compute())
+
+        if scanned_out is not None and not parse_failed:
+            scanned_out.append(rel)
 
     if cache is not None:
         cache.save()

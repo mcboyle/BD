@@ -196,26 +196,30 @@ import registrable_domain_census  # noqa: E402  (after the path insert above)
 
 
 def _remaining_copies():
+    """H582: this used to re-walk and re-parse every tracked file itself,
+    uncached, duplicating @1013's `registrable_domain_census.scan_repo` --
+    the same predicate, the same denominator, none of the blob-SHA cache
+    v3.66.1568 gave that module. Delegating here is not a behaviour change:
+    `_joins_last_two_labels` above already IS
+    `registrable_domain_census.function_joins_last_two_labels`, so the verdict
+    per function is identical; only the AST-reparse-every-run cost drops out
+    on a cache hit (SERIAL_SUITE_CARTOGRAPHY.tsv:355, 90s -> gate hang)."""
     sys.path.insert(0, str(REPO / "tests"))
     files = [f for f in subprocess.run(
         ["git", "-C", str(REPO), "ls-files", "-z", "*.py"],
         capture_output=True, text=True).stdout.split("\0") if f]
     assert len(files) > 1000, "the file census went blind (%d)" % len(files)
     canonical = "bulk_downloader/registrable_domain.py"
-    found = []
     del _LAST_SCANNED[:]
+    scan_targets = []
     for rel in files:
         if rel.startswith("tests/") or rel == canonical:
             continue
-        try:
-            tree = ast.parse((REPO / rel).read_text(encoding="utf-8", errors="replace"))
-        except (SyntaxError, OSError):
-            continue
-        _LAST_SCANNED.append(rel)
-        for n in ast.walk(tree):
-            if isinstance(n, ast.FunctionDef) and _joins_last_two_labels(n):
-                found.append("%s:%d %s" % (rel, n.lineno, n.name))
-    return found
+        scan_targets.append(rel)
+    result = registrable_domain_census.scan_repo(
+        REPO, files=scan_targets, exempt_paths=(), scanned_out=_LAST_SCANNED,
+    )
+    return result
 
 
 def test_no_last_two_labels_copy_survives_anywhere():
@@ -453,3 +457,62 @@ def test_the_drain_population_is_nonzero_and_excludes_exactly_one_file():
         "contain the bug")
     assert "bulk_downloader/registrable_domain.py" not in _LAST_SCANNED, (
         "the canonical implementation was scanned as if it were a copy")
+
+
+def _h582_repo(tmp_path, n_bad, n_good):
+    """A real git repo (hermetic identity, FLEET_RULE 41) with n_bad files that
+    cannot be parsed and n_good files that can; every file is committed so
+    build_blob_map has blob SHAs and the cache path is exercised."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=Test", "-c", "user.email=test@example.com"]
+    subprocess.run(git + ["init", "-q"], check=True)
+    for i in range(n_bad):
+        (repo / ("bad%d.py" % i)).write_text("def broken(:\n", encoding="utf-8")
+    for i in range(n_good):
+        (repo / ("good%d.py" % i)).write_text("def fine%d():\n    return %d\n" % (i, i), encoding="utf-8")
+    subprocess.run(git + ["add", "-A"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
+    return repo
+
+
+@pytest.mark.parametrize("n_bad,n_good,expect_scanned", [
+    (3, 0, 0),     # E1: nothing parsed -> nothing published as scanned
+    (0, 3, 3),     # control: every good file is scanned coverage
+    (2, 2, 2),     # mixed: only the parsed half is coverage
+])
+def test_h582_scanned_out_counts_only_successful_parses(tmp_path, monkeypatch, n_bad, n_good, expect_scanned):
+    """H582 E1 (lens REFUTE 2026-09-21T00:48Z): scan_repo used to append every
+    considered path to scanned_out BEFORE reading it, so a tree of 1001
+    unparseable files reported scanned=1001 and the anti-empty population gate
+    went green with zero real coverage. Only a successful read+parse (or a cache
+    hit, which only ever holds successful parses) is coverage."""
+    repo = _h582_repo(tmp_path, n_bad, n_good)
+    if registrable_domain_census._bdcache is not None:
+        monkeypatch.setattr(registrable_domain_census._bdcache, "CACHE_DIR", str(tmp_path / "cache"))
+        os.makedirs(str(tmp_path / "cache"), exist_ok=True)
+    scanned = ["stale"]
+    found = registrable_domain_census.scan_repo(repo, exempt_paths=(), scanned_out=scanned)
+    assert found == []
+    assert len(scanned) == expect_scanned, scanned
+    assert not [p for p in scanned if p.startswith("bad")], scanned
+    assert sorted(scanned) == sorted("good%d.py" % i for i in range(n_good))
+
+
+def test_h582_a_failed_parse_is_never_cached_as_a_hit(tmp_path, monkeypatch):
+    """Second run against the same blobs: the bad files must MISS again (they
+    were never stored), the good files must HIT, and scanned_out must be the
+    same population both times."""
+    if registrable_domain_census._bdcache is None:
+        pytest.skip("bdtools_cache unavailable; the uncached branch is covered above")
+    repo = _h582_repo(tmp_path, 2, 2)
+    monkeypatch.setattr(registrable_domain_census._bdcache, "CACHE_DIR", str(tmp_path / "cache"))
+    os.makedirs(str(tmp_path / "cache"), exist_ok=True)
+    first, second = [], []
+    registrable_domain_census.scan_repo(repo, exempt_paths=(), scanned_out=first)
+    cache_file = tmp_path / "cache" / "registrable-domain-census.json"
+    assert cache_file.exists(), "the cache never saved -- the cache branch was not exercised"
+    entries = __import__("json").load(open(str(cache_file))).get("entries", {})
+    assert len(entries) == 2, entries        # exactly the two parsed blobs
+    registrable_domain_census.scan_repo(repo, exempt_paths=(), scanned_out=second)
+    assert sorted(first) == sorted(second) == ["good0.py", "good1.py"]
