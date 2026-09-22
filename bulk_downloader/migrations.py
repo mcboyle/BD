@@ -16,10 +16,204 @@ ledger so we can be sure BD's DB matches the code version.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import enum
 import os
+import sqlite3
 import sys
+import threading
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+
+
+class BarrierState(str, enum.Enum):
+    """Lifecycle states for the DDL Locking Barrier."""
+    IDLE = "IDLE"
+    DRAINING = "DRAINING"
+    MIGRATING = "MIGRATING"
+    COMMITTED = "COMMITTED"
+    DRAIN_FAILED = "DRAIN_FAILED"
+    ABORTED = "ABORTED"
+
+
+def _evict_idle_connections() -> None:
+    """Evict and close any idle thread-local connection holding half-open read transactions.
+    Mirrors db.py O1164/FLEET_RULE 47 protocol to resolve SQLITE_LOCKED on sqlite_master."""
+    try:
+        from . import db as _db
+        idle = getattr(_db._DB_CONN_LOCAL, "idle", None)
+        if idle is not None:
+            _db._DB_CONN_LOCAL.idle = None
+            try:
+                idle[1].rollback()
+            except Exception:
+                pass
+            _db._close_history_conn(idle[1])
+    except Exception:
+        pass
+
+
+class DDLLockingBarrier:
+    """Zero-Downtime Schema Migration & DDL Locking Barrier (Row 978).
+
+    Coordinates schema evolution DDL operations with concurrent readers/writers:
+    1. Drains in-flight database borrower leases before executing DDL.
+    2. Provides bounded adaptive retries with exponential backoff on SQLITE_LOCKED/busy.
+    3. Flushes idle thread-local connections to eliminate shared-cache table lock contention.
+    4. Tracks barrier telemetry and migration lifecycle states.
+    """
+
+    def __init__(
+        self,
+        drain_timeout: float = 2.0,
+        barrier_timeout: float = 5.0,
+        retry_interval: float = 0.01,
+        max_retry_interval: float = 0.5,
+    ) -> None:
+        self.drain_timeout = float(drain_timeout)
+        self.barrier_timeout = float(barrier_timeout)
+        self.retry_interval = float(retry_interval)
+        self.max_retry_interval = float(max_retry_interval)
+        self._state = BarrierState.IDLE
+        self._lock = threading.RLock()
+        self._cond = threading.Condition(self._lock)
+        self._active_leases: Dict[str, float] = {}
+        self._lease_counter = 0
+
+    @property
+    def state(self) -> BarrierState:
+        with self._lock:
+            return self._state
+
+    @property
+    def active_leases_count(self) -> int:
+        with self._lock:
+            return len(self._active_leases)
+
+    def is_idle(self) -> bool:
+        with self._lock:
+            return self._state in (BarrierState.IDLE, BarrierState.COMMITTED)
+
+    def acquire_lease(self, owner: str = "") -> str:
+        """Register an active reader/writer lease."""
+        with self._lock:
+            if self._state in (BarrierState.DRAINING, BarrierState.MIGRATING):
+                raise RuntimeError(
+                    f"Cannot acquire lease: barrier is {self._state.value}"
+                )
+            self._lease_counter += 1
+            token = f"lease_{self._lease_counter}_{owner}_{time.time()}"
+            self._active_leases[token] = time.time()
+            return token
+
+    def release_lease(self, token: str) -> None:
+        """Release a previously acquired lease and notify barrier waiters."""
+        with self._lock:
+            self._active_leases.pop(token, None)
+            if not self._active_leases:
+                self._cond.notify_all()
+
+    def drain_in_flight(self, timeout: Optional[float] = None) -> bool:
+        """Wait for active in-flight leases to clear before entering migration DDL phase."""
+        t_limit = self.drain_timeout if timeout is None else float(timeout)
+        deadline = time.time() + t_limit
+        _evict_idle_connections()
+
+        with self._lock:
+            self._state = BarrierState.DRAINING
+            while self._active_leases and time.time() < deadline:
+                remaining = max(0.001, deadline - time.time())
+                self._cond.wait(timeout=remaining)
+            drained = len(self._active_leases) == 0
+            _evict_idle_connections()
+            if not drained:
+                self._state = BarrierState.DRAIN_FAILED
+            return drained
+
+    @contextmanager
+    def barrier_context(self, drain: bool = True, timeout: Optional[float] = None):
+        """Context manager bracketing a DDL migration batch within the barrier."""
+        with self._lock:
+            if drain:
+                drained = self.drain_in_flight(timeout=self.drain_timeout if timeout is None else timeout)
+                if not drained:
+                    self._state = BarrierState.DRAIN_FAILED
+                    raise RuntimeError(
+                        f"DDL locking barrier drain failed: {len(self._active_leases)} active lease(s) still held"
+                    )
+            self._state = BarrierState.MIGRATING
+        try:
+            yield self
+        except Exception:
+            with self._lock:
+                if self._state != BarrierState.DRAIN_FAILED:
+                    self._state = BarrierState.ABORTED
+            raise
+        else:
+            with self._lock:
+                self._state = BarrierState.COMMITTED
+        finally:
+            _evict_idle_connections()
+            with self._lock:
+                self._cond.notify_all()
+
+    def execute_ddl_guarded(
+        self,
+        cx: Any,
+        ddl_callable_or_sql: Any,
+        *args: Any,
+        timeout: Optional[float] = None,
+        **kwargs: Any,
+    ) -> Tuple[Any, int]:
+        """Execute a DDL callable or SQL query under adaptive lock contention retry."""
+        limit = self.barrier_timeout if timeout is None else float(timeout)
+        deadline = time.time() + limit
+        interval = self.retry_interval
+        retries = 0
+
+        while True:
+            try:
+                if callable(ddl_callable_or_sql):
+                    result = ddl_callable_or_sql(cx, *args, **kwargs)
+                elif isinstance(ddl_callable_or_sql, str):
+                    result = cx.execute(ddl_callable_or_sql, *args, **kwargs)
+                else:
+                    raise TypeError(f"Expected callable or SQL string, got {type(ddl_callable_or_sql)}")
+                return result, retries
+            except sqlite3.OperationalError as exc:
+                err_msg = str(exc).lower()
+                if ("locked" not in err_msg and "busy" not in err_msg) or time.time() >= deadline:
+                    raise
+                retries += 1
+                _evict_idle_connections()
+                time.sleep(interval)
+                interval = min(interval * 1.5, self.max_retry_interval)
+
+
+_GLOBAL_BARRIER: Optional[DDLLockingBarrier] = None
+_BARRIER_LOCK = threading.Lock()
+
+
+def get_barrier(
+    drain_timeout: float = 2.0,
+    barrier_timeout: float = 5.0,
+) -> DDLLockingBarrier:
+    """Return the shared DDLLockingBarrier instance."""
+    global _GLOBAL_BARRIER
+    with _BARRIER_LOCK:
+        if _GLOBAL_BARRIER is None:
+            _GLOBAL_BARRIER = DDLLockingBarrier(
+                drain_timeout=drain_timeout,
+                barrier_timeout=barrier_timeout,
+            )
+        return _GLOBAL_BARRIER
+
+
+def reset_barrier() -> None:
+    """Test helper. Reset the global barrier singleton."""
+    global _GLOBAL_BARRIER
+    with _BARRIER_LOCK:
+        _GLOBAL_BARRIER = None
 
 
 # Migration registry — populated by @migration decorator.
@@ -76,14 +270,26 @@ def pending_migrations() -> list:
     return sorted(out, key=lambda m: m["version"])
 
 
-def apply_pending(*, dry_run: bool = False, backup_first: bool = True) -> dict:
+def apply_pending(
+    *,
+    dry_run: bool = False,
+    backup_first: bool = True,
+    zero_downtime: bool = True,
+    barrier_timeout: float = 5.0,
+    drain_timeout: float = 2.0,
+) -> dict:
     """Apply any unapplied migrations in order.
 
     v3.48 (#44): dry_run now executes migrations against an IN-MEMORY
     snapshot of the schema (CREATE TABLE clones, not rows) to verify
     they'd actually succeed before committing to the real DB. Returns
     a per-migration result with `would_succeed: bool` and the resulting
-    schema changes."""
+    schema changes.
+
+    Row 978: zero_downtime (default True) executes migrations under the
+    DDLLockingBarrier, which coordinates borrower lease draining and
+    bounded adaptive retry on table lock contention (SQLITE_LOCKED).
+    """
     pend = pending_migrations()
     out = {"considered": len(pend), "applied": 0, "errors": 0,
            "dry_run": dry_run, "results": []}
@@ -159,42 +365,84 @@ def apply_pending(*, dry_run: bool = False, backup_first: bool = True) -> dict:
             out["backup"] = _bak
 
     from . import db as _db
-    for m in pend:
-        started = time.time()
-        try:
-            with _db.db_conn() as cx:
-                m["fn"](cx)
-                cx.execute("""INSERT INTO schema_migrations(
-                    version, name, applied_at, duration_ms, success
-                ) VALUES (?,?,?,?,1)""",
-                    (m["version"], m["name"], time.time(),
-                     (time.time() - started) * 1000))
-            out["applied"] += 1
-            out["results"].append({"version": m["version"],
-                                   "name": m["name"], "ok": True})
-        except Exception as e:
+    barrier = get_barrier(drain_timeout=drain_timeout, barrier_timeout=barrier_timeout) if zero_downtime else None
+    total_retries = 0
+
+    def _execute_migrations():
+        nonlocal total_retries
+        for m in pend:
+            started = time.time()
             try:
                 with _db.db_conn() as cx:
+                    if barrier:
+                        _, retries = barrier.execute_ddl_guarded(cx, m["fn"], timeout=barrier_timeout)
+                        total_retries += retries
+                    else:
+                        m["fn"](cx)
                     cx.execute("""INSERT INTO schema_migrations(
-                        version, name, applied_at, duration_ms, success, error
-                    ) VALUES (?,?,?,?,0,?)""",
+                        version, name, applied_at, duration_ms, success
+                    ) VALUES (?,?,?,?,1)""",
                         (m["version"], m["name"], time.time(),
-                         (time.time() - started) * 1000, str(e)[:300]))
-            except Exception:
-                pass
-            out["errors"] += 1
-            out["results"].append({"version": m["version"],
-                                   "name": m["name"],
-                                   "ok": False, "error": str(e)[:200]})
-            # ROB-2: a migration failed at apply time despite passing the
-            # dry-run preflight (a data-dependent failure). Restore the
-            # pre-migration DB so we don't leave a half-migrated state.
-            if backup_first and out.get("backup"):
-                if _restore_db_from_backup(out["backup"]):
-                    out["restored_to_prior"] = True
-            # Stop on first error — later migrations might depend on
-            # this one's columns
-            break
+                         (time.time() - started) * 1000))
+                out["applied"] += 1
+                out["results"].append({"version": m["version"],
+                                       "name": m["name"], "ok": True})
+            except Exception as e:
+                try:
+                    with _db.db_conn() as cx:
+                        cx.execute("""INSERT INTO schema_migrations(
+                            version, name, applied_at, duration_ms, success, error
+                        ) VALUES (?,?,?,?,0,?)""",
+                            (m["version"], m["name"], time.time(),
+                             (time.time() - started) * 1000, str(e)[:300]))
+                except Exception:
+                    pass
+                out["errors"] += 1
+                out["results"].append({"version": m["version"],
+                                       "name": m["name"],
+                                       "ok": False, "error": str(e)[:200]})
+                # ROB-2: a migration failed at apply time despite passing the
+                # dry-run preflight (a data-dependent failure). Restore the
+                # pre-migration DB so we don't leave a half-migrated state.
+                if backup_first and out.get("backup"):
+                    if _restore_db_from_backup(out["backup"]):
+                        out["restored_to_prior"] = True
+                # Stop on first error — later migrations might depend on
+                # this one's columns
+                break
+
+    if barrier:
+        drain_start = time.time()
+        try:
+            with barrier.barrier_context(drain=True, timeout=drain_timeout):
+                _execute_migrations()
+        except RuntimeError as exc:
+            if "drain failed" in str(exc).lower():
+                drain_dur = (time.time() - drain_start) * 1000
+                out["aborted"] = True
+                out["abort_reason"] = str(exc)
+                out["barrier_telemetry"] = {
+                    "zero_downtime": True,
+                    "drained": False,
+                    "barrier_state": barrier.state.value if hasattr(barrier.state, "value") else str(barrier.state),
+                    "leases_outstanding": barrier.active_leases_count,
+                    "drain_duration_ms": drain_dur,
+                    "retries": 0,
+                }
+                return out
+            raise
+        drain_dur = (time.time() - drain_start) * 1000
+        out["barrier_telemetry"] = {
+            "zero_downtime": True,
+            "drained": True,
+            "barrier_state": barrier.state.value if hasattr(barrier.state, "value") else str(barrier.state),
+            "leases_outstanding": barrier.active_leases_count,
+            "drain_duration_ms": drain_dur,
+            "retries": total_retries,
+        }
+    else:
+        _execute_migrations()
+
     return out
 
 

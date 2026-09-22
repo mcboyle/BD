@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:309",
-    "bulk_downloader/runner_transport.py:3307",  # row 916 moved it (retry/backoff block above)
-    "bulk_downloader/runner_transport.py:3695",  # row 916 moved it (retry/backoff block above)
-    "bulk_downloader/runner_transport.py:3927",  # row 916 moved it (retry/backoff block above)
+    "bulk_downloader/runner_transport.py:3317",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3307 after row 916
+    "bulk_downloader/runner_transport.py:3705",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3695 after row 916
+    "bulk_downloader/runner_transport.py:3937",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3927 after row 916
 }
 
 

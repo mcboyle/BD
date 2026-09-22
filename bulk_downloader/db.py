@@ -19,6 +19,33 @@ from .constants import DB_PATH
 # stdlib-only and does NOT import psycopg at module scope), so the new edge
 # db->pg_backend is declared and frozen rather than hidden in a function.
 from . import pg_backend
+from .hot_write_buffer import HotWriteBuffer, create_hot_write_buffer
+
+_QUEUE_HOT_BUFFER: HotWriteBuffer | None = None
+
+def get_queue_hot_buffer() -> HotWriteBuffer:
+    """Row 1013: Return the process-wide ephemeral in-memory hot write buffer for high-frequency queue updates."""
+    global _QUEUE_HOT_BUFFER
+    if _QUEUE_HOT_BUFFER is None:
+        _QUEUE_HOT_BUFFER = create_hot_write_buffer()
+    return _QUEUE_HOT_BUFFER
+
+
+def queue_get_hot_state(site_id: str, url: str) -> dict | None:
+    """Row 1013: Return ephemeral hot buffer state for a queue item if present."""
+    state = get_queue_hot_buffer().get_state(f"{site_id}:{url}")
+    return state.to_dict() if state else None
+
+
+def queue_flush_hot_buffer() -> int:
+    """Row 1013: Flush all dirty queue item states from in-memory hot buffer."""
+    return get_queue_hot_buffer().flush()
+
+
+def queue_hot_buffer_stats() -> dict:
+    """Row 1013: Return operational telemetry of the queue hot write buffer."""
+    return get_queue_hot_buffer().stats()
+
 
 
 def _resolve_db_path():
@@ -2558,6 +2585,19 @@ def queue_upsert(site_id, url, **fields):
         except Exception: pass
         fields = {k: v for k, v in fields.items() if k in _QUEUE_COLUMNS}
     fields["ts_updated"] = None  # marker, overwritten below
+    # Row 1013: Ephemeral in-memory hot write buffer overlay for high-frequency updates
+    try:
+        hot_buf = get_queue_hot_buffer()
+        is_term = str(fields.get("status", "")).lower() in ("completed", "failed", "cancelled", "done", "error")
+        hot_buf.record_update(
+            item_id=f"{site_id}:{url}",
+            state=str(fields.get("status", "pending")),
+            bytes_downloaded=int(fields.get("file_size", 0) or 0),
+            metadata={"site_id": site_id, "url": url, **fields},
+            is_terminal=is_term,
+        )
+    except (TypeError, ValueError, RuntimeError, AttributeError):
+        pass
     with db_conn() as cx:
         # Try update first (the hot path: existing job changed state)
         if len(fields) > 1:
@@ -2752,6 +2792,20 @@ def queue_bulk_update(site_id, urls, **fields):
         fields = {k: v for k, v in fields.items() if k in _QUEUE_COLUMNS}
     if not fields:
         return 0
+    # Row 1013: Ephemeral in-memory hot write buffer overlay for high-frequency updates
+    try:
+        hot_buf = get_queue_hot_buffer()
+        is_term = str(fields.get("status", "")).lower() in ("completed", "failed", "cancelled", "done", "error")
+        for u in urls:
+            hot_buf.record_update(
+                item_id=f"{site_id}:{u}",
+                state=str(fields.get("status", "updating")),
+                bytes_downloaded=int(fields.get("file_size", 0) or 0),
+                metadata={"site_id": site_id, "url": u, **fields},
+                is_terminal=is_term,
+            )
+    except (TypeError, ValueError, RuntimeError, AttributeError):
+        pass
     # Column names come only from the _QUEUE_COLUMNS whitelist; values
     # are bound — same injection-safety model as queue_upsert.
     set_clause = ", ".join(f"{k}=?" for k in fields)

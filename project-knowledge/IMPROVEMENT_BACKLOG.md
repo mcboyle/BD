@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=107 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=101 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -366,7 +366,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 975 | OPEN | ENTERPRISE-DISTRIBUTED-EVENT-STREAMING-CLIENT-MODERNIZATION-FASTSTREAM-AIOKAFKA -- Enterprise Distributed Event Streaming Client Modernization (faststream / aiokafka) |
 | 976 | OPEN | NATIVE-MEMORY-ALLOCATOR-RUNTIME-PROFILING-HEAP-ARENA-FRAGMENTATION-SUPPRESSOR-JEMALLOCPROFILE -- Native Memory Allocator Runtime Profiling & Heap Arena Fragmentation Suppressor (JemallocProfile) |
 | 977 | OPEN | ADAPTIVE-ROLLING-WINDOW-COMPACTION-FOR-LOCAL-TIME-SERIES-TELEMETRY -- Adaptive Rolling-Window Compaction for Local Time-Series Telemetry |
-| 978 | OPEN | ZERO-DOWNTIME-SCHEMA-MIGRATION-DDL-LOCKING-BARRIER -- Zero-Downtime Schema Migration & DDL Locking Barrier |
+| 978 | CLOSED @1630 | ZERO-DOWNTIME-SCHEMA-MIGRATION-DDL-LOCKING-BARRIER -- Zero-Downtime Schema Migration & DDL Locking Barrier |
 | 979 | OPEN | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
 | 980 | OPEN | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
 | 981 | OPEN | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap |
@@ -384,7 +384,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 993 | OPEN | RESIDENT-MEMORY-PAGE-FAULT-HEAP-GROWTH-TELEMETRY -- Resident Memory Page Fault & Heap Growth Telemetry |
 | 994 | OPEN | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite |
 | 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
-| 996 | OPEN | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
+| 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
 | 997 | OPEN | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
 | 998 | OPEN | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol |
 | 999 | OPEN | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress |
@@ -394,14 +394,14 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1003 | OPEN | DECORRELATED-FULL-JITTER-EXPONENTIAL-BACKOFF-PROFILES -- Decorrelated Full-Jitter Exponential Backoff Profiles |
 | 1004 | OPEN | TRANSPORT-LAYER-SLIDING-WINDOW-CIRCUIT-BREAKERS-WITH-LEAKY-BUCKET-RECOVERY -- Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery |
 | 1005 | OPEN | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
-| 1006 | OPEN | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
+| 1006 | CLOSED @1630 | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
 | 1007 | OPEN | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
 | 1008 | OPEN | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Asynchronous Refresh |
 | 1009 | OPEN | ADAPTIVE-SHARED-MEMORY-WAL-CHECKPOINT-CONTROLLER -- Adaptive Shared-Memory WAL Checkpoint Controller |
 | 1010 | OPEN | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
 | 1011 | OPEN | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
 | 1012 | OPEN | AUTOMATED-QUERY-PLAN-OPTIMIZER-STATISTICS-INDEX-STABILIZER -- Automated Query Plan Optimizer & Statistics Index Stabilizer |
-| 1013 | OPEN | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
+| 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
 | 1014 | OPEN | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
 | 1015 | OPEN | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
 | 1016 | OPEN | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
@@ -415,7 +415,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1024 | OPEN | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) |
 | 1025 | OPEN | DATABASE-CONNECTION-POOL-LEASE-RELEASE-LIFECYCLE-THREAD-CLEANUP-TRAPS-DBCONNECTIONLIFECYCLEMANAGER -- Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps (DBConnectionLifecycleManager) |
 | 1026 | OPEN | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
-| 1027 | OPEN | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
+| 1027 | CLOSED @1630 | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
 | 1028 | OPEN | WEAKREF-CALLBACK-LIFECYCLE-MANAGER-AND-UNBOUNDED-CACHE-PRUNING-ENGINE-WEAKREFLIFECYCLE -- Weakref Callback Lifecycle Manager and Unbounded Cache Pruning Engine (WeakrefLifecycle) |
 | 1029 | OPEN | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
 | 1030 | OPEN | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
@@ -443,7 +443,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1052 | OPEN | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
 | 1053 | OPEN | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser |
 | 1054 | OPEN | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map |
-| 1055 | OPEN | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
+| 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
 | 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
 | 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
 | 1058 | OPEN | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer |

@@ -117,10 +117,6 @@ ACCOUNTED = {
         "exempt",
         "posts a tray control action to the operator's own BD instance at the "
         "tray's configured url"),
-    "bulk_downloader/discovery.py::_fetch": (
-        "exempt",
-        "fetches the discovery source feeds the operator configured; the "
-        "result is parsed as data and never proxied back to a caller"),
     "bulk_downloader/tpdb.py::_request": (
         "exempt",
         "authenticated GET against the fixed TPDB API base written in this "

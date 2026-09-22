@@ -61,10 +61,10 @@ def _ensure_table():
 
 def _fetch(url: str, *, timeout: int = 30) -> Optional[bytes]:
     try:
-        import requests
-        r = requests.get(url, timeout=timeout, headers={
+        from .http_client import unified_request
+        r = unified_request(url, timeout=float(timeout), headers={
             "User-Agent": "BulkDownloader-Discovery/1.0"})
-        if r.ok:
+        if r.is_success:
             return r.content
     except Exception:
         pass

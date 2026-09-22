@@ -453,6 +453,22 @@
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/egress_transport.py::HttpxEgressTransport:public_only",
+      "file": "bulk_downloader/egress_transport.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\(PUBLIC_ONLY)",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/egress_transport.py::HttpxEgressTransport:pinned",
+      "file": "bulk_downloader/egress_transport.py",
+      "old_regex": "(?<=transport)(?==guarded_transport\\(PINNED)",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
     }
   ]
 }
