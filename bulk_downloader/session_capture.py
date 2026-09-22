@@ -329,6 +329,12 @@ _WS_MAX_FRAMES = 1000
 _WS_MAX_PAYLOAD = 2048
 
 
+def get_protocol_dispatcher():
+    """Retrieve the process-wide asynchronous protocol message dispatcher."""
+    from .protocol_dispatcher import get_global_protocol_dispatcher
+    return get_global_protocol_dispatcher()
+
+
 def feed_cdp_event(capture: SessionCapture, method: str,
                    params: Dict[str, Any],
                    body_fetcher=None) -> None:
@@ -346,6 +352,11 @@ def feed_cdp_event(capture: SessionCapture, method: str,
     ``response_body`` stays None, i.e. behaviour is byte-for-byte the old
     metadata-only capture.
     """
+    try:
+        get_protocol_dispatcher().dispatch_nowait(method, params)
+    except Exception:
+        pass
+
     rid = params.get("requestId")
     if method == _CDP_REQUEST:
         # A redirect arrives as a new requestWillBeSent on the same id
