@@ -395,8 +395,16 @@ def _human_move_to(page, locator):
     import math, random as _rnd
     box = locator.bounding_box()
     if not box: return
-    target_x = box["x"] + box["width"] / 2 + _rnd.uniform(-3, 3)
-    target_y = box["y"] + box["height"] / 2 + _rnd.uniform(-2, 2)
+    base_x = box["x"] + box["width"] / 2 + _rnd.uniform(-3, 3)
+    base_y = box["y"] + box["height"] / 2 + _rnd.uniform(-2, 2)
+    try:
+        import importlib
+        _aiv = importlib.import_module("bulk_downloader.adaptive_input_variance")
+        target_x, target_y, state = _aiv.get_form_control_coordinate(box, control_type="button")
+        if state != "adaptive":
+            target_x, target_y = base_x, base_y
+    except Exception:
+        target_x, target_y = base_x, base_y
     # Start position: jitter a bit from where Playwright thinks the mouse
     # is. We don't have a great way to read the current position, so we
     # synthesize a plausible "previous" location offset from the target.

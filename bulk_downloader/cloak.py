@@ -1112,6 +1112,8 @@ def cloaked_mouse_click(
     target_y: float | None = None,
     *,
     selector: str | None = None,
+    control_type: str | None = None,
+    adaptive_variance: bool = False,
     start_pos: tuple[float, float] | None = None,
     button: str = "left",
     steps: int = 18,
@@ -1133,6 +1135,7 @@ def cloaked_mouse_click(
     Zero test suite overhead when sleep_fn is None or delays are zero.
     """
     mouse = getattr(page, "mouse", page)
+    variance_state = "none"
 
     # If selector provided, resolve target coordinates from bounding box
     if selector is not None:
@@ -1140,8 +1143,25 @@ def cloaked_mouse_click(
         box = loc.bounding_box() if loc else None
         if box is None:
             raise ValueError(f"Target selector {selector!r} not found or not visible")
-        target_x = box["x"] + box["width"] / 2.0
-        target_y = box["y"] + box["height"] / 2.0
+        base_x = box["x"] + box["width"] / 2.0
+        base_y = box["y"] + box["height"] / 2.0
+        if adaptive_variance:
+            try:
+                import importlib
+                _aiv = importlib.import_module("bulk_downloader.adaptive_input_variance")
+                target_x, target_y, variance_state = _aiv.get_form_control_coordinate(
+                    box, control_type=control_type or "generic"
+                )
+                if variance_state != "adaptive":
+                    target_x = base_x
+                    target_y = base_y
+            except Exception:
+                target_x = base_x
+                target_y = base_y
+                variance_state = "fallback"
+        else:
+            target_x = base_x
+            target_y = base_y
 
     if target_x is None or target_y is None:
         raise ValueError("Must provide either (target_x, target_y) or selector")
@@ -1183,12 +1203,29 @@ def cloaked_mouse_click(
     if sleep_fn is not None and post_click_s > 0:
         sleep_fn(post_click_s)
 
-    return {
+    res = {
         "success": True,
         "target": (target_x, target_y),
         "steps": len(path),
         "intervals": intervals,
+        "variance_state": variance_state,
     }
+    return res
+
+
+def calculate_adaptive_click_target(
+    box: Any,
+    control_type: str = "generic",
+) -> tuple[float, float, str]:
+    """Row 980: Calculate form control target coordinates with adaptive variance (three-state)."""
+    try:
+        import importlib
+        _aiv = importlib.import_module("bulk_downloader.adaptive_input_variance")
+        return _aiv.get_form_control_coordinate(box, control_type=control_type)
+    except Exception:
+        if isinstance(box, dict):
+            return box.get("x", 0.0) + box.get("width", 0.0) / 2.0, box.get("y", 0.0) + box.get("height", 0.0) / 2.0, "fallback"
+        return 0.0, 0.0, "unavailable"
 
 
 # Canonical aliases
