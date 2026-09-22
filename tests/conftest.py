@@ -1994,3 +1994,16 @@ def _write_run_context(terminalreporter, config, exitstatus=0):
               "it stopped:")
         for worker_id in sorted(stranded):
             write("    %s: %s" % (worker_id, stranded[worker_id]))
+
+
+# ── leaked running event loop ────────────────────────────────────────────────
+# The mechanism lives in tests/_event_loop_guard.py so it can be DRIVEN by a
+# test rather than only described by one -- the same shape as _sys_modules_guard
+# above. See that module for the measurement (main-red 2026-09-21, 22 reds, one
+# predicate) and the reasoning; this file just wires it in.
+import _event_loop_guard
+
+
+# The fixture object itself is defined beside the mechanism it guards, so the
+# regression test can install the SAME object in a nested run.
+_bd_no_leaked_event_loop = _event_loop_guard.autouse_fixture
