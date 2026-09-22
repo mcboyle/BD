@@ -688,7 +688,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/db.py` (122 entries)
+## `bulk_downloader/db.py` (124 entries)
 
 ```
 - L0026 `get_queue_hot_buffer` — Row 1013: Return the process-wide ephemeral in-memory hot write buffer for high-frequency queue updates.
@@ -787,32 +787,34 @@ Schema version: 2
 - L2545 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
 - L2559 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
 - L2609 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L2666 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L2688 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L2694 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L2700 `queue_delete_site` — Called when a site is removed.
-- L2715 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L2737 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L2761 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L2783 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L2808 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L2873 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L2885 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L2899 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L2912 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L2925 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L2938 `session_event_record` — Append one row to session_history. event_type is one of:
-- L2979 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L2992 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L3042 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L3136 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L3143 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L3154 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L3166 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L3266 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L3279 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L3290 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L3310 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L2679 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L2707 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L2713 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L2719 `queue_delete_site` — Called when a site is removed.
+- L2734 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L2756 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L2780 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L2802 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L2827 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L2892 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L2904 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L2918 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L2931 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L2944 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L2957 `session_event_record` — Append one row to session_history. event_type is one of:
+- L2998 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L3011 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L3061 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L3155 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L3162 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L3173 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L3185 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L3285 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L3298 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L3309 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L3329 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L3348 `db_bulk_ingest_staging`
+- L3359 `db_staging_ingest_stats`
 ```
 
 
@@ -949,4 +951,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 773 across 22 files._
+_Total entries: 775 across 22 files._

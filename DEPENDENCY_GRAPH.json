@@ -2394,7 +2394,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1855,
+    "edge_count": 1857,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3582,6 +3582,7 @@
         "bulk_downloader/site_changelog.py",
         "bulk_downloader/site_weather.py",
         "bulk_downloader/smart_wakeup.py",
+        "bulk_downloader/staging_ingest.py",
         "bulk_downloader/storage_rebalance.py",
         "bulk_downloader/storage_tier.py",
         "bulk_downloader/tags.py",
@@ -4768,6 +4769,9 @@
         "bulk_downloader/cleanup_helpers.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/runner_transport.py"
+      ],
+      "bulk_downloader/staging_ingest.py": [
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/app_sites_integrations.py",
@@ -6652,7 +6656,8 @@
         "bulk_downloader/hot_write_buffer.py",
         "bulk_downloader/library.py",
         "bulk_downloader/log.py",
-        "bulk_downloader/pg_backend.py"
+        "bulk_downloader/pg_backend.py",
+        "bulk_downloader/staging_ingest.py"
       ],
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/backup_verify.py"
@@ -7667,6 +7672,9 @@
       ],
       "bulk_downloader/ssrf_transport.py": [
         "bulk_downloader/happy_eyeballs.py"
+      ],
+      "bulk_downloader/staging_ingest.py": [
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/deep_http.py"

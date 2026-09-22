@@ -4,6 +4,30 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1633 - train61: row1016, process-test-shard, and the register sweep
+
+Base 3c35e63d0 (v3.66.1632). Two cuts plus a register correction.
+
+- row1016-lockfree-bulk-ingest-r2: staging-table bulk ingestion wired into the product
+  caller (queue_bulk_upsert routes through StagingIngestPipeline), with a rerunnable
+  lock-hold probe (tests/perf_row1016_lock_hold_probe.py) measuring the property the row
+  name asserts, per the WIRE brief adopted in RULING-0145. Quorum: bd-agy-lens-c2 and
+  bd-agy-lens-c3 at INDEX tree b18369bc.
+- process-test-shard: the process-tests lane now runs ONLY the 55 entries declared in
+  tests/PROCESS_TESTS.txt via mapfile, drops the -x flag so every red is reported, and carries
+  timeout-minutes 45 sized from a 772 s measured serial run rather than a guess. The
+  previous lane ran 'pytest tests/ -x' over 1932 files under a 90-minute cap, which the
+  measured median could not fit -- coverage was being dropped silently (RULING-0045, H674).
+  It also adds test_process_tests_never_touch_the_product, a guard the file documented but
+  did not have. Quorum: bd-review-correctness-N4-B and bd-review-correctness-N8-B at 2264217f.
+- register: rows 1002, 1007, 1016, 1035, 1041 and 1070 CLOSED @1633; marker re-derived,
+  open 88 -> 82, rows and ids-sha256 unchanged since no id was added or removed.
+  Five of those six -- 1002, 1007, 1035, 1041 and 1070 -- LANDED ON TRAIN 57 at main
+  c0957568a under v3.66.1630, which shipped without a CHANGELOG entry or a version bump of
+  its own. They are recorded here because that is where the closure could ride (FLEET_RULE
+  31 wanted them on T57); the @1633 stamp is a correction, not a claim that they shipped at
+  1633. Each was measured 100% landed by content before it was closed.
+
 ## v3.66.1632 - train60: cx-h635, row1034, row1073, row1044, row1059
 
 Base 66ea98b22 (v3.66.1631). Five cuts stacked, quorum at each object (RULING-0600/0720/0730).

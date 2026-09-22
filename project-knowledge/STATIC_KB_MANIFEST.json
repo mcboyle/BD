@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-22T19:37:44+00:00",
- "version_context": "v3.66.1632",
+ "generated": "2026-09-22T20:05:19+00:00",
+ "version_context": "v3.66.1633",
  "file_count": 96,
  "files": {
   "0_INDEX.md": {
@@ -81,8 +81,8 @@
    "bytes": 4352
   },
   "CI_DOCSONLY_SHARDS.json": {
-   "sha256": "0b83166708996fa91a2180e966b7aafeb7d15eeadf3bf37feba0549981ab12bc",
-   "bytes": 2351
+   "sha256": "14ee6374488b6f69919be5a2f26413f62e5f696e4825abc87b49f2be22d7e94d",
+   "bytes": 2063
   },
   "CI_FAILURE_TAXONOMY.md": {
    "sha256": "1065916a74042c9ff6c94a52620af98422fa587b7ddb61227459a08466adb26e",
@@ -169,8 +169,8 @@
    "bytes": 9855
   },
   "IMPROVEMENT_BACKLOG.md": {
-   "sha256": "4388df1af93aab9e3673833d971c40391ef724d3aaed7320535a2b3e738d0ac2",
-   "bytes": 301272
+   "sha256": "6de34c02220cfe8020c6ea9b8b7477b698c6d1f92ebdef90644a83de97591953",
+   "bytes": 301320
   },
   "IMPROVEMENT_BACKLOG_ARCHIVE.md": {
    "sha256": "6fcccc9f281f4ef48ed11e8e79fa09e9c8e819041dfa38407331760e9998f833",

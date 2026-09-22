@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4906,
+  "edge_count": 4913,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1205,7 +1205,8 @@
       "bulk_downloader/hot_write_buffer.py",
       "bulk_downloader/library.py",
       "bulk_downloader/log.py",
-      "bulk_downloader/pg_backend.py"
+      "bulk_downloader/pg_backend.py",
+      "bulk_downloader/staging_ingest.py"
     ],
     "bulk_downloader/db_replication.py": [
       "bulk_downloader/backup_verify.py"
@@ -2221,6 +2222,9 @@
     "bulk_downloader/ssrf_transport.py": [
       "bulk_downloader/happy_eyeballs.py"
     ],
+    "bulk_downloader/staging_ingest.py": [
+      "bulk_downloader/db.py"
+    ],
     "bulk_downloader/stash_deep.py": [
       "bulk_downloader/deep_http.py"
     ],
@@ -2414,6 +2418,9 @@
       "bulk_downloader/plugins.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn_config.py"
+    ],
+    "tests/perf_row1016_lock_hold_probe.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/rate_limit_seam.py": [
       "bulk_downloader/rate_limit.py",
@@ -4055,6 +4062,14 @@
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
+    ],
+    "tests/test_row1016_lockfree_bulk_ingest_staging.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/staging_ingest.py"
+    ],
+    "tests/test_row1016_queue_bulk_upsert_wired.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
     ],
     "tests/test_row1025_db_connection_lifecycle_traps.py": [
       "bulk_downloader/db.py"
