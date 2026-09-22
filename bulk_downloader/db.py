@@ -2663,27 +2663,46 @@ def queue_upsert(site_id, url, **fields):
              defaults["filename"], defaults["listing_title"], defaults["file_size"],
              defaults["lane"], defaults["depends_on"]))
 
+# Row 722 (G26) reset semantics for a re-added URL, shared by the staging
+# transfer below: a conflicting row is a stale leftover and a re-added URL is a
+# fresh job, so every retry/message/result column is reset, not kept.
+_QUEUE_BULK_UPSERT_CLAUSE = (
+    "ON CONFLICT(site_id,url) DO UPDATE SET status='pending', message='', "
+    "retries=0, retry_after=0, screenshot='', force_download=0, "
+    "filename='', file_size=0, ord=excluded.ord, "
+    "listing_title=excluded.listing_title, "
+    "ts_added=strftime('%Y-%m-%dT%H:%M:%S','now'), "
+    "ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now')"
+)
+
+
 def queue_bulk_upsert(site_id, urls, ord_start=0, listing_titles=None):
     """Bulk-insert URLs in one transaction. Massively faster than per-URL
-    upserts for large lists (one transaction vs N)."""
+    upserts for large lists (one transaction vs N).
+
+    Row 1016 (WIRE): the rows are staged into a TEMP table first
+    (``StagingIngestPipeline``) and reach ``queue`` in ONE ``INSERT ... SELECT``
+    carrying the row-722 upsert clause. Staging writes touch only the temp
+    database, so the main-database writer lock is taken for the single
+    transfer statement rather than for the whole ``executemany``; the
+    rerunnable measurement is tests/perf_row1016_lock_hold_probe.py.
+    Callers: runner_queue.SiteRunner.load_urls (reached from
+    /api/bulk/enqueue, /api import and crash recovery) and perf_lab's load
+    injector. Commit stays with ``db_conn``: the pipeline does not own the
+    connection.
+    """
+    from .staging_ingest import StagingIngestPipeline
     title_map = listing_titles if isinstance(listing_titles, dict) else {}
-    # Row 722 (G26): the caller only passes URLs absent from the in-memory job
-    # map, so a conflicting row is a stale leftover (bulk_delete's DELETE
-    # failed or raced a worker write). `INSERT OR IGNORE` kept that row's
-    # retries/retry_after/message, and the re-added URL restored as
-    # "Retry 2/2 in 1h" and was never claimed. A re-added URL is a fresh job.
+    rows = [
+        {"site_id": site_id, "url": u, "status": "pending",
+         "ord": ord_start + i, "listing_title": title_map.get(u, "")}
+        for i, u in enumerate(urls)
+    ]
+    if not rows:
+        return
     with db_conn() as cx:
-        cx.executemany(
-            "INSERT INTO queue(site_id,url,status,ord,listing_title) "
-            "VALUES(?,?,'pending',?,?) "
-            "ON CONFLICT(site_id,url) DO UPDATE SET status='pending', message='', "
-            "retries=0, retry_after=0, screenshot='', force_download=0, "
-            "filename='', file_size=0, ord=excluded.ord, "
-            "listing_title=excluded.listing_title, "
-            "ts_added=strftime('%Y-%m-%dT%H:%M:%S','now'), "
-            "ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now')",
-            [(site_id, u, ord_start + i, title_map.get(u, ""))
-             for i, u in enumerate(urls)])
+        pipeline = StagingIngestPipeline(cx, owns_connection=False)
+        pipeline.ingest_batch("queue", rows, upsert_clause=_QUEUE_BULK_UPSERT_CLAUSE)
 
 def queue_delete(site_id, url):
     """Remove one URL from the queue table. Used when a user deletes
@@ -3324,3 +3343,19 @@ def host_throughput_get(host):
                     "chunks_failed": int(row[2]), "updated_at": float(row[3])}
     except Exception:
         return None
+
+
+def db_bulk_ingest_staging(target_table, rows, *, columns=None, conflict_action="REPLACE", cx=None):
+    from .staging_ingest import StagingIngestPipeline, ConflictStrategy
+    strategy = ConflictStrategy(conflict_action.upper()) if isinstance(conflict_action, str) else conflict_action
+    if cx is not None:
+        pipeline = StagingIngestPipeline(cx, owns_connection=False)
+        return pipeline.ingest_batch(target_table, rows, conflict_strategy=strategy)
+    with db_conn() as conn:
+        pipeline = StagingIngestPipeline(conn)
+        return pipeline.ingest_batch(target_table, rows, conflict_strategy=strategy)
+
+
+def db_staging_ingest_stats() -> dict:
+    from .staging_ingest import get_global_staging_telemetry
+    return get_global_staging_telemetry()
