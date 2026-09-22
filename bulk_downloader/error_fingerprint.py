@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Optional
 
 
 # Normalization patterns — apply in order. Each pattern.match → replacement.

@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (819)
+## /api/* routes (820)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -478,6 +478,7 @@ POST    /api/push/unsubscribe                                  CSRF: yes
 GET     /api/queue/dead_letter                                 CSRF: no   — Phase 2 Cut 2.1: list dead-lettered jobs (terminal, retry-exhausted or
 POST    /api/queue/dead_letter/requeue                         CSRF: yes  — Phase 2 Cut 2.1: requeue one dead-lettered job back to pending (retry
 GET     /api/queue/preflight                                   CSRF: no   — Read-only go/no-go strip for the queue (Cut 4). Aggregates existing
+GET     /api/queue/starvation                                  CSRF: no   — Row 990. Per-site starvation / priority-inversion report over the
 POST    /api/queue/tombstone                                   CSRF: yes  — Body: {site_id, url, reason?}. Mark a queue job permanently dead.
 POST    /api/queue/tombstone/untombstone                       CSRF: yes  — Body: {site_id, url}. Reverse a tombstone back to pending.
 GET     /api/queue/v2                                          CSRF: no   — SPA-shaped queue snapshot. Four buckets:
