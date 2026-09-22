@@ -182,3 +182,10 @@ def build_normalizer(
         series_aliases=AliasTable(series_aliases or {}, fuzzy_max_distance=fuzzy_max_distance),
         author_aliases=AliasTable(author_aliases or {}, fuzzy_max_distance=fuzzy_max_distance),
     )
+
+
+def normalize_record(record: Any):
+    """Normalize full record metadata via bulk_downloader.record_attribution."""
+    from bulk_downloader.record_attribution import normalize_record_attribution
+    return normalize_record_attribution(record)
+

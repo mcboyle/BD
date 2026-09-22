@@ -45,7 +45,13 @@ KNOWN_VARIABLES = [
     ("duration",   "Video length, HH:MM:SS",                    "00:24:17",              "v3.43.64"),
     ("quality",    "Picked quality label from extractor",       "1080p",                 "v3.43.64"),
     ("extractor",  "Which library was used",                    "phub",                  "v3.43.64"),
+    ("catalog_path","Canonical catalog path (Creator/[Series/]Title)","Jane Doe/Album/Title",  "v3.66.1624"),
+    ("canonical_title","Title with web noise stripped",         "Hot Yoga Session",      "v3.66.1624"),
+    ("canonical_creator","Canonical primary creator name",      "Jane Doe",              "v3.66.1624"),
 ]
+
+# row1045: variables computed by normalize_record when a template uses them.
+_CANONICAL_VARIABLES = ("catalog_path", "canonical_title", "canonical_creator")
 
 
 def available_variable_names():
@@ -135,6 +141,17 @@ def resolve_filename_template(template, context):
     """
     if not template:
         return ""
+    # row1045: canonical record values are exposed ONLY through their own
+    # variables; {performer}/{artist}/{creator}/{title} are never rewritten,
+    # so existing templates render exactly as before for the same input.
+    if isinstance(context, dict) and any("{" + k + "}" in template for k in _CANONICAL_VARIABLES):
+        from bulk_downloader.metadata_normalizer import normalize_record
+        norm_rec = normalize_record(context)
+        primary = norm_rec.primary_attribution
+        context = dict(context)
+        context.setdefault("catalog_path", norm_rec.catalog_path)
+        context.setdefault("canonical_title", norm_rec.canonical_title)
+        context.setdefault("canonical_creator", primary.canonical_name if primary else "")
     # v3.43.64: empty/None values bypass the sanitizer (which would
     # otherwise convert them to "untitled") and substitute as empty.
     # This is what lets templates like "{title} [{quality}]{ext}"
@@ -146,7 +163,8 @@ def resolve_filename_template(template, context):
         if v is None or (isinstance(v, str) and not v.strip()):
             safe[k] = ""
         else:
-            safe[k] = _sanitize_filename_var(v)
+            allow_p = (k == "catalog_path")
+            safe[k] = _sanitize_filename_var(v, allow_paths=allow_p)
     out = template
     for k, v in safe.items():
         out = out.replace("{" + k + "}", v)
