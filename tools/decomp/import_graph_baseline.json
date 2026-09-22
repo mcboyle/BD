@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4839,
+  "edge_count": 4849,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1672,6 +1672,7 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_conn.py": [
+      "bulk_downloader/mptcp_subflow.py",
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_site_benchmark.py": [
@@ -1708,6 +1709,7 @@
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/playlist_extractor.py": [
+      "bulk_downloader/dataset_structural_classifier.py",
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/plex_deep.py": [
@@ -2134,6 +2136,9 @@
       "bulk_downloader/embeddings.py",
       "bulk_downloader/user_templates.py",
       "bulk_downloader/vector_index.py"
+    ],
+    "bulk_downloader/service_mesh.py": [
+      "bulk_downloader/ipc_latency.py"
     ],
     "bulk_downloader/session_capture.py": [
       "bulk_downloader/capture_bodies.py",
@@ -4002,9 +4007,17 @@
       "bulk_downloader/http_client.py",
       "bulk_downloader/ssrf_transport.py"
     ],
+    "tests/test_row1044_dataset_structural_classifier.py": [
+      "bulk_downloader/dataset_structural_classifier.py",
+      "bulk_downloader/playlist_extractor.py"
+    ],
     "tests/test_row1055_distributed_bandwidth_aggregator.py": [
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
+    ],
+    "tests/test_row1067_mptcp_subflow_negotiation.py": [
+      "bulk_downloader/mptcp_subflow.py",
+      "bulk_downloader/multi_conn.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
@@ -4908,6 +4921,13 @@
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_row989_adversary.py": [
+      "bulk_downloader/service_mesh.py"
+    ],
+    "tests/test_row989_feature.py": [
+      "bulk_downloader/ipc_latency.py",
+      "bulk_downloader/service_mesh.py"
     ],
     "tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py": [
       "bulk_downloader/chunked_transfer.py",
