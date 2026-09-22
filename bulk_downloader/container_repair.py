@@ -22,20 +22,33 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Any, Union
 
 from . import ffmpeg_bin
 
 PathLike = Union[str, Path]
 DEFAULT_TIMEOUT = 60
 
+__all__ = [
+    "DEFAULT_TIMEOUT",
+    "MutationOp",
+    "PathLike",
+    "RecordType",
+    "RepairResult",
+    "TransactionJournal",
+    "repair",
+    "repair_or_fail",
+    "repair_with_journal",
+]
+
 
 @dataclass
 class RepairResult:
     recovered: bool
-    output_path: Optional[Path]
+    output_path: Path | None
     reason: str
 
 
@@ -109,7 +122,7 @@ def _probe_playable(ffprobe_path: str, path: Path, timeout: int) -> bool:
 
 def repair(
     corrupt_path: PathLike,
-    output_path: Optional[PathLike] = None,
+    output_path: PathLike | None = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> RepairResult:
     """Attempt to recover corrupt_path into a playable media container.
@@ -176,7 +189,7 @@ def repair_or_fail(
     corrupt_path: PathLike,
     job_id: str,
     mark_failed: Callable[[str, str], None],
-    output_path: Optional[PathLike] = None,
+    output_path: PathLike | None = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> RepairResult:
     """Try repair; on failure call mark_failed(job_id, reason).
@@ -191,3 +204,48 @@ def repair_or_fail(
         except Exception:
             pass
     return result
+
+
+def repair_with_journal(
+    corrupt_path: PathLike,
+    output_path: PathLike | None = None,
+    journal: Any | None = None,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> RepairResult:
+    """Repair truncated media container with crash-consistent write-ahead transaction logging (Row 1001).
+
+    Records mutation intent in WAL, executes isolated stream recovery, and atomically
+    commits the mutation record upon verified recovery or aborts on failure.
+    """
+    if journal is None:
+        return repair(corrupt_path, output_path=output_path, timeout=timeout)
+
+    from .transaction_journal import MutationOp
+
+    cid = str(corrupt_path)
+    tx_id = journal.begin_transaction()
+    journal.log_mutation(
+        tx_id,
+        MutationOp.CREATE_CONTAINER,
+        cid,
+        {"source": str(corrupt_path), "status": "repairing"},
+    )
+    result = repair(corrupt_path, output_path=output_path, timeout=timeout)
+    if result.recovered and result.output_path:
+        journal.log_mutation(
+            tx_id,
+            MutationOp.SET_STATE,
+            cid,
+            {"status": "recovered", "output": str(result.output_path)},
+        )
+        journal.commit(tx_id)
+    else:
+        journal.abort(tx_id)
+    return result
+
+
+# Re-export TransactionJournal for container lifecycle callers (Row 1001)
+try:
+    from .transaction_journal import MutationOp, RecordType, TransactionJournal
+except ImportError:
+    pass

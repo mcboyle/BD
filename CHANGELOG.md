@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1623 - train46: a crash-consistent write-ahead transaction journal for container mutations
+
+Base bc1544b75 (v3.66.1622). One member.
+
+- row1001 WAL journal, T2, tree 95a80d3b, patch 95dea4fa. Two BOARDs at that tree:
+  bd-agy-review-lite1 and bd-review-correctness-B4, both re-read immediately before this freeze.
+  A crash-consistent write-ahead transaction journal for container mutations, in
+  bulk_downloader/transaction_journal.py with bulk_downloader/container_repair.py as its consumer.
+  23 passed / 0 failed; RED on base was "Row 1001 capability missing".
+
+row983 heap-compaction was carried by the first generation of this train and PULLED before it
+landed. Its two BOARDs at tree e1fb1964 were replaced by three REFUTEs at the SAME tree
+(bd-agy-lens-c2, bd-review-correctness-B5-B, and the canonical VERDICT-correctness.md) written at
+06:42-06:43Z, minutes after the freeze. That superseded candidate was 0ab512404 / PR956, now closed.
+Its worktree is retained.
+
+This is the first product train since the register promotion (v3.66.1622) made rows above 973
+citable: tests/test_v3_66_1255_backlog_references_resolve.py reads 10 passed / 0 failed on main,
+where it previously refused every test_row<N>_*.py whose id had no register row.
+
+Register: no row closes here; row 1001 stays OPEN until its feature is accepted.
+
 ## v3.66.1622 - train45: promote the ideas-150 batch into the canonical register
 
 Base 741192d7192d (v3.66.1621). One member, one file.
