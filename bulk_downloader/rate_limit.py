@@ -45,7 +45,6 @@ import threading
 import time
 from collections import deque
 
-
 # ── Module-level singleton ────────────────────────────────────────────
 
 # Default global caps. "0" = disabled (no throttling). The user-facing
@@ -71,7 +70,7 @@ class _DomainState:
     timestamp deque rather than a continuous bucket — slightly more
     memory but easier to reason about.
     """
-    __slots__ = ("active", "recent_starts", "lock", "cond")
+    __slots__ = ("active", "cond", "lock", "recent_starts")
     def __init__(self):
         # Count of in-flight requests on this domain
         self.active = 0
@@ -85,7 +84,7 @@ class _DomainState:
 class _AcquiredSlot:
     """Context manager returned by acquire(). Releases on __exit__
     even if the caller raises."""
-    __slots__ = ("limiter", "domain", "released")
+    __slots__ = ("domain", "limiter", "released")
     def __init__(self, limiter, domain):
         self.limiter = limiter
         self.domain = domain
@@ -283,6 +282,17 @@ class DomainRateLimiter:
             "domain_overrides": dict(self._per_domain_overrides),
             "domains": domains,
         }
+
+    def get_backpressure_telemetry(self, domain: str) -> dict:
+        """Row 996: export granular per-domain token bucket backpressure metrics."""
+        import importlib
+        _mod = importlib.import_module("bulk_downloader.token_bucket_backpressure")
+        tb = _mod.get_token_bucket_limiter()
+        limits = self.get_effective_limits(domain)
+        cap = float(limits.get("max_per_sec") or 10.0)
+        max_c = int(limits.get("max_concurrent") or 5)
+        tb.configure_domain(domain, capacity=cap, refill_rate=cap, max_concurrent=max_c)
+        return tb.get_backpressure_telemetry(domain)
 
     # ── Helpers ─────────────────────────────────────────────────────
 
