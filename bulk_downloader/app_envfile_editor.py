@@ -187,6 +187,31 @@ def api_settings_envfile_post():
                     "note": "persisted to .env — restart the service to apply"})
 
 
+@envfile_editor_bp.route("/api/settings/envfile/plan", methods=["POST"])
+def api_settings_envfile_plan():
+    """Dry-run: what would this submission CHANGE? Writes nothing, ever.
+
+    The POST above is the only other way to find out, and it finds out by writing.
+    The simulator lives in bulk_downloader.config_dryrun (imported here, not at module
+    scope: that module imports validate_envfile_updates from this one)."""
+    from .config_dryrun import plan_envfile_updates, render_plan_text
+
+    body = request.get_json(silent=True) or {}
+    updates = body.get("updates", body)
+    if not isinstance(updates, dict):
+        return jsonify({"ok": False, "error": "expected an object of {KEY: value}"}), 400
+    path = _envfile.resolve_envfile_path()
+    try:
+        saved = _envfile.parse_envfile(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        saved = {}
+    plan = plan_envfile_updates(updates, saved=saved, effective=dict(os.environ))
+    out = dict(plan)
+    out.update({"written": False, "path": str(path), "text": render_plan_text(plan),
+                "note": "dry run — nothing was written; POST /api/settings/envfile applies it"})
+    return jsonify(out)
+
+
 def register_routes(app):
     """Register the `.env` editor blueprint. Returns route count added."""
     before = len(list(app.url_map.iter_rules()))
