@@ -117,7 +117,7 @@ ACCOUNTED = {
         "exempt",
         "posts a tray control action to the operator's own BD instance at the "
         "tray's configured url"),
-"bulk_downloader/tpdb.py::_request": (
+    "bulk_downloader/tpdb.py::_request": (
         "exempt",
         "authenticated GET against the fixed TPDB API base written in this "
         "module; the caller chooses a path and query, not a host"),
