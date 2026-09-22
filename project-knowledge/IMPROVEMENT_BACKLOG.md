@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=92 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=88 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -422,7 +422,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1031 | OPEN | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
 | 1032 | OPEN | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
 | 1033 | OPEN | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
-| 1034 | OPEN | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
+| 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
 | 1035 | OPEN | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
 | 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
 | 1037 | OPEN | DYNAMIC-SHELL-AUTOCOMPLETION-ENGINE-FOR-ZSH-BASH-AND-FISH -- Dynamic Shell Autocompletion Engine for Zsh, Bash, and Fish |
@@ -432,7 +432,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1041 | OPEN | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
 | 1042 | OPEN | MULTI-SEGMENT-MEDIA-KEY-FETCHING-PAYLOAD-ASSEMBLER -- Multi-Segment Media Key Fetching & Payload Assembler |
 | 1043 | OPEN | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
-| 1044 | OPEN | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
+| 1044 | CLOSED @1632 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
 | 1045 | OPEN | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
 | 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
 | 1047 | OPEN | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
@@ -447,7 +447,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
 | 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
 | 1058 | OPEN | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer |
-| 1059 | OPEN | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
+| 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | OPEN | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher |
 | 1061 | OPEN | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
 | 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
@@ -461,7 +461,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1070 | OPEN | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
 | 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
 | 1072 | OPEN | TEST-FIXTURE-ISOLATION-DATABASE-SANDBOXING-STANDARDIZATION-HERMETICFIXTURES -- Test Fixture Isolation & Database Sandboxing Standardization (HermeticFixtures) |
-| 1073 | OPEN | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
+| 1073 | CLOSED @1632 | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
 | 1074 | OPEN | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
 | 1075 | CLOSED @1631 | TRANSACTIONAL-TASK-STATE-PAUSE-DRAIN-AND-RESUMPTION-ENGINE -- Transactional Task State Pause, Drain, and Resumption Engine |
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
