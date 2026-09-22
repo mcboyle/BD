@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1635 - train63: row980, row1043, row1039, row1045, registrar dispositions
+
+Base a8f1d8162 (v3.66.1634). Four cuts, each boarded at its INDEX tree by two seats, plus four
+registrar dispositions (REGISTRAR-DUPS-2143).
+
+- row980-adaptive-input: adaptive input variance (bulk_downloader/adaptive_input_variance.py) wired
+  through cloak.py and login_impl/_common.py. Quorum: bd-review-correctness-N1-A and N3-B at 2f6630af.
+- row1043 protocol message event dispatching (bulk_downloader/protocol_dispatcher.py, session_capture.py);
+  its test added to the ci.yml shard list. Quorum: bd-agy-lens-c3 and N2-B at 2243a22d.
+- row1039 auth token cache lifecycle (bulk_downloader/login_impl/token_manager.py). Quorum: N1-A and N3-B
+  at 3b6b6f86.
+- row1045 record attribution and metadata normalisation (bulk_downloader/record_attribution.py,
+  metadata_normalizer.py, fname.py). Quorum: N1-A and N3-B at 02730dd1.
+- register: rows 980, 1043, 1039, 1045 CLOSED @1635. Rows 981 and 1024 CLOSED @1635 MOOT-PREMISE,
+  rows 1040 and 1042 CLOSED @1635 MOOT-DUPLICATE (of 898 and 900), amended by bd-register-amend from the
+  registrar's requests, not hand-edited. Marker re-derived, open 78 -> 70, rows and ids-sha256 unchanged.
+
 ## v3.66.1634 - train62: row989, row1067, row1074 and row1018
 
 Base 5f74ea9c2 (v3.66.1633). Four cuts, each boarded at their INDEX tree by two seats.

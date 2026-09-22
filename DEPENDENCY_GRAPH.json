@@ -2396,7 +2396,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1861,
+    "edge_count": 1865,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4212,6 +4212,10 @@
         "bulk_downloader/app_import.py",
         "bulk_downloader/perf_lab.py"
       ],
+      "bulk_downloader/metadata_normalizer.py": [
+        "bulk_downloader/fname.py",
+        "bulk_downloader/record_attribution.py"
+      ],
       "bulk_downloader/metrics_prom.py": [
         "bulk_downloader/app.py"
       ],
@@ -4378,6 +4382,9 @@
       "bulk_downloader/prompts.py": [
         "bulk_downloader/llm_exec.py"
       ],
+      "bulk_downloader/protocol_dispatcher.py": [
+        "bulk_downloader/session_capture.py"
+      ],
       "bulk_downloader/provenance.py": [
         "bulk_downloader/app_provenance.py",
         "bulk_downloader/bitrot.py",
@@ -4434,6 +4441,9 @@
       ],
       "bulk_downloader/recommendations.py": [
         "bulk_downloader/app_recommendations.py"
+      ],
+      "bulk_downloader/record_attribution.py": [
+        "bulk_downloader/metadata_normalizer.py"
       ],
       "bulk_downloader/redaction_profile.py": [
         "bulk_downloader/capture_artifact_redact.py",
@@ -6970,6 +6980,9 @@
       "bulk_downloader/flaresolverr_client.py": [
         "bulk_downloader/ssrf_transport.py"
       ],
+      "bulk_downloader/fname.py": [
+        "bulk_downloader/metadata_normalizer.py"
+      ],
       "bulk_downloader/gamification.py": [
         "bulk_downloader/db.py"
       ],
@@ -7149,6 +7162,9 @@
       "bulk_downloader/media_server_sync.py": [
         "bulk_downloader/hooks.py"
       ],
+      "bulk_downloader/metadata_normalizer.py": [
+        "bulk_downloader/record_attribution.py"
+      ],
       "bulk_downloader/metrics_prom.py": [
         "bulk_downloader/account_health.py",
         "bulk_downloader/bitrot.py",
@@ -7290,6 +7306,9 @@
       "bulk_downloader/recommendations.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/tag_inference.py"
+      ],
+      "bulk_downloader/record_attribution.py": [
+        "bulk_downloader/metadata_normalizer.py"
       ],
       "bulk_downloader/redaction_profile.py": [
         "bulk_downloader/global_config.py"
@@ -7648,7 +7667,8 @@
         "bulk_downloader/capture_redactor.py",
         "bulk_downloader/challenge_handling.py",
         "bulk_downloader/fp_detect.py",
-        "bulk_downloader/frame_hierarchy.py"
+        "bulk_downloader/frame_hierarchy.py",
+        "bulk_downloader/protocol_dispatcher.py"
       ],
       "bulk_downloader/session_keeper.py": [
         "bulk_downloader/cloak.py",

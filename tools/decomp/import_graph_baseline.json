@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4925,
+  "edge_count": 4936,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1505,6 +1505,9 @@
     "bulk_downloader/flaresolverr_client.py": [
       "bulk_downloader/ssrf_transport.py"
     ],
+    "bulk_downloader/fname.py": [
+      "bulk_downloader/metadata_normalizer.py"
+    ],
     "bulk_downloader/gamification.py": [
       "bulk_downloader/db.py"
     ],
@@ -1684,6 +1687,9 @@
     "bulk_downloader/media_server_sync.py": [
       "bulk_downloader/hooks.py"
     ],
+    "bulk_downloader/metadata_normalizer.py": [
+      "bulk_downloader/record_attribution.py"
+    ],
     "bulk_downloader/metrics_prom.py": [
       "bulk_downloader/account_health.py",
       "bulk_downloader/bitrot.py",
@@ -1825,6 +1831,9 @@
     "bulk_downloader/recommendations.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/tag_inference.py"
+    ],
+    "bulk_downloader/record_attribution.py": [
+      "bulk_downloader/metadata_normalizer.py"
     ],
     "bulk_downloader/redaction_profile.py": [
       "bulk_downloader/global_config.py"
@@ -2183,7 +2192,8 @@
       "bulk_downloader/capture_redactor.py",
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/fp_detect.py",
-      "bulk_downloader/frame_hierarchy.py"
+      "bulk_downloader/frame_hierarchy.py",
+      "bulk_downloader/protocol_dispatcher.py"
     ],
     "bulk_downloader/session_keeper.py": [
       "bulk_downloader/cloak.py",
@@ -4102,9 +4112,18 @@
     "tests/test_row1041_streaming_manifest_parser_hls_dash.py": [
       "bulk_downloader/streaming_manifest.py"
     ],
+    "tests/test_row1043_protocol_message_event_dispatching.py": [
+      "bulk_downloader/protocol_dispatcher.py",
+      "bulk_downloader/session_capture.py"
+    ],
     "tests/test_row1044_dataset_structural_classifier.py": [
       "bulk_downloader/dataset_structural_classifier.py",
       "bulk_downloader/playlist_extractor.py"
+    ],
+    "tests/test_row1045_record_attribution_metadata_norm.py": [
+      "bulk_downloader/fname.py",
+      "bulk_downloader/metadata_normalizer.py",
+      "bulk_downloader/record_attribution.py"
     ],
     "tests/test_row1055_distributed_bandwidth_aggregator.py": [
       "bulk_downloader/bandwidth_aggregator.py",
@@ -5053,6 +5072,10 @@
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_row980_feature.py": [
+      "bulk_downloader/adaptive_input_variance.py",
+      "bulk_downloader/cloak.py"
     ],
     "tests/test_row989_adversary.py": [
       "bulk_downloader/service_mesh.py"

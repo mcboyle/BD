@@ -840,8 +840,8 @@ Schema version: 2
 - L0253 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
 - L0331 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
 - L0382 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0441 `_css_escape_for_id` `[private]`
-- L0450 `_ms_since` `[private]`
+- L0449 `_css_escape_for_id` `[private]`
+- L0458 `_ms_since` `[private]`
 ```
 
 
