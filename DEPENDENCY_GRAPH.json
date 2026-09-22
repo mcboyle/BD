@@ -857,6 +857,7 @@
     "health": {
       "module": "app_health.py",
       "providers": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/db.py",
         "bulk_downloader/download_hold.py",
         "bulk_downloader/healthcheck.py",
@@ -2393,7 +2394,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1846,
+    "edge_count": 1855,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2983,6 +2984,7 @@
       "bulk_downloader/app_state.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_config.py",
+        "bulk_downloader/app_health.py",
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/cookie_health.py",
@@ -3475,6 +3477,9 @@
         "bulk_downloader/app_dashboard.py",
         "bulk_downloader/app_widgets_api.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/dataset_structural_classifier.py": [
+        "bulk_downloader/playlist_extractor.py"
       ],
       "bulk_downloader/db.py": [
         "bulk_downloader/alerts_engine.py",
@@ -4124,6 +4129,15 @@
         "bulk_downloader/ai_review.py",
         "bulk_downloader/llm_eval.py",
         "bulk_downloader/prompts.py"
+      ],
+      "bulk_downloader/lock_monitor.py": [
+        "bulk_downloader/app_state.py",
+        "bulk_downloader/auth_throttle.py",
+        "bulk_downloader/bandwidth_shape.py",
+        "bulk_downloader/bg_scheduler.py",
+        "bulk_downloader/circuit_breaker.py",
+        "bulk_downloader/cookie_relogin.py",
+        "bulk_downloader/events.py"
       ],
       "bulk_downloader/log.py": [
         "bulk_downloader/app.py",
@@ -5981,6 +5995,7 @@
         "bulk_downloader/ui_events.py"
       ],
       "bulk_downloader/app_health.py": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/db.py",
         "bulk_downloader/download_hold.py",
         "bulk_downloader/healthcheck.py",
@@ -6263,6 +6278,9 @@
       "bulk_downloader/app_sse_status.py": [
         "bulk_downloader/sse_broker.py"
       ],
+      "bulk_downloader/app_state.py": [
+        "bulk_downloader/lock_monitor.py"
+      ],
       "bulk_downloader/app_stats.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/runner.py"
@@ -6395,7 +6413,8 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/auth_throttle.py": [
-        "bulk_downloader/global_config.py"
+        "bulk_downloader/global_config.py",
+        "bulk_downloader/lock_monitor.py"
       ],
       "bulk_downloader/auto_ci.py": [
         "bulk_downloader/lifecycle_automation.py"
@@ -6446,7 +6465,8 @@
         "bulk_downloader/global_config.py"
       ],
       "bulk_downloader/bandwidth_shape.py": [
-        "bulk_downloader/bandwidth_aggregator.py"
+        "bulk_downloader/bandwidth_aggregator.py",
+        "bulk_downloader/lock_monitor.py"
       ],
       "bulk_downloader/batch_ops.py": [
         "bulk_downloader/db.py",
@@ -6467,6 +6487,7 @@
         "bulk_downloader/global_config.py",
         "bulk_downloader/library_final.py",
         "bulk_downloader/lifecycle_drift.py",
+        "bulk_downloader/lock_monitor.py",
         "bulk_downloader/maintenance.py",
         "bulk_downloader/ramdisk_stage.py",
         "bulk_downloader/retention.py",
@@ -6552,6 +6573,9 @@
       "bulk_downloader/chunked_transfer.py": [
         "bulk_downloader/socket_tracker.py"
       ],
+      "bulk_downloader/circuit_breaker.py": [
+        "bulk_downloader/lock_monitor.py"
+      ],
       "bulk_downloader/cleanup_helpers.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/library_final.py",
@@ -6593,7 +6617,8 @@
       ],
       "bulk_downloader/cookie_relogin.py": [
         "bulk_downloader/cookie_quality.py",
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/lock_monitor.py"
       ],
       "bulk_downloader/cookies.py": [
         "bulk_downloader/vault_sync.py"
@@ -6881,6 +6906,9 @@
       "bulk_downloader/error_fingerprint.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/events.py": [
+        "bulk_downloader/lock_monitor.py"
+      ],
       "bulk_downloader/exports.py": [
         "bulk_downloader/batch_ops.py"
       ],
@@ -7160,6 +7188,7 @@
         "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/playlist_extractor.py": [
+        "bulk_downloader/dataset_structural_classifier.py",
         "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/plex_deep.py": [
