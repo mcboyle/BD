@@ -2389,7 +2389,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1822,
+    "edge_count": 1829,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3134,6 +3134,9 @@
         "tools/template_inventory.py",
         "tools/workflow_diagnostic.py"
       ],
+      "bulk_downloader/bandwidth_aggregator.py": [
+        "bulk_downloader/bandwidth_shape.py"
+      ],
       "bulk_downloader/bandwidth_shape.py": [
         "bulk_downloader/runner_transport.py"
       ],
@@ -3577,6 +3580,9 @@
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/app_replication.py"
       ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/runner_transport.py"
+      ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/dev_suite/capture_diag.py",
@@ -3728,6 +3734,9 @@
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_leak_tests.py",
         "bulk_downloader/vpn_runtime.py"
+      ],
+      "bulk_downloader/egress_transport.py": [
+        "bulk_downloader/http_client.py"
       ],
       "bulk_downloader/element_pick.py": [
         "tools/capture_session.py",
@@ -3966,9 +3975,13 @@
         "bulk_downloader/disco_runner.py",
         "bulk_downloader/disco_triage.py"
       ],
+      "bulk_downloader/hot_write_buffer.py": [
+        "bulk_downloader/db.py"
+      ],
       "bulk_downloader/http_client.py": [
         "bulk_downloader/app_settings_center.py",
-        "bulk_downloader/deep_http.py"
+        "bulk_downloader/deep_http.py",
+        "bulk_downloader/discovery.py"
       ],
       "bulk_downloader/i18n.py": [
         "bulk_downloader/app_i18n.py",
@@ -4409,6 +4422,7 @@
         "bulk_downloader/runner_scheduler.py"
       ],
       "bulk_downloader/run_budget.py": [
+        "bulk_downloader/deadline.py",
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/run_history.py": [
@@ -4679,6 +4693,7 @@
         "bulk_downloader/community_scrapers.py",
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/deep_detect/orchestrate.py",
+        "bulk_downloader/egress_transport.py",
         "bulk_downloader/extractors_dl8.py",
         "bulk_downloader/extractors_jsonapi.py",
         "bulk_downloader/flaresolverr_client.py",
@@ -6381,6 +6396,9 @@
         "bulk_downloader/db.py",
         "bulk_downloader/global_config.py"
       ],
+      "bulk_downloader/bandwidth_shape.py": [
+        "bulk_downloader/bandwidth_aggregator.py"
+      ],
       "bulk_downloader/batch_ops.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/enrichment.py"
@@ -6552,12 +6570,16 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/egress_identity.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/hot_write_buffer.py",
         "bulk_downloader/library.py",
         "bulk_downloader/log.py",
         "bulk_downloader/pg_backend.py"
       ],
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/backup_verify.py"
+      ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/run_budget.py"
       ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/ffmpeg_bin.py"
@@ -6706,7 +6728,8 @@
         "bulk_downloader/host_enumerator.py"
       ],
       "bulk_downloader/discovery.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/http_client.py"
       ],
       "bulk_downloader/doc_drift.py": [
         "bulk_downloader/llm_exec.py"
@@ -6773,6 +6796,9 @@
       ],
       "bulk_downloader/duplicate_fields.py": [
         "bulk_downloader/dom_honeypot.py"
+      ],
+      "bulk_downloader/egress_transport.py": [
+        "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/element_pick.py": [
         "bulk_downloader/capture_artifact_redact.py"
@@ -6874,6 +6900,7 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/http_client.py": [
+        "bulk_downloader/egress_transport.py",
         "bulk_downloader/global_config.py"
       ],
       "bulk_downloader/hybrid_search.py": [
@@ -7411,6 +7438,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/deadline.py",
         "bulk_downloader/dedup.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/download_egress.py",
