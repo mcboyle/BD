@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4839,
+  "edge_count": 4865,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -950,7 +950,13 @@
       "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/audit.py": [
+      "bulk_downloader/audit_journal.py",
       "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/log.py"
+    ],
+    "bulk_downloader/audit_journal.py": [
+      "bulk_downloader/audit.py",
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/auth_throttle.py": [
@@ -1247,6 +1253,7 @@
       "bulk_downloader/request_replay.py",
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/stealth.py",
+      "bulk_downloader/streaming_manifest.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
     "bulk_downloader/dev_suite/config_tools.py": [
@@ -1581,6 +1588,10 @@
       "bulk_downloader/aiassist.py",
       "bulk_downloader/llm_exec.py",
       "bulk_downloader/model_registry.py"
+    ],
+    "bulk_downloader/log.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/signature_chains.py"
     ],
     "bulk_downloader/login_flow_recorder.py": [
       "bulk_downloader/login_templates_data.py",
@@ -2281,7 +2292,8 @@
       "bulk_downloader/ffmpeg_bin.py"
     ],
     "bulk_downloader/thumbnail_sheets.py": [
-      "bulk_downloader/ffmpeg_bin.py"
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/pillow_hardening.py"
     ],
     "bulk_downloader/tier_probe.py": [
       "bulk_downloader/ssrf_transport.py"
@@ -2299,6 +2311,9 @@
     ],
     "bulk_downloader/upscale_detector.py": [
       "bulk_downloader/ffmpeg_bin.py"
+    ],
+    "bulk_downloader/urllib_ssrf.py": [
+      "bulk_downloader/tls_session_cache.py"
     ],
     "bulk_downloader/user_templates.py": [
       "bulk_downloader/selector_lint.py",
@@ -3988,9 +4003,25 @@
       "bulk_downloader/container_repair.py",
       "bulk_downloader/transaction_journal.py"
     ],
+    "tests/test_row1002_adversary_db_unreachable_verified.py": [
+      "bulk_downloader/audit.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/log.py"
+    ],
+    "tests/test_row1002_asymmetric_cryptographic_signature_chains_for_audit_provenance.py": [
+      "bulk_downloader/app_audit.py",
+      "bulk_downloader/audit.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/log.py",
+      "bulk_downloader/signature_chains.py"
+    ],
     "tests/test_row1006_tiered_deadline_propagating_socket_timeouts.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_row1007_tls_session_ticket_caching_pre_warmed_keepalive_pools.py": [
+      "bulk_downloader/tls_session_cache.py",
+      "bulk_downloader/urllib_ssrf.py"
     ],
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
@@ -4002,9 +4033,22 @@
       "bulk_downloader/http_client.py",
       "bulk_downloader/ssrf_transport.py"
     ],
+    "tests/test_row1035_operator_audit_journal_provenance.py": [
+      "bulk_downloader/audit.py",
+      "bulk_downloader/audit_journal.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_row1041_streaming_manifest_parser_hls_dash.py": [
+      "bulk_downloader/streaming_manifest.py"
+    ],
     "tests/test_row1055_distributed_bandwidth_aggregator.py": [
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
+    ],
+    "tests/test_row1070_pillow_image_engine_hardening.py": [
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/pillow_hardening.py",
+      "bulk_downloader/thumbnail_sheets.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",

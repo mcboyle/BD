@@ -2389,7 +2389,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1829,
+    "edge_count": 1838,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3094,7 +3094,11 @@
         "bulk_downloader/app_discovery.py",
         "bulk_downloader/app_sites_collection.py",
         "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/audit_journal.py",
         "bulk_downloader/captcha_relay.py"
+      ],
+      "bulk_downloader/audit_journal.py": [
+        "bulk_downloader/audit.py"
       ],
       "bulk_downloader/auth_throttle.py": [
         "bulk_downloader/app_secrets.py"
@@ -3491,6 +3495,7 @@
         "bulk_downloader/app_tpdb.py",
         "bulk_downloader/app_widgets_api.py",
         "bulk_downloader/audit.py",
+        "bulk_downloader/audit_journal.py",
         "bulk_downloader/automation_status.py",
         "bulk_downloader/backup_verify.py",
         "bulk_downloader/batch_ops.py",
@@ -3522,6 +3527,7 @@
         "bulk_downloader/knowledge.py",
         "bulk_downloader/library.py",
         "bulk_downloader/library_final.py",
+        "bulk_downloader/log.py",
         "bulk_downloader/maintenance.py",
         "bulk_downloader/mass_import.py",
         "bulk_downloader/metrics_prom.py",
@@ -4108,6 +4114,7 @@
         "bulk_downloader/app_global_config.py",
         "bulk_downloader/app_logs.py",
         "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/audit.py",
         "bulk_downloader/cross_site_selectors.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dev_suite/logs.py",
@@ -4246,6 +4253,9 @@
       "bulk_downloader/phoenix_catalog.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/pillow_hardening.py": [
+        "bulk_downloader/thumbnail_sheets.py"
       ],
       "bulk_downloader/pipeline_orchestrator.py": [
         "bulk_downloader/runner_transport.py"
@@ -4640,6 +4650,9 @@
       "bulk_downloader/shortcuts.py": [
         "bulk_downloader/app_shortcuts.py"
       ],
+      "bulk_downloader/signature_chains.py": [
+        "bulk_downloader/log.py"
+      ],
       "bulk_downloader/site_changelog.py": [
         "bulk_downloader/app_changelog.py",
         "bulk_downloader/app_widgets_api.py"
@@ -4751,6 +4764,9 @@
       ],
       "bulk_downloader/stream_verifier.py": [
         "bulk_downloader/runner_integrity.py"
+      ],
+      "bulk_downloader/streaming_manifest.py": [
+        "bulk_downloader/dev_suite/capture_diag.py"
       ],
       "bulk_downloader/subprocess_helpers.py": [
         "bulk_downloader/dev_tools.py"
@@ -4880,6 +4896,9 @@
       ],
       "bulk_downloader/timeline.py": [
         "bulk_downloader/daily_digest.py"
+      ],
+      "bulk_downloader/tls_session_cache.py": [
+        "bulk_downloader/urllib_ssrf.py"
       ],
       "bulk_downloader/tombstone.py": [
         "bulk_downloader/app_queue.py",
@@ -6342,7 +6361,13 @@
         "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/audit.py": [
+        "bulk_downloader/audit_journal.py",
         "bulk_downloader/capture_artifact_redact.py",
+        "bulk_downloader/db.py",
+        "bulk_downloader/log.py"
+      ],
+      "bulk_downloader/audit_journal.py": [
+        "bulk_downloader/audit.py",
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/auth_throttle.py": [
@@ -6639,6 +6664,7 @@
         "bulk_downloader/request_replay.py",
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/stealth.py",
+        "bulk_downloader/streaming_manifest.py",
         "bulk_downloader/urllib_ssrf.py"
       ],
       "bulk_downloader/dev_suite/config_tools.py": [
@@ -6973,6 +6999,10 @@
         "bulk_downloader/aiassist.py",
         "bulk_downloader/llm_exec.py",
         "bulk_downloader/model_registry.py"
+      ],
+      "bulk_downloader/log.py": [
+        "bulk_downloader/db.py",
+        "bulk_downloader/signature_chains.py"
       ],
       "bulk_downloader/login_flow_recorder.py": [
         "bulk_downloader/login_templates_data.py",
@@ -7673,7 +7703,8 @@
         "bulk_downloader/ffmpeg_bin.py"
       ],
       "bulk_downloader/thumbnail_sheets.py": [
-        "bulk_downloader/ffmpeg_bin.py"
+        "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/pillow_hardening.py"
       ],
       "bulk_downloader/tier_probe.py": [
         "bulk_downloader/ssrf_transport.py"
@@ -7691,6 +7722,9 @@
       ],
       "bulk_downloader/upscale_detector.py": [
         "bulk_downloader/ffmpeg_bin.py"
+      ],
+      "bulk_downloader/urllib_ssrf.py": [
+        "bulk_downloader/tls_session_cache.py"
       ],
       "bulk_downloader/user_templates.py": [
         "bulk_downloader/selector_lint.py",
