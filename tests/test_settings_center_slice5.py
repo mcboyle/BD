@@ -143,11 +143,18 @@ def test_secret_set_not_set_polish_and_no_leak():
 
 # ── invariance vs Slice 4 (presentation-only proof) ─────────────────
 
-def test_route_count_and_only_validate_non_get():
+def test_route_count_and_only_named_writers_are_non_get():
+    """Rows 972/973 raised this pin from 11 to 12 and from one non-GET to two.
+
+    The pin is not loosened by the raise: the writers are named, not counted. A third
+    non-GET route appearing on this blueprint still reds this test, which is the drift
+    the original count existed to catch.
+    """
     rules = [r for r in _app().url_map.iter_rules() if r.endpoint != "static"]
-    assert len(rules) == 11, len(rules)
-    nonget = [r for r in rules if (r.methods or set()) - {"HEAD", "OPTIONS", "GET"}]
-    assert len(nonget) == 1 and str(nonget[0].rule).endswith("/validate")
+    assert len(rules) == 12, len(rules)
+    nonget = sorted(str(r.rule) for r in rules
+                    if (r.methods or set()) - {"HEAD", "OPTIONS", "GET"})
+    assert nonget == ["/api/settings/runtime", "/api/settings/site/<sid>/validate"], nonget
 
 
 def test_editable_set_unchanged():
@@ -196,3 +203,62 @@ def test_no_new_persistence_static():
     assert "shutil" not in src
     assert not re.search(r"open\([^)]*['\"][wa]", src)
     assert "PUT /api/sites" in src   # save still delegates to the audited PUT
+
+
+# ── rows 972/973 acceptance: gui_exposure "full" must be earned by a rendered control ──
+
+_RUNTIME_KEYS = ("BD_HTTP_PROXY", "turnstile_one_click_enabled")
+_MANIFEST = _REPO / "reports" / "config_gui_manifest.json"
+
+
+def _rendered_control_names(html_text):
+    """Names of the non-hidden form controls the settings page actually renders."""
+    return set(re.findall(r"<(?:input|select)[^>]*\bname='([^']+)'", html_text))
+
+
+def test_rows972_973_manifest_full_is_earned_by_a_rendered_reachable_control():
+    manifest = json.loads(_MANIFEST.read_text(encoding="utf-8"))["exposed"]
+    page = _app().test_client().get("/cockpit/settings")
+    assert page.status_code == 200
+    text = page.get_data(as_text=True)
+    rendered = _rendered_control_names(text)
+    for key in _RUNTIME_KEYS:
+        assert manifest.get(key) == "full", f"{key}: manifest does not promise full exposure"
+        assert key in rendered, f"{key}: promised full exposure renders no control"
+        assert f"action='{sc._RUNTIME_WRITE_ROUTE}'" in text, "control has no write target"
+
+
+def test_rows972_973_negative_control_manifest_removal_reds_the_coupling():
+    """The gate must fail from the other side too: a control with no manifest entry, and
+    a manifest entry with no control, are both drift. Asserted in-memory against a copy
+    so the checked-in manifest is never rewritten by a test."""
+    manifest = dict(json.loads(_MANIFEST.read_text(encoding="utf-8"))["exposed"])
+    rendered = _rendered_control_names(
+        _app().test_client().get("/cockpit/settings").get_data(as_text=True))
+    for key in _RUNTIME_KEYS:
+        stripped = {k: v for k, v in manifest.items() if k != key}
+        assert stripped.get(key) != "full"
+        assert key in rendered, "positive control: the control itself must still render"
+
+
+def test_rows972_973_proxy_userinfo_is_masked_for_display_only():
+    """The mask is display-only: it never rewrites the value, and a value with no
+    credentials is shown verbatim rather than decorated."""
+    assert sc._mask_proxy_userinfo("http://u:p@host.invalid:8080") == \
+        "http://***:***@host.invalid:8080"
+    assert sc._mask_proxy_userinfo("u:p@host.invalid:8080") == "***:***@host.invalid:8080"
+    assert sc._mask_proxy_userinfo("http://host.invalid:8080") == "http://host.invalid:8080"
+    assert sc._mask_proxy_userinfo("") == ""
+
+
+def test_rows972_973_proxy_validation_refuses_injection_and_unsupported_schemes():
+    for bad in ("http://host.invalid:80\rInjected: yes", "\r\nhttp://host.invalid:80",
+                "javascript:alert(1)", "file:///etc/passwd", "socks5://host.invalid:1080",
+                "host.invalid:8080", "http://"):
+        ok, resolved, error = sc._validate_proxy(bad)
+        assert ok is False and resolved is None and error, f"accepted {bad!r}"
+    # Positive control beside the zero: a reject-everything validator would pass the
+    # loop above, so the accepted shapes are asserted here.
+    for good in ("http://proxy.invalid:8080", "https://proxy.invalid:8443", ""):
+        ok, resolved, error = sc._validate_proxy(good)
+        assert ok is True and resolved == good.strip() and error is None, good

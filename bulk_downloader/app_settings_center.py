@@ -164,6 +164,22 @@ def _schema():
 
 
 # ── read-only effective-value helpers (fail-open, secrets masked) ──
+def _is_proxy_key(k) -> bool:
+    """True iff the field NAME denotes a proxy endpoint (BD_HTTP_PROXY, https_proxy,
+    proxy_url, ...).
+
+    A proxy setting is not a secret by name -- the operator must be able to see WHICH
+    proxy is configured -- but its VALUE can carry userinfo, and that userinfo is a
+    credential. `_is_secret` cannot decide this, because it answers a question about the
+    key and the credential here lives in the value. So the two are kept separate: secret
+    keys presence-mask, proxy keys keep their host and lose their userinfo.
+
+    Matched on the name rather than by sniffing every string for an "@", because an
+    ordinary non-proxy value ("support@example.com") would be corrupted by that.
+    """
+    return "proxy" in str(k).lower()
+
+
 def _mask_nested(v):
     """Recurse a non-secret value so secrets nested inside dicts/lists (e.g.
     accounts[].password) are still presence-masked. Scalars pass through."""
@@ -179,6 +195,19 @@ def _mask_secrets(d: dict) -> dict:
     for k, v in (d or {}).items():
         if _is_secret(k):
             out[k] = {"present": bool(v)}
+        elif _is_proxy_key(k):
+            # B7-B HIGH: the runtime writer masks the userinfo it ECHOES but persists the
+            # raw value, so any route that returns the store -- /api/settings/global/
+            # effective does -- handed the password straight back from this same
+            # blueprint. The store keeps the working URL (the product must still be able
+            # to reach the proxy); this read boundary is where the credential stops.
+            if isinstance(v, str):
+                out[k] = _mask_proxy_userinfo(v)
+            elif isinstance(v, list):
+                out[k] = [_mask_proxy_userinfo(x) if isinstance(x, str)
+                          else _mask_nested(x) for x in v]
+            else:
+                out[k] = _mask_nested(v)
         else:
             # VR-P02: descend into non-secret containers so a secret keyed inside
             # a nested dict or a list of dicts (account-pool creds) cannot be
@@ -322,6 +351,260 @@ def _card(title, body):
             f"{html.escape(title)}</h3>{body}</div>")
 
 
+# ── rows 972/973: runtime-tunable controls (rendered, labelled, validated) ──
+#
+# WHY THESE TWO ARE CONTROLS AND NOT ANOTHER MANIFEST LINE. The GUI-parity ratchet was
+# bounced twice for flipping `reports/config_gui_manifest.json` to gui_exposure "full"
+# while /cockpit/settings still rendered zero input/select/button/form elements -- a
+# rename of the parity debt, not a repayment. So `gui_exposure: full` for these keys is
+# asserted BY the rendered control: `_runtime_controls_card` is the only thing that can
+# make the coupling test green, and deleting the manifest entry reds it from the other
+# side.
+#
+# THESE ARE NOT PER-SITE FIELDS. Everything above is the per-site CFG_FIELDS surface,
+# whose writes delegate to the audited `PUT /api/sites/<sid>`. BD_HTTP_PROXY and
+# turnstile_one_click_enabled are PROCESS-WIDE runtime settings with no per-site row, so
+# that writer has nothing to accept; they get their own narrow POST below, which touches
+# exactly one process env var and one global_config key and nothing else.
+#
+# PERSISTENCE, STATED PLAINLY. The toggle persists through `global_config.set_config`,
+# the store that `runner_challenge` already reads. The proxy persists through the SAME
+# store and is read back by `http_client._proxy_url`, which prefers an exported
+# BD_HTTP_PROXY and falls back to the stored value only when the variable is absent; the
+# env var is also set in-process so the change takes effect without a restart. No file is
+# written from this module -- `set_config` remains the single audited writer.
+
+_RUNTIME_PROXY_KEY = "BD_HTTP_PROXY"
+_RUNTIME_TOGGLE_KEY = "turnstile_one_click_enabled"
+_RUNTIME_WRITE_ROUTE = "/api/settings/runtime"
+_RUNTIME_KEYS = (_RUNTIME_PROXY_KEY, _RUNTIME_TOGGLE_KEY)
+_PROXY_SCHEMES = ("http://", "https://")
+_USERINFO_MASK = "***:***"
+
+
+def _split_authority(value: str):
+    """(prefix, userinfo, rest) for a proxy URL of ANY input shape, scheme optional.
+
+    R4 BOUNCE, FIXED AS A CLASS. The first version partitioned on "://" and then on the
+    first "/", so it understood exactly one shape. Two whole families leaked past it:
+
+      * scheme-relative "//user:pass@host" -- partitioning on "/" made the authority the
+        EMPTY string before the leading slashes, so rpartition found no "@", the value was
+        declared credential-free, and the password was rendered verbatim into the input.
+      * an "@" after the authority with no intervening "/" ("host:8443?mail=a@b",
+        "host:8080#a@b") -- the authority ran to the end of the string, so ordinary
+        query/fragment text was mistaken for userinfo and the endpoint was corrupted.
+
+    Both are the same defect: the authority was never actually delimited. RFC 3986 ends it
+    at the first "/", "?" or "#", so that is what this bounds it at, and the scheme is
+    matched as a scheme (case-insensitively, per RFC 3986 s3.1) rather than as the literal
+    "://". IPv6 literals need no special case -- "[::1]" contains no delimiter -- and an
+    "@" inside a password is still handled by taking the LAST "@" within the authority.
+
+    `userinfo` is "" when the authority carries none, which is the signal to leave the
+    value untouched rather than decorate it.
+    """
+    # B11-B F1 (HIGH): _effective_proxy() falls back to the RAW env var, so a value with
+    # surrounding whitespace reached here unstripped. A single leading space made the
+    # scheme match fail, the authority was then taken from " socks5:" (no "@" in it), the
+    # value was declared credential-free and the password was rendered verbatim. The
+    # authority is a property of the URL, not of the whitespace around it, so the text is
+    # trimmed before it is parsed -- which is also the form the product reader uses.
+    text = str(value or "").strip()
+    scheme = re.match(r"[A-Za-z][A-Za-z0-9+.\-]*://", text)
+    if scheme:
+        prefix = scheme.group(0)
+    elif text.startswith("//"):
+        prefix = "//"
+    else:
+        prefix = ""
+    remainder = text[len(prefix):]
+    cuts = [remainder.index(c) for c in "/?#" if c in remainder]
+    end = min(cuts) if cuts else len(remainder)
+    authority, suffix = remainder[:end], remainder[end:]
+    userinfo, at, host = authority.rpartition("@")
+    if not at:
+        return prefix, "", remainder
+    return prefix, userinfo, host + suffix
+
+
+def _mask_proxy_userinfo(value: str) -> str:
+    """Display form of a proxy URL: credentials replaced, everything else byte-identical.
+
+    The endpoint an operator needs to recognise (scheme, host, port) stays legible; the
+    userinfo never reaches the page, the JSON replies, or a log line. A value without
+    userinfo is returned unchanged rather than decorated, so the control shows what is
+    actually configured.
+    """
+    prefix, userinfo, rest = _split_authority(str(value or ""))
+    if not userinfo:
+        return str(value or "")
+    return f"{prefix}{_USERINFO_MASK}@{rest}"
+
+
+def _effective_proxy() -> str:
+    """The proxy value the product actually uses, via the product reader's own rule."""
+    from . import http_client
+
+    return http_client._proxy_url() or os.environ.get(_RUNTIME_PROXY_KEY, "") or ""
+
+
+def _effective_toggle() -> bool:
+    from . import global_config
+
+    return bool(global_config.get(_RUNTIME_TOGGLE_KEY, False))
+
+
+def _validate_proxy(submitted: str):
+    """(ok, resolved, error) for a submitted proxy value.
+
+    REFUSALS ARE SPECIFIC, NOT A CATCH-ALL. A bare CR or LF anywhere -- checked BEFORE
+    any strip, so a leading CRLF cannot be whitespace-trimmed into a clean value -- is a
+    header-injection attempt against every downstream request builder, so it is refused
+    rather than sanitised. Only http/https are accepted: javascript:, file: and socks5:
+    are not transports this pooled opener can honour, and silently ignoring them would
+    leave the operator believing egress was proxied. A scheme with no host ("http://")
+    and a host with no scheme ("host:8080") are refused for the same reason -- the
+    product reader would return None and the control would have lied.
+
+    THE EMPTY STRING IS A VALID WRITE, not a missing one: it is how the operator turns
+    the proxy off, and it resolves to "" rather than to an error.
+    """
+    raw = str(submitted)
+    if "\r" in raw or "\n" in raw:
+        return False, None, "control characters (CR/LF) are not allowed in a proxy URL"
+    value = raw.strip()
+    if not value:
+        return True, "", None
+    if not value.startswith(_PROXY_SCHEMES):
+        return False, None, "proxy URL must start with http:// or https://"
+    prefix, userinfo, rest = _split_authority(value)
+    # B11-B F2: the host used to be rest.partition("/")[0], which never sees "?" or "#",
+    # so "http://?x=1" and "http://#f" were hostless yet ACCEPTED. RFC 3986 ends the
+    # authority at the first "/", "?" or "#" -- the same three delimiters _split_authority
+    # bounds it at -- so the host is cut at whichever comes first.
+    host = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    if not host:
+        return False, None, "proxy URL is missing a host"
+    if userinfo == _USERINFO_MASK:
+        # The page renders credentials as ***:***; submitting that display back is a
+        # save of an UNCHANGED field, never an instruction to set the literal mask as
+        # the password. Re-attach the live userinfo when the endpoint is the same one,
+        # and refuse outright when it is not -- guessing which credentials belong to a
+        # new host is how a masked view silently overwrites a working proxy.
+        # ONE SOURCE FOR RENDER AND VALIDATE (F2). The control renders from
+        # _effective_proxy(), which falls back to the persisted store when the env var
+        # is absent -- the post-restart state row 972's fallback exists to serve. Reading
+        # os.environ here instead made that exact state unsaveable: the page showed
+        # masked credentials and then refused the unchanged field it had just rendered,
+        # contradicting its own help text. Both paths now read _effective_proxy().
+        current = _effective_proxy() or ""
+        c_prefix, c_userinfo, c_rest = _split_authority(current)
+        if c_userinfo and (c_prefix, c_rest) == (prefix, rest):
+            return True, current, None
+        return False, None, (
+            "masked credentials cannot be saved; re-enter the full proxy URL"
+        )
+    return True, value, None
+
+
+def _runtime_control_descriptors():
+    """One descriptor per runtime-tunable key: what renders, and what it currently is."""
+    return [
+        {"key": _RUNTIME_PROXY_KEY, "kind": "text",
+         "label": "Outbound HTTP proxy",
+         "value": _mask_proxy_userinfo(_effective_proxy()),
+         "help": "Full http:// or https:// URL, or blank to send traffic direct. "
+                 "Credentials are shown masked and are preserved when saved unchanged."},
+        {"key": _RUNTIME_TOGGLE_KEY, "kind": "boolean",
+         "label": "Turnstile one-click challenge handling",
+         "value": _effective_toggle(),
+         "help": "Row 973 is a CAPTCHA affordance: the control shows the state that is "
+                 "actually stored, and never defaults itself on."},
+    ]
+
+
+def _runtime_control_html(d) -> str:
+    key = d["key"]
+    field_id = f"rt-{key}"
+    label = (f"<label for='{html.escape(field_id)}' style='display:block;color:#e5e5e5;"
+             f"margin:0 0 4px'>{html.escape(d['label'])}</label>")
+    if d["kind"] == "boolean":
+        on = " selected" if d["value"] else ""
+        off = "" if d["value"] else " selected"
+        control = (f"<select id='{html.escape(field_id)}' name='{html.escape(key)}' "
+                   f"style='min-width:22em'>"
+                   f"<option value='true'{on}>Enabled</option>"
+                   f"<option value='false'{off}>Disabled</option></select>")
+    else:
+        control = (f"<input id='{html.escape(field_id)}' name='{html.escape(key)}' "
+                   f"type='text' value='{html.escape(str(d['value']))}' "
+                   f"style='min-width:22em'>")
+    return (f"<form action='{_RUNTIME_WRITE_ROUTE}' method='post' "
+            f"style='margin:0 0 14px'>{label}{control} "
+            f"<button type='submit' style='margin-left:6px'>Save</button>"
+            f"<div style='color:#9ca3af;font-size:12px;margin-top:4px'>"
+            f"<code>{html.escape(key)}</code> — {html.escape(d['help'])}</div></form>")
+
+
+def _runtime_controls_card() -> str:
+    body = "".join(_runtime_control_html(d) for d in _runtime_control_descriptors())
+    return _card("Runtime settings (editable)", body)
+
+
+@settings_center_bp.route(_RUNTIME_WRITE_ROUTE, methods=["POST"])
+def api_settings_runtime_write():
+    """Write one runtime-tunable setting. Validate first, then persist, or change nothing.
+
+    ATOMIC IN THE SENSE THAT MATTERS HERE: every submitted field is validated before any
+    of them is applied, so a rejected value cannot leave a half-applied sibling behind --
+    a refused request leaves the process env, the store file and the rendered page exactly
+    as they were.
+
+    UNKNOWN FIELDS ARE REFUSED, NOT IGNORED. A typo'd key that returned 200 would tell the
+    operator their setting had been saved when nothing had been written; the allowlist is
+    the two keys this card renders.
+    """
+    from . import global_config
+
+    submitted = request.form.to_dict() or (request.get_json(silent=True) or {})
+    if not isinstance(submitted, dict) or not submitted:
+        return jsonify({"ok": False, "error": "no settings submitted"}), 400
+    unknown = [k for k in submitted if k not in _RUNTIME_KEYS]
+    if unknown:
+        return jsonify({"ok": False,
+                        "error": f"unknown setting(s): {', '.join(sorted(unknown))}"}), 400
+
+    applied, store_updates = {}, {}
+    for key, raw in submitted.items():
+        if key == _RUNTIME_PROXY_KEY:
+            ok, resolved, error = _validate_proxy(raw)
+            if not ok:
+                return jsonify({"ok": False, "field": key, "error": error}), 400
+            applied[key] = resolved
+            store_updates[key] = resolved
+        else:
+            text = str(raw).strip().lower()
+            if text not in ("true", "false"):
+                return jsonify({"ok": False, "field": key,
+                                "error": "expected true or false"}), 400
+            applied[key] = text == "true"
+            store_updates[key] = text == "true"
+
+    if not global_config.set_config(store_updates):
+        # set_config REFUSES over an unreadable store rather than replacing it; surface
+        # that as a failure instead of reporting a write that did not happen.
+        return jsonify({"ok": False,
+                        "error": "settings store could not be read; nothing was written"}), 500
+    if _RUNTIME_PROXY_KEY in applied:
+        os.environ[_RUNTIME_PROXY_KEY] = applied[_RUNTIME_PROXY_KEY]
+
+    echo = dict(applied)
+    if _RUNTIME_PROXY_KEY in echo:
+        echo[_RUNTIME_PROXY_KEY] = _mask_proxy_userinfo(echo[_RUNTIME_PROXY_KEY])
+    return jsonify({"ok": True, "applied": echo})
+
+
 @settings_center_bp.route("/cockpit/settings", methods=["GET"])
 def page_settings():
     s = _schema()
@@ -352,8 +635,10 @@ def page_settings():
         "<div style='font-size:12px;margin:0 0 6px'><a href='/' "
         "style='color:#6cf;text-decoration:none'>&larr; Home</a></div>"
         "<h2 style='margin:0 0 4px'>Settings Center</h2>"
-        "<div style='color:#f59e0b;margin:0 0 16px'>READ-ONLY (Phase 3 Slice 1) — "
-        "no edit controls; editing arrives in a later, gated slice.</div>"
+        "<div style='color:#f59e0b;margin:0 0 16px'>The per-site surface below is READ-ONLY "
+        "(Phase 3 Slice 1). The runtime controls card is live and writes through "
+        "POST /api/settings/runtime.</div>"
+        + _runtime_controls_card()
         + _card("Per-site config surface", body)
         + "</body></html>")
     return page

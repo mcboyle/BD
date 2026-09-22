@@ -65,7 +65,10 @@ def test_schema_is_authoritative():
 
 
 def test_only_validate_is_post_and_rest_get():
-    # Slice 2 adds exactly one POST (the dry-run validate); everything else is GET.
+    # Slice 2 added the dry-run validate; rows 972/973 add the runtime write. Those two
+    # are the whole writer set; everything else on this blueprint stays GET, and PUT,
+    # DELETE and PATCH stay off it entirely. The writers are NAMED, not counted, so a
+    # third POST route still reds this -- the drift the original pin existed to catch.
     app, _ = _app()
     mutating = {"PUT", "DELETE", "PATCH"}
     posts = []
@@ -73,8 +76,9 @@ def test_only_validate_is_post_and_rest_get():
         if rule.endpoint.startswith("settings_center."):
             assert not (rule.methods & mutating), (rule.rule, rule.methods)
             if "POST" in rule.methods:
-                posts.append(rule.rule)
-    assert posts == ["/api/settings/site/<sid>/validate"], posts
+                posts.append(str(rule.rule))
+    assert sorted(posts) == ["/api/settings/runtime",
+                             "/api/settings/site/<sid>/validate"], posts
 
 
 def test_editable_excludes_secrets_and_gated():

@@ -552,6 +552,7 @@
 /api/settings/envfile	GET	api_settings_envfile_get
 /api/settings/envfile	POST	api_settings_envfile_post
 /api/settings/global/effective	GET	api_settings_global_effective
+/api/settings/runtime	POST	api_settings_runtime_write
 /api/settings/schema	GET	api_settings_schema
 /api/settings/secrets/health	GET	api_settings_secrets_health
 /api/settings/site/<sid>/editable	GET	api_settings_site_editable

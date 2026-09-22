@@ -972,6 +972,8 @@ jobs:
               tests/test_function_index_in_sync.py
               tests/test_route_map_invariant.py
               tests/test_settings_center_slice5.py
+              tests/test_rows972_973_rendered_runtime_controls.py
+              tests/test_rows972_973_rendered_proxy_forms.py
               tests/test_footgun_detectors_are_executed_by_ci.py
     name: gate-suites (${{ matrix.name }})
     steps:

@@ -32,11 +32,20 @@ def test_guarded_open_uses_the_configured_proxy_transport(monkeypatch):
         proxy_calls.append((request, timeout, direct_open))
         return _Response()
 
+    import bulk_downloader
+
     with monkeypatch.context() as patch:
         patch.setenv("BD_HTTP_PROXY", "http://127.0.0.1:3128")
         patch.setattr(deep_http, "_OPENER", DirectOpener())
-        patch.setitem(sys.modules, "bulk_downloader.http_client",
-                      types.SimpleNamespace(proxy_open=proxy_open))
+        stub = types.SimpleNamespace(proxy_open=proxy_open)
+        # `from . import http_client` inside guarded_open resolves the PACKAGE ATTRIBUTE
+        # first and only falls back to an import when it is unset. Patching sys.modules
+        # alone is therefore inert as soon as any earlier test in the same worker has
+        # imported bulk_downloader.http_client -- the real transport runs and the stub
+        # records nothing. Both are patched so this test measures the seam it names
+        # whatever else ran first (fleet rule 47).
+        patch.setitem(sys.modules, "bulk_downloader.http_client", stub)
+        patch.setattr(bulk_downloader, "http_client", stub, raising=False)
         response = deep_http.guarded_open("http://example.com/media", timeout=1,
                                           allow_private_hosts=True)
 
