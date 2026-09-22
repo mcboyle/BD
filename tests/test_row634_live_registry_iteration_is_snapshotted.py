@@ -95,7 +95,8 @@ _ROW634_CONVERTED_SITES = {
     "bulk_downloader/app_extension.py": 1,
     "bulk_downloader/app_health.py": 2,
     "bulk_downloader/app_jobs.py": 1,
-    "bulk_downloader/app_queue.py": 3,
+    # row 990: 3 -> 4, api_queue_starvation walks _runners_generation(runners).
+    "bulk_downloader/app_queue.py": 4,
     "bulk_downloader/app_sites_id_core.py": 1,
     "bulk_downloader/app_status.py": 1,
     "bulk_downloader/crash_recovery.py": 1,
@@ -289,8 +290,9 @@ def test_the_twelve_converted_modules_carry_their_exact_site_counts(
     is asserted nonzero -- so a recognizer that stops seeing a module, or a
     module that quietly loses a converted walk, is named rather than absorbed.
     """
-    assert sum(_ROW634_CONVERTED_SITES.values()) == 20, (
-        "the pinned population is not this row's 20 converted sites: %r"
+    # row 990: 20 -> 21 (app_queue 3 -> 4, api_queue_starvation).
+    assert sum(_ROW634_CONVERTED_SITES.values()) == 21, (
+        "the pinned population is not this row's 21 converted sites: %r"
         % (sum(_ROW634_CONVERTED_SITES.values()),))
     assert len(_ROW634_CONVERTED_SITES) == 12, len(_ROW634_CONVERTED_SITES)
     mismatches = exact_count_mismatches(package_census["snapshotted"])

@@ -451,6 +451,7 @@
 /api/queue/dead_letter	GET	api_queue_dead_letter_list
 /api/queue/dead_letter/requeue	POST	api_queue_dead_letter_requeue
 /api/queue/preflight	GET	api_queue_preflight
+/api/queue/starvation	GET	api_queue_starvation
 /api/queue/tombstone	POST	api_queue_tombstone
 /api/queue/tombstone/untombstone	POST	api_queue_untombstone
 /api/queue/v2	GET	api_queue_v2

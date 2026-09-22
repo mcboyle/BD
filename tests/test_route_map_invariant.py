@@ -52,7 +52,10 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # regenerated snapshot against the old file). This is an INTENTIONAL surface change, so the
 # pin is re-cut and stated here; test_route_surface_unchanged_since_f51_open still diffs the
 # live surface against the file, so an unstated route still cannot slip through.
-_BASELINE_SHA = "be42944a740f36eaee4e2a6007f13e3524a5081d3122e6fa1c5f108a4c3f04a2"
+# row 990: re-frozen. ONE route ADDED: GET /api/queue/starvation
+# (app_queue.api_queue_starvation), per-site queue starvation / priority-inversion report.
+# Baseline 1013 -> 1014 lines. INTENTIONAL surface change, stated here.
+_BASELINE_SHA = "64cd4ac2471f5a390a0de6266a61cceb940795d09d274d5ac0f6f1bb1aa0b96d"
 
 
 def _live_snapshot() -> str:
