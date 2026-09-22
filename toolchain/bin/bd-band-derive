@@ -781,8 +781,10 @@ def derive(work, changed, rows, zsha_src=None):
     # @897 -- filtered HERE, at the single return, not in emit_band(): the JSON
     # payload publishes `band` raw and only band_cmd goes through emit_band, so
     # filtering there would leave two denominators that disagree -- the exact
-    # shape this filter exists to remove.
-    return sorted(b for b in band if is_suite(b))
+    # shape this filter exists to remove. O934.1 excludes tests/PROCESS_TESTS.txt
+    # at the same spot, for the same reason.
+    _process = process_tests(work)
+    return sorted(b for b in band if is_suite(b) and b not in _process)
 
 
 def rev_deps(work, rel):
@@ -928,6 +930,20 @@ def regen_flags(changed, fe_mut=None, work=None):
     if any(re.search(r"BD_[A-Z0-9_]+", c) for c in changed):
         pass
     return flags
+
+
+def process_tests(work):
+    """O934.1 (process-test-shard). The register/harness/toolchain/git suites
+    in tests/PROCESS_TESTS.txt run nightly and on train/* branches (ci.yml),
+    not per-cut: a cut's own band should never be charged their wall-clock
+    just because some signal above happened to name one.
+    """
+    path = os.path.join(work, "tests", "PROCESS_TESTS.txt")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return {ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")}
+    except FileNotFoundError:
+        return set()
 
 
 def is_suite(rel):
