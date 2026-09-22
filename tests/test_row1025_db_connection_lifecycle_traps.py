@@ -105,35 +105,52 @@ def test_cleanup_thread_connections_evicts_and_closes():
         _ = captured_cx.total_changes
 
 
-def test_close_all_pooled_connections_across_threads():
-    """Verify close_all_pooled_connections evicts pooled handles from all threads."""
-    from bulk_downloader.db import close_all_pooled_connections, db_conn, get_connection_lifecycle_manager
+def test_close_all_pooled_connections_across_threads(monkeypatch):
+    """Verify close_all_pooled_connections evicts pooled handles from all threads.
 
-    mgr = get_connection_lifecycle_manager()
-    barrier = threading.Barrier(4)
+    h686: runs against a fresh lifecycle manager so idle connections left in the
+    module-global one by earlier suites cannot change the exact counts, and the
+    workers are daemon threads released by barrier.abort() so a failing assert
+    cannot leave them blocked in barrier.wait() and wedge interpreter shutdown.
+    """
+    from bulk_downloader import db_lifecycle
+    from bulk_downloader.db import _close_history_conn, close_all_pooled_connections, db_conn
+
+    mgr = db_lifecycle.DBConnectionLifecycleManager()
+    mgr.set_close_callback(_close_history_conn)
+    barrier = threading.Barrier(4, timeout=30.0)
     captured = []
 
     def run_worker():
         with db_conn() as cx:
             captured.append(cx)
-        barrier.wait()
-        barrier.wait()
+        try:
+            barrier.wait()
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            pass
 
-    threads = [threading.Thread(target=run_worker) for _ in range(3)]
-    for t in threads:
-        t.start()
-    barrier.wait()
+    with monkeypatch.context() as m:
+        m.setattr(db_lifecycle, "_GLOBAL_LIFECYCLE_MANAGER", mgr)
+        threads = [threading.Thread(target=run_worker, daemon=True) for _ in range(3)]
+        try:
+            for t in threads:
+                t.start()
+            barrier.wait()
 
-    assert len(captured) == 3
-    assert mgr.get_metrics()["idle_connections"] == 3
+            assert len(captured) == 3
+            assert mgr.get_metrics()["idle_connections"] == 3
 
-    closed = close_all_pooled_connections()
-    assert closed == 3
-    assert mgr.get_metrics()["idle_connections"] == 0
+            closed = close_all_pooled_connections()
+            assert closed == 3
+            assert mgr.get_metrics()["idle_connections"] == 0
 
-    barrier.wait()
-    for t in threads:
-        t.join(timeout=2.0)
+            barrier.wait()
+        finally:
+            barrier.abort()
+            for t in threads:
+                t.join(timeout=2.0)
+        assert not any(t.is_alive() for t in threads)
 
 
 def test_db_connection_lifecycle_metrics_tracking():
