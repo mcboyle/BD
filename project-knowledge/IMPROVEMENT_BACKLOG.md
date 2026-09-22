@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=88 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=82 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -390,12 +390,12 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 999 | OPEN | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress |
 | 1000 | OPEN | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
 | 1001 | CLOSED @1623 | CRASH-CONSISTENT-WRITE-AHEAD-TRANSACTION-JOURNAL-FOR-CONTAINER-MUTATIONS -- Crash-Consistent Write-Ahead Transaction Journal for Container Mutations |
-| 1002 | OPEN | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
+| 1002 | CLOSED @1633 | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
 | 1003 | CLOSED @1631 | DECORRELATED-FULL-JITTER-EXPONENTIAL-BACKOFF-PROFILES -- Decorrelated Full-Jitter Exponential Backoff Profiles |
 | 1004 | OPEN | TRANSPORT-LAYER-SLIDING-WINDOW-CIRCUIT-BREAKERS-WITH-LEAKY-BUCKET-RECOVERY -- Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery |
 | 1005 | OPEN | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
 | 1006 | CLOSED @1630 | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
-| 1007 | OPEN | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
+| 1007 | CLOSED @1633 | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
 | 1008 | OPEN | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Asynchronous Refresh |
 | 1009 | OPEN | ADAPTIVE-SHARED-MEMORY-WAL-CHECKPOINT-CONTROLLER -- Adaptive Shared-Memory WAL Checkpoint Controller |
 | 1010 | OPEN | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
@@ -404,7 +404,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
 | 1014 | OPEN | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
 | 1015 | OPEN | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
-| 1016 | OPEN | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
+| 1016 | CLOSED @1633 | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
 | 1017 | OPEN | MULTI-TRACK-AUXILIARY-TEXT-CHAPTER-ANNOTATION-INGESTION -- Multi-Track Auxiliary Text & Chapter Annotation Ingestion |
 | 1018 | OPEN | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
 | 1019 | OPEN | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
@@ -423,13 +423,13 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1032 | OPEN | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
 | 1033 | OPEN | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
 | 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
-| 1035 | OPEN | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
+| 1035 | CLOSED @1633 | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
 | 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
 | 1037 | OPEN | DYNAMIC-SHELL-AUTOCOMPLETION-ENGINE-FOR-ZSH-BASH-AND-FISH -- Dynamic Shell Autocompletion Engine for Zsh, Bash, and Fish |
 | 1038 | OPEN | COLD-START-KERNEL-MODULE-IMPORT-LATENCY-PROFILER -- Cold-Start Kernel & Module Import Latency Profiler |
 | 1039 | OPEN | ENDPOINT-AUTHORIZATION-TOKEN-LIFECYCLE-CACHE-AUTHTOKENCACHE -- Endpoint Authorization Token Lifecycle Cache (AuthTokenCache) |
 | 1040 | OPEN | CLIENT-CONFIGURATION-PROFILE-STANDARDIZATION -- Client Configuration Profile Standardization |
-| 1041 | OPEN | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
+| 1041 | CLOSED @1633 | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
 | 1042 | OPEN | MULTI-SEGMENT-MEDIA-KEY-FETCHING-PAYLOAD-ASSEMBLER -- Multi-Segment Media Key Fetching & Payload Assembler |
 | 1043 | OPEN | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
 | 1044 | CLOSED @1632 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
@@ -458,7 +458,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1067 | OPEN | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
 | 1068 | OPEN | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
 | 1069 | OPEN | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
-| 1070 | OPEN | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
+| 1070 | CLOSED @1633 | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
 | 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
 | 1072 | OPEN | TEST-FIXTURE-ISOLATION-DATABASE-SANDBOXING-STANDARDIZATION-HERMETICFIXTURES -- Test Fixture Isolation & Database Sandboxing Standardization (HermeticFixtures) |
 | 1073 | CLOSED @1632 | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
