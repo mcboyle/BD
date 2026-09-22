@@ -910,6 +910,12 @@ def manifest_probe(url=None, text=None):
             return {"tool": "manifest_probe", "ok": False, "source": src,
                     "error": ("not recognised as HLS (#EXTM3U) or DASH "
                               "(<MPD>) — first bytes: " + head[:60])}
+        try:
+            from bulk_downloader.streaming_manifest import parse_streaming_manifest
+            s_manifest = parse_streaming_manifest(text, base_url=src if src != "inline" else "")
+            report["streaming_manifest"] = s_manifest.to_dict()
+        except Exception:
+            pass
     except Exception as e:
         return {"tool": "manifest_probe", "ok": False,
                 "error": f"parse failed: {type(e).__name__}: {e}"}
