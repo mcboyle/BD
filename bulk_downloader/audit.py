@@ -136,6 +136,18 @@ def audit_log(source: str, action: str, target: str,
                 (time.time(), source, action, target,
                  _serialize(before), _serialize(after), actor))
             row_id = cur.lastrowid
+        try:
+            from . import audit_journal
+            journal = audit_journal.get_operator_audit_journal()
+            journal.record_entry(source=source, action=action, target=target, before=before, after=after, actor=actor)
+        except Exception:
+            global _JOURNAL_WRITE_FAILURES
+            _JOURNAL_WRITE_FAILURES += 1
+            try:
+                from . import audit_journal
+                audit_journal.get_operator_audit_journal().record_drop()
+            except Exception:
+                pass
     except Exception:
         # Can't safely use the logger here (circular import risk during
         # early boot). Silently swallow.
@@ -208,6 +220,48 @@ def audit_chain_status() -> dict:
     except Exception as e:
         return {"block_count": 0, "head_hash": "", "anchor": "", "state": "UNAVAILABLE",
                 "valid": False, "errors": [f"{type(e).__name__}: {e}"[:200]]}
+
+
+
+_JOURNAL_WRITE_FAILURES = 0
+
+
+def get_audit_journal_write_failures() -> int:
+    """Number of times writing to the cryptographic audit journal failed."""
+    try:
+        from . import audit_journal
+        persisted = audit_journal.get_operator_audit_journal().get_dropped_writes()
+        return max(_JOURNAL_WRITE_FAILURES, persisted)
+    except Exception:
+        return _JOURNAL_WRITE_FAILURES
+
+
+def verify_audit_provenance() -> dict:
+    """Verify cryptographic chain integrity of the operator audit journal."""
+    try:
+        from . import audit_journal
+        journal = audit_journal.get_operator_audit_journal()
+        res = journal.verify_chain()
+        persisted_drops = journal.get_dropped_writes()
+        total_drops = max(_JOURNAL_WRITE_FAILURES, persisted_drops)
+        res["dropped_journal_writes"] = total_drops
+        if total_drops > 0 and res.get("status") == "intact":
+            res["valid"] = False
+            res["status"] = "diverged"
+            res["reason"] = (
+                f"{total_drops} audit entries failed to record to journal; "
+                "audit trail and provenance diverged"
+            )
+        return res
+    except Exception as e:
+        return {
+            "valid": False,
+            "status": "unverifiable",
+            "verified_count": 0,
+            "broken_at": None,
+            "error": str(e),
+            "dropped_journal_writes": _JOURNAL_WRITE_FAILURES,
+        }
 
 
 
