@@ -328,7 +328,16 @@ def force_gc() -> dict:
     before = len(gc.get_objects())
     collected = gc.collect()
     after = len(gc.get_objects())
-    return {
+
+    # Row 1074: Trim glibc memory arenas via ArenaCompactor
+    arena_stats = None
+    try:
+        from bulk_downloader.arena_compactor import compact_glibc_arenas
+        arena_stats = compact_glibc_arenas(force=True).to_dict()
+    except Exception:
+        pass
+
+    res = {
         "ok": True,
         "unreachable_collected": collected,
         "objects_before": before,
@@ -336,3 +345,6 @@ def force_gc() -> dict:
         "objects_freed": before - after,
         "gc_garbage": len(gc.garbage),
     }
+    if arena_stats is not None:
+        res["arena_compaction"] = arena_stats
+    return res
