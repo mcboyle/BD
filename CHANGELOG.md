@@ -4,7 +4,7 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1622 - train45: promote rows 974-1078 into the canonical register
+## v3.66.1622 - train45: promote the ideas-150 batch into the canonical register
 
 Base 741192d7192d (v3.66.1621). One member, one file.
 
