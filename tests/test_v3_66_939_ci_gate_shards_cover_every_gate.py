@@ -77,13 +77,9 @@ _CI = _REPO / ".github" / "workflows" / "ci.yml"
 # back in one shard always adds their durations.
 _INDEPENDENT_LONG_POLES = {
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",
-    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",
-    "tests/test_v3_66_1040_remote_job_registry.py",
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",
     # @1241 row 237. The split half is a long pole in its own right:
     # it carries the slowest registration-lifecycle nodes of the
     # module it came out of.
-    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",
 }
 
 # Its subject is which gates CI runs, which is a property of the tree.
@@ -147,15 +143,12 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-761 download-chain tests/test_row761_listing_facet_is_not_a_download_candidate.py
 # CI-SHARD-CLAIM row-761b download-chain tests/test_row761b_deep.py
 # CI-SHARD-CLAIM row-761 download-chain tests/test_row761_astra_acceptance.py
-# CI-SHARD-CLAIM backlog-27 mutation-verifiers tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
 # CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
-# CI-SHARD-CLAIM row-1035 parity-static tests/test_v3_66_653_dep_freshness.py
 # CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
 # Row 648. The react-router 7 migration gate: declared range, lock, zero
 # react-router-dom specifiers under frontend/src, and no dependabot MAJOR
 # ignore. Static (no node), so it rides parity-static beside dep_freshness.
 # CI-SHARD-CLAIM row-648 parity-static tests/test_row648_react_router_7_migration.py
-# CI-SHARD-CLAIM row-1035 measurement-isolation tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
 # CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
 # CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
 # CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
@@ -236,33 +229,18 @@ _NON_DERIVABLE_DECLARED = {
     # _declared_partition naming it no longer declared. Its workflow entry is
     # untouched, so _DECLARED and the CI union are unchanged.
     "tests/test_app_measurements_fail_closed.py",  # module
-    "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
-    "tests/test_cloud_setup_truthfulness.py",  # module
-    "tests/test_deploy_script.py",  # module
-    "tests/test_failed_measurements_have_distinct_states.py",  # module
     "tests/test_ffmpeg_capability_health.py",  # module
-    "tests/test_generated_artifacts_are_not_tracked.py",  # legacy-baseline
     "tests/test_gui_parity.py",  # legacy-baseline
     "tests/test_import_graph_no_new_edges.py",  # legacy-baseline
     "tests/test_no_test_writes_the_repo_plugins_dir.py",  # legacy-baseline
     "tests/test_pin_index_in_sync.py",  # legacy-baseline
-    "tests/test_pk_mirrors_stay_retired.py",  # legacy-baseline
     "tests/test_provider_resolve_surface_lock.py",  # legacy-baseline
-    "tests/test_register_content_amend.py",  # module
-    "tests/test_release_hygiene_gates.py",  # legacy-baseline
     "tests/test_route_index_in_sync.py",  # legacy-baseline
     "tests/test_row311_app_config_writers_are_serialized.py",  # module
-    "tests/test_row312_bd_jobs_reap_holds_identity.py",  # module
-    "tests/test_row313_bd_job_identity.py",  # module
-    "tests/test_row335_release_gate_populations.py",  # module
-    "tests/test_row339_measurement_noise_bounds.py",  # module
-    "tests/test_row344_capture_prune_is_target_bound.py",  # module
     "tests/test_row345_opv_a11y_requires_served_cockpit.py",  # module
-    "tests/test_row349_shared_caches_are_identity_bound.py",  # module
     "tests/test_row350_job_api_durable_truth.py",  # module
     "tests/test_row356_cookie_quality_reports_unknown.py",  # module
     "tests/test_row089_capture_corpus_backup_restore.py",  # module
-    "tests/test_row090_global_run_cap.py",  # module
     "tests/test_row700_captcha_egress_disclosure.py",  # module
     "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py",  # module
     "tests/test_row741_relogin_refusals_are_typed.py",  # module
@@ -274,60 +252,20 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row363_affordance_learning.py",  # module
     "tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py",  # module
     "tests/test_row_282_bd_opv_isolates_every_store.py",  # module
-    "tests/test_scan_version_pins_fixture.py",  # legacy-baseline
     "tests/test_settings_center_slice4.py",  # legacy-baseline
-    "tests/test_source_windows_do_not_shift.py",  # legacy-baseline
-    "tests/test_toolchain_534.py",  # legacy-baseline
-    "tests/test_u45_capture_sh_shipped.py",  # legacy-baseline
     "tests/test_v3_57_phase9.py",  # module
     "tests/test_v3_62_2_guards.py",  # legacy-baseline
-    "tests/test_v3_66_1031_socket_recorder_stages.py",  # legacy-baseline
     "tests/test_v3_66_1034_guards_survive_a_module_wipe.py",  # legacy-baseline
-    "tests/test_v3_66_1040_remote_job_registry.py",  # legacy-baseline
     "tests/test_v3_66_1043_measurement_and_fleet_tools.py",  # legacy-baseline
-    "tests/test_v3_66_1044_run_context_and_chains.py",  # legacy-baseline
-    "tests/test_v3_66_1046_gates_for_this_sessions_shapes.py",  # legacy-baseline
-    "tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",  # legacy-baseline
-    "tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py",  # module
-    "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py",  # module
-    "tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py",  # module
-    "tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py",  # module
-    "tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py",  # module
-    "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py",  # module
-    "tests/test_v3_66_1142_fleet_run_is_hermetic.py",  # module
-    "tests/test_v3_66_1145_step0_fails_closed.py",  # module
-    "tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py",  # module
-    "tests/test_v3_66_1150_the_snapshot_is_really_sealed.py",  # module
-    "tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py",  # module
-    "tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py",  # module
-    "tests/test_v3_66_1153_deletion_is_bound_to_the_object.py",  # module
-    "tests/test_v3_66_1154_the_object_not_the_name.py",  # module
     "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",  # module
-    "tests/test_v3_66_1158_fleet_provenance_fails_closed.py",  # module
-    "tests/test_v3_66_1159_fleet_prune_is_object_bound.py",  # module
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py",  # module
-    "tests/test_v3_66_1180_band_derivation_paths.py",  # module
-    "tests/test_v3_66_1183_safe_temp_janitors.py",  # module
-    "tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py",  # module
-    "tests/test_v3_66_1186_bd_mutate_named_controls.py",  # module
-    "tests/test_v3_66_1187_bd_mutate_band_is_bounded.py",  # module
-    "tests/test_v3_66_1188_bd_mutate_review_controls.py",  # module
-    "tests/test_v3_66_1189_bd_mutate_durable_contract.py",  # module
-    "tests/test_v3_66_1190_bd_mutate_kills_process_tree.py",  # module
     "tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py",  # module
     "tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py",  # module
     "tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py",  # module
     "tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py",  # module
-    "tests/test_v3_66_1217_a_fixture_is_not_wiring.py",  # module
     "tests/test_v3_66_121_login_flow_derives_the_observed_drive.py",  # module
-    "tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py",  # module
     "tests/test_v3_66_261_contended_lifecycle_lock.py",  # module
-    "tests/test_v3_66_283_bd_claim_transactions.py",  # module
     "tests/test_v3_66_284_integrity.py",  # module
-    "tests/test_v3_66_295_bd_claim_atomic_union.py",  # module
-    "tests/test_v3_66_653_dep_freshness.py",  # legacy-baseline
-    "tests/test_v3_66_799_audit_tool_selftests.py",  # legacy-baseline
-    "tests/test_versync_gate.py",  # legacy-baseline
 }
 _CONFIRMED_SAFETY_GATES = {
     "tests/test_capture_execution_lanes.py",
@@ -592,10 +530,75 @@ def _derived_repo_wide() -> set[str]:
             if scope == "repo-wide"}
 
 
+def _process_tests() -> set[str]:
+    """Tests listed in PROCESS_TESTS.txt: run in nightly/train, not in gate-suites."""
+    pt_path = _REPO / "tests" / "PROCESS_TESTS.txt"
+    if not pt_path.is_file():
+        return set()
+    out = set()
+    for line in pt_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.add(line)
+    return out
+
+
+# The three PRODUCT-touching signals PROCESS_TESTS.txt's header promises this
+# file re-derives (F4-B F2, RULING-0045 item 3). A file may sit in the PROCESS
+# lane only if its text carries none of them; anything else is a product
+# invariant and stays in its hot shard.
+_PRODUCT_IMPORT = re.compile(r"^\s*(?:from\s+bulk_downloader\b|import\s+bulk_downloader\b)", re.M)
+# (b) is the whole-string form import_module / monkeypatch / sys.modules take
+# ("bulk_downloader.app"), not a module name mentioned inside a prose message.
+_PRODUCT_DOTTED = re.compile(r"[\"']bulk_downloader(?:\.[A-Za-z_][A-Za-z0-9_]*)+[\"']")
+_PRODUCT_EXEC = re.compile(
+    r"python3?\s+-m\s+bulk_downloader\b"
+    r"|[\"']-m[\"']\s*,\s*[\"']bulk_downloader[\"']"
+    r"|\bbdctl\b"
+    r"|exec\s+\./capture\.sh"
+    r"|subprocess\.(?:run|Popen|check_call|check_output|call)\([^\n]*capture\.sh"
+)
+
+
+def _product_signals(text: str) -> list[str]:
+    hits = []
+    if _PRODUCT_IMPORT.search(text):
+        hits.append("(a) imports bulk_downloader")
+    if _PRODUCT_DOTTED.search(text):
+        hits.append("(b) quotes a dotted bulk_downloader module name")
+    if _PRODUCT_EXEC.search(text):
+        hits.append("(c) runs the product as a subprocess")
+    return hits
+
+
+def test_process_tests_never_touch_the_product():
+    """Membership in PROCESS_TESTS.txt is measured, not keyword-guessed: every
+    listed file is free of the three product-touching signals, and the probe
+    can say YES (positive control: a product test trips it)."""
+    control = "from bulk_downloader import app\n"
+    assert _product_signals(control), "positive control: the probe cannot see a product import"
+    assert _product_signals('importlib.import_module("bulk_downloader.db")\n')
+    assert _product_signals("subprocess.run(['python', '-m', 'bulk_downloader'])\n")
+    process = sorted(_process_tests())
+    assert process, "PROCESS_TESTS.txt declares nothing"
+    offenders = {}
+    for rel in process:
+        path = _REPO / rel
+        assert path.is_file(), f"{rel} is listed as a PROCESS test but is not in the tree"
+        hits = _product_signals(path.read_text(encoding="utf-8"))
+        if hits:
+            offenders[rel] = hits
+    assert not offenders, (
+        "PROCESS tests that touch the product (they belong in a hot shard): "
+        + json.dumps(offenders, indent=1)
+    )
+
+
 def _declared_gates() -> set[str]:
     """The declared gate census: derived repo-wide files plus the closed
-    legacy remainder that predates the markers."""
-    return _derived_repo_wide() | _NON_DERIVABLE_DECLARED
+    legacy remainder that predates the markers, minus process tests
+    (O934.1: process tests run in nightly, not in per-PR gate-suites)."""
+    return (_derived_repo_wide() | _NON_DERIVABLE_DECLARED) - _process_tests()
 
 
 # Bound at import so the shrink tests can monkeypatch one census, and so the
@@ -1331,11 +1334,11 @@ def test_every_repo_wide_file_is_in_the_declared_set():
         "adoption five do, and a drop to zero means the marker was renamed or "
         "the reader broke")
 
-    undeclared = _repo_wide_not_declared(scopes, _DECLARED)
+    undeclared = _repo_wide_not_declared(scopes, _DECLARED | _process_tests())
     assert not undeclared, (
         f"file(s) declaring {_SCOPE_MARKER} = 'repo-wide' but absent from "
-        f"_DECLARED, so they run on no PR while the check stays green: "
-        f"{undeclared}")
+        f"_DECLARED (and not in PROCESS_TESTS.txt), so they run on no PR "
+        f"while the check stays green: {undeclared}")
 
 
 def test_the_baseline_is_frozen_legacy_that_may_only_shrink():
@@ -1475,19 +1478,22 @@ def test_the_real_tree_is_covered_exactly_by_derivation_plus_legacy():
     row-613 family, three disjoint parts, none empty."""
     derived = _derived_repo_wide()
     assert derived, "no tracked test file declares repo-wide scope"
-    assert not derived & _NON_DERIVABLE_DECLARED, (
-        sorted(derived & _NON_DERIVABLE_DECLARED))
-    assert not (derived | _NON_DERIVABLE_DECLARED) & _DB_PRUNE_SAFETY_FAMILY
+    process = _process_tests()
+    gate_derived = derived - process
+    gate_legacy = _NON_DERIVABLE_DECLARED - process
+    assert not gate_derived & gate_legacy, (
+        sorted(gate_derived & gate_legacy))
+    assert not (gate_derived | gate_legacy) & _DB_PRUNE_SAFETY_FAMILY
     declared = _declared_gates()
-    assert declared == derived | _NON_DERIVABLE_DECLARED
+    assert declared == gate_derived | gate_legacy
     assert declared == _DECLARED
 
     executed = [s for suites in _shard_lists().values() for s in suites]
-    expected_count = (len(derived) + len(_NON_DERIVABLE_DECLARED)
+    expected_count = (len(gate_derived) + len(gate_legacy)
                       + len(_DB_PRUNE_SAFETY_FAMILY))
     assert len(executed) == expected_count, (
-        f"CI executes {len(executed)} gate paths; derived {len(derived)} + "
-        f"legacy {len(_NON_DERIVABLE_DECLARED)} + family "
+        f"CI executes {len(executed)} gate paths; derived {len(gate_derived)} + "
+        f"legacy {len(gate_legacy)} + family "
         f"{len(_DB_PRUNE_SAFETY_FAMILY)} = {expected_count}")
     assert set(executed) == declared | _DB_PRUNE_SAFETY_FAMILY
     _assert_exact_gate_coverage(declared | _DB_PRUNE_SAFETY_FAMILY, _shard_lists())
@@ -1756,3 +1762,12 @@ def test_generator_refuses_and_names_each_unreadable_input(tmp_path):
 def test_docs_only_transform_control_imports_without_judging_selection():
     subject = runpy.run_path(str(_DOCSONLY_GENERATOR))
     assert callable(subject.get("select_shards"))
+
+
+def test_every_gate_suites_shard_actually_runs_at_least_one_test():
+    """A shard with no suites is a job that reports GREEN having checked nothing."""
+    empty = sorted(name for name, suites in _shard_lists().items() if not suites)
+    assert not empty, (
+        "gate-suites matrix entries that execute no tests: " + ", ".join(empty) +
+        " -- delete the entry, or give it the suites it is meant to run; an empty shard is a "
+        "green job that checked nothing")

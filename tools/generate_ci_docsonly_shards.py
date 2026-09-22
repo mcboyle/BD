@@ -109,6 +109,13 @@ def _declared(repo: Path) -> set[str]:
                 if _get_scope(p) == "repo-wide":
                     derived.add(f"tests/{p.name}")
         declared = derived | non_derivable
+        pt_path = repo / "tests" / "PROCESS_TESTS.txt"
+        if pt_path.is_file():
+            process = {
+                line.strip() for line in pt_path.read_text("utf-8").splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            }
+            declared -= process
         if declared and all(isinstance(p, str) and p.startswith("tests/test") for p in declared):
             return declared
 
@@ -159,6 +166,9 @@ def _independent_test_shards(
     shards = {}
     for job_name, job in workflow["jobs"].items():
         if str(job_name) == matrix_job:
+            continue
+        job_if = str(job.get("if") or "")
+        if "schedule" in job_if and "pull_request" not in job_if:
             continue
         body = "\n".join(str(step.get("run", ""))
                          for step in (job.get("steps") or [])

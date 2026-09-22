@@ -2,8 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'train/**']
   pull_request:
+  schedule:
+    - cron: '17 3 * * *'
 
 # A newer push to the same ref supersedes the run in flight: cancel it so the
 # stale run stops competing for runners (GitHub and the local Gitea runner alike).
@@ -385,7 +387,6 @@ jobs:
               tests/test_row_version_at_land.py
           - name: toolchain
             suites: >-
-              tests/test_toolchain_534.py
               tests/test_row919.py
               tests/test_row698_corpus_guard_execution.py
               tests/test_row678_bandcheck_exclusion_tables.py
@@ -397,17 +398,12 @@ jobs:
               tests/test_row747_bd_band_delegation_is_guarded.py
               tests/test_row677_bandcheck_missing_is_unknown.py
               tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
-              tests/test_v3_66_1154_the_object_not_the_name.py
-              tests/test_v3_66_1145_step0_fails_closed.py
               tests/test_templates_list_identity.py
               tests/test_row323_census_pins_declare_expiry.py
               tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
               tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py
               tests/test_v3_66_1160_bridge_verifier_isolation.py
               tests/test_row350_job_api_durable_truth.py
-              tests/test_v3_66_1150_the_snapshot_is_really_sealed.py
-              tests/test_v3_66_1255_bd_fleet_measurements_fail_closed.py
-              tests/test_v3_66_1149_a_cut_never_deletes_the_operators_database.py
               tests/test_v3_66_1165_one_agent_contract.py
               tests/test_v3_66_1167_safety_authorities_are_single_source.py
               tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
@@ -416,7 +412,6 @@ jobs:
               tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
               tests/test_v3_66_1164_one_task_authority.py
               tests/test_row496_deferral_intake_reconciles_backlog.py
-              tests/test_v3_66_1151_the_snapshot_is_bound_to_a_descriptor.py
               tests/test_v3_66_1052_the_backlog_is_machine_visible.py
               tests/test_register_archive_holds_the_moved_rows.py
               tests/test_register_archive_frozen_pre_move_set.py
@@ -427,7 +422,6 @@ jobs:
               tests/test_row469_toolchain_denominator_import_control.py
               tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
               tests/test_v3_66_1161_context_census_is_retired.py
-              tests/test_failed_measurements_have_distinct_states.py
               tests/test_row345_opv_a11y_requires_served_cockpit.py
               tests/test_row_282_bd_opv_isolates_every_store.py
               tests/test_v3_66_1168_tests_are_current_contracts.py
@@ -436,19 +430,12 @@ jobs:
               tests/test_v3_66_1169_openapi_has_one_producer.py
               tests/test_v3_66_1171_backlog_truth_is_current.py
               tests/test_register_append.py
-              tests/test_v3_66_1152_a_failed_cleanup_fails_the_run.py
-              tests/test_v3_66_1142_fleet_run_is_hermetic.py
-              tests/test_register_content_amend.py
-              tests/test_v3_66_1153_deletion_is_bound_to_the_object.py
-              tests/test_v3_66_1158_fleet_provenance_fails_closed.py
               tests/test_v3_66_1170_claude_is_concise_authority.py
               tests/test_defect_scan_precision.py
               tests/test_v3_66_1173_gate_scope_debt_is_paid.py
-              tests/test_row313_bd_job_identity.py
               tests/test_register_closed_versions_exist.py
               tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py
               tests/test_v3_66_1157_build_output_is_from_this_attempt.py
-              tests/test_v3_66_1159_fleet_prune_is_object_bound.py
               tests/test_v3_66_1255_backlog_references_resolve.py
               tests/test_row661_low_disk_return_releases_egress.py
           # v3.66.1363 row 420. parity-graph was the CI critical path: 425s of a
@@ -493,7 +480,6 @@ jobs:
           - name: parity-static
             suites: >-
               tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
-              tests/test_v3_66_1217_a_fixture_is_not_wiring.py
               tests/test_v3_66_1225_spa_scanner_populations.py
               tests/test_no_raw_unicode_escape_in_jsx.py
               tests/test_gui_parity.py
@@ -508,7 +494,6 @@ jobs:
               tests/test_cockpit_route_contract.py
               tests/test_cockpit_navigation_contract.py
               tests/test_import_graph_no_new_edges.py
-              tests/test_v3_66_653_dep_freshness.py
               tests/test_row331_guarded_imports_are_declared.py
               tests/test_route_index_in_sync.py
               tests/test_row648_react_router_7_migration.py
@@ -530,15 +515,12 @@ jobs:
               tests/test_row1075_task_state_pause_drain_resumption.py
           - name: measurement-tools-core
             suites: >-
-              tests/test_v3_66_1044_run_context_and_chains.py
               tests/test_row753_a_run_records_its_own_outcome.py
               tests/test_row807_empty_stats_is_unknown_not_clean.py
               tests/test_row_289_inherited_signals_are_environment_identity.py
               tests/test_v3_66_1068_modwatch_measures_per_file.py
               tests/test_v3_66_1062_vision_probes_are_loadable_images.py
               tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
-              tests/test_v3_66_283_bd_claim_transactions.py
-              tests/test_v3_66_295_bd_claim_atomic_union.py
               tests/test_row883_flake_classifier.py
           # Backlog row 267. These application admission and integrity seams
           # are a safety boundary, so their direct unavailable-measurement
@@ -673,27 +655,17 @@ jobs:
           # under loadfile semantics but gets an independent runner.
           - name: measurement-isolation
             suites: >-
-              tests/test_v3_66_1046_gates_for_this_sessions_shapes.py
               tests/test_v3_66_1046_tool_state_1040.py
               tests/test_v3_66_1046_tool_state_1043.py
               tests/test_v3_66_1046_tool_state_1044.py
               tests/test_v3_66_1046_tool_state_1054.py
               tests/test_v3_66_1220_a_timeout_names_its_test.py
               tests/test_row_pytest_banners_only_on_failure.py
-          - name: jobs-registration
-            suites: >-
-              tests/test_v3_66_1040_remote_job_registry.py
-          - name: jobs-process-lifecycle
-            suites: >-
-              tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py
           # @1241 row 237. --dist loadfile hands one FILE to one worker, so
           # a single 174-node module is serial however many workers exist
           # and is the suite's long pole. The split halves it by measured
           # call time, and each half needs its own runner for the same
           # reason the comment above gives.
-          - name: jobs-registration-lifecycle
-            suites: >-
-              tests/test_v3_66_1132_the_hunt_reaps_registration_lifecycle.py
           # @1208. The heartbeat signal contract guards the boundary that made
           # all seven fleet captures fail at once, so CI must see it: it is a
           # module-scoped gate, and without an entry here a regression of
@@ -705,8 +677,6 @@ jobs:
             suites: >-
               tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py
               tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
-              tests/test_v3_66_1111_a_wedged_capture_lane_is_bounded.py
-              tests/test_u45_capture_sh_shipped.py
           # Row 728 (T3 security). The literal-pin behaviour -- resolve once,
           # connect to the vetted address with Host/SNI kept -- is asserted
           # only by test_row728_pinned_urllib.py, a module-scoped gate, so
@@ -724,7 +694,6 @@ jobs:
           - name: deploy-readiness
             suites: >-
               tests/test_install_source_coverage.py
-              tests/test_deploy_script.py
               tests/test_row697_deploy_unlock_pending_vault.py
               tests/test_row737_unreadable_hook_diagnostics.py
           # Rows 617/623/624/625/628/629/631. Secrets delete/probe state is a
@@ -742,9 +711,6 @@ jobs:
           # Row 344. This gate executes the destructive library function only
           # against fixture-owned trees and proves its caller-selected glob
           # cannot redirect pruning into a same-named decoy root.
-          - name: capture-prune-contract
-            suites: >-
-              tests/test_row344_capture_prune_is_target_bound.py
           # Row 613. These five module-scoped behavioural owners jointly guard
           # db_prune and the skip-identity/dedup seam. A changed-path band can
           # select them locally, but no PR shard did, so a revert of the
@@ -769,20 +735,12 @@ jobs:
               tests/test_row715_installer_refuses_a_foreign_directory.py
               tests/test_row718_installer_refuses_an_unwritable_install_dir.py
               tests/test_row089_capture_corpus_backup_restore.py
-              tests/test_row090_global_run_cap.py
               tests/test_row700_captcha_egress_disclosure.py
               tests/test_row817_astra_ack_consumption.py
               tests/test_row704_listing_routes_are_not_scenes.py
-          - name: jobs-determinism
-            suites: >-
-              tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py
-              tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py
-              tests/test_v3_66_1106_preflight_sees_scratch_and_orphans.py
-              tests/test_row312_bd_jobs_reap_holds_identity.py
           - name: provider-facade
             suites: >-
               tests/test_provider_resolve_surface_lock.py
-              tests/test_v3_66_1180_band_derivation_paths.py
           - name: mutation-tools
             suites: >-
               tests/test_row810_spec_collection_slice_0.py
@@ -791,8 +749,6 @@ jobs:
               tests/test_v3_66_1184_mutation_specs_are_tracked.py
               tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
               tests/test_cut_quality_permits.py
-              tests/test_v3_66_1188_bd_mutate_review_controls.py
-              tests/test_v3_66_1185_bd_mutate_emits_canonical_specs.py
               tests/test_row357_mutant_anchors_are_not_fragile.py
               tests/test_row470_corpus_tools_fail_closed.py
           - name: mutation-tools-b
@@ -803,21 +759,15 @@ jobs:
               tests/test_row810_spec_collection_slice_2.py
           - name: mutation-verifiers
             suites: >-
-              tests/test_v3_66_1190_bd_mutate_kills_process_tree.py
-              tests/test_v3_66_1186_bd_mutate_named_controls.py
               tests/test_row355_mutate_timing_is_schedule_stable.py
-              tests/test_v3_66_1187_bd_mutate_band_is_bounded.py
-              tests/test_backlog_27_bd_mutate_replays_fixture_controls.py
               tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
               tests/test_rowssrf_loopback_reason_is_structured.py
               tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py
               tests/test_row804_browser_redirect_bypasses_metadata_guard.py
               tests/test_row531_denominators_are_derived_not_pinned.py
-              tests/test_v3_66_1189_bd_mutate_durable_contract.py
           - name: isolation
             suites: >-
               tests/test_v3_66_1034_guards_survive_a_module_wipe.py
-              tests/test_v3_66_1031_socket_recorder_stages.py
               tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py
               tests/test_no_test_writes_the_repo_plugins_dir.py
               tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
@@ -841,7 +791,6 @@ jobs:
               tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
               tests/test_capture_execution_lanes.py
               tests/test_capture_shell_runtime.py
-              tests/test_v3_66_1079_capture_refuses_a_dirty_tree.py
               tests/test_row_285_deploy_fail_open.py
               tests/test_parallel_capture_services.py
               tests/test_row290_capture_serial_fixture_port.py
@@ -881,7 +830,6 @@ jobs:
               tests/test_row530_docs_only_lane_fails_closed.py
               tests/test_verify_lane_state_naming.py
               tests/test_history_file_size_is_the_size_on_disk.py
-              tests/test_cloud_setup_truthfulness.py
               tests/test_playwright_engines_single_source.py
               tests/test_row308_visual_audit_identity.py
               tests/test_row343_fresh_host_bringup.py
@@ -949,30 +897,18 @@ jobs:
               tests/test_desandbox_tool_verifiers.py
               tests/test_row243_registration_resolves_without_ambient_luck.py
               tests/test_row336_audit_and_scan_evidence.py
-              tests/test_row349_shared_caches_are_identity_bound.py
               tests/test_row473_register_tree_containment.py
               tests/test_row660_gate_is_read_only_over_generated_artifacts.py
           - name: artifacts-pins
             suites: >-
-              tests/test_generated_artifacts_are_not_tracked.py
-              tests/test_source_windows_do_not_shift.py
-              tests/test_pk_mirrors_stay_retired.py
               tests/test_authority_documents.py
               tests/test_changelog_draft_placeholder_is_refused.py
               tests/test_v3_66_1183_inv_tags_generated.py
-              tests/test_v3_66_1183_safe_temp_janitors.py
               tests/test_v3_66_1183_source_window_content.py
               tests/test_pin_index_in_sync.py
               tests/test_row387_ast_version_pin_guard.py
               tests/test_row1435_band_verdict_transfer.py
-              tests/test_all_sources_parse.py
-              tests/test_versync_gate.py
               tests/test_settings_center_slice4.py
-              tests/test_v3_66_799_audit_tool_selftests.py
-              tests/test_release_hygiene_gates.py
-              tests/test_row335_release_gate_populations.py
-              tests/test_row339_measurement_noise_bounds.py
-              tests/test_scan_version_pins_fixture.py
               tests/test_endpoint_catalog_in_sync.py
               tests/test_function_index_in_sync.py
               tests/test_route_map_invariant.py
@@ -980,6 +916,7 @@ jobs:
               tests/test_rows972_973_rendered_runtime_controls.py
               tests/test_rows972_973_rendered_proxy_forms.py
               tests/test_footgun_detectors_are_executed_by_ci.py
+              tests/test_all_sources_parse.py
     name: gate-suites (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4
@@ -1100,3 +1037,47 @@ jobs:
         #     reaches a gate that enumerates the tree.
         #   test_toolchain_534 -- carries the four tool selftests, the
         #     prose-only ratchet, and bd-freshcheck --repo-only.
+
+  # O934.1 (process-test-shard). REDUNDANCY-REPORT-2026-09-19T23:36:50Z.md and
+  # CEREMONY-CENSUS-*.md measured 210 precut runs going red on gates that never
+  # touch bulk_downloader -- register/harness/toolchain/git process rather than
+  # product behavior. gate-suites above is the hot, per-PR product lane; this
+  # job is the full tracked tree (all of it, not just tests/PROCESS_TESTS.txt,
+  # so a file the classification missed still gets a periodic run instead of
+  # silently falling out), run only nightly and on a release train branch,
+  # where the wall-clock cost of running everything is acceptable.
+  process-tests:
+    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/heads/train/')
+    runs-on: ubuntu-latest
+    # Sized from a measurement, not a guess (RULING-0045 / H674): the 56 declared
+    # PROCESS files summed to 772 s of per-test time (--durations=0, remote band
+    # 2026-09-22, bd-persist/harness-work/PLAN-2040/W27/process-tests-durations.md),
+    # i.e. ~13 min serial on a 64-core host. A 2-core hosted runner is taken at 2x
+    # (26 min); 45 min is that with headroom. The old 90 min cap was for
+    # `pytest tests/` over 1932 files, which the measured median (3.2 s/file,
+    # 103 min) could never fit -- coverage was dropped silently.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Run the declared PROCESS tests
+        # Only tests/PROCESS_TESTS.txt entries (the files demoted from the hot
+        # shards), and NO `-x`: the lane reports every red, not the first.
+        run: |
+          mapfile -t files < <(grep -v '^#' tests/PROCESS_TESTS.txt | grep -v '^[[:space:]]*$')
+          test "${#files[@]}" -gt 0
+          pytest "${files[@]}" --timeout=300 -q

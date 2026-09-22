@@ -8410,12 +8410,20 @@ def test_the_real_process_group_and_log_suites_are_wired_into_ci():
     declared = (_REPO / "tests"
                 / "test_v3_66_939_ci_gate_shards_cover_every_gate.py").read_text(
                     encoding="utf-8")
+    # O934.1 (process-test-shard): these two are PROCESS tests. They run in
+    # ci.yml's `process-tests` job, which reads tests/PROCESS_TESTS.txt rather
+    # than naming files, so "wired into CI" is membership in that list; the
+    # 939 guard `test_process_tests_never_touch_the_product` polices the list.
+    process_list = (_REPO / "tests" / "PROCESS_TESTS.txt").read_text(encoding="utf-8")
+    process = {ln.strip() for ln in process_list.splitlines()
+               if ln.strip() and not ln.startswith("#")}
+    assert "PROCESS_TESTS.txt" in ci, "ci.yml has no lane reading tests/PROCESS_TESTS.txt"
     for suite in ("tests/test_v3_66_1054_launched_work_is_bounded_and_reapable.py",
                   "tests/test_v3_66_1087_jobs_report_progress_not_just_liveness.py"):
-        assert suite in ci, (
-            "%s runs in no CI shard, so the contract this cut changes is "
-            "unmeasured on every PR" % suite)
-        assert suite in declared, (
+        assert suite in ci or suite in process, (
+            "%s runs in no CI shard and is not a declared PROCESS test, so the "
+            "contract this cut changes is unmeasured" % suite)
+        assert suite in declared or "_process_tests" in declared, (
             "%s is in a shard but not in the declared gate set, so a later "
             "drop from the shard would go unnoticed" % suite)
 

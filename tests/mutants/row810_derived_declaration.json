@@ -20,8 +20,8 @@
   {
    "label": "M2 the census forgets its derived half and keeps only the legacy remainder",
    "file": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py",
-   "old": "    return _derived_repo_wide() | _NON_DERIVABLE_DECLARED",
-   "new": "    return set(_NON_DERIVABLE_DECLARED)",
+   "old": "    return (_derived_repo_wide() | _NON_DERIVABLE_DECLARED) - _process_tests()",
+   "new": "    return _NON_DERIVABLE_DECLARED - _process_tests()",
    "direction": "regression",
    "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_a_marked_file_dropped_from_its_shard_fails_the_derived_gate"
   },
