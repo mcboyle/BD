@@ -6,7 +6,9 @@ Enforces zero external network egress beyond cluster LAN (10.0.70.0/24).
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict, dataclass
+import inspect
 import ipaddress
 import json
 import logging
@@ -216,8 +218,9 @@ def publish_download_completion(
     site_id: str,
     status: str,
     producer_factory: Callable[[dict[str, str]], Any] | None = None,
+    streamer: Optional[Any] = None,
 ) -> bool:
-    """Queue a completion record without letting producer failures block downloads."""
+    """Queue or stream a completion record without letting producer failures block downloads."""
     if not site_config.get("kafka_event_streaming_enabled", False):
         return False
 
@@ -233,6 +236,256 @@ def publish_download_completion(
         status=str(status),
     ).to_json().encode("utf-8")
 
-    factory = producer_factory or _default_producer
+    # Row 975: Route via modern streamer if explicitly passed
+    if streamer is not None:
+        try:
+            if hasattr(streamer, "publish"):
+                # FastStreamKafkaAdapter routing
+                asyncio.run(streamer.publish(KAFKA_TOPIC, payload))
+                return True
+            if hasattr(streamer, "send"):
+                # AIOKafkaEventStreamer routing
+                asyncio.run(streamer.send(KAFKA_TOPIC, payload))
+                return True
+        except Exception as exc:
+            logger.debug("Modern streamer delivery failed: %s", exc)
+            return False
 
+    # Row 975: Route via modern AIOKafkaEventStreamer if configured
+    if site_config.get("use_async_streamer", False) or site_config.get("kafka_streaming_mode") == "async":
+        try:
+            stream_client = AIOKafkaEventStreamer(
+                bootstrap_servers=bootstrap_env,
+                producer_factory=producer_factory,
+            )
+            asyncio.run(stream_client.send(KAFKA_TOPIC, payload))
+            return True
+        except Exception as exc:
+            logger.debug("AIOKafka streamer execution failed: %s", exc)
+            return False
+
+    factory = producer_factory or _default_producer
     return _publisher_singleton.enqueue(factory, config, payload)
+
+
+def get_streaming_client_metadata() -> dict[str, Any]:
+    """Metadata describing modernized async event streaming capabilities (O1224)."""
+    aiokafka_available = False
+    try:
+        import aiokafka  # noqa: F401
+        aiokafka_available = True
+    except ImportError:
+        aiokafka_available = False
+
+    faststream_available = False
+    try:
+        import faststream  # noqa: F401
+        faststream_available = True
+    except ImportError:
+        faststream_available = False
+
+    return {
+        "aiokafka_capable": aiokafka_available,
+        "faststream_adapter": faststream_available,
+        "cluster_lan_fenced": True,
+        "schema_version": SCHEMA_VERSION,
+        "backend": "aiokafka" if aiokafka_available else "fallback",
+    }
+
+
+
+class _FallbackAIOKafkaProducer:
+    """Coroutine-native fallback producer when aiokafka is not installed. Never reports false success (O1224)."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.started = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def stop(self) -> None:
+        self.started = False
+
+    async def send_and_wait(self, topic: str, value: bytes) -> None:
+        raise RuntimeError("aiokafka is not installed; async Kafka event streaming unavailable")
+
+    async def send(self, topic: str, value: bytes) -> None:
+        raise RuntimeError("aiokafka is not installed; async Kafka event streaming unavailable")
+
+
+class AIOKafkaEventStreamer:
+    """Asynchronous, LAN-fenced Kafka event streaming client."""
+
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        producer_factory: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        config = kafka_producer_config(bootstrap_servers)
+        if config is None:
+            raise ValueError(
+                f"Cluster LAN fence violation: Refusing connection to non-LAN broker {bootstrap_servers}"
+            )
+        self.bootstrap_servers = bootstrap_servers
+        self._producer_factory = producer_factory
+        self._producer: Optional[Any] = None
+        self._is_running = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def _create_producer(self) -> Any:
+        _install_lan_socket_fence()
+        if self._producer_factory is not None:
+            return self._producer_factory(bootstrap_servers=self.bootstrap_servers)
+        try:
+            from aiokafka import AIOKafkaProducer
+            return AIOKafkaProducer(bootstrap_servers=self.bootstrap_servers)
+        except ImportError:
+            return _FallbackAIOKafkaProducer(bootstrap_servers=self.bootstrap_servers)
+
+    async def start(self) -> None:
+        if self._is_running:
+            return
+        if self._producer is None:
+            self._producer = self._create_producer()
+        if hasattr(self._producer, "start"):
+            res = self._producer.start()
+            if inspect.isawaitable(res):
+                await res
+        self._is_running = True
+
+    async def stop(self) -> None:
+        if not self._is_running:
+            return
+        self._is_running = False
+        if self._producer is not None:
+            if hasattr(self._producer, "stop"):
+                res = self._producer.stop()
+                if inspect.isawaitable(res):
+                    await res
+            self._producer = None
+
+    async def __aenter__(self) -> "AIOKafkaEventStreamer":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.stop()
+
+    async def send(self, topic: str, value: bytes) -> None:
+        if not self._is_running:
+            await self.start()
+        if self._producer is None:
+            raise RuntimeError("aiokafka producer is not initialized")
+        if isinstance(self._producer, _FallbackAIOKafkaProducer):
+            raise RuntimeError("aiokafka is not installed; async Kafka event streaming unavailable")
+        if hasattr(self._producer, "send_and_wait"):
+            res = self._producer.send_and_wait(topic, value)
+            if inspect.isawaitable(res):
+                await res
+        elif hasattr(self._producer, "send"):
+            res = self._producer.send(topic, value)
+            if inspect.isawaitable(res):
+                await res
+
+
+class FastStreamKafkaAdapter:
+    """FastStream-compatible broker adapter with topic subscriptions and async routing."""
+
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        producer_factory: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        self.streamer = AIOKafkaEventStreamer(
+            bootstrap_servers=bootstrap_servers,
+            producer_factory=producer_factory,
+        )
+        self._subscribers: dict[str, list[Callable[..., Any]]] = {}
+
+    def subscriber(self, topic: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def decorator(handler: Callable[..., Any]) -> Callable[..., Any]:
+            self._subscribers.setdefault(topic, []).append(handler)
+            return handler
+        return decorator
+
+    async def publish(self, topic: str, message: Any) -> None:
+        if isinstance(message, bytes):
+            payload = message
+            try:
+                decoded = json.loads(message.decode("utf-8"))
+            except Exception:
+                decoded = None
+        elif isinstance(message, str):
+            payload = message.encode("utf-8")
+            try:
+                decoded = json.loads(message)
+            except Exception:
+                decoded = message
+        else:
+            payload = json.dumps(message).encode("utf-8")
+            decoded = message
+
+        await self.streamer.send(topic, payload)
+
+        handlers = self._subscribers.get(topic, [])
+        for handler in handlers:
+            arg = decoded if decoded is not None else payload
+            res = handler(arg)
+            if inspect.isawaitable(res):
+                await res
+
+    async def start(self) -> None:
+        await self.streamer.start()
+
+    async def stop(self) -> None:
+        await self.streamer.stop()
+
+    async def __aenter__(self) -> "FastStreamKafkaAdapter":
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.stop()
+
+
+async def async_publish_download_completion(
+    site_config: dict[str, Any],
+    *,
+    downloaded_bytes: int,
+    duration_seconds: float,
+    site_id: str,
+    status: str,
+    streamer: Optional[Any] = None,
+) -> bool:
+    """Asynchronously publish download completion event via LAN-fenced streamer."""
+    if not site_config.get("kafka_event_streaming_enabled", False):
+        return False
+
+    bootstrap_env = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "")
+    if streamer is None:
+        if not bootstrap_env or kafka_producer_config(bootstrap_env) is None:
+            return False
+        try:
+            streamer = AIOKafkaEventStreamer(bootstrap_servers=bootstrap_env)
+        except Exception:
+            return False
+
+    payload = DownloadCompletionEvent(
+        downloaded_bytes=max(0, int(downloaded_bytes)),
+        duration_seconds=max(0.0, float(duration_seconds)),
+        site_id=str(site_id),
+        status=str(status),
+    ).to_json().encode("utf-8")
+
+    try:
+        if not getattr(streamer, "is_running", True):
+            await streamer.start()
+        await streamer.send(KAFKA_TOPIC, payload)
+        return True
+    except Exception as e:
+        logger.debug("Async Kafka event publish failed: %s", e)
+        return False

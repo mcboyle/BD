@@ -249,7 +249,20 @@ def bundle(s_cfg: Optional[dict] = None,
                 snapshot["subsystems"][mod_name] = "loaded"
         except Exception:
             snapshot["subsystems"][mod_name] = False
+
+    # Row 975: Real-Time Event Streaming Client Metadata
+    snapshot["streaming_metadata"] = _capture_streaming_metadata()
     return snapshot
+
+
+def _capture_streaming_metadata() -> dict:
+    """Capture event streaming client capability metadata (Row 975)."""
+    try:
+        from .events import get_streaming_client_metadata
+        return get_streaming_client_metadata()
+    except Exception:
+        return {"aiokafka_capable": False, "faststream_adapter": False, "status": "unavailable"}
+
 
 
 def bundle_as_zip(dest_path: str, *,
