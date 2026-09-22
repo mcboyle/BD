@@ -4,6 +4,10 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1631 - train56: rows 989/1044/1067 plus process-test-shard, cx-h635-main-guard
+
+Base 917bd6a2a (v3.66.1630). Five cuts, three numbered rows closed.
+
 ## v3.66.1630 - train55: rows 978/996/1006/1013/1027/1055 plus cx-sweep9
 
 Base 5880aa859 (v3.66.1629). Seven cuts, six numbered rows closed.

@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=101 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=98 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -377,7 +377,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
 | 987 | OPEN | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
 | 988 | OPEN | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
-| 989 | OPEN | INTER-SEAT-IPC-LATENCY-MATRIX-CLOCK-SKEW-MONITOR -- Inter-Seat IPC Latency Matrix & Clock Skew Monitor |
+| 989 | CLOSED @1631 | INTER-SEAT-IPC-LATENCY-MATRIX-CLOCK-SKEW-MONITOR -- Inter-Seat IPC Latency Matrix & Clock Skew Monitor |
 | 990 | OPEN | QUEUE-STARVATION-PRIORITY-INVERSION-VISUALIZER -- Queue Starvation & Priority Inversion Visualizer |
 | 991 | OPEN | RESOURCE-QUOTA-BUDGET-FILE-DESCRIPTOR-UTILIZATION-GAUGE -- Resource Quota Budget & File Descriptor Utilization Gauge |
 | 992 | OPEN | HIGH-RESOLUTION-SOCKET-I-O-ACCOUNTING-MICROSECOND-LATENCY-TRACKER -- High-Resolution Socket I/O Accounting & Microsecond Latency Tracker |
@@ -432,7 +432,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1041 | OPEN | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
 | 1042 | OPEN | MULTI-SEGMENT-MEDIA-KEY-FETCHING-PAYLOAD-ASSEMBLER -- Multi-Segment Media Key Fetching & Payload Assembler |
 | 1043 | OPEN | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
-| 1044 | OPEN | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
+| 1044 | CLOSED @1631 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
 | 1045 | OPEN | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
 | 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
 | 1047 | OPEN | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
@@ -455,7 +455,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | OPEN | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
-| 1067 | OPEN | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
+| 1067 | CLOSED @1631 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
 | 1068 | OPEN | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
 | 1069 | OPEN | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
 | 1070 | OPEN | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
