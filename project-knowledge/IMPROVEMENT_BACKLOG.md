@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=79 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=78 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -406,7 +406,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1015 | OPEN | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
 | 1016 | CLOSED @1633 | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
 | 1017 | OPEN | MULTI-TRACK-AUXILIARY-TEXT-CHAPTER-ANNOTATION-INGESTION -- Multi-Track Auxiliary Text & Chapter Annotation Ingestion |
-| 1018 | OPEN | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
+| 1018 | CLOSED @1634 | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
 | 1019 | OPEN | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
 | 1020 | OPEN | MONOLITHIC-GATEWAY-DECOMPOSITION-DYNAMIC-BLUEPRINT-REGISTRATION-ENGINE-ROUTEREGISTRY -- Monolithic Gateway Decomposition & Dynamic Blueprint Registration Engine (RouteRegistry) |
 | 1021 | OPEN | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
