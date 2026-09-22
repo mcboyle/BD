@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4922,
+  "edge_count": 4925,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1205,6 +1205,7 @@
       "bulk_downloader/hot_write_buffer.py",
       "bulk_downloader/library.py",
       "bulk_downloader/log.py",
+      "bulk_downloader/orm_engine.py",
       "bulk_downloader/pg_backend.py",
       "bulk_downloader/staging_ingest.py"
     ],
@@ -4075,6 +4076,10 @@
     "tests/test_row1016_queue_bulk_upsert_wired.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_row1018_sqlalchemy2_async_cutover.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/orm_engine.py"
     ],
     "tests/test_row1025_db_connection_lifecycle_traps.py": [
       "bulk_downloader/db.py"

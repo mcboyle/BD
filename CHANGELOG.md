@@ -4,9 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1634 - train62: row989, row1067 and row1074
+## v3.66.1634 - train62: row989, row1067, row1074 and row1018
 
-Base 5f74ea9c2 (v3.66.1633). Three cuts, each boarded at their INDEX tree by two seats.
+Base 5f74ea9c2 (v3.66.1633). Four cuts, each boarded at their INDEX tree by two seats.
 
 - row989-ipc-latency-skew: inter-seat IPC latency matrix (bulk_downloader/ipc_latency.py),
   wired into the product caller service_mesh.route_service -> record_ipc_ping, with the
@@ -20,8 +20,11 @@ Base 5f74ea9c2 (v3.66.1633). Three cuts, each boarded at their INDEX tree by two
 - row1074-ebpf-memory-arena-compactor: memory arena compactor (bulk_downloader/arena_compactor.py)
   exposed through dev_suite/introspection. Quorum: bd-agy-lens-c3 and bd-agy-review-correctness2
   at INDEX tree 1ba0cc8f.
-- register: rows 989, 1067 and 1074 CLOSED @1634; marker re-derived, open 82 -> 79, rows and
-  ids-sha256 unchanged.
+- row1018-sqlalchemy-async-engine: SQLAlchemy 2.0 async engine seam (bulk_downloader/orm_engine.py)
+  behind db.py; sqlalchemy and aiosqlite declared in requirements.txt and requirements-test.txt.
+  Quorum: bd-agy-lens-c3 and bd-review-correctness-N2-B at INDEX tree db215059.
+- register: rows 989, 1067, 1074 and 1018 CLOSED @1634; marker re-derived, open 82 -> 78,
+  rows and ids-sha256 unchanged.
 
 ## v3.66.1633 - train61: row1016, process-test-shard, and the register sweep
 
