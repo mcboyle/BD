@@ -4,6 +4,39 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1619 - train42: stray-alert rearm guard, config-surface classifier, GUI-parity ratchet re-pin
+
+Base 14895ffda (v3.66.1618). Two members, disjoint over 6 authored paths.
+
+- h621-config-classifier r4, T2, tree 3fdca3b1. QUORUM: BOARD bd-review-correctness-B4 + BOARD
+  bd-review-correctness-B1, both naming that tree. Implements RULING-h621-display-and-972-973-E1
+  R1 and R2: tools/config_surface_inventory.py stops counting deploy-only keys as display debt, and
+  the consumer contract derives its open set from the manifest FILE instead of a hardcoded pair.
+  test_v3_66_312_parity_abc.py 10/10 and 319::test_display_open_still_zero are GREEN; on r3 both
+  read `4 == 0`.
+- cx-h635-main-guard, tree 244cc5f3, BOARD bd-agy-lens-c3. The stray-set alert is serialized and
+  remembers what it already delivered, so one stray set alerts once and rearms only after a clean
+  pass; a failed delivery still retries. tests/test_h635_main_guard_alerts.py 6 passed, negative
+  control rc=1 DUPLICATE-ALERT. This cut declares no tier (DERIVED-NONE) and holds one lens.
+
+GUI-PARITY RATCHET RE-PINNED, 0 -> 2, per O1186's fallback for h621 landing without rows 972-973
+(PLAN-2040/ORDERS-0025.md V1). reports/config_parity_baseline.json open_count 0 -> 2 with the two
+keys named rather than left implicit: BD_HTTP_PROXY and turnstile_one_click_enabled. The value is
+measured from the assembled tree (csi.build -> open_runtime_tunable == 2), not asserted. The pin
+was previously 0 while the true count was 8, so this makes the ratchet honest and tighter than the
+count it was silently failing against; rows 972-973 take it to 0.
+
+MEASURED, base-subtracted: tests/test_v3_66_305_config_danger.py +
+tests/test_v3_66_319_env_tranche_4_3d.py go from 2 failed / 6 passed on base 6b20f32f1 to 1 failed /
+7 passed here. The remaining red, 319::test_no_open_env_vars_remain, is BD_HTTP_PROXY and closes
+when rows 972-973 land (O1010 / FG-ENV-TRANCHE, the class train41 rode).
+
+row974 asgi-cutover was PULLED from this train before freezing, per RULING-row974-contested.md
+(O1218): its REFUTE from bd-review-correctness-B6-B carries reproduced HIGH findings that the two
+BOARDs' mutants do not reach. The train was refrozen without it and was not widened.
+
+Register: no row closes here. Rows 974+ are not yet promoted; that is the ROW-974-1078 register cut.
+
 ## v3.66.1618 - train41: template onboarding no longer picks the login page; row 971 closed
 
 Train: 1 refute-first-reviewed worker patch (3 lens BOARDs @ tree e036dcf4; the earlier tree aed33e52
