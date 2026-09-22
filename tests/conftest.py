@@ -769,6 +769,18 @@ def pytest_collection_modifyitems(items):
         item.add_marker(getattr(pytest.mark, f"capture_{lane}"))
 
 
+def pytest_pyfunc_call(pyfuncitem):
+    """Row 1069: Enforce strict lifecycle asynchronous testing suite standard."""
+    import inspect
+    if inspect.iscoroutinefunction(pyfuncitem.obj):
+        import importlib
+        async_mod = importlib.import_module("bulk_downloader.async_testing")
+        testargs = {arg: pyfuncitem.funcargs[arg] for arg in pyfuncitem._fixtureinfo.argnames}
+        async_mod.run_strict_async(pyfuncitem.obj(**testargs))
+        return True
+    return None
+
+
 
 # --- ITEM 48: a session guard must survive a sys.modules wipe ----------------
 #

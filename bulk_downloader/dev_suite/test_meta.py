@@ -753,3 +753,17 @@ def test_timing(results_path=None, top=30):
         "by_file": by_file,
         "verdict": verdict,
     }
+
+
+def get_async_test_suite_standard():
+    """Row 1069: Retrieve strict asynchronous testing suite standard."""
+    import importlib
+    mod = importlib.import_module("bulk_downloader.async_testing")
+    std = mod.get_async_test_standard()
+    return {
+        "tool": "async_test_standard",
+        "ok": True,
+        **std.to_dict(),
+    }
+
+
