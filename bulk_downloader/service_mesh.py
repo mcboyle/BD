@@ -4,6 +4,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import time
 from collections.abc import Callable, Mapping
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -96,6 +97,7 @@ def route_service(service: str):
     for route, base_url, headers in candidates:
         if not isinstance(base_url, str) or not base_url.startswith("http://"):
             continue
+        t0 = time.monotonic_ns()
         try:
             result = transport(f"{base_url.rstrip('/')}{path}", headers=headers, payload=payload)
         except HTTPError as err:
@@ -108,10 +110,20 @@ def route_service(service: str):
             return jsonify({"error": "unknown service or invalid path"}), 400
         except OSError:
             continue  # URLError / socket errors / RouteUnavailable: the route is down, try the next
+        t3 = time.monotonic_ns()
+        midpoint = t0 + (t3 - t0) // 2
+        from bulk_downloader.ipc_latency import record_ipc_ping
+        sample = record_ipc_ping(
+            sender_seat="gateway",
+            receiver_seat=service,
+            t0_ns=t0, t1_ns=midpoint, t2_ns=midpoint, t3_ns=t3,
+        )
         status = int(result.get("status", 200))
         if status in FAILOVER_STATUSES:
             continue
-        return jsonify({"route": route, "body": result.get("body")}), status
+        resp = jsonify({"route": route, "body": result.get("body")})
+        resp.headers["X-IPC-Sample"] = json.dumps(sample.to_dict())
+        return resp, status
     return jsonify({"error": "all service routes are unavailable"}), 503
 
 
@@ -121,3 +133,19 @@ def register_service_mesh(app) -> int:
         return 0
     app.register_blueprint(service_mesh_bp)
     return 1
+
+
+def record_service_mesh_ipc_sample(
+    sender_seat: str,
+    receiver_seat: str,
+    t0_ns: int,
+    t1_ns: int,
+    t2_ns: int,
+    t3_ns: int,
+) -> dict:
+    """Record inter-seat IPC latency sample for mesh routing."""
+    from bulk_downloader.ipc_latency import record_ipc_ping
+
+    sample = record_ipc_ping(sender_seat, receiver_seat, t0_ns, t1_ns, t2_ns, t3_ns)
+    return sample.to_dict()
+
