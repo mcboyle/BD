@@ -135,11 +135,80 @@ def audit_log(source: str, action: str, target: str,
                 " before, after, actor) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (time.time(), source, action, target,
                  _serialize(before), _serialize(after), actor))
-            return cur.lastrowid
+            row_id = cur.lastrowid
     except Exception:
         # Can't safely use the logger here (circular import risk during
         # early boot). Silently swallow.
         return None
+    # row1002: mirror the row into the process's signed provenance chain so
+    # a later edit or deletion of audit_log rows is detectable against the
+    # chain head. Same best-effort contract: never raises, never blocks the
+    # write it records.
+    try:
+        from .log import record_audit_provenance_event
+        record_audit_provenance_event(
+            f"AUDIT:{action}",
+            {"id": row_id, "source": source, "target": target, "actor": actor})
+    except Exception:
+        pass
+    return row_id
+
+
+def audit_chain_status() -> dict:
+    """Head + self-verification of the signed audit chain for /api/audit/recent.
+    Fail-closed: an unavailable chain reports valid=False, never absent.
+    state: VERIFIED (history anchored in both the file store and the DB),
+    NEW_CHAIN (genesis only and no DB anchor: a first run -- or a wipe of
+    everything; never a bare valid=True), MISMATCH / INVALID otherwise."""
+    try:
+        from .log import audit_chain_anchor, audit_chain_db_anchor, get_audit_provenance_chain
+        chain = get_audit_provenance_chain()
+        # row1002 H1: verify against the persisted anchor, so a chain file
+        # truncated or rewritten between restarts reads invalid here.
+        anchor = audit_chain_anchor()
+        res = chain.verify_chain(expected_head=anchor)
+        errors = list(res.errors)
+        db_anchor = audit_chain_db_anchor()
+        if db_anchor is None:
+            state = "NEW_CHAIN" if res.block_count == 1 else "UNANCHORED"
+            if state == "UNANCHORED":
+                errors.append(f"DB_ANCHOR_MISSING: {res.block_count} blocks on disk, "
+                              "none mirrored in the history DB")
+        elif db_anchor != (res.head_hash, res.block_count):
+            # row1002 r3: the file store was wiped or rolled back behind the DB
+            state = "MISMATCH"
+            errors.append(f"ANCHOR_MISMATCH: DB head {db_anchor[0][:12]} ({db_anchor[1]} blocks) != "
+                          f"store head {res.head_hash[:12]} ({res.block_count} blocks)")
+        else:
+            state = "VERIFIED"
+        audit_blocks = sum(1 for b in chain.blocks if b.event_type.startswith("AUDIT:"))
+        db_query_ok = False
+        try:
+            _ensure_schema()
+            with db_conn() as cx:
+                audit_rows = cx.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+            db_query_ok = True
+        except Exception as exc:
+            audit_rows = -1
+            state = "UNVERIFIABLE"
+            errors.append(f"AUDIT_COUNT_UNAVAILABLE: {type(exc).__name__}")
+        if db_query_ok and audit_blocks != audit_rows and state not in ("MISMATCH", "UNANCHORED"):
+            if audit_blocks < audit_rows:
+                state = "GAPPED"
+                errors.append(f"PROVENANCE_GAP: {audit_blocks} chain blocks for "
+                              f"{audit_rows} audit rows")
+            else:
+                state = "GAPPED"
+                errors.append(f"AUDIT_ROWS_MISSING: {audit_blocks} chain blocks but "
+                              f"only {audit_rows} audit rows in DB")
+        valid = res.valid and not errors
+        return {"block_count": res.block_count, "head_hash": res.head_hash,
+                "anchor": anchor, "state": state if valid or state in ("MISMATCH", "GAPPED", "UNVERIFIABLE") else "INVALID",
+                "valid": valid, "errors": errors[:5]}
+    except Exception as e:
+        return {"block_count": 0, "head_hash": "", "anchor": "", "state": "UNAVAILABLE",
+                "valid": False, "errors": [f"{type(e).__name__}: {e}"[:200]]}
+
 
 
 def audit_recent(limit: int = 100) -> list[dict]:

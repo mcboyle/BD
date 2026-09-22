@@ -27,9 +27,13 @@ Why not just use logging.getLogger() directly:
 """
 import contextlib
 import contextvars
+import json
+import os
 import logging
 import logging.handlers
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -264,3 +268,129 @@ def site_tag(site_id: str = "") -> str:
     """
     sid = str(site_id or _LOGIN_SITE_ID.get() or "").strip()
     return f"[{sid}] " if sid else ""
+
+
+_GLOBAL_AUDIT_CHAIN = None
+_GLOBAL_AUDIT_SIGNER = None
+_GLOBAL_AUDIT_STATE = None      # (key_path, chain_path, head_path) the chain was loaded from
+_GLOBAL_AUDIT_LOCK = threading.Lock()
+# row1002 H1: the chain, its signer key and the head anchor live next to the
+# history database so they survive a restart. audit_chain.jsonl is append-only
+# (one block per line); audit_chain.head is the anchor audit_chain_status()
+# verifies against; audit_chain.key is the raw Ed25519 seed (0600).
+AUDIT_CHAIN_FILES = ("audit_chain.key", "audit_chain.jsonl", "audit_chain.head")
+
+
+def audit_chain_paths() -> tuple:
+    """Where the signed audit chain persists: beside the resolved DB path."""
+    from . import db as _db
+    base = Path(_db._resolve_db_path()).resolve().parent
+    return tuple(base / name for name in AUDIT_CHAIN_FILES)
+
+
+def _load_or_create_signer(key_path: Path, signer_id: str):
+    from .signature_chains import AuditSigner, create_audit_signer
+    if key_path.exists():
+        return AuditSigner.from_private_key_bytes(signer_id, key_path.read_bytes())
+    signer = create_audit_signer(signer_id)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(key_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(signer.private_key_bytes())
+    return signer
+
+
+def _load_or_create_chain(chain_path: Path, head_path: Path, signer):
+    from .signature_chains import ProvenanceBlock, create_provenance_chain
+    if chain_path.exists():
+        chain = create_provenance_chain()          # no genesis: blocks come from disk
+        chain.register_verifier(_verifier_for(signer))
+        with chain_path.open("r", encoding="utf-8") as fh:
+            chain.blocks = [ProvenanceBlock.from_dict(json.loads(line))
+                            for line in fh if line.strip()]
+        return chain
+    chain = create_provenance_chain(signer=signer)
+    _persist_block(chain_path, head_path, chain.blocks[0], chain.head_hash)
+    return chain
+
+
+def _verifier_for(signer):
+    from .signature_chains import AuditVerifier
+    return AuditVerifier(signer.signer_id, public_key_bytes=signer.public_key_bytes)
+
+
+def _persist_block(chain_path: Path, head_path: Path, block, head_hash: str) -> None:
+    chain_path.parent.mkdir(parents=True, exist_ok=True)
+    with chain_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(block.to_dict(), sort_keys=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp = head_path.with_suffix(".head.tmp")
+    tmp.write_text(head_hash, encoding="utf-8")
+    os.replace(tmp, head_path)
+
+
+def get_audit_provenance_chain(signer_id: str = "default-auditor"):
+    """The process-wide signed audit chain, loaded from (or created at)
+    audit_chain_paths(). audit.audit_log() mirrors every audit row into it;
+    /api/audit/recent reports its head. A DB path change (tests) reloads."""
+    global _GLOBAL_AUDIT_CHAIN, _GLOBAL_AUDIT_SIGNER, _GLOBAL_AUDIT_STATE
+    paths = audit_chain_paths()
+    with _GLOBAL_AUDIT_LOCK:
+        if _GLOBAL_AUDIT_CHAIN is None or _GLOBAL_AUDIT_STATE != paths:
+            key_path, chain_path, head_path = paths
+            _GLOBAL_AUDIT_SIGNER = _load_or_create_signer(key_path, signer_id)
+            _GLOBAL_AUDIT_CHAIN = _load_or_create_chain(chain_path, head_path, _GLOBAL_AUDIT_SIGNER)
+            _GLOBAL_AUDIT_STATE = paths
+        return _GLOBAL_AUDIT_CHAIN
+
+
+def audit_chain_anchor() -> str:
+    """The persisted head anchor ('' when none), read fresh from disk."""
+    head_path = audit_chain_paths()[2]
+    try:
+        return head_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+# row1002 r3 (B7-B): the file anchor lives beside the chain it anchors, so a
+# wipe of the whole directory would read as a fresh first run. The head is
+# therefore ALSO mirrored into the history DB on every append; the two
+# anchors cross-check and a wipe of either side is a mismatch, not a reset.
+_ANCHOR_DDL = ("CREATE TABLE IF NOT EXISTS audit_chain_anchor("
+               "id INTEGER PRIMARY KEY CHECK (id = 1), head_hash TEXT NOT NULL, "
+               "block_count INTEGER NOT NULL, updated_at REAL NOT NULL)")
+
+
+def _mirror_anchor_to_db(head_hash: str, block_count: int) -> None:
+    from . import db as _db
+    with _db.db_conn() as cx:
+        cx.execute(_ANCHOR_DDL)
+        cx.execute("INSERT INTO audit_chain_anchor(id, head_hash, block_count, updated_at) "
+                   "VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET head_hash=excluded.head_hash, "
+                   "block_count=excluded.block_count, updated_at=excluded.updated_at",
+                   (head_hash, int(block_count), time.time()))
+
+
+def audit_chain_db_anchor():
+    """(head_hash, block_count) mirrored in the history DB, or None when the
+    DB has never seen a chain (first run)."""
+    from . import db as _db
+    with _db.db_conn() as cx:
+        cx.execute(_ANCHOR_DDL)
+        row = cx.execute("SELECT head_hash, block_count FROM audit_chain_anchor WHERE id = 1").fetchone()
+    return (str(row[0]), int(row[1])) if row else None
+
+
+def record_audit_provenance_event(event_type: str, payload: dict, signer=None):
+    """Append a signed block to the global chain and persist it. Signed by the
+    chain's own signer unless one is given; a per-event throwaway signer would
+    leave a block no verifier can vouch for (row1002 F1)."""
+    chain = get_audit_provenance_chain()
+    with _GLOBAL_AUDIT_LOCK:
+        block = chain.append_event(event_type, payload, signer or _GLOBAL_AUDIT_SIGNER)
+        _key, chain_path, head_path = _GLOBAL_AUDIT_STATE
+        _persist_block(chain_path, head_path, block, chain.head_hash)
+        _mirror_anchor_to_db(chain.head_hash, len(chain.blocks))
+        return block

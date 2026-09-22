@@ -20,7 +20,10 @@ def api_audit_recent():
     except ValueError:
         limit_int = 100
     rows = _audit.audit_recent(limit_int)
-    return jsonify({"ok": True, "rows": rows, "count": len(rows)})
+    # row1002: the signed chain's head rides along so the operator can pin it
+    # out of band (verify_chain(expected_head=...)) and see truncation.
+    return jsonify({"ok": True, "rows": rows, "count": len(rows),
+                    "chain": _audit.audit_chain_status()})
 
 
 @audit_bp.route("/api/audit/for_target")
