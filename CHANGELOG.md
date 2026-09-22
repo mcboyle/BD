@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1636 - train64: h686, row1011, row1069
+
+Base 25245209 (v3.66.1635). Three cuts, each with a Claude correctness BOARD at its INDEX tree
+(POLICY-0010). h686 is a harness cut with no register row. Dropped from this train after CI:
+row1021 (runner.py line pins), row1046 (mutant anchor M3), row1064 (BD_PACER_LOAD env tranche);
+all three bounced to workers for T66.
+
+- h686-appsafety-hang: the application-safety hang fix, tests/test_row1025_db_connection_lifecycle_traps.py
+  only (H686). Quorum: bd-agy-lens-c3 and bd-agy-lens-F2-B at 0bee77ed (ordered first by the PM).
+- row1011-mmap-page-cache-autotuner: mmap page-cache autotuner (bulk_downloader/mmap_autotuner.py) behind db.py.
+  BOARD: bd-review-correctness-N2-B and bd-agy-review-correctness2 at 86099899.
+- row1069-async-testing-suite-standard: async testing standard (async_testing.py, dev_suite/test_meta.py,
+  tests/conftest.py). BOARD: bd-review-correctness-A and bd-agy-lens-c2 at 470aecd4.
+- register: rows 1011 and 1069 CLOSED @1636; marker re-derived, open 70 -> 68, rows and ids-sha256 unchanged.
+
 ## v3.66.1635 - train63: row980, row1043, row1039, row1045, registrar dispositions
 
 Base a8f1d8162 (v3.66.1634). Four cuts, each boarded at its INDEX tree by two seats, plus four

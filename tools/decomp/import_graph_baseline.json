@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4936,
+  "edge_count": 4941,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1205,6 +1205,7 @@
       "bulk_downloader/hot_write_buffer.py",
       "bulk_downloader/library.py",
       "bulk_downloader/log.py",
+      "bulk_downloader/mmap_autotuner.py",
       "bulk_downloader/orm_engine.py",
       "bulk_downloader/pg_backend.py",
       "bulk_downloader/staging_ingest.py"
@@ -4075,6 +4076,10 @@
       "bulk_downloader/tls_session_cache.py",
       "bulk_downloader/urllib_ssrf.py"
     ],
+    "tests/test_row1011_mmap_page_cache_autotuner.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/mmap_autotuner.py"
+    ],
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
@@ -4092,7 +4097,8 @@
       "bulk_downloader/orm_engine.py"
     ],
     "tests/test_row1025_db_connection_lifecycle_traps.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/db_lifecycle.py"
     ],
     "tests/test_row1027_egress_transport_unification.py": [
       "bulk_downloader/discovery.py",
@@ -4149,6 +4155,9 @@
     "tests/test_row1067_mptcp_subflow_negotiation.py": [
       "bulk_downloader/mptcp_subflow.py",
       "bulk_downloader/multi_conn.py"
+    ],
+    "tests/test_row1069_async_testing_suite_standard.py": [
+      "bulk_downloader/async_testing.py"
     ],
     "tests/test_row1070_pillow_image_engine_hardening.py": [
       "bulk_downloader/ffmpeg_bin.py",

@@ -2396,7 +2396,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1865,
+    "edge_count": 1866,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4224,6 +4224,9 @@
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/library.py",
         "tools/body_contract.py"
+      ],
+      "bulk_downloader/mmap_autotuner.py": [
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/model_registry.py": [
         "bulk_downloader/ai_chat.py",
@@ -6680,6 +6683,7 @@
         "bulk_downloader/hot_write_buffer.py",
         "bulk_downloader/library.py",
         "bulk_downloader/log.py",
+        "bulk_downloader/mmap_autotuner.py",
         "bulk_downloader/orm_engine.py",
         "bulk_downloader/pg_backend.py",
         "bulk_downloader/staging_ingest.py"
