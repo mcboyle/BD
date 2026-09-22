@@ -64,6 +64,12 @@ import time
 from dataclasses import dataclass
 from typing import Optional, Callable
 
+from .mptcp_subflow import (
+    MptcpCapabilityState,
+    MptcpSubflowNegotiator,
+    get_mptcp_manager,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -293,6 +299,8 @@ class DownloadResult:
     avg_speed_bps: float = 0.0
     chunk_count: int = 0
     error: str = ""
+    mptcp_capability: str = ""
+    mptcp_conn_id: str = ""
 
 
 def _ensure_parent_dir(path: str) -> None:
@@ -445,6 +453,18 @@ def download(
             elapsed_s=time.monotonic() - start,
         )
 
+    # Row 1067: Negotiate MPTCP kernel subflows for multi-connection session
+    mptcp_negotiator = get_mptcp_negotiator()
+    mptcp_cap = mptcp_negotiator.check_capability()
+    mptcp_conn_id = f"mc-{int(start * 1000)}-{chunk_count}"
+    if mptcp_cap.state == MptcpCapabilityState.SUPPORTED:
+        host = _host_of(url) or "127.0.0.1"
+        mptcp_negotiator.register_connection(
+            conn_id=mptcp_conn_id,
+            local_addr=("0.0.0.0", 0),
+            remote_addr=(host, 443),
+        )
+
     # Shared progress state
     progress_lock = threading.Lock()
     total_downloaded = [0]  # cumulative unique logical output bytes
@@ -513,6 +533,14 @@ def download(
         if cancel_event.is_set():
             chunk_results[chunk.index] = (False, 0, "cancelled")
             return
+        if mptcp_cap.state == MptcpCapabilityState.SUPPORTED:
+            host = _host_of(url) or "127.0.0.1"
+            mptcp_negotiator.add_subflow(
+                conn_id=mptcp_conn_id,
+                local_addr=("0.0.0.0", 0),
+                remote_addr=(host, 443),
+                is_backup=False,
+            )
         try:
             from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
             with httpx.Client(timeout=timeout_s, follow_redirects=True,
@@ -525,6 +553,12 @@ def download(
                     headers=headers, on_progress=_on_progress,
                     chunk_retries=chunk_retries,
                 )
+                if mptcp_cap.state == MptcpCapabilityState.SUPPORTED and ok:
+                    mptcp_negotiator.record_subflow_io(
+                        conn_id=mptcp_conn_id,
+                        subflow_id=chunk.index + 1,
+                        bytes_recv=bw,
+                    )
         except Exception as e:
             ok, bw, err = False, 0, f"{type(e).__name__}:{str(e)[:80]}"
         chunk_results[chunk.index] = (ok, bw, err)
@@ -558,6 +592,8 @@ def download(
             elapsed_s=elapsed,
             chunk_count=len(chunks),
             error="cancelled",
+            mptcp_capability=mptcp_cap.state.value,
+            mptcp_conn_id=mptcp_conn_id if mptcp_cap.state == MptcpCapabilityState.SUPPORTED else "",
         )
 
     if failed > 0:
@@ -574,6 +610,8 @@ def download(
             elapsed_s=elapsed,
             chunk_count=len(chunks),
             error=f"chunks_failed:{err_summary}",
+            mptcp_capability=mptcp_cap.state.value,
+            mptcp_conn_id=mptcp_conn_id if mptcp_cap.state == MptcpCapabilityState.SUPPORTED else "",
         )
 
     avg_bps = (total_bytes_written / elapsed) if elapsed > 0 else 0.0
@@ -585,7 +623,10 @@ def download(
         elapsed_s=elapsed,
         avg_speed_bps=avg_bps,
         chunk_count=len(chunks),
+        mptcp_capability=mptcp_cap.state.value,
+        mptcp_conn_id=mptcp_conn_id if mptcp_cap.state == MptcpCapabilityState.SUPPORTED else "",
     )
+
 
 
 # ─── Caller convenience ────────────────────────────────────────────
@@ -619,6 +660,7 @@ __all__ = [
     "download",
     "should_use_multi_conn",
     "is_available",
+    "get_mptcp_negotiator",
 ]
 
 
@@ -645,3 +687,8 @@ def adaptive_chunk_count(prev_n: int, *, chunks_failed: int = 0,
     else:
         n = base + 1
     return max(2, min(16, n))
+
+
+def get_mptcp_negotiator() -> MptcpSubflowNegotiator:
+    """Row 1067: Return the process-wide MPTCP kernel subflow negotiator."""
+    return get_mptcp_manager()
