@@ -1,3 +1,8 @@
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 def test_ai_status_adds_boot_readiness_without_removing_existing_fields(fresh_app, monkeypatch):
     from bulk_downloader import ai_boot_status, aiassist
 

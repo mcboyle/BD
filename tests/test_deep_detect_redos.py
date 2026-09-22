@@ -25,6 +25,10 @@ identical parsing of real input. RED on pristine (timing tests overrun); GREEN
 after the bounds land.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import signal
 
 from bulk_downloader.deep_detect import _parse_hls_attrs, _is_visible_input

@@ -28,6 +28,11 @@ RED-first map (must FAIL on pristine 532 tools, PASS after the wiring lands):
 These assert OBSERVABLE behavior (ledger not written / hash stable / REJECT
 returned), never an internal proxy.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib
 import importlib.util
 import json

@@ -3,6 +3,11 @@
 NOT cached -- the same hang class the 596 fix bounded for capture_diagnostics/replay
 (route-scanning tests GET every route). Bound the walk (limit, newest-first,
 skipped_artifacts) + cache the collector, mirroring the _HEAVY_LIMIT/_cached pattern."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import os
 import sys

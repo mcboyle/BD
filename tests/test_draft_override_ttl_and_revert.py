@@ -13,6 +13,10 @@ still unchanged), not leave the draft's selectors permanently in the live config
 
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import time
 
 from bulk_downloader.runner_teach import (

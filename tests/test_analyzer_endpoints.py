@@ -12,6 +12,10 @@ capture dir (that's what the route resolves against) and removes it in a
 finally, so the tree/namelist stays clean.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 from pathlib import Path
 

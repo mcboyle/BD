@@ -10,6 +10,11 @@ RED on pristine 373: the route 404s.
 Contract:
     {ok, path, exists, is_dir, writable, free_bytes, problems:[str], suggested_fix}
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 

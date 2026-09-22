@@ -10,6 +10,11 @@ them. This pins the draft to carry them so a reviewer sees the recovered ladder
 
 Golden-pin (RED before the wire-up, GREEN after). SYNTHETIC capture only; F2.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 import tempfile

@@ -4,6 +4,11 @@ Under mode/miller, selecting the Advanced or System tier with no specific child
 shows a landing (NOT Home). Everyday -> Home. Structural assertions over the
 cockpit source (zero-arg, repo root from __file__).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

@@ -5,6 +5,11 @@ bd-decomp routes the per-cut invariant ritual by target (which snapshot tool, wh
 baseline, which surface-lock). These pin the dispatch table + arg handling
 deterministically; the live `check app` against the 392 tree is demonstrated
 separately (it shells out to route_map_snapshot, which imports the app)."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

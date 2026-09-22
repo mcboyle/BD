@@ -19,6 +19,11 @@ F2 PROOF baked in: signing fixtures carry redacted PLACEHOLDER values and the
 recognizer must surface the param NAME + scheme, never the value. Pure/stdlib.
 SYNTHETIC fixtures only (sandbox-safe; no browser, no real capture).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

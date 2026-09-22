@@ -9,6 +9,11 @@ install-time-only) that keeps the runtime assets local-vendored (never CDN).
 Static file-inspection tests for the custom runner: zero-arg, stdlib-only, no
 network, no real ``cloakbrowser`` import (it is not installed here).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import re
 from pathlib import Path
 

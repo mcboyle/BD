@@ -7,6 +7,11 @@ them does not introduce any secret/PII (scan_artifact_secrets stays []).
 
 Zero-arg test functions; repo root from __file__ (run_tests.py convention).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import shutil
 import sys

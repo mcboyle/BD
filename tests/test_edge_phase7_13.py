@@ -7,6 +7,11 @@ that actually break in production.
 
 Naming: test_edge_<phase>_<case> so failures point straight at the gap.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import os
 import sys

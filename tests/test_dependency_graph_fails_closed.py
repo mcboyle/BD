@@ -17,6 +17,11 @@ Unknown is a third state and it fails. These tests assert both directions:
 The denominator is the builder's own walk (`_py_files`), so the check is
 derived, not asserted: a file the builder never parses is never flagged.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import os
 import subprocess

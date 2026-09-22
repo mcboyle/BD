@@ -10,6 +10,11 @@ style as test_autofill.py's checks against login.py — so a future edit can't q
 drop the UI fields or their wiring. Backend behavior is pinned separately; this only
 guards the form ↔ params surface. Zero-arg functions for the custom runner.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 from pathlib import Path
 

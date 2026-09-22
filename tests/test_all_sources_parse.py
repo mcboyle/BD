@@ -30,6 +30,10 @@ older question. It costs a subprocess or it costs nothing.)
 """
 from __future__ import annotations
 
+# H622 slice A. Its subject is the tracked tree, not a single module, so it
+# is a repository gate and is scheduled in a CI gate-suites shard.
+BD_GATE_SCOPE = "repo-wide"
+
 import ast
 import subprocess
 from pathlib import Path

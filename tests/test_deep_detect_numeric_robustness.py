@@ -11,6 +11,11 @@
 
 Pure/deterministic parser tests on crafted input.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader.deep_detect.manifests import parse_hls_master
 from bulk_downloader.deep_detect.candidates import _flatten_download_candidates
 

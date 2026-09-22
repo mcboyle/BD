@@ -64,6 +64,10 @@ is proven to have happened and re-raises otherwise.
 """
 from __future__ import annotations
 
+# H622 slice A. Its subject is the tracked tree, not a single module, so it
+# is a repository gate and is scheduled in a CI gate-suites shard.
+BD_GATE_SCOPE = "repo-wide"
+
 import ast
 import re
 import sys

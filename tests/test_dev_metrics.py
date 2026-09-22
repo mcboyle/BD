@@ -1,6 +1,11 @@
 """Tests for bulk_downloader.dev_metrics — the in-process request and
 exception ring buffers that feed the Tier-1 latency / error-rate /
 exception tools."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import dev_metrics as dm
 
 

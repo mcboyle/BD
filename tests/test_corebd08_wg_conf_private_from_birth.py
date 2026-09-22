@@ -9,6 +9,11 @@ os.open(..., 0o600).
 
 Pristine RED (with chmod neutralized): the .conf is NOT 0o600 at write time.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import stat
 import os
 import types

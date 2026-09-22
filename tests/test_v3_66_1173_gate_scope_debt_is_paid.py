@@ -17,7 +17,7 @@ BD_GATE_SCOPE = "repo-wide"
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tests" / "gate_scope_baseline.txt"
-BASELINE_IDS_SHA256 = "25f36e604709736502eea227ae12a961ada586071b161bbbedbfd4960d1ec1a7"
+BASELINE_IDS_SHA256 = "581b5b0bc39ebc0730710b35d8bb434a4af252f09308c90e451a039d8f94d04e"
 
 MIGRATED = (
     "tests/test_v3_66_1018_registrable_domain_drain.py",
@@ -101,7 +101,7 @@ def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
     resolution_gate = "tests/test_v3_43_54_resolution.py"
     assert resolution_gate not in entries
     assert _scope(ROOT / resolution_gate) == "repo-wide"
-    assert len(entries) == 1236, (
+    assert len(entries) == 990, (
         "gate_scope_baseline must contain the 1,290 pre-Cut-C entries minus "
         "the exact 24 migrated gates and the later classified defect-precision and "
         "template-identity, frontend-secret, capture-vault, and capture-runtime "
@@ -112,6 +112,9 @@ def test_the_legacy_baseline_shrank_by_the_measured_population() -> None:
         "integrity suite, and the four footgun-detector gates named in "
         "FOOTGUN_MIGRATED, the row-694 capture display gate, and the row-821 "
         "resolution-tier gate; "
+        "and the 246 tests/test_[a-f]*.py paths H622 slice A classified, whose "
+        "identities are pinned by test_v3_66_h622a_gate_scope_slice_a.py against "
+        "git ls-files rather than by this count; "
         "do not trade one unclassified path for another"
     )
     assert _identity_digest(entries) == BASELINE_IDS_SHA256, (

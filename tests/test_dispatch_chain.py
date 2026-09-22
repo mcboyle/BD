@@ -6,6 +6,11 @@ re-reads _process_one's real source and asserts the documented branch
 sequence still holds. If anyone reorders the dispatch chain (violating
 INV-002), that guard fails loudly instead of the tools silently lying.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import types
 
 from bulk_downloader import dev_suite as ds

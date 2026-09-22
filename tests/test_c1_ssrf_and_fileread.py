@@ -18,6 +18,11 @@ Both mirror witnesses/app03_witnesses.py. RED on pristine 3.66.617:
   - cookie import reads the file and fails later at JSON parse ("not valid
     cookie JSON"), rather than refusing the path up front.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 import os
 import tempfile

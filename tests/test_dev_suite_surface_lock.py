@@ -11,6 +11,11 @@ Generated from the 392 tree: 125 public names + 1 guard-required private
 (_manifest_excluded, imported directly by tools/build_release.py -- a release
 guard that cannot be edited). Runner-safe: zero-arg fns.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib
 
 from bulk_downloader import dev_suite as ds

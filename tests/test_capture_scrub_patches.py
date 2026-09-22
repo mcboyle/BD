@@ -9,6 +9,11 @@ D: default --token-min lowered to 24.
 
 Harness: zero-arg test functions; no pytest fixtures; restore sys.argv in finally.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys, os, io, json, tempfile, contextlib
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

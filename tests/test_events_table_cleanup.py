@@ -6,6 +6,11 @@ to, and migrations.EXPECTED_SCHEMA listed it — so detect_drift()
 false-flagged it as missing on every fresh DB. The dead reads and the
 manifest entry were removed. These tests guard that it stays removed.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import ast
 import pathlib
 

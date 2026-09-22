@@ -13,6 +13,10 @@ with "fix this" hints; unknown site -> 404.
 RED on pristine 373: both routes 404.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 _PREFLIGHT_KEYS = (
     "auth_health", "daily_budget", "selector_drift",
     "runners", "review_backlog", "download_dir", "dupe_estimate",

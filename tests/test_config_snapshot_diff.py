@@ -5,6 +5,11 @@ redacted (never echoed). Read-only: writes nothing, mutates nothing.
 clean_workdir isolates config_snapshots/ per test; we save/restore the module
 globals we touch so serial-mode downstream tests are not poisoned.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 
 from bulk_downloader import dev_suite as ds

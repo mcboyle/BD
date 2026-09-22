@@ -10,6 +10,11 @@ already scrubs for challenge/captcha/cf_chl).
 
 Pre-fix: the query forms below survive redact_query unredacted -> fails.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader.capture_redact import (
     redact_query, SENSITIVE_QS_KEY, SENSITIVE_HEADER, PLACEHOLDER)
 

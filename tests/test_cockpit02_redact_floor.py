@@ -10,6 +10,11 @@ to the I0008 SoT. UI-surfaced log / doc excerpts must not leak floor secrets.
 
 Pre-fix: the fallback leaves ?code=/?state=/... values intact -> this fails.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from tools import cockpit_core as C
 
 _FLOOR = ["code", "state", "otp", "nonce", "authorization", "bearer",

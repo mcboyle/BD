@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1628 - train52: H622 wiring slice A (test_[a-f]*.py CI shard coverage)
+
+Base 27e2b7f9f (v3.66.1627). One member, 252 authored paths (250 tests + CI shard configs).
+
+- rowh622-slice-a, T2, INDEX tree 7bfcb634 / PATCH-SHA256 475aa471 (review copy, rebased onto
+  27e2b7f9). TWO BOARDs from two distinct seats at that exact object: bd-review-correctness-B5-B
+  and bd-review-correctness-N1-A, both naming write-tree 7bfcb634. No measured REFUTE at this object.
+
 ## v3.66.1627 - train51: a file-descriptor utilization gauge that says "unknown" when it cannot look
 
 Base 7e9d37b52 (v3.66.1626). One member, 4 authored paths.

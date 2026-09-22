@@ -62,6 +62,10 @@ RED-first: R1 through R5 fail on pristine source.
 """
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 from pathlib import Path
 

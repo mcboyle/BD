@@ -8,6 +8,11 @@ player-markup prefixes, throttle simulation, and every fault type.
 These drive the app with Flask's test client — no real socket — so
 they're fast and don't need a free port.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

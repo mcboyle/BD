@@ -29,6 +29,10 @@ fails.
 """
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib.util
 from contextlib import redirect_stdout
 from io import StringIO

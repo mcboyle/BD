@@ -8,6 +8,11 @@ unusable page, or any non-timeout exception, must still surface.
 These are pure unit tests on the `_goto_or_continue_if_usable` helper plus the
 CLI surface — no real browser.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import contextlib
 import os
 

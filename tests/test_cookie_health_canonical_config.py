@@ -1,5 +1,9 @@
 """Regression coverage for the canonical ``cookie_file`` site key."""
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def test_check_site_uses_canonical_cookie_file(tmp_path, monkeypatch):
     from bulk_downloader import cookie_health

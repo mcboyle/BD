@@ -11,6 +11,11 @@ rel_path-or-basename router so a subfolder capture (rel_path with "/") resolves.
 Resolution-level test with an injected root (no valid WACZ body needed -- we only
 assert resolution SUCCEEDS, i.e. we get past the "unknown capture" gate).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 from pathlib import Path

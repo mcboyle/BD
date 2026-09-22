@@ -15,6 +15,10 @@ permanent) into an operator-facing reason object:
 RED on pristine 373: the module does not exist.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def test_reason_for_auth_is_not_retryable():
     from bulk_downloader import failure_reasons as fr

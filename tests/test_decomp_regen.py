@@ -4,6 +4,11 @@
 The ordering is the whole point (the 381/382 failure class): build_route_index runs
 LAST (after gui_parity_inventory), and build_pin_index != build_route_index. These
 tests pin the order logic deterministically -- no generators are actually run."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

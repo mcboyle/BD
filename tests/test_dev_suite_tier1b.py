@@ -4,6 +4,11 @@ histogram (D-64), slow-endpoint flagger (D-67), error-rate panel
 heuristic deadlock detector (D-60) — their /api/dev/* endpoints, and
 the app.py request hook that feeds dev_metrics.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import dev_metrics as dm
 from bulk_downloader import dev_suite as ds
 

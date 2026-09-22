@@ -19,6 +19,11 @@ GREEN after the one-line attribute lands.
 run_tests.py conventions: zero-arg test functions; repo root from
 Path(__file__).resolve().parent.parent; no pytest builtins.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import re
 import sys
 from pathlib import Path

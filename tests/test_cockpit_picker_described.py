@@ -7,6 +7,11 @@ JS attributes are built via ${...}, so we assert the *builder* (LAYDESC map,
 the .opt template carrying role="menuitemradio") and the static popover markup,
 never a fully-rendered attribute string like data-l="side".
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

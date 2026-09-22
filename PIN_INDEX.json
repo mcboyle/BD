@@ -20,7 +20,7 @@
     "total": 144,
     "version": 1,
     "count_dict": 143,
-    "test_files_scanned": 1942,
+    "test_files_scanned": 1943,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -91,7 +91,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_capture_scrub_hook.py",
-      "line": 42,
+      "line": 46,
       "value": {
         "signed_query_param": 6,
         "email": 2,
@@ -102,7 +102,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_capture_scrub_hook.py",
-      "line": 73,
+      "line": 77,
       "value": {
         "signed_query_param": 6,
         "email": 2,
@@ -136,7 +136,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_config_snapshot_diff.py",
-      "line": 73,
+      "line": 78,
       "value": {
         "added": 0,
         "removed": 0,
@@ -147,7 +147,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_contracts.py",
-      "line": 230,
+      "line": 235,
       "value": {
         "x": 1
       },
@@ -156,7 +156,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_corpus_disposition_buckets.py",
-      "line": 51,
+      "line": 55,
       "value": {
         "auto_promotions": 0,
         "bucket_count": 3,
@@ -170,7 +170,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_coverage_map_frontend.py",
-      "line": 232,
+      "line": 236,
       "value": {
         "functions_with_gaps": 2,
         "modules_with_gaps": 1
@@ -180,7 +180,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_coverage_map_frontend.py",
-      "line": 297,
+      "line": 301,
       "value": {
         "functions_with_gaps": 0,
         "modules_with_gaps": 0
@@ -213,7 +213,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_daily_digest.py",
-      "line": 96,
+      "line": 100,
       "value": {
         "a": 0,
         "b": 2
@@ -223,7 +223,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_daily_digest.py",
-      "line": 100,
+      "line": 104,
       "value": {
         "x": 3
       },
@@ -232,7 +232,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 195,
+      "line": 199,
       "value": {
         "cases": 11
       },
@@ -241,7 +241,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 216,
+      "line": 220,
       "value": {
         "exitcode": 7
       },
@@ -250,7 +250,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 746,
+      "line": 750,
       "value": {
         "comparisons": 0,
         "forbidden": 0
@@ -260,7 +260,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_differential_oracle_frontend.py",
-      "line": 853,
+      "line": 857,
       "value": {
         "kill": 1,
         "stat": 1
@@ -270,7 +270,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_dom_analyzer.py",
-      "line": 101,
+      "line": 105,
       "value": {
         "jwt": 2
       },
@@ -608,7 +608,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 200,
-      "value": "3.66.1627",
+      "value": "3.66.1628",
       "gates_what": "test_containment_routes_and_version"
     },
     {

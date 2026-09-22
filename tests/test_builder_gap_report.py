@@ -7,6 +7,11 @@ endpoints are MANUAL, and template_logic is excluded as human-only-by-schema. Al
 pins the POSTURE guarantee that no capture values reach the report. Synthetic,
 in-process; browser-free; stdlib + project modules.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import sys
 from pathlib import Path

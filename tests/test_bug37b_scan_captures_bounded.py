@@ -9,6 +9,11 @@ Fix: scan_captures(limit=N) descends newest-first and stops after N captures, so
 the picker is O(N) not O(all captures). Unbounded (limit=None) is preserved for
 token resolution / summaries.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import time
 import tempfile

@@ -15,6 +15,11 @@ Regression guards (also held on v1):
   - test_gap_fill_recovers_missing_selector
   - test_drift_conflict_flags_and_downgrades
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib
 import importlib.util
 import sys

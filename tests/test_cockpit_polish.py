@@ -2,6 +2,11 @@
 current group, and a uniform .main-inner width wrapper for pages that don't
 self-wrap. Structural assertions over the cockpit source.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

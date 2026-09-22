@@ -9,6 +9,11 @@ contract and guard the boundary so the fix does not over-tighten.
 Custom runner: zero-arg functions, no pytest builtins; globals restored in
 try/finally.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 

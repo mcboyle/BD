@@ -14,6 +14,10 @@ RED on pristine (cross-origin POST is not refused — routes through to 404);
 GREEN after the Origin check (403 + "cross-origin").
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader.app import app
 
 

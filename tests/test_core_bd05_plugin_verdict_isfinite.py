@@ -14,6 +14,11 @@ non-finite stored confidence and demoted=False. GREEN once a math.isfinite
 backstop rejects the non-finite value (conf -> 0.0 -> demoted=True). The finite
 controls (0.1 demoted, 0.9 not demoted) must keep working either way.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import math
 
 import bulk_downloader.detect as detect

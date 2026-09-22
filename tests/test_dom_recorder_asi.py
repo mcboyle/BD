@@ -27,6 +27,11 @@ These tests come in two tiers:
     regression that the OLD join leaves recording un-started while the NEW one
     starts it.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import pytest
 
 from bulk_downloader.dom_recorder import (

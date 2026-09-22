@@ -47,6 +47,11 @@ GREEN throughout (guardrails + the backend contract F2.3 leans on):
 run_tests.py conventions: zero-arg test functions; repo root from
 Path(__file__).resolve().parent.parent; no pytest builtins.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib.util
 import re
 import sys

@@ -23,6 +23,11 @@ Disk handling mirrors test_user_templates.py: rebind USER_TEMPLATES_FILE to a
 tempdir per test, and ALSO assert the store is byte-unchanged after the preview
 (the whole point is that preview never writes).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path

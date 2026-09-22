@@ -14,6 +14,11 @@ Guarantees:
   4. A headless failure is NEVER reclassified (behaviour preserved).
   5. The successful Playwright path is unchanged: (context, pw, "playwright").
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 import types

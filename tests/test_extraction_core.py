@@ -14,6 +14,11 @@ Three guarantees, all stdlib + offline (zero-arg functions for the custom runner
 
 Mirrors the import shim of test_extraction_core_characterization.py.
 """
+
+# H622 slice A. Its subject is the tracked tree, not a single module, so it
+# is a repository gate and is scheduled in a CI gate-suites shard.
+BD_GATE_SCOPE = "repo-wide"
+
 import json
 import os
 import re

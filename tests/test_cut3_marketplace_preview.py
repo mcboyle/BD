@@ -23,6 +23,11 @@ The mirror writes nothing by construction (the existing import_template doesn't
 persist either — the route just returns the config), so the read-only guarantee
 is about the shape + the redaction, which these tests pin.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import marketplace as mp
 
 

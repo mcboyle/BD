@@ -7,6 +7,11 @@ families (href-download anchors + resolution buttons) under EACH modal scope.
 All guard-free (build_template_from_wacz / template_normalize); extraction_core
 untouched.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 import tempfile
 from pathlib import Path

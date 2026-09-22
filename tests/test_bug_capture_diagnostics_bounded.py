@@ -9,6 +9,11 @@ Fix: collect(..., limit=N) diagnoses at most N .wacz newest-first; the endpoint
 passes limit=200. We stub diagnose() so the test exercises the BOUND itself
 (how many captures get the expensive treatment) without parsing real WACZ.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 import tempfile
 from pathlib import Path

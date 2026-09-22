@@ -21,6 +21,10 @@ existing test_inspect_pick / test_v3_66_*_youtube* suites. RED on pristine
 (timing tests overrun), GREEN after the bounds land.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import signal
 
 from bulk_downloader.inspect_pick import _stable_classes

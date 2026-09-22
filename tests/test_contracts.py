@@ -5,6 +5,11 @@ If one of these fails, it usually means a structural assumption broke:
 a route stopped returning JSON, a widget catalog drifted, an endpoint
 that should be GET-only started accepting POST, etc.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import os
 import re

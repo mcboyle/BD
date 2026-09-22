@@ -23,6 +23,11 @@ project's run_tests.py (which collects zero-arg `test_*` functions) ignores it;
 it runs under real pytest / on-host. The browser-free functions are plain
 zero-arg functions so the custom runner executes them.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import socket
 import sys

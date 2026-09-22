@@ -7,6 +7,11 @@ the zip's own member count and whose built_version == the package version —
 i.e. verify_release's count + built_version gates are active without a
 two-pass STATE edit.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib.util
 import json
 import os

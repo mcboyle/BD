@@ -11,6 +11,11 @@ DOM, so it runs reliably under run_tests.py.
 run_tests.py conventions: zero-arg test_* functions, plain asserts, no pytest
 builtins, layout-flexible. A missing Playwright runtime or browser is UNKNOWN.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib.util
 import sys
 import threading

@@ -9,6 +9,10 @@ Mirrors the 227 file's harness contract: bd_module_wipe + zero-arg functions.
 """
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 
 import pytest

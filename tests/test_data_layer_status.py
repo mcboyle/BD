@@ -4,6 +4,11 @@ Verifies the three additive data-layer collectors and their routes: shape,
 HTTP 200/ok, and the posture invariant that no secret-ish values leak.
 Additive/read-only — no mutation, no new behaviour on existing endpoints.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import re
 

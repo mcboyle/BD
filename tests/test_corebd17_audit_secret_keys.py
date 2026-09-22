@@ -10,6 +10,11 @@ sources the floor from the single canonical SoT
 Pre-fix: the floor keys fall through the marker tuple and their values are
 written to the audit before/after columns in plaintext -> these tests fail.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import audit as A
 
 # Bare-name floor keys the hand-maintained marker tuple misses.

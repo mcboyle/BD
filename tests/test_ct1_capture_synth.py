@@ -5,6 +5,10 @@ capture-time redaction path is exercised — the synthesizer must behave
 correctly on redacted captures (the only kind that hit disk).
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import pytest
 
 from bulk_downloader.capture_synth import (
