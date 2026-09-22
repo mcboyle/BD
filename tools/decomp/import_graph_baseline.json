@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4818,
+  "edge_count": 4839,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1004,6 +1004,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/global_config.py"
     ],
+    "bulk_downloader/bandwidth_shape.py": [
+      "bulk_downloader/bandwidth_aggregator.py"
+    ],
     "bulk_downloader/batch_ops.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/enrichment.py"
@@ -1175,12 +1178,16 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/egress_identity.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/hot_write_buffer.py",
       "bulk_downloader/library.py",
       "bulk_downloader/log.py",
       "bulk_downloader/pg_backend.py"
     ],
     "bulk_downloader/db_replication.py": [
       "bulk_downloader/backup_verify.py"
+    ],
+    "bulk_downloader/deadline.py": [
+      "bulk_downloader/run_budget.py"
     ],
     "bulk_downloader/dedup.py": [
       "bulk_downloader/ffmpeg_bin.py"
@@ -1329,7 +1336,8 @@
       "bulk_downloader/host_enumerator.py"
     ],
     "bulk_downloader/discovery.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/http_client.py"
     ],
     "bulk_downloader/doc_drift.py": [
       "bulk_downloader/llm_exec.py"
@@ -1396,6 +1404,9 @@
     ],
     "bulk_downloader/duplicate_fields.py": [
       "bulk_downloader/dom_honeypot.py"
+    ],
+    "bulk_downloader/egress_transport.py": [
+      "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/element_pick.py": [
       "bulk_downloader/capture_artifact_redact.py"
@@ -1497,6 +1508,7 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/http_client.py": [
+      "bulk_downloader/egress_transport.py",
       "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/hybrid_search.py": [
@@ -2034,6 +2046,7 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/deadline.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
@@ -3975,6 +3988,24 @@
       "bulk_downloader/container_repair.py",
       "bulk_downloader/transaction_journal.py"
     ],
+    "tests/test_row1006_tiered_deadline_propagating_socket_timeouts.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_row1013_inmemory_hot_write_buffer.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/hot_write_buffer.py"
+    ],
+    "tests/test_row1027_egress_transport_unification.py": [
+      "bulk_downloader/discovery.py",
+      "bulk_downloader/egress_transport.py",
+      "bulk_downloader/http_client.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_row1055_distributed_bandwidth_aggregator.py": [
+      "bulk_downloader/bandwidth_aggregator.py",
+      "bulk_downloader/bandwidth_shape.py"
+    ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/session_capture.py",
@@ -4874,9 +4905,17 @@
     "tests/test_row974_asgi_cutover.py": [
       "bulk_downloader/app.py"
     ],
+    "tests/test_row978_schema_migration.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
     "tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py": [
       "bulk_downloader/chunked_transfer.py",
       "bulk_downloader/socket_tracker.py"
+    ],
+    "tests/test_row996_per_domain_token_bucket_rate_limit_backpressure_telemetry.py": [
+      "bulk_downloader/rate_limit.py",
+      "bulk_downloader/token_bucket_backpressure.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

@@ -78,6 +78,8 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/community_scrapers.py:340": PINNED,
     "bulk_downloader/cookie_health.py:259": PINNED,
     "bulk_downloader/deep_detect/orchestrate.py:931": PUBLIC_ONLY,
+    "bulk_downloader/egress_transport.py:106": PUBLIC_ONLY,
+    "bulk_downloader/egress_transport.py:112": PINNED,
     "bulk_downloader/extractors_dl8.py:624": PINNED,
     "bulk_downloader/extractors_jsonapi.py:170": PINNED,
     "bulk_downloader/extractors_jsonapi.py:368": PINNED,
