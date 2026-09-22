@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1634 - train62: row989 and row1067
+
+Base 5f74ea9c2 (v3.66.1633). Two cuts, both boarded at their INDEX tree by two seats.
+
+- row989-ipc-latency-skew: inter-seat IPC latency matrix (bulk_downloader/ipc_latency.py),
+  wired into the product caller service_mesh.route_service -> record_ipc_ping, with the
+  X-IPC-Sample response header. RE-SCOPED TO LATENCY ONLY per O1252: clock_offset_ms returns
+  None (NOT-MEASURED), the clock-skew half is dropped, and the register title loses
+  "CLOCK-SKEW". Quorum: bd-review-correctness-N5-A and N1-A at INDEX tree b42c44ee.
+- row1067-mptcp-subflow: MPTCP kernel subflow negotiation (bulk_downloader/mptcp_subflow.py,
+  RFC 8684) behind multi_conn; fail-closed when the kernel lacks MPTCP (UNSUPPORTED or
+  UNVERIFIABLE both read is_kernel_supported()=False). Quorum: bd-review-correctness-N6-A
+  and bd-agy-lens-c3 at INDEX tree a59bbefb.
+- register: rows 989 and 1067 CLOSED @1634; marker re-derived, open 82 -> 80, rows and
+  ids-sha256 unchanged.
+
 ## v3.66.1633 - train61: row1016, process-test-shard, and the register sweep
 
 Base 3c35e63d0 (v3.66.1632). Two cuts plus a register correction.

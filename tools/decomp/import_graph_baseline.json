@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4913,
+  "edge_count": 4920,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1706,6 +1706,7 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_conn.py": [
+      "bulk_downloader/mptcp_subflow.py",
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_site_benchmark.py": [
@@ -2171,6 +2172,9 @@
       "bulk_downloader/embeddings.py",
       "bulk_downloader/user_templates.py",
       "bulk_downloader/vector_index.py"
+    ],
+    "bulk_downloader/service_mesh.py": [
+      "bulk_downloader/ipc_latency.py"
     ],
     "bulk_downloader/session_capture.py": [
       "bulk_downloader/capture_bodies.py",
@@ -4117,6 +4121,10 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/lock_monitor.py"
     ],
+    "tests/test_row1067_mptcp_subflow_negotiation.py": [
+      "bulk_downloader/mptcp_subflow.py",
+      "bulk_downloader/multi_conn.py"
+    ],
     "tests/test_row1070_pillow_image_engine_hardening.py": [
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/pillow_hardening.py",
@@ -5036,6 +5044,13 @@
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_row989_adversary.py": [
+      "bulk_downloader/service_mesh.py"
+    ],
+    "tests/test_row989_feature.py": [
+      "bulk_downloader/ipc_latency.py",
+      "bulk_downloader/service_mesh.py"
     ],
     "tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py": [
       "bulk_downloader/chunked_transfer.py",

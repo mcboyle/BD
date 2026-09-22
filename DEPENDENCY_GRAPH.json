@@ -1635,7 +1635,9 @@
     },
     "service_mesh": {
       "module": "service_mesh.py",
-      "providers": [],
+      "providers": [
+        "bulk_downloader/ipc_latency.py"
+      ],
       "route_count": 1,
       "routes": [
         "POST /api/service-mesh/<service>"
@@ -2394,7 +2396,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1857,
+    "edge_count": 1859,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4036,6 +4038,9 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/scene_crawler.py"
       ],
+      "bulk_downloader/ipc_latency.py": [
+        "bulk_downloader/service_mesh.py"
+      ],
       "bulk_downloader/jd_bridge.py": [
         "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/dev_suite/audit_security.py",
@@ -4221,6 +4226,9 @@
       "bulk_downloader/mp4_metadata.py": [
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_integrity.py"
+      ],
+      "bulk_downloader/mptcp_subflow.py": [
+        "bulk_downloader/multi_conn.py"
       ],
       "bulk_downloader/multi_conn.py": [
         "bulk_downloader/app.py",
@@ -7157,6 +7165,7 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/multi_conn.py": [
+        "bulk_downloader/mptcp_subflow.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/multi_site_benchmark.py": [
@@ -7622,6 +7631,9 @@
         "bulk_downloader/embeddings.py",
         "bulk_downloader/user_templates.py",
         "bulk_downloader/vector_index.py"
+      ],
+      "bulk_downloader/service_mesh.py": [
+        "bulk_downloader/ipc_latency.py"
       ],
       "bulk_downloader/session_capture.py": [
         "bulk_downloader/capture_bodies.py",
