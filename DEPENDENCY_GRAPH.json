@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1819,
+    "edge_count": 1821,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3573,6 +3573,9 @@
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/app_replication.py"
       ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/runner_transport.py"
+      ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/dev_suite/capture_diag.py",
@@ -4400,6 +4403,7 @@
         "bulk_downloader/runner_scheduler.py"
       ],
       "bulk_downloader/run_budget.py": [
+        "bulk_downloader/deadline.py",
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/run_history.py": [
@@ -6549,6 +6553,9 @@
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/backup_verify.py"
       ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/run_budget.py"
+      ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
@@ -7397,6 +7404,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/deadline.py",
         "bulk_downloader/dedup.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/download_egress.py",

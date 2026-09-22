@@ -1226,8 +1226,18 @@ class TransportMixin:
                     "falling back\n"
                 )
 
-        # Use a generous timeout per chunk (CDNs can throttle)
-        timeout = httpx.Timeout(connect=15.0, read=60.0, write=60.0, pool=15.0)
+        # Use a generous timeout per chunk (CDNs can throttle). Row 1006: the
+        # literals below are the UNCAPPED tiers and stay exactly as they were.
+        # When the site config sets run_wall_budget_s, each tier is lowered to
+        # the run's remaining budget, because before this row a run told it had
+        # five seconds would still block sixty in one chunk read -- the budget
+        # was configured and inert. A wider budget lowers nothing.
+        from bulk_downloader import deadline as _deadline
+        _tiers = _deadline.tiers_for_config(
+            self.config,
+            {"connect": 15.0, "read": 60.0, "write": 60.0, "pool": 15.0},
+        )
+        timeout = httpx.Timeout(**_tiers)
         try:
             from bulk_downloader.ssrf_transport import guarded_transport, owning_stream, PINNED
             # Explicit proxy / proxy-pool / VPN resolution happens first and

@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1625 - train48: tiered deadlines that propagate into socket timeouts
+
+Base 7a99076ed256 (v3.66.1624). One member.
+
+- row1006 deadline-timeouts, T2, tree 83bcf22f, patch b7c91e00. Two BOARDs at that object:
+  bd-review-correctness-B1 (06:46Z) and bd-agy-lens-c3 (06:54Z). A tiered deadline that propagates
+  into socket timeouts, in bulk_downloader/deadline.py with bulk_downloader/runner_transport.py as
+  its consumer. RED at base 3 failed / 3 passed; GREEN on the cut 7 passed / 0 failed. Precut rc=0.
+  Its positive control and its over-correction control both pass at base, as they must.
+  A B5-B REFUTE for this row judged tree 369494ce in the pre-O906 worktree the Council's 07:30Z
+  status records as abandoned; it does not name this object.
+
+rows972-973 r6 was carried by the first generation of this train (candidate e72e017db, PR959) and
+is NOT here. Its three BOARDs were real and named the right object, but exact-head CI refused the
+merged tree on six nodes it alone touches: test_route_map_invariant x2 (url_map 1013 != baseline
+1012 -- r6 adds a route and the F5.1-OPEN surface must be pure motion), the two row703
+construction-population gates (it edits bulk_downloader/http_client.py and the set of httpx
+constructions taking **kwargs moved, which RULING-row1027-ssrf.md treats as an always-REFUTE
+because an unenumerable construction is an unmeasured site), and test_rows706_714_test_hygiene x2
+(resolver-adjacent census 46/28 -> 68/37). Three lenses passed it and the tree-wide population
+gates did not. It is back with bd-worker-B1 and takes rows 972, 973, 1039 and 1040 with it --
+this train closes no register row.
+
+The GUI-parity re-pin to open_count 0 stays with r6 as well: it closes r6's O1186 chain, and
+without r6 the pinned 2 is still the true count.
+
 ## v3.66.1624 - train47: ASGI gateway cutover and high-resolution socket I/O accounting
 
 Base e2989f716 (v3.66.1623). Two members, 7 authored paths, applied disjoint.

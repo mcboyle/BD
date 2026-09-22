@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4810,
+  "edge_count": 4814,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1181,6 +1181,9 @@
     "bulk_downloader/db_replication.py": [
       "bulk_downloader/backup_verify.py"
     ],
+    "bulk_downloader/deadline.py": [
+      "bulk_downloader/run_budget.py"
+    ],
     "bulk_downloader/dedup.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
@@ -2029,6 +2032,7 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/deadline.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/download_egress.py",
@@ -3969,6 +3973,10 @@
     "tests/test_row1001_crash_consistent_write_ahead_transaction_journal_for_container_mutations.py": [
       "bulk_downloader/container_repair.py",
       "bulk_downloader/transaction_journal.py"
+    ],
+    "tests/test_row1006_tiered_deadline_propagating_socket_timeouts.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
