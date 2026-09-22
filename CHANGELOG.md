@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1632 - train60: cx-h635-main-guard, row1034 config-dryrun, row1073 memray-flamegraph
+
+Base 66ea98b22 (v3.66.1631). Three cuts stacked, quorum at each object (RULING-0600).
+
+- cx-h635-main-guard (tests/test_h635_main_guard_alerts.py; opt-in via
+  BD_H635_MAIN_GUARD_CANDIDATE), row1034-config-dryrun (declarative config
+  dry-run simulator; apply-path parity for None -> "" in the envfile writer),
+  row1073-memray-heap-profile-flamegraph (memray heap profile + flamegraph
+  action on /api/dev/mem_audit/track; +1 API route, derived artifacts regen).
+
 ## v3.66.1631 - train58: rows 975/990/1003/1025/1075 plus sg9 and register
 
 Base c0957568a (v3.66.1630). Seven cuts stacked, five numbered rows closed.

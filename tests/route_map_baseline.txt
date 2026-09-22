@@ -552,6 +552,7 @@
 /api/settings/env/effective	GET	api_settings_env_effective
 /api/settings/envfile	GET	api_settings_envfile_get
 /api/settings/envfile	POST	api_settings_envfile_post
+/api/settings/envfile/plan	POST	api_settings_envfile_plan
 /api/settings/global/effective	GET	api_settings_global_effective
 /api/settings/runtime	POST	api_settings_runtime_write
 /api/settings/schema	GET	api_settings_schema

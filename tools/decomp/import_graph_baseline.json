@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4877,
+  "edge_count": 4884,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -509,7 +509,8 @@
       "bulk_downloader/edge_deploy.py"
     ],
     "bulk_downloader/app_envfile_editor.py": [
-      "bulk_downloader/_envfile.py"
+      "bulk_downloader/_envfile.py",
+      "bulk_downloader/config_dryrun.py"
     ],
     "bulk_downloader/app_eol.py": [
       "bulk_downloader/eol_export.py"
@@ -1134,6 +1135,10 @@
     ],
     "bulk_downloader/community_scrapers.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/config_dryrun.py": [
+      "bulk_downloader/_envfile.py",
+      "bulk_downloader/app_envfile_editor.py"
     ],
     "bulk_downloader/container_repair.py": [
       "bulk_downloader/ffmpeg_bin.py",
@@ -4045,6 +4050,10 @@
       "bulk_downloader/http_client.py",
       "bulk_downloader/ssrf_transport.py"
     ],
+    "tests/test_row1034_declarative_config_dryrun_simulator.py": [
+      "bulk_downloader/_envfile.py",
+      "bulk_downloader/app_envfile_editor.py"
+    ],
     "tests/test_row1035_operator_audit_journal_provenance.py": [
       "bulk_downloader/audit.py",
       "bulk_downloader/audit_journal.py",
@@ -4061,6 +4070,10 @@
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/pillow_hardening.py",
       "bulk_downloader/thumbnail_sheets.py"
+    ],
+    "tests/test_row1073_memray_heap_profile_flamegraph.py": [
+      "bulk_downloader/memray_profile.py",
+      "bulk_downloader/perf_lab.py"
     ],
     "tests/test_row1075_task_state_pause_drain_resumption.py": [
       "bulk_downloader/runner.py",

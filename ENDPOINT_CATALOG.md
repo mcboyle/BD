@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (820)
+## /api/* routes (821)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -260,7 +260,7 @@ GET     /api/dev/maintenance_mode                              CSRF: no   — T3
 GET     /api/dev/manifest_probe                                CSRF: no   — U21/D-32 — probe an HLS/DASH manifest's structure (read-only;
 GET     /api/dev/manual_takeover_log                           CSRF: no   — T6/D-28 — classified timeline of manual-login / takeover events
 GET     /api/dev/mem_audit                                     CSRF: no   — Memory snapshot. With ?settle=N, instead runs a settle-and-diff
-POST    /api/dev/mem_audit/track                               CSRF: yes  — Body {action: "start"|"stop"} — toggle tracemalloc tracking so
+POST    /api/dev/mem_audit/track                               CSRF: yes  — Body {action: "start"|"stop"|"flamegraph", engine: "tracemalloc"|"memray"} — toggle
 GET     /api/dev/migration_status                              CSRF: no   — U24/D-4 — migration ledger snapshot: registered/applied/pending
 GET     /api/dev/model_pull_check                              CSRF: no   — T39/D-58 — verify Ollama-installed models against the
 GET     /api/dev/mp4_metadata                                  CSRF: no   — T10/D-36 — walk the top-level MP4 atoms; flag 'no moov' and
@@ -584,6 +584,7 @@ GET     /api/session_status                                    CSRF: no   — Re
 GET     /api/settings/env/effective                            CSRF: no
 GET     /api/settings/envfile                                  CSRF: no
 POST    /api/settings/envfile                                  CSRF: yes
+POST    /api/settings/envfile/plan                             CSRF: yes  — Dry-run: what would this submission CHANGE? Writes nothing, ever.
 GET     /api/settings/global/effective                         CSRF: no
 POST    /api/settings/runtime                                  CSRF: yes  — Write one runtime-tunable setting. Validate first, then persist, or change nothing.
 GET     /api/settings/schema                                   CSRF: no

@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
  "generated": "2026-09-22T17:49:34+00:00",
- "version_context": "v3.66.1631",
+ "version_context": "v3.66.1632",
  "file_count": 96,
  "files": {
   "0_INDEX.md": {

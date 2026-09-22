@@ -55,7 +55,7 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # row 990: re-frozen. ONE route ADDED: GET /api/queue/starvation
 # (app_queue.api_queue_starvation), per-site queue starvation / priority-inversion report.
 # Baseline 1013 -> 1014 lines. INTENTIONAL surface change, stated here.
-_BASELINE_SHA = "64cd4ac2471f5a390a0de6266a61cceb940795d09d274d5ac0f6f1bb1aa0b96d"
+_BASELINE_SHA = "2b87cc46f886c4674d596e8f87b14771f72c5351b976918f8ea9f25704b0916a"
 
 
 def _live_snapshot() -> str:

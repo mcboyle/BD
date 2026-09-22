@@ -691,11 +691,13 @@
     "envfile_editor": {
       "module": "app_envfile_editor.py",
       "providers": [
-        "bulk_downloader/_envfile.py"
+        "bulk_downloader/_envfile.py",
+        "bulk_downloader/config_dryrun.py"
       ],
-      "route_count": 1,
+      "route_count": 2,
       "routes": [
-        "ROUTE /api/settings/envfile"
+        "ROUTE /api/settings/envfile",
+        "ROUTE /api/settings/envfile/plan"
       ],
       "var": "envfile_editor_bp"
     },
@@ -2391,7 +2393,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1843,
+    "edge_count": 1846,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2406,7 +2408,8 @@
       ],
       "bulk_downloader/_envfile.py": [
         "bulk_downloader/__init__.py",
-        "bulk_downloader/app_envfile_editor.py"
+        "bulk_downloader/app_envfile_editor.py",
+        "bulk_downloader/config_dryrun.py"
       ],
       "bulk_downloader/accessibility.py": [
         "bulk_downloader/app_a11y.py"
@@ -2704,7 +2707,8 @@
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_envfile_editor.py": [
-        "bulk_downloader/app.py"
+        "bulk_downloader/app.py",
+        "bulk_downloader/config_dryrun.py"
       ],
       "bulk_downloader/app_eol.py": [
         "bulk_downloader/app.py"
@@ -3348,6 +3352,9 @@
       ],
       "bulk_downloader/community_scrapers.py": [
         "bulk_downloader/app.py"
+      ],
+      "bulk_downloader/config_dryrun.py": [
+        "bulk_downloader/app_envfile_editor.py"
       ],
       "bulk_downloader/constants.py": [
         "bulk_downloader/app.py",
@@ -5935,7 +5942,8 @@
         "bulk_downloader/edge_deploy.py"
       ],
       "bulk_downloader/app_envfile_editor.py": [
-        "bulk_downloader/_envfile.py"
+        "bulk_downloader/_envfile.py",
+        "bulk_downloader/config_dryrun.py"
       ],
       "bulk_downloader/app_eol.py": [
         "bulk_downloader/eol_export.py"
@@ -6560,6 +6568,10 @@
       ],
       "bulk_downloader/community_scrapers.py": [
         "bulk_downloader/ssrf_transport.py"
+      ],
+      "bulk_downloader/config_dryrun.py": [
+        "bulk_downloader/_envfile.py",
+        "bulk_downloader/app_envfile_editor.py"
       ],
       "bulk_downloader/container_repair.py": [
         "bulk_downloader/ffmpeg_bin.py",
