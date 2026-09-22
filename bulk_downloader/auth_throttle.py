@@ -61,7 +61,9 @@ _MULTIPLIER = 2
 
 _ENABLED_VALUES = frozenset({"1", "on", "true", "yes"})
 
-_lock = threading.Lock()
+from .lock_monitor import register_monitored_lock
+
+_lock = register_monitored_lock("auth_throttle._lock", threading.Lock())
 _state: dict = {}  # label -> {"fails": int, "until": float (monotonic)}
 
 

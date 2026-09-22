@@ -24,7 +24,9 @@ import time
 from typing import Optional
 
 
-_lock = threading.Lock()
+from .lock_monitor import register_monitored_lock
+
+_lock = register_monitored_lock("cookie_relogin._lock", threading.Lock())
 _thread: Optional[threading.Thread] = None
 _stop = threading.Event()
 

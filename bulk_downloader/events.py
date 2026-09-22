@@ -97,8 +97,10 @@ def kafka_producer_argv(bootstrap_servers: str) -> tuple[str, ...] | None:
 
 # ─── Remedy E2: Enforce cluster-LAN egress fence on all broker connections ───
 
+from .lock_monitor import register_monitored_lock
+
 _fenced_installed = False
-_fence_lock = threading.Lock()
+_fence_lock = register_monitored_lock("events._fence_lock", threading.Lock())
 
 
 def _install_lan_socket_fence() -> None:

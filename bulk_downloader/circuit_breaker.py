@@ -39,8 +39,10 @@ _observations: dict = {}
 # "closed" = normal operation
 # "open" = circuit open; workers park here, requests rejected
 # "half_open" = one probe in flight; will close on success, open on fail
+from .lock_monitor import register_monitored_lock
+
 _states: dict = {}
-_lock = threading.Lock()
+_lock = register_monitored_lock("circuit_breaker._lock", threading.Lock())
 
 # Tuning knobs — could become config options later, hardcoded for now.
 _WINDOW = 300  # 5 min rolling window

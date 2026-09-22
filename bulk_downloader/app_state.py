@@ -19,18 +19,21 @@ runners = {}
 s_cfg = {}
 s_meta = {}
 _pairing_tokens: dict = {}      # pairing_token → {"created", "expires_at"}
-_pairing_lock = threading.Lock()
+from .lock_monitor import register_monitored_lock, get_global_contention_report
+
+_pairing_lock = register_monitored_lock("app_state._pairing_lock", threading.Lock())
 _watch_threads = {}   # {site_id: Thread}
 _watch_stops = {}     # {site_id: Event}
 # Serializes each watch worker's runner/stop/thread lifecycle.  Callers that
 # also hold app._BOOT_LOCK must acquire that lock first; targets never acquire
 # _BOOT_LOCK, so their identity-checked cleanup cannot invert the order.
-_watch_registry_lock = threading.RLock()
+_watch_registry_lock = register_monitored_lock("app_state._watch_registry_lock", threading.RLock())
 # A config save owns one snapshot-to-replace transaction across every site.
 # Per-site lifecycle stripes cannot protect the shared file: two different
 # site requests may otherwise race a fixed .tmp path or let an older snapshot
 # replace a newer delete.  Fixed process-wide ownership is also memory-bounded.
-_sites_config_save_lock = threading.RLock()
+_sites_config_save_lock = register_monitored_lock("app_state._sites_config_save_lock", threading.RLock())
+
 # Fixed stripes serialize every request that observes or mutates one site's
 # identity. Delete holds the same lock through writer retirement and teardown,
 # so a route cannot snapshot a runner/config before delete and commit after it.
@@ -206,7 +209,14 @@ _dedup_scan_state = {
     "thread": None,
     "cancel_event": None,
 }
-_dedup_scan_lock = threading.Lock()
+_dedup_scan_lock = register_monitored_lock("app_state._dedup_scan_lock", threading.Lock())
+
+
+def get_lock_contention_report():
+    """Returns mutex contention and lock queue telemetry report (Row 1059)."""
+    return get_global_contention_report()
+
+
 __all__ = [
     "runners",
     "runners_snapshot",
@@ -222,4 +232,5 @@ __all__ = [
     "_pairing_lock",
     "_dedup_scan_state",
     "_dedup_scan_lock",
+    "get_lock_contention_report",
 ]

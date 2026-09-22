@@ -34,7 +34,9 @@ log = logging.getLogger(__name__)
 
 # Per-site bucket state: site_id → TokenBucket instance
 _buckets: dict[str, TokenBucket] = {}
-_buckets_lock = threading.Lock()
+from .lock_monitor import register_monitored_lock
+
+_buckets_lock = register_monitored_lock("bandwidth_shape._buckets_lock", threading.Lock())
 
 
 class TokenBucket:

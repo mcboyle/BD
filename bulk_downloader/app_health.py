@@ -600,7 +600,14 @@ def api_health_v2():
             }
     except Exception:
         pass
+    # Lock contention telemetry (Row 1059)
+    try:
+        from .app_state import get_lock_contention_report
+        payload["lock_contention"] = get_lock_contention_report()
+    except Exception:
+        pass
     return jsonify(payload), (200 if payload["ok"] else 503)
+
 
 def register_routes(app) -> int:
     app.register_blueprint(health_bp)

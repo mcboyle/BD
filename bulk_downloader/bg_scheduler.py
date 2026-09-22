@@ -40,7 +40,9 @@ from typing import Callable, Optional
 
 # Per-task state. Lock'd separately so tasks added at runtime don't
 # race with the loop.
-_lock = threading.RLock()
+from .lock_monitor import register_monitored_lock
+
+_lock = register_monitored_lock("bg_scheduler._lock", threading.RLock())
 _tasks: dict = {}  # name → {fn, interval, last_run, last_status, enabled}
 _thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
