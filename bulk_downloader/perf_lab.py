@@ -432,6 +432,7 @@ def snapshot(runners=None) -> dict:
         "interpreter": _interpreter_stats(),
         "tracemalloc_tracing": tracemalloc.is_tracing(),
         "tracemalloc": _tracemalloc_top(),
+        "heap_profile": memray_status(),
         "app_structures": _app_structures(runners),
     }
 
@@ -702,3 +703,38 @@ def _profile_queue(n):
         done += size
         _set(progress=done, detail=f"inserted {done:,} / {n:,} queue rows")
         time.sleep(0.005)
+
+
+# ═══════════════════════ Row 1073: Memray Heap Profiling ═══════════════════════
+
+def memray_status() -> dict:
+    """Return current continuous heap profiling telemetry and state."""
+    try:
+        import importlib
+        _mp = importlib.import_module("bulk_downloader.memray_profile")
+        return _mp.get_memray_profiler().get_stats()
+    except Exception as exc:
+        return {"ok": False, "is_active": False, "error": str(exc)}
+
+
+def memray_start(destination: Optional[str] = None, capture_leaks: bool = False, native: bool = False) -> dict:
+    """Start continuous heap profiling via MemrayProfile."""
+    import importlib
+    _mp = importlib.import_module("bulk_downloader.memray_profile")
+    return _mp.get_memray_profiler().start(destination=destination, capture_leaks=capture_leaks, native=native)
+
+
+def memray_stop() -> dict:
+    """Stop continuous heap profiling and return allocation summary."""
+    import importlib
+    _mp = importlib.import_module("bulk_downloader.memray_profile")
+    return _mp.get_memray_profiler().stop()
+
+
+def memray_flamegraph(output_file: Optional[str] = None, title: str = "Memray Heap Profile Flamegraph") -> dict:
+    """Generate automated interactive flamegraph from continuous heap profiling data."""
+    import importlib
+    _mp = importlib.import_module("bulk_downloader.memray_profile")
+    path = _mp.get_memray_profiler().generate_flamegraph(output_file=output_file, title=title)
+    return {"ok": True, "flamegraph_path": str(path)}
+

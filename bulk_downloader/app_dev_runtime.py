@@ -95,13 +95,25 @@ def api_dev_mem_audit():
 
 @dev_bp.route("/api/dev/mem_audit/track", methods=["POST"])
 def api_dev_mem_audit_track():
-    """Body {action: "start"|"stop"} — toggle tracemalloc tracking so
-    snapshots carry a top-allocations breakdown."""
+    """Body {action: "start"|"stop"|"flamegraph", engine: "tracemalloc"|"memray"} — toggle
+    memory tracking so snapshots carry a top-allocations breakdown or flamegraph."""
     guard = _dev_mode_guard()
     if guard: return guard
     _check_csrf()
     from . import perf_lab as _pl
-    action = ((request.json or {}).get("action") or "").strip().lower()
+    body = request.json or {}
+    action = (body.get("action") or "").strip().lower()
+    engine = (body.get("engine") or "").strip().lower()
+
+    if engine == "memray" or action in ("memray_start", "memray_stop", "flamegraph"):
+        if action in ("start", "memray_start"):
+            return jsonify(_pl.memray_start())
+        if action in ("stop", "memray_stop"):
+            return jsonify(_pl.memray_stop())
+        if action == "flamegraph":
+            return jsonify(_pl.memray_flamegraph())
+        return jsonify({"ok": False, "error": "memray action must be start|stop|flamegraph"}), 400
+
     if action == "start":
         return jsonify(_pl.tracemalloc_start())
     if action == "stop":
