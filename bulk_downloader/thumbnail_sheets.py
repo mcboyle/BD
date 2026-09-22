@@ -92,6 +92,8 @@ def single_thumb(path: str, *, at_pct: float = 50.0,
              "-q:v", "3", out]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=60)
+        from .pillow_hardening import harden_image_file
+        harden_image_file(out)
         return {"ok": True, "out_path": out,
                 "size_bytes": os.path.getsize(out),
                 "timestamp_seconds": timestamp}
@@ -146,6 +148,8 @@ def contact_sheet(path: str, *, rows: int = 4, cols: int = 4,
              "-frames:v", "1", "-q:v", "3", out]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=120)
+        from .pillow_hardening import harden_image_file
+        harden_image_file(out)
         return {"ok": True, "out_path": out,
                 "frame_count": n_frames,
                 "size_bytes": os.path.getsize(out),
@@ -197,6 +201,8 @@ def sprite_sheet(path: str, *, count: int = 100,
              "-frames:v", "1", "-q:v", "4", str(sprite_path)]),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=180)
+        from .pillow_hardening import harden_image_file
+        harden_image_file(str(sprite_path))
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": f"ffmpeg exit {e.returncode}"}
     except subprocess.TimeoutExpired:
@@ -268,3 +274,19 @@ def _fmt_vtt_time(seconds: float) -> str:
     m = int((seconds % 3600) // 60)
     s = seconds % 60
     return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def harden_image_thumbnail(image_bytes: bytes, max_dimension: int = 4096) -> bytes:
+    """Sanitize and harden image thumbnail bytes using Pillow hardening engine."""
+    from bulk_downloader.pillow_hardening import sanitize_image_bytes
+
+    return sanitize_image_bytes(image_bytes, max_dimension=max_dimension)
+
+
+def harden_image_file(file_path: str | Path, max_dimension: int = 4096) -> None:
+    """Sanitize and harden image thumbnail file using Pillow hardening engine."""
+    from bulk_downloader.pillow_hardening import harden_image_file as _harden_file
+
+    _harden_file(file_path, max_dimension=max_dimension)
+
+
