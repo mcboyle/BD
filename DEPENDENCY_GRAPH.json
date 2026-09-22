@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1816,
+    "edge_count": 1817,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4866,6 +4866,9 @@
         "bulk_downloader/app_tpdb.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/transaction_journal.py": [
+        "bulk_downloader/container_repair.py"
+      ],
       "bulk_downloader/ui_events.py": [
         "bulk_downloader/app_global_config.py",
         "bulk_downloader/app_ui_events.py"
@@ -6480,7 +6483,8 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/container_repair.py": [
-        "bulk_downloader/ffmpeg_bin.py"
+        "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/transaction_journal.py"
       ],
       "bulk_downloader/content_rights.py": [
         "bulk_downloader/db.py"

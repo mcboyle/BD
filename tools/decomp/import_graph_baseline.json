@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4802,
+  "edge_count": 4806,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1119,7 +1119,8 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/container_repair.py": [
-      "bulk_downloader/ffmpeg_bin.py"
+      "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/transaction_journal.py"
     ],
     "bulk_downloader/content_rights.py": [
       "bulk_downloader/db.py"
@@ -3959,6 +3960,10 @@
       "bulk_downloader/backup.py",
       "bulk_downloader/dom_analyzer.py"
     ],
+    "tests/test_row1001_crash_consistent_write_ahead_transaction_journal_for_container_mutations.py": [
+      "bulk_downloader/container_repair.py",
+      "bulk_downloader/transaction_journal.py"
+    ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/session_capture.py",
@@ -4854,6 +4859,9 @@
     ],
     "tests/test_row971_onboarding_picks_content_not_login.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row983_feature.py": [
+      "bulk_downloader/heap_compactor.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

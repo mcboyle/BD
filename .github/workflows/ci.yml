@@ -597,6 +597,7 @@ jobs:
               tests/test_row780_sites_config_listing_url_round_trip.py
               tests/test_row750_ipv6_unwrapped_metadata_bypass.py
               tests/test_row971_onboarding_picks_content_not_login.py
+              tests/test_row983_feature.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

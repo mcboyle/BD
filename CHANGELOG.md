@@ -4,6 +4,32 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1623 - train46: heap arena compaction and a crash-consistent container write-ahead journal
+
+Base bc1544b75 (v3.66.1622). Two members, 6 authored paths, disjoint. Both were re-lensed at the
+current main after the 03:xx re-prep destroyed the earlier verdicts, so both BOARD pairs name the
+trees carried here.
+
+- row983 heap-compaction, T2, tree e1fb1964, patch a108df2d. BOARDs: bd-agy-lens-c2 and the
+  cut's canonical VERDICT-correctness.md. In-process heap arena compaction with a glibc
+  malloc_trim(0) mitigator in bulk_downloader/heap_compactor.py. 21 passed / 0 failed; RED on base
+  was "HeapArenaCompactor capability must be present" with clean collection and no ImportError.
+- row1001 WAL journal, T2, tree 95a80d3b, patch 95dea4fa. BOARDs: bd-agy-review-lite1 and
+  bd-review-correctness-B4. A crash-consistent write-ahead transaction journal for container
+  mutations (bulk_downloader/transaction_journal.py, container_repair.py). 23 passed / 0 failed;
+  RED on base was "Row 1001 capability missing".
+
+This is the first product train since the register promotion landed, and it is only possible
+because of it: tests/test_row983_feature.py and the row1001 acceptance file both cite backlog ids,
+which tests/test_v3_66_1255_backlog_references_resolve.py refused while the register ended at 973.
+Train45 (v3.66.1622) added ids 974-1078; that gate now reads 10 passed / 0 failed on main.
+
+NOT CARRIED, and none of it for want of a BOARD: row990 is REFUTE (four pin failures its own lens
+reproduced), row975-r3 is contested, row1005 has no verdict at its current tree, and row992/row994
+would collide with nothing here but hold one BOARD or less since the re-prep.
+
+Register: no row closes here; these rows stay OPEN until their features are accepted.
+
 ## v3.66.1622 - train45: promote the ideas-150 batch into the canonical register
 
 Base 741192d7192d (v3.66.1621). One member, one file.
