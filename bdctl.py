@@ -1207,9 +1207,83 @@ def cmd_resume_all(args):
         sys.exit(1)
 
 
+def _db_engine_check(as_json=False):
+    """Row 1018: open the async engine on the live SQLite file and read from it.
+
+    READ-ONLY and LOCAL. Every other branch of `doctor` asks a running server
+    over HTTP; this one does not, because the thing being checked is whether
+    THIS install can reach its own database through the async seam -- a server
+    that is up has already answered a different question.
+
+    The one query is against sqlite_master, so the check needs no table the
+    schema might not have yet and writes nothing a later run could inherit.
+    """
+    import asyncio
+
+    from bulk_downloader import db
+
+    async def _read():
+        engine = db.async_engine_read_only()
+        try:
+            async with engine.connect() as cx:
+                rows = await cx.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table'")
+                return sorted(r[0] for r in rows)
+        finally:
+            await engine.dispose()
+
+    path = db._resolve_db_path()
+    # A MISSING DATABASE IS ITS OWN ANSWER, and it is not success. SQLite
+    # CREATES the file it is asked to open read-write, so without this branch
+    # the check would convert "there is no database" into "the database is
+    # present and empty" -- reporting ok AND destroying the evidence, which is
+    # the single most diagnostic fact about a half-restored install. The
+    # read-only URL below makes the creation impossible; this makes the answer
+    # honest, and FLEET_RULE 6 is the reason both are here: unknown is never
+    # permission, and "I could not find it" is a third state, not a pass.
+    if not Path(path).is_file():
+        msg = f"no database at {path}"
+        if as_json:
+            print(json.dumps({"ok": False, "path": path, "error": msg}))
+        else:
+            print(f"db-engine-check: FAILED -- {msg}", file=sys.stderr)
+        return 1
+    try:
+        tables = asyncio.run(_read())
+    except ModuleNotFoundError as exc:
+        # THE DEPENDENCY IS NOT THE DATABASE. db imports orm_engine lazily, so
+        # an install missing SQLAlchemy surfaces here, and folding it into the
+        # branch below would print "No module named 'sqlalchemy'" as a database
+        # error -- sending the operator to inspect a file that is fine. Exit 2,
+        # distinct from the exit 1 that means "I reached the database and it is
+        # bad": an unanswerable question is not a pass and not a diagnosis.
+        msg = f"cannot load the async engine: {exc}. Install requirements.txt."
+        if as_json:
+            print(json.dumps({"ok": False, "path": path, "error": msg}))
+        else:
+            print(f"db-engine-check: FAILED -- {msg}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # the failure IS the diagnostic; name it, do not raise
+        if as_json:
+            print(json.dumps({"ok": False, "path": path, "error": str(exc)}))
+        else:
+            print(f"db-engine-check: FAILED on {path}: {exc}", file=sys.stderr)
+        return 1
+    if as_json:
+        print(json.dumps({"ok": True, "path": path, "tables": len(tables)}))
+    else:
+        print(f"db-engine-check: ok -- async engine read {len(tables)} table(s) "
+              f"from {path}")
+    return 0
+
+
 def cmd_doctor(args):
     """v3.54: run the bd-doctor diagnostic pass + optionally diagnose a
     specific failure string."""
+    # --db-engine-check: LOCAL, before any HTTP. Row 1018's read-only caller for
+    # the SQLAlchemy async seam; it must not need a running server.
+    if getattr(args, "db_engine_check", False):
+        sys.exit(_db_engine_check(as_json=getattr(args, "json", False)))
     # --diagnose <text>: just run the failure diagnoser, skip the full
     # environment pass.
     if args.diagnose:
@@ -1788,6 +1862,9 @@ def main():
     sp.add_argument("--diagnose", metavar="ERROR_TEXT",
                     help="instead of the full pass, pattern-match a "
                          "single failure error string")
+    sp.add_argument("--db-engine-check", action="store_true",
+                    help="open the SQLAlchemy async engine on this install's "
+                         "database and read its table list (local, read-only)")
     sp.set_defaults(func=cmd_doctor)
 
     # v3.60 (Phase 12, #98): universal --json. Rather than adding the

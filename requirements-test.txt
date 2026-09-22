@@ -132,3 +132,10 @@ httpcore>=1.0,<2.0
 # their dependency belongs in requirements.txt too -- a fresh install without
 # the test extras cannot run them today.
 Pillow
+
+# Row 1018: tests/test_row1018_sqlalchemy2_async_cutover.py imports both at
+# module scope. Declared here as well as in requirements.txt for the reason
+# the Pillow note above gives: a gate whose tool is missing is a gate that
+# does not exist, and CI installs this file.
+sqlalchemy>=2.0,<3.0
+aiosqlite>=0.20,<1.0

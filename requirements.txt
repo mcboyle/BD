@@ -385,3 +385,12 @@ faststream>=0.5.0,<1.0.0
 # only imported through the row-849 enrichment path, which fails soft without
 # ffmpeg, but numpy itself is a hard runtime dependency once that path runs.
 numpy>=2.0,<3.0
+
+# Row 1018: the SQLAlchemy 2.0 async seam (bulk_downloader/orm_engine.py).
+# Declared in requirements.txt and not an optional manifest because deploy
+# converges only the manifests it names (the row-827 note above), and a seam
+# whose dependency is absent on the box is a seam no later row can adopt.
+# aiosqlite is not optional either: it IS the async driver the URL names, and
+# without it create_async_engine raises at URL parse time.
+sqlalchemy>=2.0,<3.0
+aiosqlite>=0.20,<1.0

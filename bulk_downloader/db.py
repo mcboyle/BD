@@ -69,6 +69,38 @@ def _resolve_db_path():
         return str(_Path_top(install_dir).resolve() / DB_PATH)
     return DB_PATH
 
+def async_engine(**kwargs):
+    """Row 1018: an async SQLAlchemy engine bound to THIS module's resolved path.
+
+    The seam in `orm_engine` takes the path as an argument on purpose, so the
+    binding to `_resolve_db_path()` has to live somewhere; it lives here, with
+    the resolver, rather than in every future caller -- three callers resolving
+    the path themselves is three chances to resolve it differently.
+
+    MIGRATES NOTHING. Every existing reader and writer in this module still goes
+    through `sqlite3`; this is the entry point a later per-module row adopts.
+    The import is function-local because `orm_engine` pulls in SQLAlchemy, and
+    paying that import cost on `from bulk_downloader import db` -- which the CLI
+    and every test do -- to serve a path nothing calls yet is not a trade this
+    module gets to make for its callers.
+    """
+    from . import orm_engine
+    return orm_engine.create_async_engine_for(_resolve_db_path(), **kwargs)
+
+
+def async_engine_read_only(**kwargs):
+    """Row 1018: the same engine, opened with SQLite's `mode=ro`.
+
+    Separate from `async_engine()` rather than a flag on it, because the two
+    have different failure modes and a caller should have to pick: read-write
+    CREATES a missing database, which is correct for a writer and a silent lie
+    for anything that reports on the database's health.
+    """
+    from . import orm_engine
+    return orm_engine.create_async_engine_for(
+        _resolve_db_path(), read_only=True, **kwargs)
+
+
 def db_init(_retry_seconds=10.0):
     """Create the schema, retrying while another connection holds the lock.
 
