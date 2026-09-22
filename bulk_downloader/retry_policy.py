@@ -254,9 +254,12 @@ def classify_failure(message: str = "",
 
 
 def compute_next_delay(failure_class: str,
-                         attempt: int,
-                         retry_after_header: Optional[int] = None,
-                         apply_jitter: bool = True) -> int:
+                       attempt: int,
+                       retry_after_header: Optional[int] = None,
+                       apply_jitter: bool = True,
+                       *,
+                       jitter_strategy: Optional[str] = None,
+                       profile: Optional[Any] = None) -> int:
     """How many seconds to wait before the next retry attempt.
 
     Args:
@@ -268,6 +271,8 @@ def compute_next_delay(failure_class: str,
         the class backoff.
       apply_jitter: True in production; False for unit tests so
         results are deterministic
+      jitter_strategy: optional BackoffStrategy name
+      profile: optional BackoffProfile instance or profile name
 
     Returns: delay in seconds. 0 means "don't retry".
     """
@@ -289,36 +294,52 @@ def compute_next_delay(failure_class: str,
 
     # Special case: rate-limited with server-provided Retry-After.
     # The server knows when its window resets; trust it.
+    retry_after_floor = 0
     if (failure_class == "rate_limited"
             and retry_after_header is not None):
-        # Defensive: coerce to int. A string from a header parse
-        # is the realistic case.
         try:
             ra = int(retry_after_header)
         except (TypeError, ValueError):
             ra = 0
         if ra > 0:
             delay = min(ra, cfg["max_delay_s"])
+            retry_after_floor = delay
         else:
-            # Negative or zero — fall through to class backoff
             delay = int(cfg["base_delay_s"] * (cfg["factor"] ** attempt))
             delay = min(delay, cfg["max_delay_s"])
             delay = max(delay, cfg["base_delay_s"])
     else:
-        # Exponential backoff: base * (factor ^ attempt), clamped
-        # to max_delay_s
         delay = int(cfg["base_delay_s"] * (cfg["factor"] ** attempt))
         delay = min(delay, cfg["max_delay_s"])
         delay = max(delay, cfg["base_delay_s"])
 
-    # Jitter — avoids synchronized retries across sites
-    if apply_jitter and cfg["jitter_pct"] > 0:
-        jit = delay * cfg["jitter_pct"]
-        delay = int(delay + random.uniform(-jit, jit))
-        # Floor at 1s so we never produce 0 (which means "don't retry")
-        delay = max(1, delay)
+    if apply_jitter:
+        if jitter_strategy is not None or profile is not None:
+            from .backoff_profiles import BackoffProfile, compute_backoff, get_profile
+            if profile is not None:
+                prof = get_profile(profile)
+            else:
+                prof = BackoffProfile(
+                    name="custom",
+                    strategy=str(jitter_strategy),
+                    base_delay_s=float(cfg["base_delay_s"]),
+                    max_delay_s=float(cfg["max_delay_s"]),
+                    factor=float(cfg["factor"]),
+                    min_delay_s=1.0,
+                )
+            delay = int(round(compute_backoff(attempt, prof)))
+            delay = max(1, delay)
+            if retry_after_floor > 0:
+                delay = max(delay, retry_after_floor)
+        elif cfg["jitter_pct"] > 0:
+            jit = delay * cfg["jitter_pct"]
+            delay = int(delay + random.uniform(-jit, jit))
+            delay = max(1, delay)
 
     return delay
+
+
+next_delay = compute_next_delay
 
 
 def should_retry(failure_class: str, attempt: int) -> bool:
