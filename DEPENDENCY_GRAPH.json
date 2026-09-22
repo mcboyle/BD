@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1817,
+    "edge_count": 1819,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2480,6 +2480,7 @@
         "bulk_downloader/app_api_tokens.py"
       ],
       "bulk_downloader/app.py": [
+        "bulk_downloader/asgi_gateway.py",
         "bulk_downloader/dev_suite/audit_security.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/config_tools.py",
@@ -4645,6 +4646,9 @@
         "bulk_downloader/app_wakeup.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/socket_tracker.py": [
+        "bulk_downloader/chunked_transfer.py"
+      ],
       "bulk_downloader/spa_media_extract.py": [
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_telemetry.py"
@@ -6306,6 +6310,9 @@
       "bulk_downloader/app_ytdlp_update.py": [
         "bulk_downloader/ytdlp_updater.py"
       ],
+      "bulk_downloader/asgi_gateway.py": [
+        "bulk_downloader/app.py"
+      ],
       "bulk_downloader/audio_fingerprint.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
@@ -6464,6 +6471,9 @@
       "bulk_downloader/challenge_handling.py": [
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/challenge_classify.py"
+      ],
+      "bulk_downloader/chunked_transfer.py": [
+        "bulk_downloader/socket_tracker.py"
       ],
       "bulk_downloader/cleanup_helpers.py": [
         "bulk_downloader/db.py",

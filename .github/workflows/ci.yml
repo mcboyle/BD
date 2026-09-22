@@ -646,6 +646,7 @@ jobs:
               tests/test_row701_quality_scan_scopes_to_the_requested_scene.py
               tests/test_row759_modal_trigger_click_reenters.py
               tests/test_row825_kafka_event_streamer.py
+              tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py
           # Row 778. Page-native extractors return before the ordinary
           # transport boundary, so their completion history must receive the
           # settled document title through _process_one.
