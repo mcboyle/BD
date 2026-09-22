@@ -657,10 +657,29 @@ def test_row723_no_degradation_leaves_no_note_and_no_event(monkeypatch, tmp_path
     assert result[0] is False and "login error" in result[1], result
     assert len(calls) == 1 and calls[0].get("channel") == "chrome", calls
     assert cloak.drain_channel_fallbacks(_SITE) == []
-    r = _browser_runner()
+    # The runner's profile dir sends _launch_browser down the PERSISTENT path, which
+    # calls cloak.open_persistent_context -- not the launch_browser patched above --
+    # so this really started a sync Playwright session and then discarded the handles
+    # it was told to own (cloak.open_persistent_context: "the caller must pw.stop()").
+    # The dispatcher loop it leaves installed in this thread is shared by every later
+    # test in the same xdist worker, which is the leak rules 45/47 are about. Patch the
+    # function the persistent path actually calls and stop what it hands back, exactly
+    # as test_row723_persistent_context_files_under_the_owning_site does above.
+    pw = _FakePW()
+    quiet_ctx = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(cloak, "open_persistent_context",
+                        lambda **kw: (quiet_ctx, pw, "fixture"))
     monkeypatch.setattr(cloak, "launch_browser", lambda **kw: (object(), None, "fixture"))
-    r._launch_browser()
-    assert _degradation_events(r) == []
+    r = _browser_runner()
+    _browser, _ctx, got_pw, _backend = r._launch_browser()
+    try:
+        assert _degradation_events(r) == []
+    finally:
+        try:
+            _ctx.close()
+        finally:
+            got_pw.stop()
+    assert got_pw is pw and pw.stopped is True, "the persistent session was not stopped"
 
 
 def test_row723_a_caller_with_no_run_record_leaves_the_note_for_its_owner():

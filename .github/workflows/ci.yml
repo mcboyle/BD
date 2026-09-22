@@ -823,6 +823,7 @@ jobs:
               tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
               tests/test_row659_witness_run_does_not_leak_capture_state.py
               tests/test_row791_witness_state_restored.py
+              tests/test_mainred_A_eventloop_scope.py
           - name: regen-idempotence-isolation
             suites: >-
               tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py

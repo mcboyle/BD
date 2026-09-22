@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1626 - train49: the event-loop scope guard and a regression test for verdict preservation
+
+Base 7a99076ed (v3.66.1624). Two members, 6 authored paths, applied disjoint -- no file is touched
+by both cuts and each patch went in clean.
+
+- mainred-A-eventloop r3, PATCH-SHA256 72a472ab. Three BOARDs at that exact patch: bd-agy-lens-c3,
+  bd-review-correctness-B5-B, and the cut's canonical VERDICT-correctness.md (c3's concurrence).
+  Adds tests/_event_loop_guard.py and wires it through tests/conftest.py so a test that leaks an
+  event loop is caught at its own boundary rather than as a failure in whatever runs next;
+  .github/workflows/ci.yml and the row723 login-flow test are updated to match. This is the main-red
+  A seam: the symptom was a cross-test failure whose cause was never local to the test that failed.
+
+- h640 reprep-verdicts, PATCH-SHA256 6a45acd6. Two BOARDs at that patch and at review write-tree
+  061a3bf3, from two seats: bd-review-correctness-B4 and bd-review-correctness-B6-B. One authored
+  path, tests/test_h640_reprep_preserves_verdicts.py. It is a regression test for the verdict loss
+  this fleet took earlier today, when a re-prep deleted review verdicts and rebased the cuts
+  underneath them; the test asserts a re-prep preserves what was already judged.
+
+Both cuts were exported from their review copies and their patch hashes were re-checked against the
+BOARDing verdicts before the commit, so the object carried here is the object that was judged.
+
 ## v3.66.1624 - train47: ASGI gateway cutover and high-resolution socket I/O accounting
 
 Base e2989f716 (v3.66.1623). Two members, 7 authored paths, applied disjoint.
