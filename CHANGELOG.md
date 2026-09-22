@@ -4,6 +4,27 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1622 - train45: promote the ideas-150 batch into the canonical register
+
+Base 741192d7192d (v3.66.1621). One member, one file.
+
+- register-974-1078-ideas150, tree 0766ced8, PATCH-SHA256 2ce02ee3. THREE BOARDs at that object:
+  bd-review-correctness-B2, bd-review-correctness-B5-B, bd-review-correctness-B6-B.
+  project-knowledge/IMPROVEMENT_BACKLOG.md gains 105 rows, covering every id from 974 to 1078.
+
+WHY THIS ONE MATTERS OUT OF PROPORTION TO ITS SIZE. Until now the register ended at row 973 while
+the swarm was building rows 974 and up, so tests/test_v3_66_1255_backlog_references_resolve.py
+refused every tests/test_row<N>_*.py whose id had no row: "filenames cite absent backlog id(s)
+[... 975, 983, 990, 1005]". That gate, not any defect, is what reddened train43 (PR953) and would
+have reddened every product train behind it however many BOARDs its cuts held. Promoting the rows
+is the unblock.
+
+CANONICAL MARKER VERIFIED INDEPENDENTLY, not taken from the cut (FLEET_RULE 57): the line reads
+rows=398 open=109 ids-sha256=26a0ae16. Counted from the file, 398 id rows, 398 of them unique, and
+109 marked OPEN. Recomputing SHA256 over ','.join(ids) gives 26a0ae16ada52e8b... -- MATCH.
+
+Closures: none. This train opens rows, it closes none, so no row's status moves here.
+
 ## v3.66.1621 - train44: restore find_best_download's runner kwarg to its declared position
 
 Base a565db62e (v3.66.1619). One member.
