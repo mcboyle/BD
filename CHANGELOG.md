@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1619 - train42: config-surface classifier stops counting deploy-only keys as display debt
+
+Base 14895ffda (v3.66.1618). One member.
+
+- h621-config-classifier r4, T2, tree 3fdca3b1. QUORUM: BOARD bd-review-correctness-B4 + BOARD
+  bd-review-correctness-B1, both naming that tree. Implements RULING-h621-display-and-972-973-E1
+  R1 and R2: tools/config_surface_inventory.py stops counting deploy-only keys as display debt,
+  and the consumer contract derives its open set from the manifest FILE instead of a hardcoded
+  pair. test_v3_66_312_parity_abc.py 10/10 and 319::test_display_open_still_zero are GREEN; on r3
+  both read `4 == 0`.
+
+GUI-PARITY RATCHET RE-PINNED 0 -> 2 per O1186's fallback for h621 landing without rows 972-973
+(PLAN-2040/ORDERS-0025.md V1), with both keys named rather than left as a bare number:
+BD_HTTP_PROXY and turnstile_one_click_enabled. Measured from the assembled tree
+(csi.build -> open_runtime_tunable == 2). The pin stood at 0 while the true count was 8, so this
+makes the ratchet honest and strictly tighter than the count it was silently failing against;
+rows 972-973 take it to 0.
+
+MEASURED, base-subtracted: tests/test_v3_66_305_config_danger.py +
+tests/test_v3_66_319_env_tranche_4_3d.py go from 2 failed / 6 passed on base 6b20f32f1 to
+1 failed / 7 passed. The remaining red, 319::test_no_open_env_vars_remain (BD_HTTP_PROXY), closes
+with rows 972-973. O1010 / FG-ENV-TRANCHE, the class train41 rode.
+
+TWO CUTS WERE DROPPED FROM THIS TRAIN BEFORE IT FROZE, neither for a defect in the code:
+row974 asgi-cutover, per RULING-row974-contested.md (O1218), whose REFUTE carries reproduced HIGH
+findings the two BOARDs' mutants do not reach; and cx-h635-main-guard, which declares no tier
+(DERIVED-NONE) and holds one lens, so under H311 the train tier was UNKNOWN and bd-land --ci-only
+refused to land it. cx-h635 is untouched and rides a later train once it declares a tier.
+
+Register: no row closes here. Rows 974+ are not yet promoted; that is the ROW-974-1078 register cut.
+
 ## v3.66.1618 - train41: template onboarding no longer picks the login page; row 971 closed
 
 Train: 1 refute-first-reviewed worker patch (3 lens BOARDs @ tree e036dcf4; the earlier tree aed33e52
