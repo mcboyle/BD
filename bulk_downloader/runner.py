@@ -2087,6 +2087,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # this method; respect it here by clamping bandwidth's decision.
         return min(cap, st["workers"])
 
+    def drain(self, timeout_seconds: float = 5.0) -> str:
+        """Drain in-flight workers to safe transactional boundary and pause (Row 1075).
+
+        Returns three-state status: 'drained', 'timed_out', or 'error'.
+        """
+        self.pause()
+        try:
+            from .task_drain_engine import get_task_drain_engine
+            res = get_task_drain_engine().drain_task(self.site_id, timeout_seconds=timeout_seconds)
+            return res.status
+        except Exception:
+            return "error"
+
     def pause(self):
         """Pause the worker pool. Workers finish the URL they're currently
         on (or interrupt at the next chunk boundary in _http_download), then
@@ -2106,6 +2119,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self, "_flush_daily_byte_accumulators", None)
             if _flush_pending:
                 _flush_pending()
+            try:
+                from .task_drain_engine import get_task_drain_engine
+                get_task_drain_engine().pause_task(self.site_id, checkpoint_data={"state": "paused"})
+            except Exception:
+                pass
 
     def resume(self):
         """Resume from paused / paused_no_button / low_disk states.
@@ -2147,6 +2165,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if reset_no_button_streak:
                     self._consec_no_btn = 0
                 self._pause.set()
+                try:
+                    from .task_drain_engine import get_task_drain_engine
+                    get_task_drain_engine().resume_task(self.site_id)
+                except Exception:
+                    pass
 
     @_run_lifecycle_serialized
     def stop(self):

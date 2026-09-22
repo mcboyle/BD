@@ -527,6 +527,7 @@ jobs:
               tests/test_v3_66_1043_measurement_and_fleet_tools.py
               tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py
               tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py
+              tests/test_row1075_task_state_pause_drain_resumption.py
           - name: measurement-tools-core
             suites: >-
               tests/test_v3_66_1044_run_context_and_chains.py
