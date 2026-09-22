@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (818)
+## /api/* routes (819)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -584,6 +584,7 @@ GET     /api/settings/env/effective                            CSRF: no
 GET     /api/settings/envfile                                  CSRF: no
 POST    /api/settings/envfile                                  CSRF: yes
 GET     /api/settings/global/effective                         CSRF: no
+POST    /api/settings/runtime                                  CSRF: yes  — Write one runtime-tunable setting. Validate first, then persist, or change nothing.
 GET     /api/settings/schema                                   CSRF: no
 GET     /api/settings/secrets/health                           CSRF: no
 GET     /api/settings/site/<sid>/editable                      CSRF: no   — gui-safe editable fields + current values (read-only; secrets excluded).

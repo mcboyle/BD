@@ -206,6 +206,7 @@
     "/api/scrapling/fingerprint",
     "/api/scrapling/recover",
     "/api/scrapling/turnstile_check",
+    "/api/settings/runtime",
     "/api/shares/<token_id>",
     "/api/sites/<sid>/accounts/rotate",
     "/api/sites/<sid>/ai/detect_login",
@@ -246,5 +247,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 102
+  "dark_count": 103
 }

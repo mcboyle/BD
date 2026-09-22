@@ -1663,10 +1663,11 @@
       "module": "app_settings_center.py",
       "providers": [
         "bulk_downloader/global_config.py",
+        "bulk_downloader/http_client.py",
         "bulk_downloader/site_editor.py",
         "bulk_downloader/vpn_config.py"
       ],
-      "route_count": 11,
+      "route_count": 12,
       "routes": [
         "ROUTE /api/settings/env/effective",
         "ROUTE /api/settings/global/effective",
@@ -1678,7 +1679,8 @@
         "ROUTE /api/settings/vpn/summary",
         "ROUTE /cockpit/settings",
         "ROUTE /cockpit/settings/secrets",
-        "ROUTE /cockpit/settings/site/<sid>"
+        "ROUTE /cockpit/settings/site/<sid>",
+        "ROUTE ?"
       ],
       "var": "settings_center_bp"
     },
@@ -2276,6 +2278,7 @@
         "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/honeypot_threshold.py",
+        "bulk_downloader/http_client.py",
         "bulk_downloader/lifecycle_automation.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/log.py",
@@ -2315,6 +2318,7 @@
         "tools/validate_global_config.py"
       ],
       "writers": [
+        "bulk_downloader/app_settings_center.py",
         "bulk_downloader/app_template_manager.py",
         "bulk_downloader/download_hold.py"
       ]
@@ -2385,7 +2389,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1819,
+    "edge_count": 1823,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3573,6 +3577,9 @@
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/app_replication.py"
       ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/runner_transport.py"
+      ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/dev_suite/capture_diag.py",
@@ -3882,6 +3889,7 @@
         "bulk_downloader/federation.py",
         "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/honeypot_threshold.py",
+        "bulk_downloader/http_client.py",
         "bulk_downloader/lifecycle_automation.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/oidc.py",
@@ -3959,6 +3967,7 @@
         "bulk_downloader/disco_triage.py"
       ],
       "bulk_downloader/http_client.py": [
+        "bulk_downloader/app_settings_center.py",
         "bulk_downloader/deep_http.py"
       ],
       "bulk_downloader/i18n.py": [
@@ -4400,6 +4409,7 @@
         "bulk_downloader/runner_scheduler.py"
       ],
       "bulk_downloader/run_budget.py": [
+        "bulk_downloader/deadline.py",
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/run_history.py": [
@@ -6078,6 +6088,7 @@
       ],
       "bulk_downloader/app_settings_center.py": [
         "bulk_downloader/global_config.py",
+        "bulk_downloader/http_client.py",
         "bulk_downloader/site_editor.py",
         "bulk_downloader/vpn_config.py"
       ],
@@ -6549,6 +6560,9 @@
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/backup_verify.py"
       ],
+      "bulk_downloader/deadline.py": [
+        "bulk_downloader/run_budget.py"
+      ],
       "bulk_downloader/dedup.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
@@ -6861,6 +6875,9 @@
       ],
       "bulk_downloader/http3_client.py": [
         "bulk_downloader/ssrf_transport.py"
+      ],
+      "bulk_downloader/http_client.py": [
+        "bulk_downloader/global_config.py"
       ],
       "bulk_downloader/hybrid_search.py": [
         "bulk_downloader/db.py",
@@ -7397,6 +7414,7 @@
         "bulk_downloader/cookies.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/deadline.py",
         "bulk_downloader/dedup.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/download_egress.py",

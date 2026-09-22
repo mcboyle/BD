@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1625 - train48: GUI controls for proxy and turnstile, and tiered deadlines that propagate into socket timeouts
+
+Base 7a99076ed256 (v3.66.1624). Two members, 13 authored paths, disjoint.
+
+- rows972-973 gui-controls r6, tree bad21d56, patch fcd8629f, in the CUT directory
+  /home/mboyle/bd-cuts/cut/rows972-973-gui-controls-r6. THREE BOARDs name that object:
+  bd-review-correctness-B2 by tree, bd-review-correctness-B4 and bd-agy-review-correctness1 by
+  PATCH-SHA256 -- both FLEET_RULE 16 forms of the same object. GUI controls for BD_HTTP_PROXY and
+  TURNSTILE_ONE_CLICK_ENABLED, rendered and wired through bulk_downloader/app_settings_center.py
+  and http_client.py. Six rounds in the deep lane.
+  reports/config_parity_baseline.json was STAGED IN THE CUT and is STRIPPED from this train: it is
+  the integrator's file, and bd-integrator-c-B re-pins open_count to 0 on this train, closing the
+  O1186 chain (ORDERS-0655 W1 / ORDER-T48-0735Z.md). The other ten authored paths ride as written.
+- row1006 deadline-timeouts, T2, tree 83bcf22f, patch b7c91e00. Two BOARDs at that object:
+  bd-review-correctness-B1 (06:46Z) and bd-agy-lens-c3 (06:54Z). A tiered deadline that propagates
+  into socket timeouts, in bulk_downloader/deadline.py with bulk_downloader/runner_transport.py as
+  its consumer. RED at base 3 failed / 3 passed; GREEN on the cut 7 passed / 0 failed. Precut rc=0.
+  Its positive control and its over-correction control both pass at base, as they must.
+
+A B5-B REFUTE exists for this row, and it does not bind here: it judged tree 369494ce in
+bd-review-wt/row1006-tiered-deadline-socket-timeouts-local, the pre-O906 worktree that the
+Orchestration Council's 07:30Z status records as abandoned. The live object is the one above,
+built by B3. Checked by digest, not by directory name.
+
+NOT CARRIED: rows972-973 r6, which the same status listed as quorum-ready. Its three BOARDs name
+objects the cut no longer is -- B2 names tree bad21d56, the other two name PATCH-SHA256 fcd8629f,
+while the two live r6 directories are trees 3774df77 and 33f4febf with patch c637ce97. The cut has
+moved again since every one of those lenses judged it, so there is no quorum at its current object.
+
+Register (FLEET_RULE 31 -- closures ride the train that makes them): 972 and 973 CLOSED @1625 by
+the cut above; 1039 CLOSED @1625 as a moot premise and 1040 CLOSED @1625 as MOOT against row 898,
+both per ORDER-T48-0735Z.md. Canonical marker recomputed and verified: rows=398 open=105
+ids-sha256=26a0ae16ada52e8b... -- SHA256 over ','.join(ids), counted from the file.
+
 ## v3.66.1624 - train47: ASGI gateway cutover and high-resolution socket I/O accounting
 
 Base e2989f716 (v3.66.1623). Two members, 7 authored paths, applied disjoint.

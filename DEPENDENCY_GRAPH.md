@@ -10,14 +10,14 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1819**
+- internal import edges: **1823**
 - tools: 233 · with internal edge: 133 · with tool→package edge: 74
 - blueprints: 162 · config stores: 5
 
 ## Most-imported modules (coupling hotspots)
 
 - `bulk_downloader/db.py`: 115
-- `bulk_downloader/global_config.py`: 55
+- `bulk_downloader/global_config.py`: 56
 - `bulk_downloader/constants.py`: 33
 - `bulk_downloader/ssrf_transport.py`: 28
 - `bulk_downloader/app.py`: 25
@@ -161,7 +161,7 @@ Graph version: 1
 - **service_mesh** (`service_mesh.py`) — routes 1, providers 0
 - **session_history** (`app_session_history.py`) — routes 1, providers 1
 - **session_status** (`app_session_status.py`) — routes 1, providers 1
-- **settings_center** (`app_settings_center.py`) — routes 11, providers 3
+- **settings_center** (`app_settings_center.py`) — routes 12, providers 4
 - **shares** (`app_shares.py`) — routes 3, providers 1
 - **shortcuts** (`app_shortcuts.py`) — routes 1, providers 1
 - **sites** (`app_sites.py`) — routes 0, providers 11
@@ -205,7 +205,7 @@ Graph version: 1
 ## Config stores → reader / writer modules
 
 - **app_settings_center** — readers 7, writers 0
-- **global_config** — readers 73, writers 2
+- **global_config** — readers 74, writers 3
 - **site_editor** — readers 23, writers 0
 - **vpn_config** — readers 17, writers 1
 - **widgets_config** — readers 4, writers 1

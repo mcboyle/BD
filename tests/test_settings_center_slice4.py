@@ -192,12 +192,16 @@ def test_no_direct_write_in_blueprint():
 def test_containment_routes_and_version():
     app = _app()
     rules = [r for r in app.url_map.iter_rules() if r.endpoint != "static"]
-    assert len(rules) == 11, len(rules)
-    nonget = [r for r in rules if (r.methods or set()) - {"HEAD", "OPTIONS", "GET"}]
-    assert len(nonget) == 1, [str(r.rule) for r in nonget]
-    assert str(nonget[0].rule).endswith("/validate")
+    # Rows 972/973 add the runtime write route: 11 -> 12 rules, one non-GET -> two.
+    # The raise does not loosen the pin -- the writers are NAMED, so a third non-GET
+    # route on this blueprint still reds this test, which is the drift it exists to catch.
+    assert len(rules) == 12, len(rules)
+    nonget = sorted(str(r.rule) for r in rules
+                    if (r.methods or set()) - {"HEAD", "OPTIONS", "GET"})
+    assert nonget == ["/api/settings/runtime",
+                      "/api/settings/site/<sid>/validate"], nonget
     from bulk_downloader import __version__
-    assert __version__ == "3.66.1624", __version__
+    assert __version__ == "3.66.1625", __version__
 
 
 def test_editor_page_renders_grouped():
