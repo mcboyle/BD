@@ -68,6 +68,24 @@ _READ_MUTATION_JS = """
 })();
 """
 
+# Row sg9: a request already in flight when the barrier attaches is invisible to
+# page.on("request") -- the event fired before the handler existed -- so it neither
+# counts nor blocks settlement, and the barrier can call a page settled while that
+# response is still outstanding. Resource Timing is the only record of it that
+# survives the attach boundary: an entry appears when the request COMPLETES, and
+# its startTime says whether it began before the barrier existed. Entries whose
+# startTime precedes the attach mark are therefore the pre-attach population, and
+# they are counted and made to reset the quiet window exactly like a live one.
+_READ_PREATTACH_JS = """
+(t0) => {
+  let pre = 0;
+  for (const r of performance.getEntriesByType('resource')) {
+    if (r.startTime < t0) pre++;
+  }
+  return pre;
+}
+"""
+
 _EVENTS = ("request", "requestfinished", "requestfailed")
 
 
@@ -115,6 +133,9 @@ class SettlementBarrier:
         self._in_flight: dict[Any, tuple[float, str, str]] = {}
         self._long_polls: set[Any] = set()
         self._total_requests = 0
+        self._preattach_done = 0          # pre-attach requests proven complete
+        self._boundary_overlap = 0        # counted by BOTH lanes; removed once
+        self._attach_mark_ms: Optional[float] = None
         self._attached = False
         self._handlers: dict[str, Callable[..., None]] = {}
         self._attach_listeners()
@@ -147,6 +168,20 @@ class SettlementBarrier:
             self._in_flight.pop(request, None)
             self._long_polls.discard(request)
 
+        # The attach mark is read in the page's own clock, the same clock
+        # Resource Timing startTime is expressed in; a host-side timestamp
+        # cannot be compared with it. It is sampled BEFORE the handlers are
+        # registered so the two populations PARTITION on it: startTime < mark
+        # belongs to Resource Timing, startTime >= mark to the live events.
+        # Sampling it after registration instead leaves them overlapping for
+        # the width of this evaluate's round trip, so a request issued inside
+        # that window is seen by _on_request AND carries a startTime below the
+        # mark. Registering the handlers FIRST closes the gap -- nothing can be
+        # missed -- and the overlap is then removed by COUNTING it rather than
+        # by hoping it is empty: _total_requests is sampled either side of the
+        # evaluate, and whatever fired inside it is exactly the population that
+        # both lanes can see. Ordering the mark first would trade the double
+        # count for a silent MISS, which is the defect this row exists to fix.
         handlers = {"request": _on_request, "requestfinished": _on_finished,
                     "requestfailed": _on_failed}
         try:
@@ -156,6 +191,16 @@ class SettlementBarrier:
             self._attached = True
         except Exception:
             self.detach()
+            return
+
+        before = self._total_requests
+        try:
+            self._attach_mark_ms = float(self.page.evaluate("() => performance.now()"))
+        except Exception:
+            self._attach_mark_ms = None
+        # Requests the live lane saw while the mark was being read also carry a
+        # startTime below it, so they are in both populations exactly once each.
+        self._boundary_overlap = self._total_requests - before
 
     def detach(self) -> None:
         """Remove every handler this barrier attached (idempotent). A barrier
@@ -209,6 +254,17 @@ class SettlementBarrier:
             return None
         return info
 
+    def _read_preattach_done(self) -> Optional[int]:
+        """How many requests that began BEFORE this barrier attached have now
+        completed, or None when the page cannot be asked. None is UNKNOWN, not
+        zero: an evaluate that raises says nothing about the network."""
+        if self._attach_mark_ms is None:
+            return None
+        try:
+            return int(self.page.evaluate(_READ_PREATTACH_JS, self._attach_mark_ms))
+        except Exception:
+            return None
+
     def _wait(self, *, timeout: float, raise_on_timeout: bool) -> SettlementResult:
         start_time = time.monotonic()
         deadline = start_time + max(0.1, float(timeout))
@@ -217,6 +273,7 @@ class SettlementBarrier:
         self._install_observer()
 
         mutations_count = 0
+        last_network_ms = start_time
         while True:
             now = time.monotonic()
             if now >= deadline:
@@ -228,7 +285,8 @@ class SettlementBarrier:
                 return SettlementResult(
                     settled=False,
                     duration_ms=dur,
-                    requests_seen=self._total_requests,
+                    requests_seen=self._total_requests + max(
+                        0, self._preattach_done - self._boundary_overlap),
                     long_polls_ignored=len(self._long_polls),
                     mutations_seen=mutations_count,
                     reason="timeout",
@@ -244,6 +302,23 @@ class SettlementBarrier:
                 self._in_flight.pop(req, None)
                 self._long_polls.add(req)
 
+            # Row sg9: fold in the pre-attach population before judging quiet. A
+            # newly completed pre-attach request is network activity that landed
+            # inside this wait, so it restarts the quiet window; without this the
+            # barrier could return settled in the same poll the response arrived.
+            preattach = self._read_preattach_done()
+            if preattach is None:
+                # UNKNOWN is not quiet. When the pre-attach lane exists but the
+                # page could not be asked (an evaluate that raised mid-wait),
+                # nothing has been proven about the network, so this poll may
+                # not settle -- it retries, and the timeout above is what ends
+                # an unreadable page.
+                if self._attach_mark_ms is not None:
+                    last_network_ms = now
+            elif preattach > self._preattach_done:
+                self._preattach_done = preattach
+                last_network_ms = now
+
             # Check network idle condition: non-long-poll in-flight requests == 0
             mutation_info = self._read_mutation_state() if not self._in_flight else None
             if mutation_info is not None:
@@ -251,12 +326,15 @@ class SettlementBarrier:
                 mutations_count = int(mutation_info.get("count", 0))
 
                 # If DOM has been quiet for at least mutation_settle_ms (250ms)
-                if elapsed_ms >= self.mutation_settle_ms:
+                # AND no pre-attach response landed inside that same window.
+                net_quiet_ms = (now - last_network_ms) * 1000.0
+                if elapsed_ms >= self.mutation_settle_ms and net_quiet_ms >= self.mutation_settle_ms:
                     dur = (now - start_time) * 1000.0
                     return SettlementResult(
                         settled=True,
                         duration_ms=dur,
-                        requests_seen=self._total_requests,
+                        requests_seen=self._total_requests + max(
+                        0, self._preattach_done - self._boundary_overlap),
                         long_polls_ignored=len(self._long_polls),
                         mutations_seen=mutations_count,
                         reason="settled",

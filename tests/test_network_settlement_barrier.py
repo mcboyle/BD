@@ -366,3 +366,83 @@ def test_warmup_visits_wait_for_settlement_between_goto_and_the_reading_scroll(m
     assert page.listener_count() == 0
     assert 2.5 <= [c[1] for c in calls if c[0] == "sleep"][0] <= 6.0   # the reading pause is kept
     assert runner._last_warmup_at > 0
+
+
+def test_one_request_at_the_attach_boundary_is_counted_exactly_once():
+    """Row sg9 (lens FLIP): the live-event and Resource Timing populations must
+    PARTITION, not overlap.
+
+    The barrier learns about pre-attach requests from Resource Timing and about
+    later ones from ``page.on("request")``. If the page-clock attach mark is
+    sampled AFTER the handlers are registered, a request issued inside that
+    evaluate's round trip is in both: the handler counts it and its startTime is
+    still below the mark. ``requests_seen`` then reports 2 for 1 request -- a
+    lie in the opposite direction from the undercount this row set out to fix.
+    One request is issued here, so the count is exact: 1, never 2.
+    """
+    import http.server
+    import threading
+    from playwright.sync_api import sync_playwright
+
+    class _H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            body = b"ok" if self.path == "/api" else b"<html><body>x</body></html>"
+            ctype = "text/plain" if self.path == "/api" else "text/html"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{srv.server_port}/", wait_until="load")
+            # Put the one request PRECISELY inside the attach window, without a
+            # timer: performance.now() is what the barrier calls to take its
+            # mark, so a one-shot wrapper fires the fetch from inside that very
+            # evaluate. No sleep, no race -- the boundary is addressed by name.
+            page.evaluate(
+                "() => { const orig = performance.now.bind(performance);"
+                "  performance.now = () => { performance.now = orig;"
+                "    fetch('/api'); return orig(); }; }"
+            )
+            result = wait_for_settlement(page, mutation_settle_ms=250, timeout=5.0)
+            assert result.settled is True, result
+            assert result.requests_seen == 1, result
+            browser.close()
+    finally:
+        srv.shutdown()
+
+
+def test_an_unreadable_preattach_lane_is_unknown_not_settled():
+    """Row sg9 (lens E2): the pre-attach lane obeys the same UNKNOWN rule as the
+    mutation lane. Once the attach mark exists, a Resource Timing read that
+    raises mid-wait -- an evaluate against a destroyed execution context, say --
+    says NOTHING about whether the network went quiet. It must not be silently
+    skipped, which would let the very next poll settle on a stale quiet window.
+    """
+
+    class _PreattachReadBreaksPage(_SimulatedPage):
+        """The mark is readable; every later Resource Timing read raises."""
+
+        def __init__(self):
+            super().__init__()
+            self._marked = False
+
+        def evaluate(self, js, arg=None):
+            if "performance.now()" in js and not self._marked:
+                self._marked = True               # the attach mark succeeds
+                return 0.0
+            if "getEntriesByType" in js:
+                raise RuntimeError("Execution context was destroyed")
+            return super().evaluate(js, arg)
+
+    result = wait_for_settlement(_PreattachReadBreaksPage(), mutation_settle_ms=100, timeout=0.3)
+    assert result.settled is False and result.reason == "timeout", result
