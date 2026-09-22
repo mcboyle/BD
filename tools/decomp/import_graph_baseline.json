@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4810,
+  "edge_count": 4811,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1271,6 +1271,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
+      "bulk_downloader/fd_quota_gauge.py",
       "bulk_downloader/heuristic_scoring.py",
       "bulk_downloader/login_templates_data.py",
       "bulk_downloader/perf_lab.py",

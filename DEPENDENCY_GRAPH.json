@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1819,
+    "edge_count": 1820,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3793,6 +3793,9 @@
       ],
       "bulk_downloader/failure_reasons.py": [
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/fd_quota_gauge.py": [
+        "bulk_downloader/dev_suite/introspection.py"
       ],
       "bulk_downloader/feature_flags.py": [
         "bulk_downloader/app_dev_config.py",
@@ -6639,6 +6642,7 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/detect.py",
+        "bulk_downloader/fd_quota_gauge.py",
         "bulk_downloader/heuristic_scoring.py",
         "bulk_downloader/login_templates_data.py",
         "bulk_downloader/perf_lab.py",
