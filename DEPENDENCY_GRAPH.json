@@ -1254,14 +1254,16 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/queue_starvation.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
-      "route_count": 9,
+      "route_count": 10,
       "routes": [
         "ROUTE /api/queue/dead_letter",
         "ROUTE /api/queue/dead_letter/requeue",
         "ROUTE /api/queue/preflight",
+        "ROUTE /api/queue/starvation",
         "ROUTE /api/queue/v2",
         "ROUTE /api/queue/v2/add_url",
         "ROUTE /api/queue/v2/bulk_cancel",
@@ -2389,7 +2391,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1838,
+    "edge_count": 1843,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3120,6 +3122,9 @@
         "bulk_downloader/app_automation_status.py",
         "bulk_downloader/automation_pipeline.py"
       ],
+      "bulk_downloader/backoff_profiles.py": [
+        "bulk_downloader/retry_policy.py"
+      ],
       "bulk_downloader/backup.py": [
         "bulk_downloader/app_backup.py"
       ],
@@ -3583,6 +3588,9 @@
         "tools/p5_2b_accuracy_watch.py",
         "tools/queue_intelligence.py"
       ],
+      "bulk_downloader/db_lifecycle.py": [
+        "bulk_downloader/db.py"
+      ],
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/app_replication.py"
       ],
@@ -3769,6 +3777,7 @@
         "bulk_downloader/site_changelog.py"
       ],
       "bulk_downloader/events.py": [
+        "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_transport.py"
       ],
@@ -4369,6 +4378,9 @@
         "bulk_downloader/auto_queue.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/queue_starvation.py": [
+        "bulk_downloader/app_queue.py"
+      ],
       "bulk_downloader/queue_templates.py": [
         "bulk_downloader/app_queue_templates.py",
         "bulk_downloader/app_sites_queue.py"
@@ -4802,6 +4814,9 @@
         "bulk_downloader/app.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py"
+      ],
+      "bulk_downloader/task_drain_engine.py": [
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/template_assist.py": [
         "bulk_downloader/app_sites_teach.py",
@@ -6040,6 +6055,7 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/queue_starvation.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
@@ -6593,6 +6609,7 @@
       ],
       "bulk_downloader/db.py": [
         "bulk_downloader/constants.py",
+        "bulk_downloader/db_lifecycle.py",
         "bulk_downloader/egress_identity.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/hot_write_buffer.py",
@@ -6739,6 +6756,7 @@
         "bulk_downloader/capture_artifact_redact.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/events.py",
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/disco_runner.py": [
@@ -7225,6 +7243,7 @@
         "bulk_downloader/tags.py"
       ],
       "bulk_downloader/retry_policy.py": [
+        "bulk_downloader/backoff_profiles.py",
         "bulk_downloader/tombstone.py"
       ],
       "bulk_downloader/run_history.py": [
@@ -7310,6 +7329,7 @@
         "bulk_downloader/subtitles.py",
         "bulk_downloader/tags.py",
         "bulk_downloader/takeover_vnc.py",
+        "bulk_downloader/task_drain_engine.py",
         "bulk_downloader/template_assist.py",
         "bulk_downloader/thumbnail_gen.py",
         "bulk_downloader/tier_probe.py",

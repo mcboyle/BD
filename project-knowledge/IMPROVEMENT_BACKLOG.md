@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=91 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=92 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -447,7 +447,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
 | 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
 | 1058 | OPEN | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer |
-| 1059 | CLOSED @1631 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
+| 1059 | OPEN | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | OPEN | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher |
 | 1061 | OPEN | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
 | 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4865,
+  "edge_count": 4877,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -629,6 +629,7 @@
       "bulk_downloader/cookie_health.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/queue_starvation.py",
       "bulk_downloader/selector_drift.py",
       "bulk_downloader/tombstone.py"
     ],
@@ -1182,6 +1183,7 @@
     ],
     "bulk_downloader/db.py": [
       "bulk_downloader/constants.py",
+      "bulk_downloader/db_lifecycle.py",
       "bulk_downloader/egress_identity.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/hot_write_buffer.py",
@@ -1328,6 +1330,7 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/events.py",
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/disco_runner.py": [
@@ -1814,6 +1817,7 @@
       "bulk_downloader/tags.py"
     ],
     "bulk_downloader/retry_policy.py": [
+      "bulk_downloader/backoff_profiles.py",
       "bulk_downloader/tombstone.py"
     ],
     "bulk_downloader/run_history.py": [
@@ -1899,6 +1903,7 @@
       "bulk_downloader/subtitles.py",
       "bulk_downloader/tags.py",
       "bulk_downloader/takeover_vnc.py",
+      "bulk_downloader/task_drain_engine.py",
       "bulk_downloader/template_assist.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/tier_probe.py",
@@ -4015,6 +4020,10 @@
       "bulk_downloader/log.py",
       "bulk_downloader/signature_chains.py"
     ],
+    "tests/test_row1003_decorrelated_full_jitter_exponential_backoff_profiles.py": [
+      "bulk_downloader/backoff_profiles.py",
+      "bulk_downloader/retry_policy.py"
+    ],
     "tests/test_row1006_tiered_deadline_propagating_socket_timeouts.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/ssrf_transport.py"
@@ -4026,6 +4035,9 @@
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
+    ],
+    "tests/test_row1025_db_connection_lifecycle_traps.py": [
+      "bulk_downloader/db.py"
     ],
     "tests/test_row1027_egress_transport_unification.py": [
       "bulk_downloader/discovery.py",
@@ -4049,6 +4061,10 @@
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/pillow_hardening.py",
       "bulk_downloader/thumbnail_sheets.py"
+    ],
+    "tests/test_row1075_task_state_pause_drain_resumption.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/task_drain_engine.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
@@ -4948,6 +4964,10 @@
     ],
     "tests/test_row974_asgi_cutover.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row975_aiokafka_client.py": [
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/events.py"
     ],
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",

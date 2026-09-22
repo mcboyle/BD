@@ -4,15 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1631 - train58: rows 975/990/1003/1025/1059/1075 plus sg9 and register
+## v3.66.1631 - train58: rows 975/990/1003/1025/1075 plus sg9 and register
 
-Base 917bd6a2a (v3.66.1630). Eight cuts stacked, six numbered rows closed.
+Base c0957568a (v3.66.1630). Seven cuts stacked, five numbered rows closed.
 sg10 and row965 landed-by-content (0 added lines missing).
 
 - row1025-db-connection-lifecycle-traps, row990-queue-starvation,
-  sg9-network-settle-B3-B, row1059-mutex-contention-lock-monitor,
-  row975-aiokafka-client, register-landed-content-close,
-  row1003-backoff-profiles, row1075-task-state-pause-drain-resumption.
+  sg9-network-settle-B3-B, row975-aiokafka-client,
+  register-landed-content-close, row1003-backoff-profiles,
+  row1075-task-state-pause-drain-resumption.
 
 ## v3.66.1630 - train55: rows 978/996/1006/1013/1027/1055 plus cx-sweep9
 
