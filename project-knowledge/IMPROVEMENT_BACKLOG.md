@@ -377,7 +377,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
 | 987 | OPEN | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
 | 988 | OPEN | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
-| 989 | OPEN | INTER-SEAT-IPC-LATENCY-MATRIX-CLOCK-SKEW-MONITOR -- Inter-Seat IPC Latency Matrix & Clock Skew Monitor |
+| 989 | OPEN | INTER-SEAT-IPC-LATENCY-MATRIX-MONITOR -- Inter-Seat IPC Latency Matrix Monitor |
 | 990 | CLOSED @1631 | QUEUE-STARVATION-PRIORITY-INVERSION-VISUALIZER -- Queue Starvation & Priority Inversion Visualizer |
 | 991 | CLOSED @1627 | RESOURCE-QUOTA-BUDGET-FILE-DESCRIPTOR-UTILIZATION-GAUGE -- Resource Quota Budget & File Descriptor Utilization Gauge |
 | 992 | CLOSED @1624 | HIGH-RESOLUTION-SOCKET-I-O-ACCOUNTING-MICROSECOND-LATENCY-TRACKER -- High-Resolution Socket I/O Accounting & Microsecond Latency Tracker |
