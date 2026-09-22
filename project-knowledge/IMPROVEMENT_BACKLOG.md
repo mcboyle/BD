@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=80 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=79 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -462,7 +462,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
 | 1072 | OPEN | TEST-FIXTURE-ISOLATION-DATABASE-SANDBOXING-STANDARDIZATION-HERMETICFIXTURES -- Test Fixture Isolation & Database Sandboxing Standardization (HermeticFixtures) |
 | 1073 | CLOSED @1632 | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
-| 1074 | OPEN | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
+| 1074 | CLOSED @1634 | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
 | 1075 | CLOSED @1631 | TRANSACTIONAL-TASK-STATE-PAUSE-DRAIN-AND-RESUMPTION-ENGINE -- Transactional Task State Pause, Drain, and Resumption Engine |
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
 | 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
