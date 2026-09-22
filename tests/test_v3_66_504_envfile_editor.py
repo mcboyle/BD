@@ -70,7 +70,17 @@ _HOST_MANAGED = {"DISPLAY", "PLAYWRIGHT_BROWSERS_PATH", "APPDATA",
                  # only the reader, so health would report no_record forever
                  # while deploy kept reporting cloak=OK -- two different states
                  # collapsed into one word (CLAUDE.md A7). Host/deploy-managed.
-                 "BD_GRAPH_HASH_PIN"}
+                 "BD_GRAPH_HASH_PIN",
+                 # O1186 / H621: the four keys added to _DEPLOY_ONLY on 2026-09-21. They are
+                 # host/deploy-managed for the same reason as the entries above, and the point
+                 # of excluding them was to keep them OFF the GUI surface -- so the right way to
+                 # satisfy the equality below is to name them host-managed here, never to add a
+                 # GUI control for a vault key or for Redis topology to make a test green.
+                 # BD_VAULT_KEY: the secret itself; a .env write moves the reader, not the vault.
+                 # BD_REDIS_HOST / BD_REDIS_PORT: broker topology, set by the deploy that also
+                 # provisions the broker; repointing a running process orphans in-flight work.
+                 # BD_CLUSTER_RATE_MODE: cluster-wide rate policy; one node's .env cannot hold it.
+                 "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE"}
 
 
 # ── 1. boot loader: parse + setdefault (real env wins) ───────────────────────
