@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4805,
+  "edge_count": 4810,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -942,6 +942,9 @@
     "bulk_downloader/app_ytdlp_update.py": [
       "bulk_downloader/ytdlp_updater.py"
     ],
+    "bulk_downloader/asgi_gateway.py": [
+      "bulk_downloader/app.py"
+    ],
     "bulk_downloader/audio_fingerprint.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
@@ -1100,6 +1103,9 @@
     "bulk_downloader/challenge_handling.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/challenge_classify.py"
+    ],
+    "bulk_downloader/chunked_transfer.py": [
+      "bulk_downloader/socket_tracker.py"
     ],
     "bulk_downloader/cleanup_helpers.py": [
       "bulk_downloader/db.py",
@@ -4859,6 +4865,13 @@
     ],
     "tests/test_row971_onboarding_picks_content_not_login.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row974_asgi_cutover.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py": [
+      "bulk_downloader/chunked_transfer.py",
+      "bulk_downloader/socket_tracker.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

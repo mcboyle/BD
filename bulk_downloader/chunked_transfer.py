@@ -169,3 +169,19 @@ def adaptive_chunks(
                 pending.clear()
     if pending:
         yield bytes(pending)
+
+
+# Row 992: High-Resolution Socket I/O Accounting & Microsecond Latency Tracker wiring
+from .socket_tracker import (
+    SocketIOStats,
+    SocketIOTracker,
+    TrackedSocket,
+    get_socket_tracker_metadata,
+    wrap_socket,
+)
+
+
+def create_tracked_socket(sock: Any, tracker: Optional[SocketIOTracker] = None) -> TrackedSocket:
+    """Create a tracked socket instrumented with high-resolution I/O accounting."""
+    return wrap_socket(sock, tracker)
+

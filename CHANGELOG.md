@@ -4,6 +4,31 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1624 - train47: ASGI gateway cutover and high-resolution socket I/O accounting
+
+Base e2989f716 (v3.66.1623). Two members, 7 authored paths, applied disjoint.
+
+- row974 asgi-cutover, T2, tree 8b398b31. FIVE BOARDs at that tree, all written 06:44-06:54Z today:
+  bd-agy-lens-c2, bd-agy-lens-c3, bd-agy-review-correctness1, bd-review-correctness-B6-B, and the
+  cut's canonical VERDICT-correctness.md. Starlette/FastAPI ASGI gateway
+  (bulk_downloader/asgi_gateway.py) with downloader_ui.py cut over to it; _serve_wsgi preserved.
+  50 passed / 0 failed; RED on base was rc=1, 15 failed, "bulk_downloader.asgi_gateway not
+  implemented".
+  THIS IS THE CUT THAT WAS PULLED FROM TRAIN42 on RULING-row974-contested.md (O1218). That REFUTE
+  judged tree ac795522 at base 33ea11fb and named four HIGH findings; the builder fixed them and
+  the cut was re-lensed at a new base. The old BOUNCE from bd-review-correctness-B3 still sits in
+  the cut directory naming ac795522 -- it is a verdict about a tree that no longer exists, and the
+  five BOARDs above all name 8b398b31. B6-B, who refuted the old generation, BOARDs this one.
+- row992 socket-accounting r2, T2, tree 97dbba17. BOARDs bd-agy-lens-c3 and
+  bd-review-correctness-B4. High-resolution socket I/O accounting and a microsecond latency
+  tracker (bulk_downloader/socket_tracker.py, chunked_transfer.py). 57 passed / 0 failed; RED on
+  base was an AssertionError, not an ImportError.
+
+Both cuts wire their acceptance test into .github/workflows/ci.yml and were applied in that order
+to a clean tree to prove the hunks do not collide -- measured, not read off the hunk headers.
+
+Register: no row closes here.
+
 ## v3.66.1623 - train46: a crash-consistent write-ahead transaction journal for container mutations
 
 Base bc1544b75 (v3.66.1622). One member.
