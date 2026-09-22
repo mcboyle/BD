@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import Any, Optional
 import urllib.error
 import urllib.request
 
@@ -82,3 +83,10 @@ def proxy_open(request, *, timeout, direct_open):
     except OSError:
         pool.record_failure()
         return direct_open(request, timeout=timeout)
+
+
+def unified_request(url: str, method: str = "GET", headers: Optional[dict] = None, timeout: float = 30.0, data: Any = None):
+    """Execute request via the unified egress client."""
+    from .egress_transport import get_unified_egress_client
+    client = get_unified_egress_client()
+    return client.request(method=method, url=url, headers=headers, data=data, timeout=timeout)
