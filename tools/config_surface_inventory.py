@@ -751,6 +751,18 @@ _DEPLOY_ONLY = {
     # record deploy.sh already placed -> display-only (effective-value panel), the
     # same disposition as BD_SITES_CONFIG_PATH and the other path pins above.
     "BD_GRAPH_HASH_PIN",
+    # O1186 (operator, 2026-09-21): DEPLOYMENT TOPOLOGY AND SECRETS, not user settings.
+    # Each is read at CALL time via os.environ.get with a caller override, so unlike the
+    # pins above a GUI write COULD technically take effect -- this exclusion is the
+    # operator's policy call on what belongs in a settings GUI, not a claim about import
+    # binding. Recorded plainly here so nobody later reads it as the latter.
+    #   BD_VAULT_KEY         vault_sync.py:336 -- the secret-store key itself; a settings
+    #                        control would put a credential on the wire.
+    #   BD_REDIS_HOST        cluster_rate.py:146, vault_sync.py:356 -- coordination endpoint.
+    #   BD_REDIS_PORT        cluster_rate.py:147, vault_sync.py:357 -- same endpoint.
+    #   BD_CLUSTER_RATE_MODE cluster_rate.py:266,419 -- which coordination backend the
+    #                        DEPLOYMENT runs; changing it per-user would desynchronise peers.
+    "BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE",
 }
 # v3.66.319 (Phase 4.3a): legacy back-compat ALIASES of an env var whose canonical
 # control is ALREADY gui_exposure=full. resolve_backend()'s _ENV_KEYS triple is
@@ -882,6 +894,12 @@ def _danger_for(it):
                       "by the kill switch + Class-B policy level). Applied autonomous "
                       "changes cannot be un-made automatically. Arm only deliberately, on "
                       "a trusted single-operator network, with the kill switch understood.")
+    if kind == "env_var" and key in _O1186_DEPLOY_ONLY:
+        return True, ("Deploy-managed infrastructure, not a per-instance knob. The vault key is "
+                      "the secret itself and the Redis host/port and cluster rate mode belong to "
+                      "the deployment that provisions the broker — editing them on ONE running "
+                      "process repoints only that reader, orphaning in-flight work while the rest "
+                      "of the cluster keeps the old value. Change them at deploy time, then restart.")
     if (kind == "env_var" and key in _DEPLOY_ONLY) or key in _PATH_EXTRA:
         return True, ("Path / storage root. Repointing it at runtime can orphan or "
                       "overwrite existing data and the process may not relocate cleanly. "
@@ -910,11 +928,37 @@ def _load_manifest(root):
 _NEVER_EXPOSE = {"accounts"}
 
 
+# H621 / register row 963: variables with NO PRODUCT READER are not GUI-parity debt.
+# _is_runtime_tunable() below defaults to True for any env_var not on _DEPLOY_ONLY /
+# _IMPORT_TIME / _ALIAS_OF_FULL, and its own comment warns that this MANUFACTURES debt
+# that no control could ever close. These two are that case, measured at origin/main
+# 8fc45b25f with `grep -rl <key>` over bulk_downloader/ tools/ tests/:
+#   BD_GATE_SCOPE      0 / 1 / 678  -- a pytest scope marker read by no product file
+#   BD_WHEELHOUSE_DIR  0 / 1 /   0  -- a fleet CI wheelhouse knob (row 861), likewise
+# POSITIVE CONTROL for that probe: BD_AUTH_TOKEN reads 3 / 4 / 14, so a zero here is a
+# discrimination and not a broken grep. A GUI control for either would wire to nothing,
+# so they could never leave the open set and the shrink-only ratchet in
+# reports/config_parity_baseline.json could never reach zero again.
+# THIS SET IS NOT A PLACE TO PARK REAL DEBT. After O1186 moved four deploy-managed keys to
+# _DEPLOY_ONLY, exactly TWO settings remain open (BD_HTTP_PROXY, turnstile_one_click_enabled);
+# both have product readers and stay open on purpose, and
+# tests/test_h621_harness_only_env_is_not_gui_parity_debt.py pins that exact remainder.
+_HARNESS_ONLY = {"BD_GATE_SCOPE", "BD_WHEELHOUSE_DIR"}
+
+# O1186: the four keys this cut moved to _DEPLOY_ONLY. Named separately so _danger_for can say
+# what they actually are; the generic _DEPLOY_ONLY note below is about PATH / storage roots and
+# would have told an operator the wrong thing about a vault key.
+_O1186_DEPLOY_ONLY = {"BD_VAULT_KEY", "BD_REDIS_HOST", "BD_REDIS_PORT", "BD_CLUSTER_RATE_MODE"}
+
+
 def _is_runtime_tunable(it):
     """CAN take effect at runtime (so a GUI control is meaningful) — everything
     except the deploy/path/bootstrap env vars, import-time-bound constants, and
     store-metadata keys (widgets timestamp/schema version)."""
     if it.get("kind") == "env_var" and it["key"] in (_DEPLOY_ONLY | _IMPORT_TIME | _ALIAS_OF_FULL):
+        return False
+    # H621: no product reader -> no control could take effect -> not parity debt (see above).
+    if it.get("kind") == "env_var" and it["key"] in _HARNESS_ONLY:
         return False
     # v3.66.713: the scanners added at Cut 4 carry their own verdict. Shell/deploy
     # knobs (<prefix>_DEPLOY_DIR, <prefix>_RESTART_CMD...) and bootstrap env (PLAYWRIGHT_BROWSERS_PATH,
@@ -962,11 +1006,29 @@ def _display_open(items):
     runtime-tunable took it out of the open count but dropped it straight into this
     one, which reported it as pending display-only work. It is neither. A decided
     exclusion belongs in no debt bucket.
+
+    H621/E2 (bd-cx-worker-1, 2026-09-21): _HARNESS_ONLY is the same case and was
+    missed. Taking BD_GATE_SCOPE and BD_WHEELHOUSE_DIR out of runtime_tunable
+    dropped them straight into THIS bucket, so the cut moved two items of
+    manufactured debt from one column to another and display_open went 0 -> 6. A
+    key with no product reader cannot be surfaced as display-only either -- there
+    is nothing to display -- so it belongs in no debt bucket at all, which is what
+    the _NEVER_EXPOSE clause above already says about a decided exclusion.
+
+    H621 r4 (RULING-h621-display-and-972-973-E1 R1, pm 2026-09-21): _DEPLOY_ONLY is the third
+    case, and the widest. Deploy-only is a CLASS with no GUI obligation -- bind ports, path pins,
+    deployment topology and, under O1186, a vault key -- so "not yet surfaced as display-only" is
+    not a debt for it; there is no obligation to discharge. Measured: with rows972-973 landing
+    every runtime control it adds, the four O1186 keys still survived in this bucket, which is
+    why tests 312 and 319 read `4 == 0`. Excluding the class makes their literal 0 true because
+    the inventory stops miscounting, not because either assertion moved.
     """
     return [it["key"] for it in items
             if not it.get("runtime_tunable")
             and it.get("gui_exposure") != "display-only"
-            and it["key"] not in _NEVER_EXPOSE]
+            and it["key"] not in _NEVER_EXPOSE
+            and not (it.get("kind") == "env_var" and it["key"] in _HARNESS_ONLY)
+            and not (it.get("kind") == "env_var" and it["key"] in _DEPLOY_ONLY)]
 
 
 def _write_baseline(root, d):

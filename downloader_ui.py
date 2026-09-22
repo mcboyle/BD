@@ -208,6 +208,27 @@ def _serve_wsgi(app, host, port, debug, *, waitress_serve=None,
     return "werkzeug"
 
 
+def _serve_asgi(app, host, port, debug, *, uvicorn_run=None,
+                hypercorn_run=None, fallback_wsgi=None):
+    """Row 974: Asynchronous Gateway Migration & ASGI Cutover.
+
+    Wraps the application in the ASGI gateway adapter and executes under
+    a modern ASGI server (uvicorn/hypercorn) when available, falling back
+    gracefully to WSGI.
+    """
+    from bulk_downloader.asgi_gateway import get_asgi_app, serve_asgi
+    asgi_app = get_asgi_app(app)
+    return serve_asgi(
+        asgi_app,
+        host=host,
+        port=port,
+        debug=debug,
+        uvicorn_run=uvicorn_run,
+        hypercorn_run=hypercorn_run,
+        fallback_wsgi=fallback_wsgi or _serve_wsgi,
+    )
+
+
 if __name__ == "__main__":
     debug = _is_debug_mode()
     log_path = _configure_logging(debug)

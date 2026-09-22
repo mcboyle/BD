@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4800,
+  "edge_count": 4804,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -941,6 +941,9 @@
     ],
     "bulk_downloader/app_ytdlp_update.py": [
       "bulk_downloader/ytdlp_updater.py"
+    ],
+    "bulk_downloader/asgi_gateway.py": [
+      "bulk_downloader/app.py"
     ],
     "bulk_downloader/audio_fingerprint.py": [
       "bulk_downloader/ffmpeg_bin.py"
@@ -3288,6 +3291,10 @@
       "tools/config_surface_inventory.py",
       "tools/gui_parity_inventory.py"
     ],
+    "tests/test_h621_harness_only_env_is_not_gui_parity_debt.py": [
+      "bulk_downloader/app_envfile_editor.py",
+      "tools/config_surface_inventory.py"
+    ],
     "tests/test_happy_eyeballs.py": [
       "bulk_downloader/happy_eyeballs.py",
       "bulk_downloader/ssrf_transport.py"
@@ -4849,6 +4856,9 @@
       "bulk_downloader/app_sites_teach.py"
     ],
     "tests/test_row971_onboarding_picks_content_not_login.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_row974_asgi_cutover.py": [
       "bulk_downloader/app.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [

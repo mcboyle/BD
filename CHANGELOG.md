@@ -4,6 +4,40 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1619 - train42: ASGI gateway cutover, stray-alert rearm guard, config-surface classifier
+
+Base 14895ffda (v3.66.1618). Three members, disjoint over 10 authored paths, each boarded at its
+own INDEX tree. Quorum: one lens per cut under the -MCB tiering waiver of 2026-09-22T00:15Z
+(harness-work/TRAINER/ORDER-TRAIN-42-CLEARED-20260922T0015Z.md); T0/T1/T2 take one correctness lens.
+
+- row974 asgi-cutover, T1, tree 5498b1ff, BOARD bd-agy-review-correctness2.
+  Starlette/FastAPI ASGI gateway (bulk_downloader/asgi_gateway.py) with downloader_ui.py cut over to
+  it. _serve_wsgi is preserved intact and no new unledgered BD_ env key is introduced. Acceptance
+  tests/test_row974_asgi_cutover.py 9 passed, RED on base rc=1 9 failed. Worker band PASS 44 / FAIL 0.
+- cx-h635-main-guard, T0, tree 244cc5f3, BOARD bd-agy-lens-c3.
+  The stray-set alert is serialized and remembers what it already delivered, so one stray set alerts
+  once and rearms only after a clean pass; a failed delivery still retries.
+  tests/test_h635_main_guard_alerts.py 6 passed; negative control rc=1 DUPLICATE-ALERT.
+- h621-config-classifier r4, T2, tree 3fdca3b1, BOARD bd-review-correctness-B4.
+  Implements RULING-h621-display-and-972-973-E1 R1 and R2: tools/config_surface_inventory.py stops
+  counting deploy-only keys as display debt, and the consumer contract derives its open set from the
+  manifest FILE rather than a hardcoded pair. test_v3_66_312_parity_abc.py 10/10 and
+  319::test_display_open_still_zero go GREEN; on r3 both read `4 == 0`.
+
+PRE-EXISTING, NOT THIS TRAIN (O1010 / FG-ENV-TRANCHE, the same waiver train41 rode): on the
+assembled tree tests/test_v3_66_319_env_tranche_4_3d.py and tests/test_v3_66_305_config_danger.py
+report 2 failed / 6 passed ("open env_vars remain: ['BD_HTTP_PROXY']"). CONTROL: the identical run
+on base 6b20f32f1, whose three relevant files are byte-identical to main, also reports 2 failed /
+6 passed. Baseline-subtracted this train adds zero failures; h621 moves the count 8 -> 2 and the
+remainder closes when rows 972-973 land (R3).
+
+Import baseline: the 2 edges h621's DONE.md owed the integrator, both from
+tests/test_h621_harness_only_env_is_not_gui_parity_debt.py to bulk_downloader/app_envfile_editor.py
+and tools/config_surface_inventory.py, re-frozen once here after the rebase onto merged main.
+
+Register: no row closes on this train. Rows 974+ are not yet promoted into the canonical register;
+that is the ROW-974-1078 register cut (ORDERS-2315 Q1), which is the integrator's.
+
 ## v3.66.1618 - train41: template onboarding no longer picks the login page; row 971 closed
 
 Train: 1 refute-first-reviewed worker patch (3 lens BOARDs @ tree e036dcf4; the earlier tree aed33e52

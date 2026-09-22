@@ -2385,7 +2385,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1816,
+    "edge_count": 1817,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2480,6 +2480,7 @@
         "bulk_downloader/app_api_tokens.py"
       ],
       "bulk_downloader/app.py": [
+        "bulk_downloader/asgi_gateway.py",
         "bulk_downloader/dev_suite/audit_security.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/config_tools.py",
@@ -6302,6 +6303,9 @@
       ],
       "bulk_downloader/app_ytdlp_update.py": [
         "bulk_downloader/ytdlp_updater.py"
+      ],
+      "bulk_downloader/asgi_gateway.py": [
+        "bulk_downloader/app.py"
       ],
       "bulk_downloader/audio_fingerprint.py": [
         "bulk_downloader/ffmpeg_bin.py"
