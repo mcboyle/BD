@@ -19,6 +19,16 @@ from .constants import DB_PATH
 # stdlib-only and does NOT import psycopg at module scope), so the new edge
 # db->pg_backend is declared and frozen rather than hidden in a function.
 from . import pg_backend
+from .mmap_autotuner import (
+    MmapPageCacheTuner,
+    TuningConfig,
+    TuningProfile,
+    TuningResult,
+    TuningStatus,
+    auto_tune_connection,
+    get_tuning_metrics,
+    inspect_connection,
+)
 from .hot_write_buffer import HotWriteBuffer, create_hot_write_buffer
 
 _QUEUE_HOT_BUFFER: HotWriteBuffer | None = None
@@ -789,6 +799,8 @@ def _open_history_conn(path=None):
         cx.execute("PRAGMA synchronous=NORMAL")
         cx.execute("PRAGMA busy_timeout=10000")
         cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)
+        # Row 1011: Zero-copy memory-mapped I/O (mmap_size) and page cache auto-tuning
+        auto_tune_connection(cx)
     except Exception:
         pass  # Don't let pragma failures break the connection
     # v3.48 (#22): slow-query logging. set_trace_callback fires on every
@@ -1104,6 +1116,12 @@ def db_conn(path=None):
         else:
             _close_history_conn(cx)
         _end_history_lease(cx)
+
+
+# ── Row 1011: Zero-Copy Memory-Mapped I/O & Page Cache Auto-Tuner ────────────
+def tune_history_conn(conn, profile=TuningProfile.BALANCED):
+    """Tune SQLite connection with zero-copy mmap_size and optimal page cache."""
+    return auto_tune_connection(conn, profile=profile)
 
 
 # ── v3.48 (#22): Slow-query log ─────────────────────────────────────────
