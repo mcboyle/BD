@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4802,
+  "edge_count": 4808,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -629,6 +629,7 @@
       "bulk_downloader/cookie_health.py",
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/queue_starvation.py",
       "bulk_downloader/selector_drift.py",
       "bulk_downloader/tombstone.py"
     ],
@@ -2324,6 +2325,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/vpn_wireguard.py": [
+      "bulk_downloader/pmtu_sentry.py",
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/vpn_socks.py"
@@ -3959,6 +3961,10 @@
       "bulk_downloader/backup.py",
       "bulk_downloader/dom_analyzer.py"
     ],
+    "tests/test_row1005_dynamic_path_mtu_discovery_pmtu_tcp_mss_clamping_sentry.py": [
+      "bulk_downloader/pmtu_sentry.py",
+      "bulk_downloader/vpn_wireguard.py"
+    ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
       "bulk_downloader/session_capture.py",
@@ -4854,6 +4860,12 @@
     ],
     "tests/test_row971_onboarding_picks_content_not_login.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_row975_aiokafka_client.py": [
+      "bulk_downloader/events.py"
+    ],
+    "tests/test_row983_feature.py": [
+      "bulk_downloader/heap_compactor.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",

@@ -4,6 +4,34 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1620 - train43: PMTU/MSS sentry, heap arena compaction, queue-starvation visualizer, aiokafka client
+
+Base a565db62e (v3.66.1619). Four members, 12 authored paths, each with two BOARDs at its own
+INDEX tree, all re-read at freeze rather than taken from the auto-order.
+
+- row1005 PMTU/MSS sentry, tree 3a94f8d6. Dynamic path-MTU discovery and TCP MSS clamping over
+  bulk_downloader/pmtu_sentry.py and vpn_wireguard.py. 123 passed / 0 failed.
+- row983 heap arena compaction, tree 726fdcb3. In-process arena compaction with a glibc
+  malloc_trim(0) mitigator. 21 passed / 0 failed; RED on base was "HeapArenaCompactor capability
+  must be present" with clean collection and no ImportError.
+- row990 queue-starvation visualizer, tree 3dac4bed, T3. Priority-inversion and starvation
+  visibility over app_queue.py and queue_starvation.py. RED on base 9/9 own tests failing; GREEN
+  on the full index, own 9/9, band 389 passed / 3 failed with all three pre-existing and named.
+- row975 aiokafka client, tree 2ff803ac. faststream / aiokafka event streaming in events.py.
+  42 passed / 0 failed; RED on base was ImportError 'AIOKafkaEventStreamer'.
+
+TIER is T3: row990 declares T3 (MECHANICAL), the other three T2. Under O601 a T3 train lands on
+exact-head CI green like any other; nothing else is skipped.
+
+WHAT DID NOT RIDE, and it is a collision rather than a defect: row992 and row994 both hold two
+BOARDs and are ready, but all three of row975, row992 and row994 add their acceptance test to the
+same region of .github/workflows/ci.yml (@@646), so only the first applies. Measured by applying
+the six eligible cuts in order to a clean tree, not by reading hunks. row992 and row994 ride
+train 44. Five of the six eligible cuts touched ci.yml at all, which is the actual throughput
+limit on trains right now -- every product row wires its acceptance test into a shard.
+
+Register: no row closes here. Rows 974+ are not yet promoted; that is the ROW-974-1078 register cut.
+
 ## v3.66.1619 - train42: config-surface classifier stops counting deploy-only keys as display debt
 
 Base 14895ffda (v3.66.1618). One member.

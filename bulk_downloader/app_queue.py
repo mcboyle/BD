@@ -347,6 +347,52 @@ def api_queue_v2():
     except Exception as e:
         return jsonify({"ok": False,
                         "error": f"{type(e).__name__}: {e}"}), 503
+
+
+@queue_bp.route("/api/queue/starvation")
+def api_queue_starvation():
+    """Row 990. Per-site starvation / priority-inversion report over the
+    runner's dispatch order (queue_starvation.analyze_queue). /api/jobs/stuck
+    excludes 'pending' on purpose; this is the view of the pending jobs it
+    leaves out. ?starvation_seconds= overrides the default threshold."""
+    import time as _t
+    from .queue_starvation import DEFAULT_STARVATION_SECONDS, analyze_queue
+    raw = request.args.get("starvation_seconds")
+    try:
+        threshold = float(raw) if raw is not None else float(DEFAULT_STARVATION_SECONDS)
+        if threshold < 0:
+            raise ValueError("negative")
+    except ValueError:
+        return jsonify({"ok": False,
+                        "error": f"starvation_seconds must be a non-negative number, got {raw!r}"}), 400
+    runners = _app_runners()
+    s_cfg = _app_s_cfg()
+    sites = []
+    for sid, runner in _runners_generation(runners):
+        if not runner:
+            continue
+        name = (s_cfg.get(sid, {}) or {}).get("name") or sid
+        try:
+            with runner._lock:
+                rep = analyze_queue(list(runner.urls), runner.jobs,
+                                    starvation_seconds=threshold)
+        except Exception as e:
+            sites.append({"site_id": sid, "site_name": name,
+                          "error": f"{type(e).__name__}: {e}"})
+            continue
+        rep.update({"site_id": sid, "site_name": name})
+        sites.append(rep)
+    # Worst site first: most inversions, then the longest wait.
+    sites.sort(key=lambda s: (-s.get("inversion_count", 0),
+                              -(s.get("oldest_wait_seconds") or 0)))
+    return jsonify({
+        "ok": True,
+        "starvation_seconds": threshold,
+        "sites": sites,
+        "inversion_count": sum(s.get("inversion_count", 0) for s in sites),
+        "starved_count": sum(s.get("starved_count", 0) for s in sites),
+        "ts": int(_t.time()),
+    })
 @queue_bp.route("/api/queue/v2/cancel", methods=["POST"])
 def api_queue_v2_cancel():
     """Cancel one URL. Body: {site_id, url}. Marks the job as stopped

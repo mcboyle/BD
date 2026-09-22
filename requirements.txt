@@ -375,6 +375,9 @@ boto3>=1.34,<2.0
 
 # Row 825: optional Kafka telemetry client for cluster LAN event streaming
 kafka-python==3.0.11
+# Row 975: modern async event streaming client (aiokafka / faststream)
+aiokafka>=0.10.0,<1.0.0
+faststream>=0.5.0,<1.0.0
 
 # Row 849: spectral upscale detector (upscale_detector.py) does its FFT/radial
 # power-spectrum math in numpy. Unguarded module-level import: the module is

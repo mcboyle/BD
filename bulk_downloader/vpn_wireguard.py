@@ -380,6 +380,14 @@ def render_conf(cfg: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def clamp_wireguard_mss(advertised_mss: int, endpoint_mtu: int = 1500) -> int:
+    """Clamp TCP MSS for WireGuard tunnel traffic using PMTU sentry."""
+    from bulk_downloader.pmtu_sentry import TunnelType, clamp_syn_mss, TUNNEL_OVERHEADS
+
+    effective_path = max(1280, endpoint_mtu - TUNNEL_OVERHEADS[TunnelType.WIREGUARD])
+    return clamp_syn_mss(advertised_mss, path_mtu=effective_path)
+
+
 # ─── Helpers ────────────────────────────────────────────────────────
 
 def _derive_iface_name(tunnel_id: str) -> str:

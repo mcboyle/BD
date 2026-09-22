@@ -597,6 +597,7 @@ jobs:
               tests/test_row780_sites_config_listing_url_round_trip.py
               tests/test_row750_ipv6_unwrapped_metadata_bypass.py
               tests/test_row971_onboarding_picks_content_not_login.py
+              tests/test_row983_feature.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm
@@ -646,6 +647,7 @@ jobs:
               tests/test_row701_quality_scan_scopes_to_the_requested_scene.py
               tests/test_row759_modal_trigger_click_reenters.py
               tests/test_row825_kafka_event_streamer.py
+              tests/test_row975_aiokafka_client.py
           # Row 778. Page-native extractors return before the ordinary
           # transport boundary, so their completion history must receive the
           # settled document title through _process_one.
@@ -754,6 +756,7 @@ jobs:
               tests/test_row664_dedup_refusal_reaches_history.py
               tests/test_row665_terminal_jobs_are_visible.py
               tests/test_row665_absence_is_not_an_answer.py
+              tests/test_row990_feature.py
           # Row 649 recovers three independent module-scoped contracts whose
           # original test files never reached main. Keep their CI visibility
           # explicit rather than relying on a future touched-file derivation.

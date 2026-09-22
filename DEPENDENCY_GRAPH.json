@@ -1254,14 +1254,16 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/queue_starvation.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
-      "route_count": 9,
+      "route_count": 10,
       "routes": [
         "ROUTE /api/queue/dead_letter",
         "ROUTE /api/queue/dead_letter/requeue",
         "ROUTE /api/queue/preflight",
+        "ROUTE /api/queue/starvation",
         "ROUTE /api/queue/v2",
         "ROUTE /api/queue/v2/add_url",
         "ROUTE /api/queue/v2/bulk_cancel",
@@ -2385,7 +2387,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1816,
+    "edge_count": 1818,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4285,6 +4287,9 @@
         "tools/plugin_lint.py",
         "tools/plugin_test.py"
       ],
+      "bulk_downloader/pmtu_sentry.py": [
+        "bulk_downloader/vpn_wireguard.py"
+      ],
       "bulk_downloader/policy_gates.py": [
         "bulk_downloader/app_budget.py",
         "bulk_downloader/metrics_prom.py",
@@ -4335,6 +4340,9 @@
       "bulk_downloader/queue_priority.py": [
         "bulk_downloader/auto_queue.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/queue_starvation.py": [
+        "bulk_downloader/app_queue.py"
       ],
       "bulk_downloader/queue_templates.py": [
         "bulk_downloader/app_queue_templates.py",
@@ -5990,6 +5998,7 @@
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/queue_starvation.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
@@ -7685,6 +7694,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/vpn_wireguard.py": [
+        "bulk_downloader/pmtu_sentry.py",
         "bulk_downloader/vpn.py",
         "bulk_downloader/vpn_config.py",
         "bulk_downloader/vpn_socks.py"
