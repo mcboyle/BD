@@ -572,32 +572,22 @@ def classify_dataset_topology(
     Returns TopologyResult -- never raises (fail-open, same contract as
     extract_playlist_urls above: caller falls back to single-item handling).
     """
-    if not url:
-        return TopologyResult(ok=False, error="empty_url")
-    if page is None:
-        return TopologyResult(ok=False, error="page_is_none")
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=page_load_timeout_ms)
+        from bulk_downloader.dataset_structural_classifier import DatasetStructuralClassifier
+        res = DatasetStructuralClassifier(min_cards=min_cards).classify_dom_page(
+            page, url, page_load_timeout_ms=page_load_timeout_ms
+        )
+        if not res.ok:
+            return TopologyResult(ok=False, base_url=url, error=res.error)
+        return TopologyResult(
+            ok=True,
+            base_url=url,
+            card_count=res.card_count,
+            has_player=res.has_player,
+            is_aggregate=res.is_aggregate,
+        )
     except Exception as e:
-        return TopologyResult(ok=False, base_url=url,
-                               error=f"page_load_failed:{type(e).__name__}")
-    try:
-        raw = page.evaluate(_CARD_GRID_DENSITY_JS)
-    except Exception as e:
-        return TopologyResult(ok=False, base_url=url,
-                               error=f"evaluate_failed:{type(e).__name__}")
-    if isinstance(raw, dict):
-        count, player = raw.get("card_count"), bool(raw.get("player", False))
-    else:
-        count, player = raw, False
-    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        return TopologyResult(ok=False, base_url=url, error="bad_response")
-    # a page whose subject is a player is a single entity however many
-    # "related" cards sit beside it (E2)
-    return TopologyResult(
-        ok=True, base_url=url, card_count=count, has_player=player,
-        is_aggregate=count >= max(1, int(min_cards)) and not player,
-    )
+        return TopologyResult(ok=False, base_url=url, error=f"classifier_failed:{type(e).__name__}")
 
 
 @dataclass
