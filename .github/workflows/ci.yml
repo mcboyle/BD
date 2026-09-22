@@ -900,6 +900,7 @@ jobs:
               tests/test_pin_index_in_sync.py
               tests/test_row387_ast_version_pin_guard.py
               tests/test_row1435_band_verdict_transfer.py
+              tests/test_all_sources_parse.py
               tests/test_settings_center_slice4.py
               tests/test_endpoint_catalog_in_sync.py
               tests/test_function_index_in_sync.py
