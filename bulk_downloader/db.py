@@ -94,14 +94,7 @@ def db_init(_retry_seconds=10.0):
             # The failed attempt leaves its own half-open read transaction in
             # the thread-local pool; retrying on top of it would block on our
             # OWN residue for the whole deadline. Evict it and reopen clean.
-            idle = getattr(_DB_CONN_LOCAL, "idle", None)
-            if idle is not None:
-                _DB_CONN_LOCAL.idle = None
-                try:
-                    idle[1].rollback()
-                except Exception:
-                    pass
-                _close_history_conn(idle[1])
+            cleanup_thread_connections()
             _sleep(0.01)
 
 
@@ -803,6 +796,40 @@ def _close_history_conn(cx):
         pass
 
 
+# Row 1025: Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps
+from .db_lifecycle import (  # noqa: E402
+    DBConnectionLifecycleManager,
+    get_connection_lifecycle_manager,
+)
+
+get_connection_lifecycle_manager().set_close_callback(_close_history_conn)
+
+
+def cleanup_thread_connections(thread_id=None):
+    """Clean up and close idle pooled connections for a thread (Row 1025)."""
+    tid = thread_id if thread_id is not None else _threading.get_ident()
+    cleaned = 0
+    if tid == _threading.get_ident():
+        idle = getattr(_DB_CONN_LOCAL, "idle", None)
+        _DB_CONN_LOCAL.idle = None
+        if idle is not None:
+            _, cx = idle
+            if get_connection_lifecycle_manager().cleanup_connection(cx):
+                cleaned += 1
+    cleaned += get_connection_lifecycle_manager().cleanup_thread_connections(tid)
+    return cleaned
+
+
+def close_all_pooled_connections():
+    """Close all idle pooled connections across all threads (Row 1025)."""
+    idle = getattr(_DB_CONN_LOCAL, "idle", None)
+    _DB_CONN_LOCAL.idle = None
+    if idle is not None:
+        _, cx = idle
+        get_connection_lifecycle_manager().cleanup_connection(cx)
+    return get_connection_lifecycle_manager().close_all_pooled()
+
+
 def _begin_history_lease(cx):
     begin = getattr(cx, "_begin_lease", None)
     if begin is not None:
@@ -985,7 +1012,14 @@ def db_conn(path=None):
     if cacheable and idle is not None:
         _DB_CONN_LOCAL.idle = None
         idle_key, idle_cx = idle
-        if idle_key == cache_key:
+        pending = getattr(idle_cx, "_pending_close", False)
+        is_open = not pending
+        if is_open:
+            try:
+                _ = idle_cx.total_changes
+            except Exception:
+                is_open = False
+        if is_open and idle_key == cache_key:
             cx = idle_cx
         else:
             _close_history_conn(idle_cx)
@@ -1000,6 +1034,11 @@ def db_conn(path=None):
                 pg_backend.dual_write_enabled(),
                 bound_identity,
             )
+
+    tid = _threading.get_ident()
+    mgr = get_connection_lifecycle_manager()
+    mgr.install_thread_trap(_DB_CONN_LOCAL, cx)
+    mgr.acquire_lease(tid, cx, cache_key)
 
     _begin_history_lease(cx)
     _refresh_slow_query_trace(cx)
@@ -1027,7 +1066,8 @@ def db_conn(path=None):
         # this block's own cleanup refuse itself.
         if not _finish_history_lease(cx):
             reusable = False
-        if reusable and getattr(_DB_CONN_LOCAL, "idle", None) is None:
+        pooled = mgr.release_lease(tid, cx, reusable=reusable, cache_key=cache_key)
+        if pooled:
             _DB_CONN_LOCAL.idle = (cache_key, cx)
         else:
             _close_history_conn(cx)
