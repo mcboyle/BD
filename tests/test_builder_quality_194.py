@@ -13,6 +13,11 @@ Covers two non-guard builder improvements landed in 194:
     longer over-parametrizes to a phantom {*_id}. A non-year numeric segment
     (e.g. movie/9) stays variable.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

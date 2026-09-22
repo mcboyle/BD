@@ -11,6 +11,11 @@ EXCLUDING the `# Mirrors deep_detect._X` doc comments a grep would wrongly catch
 After deep_detect.py becomes a deep_detect/ package, this is the proof the move
 preserved the surface. Runner-safe: zero-arg fns.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib
 
 from bulk_downloader import deep_detect as dd

@@ -9,6 +9,11 @@ visible long before it hits the hard kill. It never changes pass/fail.
 The budget math is a pure helper (_files_over_budget) tested directly here.
 RED on pristine 3.66.618: run_tests has no _files_over_budget / _FILE_BUDGET_S.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import run_tests_core as run_tests
 
 

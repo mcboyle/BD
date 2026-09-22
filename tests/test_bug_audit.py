@@ -9,6 +9,10 @@ pytest fixtures, repo root derived from the package import (already on
 sys.path under run_tests).
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import queue as _queue
 
 from bulk_downloader.runner import SiteRunner

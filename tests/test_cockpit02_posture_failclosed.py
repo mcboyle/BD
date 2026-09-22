@@ -12,6 +12,11 @@ resolves the module attribute at call time, so patching it takes effect.
 
 Pre-fix: the except branch returns [] -> this fails.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from tools import cockpit_core as C
 import bulk_downloader.capture_ingest as CI
 

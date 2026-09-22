@@ -13,6 +13,11 @@ Three facets, all modeled on the existing yt-dlp integration:
 RED on pristine 3.66.619: none of _build_gallerydl_cmd / gallerydl_updater /
 the two routes / the use_gallerydl_fallback config key exist.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 
 

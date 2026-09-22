@@ -15,6 +15,11 @@ Coverage:
   - fetch_one for unknown entry returns 403 (not 404 — don't leak presence)
   - ping works as liveness check
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 from contextlib import contextmanager

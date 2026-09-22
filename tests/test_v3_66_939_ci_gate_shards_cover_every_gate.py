@@ -228,7 +228,13 @@ _NON_DERIVABLE_DECLARED = {
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module
     "tests/test_row797_three_login_seams_carry_durable_mutant_pins.py",  # module
     "tests/test_row806_health_payload_names_the_deployed_cloak_state.py",  # module
-    "tests/test_all_sources_parse.py",  # legacy-baseline
+    # H622 slice A retired one line here deliberately, which the partition
+    # above requires to be a named act rather than a silent deletion. The file
+    # was a legacy-baseline entry -- declared here because nothing in the tree
+    # could re-derive it -- and it now carries a repo-wide marker of its own,
+    # so it sits in the DERIVED half instead. Keeping both would leave
+    # _declared_partition naming it no longer declared. Its workflow entry is
+    # untouched, so _DECLARED and the CI union are unchanged.
     "tests/test_app_measurements_fail_closed.py",  # module
     "tests/test_backlog_27_bd_mutate_replays_fixture_controls.py",  # module
     "tests/test_cloud_setup_truthfulness.py",  # module

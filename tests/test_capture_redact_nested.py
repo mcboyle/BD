@@ -6,6 +6,10 @@ past the flat top-level query redactor. These pin the recursive behavior
 and the URL-valued-header handling.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import urllib.parse as up
 
 import pytest

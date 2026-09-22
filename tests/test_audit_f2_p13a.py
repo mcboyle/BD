@@ -5,6 +5,11 @@ proven RED against pristine v3.66.197 and GREEN after the fix.
 Runner contract: zero-arg test functions; no pytest builtins; derive paths via
 tempfile; restore patched globals in try/finally.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import os
 import stat

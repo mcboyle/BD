@@ -6,6 +6,11 @@ site already returned. Posture: these tests assert DETECTION, never any
 evasion/replay behaviour (there is none to test — the module emits nothing
 runnable).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import pytest
 
 from bulk_downloader.fp_detect import detect_fingerprinting

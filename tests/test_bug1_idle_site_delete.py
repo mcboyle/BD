@@ -10,6 +10,11 @@ the runner teardown is conditional. A truly-absent id returns 404.
 
 Direct-call test (no CSRF/before_request) via app_state + a request context.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib
 import threading
 

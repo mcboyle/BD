@@ -11,6 +11,10 @@ under the cap is still parsed, redacted, and retained unchanged.
 RED on pristine (the oversize body is retained verbatim); GREEN after the cap.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 
 from bulk_downloader.capture_bodies import (redact_body, body_marker,

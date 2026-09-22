@@ -29,6 +29,11 @@ Two jobs:
 Uses `assert ..., msg` (the custom run_tests.py runner's pytest stub does
 not implement pytest.fail) — same convention as test_function_index_in_sync.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import re
 import sys
 from pathlib import Path

@@ -5,6 +5,11 @@ __file__, no pytest builtins. Reads tools/cockpit_console.py as text and
 asserts structural invariants — this is the gate for changes to a
 DEPLOY-EXCLUDED file whose internal nav nav_reachability.py does not crawl.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 import re
 

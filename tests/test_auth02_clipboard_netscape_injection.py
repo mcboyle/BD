@@ -10,6 +10,11 @@ any field is dropped, so no extra row can be smuggled in.
 Pristine-source RED: the forged row round-trips through ``_parse_netscape`` as a
 second cookie, so the ``not in`` assertions fail until the fields are guarded.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import cookie_clipboard as cc
 
 

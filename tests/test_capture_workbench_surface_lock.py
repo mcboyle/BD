@@ -1,5 +1,10 @@
 """test_capture_workbench_surface_lock.py -- attribute-surface guard for the
 capture_workbench -> capture_workbench_impl package split (DECOMP-LEAF cut 4)."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import capture_workbench as wb
 
 FROZEN = {

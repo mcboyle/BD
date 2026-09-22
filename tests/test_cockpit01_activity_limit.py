@@ -6,6 +6,11 @@ bad limit falls back to the default (never 500), and a valid limit still works.
 
 Pristine-source RED: ``?limit=abc`` returns HTTP 500.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import importlib.util
 from pathlib import Path
 

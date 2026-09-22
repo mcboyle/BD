@@ -4,6 +4,11 @@ Proves: (1) the thin wrappers delegate to the shared cores with identical output
 (2) template health does ONE scan, (3) kb_audit does ONE docs walk, (4) report_core
 write helpers work. Runs under run_tests.py (zero-arg fns, repo root from __file__).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 import tempfile

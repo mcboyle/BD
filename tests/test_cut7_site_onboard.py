@@ -13,6 +13,10 @@ with ``enable=True`` — the orchestrator refuses and stages for review instead.
 RED on pristine 376: `tools/site_onboard.py` does not exist.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 class FakeClient:
     """Records every call; returns scripted, all-OK results by default."""

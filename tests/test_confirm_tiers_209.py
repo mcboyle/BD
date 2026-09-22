@@ -19,6 +19,10 @@ field so toasts show WHY (e.g. the scan/start 400 reason), not just
 "POST /x → 400".
 """
 
+# H622 slice A. Its subject is the tracked tree, not a single module, so it
+# is a repository gate and is scheduled in a CI gate-suites shard.
+BD_GATE_SCOPE = "repo-wide"
+
 import re
 from pathlib import Path
 

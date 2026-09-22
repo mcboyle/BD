@@ -14,6 +14,11 @@ Custom-runner friendly: zero-arg test functions, repo root from __file__, reads
 tools/cockpit_console.py as text (deploy-excluded server-rendered blob). The live
 geometry gate is render_check.py section [6] + the narrow-width probe (chromium).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 import re
 

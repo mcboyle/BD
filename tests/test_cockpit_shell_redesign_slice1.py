@@ -7,6 +7,11 @@ text assertions are the gate). Pins the resizable + collapsible sidebar,
 the compact brand + appearance popover, horizontal tiers, the focus fix,
 and the density toggle — without disturbing the appearance-test guardrails.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

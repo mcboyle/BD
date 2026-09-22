@@ -15,6 +15,11 @@ These tests monkeypatch ``urllib.request.urlopen`` with a call-recording spy so
 they are deterministic and never touch the network; literal IPs are used so no
 DNS is required either.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import urllib.request as _u
 
 from bulk_downloader.dev_suite import capture_diag

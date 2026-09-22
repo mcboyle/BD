@@ -22,6 +22,10 @@ Sandbox-runner conventions: zero-arg, BD_HOME temp db (runner sets it), chdir-fr
 """
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def _fresh_fed():
     """Import federation against the runner's temp BD_HOME db and ensure tables."""

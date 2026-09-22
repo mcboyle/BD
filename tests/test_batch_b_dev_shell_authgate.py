@@ -14,6 +14,11 @@ Trust model that keeps the SPA + local/standalone use working while blocking a
 remote unauthenticated cross-origin caller:
   loopback (local / standalone / test-client) OR same-origin OR session OR token.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 

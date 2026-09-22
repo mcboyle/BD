@@ -15,6 +15,11 @@ Two surgical, review-only changes proven RED-first:
    extracts storage_snapshot key NAMES and feeds them to detect(), matching the
    scorecard/AI-1 path. F2: NAMES only.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 import io

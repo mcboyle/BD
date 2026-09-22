@@ -13,6 +13,11 @@ Repro-first: tests 1 and 3 are proven RED on pristine v3.66.197. Runner
 construction is avoided via the unbound-method-on-stub pattern (mirrors
 test_bug_audit.py's F1 test) — no DB-backed SiteRunner needed.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import queue as _queue
 import threading
 import time

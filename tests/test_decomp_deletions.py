@@ -4,6 +4,11 @@
 `unzip -o` adds/replaces but never deletes, so a .py->package cut leaves the old
 `X.py` shadowing the new `X/` package at import. This tool must surface that.
 Runner-safe: zero-arg fns; synthetic fixtures only (no live tree needed)."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 import shutil

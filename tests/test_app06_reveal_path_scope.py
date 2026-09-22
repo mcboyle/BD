@@ -9,6 +9,11 @@ configured path_allowlist if set, else BD's download roots (BD_HOME +
 ~/Downloads/bulk_downloader + configured download_dirs). The reveal action can
 never open an arbitrary absolute path even when the global allowlist is empty.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 import inspect

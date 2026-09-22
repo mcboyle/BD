@@ -10,6 +10,11 @@ Pristine-source RED: with a permissive umask the written file's mode carries
 group/other bits, so the ``mode & 0o077 == 0`` assertion fails until set_config
 restricts the file.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import stat
 

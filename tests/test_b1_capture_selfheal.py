@@ -19,6 +19,10 @@ Companion to test_cap_finish.py (the draft-exists self-heal) + test_cap_cancel.p
 """
 from __future__ import annotations
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import subprocess
 import tempfile
 import time

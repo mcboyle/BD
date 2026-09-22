@@ -11,6 +11,11 @@ survives -- while the tags / classes / data-* keys the selectors need stay.
 
 Pre-fix: the floor forms below survive _scrub_dom_excerpt unredacted -> fails.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader import element_pick as ep
 
 _LEAK = "SECRETVALUE0123456789"

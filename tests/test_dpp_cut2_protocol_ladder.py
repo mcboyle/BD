@@ -16,6 +16,11 @@ NEW pure `player_recognition.recognize_protocol(network_log)`:
 Reuses the FROZEN extraction_core.manifest_resolutions (a guard — called, never
 edited). Pure/stdlib; F2 — every url_shape query-stripped. SYNTHETIC fixtures.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

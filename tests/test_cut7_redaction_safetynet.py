@@ -19,6 +19,10 @@ New surface: `llm_residual_suspects(redacted_obj, *, llm=None)
 RED on pristine 376: `llm_residual_suspects` does not exist.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def test_deterministic_scan_unchanged_is_regression_guard():
     from bulk_downloader import capture_artifact_redact as r

@@ -13,6 +13,11 @@ attribute-VALUE escaping — renders exactly as before.
 Pristine-source RED: the three malicious node trees below emit raw markup, so
 the "not in" assertions fail until names are validated.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader.dom_serialize import nodes_to_html
 
 

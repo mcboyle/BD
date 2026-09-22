@@ -12,6 +12,11 @@ sandbox minimal runner and on-stash pytest. Uses loopback: 127.0.0.1 and
 'localhost' are distinct cookie hosts that both resolve to the loopback iface,
 which lets us exercise a genuine cross-host redirect without touching DNS.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 import threading

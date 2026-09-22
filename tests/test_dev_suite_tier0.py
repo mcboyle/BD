@@ -7,6 +7,11 @@ These tools are read-only. The tree-scanning ones resolve the project
 root from the package location, so they validate the real source tree
 even though the tests run under a chdir'd temp workdir.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sqlite3
 import zipfile
 

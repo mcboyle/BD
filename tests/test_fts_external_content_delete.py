@@ -28,6 +28,11 @@ row the index held, so counting it as "not indexed" reports a false
 desync on a healthy database. Membership comes from fts5vocab, and the
 applied count is verified by re-reading the index after the write.
 """
+
+# H622 slice A. Its subject is the tracked tree, not a single module, so it
+# is a repository gate and is scheduled in a CI gate-suites shard.
+BD_GATE_SCOPE = "repo-wide"
+
 import sqlite3
 
 import pytest

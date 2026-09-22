@@ -17,6 +17,10 @@ asserts no verdict-shaped key ever appears in the output.
 RED on pristine 376: `tools/opv_bundle.py` does not exist.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 _VERDICT_KEYS = {"verdict", "passed", "pass", "fail", "failed", "signoff",
                  "sign_off", "approved", "certified"}
 

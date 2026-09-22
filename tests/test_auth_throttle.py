@@ -12,6 +12,11 @@ Plain functions + context managers (no local fixtures) so the suite is
 green under both real pytest and the custom runner. Endpoint tests use a
 fake master backend to exercise the throttle path without crypto setup.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from contextlib import contextmanager
 from pathlib import Path
 import os

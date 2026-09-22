@@ -10,6 +10,10 @@ population is LIVE-only). RED on pristine 373: list_runs has no `status` arg /
 no `reason_code`, and the route ignores `?status=`.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def test_record_finish_accepts_reason_code_and_list_filters_status():
     from bulk_downloader import run_history as rh, db

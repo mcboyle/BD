@@ -5,6 +5,11 @@ SINGLE observed API host with extraction_core's download/resolution-shaped
 relative api_pattern. It must: never guess a host, never invent an endpoint,
 never auto-enable, and persist no secrets. SYNTHETIC fixtures only.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json, os, shutil, sys, tempfile, zipfile
 from pathlib import Path
 

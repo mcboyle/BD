@@ -5,6 +5,10 @@ playwright). They verify HTTP-level invariants: 404s for unknown sites,
 JSON content types, expected response keys, etc.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 class TestSiteCRUD:
     def test_create_site(self, fresh_app):

@@ -8,6 +8,11 @@ shell.
 Driven with Flask's test client - the custom runner does not inject
 @pytest.fixture parameters, so `client` is a plain helper.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

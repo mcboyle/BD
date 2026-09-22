@@ -928,6 +928,17 @@ jobs:
               tests/test_v3_66_285_cloak_parity.py
               tests/test_row667_keeper_browser_log_names_persistence.py
               tests/test_v3_66_795_mod3_seam.py
+          # H622 slice A. The four tests/test_[a-f]*.py gates whose subject is the
+          # tracked tree, plus the gate that pins the slice-A classification itself.
+          # Measured on this container at the cut: 9 + 10 + 22 + 21 tests, 27s total,
+          # so the set is its own shard rather than inflating an existing one.
+          - name: gate-scope-slice-a
+            suites: >-
+              tests/test_v3_66_h622a_gate_scope_slice_a.py
+              tests/test_confirm_tiers_209.py
+              tests/test_cut40_dashboard_today_iso.py
+              tests/test_extraction_core.py
+              tests/test_fts_external_content_delete.py
           - name: toolchain-verifiers
             suites: >-
               tests/test_desandbox_tool_verifiers.py

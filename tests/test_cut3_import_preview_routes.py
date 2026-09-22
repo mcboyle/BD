@@ -9,6 +9,11 @@ _check_csrf skips), so no pairing/CSRF dance is required.
 
 RED on pristine 372: both routes 404.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path

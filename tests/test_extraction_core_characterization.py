@@ -16,6 +16,11 @@ This is characterization, not specification: it freezes behavior as-is (includin
 quirks like a bare "480" segment classifying as identity), it does not assert the
 behavior is correct. Zero-arg functions for the custom runner; stdlib + offline.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import sys
 from pathlib import Path

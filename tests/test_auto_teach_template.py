@@ -5,6 +5,11 @@ there is neither a template nor learned download selectors.
 These test the preflight predicate logic directly -- the same boolean
 the runner's Phase 41.5 block uses -- without spawning browsers.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import sys
 from pathlib import Path
 

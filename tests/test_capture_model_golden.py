@@ -7,6 +7,11 @@ field, `--check` drifts and this test fails with a diff. Also pins the projectio
 shape and the posture guarantee (no raw signing values reach the golden).
 Synthetic only; browser-free.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 import sys
 from pathlib import Path

@@ -4,6 +4,11 @@ Zero-arg functions; repo root via __file__. Builds a tiny fake release zip +
 draft STATE + pack dir, asserts mechanical refresh + changes-pruning. Uses
 openpyxl for the tracker (skips if absent).
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import hashlib
 import importlib.util
 import json

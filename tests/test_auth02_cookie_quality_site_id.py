@@ -9,6 +9,11 @@ escaped path.
 
 Pristine-source RED: the loader is called with a path outside ``cookies/``.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 
 

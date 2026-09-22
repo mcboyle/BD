@@ -1,5 +1,10 @@
 """Tests for bulk_downloader.dev_suite — the read-only inspection
 tools and their /api/dev/* endpoints."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 import pytest

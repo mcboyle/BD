@@ -10,6 +10,11 @@ RED-first (fails on the 534 tree where bd-scan has no jscpd path; passes @535):
   test_bd_scan_jscpd_source_tag -> clones land under source='jscpd' (distinct
                                     from semgrep/bandit/vulture in by_source)
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 from pathlib import Path

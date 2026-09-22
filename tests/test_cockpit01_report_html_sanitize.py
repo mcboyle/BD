@@ -9,6 +9,11 @@ dependency-free allowlist sanitizer (_sanitize_report_html) server-side before
 returning it: only markdown's own safe tags/attrs survive; script/style/iframe,
 on* handlers, and javascript:/data: URLs are dropped.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 import inspect

@@ -16,6 +16,10 @@ pathological tree is cut off (and no longer crashes).
 RED on pristine (deep JSON raises RecursionError); GREEN after the cap.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import json
 
 from bulk_downloader.deep_detect import (_walk_json_for_media,

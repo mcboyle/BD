@@ -2,6 +2,11 @@
 separate BETA/NEW/PINNED text-badge affordance. The glyph (star) is the toggle;
 the badge is a status indicator — never overload one for both.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

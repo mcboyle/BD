@@ -7,6 +7,11 @@ Sandbox-invisible structural mistakes a moved module can introduce:
   - a stray __file__ (path math must live in one _common helper),
   - a depth-suspect Path(__file__).parents[N] (the .parents[2] vs [1] slip).
 AST-only; synthetic sources; runner-safe."""
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import sys
 

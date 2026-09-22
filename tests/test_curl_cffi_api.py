@@ -21,6 +21,11 @@ These tests do two things:
    drops `request` would silently break the same path, and this
    test would catch it.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import re
 from pathlib import Path
 

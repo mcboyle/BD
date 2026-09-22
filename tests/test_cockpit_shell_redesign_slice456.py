@@ -3,6 +3,11 @@
 Custom-runner friendly: zero-arg tests, repo root from __file__, structural
 text assertions over the server-rendered cockpit blob.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent

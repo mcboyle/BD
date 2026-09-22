@@ -19,6 +19,11 @@ decision that is remembered per site:
 
 Plain functions + lazy imports for runner + real-pytest compatibility.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import pytest
 
 pytestmark = pytest.mark.bd_module_wipe

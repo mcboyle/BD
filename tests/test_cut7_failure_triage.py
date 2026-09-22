@@ -24,6 +24,10 @@ RED on pristine 376: `is_uncategorized` / `triage_unknown` do not exist; the
 back-compat asserts on `reason_for` still pass.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 
 def test_reason_for_known_messages_unchanged():
     # Regression guard: the deterministic core is untouched.

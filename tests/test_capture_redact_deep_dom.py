@@ -18,6 +18,10 @@ succeeds instead of crashing.
 RED on pristine (the deep-DOM export raises RecursionError); GREEN after the cap.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 from bulk_downloader.wacz_export import build_wacz_bytes, verify_wacz_bytes
 from bulk_downloader import capture_artifact_redact as R
 from bulk_downloader.capture_redact import PLACEHOLDER

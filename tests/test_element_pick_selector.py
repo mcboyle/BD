@@ -21,6 +21,10 @@ fetch -- ``set_content`` is fine here because the deriver is pure in-page).
 The *real* noVNC-forwarded click only proves on stash; this proves the logic.
 """
 
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 from contextlib import contextmanager
 

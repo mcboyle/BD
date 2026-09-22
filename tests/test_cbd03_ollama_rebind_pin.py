@@ -8,6 +8,11 @@ The fix pins the resolved LAN IP at request time: re-resolve NOW, refuse unless
 EVERY address is LAN/loopback, and connect to a validated IP (Host header
 preserved). Pure-logic testable by faking getaddrinfo -- no network.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import os
 import tempfile
 

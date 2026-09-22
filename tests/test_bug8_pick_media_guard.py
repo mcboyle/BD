@@ -7,6 +7,11 @@ These assert the injected ACTIVE_PICK_JS carries the capture-phase media guard
 on the pointer/mouse events (gated on armed, shift-through preserved) and that
 the whole injected blob stays syntactically valid JS.
 """
+
+# H622 slice A. An ordinary module test: its subject is the module under
+# test, not the tree, so it is not a repo-wide CI gate.
+BD_GATE_SCOPE = "module"
+
 import shutil
 import subprocess
 import sys
