@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4920,
+  "edge_count": 4922,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1302,6 +1302,7 @@
       "bulk_downloader/app.py"
     ],
     "bulk_downloader/dev_suite/introspection.py": [
+      "bulk_downloader/arena_compactor.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
@@ -4133,6 +4134,9 @@
     "tests/test_row1073_memray_heap_profile_flamegraph.py": [
       "bulk_downloader/memray_profile.py",
       "bulk_downloader/perf_lab.py"
+    ],
+    "tests/test_row1074_ebpf_memory_arena_compactor.py": [
+      "bulk_downloader/arena_compactor.py"
     ],
     "tests/test_row1075_task_state_pause_drain_resumption.py": [
       "bulk_downloader/runner.py",
