@@ -6,7 +6,7 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-001 — live source tags
 
-- `bulk_downloader/dev_suite/introspection.py:211` — `try:                                            # INV-001`
+- `bulk_downloader/dev_suite/introspection.py:226` — `try:                                            # INV-001`
 - `bulk_downloader/runner.py:3507` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:3573` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:354` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
@@ -30,18 +30,18 @@ authoritative; this file is only a deterministic locality view.
 - `bulk_downloader/db.py:734` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
 - `bulk_downloader/db.py:735` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
 - `bulk_downloader/db.py:739` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
-- `bulk_downloader/dev_suite/introspection.py:203` — `try:                                            # INV-004`
+- `bulk_downloader/dev_suite/introspection.py:218` — `try:                                            # INV-004`
 
 ## INV-005 — live source tags
 
 - `bulk_downloader/detect.py:317` — `_RES_LABEL_PATTERNS=[  # INV-005`
 - `bulk_downloader/detect.py:409` — `def res_label(score):  # INV-005`
-- `bulk_downloader/dev_suite/introspection.py:224` — `try:                                            # INV-005`
+- `bulk_downloader/dev_suite/introspection.py:239` — `try:                                            # INV-005`
 - `bulk_downloader/heuristic_scoring.py:122` — `RESOLUTION_TIERS: List[Tuple[re.Pattern, int, str]] = [  # INV-005`
 
 ## INV-006 — live source tags
 
-- `bulk_downloader/dev_suite/introspection.py:232` — `try:                                            # INV-006`
+- `bulk_downloader/dev_suite/introspection.py:247` — `try:                                            # INV-006`
 - `bulk_downloader/secrets_store.py:2370` — `def resolve_password(value: str | None) -> str | None:  # INV-006`
 - `bulk_downloader/vpn_config.py:495` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
 

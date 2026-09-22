@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1627 - train51: a file-descriptor utilization gauge that says "unknown" when it cannot look
+
+Base 7e9d37b52 (v3.66.1626). One member, 4 authored paths.
+
+- row991 fd-utilization-gauge, T2, INDEX tree cd0afa11 / PATCH-SHA256 5cd48110 (full-index
+  2b81efd5). TWO BOARDs from two seats at that exact object: bd-review-correctness-B8-B and
+  bd-review-correctness-B7-B. Adds bulk_downloader/fd_quota_gauge.py and wires it through
+  dev_suite/introspection.py. The gauge reports pct and headroom against the soft RLIMIT_NOFILE
+  and degrades to status "unknown" rather than "ok" when the limit or the open-descriptor count
+  cannot be read -- an unread number is not a healthy one.
+
+CARRIED TO THE INTEGRATOR, from B7-B's CONDITION and not a defect in this patch: is_unlimited()
+folds a soft limit of 0 into "unlimited", so a zero-descriptor budget reads as no budget. B7-B
+tested reachability on a live process rather than assuming it -- with setrlimit(RLIMIT_NOFILE,
+(0, hard)) actually applied, count_open_fds() cannot list /proc/self/fd either, so the real
+snapshot degrades honestly to unknown. The false "ok" needs a count supplied from elsewhere.
+
 ## v3.66.1626 - train49: the event-loop scope guard and a regression test for verdict preservation
 
 Base 7a99076ed (v3.66.1624). Two members, 6 authored paths, applied disjoint -- no file is touched

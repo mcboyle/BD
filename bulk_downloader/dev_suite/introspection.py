@@ -172,6 +172,21 @@ def process_info() -> dict:
         info["open_fds"] = len(os.listdir("/proc/self/fd"))
     except Exception:
         info["open_fds"] = None
+    # Row 991: a raw descriptor count cannot be read as healthy or near-exhaustion without the
+    # RLIMIT_NOFILE budget beside it, so the fingerprint carries the quota too. The gauge never
+    # raises -- an unreadable count reports status "unknown" rather than a misleading 0.
+    try:
+        from bulk_downloader import fd_quota_gauge as _fq
+        _snap = _fq.fd_quota_snapshot(open_fds=info["open_fds"])
+        info["fd_soft_limit"] = _snap["soft_limit"]
+        info["fd_hard_limit"] = _snap["hard_limit"]
+        info["fd_utilization_pct"] = _snap["utilization_pct"]
+        info["fd_headroom"] = _snap["headroom"]
+        info["fd_quota_status"] = _snap["status"]
+    except Exception:
+        info["fd_soft_limit"] = info["fd_hard_limit"] = None
+        info["fd_utilization_pct"] = info["fd_headroom"] = None
+        info["fd_quota_status"] = "unknown"
     try:
         from bulk_downloader import perf_lab as _pl
         rss = _pl._rss_bytes()
