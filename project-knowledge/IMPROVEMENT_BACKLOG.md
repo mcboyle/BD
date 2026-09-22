@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=78 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=70 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -368,8 +368,8 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 977 | OPEN | ADAPTIVE-ROLLING-WINDOW-COMPACTION-FOR-LOCAL-TIME-SERIES-TELEMETRY -- Adaptive Rolling-Window Compaction for Local Time-Series Telemetry |
 | 978 | CLOSED @1630 | ZERO-DOWNTIME-SCHEMA-MIGRATION-DDL-LOCKING-BARRIER -- Zero-Downtime Schema Migration & DDL Locking Barrier |
 | 979 | OPEN | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
-| 980 | OPEN | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
-| 981 | OPEN | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap |
+| 980 | CLOSED @1635 | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
+| 981 | CLOSED @1635 | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap -- MOOT-PREMISE (O1223): no product fleet-seat/workload-allocation concept or caller @5f74ea9c21ee (git grep FOUND NONE in code; positive control hour_heatmap FOUND 3); REFUTED bd-worker-W2-B bd-local-wt/row981-bd-worker-W2-B/DONE.md; prior cut REFUTED N4-B orphan module. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 982 | OPEN | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
 | 983 | OPEN | IN-PROCESS-HEAP-ARENA-COMPACTION-AND-GLIBC-MALLOC-TRIM-0-MITIGATOR-HEAPARENAMITIGATOR -- In-Process Heap Arena Compaction and Glibc malloc_trim(0) Mitigator (HeapArenaMitigator) |
 | 984 | OPEN | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
@@ -412,7 +412,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1021 | OPEN | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
 | 1022 | OPEN | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
 | 1023 | OPEN | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
-| 1024 | OPEN | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) |
+| 1024 | CLOSED @1635 | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) -- MOOT-PREMISE (RULING-2136-row1024-BOUNCE scope 2): typed central config already exists as global_config.GLOBAL_CONFIG_SCHEMA (95 keys) + runtime_flags num/flag/choice @5f74ea9c21ee; ConfigProvider/UnifiedConfig has 0 product callers (git grep FOUND NONE; positive control get_config( FOUND); REFUTED bd-worker-W1-A bd-cuts/cut/row1024-configprovider-typed-unification/DONE.md (prior patch preserved harness-work/row1024-moot/patch-fe5b796e.diff). Registrar-verified 2026-09-22T22:0xZ (ORDERS-2143 ADD) |
 | 1025 | CLOSED @1631 | DATABASE-CONNECTION-POOL-LEASE-RELEASE-LIFECYCLE-THREAD-CLEANUP-TRAPS-DBCONNECTIONLIFECYCLEMANAGER -- Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps (DBConnectionLifecycleManager) |
 | 1026 | OPEN | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
 | 1027 | CLOSED @1630 | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
@@ -427,13 +427,13 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
 | 1037 | OPEN | DYNAMIC-SHELL-AUTOCOMPLETION-ENGINE-FOR-ZSH-BASH-AND-FISH -- Dynamic Shell Autocompletion Engine for Zsh, Bash, and Fish |
 | 1038 | OPEN | COLD-START-KERNEL-MODULE-IMPORT-LATENCY-PROFILER -- Cold-Start Kernel & Module Import Latency Profiler |
-| 1039 | OPEN | ENDPOINT-AUTHORIZATION-TOKEN-LIFECYCLE-CACHE-AUTHTOKENCACHE -- Endpoint Authorization Token Lifecycle Cache (AuthTokenCache) |
-| 1040 | OPEN | CLIENT-CONFIGURATION-PROFILE-STANDARDIZATION -- Client Configuration Profile Standardization |
+| 1039 | CLOSED @1635 | ENDPOINT-AUTHORIZATION-TOKEN-LIFECYCLE-CACHE-AUTHTOKENCACHE -- Endpoint Authorization Token Lifecycle Cache (AuthTokenCache) |
+| 1040 | CLOSED @1635 | CLIENT-CONFIGURATION-PROFILE-STANDARDIZATION -- Client Configuration Profile Standardization -- MOOT-DUPLICATE of row 898 (CLOSED @1585): bulk_downloader/client_config.py:48 standard_profile() + tests/test_row898.py:1 ship it @5f74ea9c21ee; REFUTED bd-worker-W1-A bd-local-wt/row1040-W1-A/DONE.md. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 1041 | CLOSED @1633 | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
-| 1042 | OPEN | MULTI-SEGMENT-MEDIA-KEY-FETCHING-PAYLOAD-ASSEMBLER -- Multi-Segment Media Key Fetching & Payload Assembler |
-| 1043 | OPEN | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
+| 1042 | CLOSED @1635 | MULTI-SEGMENT-MEDIA-KEY-FETCHING-PAYLOAD-ASSEMBLER -- Multi-Segment Media Key Fetching & Payload Assembler -- MOOT-DUPLICATE of row 900 (CLOSED @1583): bulk_downloader/hls.py (line 1 'Row 900 -- multi-segment HLS media key fetching and payload assembly', 14 defs) + tests/test_row900.py @5f74ea9c21ee; REFUTED bd-worker-W3-A bd-local-wt/row1042-W3-A/DONE.md. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
+| 1043 | CLOSED @1635 | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
 | 1044 | CLOSED @1632 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
-| 1045 | OPEN | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
+| 1045 | CLOSED @1635 | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
 | 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
 | 1047 | OPEN | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
 | 1048 | OPEN | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
