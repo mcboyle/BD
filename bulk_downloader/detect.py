@@ -1964,7 +1964,7 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     return None
 
 
-def find_best_download(page,custom="",learned=None,runner=None,full_length_requested=None):
+def find_best_download(page,custom="",learned=None,full_length_requested=None,runner=None):
     """Locate the best download candidate on the page — defensively.
 
     Phase 5.5: if `learned` is a dict with row_selectors, try those first.

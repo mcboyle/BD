@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1621 - train44: restore find_best_download's runner kwarg to its declared position
+
+Base a565db62e (v3.66.1619). One member.
+
+- mainred-r6-sig (O1143), T2, BASE 2294a21c, PATCH-SHA256 0c03ba3b. THREE BOARDs at this object:
+  bd-review-correctness-B1, cx-worker-2 and bd-review-correctness-B5-B. The first two name the
+  object by PATCH-SHA256 and the third by write-tree -- both are FLEET_RULE 16 forms, and all three
+  digests match what the cut produces.
+  bulk_downloader/detect.py: find_best_download's signature put `runner` ahead of
+  `full_length_requested`, so a caller passing the fourth argument positionally handed a runner
+  where a length flag was expected. The parameter order is restored.
+  RED -> GREEN on the same node: test_v3_66_29_phase5_honeypot_log_event.py -k
+  test_runner_kwarg_position was 1 failed at base and the file is 27 passed after. NEGATIVE
+  CONTROL: restoring base detect.py reds the same node again. Worker band 3643 passed / 1 failed,
+  and that one node (tests/test_infinite_scroll_pager.py) is named in the cut's DONE.md as
+  pre-existing and not this cut's.
+  detect.py has cross-subsystem readers -- 145 call sites censused -- which is why the cut was
+  re-tiered T1 -> T2 under RULING O1156d rather than left at its author's label.
+
+Register: no row closes here, and this cut cites no backlog id, so it does not trip
+tests/test_v3_66_1255_backlog_references_resolve.py. That gate still blocks every PRODUCT row above
+973 until the ROW-974-1078 register cut lands; this harness cut is landable in the meantime.
+
 ## v3.66.1619 - train42: config-surface classifier stops counting deploy-only keys as display debt
 
 Base 14895ffda (v3.66.1618). One member.
