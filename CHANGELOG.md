@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1629 - train53: rows972-973 r8 credential leak fixes and GUI controls
+
+Base 611e63c36 (v3.66.1628). One member, 14 authored paths. Rides alone (K1).
+Parity baseline re-pinned: open_count 2 -> 0 (BD_HTTP_PROXY + turnstile_one_click_enabled now wired).
+
+- rows972-973-gui-controls-r6 (r8), T3, INDEX tree c7b55631 / PATCH-SHA256 2c412c00 at base bc1544b7.
+  TWO BOARDs from two distinct seats: bd-agy-lens-c2 and bd-review-correctness-N1-A (PM ruling
+  RULING-rows972-973-r8-quorum.md). Closes the credential leak vectors from r7 ruling and B11-B findings.
+
 ## v3.66.1628 - train52: H622 wiring slice A (test_[a-f]*.py CI shard coverage)
 
 Base 27e2b7f9f (v3.66.1627). One member, 252 authored paths (250 tests + CI shard configs).

@@ -29,7 +29,25 @@ class _ProxyPool:
 
 
 def _proxy_url() -> str | None:
-    value = os.environ.get("BD_HTTP_PROXY", "").strip()
+    """Effective outbound proxy: the deploy env var, else the persisted global_config
+    value written by the Settings Center runtime control (row 972).
+
+    PRECEDENCE AND THE EMPTY STRING. A deploy that exports ``BD_HTTP_PROXY`` keeps
+    winning, and exporting it EMPTY is an explicit "no proxy" that must NOT be
+    resurrected by a stale stored value -- so the fallback is taken only when the
+    variable is ABSENT, never when it is present-but-empty. The store read is lazy and
+    fail-open: a missing or unreadable ``app_config.json`` yields direct egress, exactly
+    as before this fallback existed.
+    """
+    raw = os.environ.get("BD_HTTP_PROXY")
+    if raw is None:
+        try:
+            from . import global_config as _global_config
+
+            raw = _global_config.get("BD_HTTP_PROXY", "")
+        except Exception:  # noqa: BLE001 -- unreadable store => direct egress, never a crash
+            raw = ""
+    value = str(raw or "").strip()
     return value if value.startswith(("http://", "https://")) else None
 
 

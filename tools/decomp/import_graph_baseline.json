@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4811,
+  "edge_count": 4818,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -710,6 +710,7 @@
     ],
     "bulk_downloader/app_settings_center.py": [
       "bulk_downloader/global_config.py",
+      "bulk_downloader/http_client.py",
       "bulk_downloader/site_editor.py",
       "bulk_downloader/vpn_config.py"
     ],
@@ -1494,6 +1495,9 @@
     ],
     "bulk_downloader/http3_client.py": [
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "bulk_downloader/http_client.py": [
+      "bulk_downloader/global_config.py"
     ],
     "bulk_downloader/hybrid_search.py": [
       "bulk_downloader/db.py",
@@ -4906,6 +4910,15 @@
       "bulk_downloader/auth_throttle.py",
       "bulk_downloader/extension_vault.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_rows972_973_rendered_proxy_forms.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/global_config.py"
+    ],
+    "tests/test_rows972_973_rendered_runtime_controls.py": [
+      "bulk_downloader/app_settings_center.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/http_client.py"
     ],
     "tests/test_rrweb_meta_retention.py": [
       "bulk_downloader/dom_capture.py",

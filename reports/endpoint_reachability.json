@@ -87,6 +87,7 @@
     "/api/search/site": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
     "/api/semantic/reindex": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
     "/api/semantic/search": "CONTROL [triaged @720]: operator feature; a control is plausible (future cut)",
+    "/api/settings/runtime": "CONTROL [rows972-973]: runtime settings write endpoint; operator GUI control, backend route lands first (frontend wiring pending)",
     "/api/shares/<token_id>": "CONTROL [reclassified @752]: was phantom-wired by a COMMENT containing /<token_id> in ApiTokensPanel; the shares surface needs its own wiring decision",
     "/api/sites/<sid>/accounts/rotate": "CONTROL [triaged @720]: site power action; belongs on the site page (future cut)",
     "/api/sites/<sid>/ai/detect_login": "CLI-ONLY [triaged @720]: per-site maintenance; CLI/site-detail power menu",
@@ -206,6 +207,7 @@
     "/api/scrapling/fingerprint",
     "/api/scrapling/recover",
     "/api/scrapling/turnstile_check",
+    "/api/settings/runtime",
     "/api/shares/<token_id>",
     "/api/sites/<sid>/accounts/rotate",
     "/api/sites/<sid>/ai/detect_login",
@@ -246,5 +248,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 102
+  "dark_count": 103
 }

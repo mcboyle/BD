@@ -45,7 +45,14 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # decision -- a shadow blueprint nothing called, superseded by /api/scheduled_exports. This
 # is an INTENTIONAL surface change, so the contract is re-cut; the SHA pin exists to make an
 # ACCIDENTAL baseline edit impossible, and it did its job (it blocked until stated).
-_BASELINE_SHA = "0a4290476085bab70d4fbd4c85bd86d2eb37de648bc23b3ae6405664ad907e1a"
+# rows 972-973: re-frozen. ONE route was ADDED, none removed or re-pathed:
+# POST /api/settings/runtime (api_settings_runtime_write) -- the settings centre's runtime
+# write endpoint, which is what the rendered runtime controls in this cut POST to. The
+# baseline went 1012 -> 1013 lines with exactly that one addition (verified by diffing the
+# regenerated snapshot against the old file). This is an INTENTIONAL surface change, so the
+# pin is re-cut and stated here; test_route_surface_unchanged_since_f51_open still diffs the
+# live surface against the file, so an unstated route still cannot slip through.
+_BASELINE_SHA = "be42944a740f36eaee4e2a6007f13e3524a5081d3122e6fa1c5f108a4c3f04a2"
 
 
 def _live_snapshot() -> str:

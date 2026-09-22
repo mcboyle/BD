@@ -192,12 +192,14 @@ def test_no_direct_write_in_blueprint():
 def test_containment_routes_and_version():
     app = _app()
     rules = [r for r in app.url_map.iter_rules() if r.endpoint != "static"]
-    assert len(rules) == 11, len(rules)
+    assert len(rules) == 12, len(rules)
     nonget = [r for r in rules if (r.methods or set()) - {"HEAD", "OPTIONS", "GET"}]
-    assert len(nonget) == 1, [str(r.rule) for r in nonget]
-    assert str(nonget[0].rule).endswith("/validate")
+    assert len(nonget) == 2, [str(r.rule) for r in nonget]
+    nonget_rules = {str(r.rule) for r in nonget}
+    assert "/api/settings/site/<sid>/validate" in nonget_rules
+    assert "/api/settings/runtime" in nonget_rules
     from bulk_downloader import __version__
-    assert __version__ == "3.66.1628", __version__
+    assert __version__ == "3.66.1629", __version__
 
 
 def test_editor_page_renders_grouped():
