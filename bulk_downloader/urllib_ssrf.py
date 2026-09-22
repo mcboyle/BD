@@ -32,8 +32,41 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
             (self.host, self.port), self.timeout, self.source_address)
         if self._tunnel_host:
             self._tunnel()
-        self.sock = self._context.wrap_socket(
-            self.sock, server_hostname=self._pinned_server_hostname)
+        # Row 1007: offer the session ticket from the last handshake with this LOGICAL host, so
+        # a repeat connection resumes instead of paying a full handshake. The key is the logical
+        # hostname, never the pinned literal: the literal can change between connections while
+        # the peer identity -- the thing a session belongs to -- does not.
+        from .tls_session_cache import remember_session, resume_session_for
+
+        key_host = self._pinned_server_hostname or self.host
+        session = resume_session_for(key_host, self.port, self._context)
+        try:
+            self.sock = self._context.wrap_socket(
+                self.sock, server_hostname=self._pinned_server_hostname, session=session)
+        except ValueError:
+            # OpenSSL binds a session to the context that negotiated it and rejects a foreign
+            # one outright. The key above is scoped per context so this should not happen -- and
+            # if it ever does, a stale cache entry must cost a full handshake, never the request.
+            # The refused socket cannot be reused (wrap_socket has already detached its fd), so
+            # the connection is made again and wrapped with no session offered.
+            from .tls_session_cache import REUSE_FAILURES
+
+            REUSE_FAILURES["offer:ValueError"] += 1
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = self._create_connection(
+                (self.host, self.port), self.timeout, self.source_address)
+            if self._tunnel_host:
+                self._tunnel()
+            self.sock = self._context.wrap_socket(
+                self.sock, server_hostname=self._pinned_server_hostname)
+        # Store AFTER the handshake: this is the negotiated session, which is the only one worth
+        # keeping. A server that declined to resume hands back a fresh one here, so a rejected
+        # ticket replaces itself rather than being retried forever.
+        remember_session(key_host, self.port, getattr(self.sock, "session", None),
+                         self._context)
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
