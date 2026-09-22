@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=70 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=68 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -399,7 +399,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1008 | OPEN | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Asynchronous Refresh |
 | 1009 | OPEN | ADAPTIVE-SHARED-MEMORY-WAL-CHECKPOINT-CONTROLLER -- Adaptive Shared-Memory WAL Checkpoint Controller |
 | 1010 | OPEN | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
-| 1011 | OPEN | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
+| 1011 | CLOSED @1636 | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
 | 1012 | OPEN | AUTOMATED-QUERY-PLAN-OPTIMIZER-STATISTICS-INDEX-STABILIZER -- Automated Query Plan Optimizer & Statistics Index Stabilizer |
 | 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
 | 1014 | OPEN | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
@@ -457,7 +457,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
 | 1067 | CLOSED @1634 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
 | 1068 | OPEN | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
-| 1069 | OPEN | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
+| 1069 | CLOSED @1636 | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
 | 1070 | CLOSED @1633 | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
 | 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
 | 1072 | OPEN | TEST-FIXTURE-ISOLATION-DATABASE-SANDBOXING-STANDARDIZATION-HERMETICFIXTURES -- Test Fixture Isolation & Database Sandboxing Standardization (HermeticFixtures) |
