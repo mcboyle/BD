@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=45 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=42 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -398,7 +398,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1007 | CLOSED @1633 | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
 | 1008 | CLOSED @1643 | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Async -- MOOT-PREMISE: REFUTED bd-cuts/cut/row1008-stale-dns-serve/DONE.md (tree a2187cdf); boarded duplicate cut row1008-stale-dns-cache@87d3d136 not landed. Closed at T70 assembly (ORDERS-0060 04:02Z)hronous Refresh |
 | 1009 | CLOSED @1637 | ADAPTIVE-SHARED-MEMORY-WAL-CHECKPOINT-CONTROLLER -- Adaptive Shared-Memory WAL Checkpoint Controller -- MOOT-PREMISE (RULING-2328-row1009-REFUTED-A): SQLite autocheckpoint already bounds the product WAL (W3-A at bc1544b7, positive control autocheckpoint=0 -> 37.6 MB WAL vs 4.1 MB default); the cut's lock is not cross-process, its module has 0 callers and E1's maintenance loop does not exist at base. W3-A DONE.md REFUTED, no patch; worktree kept. |
-| 1010 | OPEN | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
+| 1010 | CLOSED @1646 | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
 | 1011 | CLOSED @1636 | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
 | 1012 | OPEN | AUTOMATED-QUERY-PLAN-OPTIMIZER-STATISTICS-INDEX-STABILIZER -- Automated Query Plan Optimizer & Statistics Index Stabilizer |
 | 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
@@ -409,7 +409,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1018 | CLOSED @1634 | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
 | 1019 | CLOSED @1643 | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
 | 1020 | OPEN | MONOLITHIC-GATEWAY-DECOMPOSITION-DYNAMIC-BLUEPRINT-REGISTRATION-ENGINE-ROUTEREGISTRY -- Monolithic Gateway Decomposition & Dynamic Blueprint Registration Engine (RouteRegistry) |
-| 1021 | OPEN | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
+| 1021 | CLOSED @1646 | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
 | 1022 | CLOSED @1639 | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
 | 1023 | OPEN | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
 | 1024 | CLOSED @1635 | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) -- MOOT-PREMISE (RULING-2136-row1024-BOUNCE scope 2): typed central config already exists as global_config.GLOBAL_CONFIG_SCHEMA (95 keys) + runtime_flags num/flag/choice @5f74ea9c21ee; ConfigProvider/UnifiedConfig has 0 product callers (git grep FOUND NONE; positive control get_config( FOUND); REFUTED bd-worker-W1-A bd-cuts/cut/row1024-configprovider-typed-unification/DONE.md (prior patch preserved harness-work/row1024-moot/patch-fe5b796e.diff). Registrar-verified 2026-09-22T22:0xZ (ORDERS-2143 ADD) |
@@ -435,7 +435,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1044 | CLOSED @1632 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
 | 1045 | CLOSED @1635 | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
 | 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
-| 1047 | OPEN | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
+| 1047 | CLOSED @1646 | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
 | 1048 | OPEN | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
 | 1049 | OPEN | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
 | 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
