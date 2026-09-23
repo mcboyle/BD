@@ -252,12 +252,11 @@ def cmd_add(args):
     if not urls:
         raise SystemExit("No URLs to add (pass as args or pipe to stdin)")
     if getattr(args, "enable_guardrails", False):
-        import asyncio
         from bulk_downloader import guardrails
+        verdicts = guardrails.check_batch([{"title": u, "url": u} for u in urls], enabled=True)
         filtered_urls = []
-        for u in urls:
-            metadata = {"title": u, "url": u}
-            if asyncio.run(guardrails.pre_download_safety_check(metadata, enabled=True)):
+        for u, allowed in zip(urls, verdicts):
+            if allowed:
                 filtered_urls.append(u)
             else:
                 print(f"Blocked unsafe download: {u}", file=sys.stderr)

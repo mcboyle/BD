@@ -73,3 +73,18 @@ async def pre_download_safety_check(
         return not _is_unsafe(response)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return True
+
+
+def check_batch(metadatas: list[Mapping[str, object]], *, enabled: bool = False) -> list[bool]:
+    """Run pre_download_safety_check for every item on one runtime loop, concurrently.
+
+    Replaces one ``asyncio.run`` event loop per item; verdicts come back in input order.
+    """
+    from .async_worker_runtime import AsyncWorkerRuntime
+
+    runtime = AsyncWorkerRuntime()
+    runtime.start()
+    try:
+        return runtime.run_all([pre_download_safety_check(m, enabled=enabled) for m in metadatas])
+    finally:
+        runtime.shutdown()
