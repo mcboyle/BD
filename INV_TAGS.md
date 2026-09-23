@@ -6,7 +6,7 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-001 — live source tags
 
-- `bulk_downloader/dev_suite/introspection.py:226` — `try:                                            # INV-001`
+- `bulk_downloader/dev_suite/introspection.py:231` — `try:                                            # INV-001`
 - `bulk_downloader/runner.py:3530` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:3596` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner_auth.py:354` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
@@ -27,21 +27,21 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-004 — live source tags
 
-- `bulk_downloader/db.py:806` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
-- `bulk_downloader/db.py:807` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
-- `bulk_downloader/db.py:811` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
-- `bulk_downloader/dev_suite/introspection.py:218` — `try:                                            # INV-004`
+- `bulk_downloader/db.py:829` — `cx.isolation_level = None  # INV-004; autocommit; the PRAGMA call only`
+- `bulk_downloader/db.py:830` — `cur = cx.execute("PRAGMA journal_mode=WAL")  # INV-004`
+- `bulk_downloader/db.py:834` — `cx.isolation_level = ""  # INV-004; back to default (deferred BEGIN)`
+- `bulk_downloader/dev_suite/introspection.py:223` — `try:                                            # INV-004`
 
 ## INV-005 — live source tags
 
 - `bulk_downloader/detect.py:317` — `_RES_LABEL_PATTERNS=[  # INV-005`
 - `bulk_downloader/detect.py:409` — `def res_label(score):  # INV-005`
-- `bulk_downloader/dev_suite/introspection.py:239` — `try:                                            # INV-005`
+- `bulk_downloader/dev_suite/introspection.py:244` — `try:                                            # INV-005`
 - `bulk_downloader/heuristic_scoring.py:122` — `RESOLUTION_TIERS: List[Tuple[re.Pattern, int, str]] = [  # INV-005`
 
 ## INV-006 — live source tags
 
-- `bulk_downloader/dev_suite/introspection.py:247` — `try:                                            # INV-006`
+- `bulk_downloader/dev_suite/introspection.py:252` — `try:                                            # INV-006`
 - `bulk_downloader/secrets_store.py:2370` — `def resolve_password(value: str | None) -> str | None:  # INV-006`
 - `bulk_downloader/vpn_config.py:495` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
 

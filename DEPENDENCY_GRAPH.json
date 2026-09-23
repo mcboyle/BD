@@ -1897,6 +1897,7 @@
     "template": {
       "module": "app_template.py",
       "providers": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/capture_login_wire.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/template_extractor.py",
@@ -2396,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1880,
+    "edge_count": 1882,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2989,6 +2990,7 @@
         "bulk_downloader/app_health.py",
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_id_core.py",
+        "bulk_downloader/app_template.py",
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/tombstone.py"
@@ -3619,6 +3621,9 @@
       "bulk_downloader/db_maintenance.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/bg_scheduler.py"
+      ],
+      "bulk_downloader/db_profiler.py": [
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/db_replication.py": [
         "bulk_downloader/app_replication.py"
@@ -6370,6 +6375,7 @@
         "bulk_downloader/tags.py"
       ],
       "bulk_downloader/app_template.py": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/capture_login_wire.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/template_extractor.py",
@@ -6710,6 +6716,7 @@
       "bulk_downloader/db.py": [
         "bulk_downloader/constants.py",
         "bulk_downloader/db_lifecycle.py",
+        "bulk_downloader/db_profiler.py",
         "bulk_downloader/egress_identity.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/hot_write_buffer.py",

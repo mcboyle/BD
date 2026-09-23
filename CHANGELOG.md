@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1639 - train67: train67 version trio, regen, import-graph re-freeze
+
+- row1022-acyclic-imports: import-graph acyclicity contract (2 paths). W9-A; N5-A at ed9023c4.
+- row994-query-plan-profiler (RESCOPED RULING-2338-a, lock-contention profiler only): 6 paths. W9-B; N3-B at 5ec7104b.
+
+
 ## v3.66.1638 - train66h: row1034
 
 Base 0e7383cf (v3.66.1637, main). Hotfix train ahead of T66 (ORDERS-0043/0051): row1034 forward fix plus the two CI harness cuts that make the
