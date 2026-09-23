@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (823)
+## /api/* routes (824)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -172,6 +172,7 @@ GET     /api/dedup/status                                      CSRF: no   — Mo
 GET     /api/deploy/compose                                    CSRF: no
 GET     /api/deploy/k8s                                        CSRF: no
 GET     /api/deploy/systemd                                    CSRF: no
+GET     /api/deploy/timeline                                   CSRF: no
 GET     /api/dev/account_pool                                  CSRF: no   — T5/D-17 — per-site account pool: count, active index, per-
 GET     /api/dev/ai_fallback                                   CSRF: no   — T7/D-55 — evaluate the AI fallback chain against the current
 GET     /api/dev/ai_health_history                             CSRF: no   — T8/D-57 — AI health snapshot as a history view: call/fail

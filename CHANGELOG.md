@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1658 - train83: row979, row1046, row1057, row1083
+
+Base main 235be47f (T82 v3.66.1657 landed 11:21Z; no regen commit at assembly). T83: four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010 decisive leg); per-row ci.yml shard lines dropped (RULING-0080 s2).
+
+- row979 schema-validation: enterprise schema validation + fast serialization runtime (bulk_downloader/schema_runtime.py, llm_exec.py, llm_schemas.py, tests/test_row979_schema_validation.py). P4-B BOARD at 02649c95 on the fixer-A review copy /home/mboyle/bd-review-wt/row979-schema-validation-local (patch rebased onto dc713cd1; PATCH-SHA256 6d3691c4).
+- row1046 payload-duration-size-verification: payload verifier (bulk_downloader/payload_verifier.py, integrity.py, runner_integrity.py, tests/test_row1046_payload_duration_size_verification.py); fixer-B rebuild after the T79 ratchet drop. N2-B BOARD at 48556ff1; census copy 648e53e4 adds the row1053 stdin-census pin bump 74 -> 75 for its ffprobe subprocess.run site (ORDERS-0094).
+- row1057 deployment-revision-rollout-timeline: deployment timeline (bulk_downloader/deployment_timeline.py, app.py, timeline.py, frontend DeploymentTimelinePanel + Maintenance route, route_map baseline, tests/test_row1057_deployment_revision_rollout_timeline.py). N5-A BOARD at 48d7faf8 (fixer-A wf9-r1).
+- row1083 hotfix-1021-record-error: runner._update_job_current record_error hook tolerates the row847 MockRunner stub (bulk_downloader/runner.py, 2 lines; main red, ORDERS-0092). P4-B BOARD at 870b5ff0; built from read-tree copy f802b76d (register hunk out) + register line 1083 by fixup.
+- register: rows 979, 1046, 1057, 1083 CLOSED @1658.
+
+
 ## v3.66.1657 - train82: row1081, row1028, row1082
 
 Base main dc713cd1 (T81 v3.66.1656 landed 10:21Z; ORDERS-0090/0091; PM 10:37Z: T82 = 1081 + 1028; row1082 boarded 11:02Z rides the top open train). T82: three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010); hotfix register lines folded in by fixup from read-tree copies; per-row ci.yml shard lines dropped (RULING-0080 s2).

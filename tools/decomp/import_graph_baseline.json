@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4965,
+  "edge_count": 4982,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -96,6 +96,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/db_maintenance.py",
       "bulk_downloader/dedup.py",
+      "bulk_downloader/deployment_timeline.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/dev_metrics.py",
       "bulk_downloader/dev_tools.py",
@@ -1119,6 +1120,10 @@
     "bulk_downloader/deep_http.py": [
       "bulk_downloader/http_client.py"
     ],
+    "bulk_downloader/deployment_timeline.py": [
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/db.py"
+    ],
     "bulk_downloader/detect.py": [
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/constants.py",
@@ -1458,6 +1463,7 @@
     ],
     "bulk_downloader/integrity.py": [
       "bulk_downloader/ffmpeg_bin.py",
+      "bulk_downloader/payload_verifier.py",
       "bulk_downloader/satellite_video.py",
       "bulk_downloader/streaming_hash.py"
     ],
@@ -1514,12 +1520,16 @@
       "bulk_downloader/aiassist.py",
       "bulk_downloader/llm_audit.py",
       "bulk_downloader/llm_cache.py",
-      "bulk_downloader/prompts.py"
+      "bulk_downloader/prompts.py",
+      "bulk_downloader/schema_runtime.py"
     ],
     "bulk_downloader/llm_readiness.py": [
       "bulk_downloader/aiassist.py",
       "bulk_downloader/llm_exec.py",
       "bulk_downloader/model_registry.py"
+    ],
+    "bulk_downloader/llm_schemas.py": [
+      "bulk_downloader/schema_runtime.py"
     ],
     "bulk_downloader/log.py": [
       "bulk_downloader/db.py",
@@ -2273,7 +2283,8 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/timeline.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/deployment_timeline.py"
     ],
     "bulk_downloader/tombstone.py": [
       "bulk_downloader/app_queue.py",
@@ -4168,6 +4179,12 @@
       "bulk_downloader/metadata_normalizer.py",
       "bulk_downloader/record_attribution.py"
     ],
+    "tests/test_row1046_payload_duration_size_verification.py": [
+      "bulk_downloader/container_repair.py",
+      "bulk_downloader/integrity.py",
+      "bulk_downloader/payload_verifier.py",
+      "bulk_downloader/runner_integrity.py"
+    ],
     "tests/test_row1047_textual_similarity_record_dedup.py": [
       "bulk_downloader/dedup.py",
       "bulk_downloader/text_similarity.py"
@@ -4197,6 +4214,11 @@
       "bulk_downloader/runner_telemetry.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/workload_bottleneck.py"
+    ],
+    "tests/test_row1057_deployment_revision_rollout_timeline.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/deployment_timeline.py",
+      "bulk_downloader/timeline.py"
     ],
     "tests/test_row1059_adversary.py": [
       "bulk_downloader/app.py",
@@ -5184,6 +5206,11 @@
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py"
+    ],
+    "tests/test_row979_schema_validation.py": [
+      "bulk_downloader/llm_exec.py",
+      "bulk_downloader/llm_schemas.py",
+      "bulk_downloader/schema_runtime.py"
     ],
     "tests/test_row980_feature.py": [
       "bulk_downloader/adaptive_input_variance.py",

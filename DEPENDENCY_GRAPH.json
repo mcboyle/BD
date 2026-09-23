@@ -230,6 +230,18 @@
       ],
       "var": "bitrot_bp"
     },
+    "bp": {
+      "module": "deployment_timeline.py",
+      "providers": [
+        "bulk_downloader/app_health.py",
+        "bulk_downloader/db.py"
+      ],
+      "route_count": 1,
+      "routes": [
+        "ROUTE /api/deploy/timeline"
+      ],
+      "var": "bp"
+    },
     "budget": {
       "module": "app_budget.py",
       "providers": [
@@ -2402,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1776,
+    "edge_count": 1783,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2600,6 +2612,9 @@
       ],
       "bulk_downloader/app_gallerydl_update.py": [
         "bulk_downloader/app.py"
+      ],
+      "bulk_downloader/app_health.py": [
+        "bulk_downloader/deployment_timeline.py"
       ],
       "bulk_downloader/app_kernel.py": [
         "bulk_downloader/app.py",
@@ -3149,6 +3164,7 @@
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db_maintenance.py",
+        "bulk_downloader/deployment_timeline.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/dev_suite/introspection.py",
         "bulk_downloader/diagnostics_bundle.py",
@@ -3251,6 +3267,10 @@
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/plex_deep_plexapi.py",
         "bulk_downloader/stash_deep.py"
+      ],
+      "bulk_downloader/deployment_timeline.py": [
+        "bulk_downloader/app.py",
+        "bulk_downloader/timeline.py"
       ],
       "bulk_downloader/detect.py": [
         "bulk_downloader/aiassist.py",
@@ -3941,6 +3961,9 @@
         "bulk_downloader/template_manager.py",
         "bulk_downloader/template_normalize.py"
       ],
+      "bulk_downloader/payload_verifier.py": [
+        "bulk_downloader/integrity.py"
+      ],
       "bulk_downloader/perf_lab.py": [
         "bulk_downloader/app_dev_extract.py",
         "bulk_downloader/app_dev_runtime.py",
@@ -4260,6 +4283,10 @@
       "bulk_downloader/scheduled_exports.py": [
         "bulk_downloader/app_scheduled_exports.py",
         "bulk_downloader/bg_scheduler.py"
+      ],
+      "bulk_downloader/schema_runtime.py": [
+        "bulk_downloader/llm_exec.py",
+        "bulk_downloader/llm_schemas.py"
       ],
       "bulk_downloader/scrapling_adapter.py": [
         "bulk_downloader/app.py",
@@ -5284,6 +5311,7 @@
         "bulk_downloader/db.py",
         "bulk_downloader/db_maintenance.py",
         "bulk_downloader/dedup.py",
+        "bulk_downloader/deployment_timeline.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/dev_metrics.py",
         "bulk_downloader/dev_tools.py",
@@ -6307,6 +6335,10 @@
       "bulk_downloader/deep_http.py": [
         "bulk_downloader/http_client.py"
       ],
+      "bulk_downloader/deployment_timeline.py": [
+        "bulk_downloader/app_health.py",
+        "bulk_downloader/db.py"
+      ],
       "bulk_downloader/detect.py": [
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/constants.py",
@@ -6646,6 +6678,7 @@
       ],
       "bulk_downloader/integrity.py": [
         "bulk_downloader/ffmpeg_bin.py",
+        "bulk_downloader/payload_verifier.py",
         "bulk_downloader/satellite_video.py",
         "bulk_downloader/streaming_hash.py"
       ],
@@ -6702,12 +6735,16 @@
         "bulk_downloader/aiassist.py",
         "bulk_downloader/llm_audit.py",
         "bulk_downloader/llm_cache.py",
-        "bulk_downloader/prompts.py"
+        "bulk_downloader/prompts.py",
+        "bulk_downloader/schema_runtime.py"
       ],
       "bulk_downloader/llm_readiness.py": [
         "bulk_downloader/aiassist.py",
         "bulk_downloader/llm_exec.py",
         "bulk_downloader/model_registry.py"
+      ],
+      "bulk_downloader/llm_schemas.py": [
+        "bulk_downloader/schema_runtime.py"
       ],
       "bulk_downloader/log.py": [
         "bulk_downloader/db.py",
@@ -7461,7 +7498,8 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/timeline.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/deployment_timeline.py"
       ],
       "bulk_downloader/tombstone.py": [
         "bulk_downloader/app_queue.py",
