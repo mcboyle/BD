@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=10 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=8 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -386,7 +386,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
 | 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
-| 998 | OPEN | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol |
+| 998 | CLOSED @1661 | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol -- DEFERRED (O1305, ORDERS-0098 s1, PM 14:10Z): dropped by fixer-A after 3+ bounces; no DONE. Closed DEFERRED at T86 assembly (ORDERS-0101) |
 | 999 | CLOSED @1660 | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress -- MOOT-PREMISE: REFUTED /home/mboyle/bd-cuts/cut/row999-merkle-validator/DONE.md (fixer-A s3 04:45Z; N5-A F1 @1c0cf754; O1223). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
 | 1000 | CLOSED @1649 | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
 | 1001 | CLOSED @1623 | CRASH-CONSISTENT-WRITE-AHEAD-TRANSACTION-JOURNAL-FOR-CONTAINER-MUTATIONS -- Crash-Consistent Write-Ahead Transaction Journal for Container Mutations |
@@ -438,7 +438,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1047 | CLOSED @1646 | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
 | 1048 | CLOSED @1650 | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
 | 1049 | CLOSED @1648 | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
-| 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
+| 1050 | CLOSED @1661 | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) -- DEFERRED (O1305, ORDERS-0098 s1, PM 14:10Z): dropped by fixer-B after 3+ bounces; no DONE. Closed DEFERRED at T86 assembly (ORDERS-0101) |
 | 1051 | CLOSED @1649 | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
 | 1052 | CLOSED @1637 | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
 | 1053 | CLOSED @1653 | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser -- RESCOPED (RULING-2338-row1053-RESCOPE-A): root-cause guard only -- stdin=subprocess.DEVNULL in subprocess_helpers.isolated_popen_kwargs and the 5 inheriting product Popen sites (+dev_tools), census test that every bulk_downloader Popen/run passes stdin=DEVNULL or -nostdin, ffmpeg overwrite-prompt RED->GREEN; detector/pauser/bdctl-prompt surface dropped (0 product callers). |
