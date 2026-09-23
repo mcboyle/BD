@@ -463,11 +463,13 @@ jobs:
       # green by not running. Row 300's cut then failed CI outright with
       # FileNotFoundError: 'xdpyinfo', which is the honest version of the same
       # condition. CLAUDE.md: a gate CI does not run does not exist.
-      - name: install X11 utilities for display-ownership gates
+      # H622: video acceptance uses real ffmpeg; provision it before pytest.
+      - name: install X11 and video acceptance utilities
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends xvfb x11-utils
+          sudo apt-get install -y --no-install-recommends xvfb x11-utils ffmpeg
+          command -v ffmpeg >/dev/null || { echo "ffmpeg absent after install"; exit 1; }
           command -v Xvfb    >/dev/null || { echo "Xvfb absent after install"; exit 1; }
           command -v xdpyinfo >/dev/null || { echo "xdpyinfo absent after install"; exit 1; }
 

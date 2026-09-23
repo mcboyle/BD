@@ -339,15 +339,34 @@ def test_sendfile_path_uses_less_user_cpu_than_buffered_multi_gb():
         out_sendfile = work / "out_sendfile.bin"
         out_buffered = work / "out_buffered.bin"
 
-        sendfile_user = _measure_user_cpu(lambda: FA.assemble([part], out_sendfile, try_sendfile=True))
-        buffered_user = _measure_user_cpu(lambda: FA.assemble([part], out_buffered, try_sendfile=False))
+        # H622: one copy measured only 4--6 ms of user CPU on a CI worker;
+        # scheduler accounting noise could dominate the 50% comparison.
+        # Measure a fixed eight pairs (16 GiB per path), retaining EVERY
+        # observation. Alternating order balances warm-up/order effects; there
+        # is no retry, early success, sample deletion, or changed threshold.
+        totals = {True: 0.0, False: 0.0}
+        for pair in range(8):
+            for use_sendfile in ((True, False) if pair % 2 == 0 else (False, True)):
+                output = out_sendfile if use_sendfile else out_buffered
+                output.unlink(missing_ok=True)  # bound tmpfs use before timing
+                totals[use_sendfile] += _measure_user_cpu(
+                    lambda output=output, use_sendfile=use_sendfile:
+                    FA.assemble([part], output, try_sendfile=use_sendfile))
+        sendfile_user, buffered_user = totals[True], totals[False]
 
-        assert out_sendfile.read_bytes() == out_buffered.read_bytes()  # byte-identical at 2 GiB scale
+        # Exact bytes, streamed: do not allocate two extra 2 GiB Python strings
+        # while the source and both outputs already occupy 6 GiB of tmpfs.
+        with out_sendfile.open("rb") as left, out_buffered.open("rb") as right:
+            while True:
+                block = left.read(4 * 1024 * 1024)
+                assert block == right.read(4 * 1024 * 1024)
+                if not block:
+                    break
         assert buffered_user > 0, "buffered copy measured 0 user-cpu; instrument cannot distinguish"
         reduction = 1.0 - (sendfile_user / buffered_user)
         assert reduction > 0.5, (
             f"sendfile user-cpu={sendfile_user:.4f}s buffered user-cpu={buffered_user:.4f}s "
-            f"reduction={reduction:.0%} (want >50%) at size={size} bytes"
+            f"reduction={reduction:.0%} (want >50%) at size={size} bytes, 8 fixed pairs"
         )
     finally:
         import shutil

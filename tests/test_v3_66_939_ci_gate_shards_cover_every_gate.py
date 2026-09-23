@@ -198,6 +198,8 @@ BD_GATE_SCOPE = "repo-wide"
 # commit is named. Adding a gate never edits this block, because a new gate
 # declares `repo-wide` and lands in the derived half. This set may only SHRINK,
 # and only when a legacy gate is deliberately retired or promoted to a marker.
+# H622 / O1330 is a named exception: restore the nine omitted module acceptance
+# suites below without misclassifying their subjects as repo-wide.
 #
 # WHAT IT STILL CANNOT SEE, stated because an instrument that hides its blind
 # spots is worse than none. Any within-tree derivation moves with a coordinated
@@ -216,6 +218,19 @@ BD_GATE_SCOPE = "repo-wide"
 _CONFIRMED_SAFETY_GATE_FLOOR = 7
 
 _NON_DERIVABLE_DECLARED = {
+    # H622 / O1330: explicit restoration of nine landed acceptance modules.
+    # Their subject remains module-scoped; CI scheduling is independently
+    # required. This named expansion of the legacy registry is pinned by
+    # test_h622_ci_test_census.py; ordinary new repo-wide gates use the marker.
+    "tests/test_adaptive_chunk_sizing.py",  # required module acceptance
+    "tests/test_esxi_vm_clone_harness.py",  # required module acceptance
+    "tests/test_inmemory_sqlite_fixture.py",  # required module acceptance
+    "tests/test_local_wheelhouse.py",  # required module acceptance
+    "tests/test_proactive_token_refresh.py",  # required module acceptance
+    "tests/test_shard_rebalancer.py",  # required module acceptance
+    "tests/test_sparse_worktree.py",  # required module acceptance
+    "tests/test_video_dedup.py",  # required module acceptance
+    "tests/test_zero_copy_assembly.py",  # required module acceptance
     "tests/test_row667_login_attempt_accounting.py",  # module
     "tests/test_row740_login_cap_writer_atomicity.py",  # module
     "tests/test_row785_login_evidence_filenames_are_shell_safe.py",  # module

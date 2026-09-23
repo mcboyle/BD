@@ -13,11 +13,13 @@ MEASURED at origin/main 8fc45b25f, `grep -rl <key>` per tree (product / tools / 
 A GUI control for either of the first two would wire to nothing in the product, so they can never
 leave the open set and the ratchet can never reach zero.
 
-This file does NOT assert the count is 0. Six settings with real product readers remain open debt;
-re-pinning that ratchet is the integrator's, and is declared OWED in this cut's DONE.md.
+H622 / O1330: later GUI controls closed the remaining debt. The live ratchet now
+pins zero, while preserving runtime-tunable/full assertions for the two former open keys.
 """
 import pathlib
 import sys
+
+import pytest
 
 # MODULE scope: this gate pins the classification of NAMED KEYS by one module,
 # tools/config_surface_inventory.py. It is not a tree sweep -- the repo-wide sweep of the same
@@ -86,22 +88,22 @@ def test_a_setting_with_product_readers_is_still_runtime_tunable():
         )
 
 
-def test_the_open_count_drops_to_exactly_the_two_that_are_still_debt():
-    """Six leave the open set for two DIFFERENT reasons; the two real ones stay in it.
-
-    Pinning the exact remainder is what stops a later 'fix' from closing the ratchet by
-    excluding settings instead of building controls.
-    """
+def test_the_open_count_remains_zero_without_excluding_real_settings():
+    """The former open settings have controls and must remain runtime tunable."""
     d = _inventory()
     open_keys = sorted(
         i["key"] for i in d["items"] if i.get("runtime_tunable") and i.get("gui_exposure") != "full"
     )
+    assert open_keys == [], f"H622: unexpected GUI-parity debt: {open_keys}"
     for key in HARNESS_ONLY:
         assert key not in open_keys
     for key in DEPLOY_ONLY_O1186:
         assert key not in open_keys
-    assert open_keys == ["BD_HTTP_PROXY", "turnstile_one_click_enabled"]
-    assert d["counts"]["open_runtime_tunable"] == 2
+    for key in ("BD_HTTP_PROXY", "turnstile_one_click_enabled"):
+        item = _item(d["items"], key)
+        assert item is not None and item["runtime_tunable"] is True
+        assert item["gui_exposure"] == "full", f"{key}: the GUI control disappeared"
+    assert d["counts"]["open_runtime_tunable"] == 0
 
 
 def test_the_exclusion_is_scoped_to_env_vars_only():
@@ -120,14 +122,7 @@ def test_the_exclusion_is_scoped_to_env_vars_only():
 
 
 def test_one_more_open_setting_would_red_the_gate_again(monkeypatch):
-    """NEGATIVE CONTROL (the row's acceptance 3).
-
-    Whatever the ratchet is eventually pinned at -- the disposition of the two remaining open
-    settings is the operator's and was still open when this cut was written -- it must be a PIN
-    and not "whatever the tree says". If it floated, a seventh runtime-tunable setting landing
-    without a GUI control would be absorbed silently and the ratchet would stop ratcheting. So:
-    introduce one more open setting and show the count rises rather than staying at 2.
-    """
+    """An extra uncontrolled setting must increase debt and fail the live zero pin."""
     real = csi._is_runtime_tunable
 
     def seventh(it):
@@ -137,11 +132,11 @@ def test_one_more_open_setting_would_red_the_gate_again(monkeypatch):
 
     monkeypatch.setattr(csi, "_is_runtime_tunable", seventh)
     d = csi.build(str(ROOT))
-    assert d["counts"]["open_runtime_tunable"] == 3, (
-        "a seventh uncontrolled runtime-tunable setting did not raise the open count; the "
-        "ratchet would absorb new debt instead of reding"
+    assert d["counts"]["open_runtime_tunable"] == 1, (
+        "an extra uncontrolled runtime-tunable setting did not raise the open count"
     )
-    assert d["counts"]["open_runtime_tunable"] != 2
+    with pytest.raises(AssertionError, match="H622: unexpected GUI-parity debt"):
+        test_the_open_count_remains_zero_without_excluding_real_settings()
 
 
 # ── E1 (BOUNCE 2026-09-21T20:46Z): a changed SHARED constant owes a consumer census. ──────────
