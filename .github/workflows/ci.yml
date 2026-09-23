@@ -533,7 +533,7 @@ jobs:
         run: |
           suites=$(python tools/ci_shards.py files "${{ matrix.name }}")
           test -n "$suites"
-          python toolchain/bin/bd-flake-classifier -- python -m pytest -q -p no:randomly --timeout=240 --timeout-method=signal $suites
+          python -u toolchain/bin/bd-flake-classifier -- python -u -m pytest -vv -p no:randomly --timeout=240 --timeout-method=signal $suites
         # @850: two of these were added because they were RED somewhere nothing
         # could see.
         #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors

@@ -289,3 +289,52 @@ class TestFlakeClassifierAcceptance:
         ledger = flakes_dir / "ledger.jsonl"
         assert ledger.exists()
         assert "SocketTimeout" in ledger.read_text(encoding="utf-8")
+
+
+def test_h685_cli_emits_current_nodeid_before_child_exits(tmp_path):
+    import os
+    import select
+    import signal
+    import socket
+
+    nodeid = 'tests/test_probe.py::test_hanging_request'
+    with socket.socket() as ready:
+        ready.bind(('127.0.0.1', 0))
+        ready.listen(1)
+        ready.settimeout(10)
+        child = (
+            'import socket,sys; '
+            f'sys.stdout.write({nodeid!r}); sys.stdout.flush(); '
+            f'notice=socket.create_connection({ready.getsockname()!r}, timeout=10); '
+            'notice.sendall(b"ready\\n"); notice.close(); '
+            'sys.stdin.readline(); sys.stderr.write("controlled failure\\n"); sys.exit(7)'
+        )
+        proc = subprocess.Popen(
+            [sys.executable, str(TOOLCHAIN_BIN), '--flakes-dir', str(tmp_path / 'flakes'),
+             '--retries', '0', '--', sys.executable, '-u', '-c', child],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        observed = b''
+        try:
+            connection, _ = ready.accept()
+            with connection:
+                connection.settimeout(10)
+                with connection.makefile('rb') as notice:
+                    assert notice.readline() == b'ready\n', 'child never reached test body'
+            assert proc.poll() is None, 'precondition: child must still be running'
+            assert proc.stdout is not None
+            readable, _, _ = select.select([proc.stdout], [], [], 2)
+            if readable:
+                observed = os.read(proc.stdout.fileno(), 4096)
+            assert nodeid.encode() in observed, 'running nodeid is buffered until the child exits'
+        finally:
+            try:
+                rest, errors = proc.communicate(input=b'finish\n', timeout=10)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate(timeout=10)
+                raise
+    assert proc.returncode == 7, 'streaming must preserve failure status'
+    assert (observed + rest).count(nodeid.encode()) == 1, 'streamed nodeid was printed twice'
+    assert b'controlled failure' in errors

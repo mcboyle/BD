@@ -13,9 +13,11 @@ tracebacks to ensure real defect visibility.
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
 import os
 import re
+import selectors
 import subprocess
 import sys
 import time
@@ -50,6 +52,42 @@ class FlakeRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def _run_command(cmd, shell=False, cwd=None, stream_output=False):
+    if not stream_output:
+        return subprocess.run(cmd, shell=shell, cwd=cwd, capture_output=True,
+                              text=True, check=False)
+    output = {"stdout": [], "stderr": []}
+    proc = subprocess.Popen(cmd, shell=shell, cwd=cwd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    try:
+        with selectors.DefaultSelector() as selector:
+            for name, pipe, target in (("stdout", proc.stdout, sys.stdout),
+                                       ("stderr", proc.stderr, sys.stderr)):
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                selector.register(pipe, selectors.EVENT_READ, (name, target, decoder))
+            while selector.get_map():
+                for key, _ in selector.select():
+                    name, target, decoder = key.data
+                    data = os.read(key.fd, 65536)
+                    text = decoder.decode(data, final=not data)
+                    output[name].append(text)
+                    target.write(text)
+                    target.flush()
+                    if not data:
+                        selector.unregister(key.fileobj)
+            return subprocess.CompletedProcess(cmd, proc.wait(),
+                                               "".join(output["stdout"]),
+                                               "".join(output["stderr"]))
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
 
 
 class FlakeClassifier:
@@ -225,17 +263,11 @@ class FlakeClassifier:
         max_retries: int = 1,
         shell: bool = False,
         cwd: str | None = None,
+        stream_output: bool = False,
     ) -> tuple[int, FlakeRecord]:
         """Execute external test command with automated immediate retry on failure."""
         t0 = time.time()
-        proc = subprocess.run(
-            cmd,
-            shell=shell,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        proc = _run_command(cmd, shell=shell, cwd=cwd, stream_output=stream_output)
         d0_ms = (time.time() - t0) * 1000
 
         if proc.returncode == 0:
@@ -254,14 +286,7 @@ class FlakeClassifier:
 
         for retry in range(1, max_retries + 1):
             # Immediate retry without sleep backoff (E3 requirement)
-            retry_proc = subprocess.run(
-                cmd,
-                shell=shell,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            retry_proc = _run_command(cmd, shell=shell, cwd=cwd, stream_output=stream_output)
             last_proc = retry_proc
             if retry_proc.returncode == 0:
                 rec = self.record_flake(
@@ -336,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
         cmd=cmd,
         test_id=test_id,
         max_retries=args.retries,
+        stream_output=not args.json,
     )
 
     if args.json:
@@ -346,14 +372,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"[FLAKE] Test '{record.test_id}' flaked on attempt 1, passed on attempt {record.attempts}."
             )
             print(f"Recorded diagnostic traceback to: {record.log_path}")
-            if record.stdout:
-                sys.stdout.write(record.stdout)
         elif record.status == "fail":
             # Forward failure stdout and stderr (E2 terminal error visibility requirement)
-            if record.stdout:
-                sys.stdout.write(record.stdout)
-            if record.stderr:
-                sys.stderr.write(record.stderr)
             print(
                 f"[FAIL] Test '{record.test_id}' persistently failed after {record.attempts} attempts.",
                 file=sys.stderr,
@@ -363,8 +383,6 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         else:
-            if record.stdout:
-                sys.stdout.write(record.stdout)
             print(f"[PASS] Test '{record.test_id}' passed on first attempt.")
 
     return rc
