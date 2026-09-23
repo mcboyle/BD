@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=55 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=51 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -392,7 +392,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1001 | CLOSED @1623 | CRASH-CONSISTENT-WRITE-AHEAD-TRANSACTION-JOURNAL-FOR-CONTAINER-MUTATIONS -- Crash-Consistent Write-Ahead Transaction Journal for Container Mutations |
 | 1002 | CLOSED @1633 | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
 | 1003 | CLOSED @1631 | DECORRELATED-FULL-JITTER-EXPONENTIAL-BACKOFF-PROFILES -- Decorrelated Full-Jitter Exponential Backoff Profiles |
-| 1004 | OPEN | TRANSPORT-LAYER-SLIDING-WINDOW-CIRCUIT-BREAKERS-WITH-LEAKY-BUCKET-RECOVERY -- Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery |
+| 1004 | CLOSED @1640 | TRANSPORT-LAYER-SLIDING-WINDOW-CIRCUIT-BREAKERS-WITH-LEAKY-BUCKET-RECOVERY -- Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery |
 | 1005 | CLOSED @1637 | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
 | 1006 | CLOSED @1630 | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
 | 1007 | CLOSED @1633 | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
@@ -402,7 +402,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1011 | CLOSED @1636 | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
 | 1012 | OPEN | AUTOMATED-QUERY-PLAN-OPTIMIZER-STATISTICS-INDEX-STABILIZER -- Automated Query Plan Optimizer & Statistics Index Stabilizer |
 | 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
-| 1014 | OPEN | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
+| 1014 | CLOSED @1640 | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
 | 1015 | CLOSED @1637 | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
 | 1016 | CLOSED @1633 | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
 | 1017 | CLOSED @1637 | MULTI-TRACK-AUXILIARY-TEXT-CHAPTER-ANNOTATION-INGESTION -- Multi-Track Auxiliary Text & Chapter Annotation Ingestion -- MOOT-PREMISE / MOOT-DUPLICATE of row 910 (CLOSED @1585): tests/test_subtitle_chapter_harvester.py:1 is literally 'Row 910: multi-track auxiliary text and chapter annotation ingestion' (12 passed on pristine main); chapter embedding ships in mp4_metadata.embed_chapter_markers, SRT parsing in subtitle_search.parse_srt @25245209179e; the cut's multitrack_annotation module had 0 product callers (FOUND NONE on main); REFUTED bd-worker-W1-A bd-cuts/cut/row1017-multitrack-annotation/DONE.md (ORDERS-2302-BOUNCE; prior patch preserved harness-work/row1017-moot/patch-21326cf6.diff). Registrar-verified 2026-09-22T23:2xZ (ORDERS-2143 ADD 23:15Z) |
@@ -417,11 +417,11 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1026 | CLOSED @1637 | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
 | 1027 | CLOSED @1630 | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
 | 1028 | OPEN | WEAKREF-CALLBACK-LIFECYCLE-MANAGER-AND-UNBOUNDED-CACHE-PRUNING-ENGINE-WEAKREFLIFECYCLE -- Weakref Callback Lifecycle Manager and Unbounded Cache Pruning Engine (WeakrefLifecycle) |
-| 1029 | OPEN | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
+| 1029 | CLOSED @1640 | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
 | 1030 | OPEN | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
 | 1031 | OPEN | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
 | 1032 | CLOSED @1637 | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
-| 1033 | OPEN | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
+| 1033 | CLOSED @1640 | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
 | 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
 | 1035 | CLOSED @1633 | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
 | 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
