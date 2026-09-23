@@ -403,7 +403,8 @@ def _run_child_probe(tmp_path: Path, source: str, *args: str,
            if key not in {"BD_INSTALL_DIR", "BD_HOME", "HOME", "PYTHONPATH", "TMPDIR"}}
     env.update(HOME=str(tmp_path / "home"), BD_HOME=str(tmp_path / "state"),
                TMPDIR=str(tmp_path), PYTHONPATH=str(_PKG.parent),
-               PYTHONDONTWRITEBYTECODE="1", BD_DISABLE_KEEPALIVE="1")
+               PYTHONDONTWRITEBYTECODE="1", BD_DISABLE_KEEPALIVE="1",
+               LC_ALL="C")  # host locale must not decide the child (test_v3_66_1197)
     if path_prefix is not None:
         env["PATH"] = f"{path_prefix}{os.pathsep}{os.environ.get('PATH', '')}"
     done = subprocess.run([sys.executable, "-c", source, *args],
