@@ -628,17 +628,11 @@ def _corpus_files(roots: tuple[Path, ...]) -> list[tuple[Path, str]]:
     return sorted(files, key=lambda item: item[1])
 
 
-def _sha256_zip_member(zf: zipfile.ZipFile, name: str) -> str:
-    digest = hashlib.sha256()
-    with zf.open(name) as stream:
-        while chunk := stream.read(_COPY_BLOCK_BYTES):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _corpus_member_matches_manifest(zf: zipfile.ZipFile, record: dict) -> bool:
     """Compare one archive member with its independently stored digest."""
-    return _sha256_zip_member(zf, record["arcname"]) == record["sha256"]
+    from .integrity import verify_stream_hash
+    with zf.open(record["arcname"]) as stream:
+        return verify_stream_hash(stream, record["sha256"], chunk_size=_COPY_BLOCK_BYTES).valid
 
 
 def _read_corpus_manifest(zf: zipfile.ZipFile) -> tuple[dict, list[dict]]:

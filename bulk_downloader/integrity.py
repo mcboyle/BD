@@ -1,6 +1,16 @@
 """ffprobe-based file integrity check (silent skip if not installed)."""
 import json, shutil, subprocess
 
+from .streaming_hash import (
+    HashVerificationResult,
+    StreamingHashEngine,
+    StreamingHashReader,
+    StreamingHashWriter,
+    verify_file_streaming,
+    verify_stream_inline,
+)
+
+
 # ─── INTEGRITY VERIFICATION ──────────────────────────────────────────────────
 # v3.66.703 (MOD-4): resolve through the ONE resolver, and do it LAZILY. This used
 # to be `shutil.which("ffprobe")` evaluated at module IMPORT -- so it took whatever
@@ -118,3 +128,23 @@ def _verify_with_ffprobe(path):
         return True,""
     except subprocess.TimeoutExpired: return False,"ffprobe timeout"
     except Exception as e: return False,f"ffprobe error: {e}"
+
+
+def verify_stream_hash(
+    stream,
+    expected_hash: str,
+    algorithm: str = "sha256",
+    chunk_size: int = 65536,
+) -> HashVerificationResult:
+    """Inline cryptographic stream verification."""
+    return verify_stream_inline(stream, expected_hash, algorithm=algorithm, chunk_size=chunk_size)
+
+
+def verify_file_hash_streaming(
+    file_path,
+    expected_hash: str,
+    algorithm: str = "sha256",
+    chunk_size: int = 65536,
+) -> HashVerificationResult:
+    """Inline cryptographic file verification using streaming reads."""
+    return verify_file_streaming(file_path, expected_hash, algorithm=algorithm, chunk_size=chunk_size)
