@@ -18,6 +18,7 @@ import ipaddress
 import os
 import select
 import socket
+import sys
 import threading
 from typing import Callable, Optional
 from urllib.parse import urlsplit
@@ -67,7 +68,7 @@ def _connect_authority(value: str) -> tuple[str, int]:
 class SocksHttpConnectBridge:
     """Loopback HTTP CONNECT listener whose outbound socket uses SOCKS5."""
 
-    def __init__(self, socks_url: str) -> None:
+    def __init__(self, socks_url: str, pacing_bytes_per_s: int = 0) -> None:
         parsed = urlsplit((socks_url or "").strip())
         if parsed.scheme.lower() not in {"socks5", "socks5h"}:
             raise ValueError("upstream proxy is not SOCKS5")
@@ -81,6 +82,14 @@ class SocksHttpConnectBridge:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self.listen_port = 0
+        # Row 1066. Bytes per second the kernel is asked to pace the UPSTREAM socket at;
+        # 0 means "ask for nothing", which is not the same as asking for unlimited.
+        # The unit is bytes, never Mbps or MB/s, because this class sits between two
+        # callers that disagree about which "mbps" they mean.
+        self.pacing_bytes_per_s = max(0, int(pacing_bytes_per_s or 0))
+        # The last pacing report per upstream socket, kept so an operator can see whether
+        # the kernel honoured the request. An unreported failure is the whole hazard.
+        self.pacing_reports: list[dict] = []
 
     def start(self) -> None:
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -195,10 +204,34 @@ class SocksHttpConnectBridge:
                 raise OSError("SOCKS endpoint returned an unknown address type")
             _recv_exact(upstream, 2)
             upstream.settimeout(None)
+            self._pace_upstream(upstream)
             return upstream
         except Exception:
             upstream.close()
             raise
+
+    def _pace_upstream(self, upstream: socket.socket) -> Optional[dict]:
+        """Hand this bridge's cap to the kernel for the socket the transfer actually uses.
+
+        Row 1066. Everything downstream of here is BD's own egress, so this is the one
+        place in the product that owns the socket AND knows the cap. The report is kept
+        whether or not the kernel took the rate: a pacing request that silently failed
+        would leave the operator reading a cap that is not being enforced.
+        """
+        if self.pacing_bytes_per_s <= 0:
+            return None
+        from . import socket_pacing
+
+        report = socket_pacing.set_pacing_rate(upstream, self.pacing_bytes_per_s)
+        with self._lock:
+            self.pacing_reports.append(report)
+            del self.pacing_reports[:-64]
+        if not report["applied"]:
+            # Not "the kernel declined": a rate too large for setsockopt is refused before
+            # any syscall, so the reason, not this line, says who refused.
+            print(f"[egress] SO_MAX_PACING_RATE not applied "
+                  f"({self.pacing_bytes_per_s} B/s): {report['reason']}", file=sys.stderr)
+        return report
 
     def _handle_client(self, client: socket.socket) -> None:
         upstream = None
@@ -252,6 +285,16 @@ class PreparedHttpProxy:
         self.proxy_url = proxy_url
         self._bridge = bridge
 
+    @property
+    def bridge(self):
+        """The SOCKS carrier behind this proxy, or None for a plain HTTP decision.
+
+        Row 1066: exposed so a caller (and the operator surface) can read the carrier's
+        pacing reports. Without it, whether the kernel honoured the cap is only knowable
+        from stderr.
+        """
+        return self._bridge
+
     def close(self) -> None:
         bridge, self._bridge = self._bridge, None
         if bridge is not None:
@@ -268,7 +311,8 @@ class PreparedHttpProxy:
         return env
 
 
-def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:
+def prepare_http_proxy(proxy_url: Optional[str],
+                       pacing_bytes_per_s: int = 0) -> PreparedHttpProxy:
     """Make a resolved egress proxy usable by an HTTP-proxy-only subprocess.
 
     HTTP(S) and empty proxy decisions pass through.  SOCKS5 decisions start a
@@ -282,7 +326,11 @@ def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:
     if proxy.lower().startswith(("socks5://", "socks5h://")):
         bridge = None
         try:
-            bridge = SocksHttpConnectBridge(proxy)
+            # Row 1066: the carrier contract stays SocksHttpConnectBridge(url); pacing is
+            # passed only when a cap was asked for, so an uncapped transfer builds the
+            # carrier exactly as before and its startup refusal is unchanged (row 646).
+            bridge = (SocksHttpConnectBridge(proxy, pacing_bytes_per_s=pacing_bytes_per_s)
+                      if pacing_bytes_per_s > 0 else SocksHttpConnectBridge(proxy))
             bridge.start()
             if not bridge.is_alive():
                 raise OSError("local HTTP-to-SOCKS bridge did not stay alive")

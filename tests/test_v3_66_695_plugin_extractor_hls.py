@@ -66,6 +66,9 @@ def _fake_runner(site_id, config, http_calls):
     # here would quietly re-open the very bypass row 439 closed.
     from bulk_downloader.runner_transport import TransportMixin
     ns._download_proxy_url = TransportMixin._download_proxy_url.__get__(ns)
+    # Row 1066: the gate also reads the runner's effective speed cap, to pace the
+    # SOCKS carrier; bind the REAL reader too, for the same reason.
+    ns._current_cap_mbps = TransportMixin._current_cap_mbps.__get__(ns)
     ns._hls_download_guarded = TransportMixin._hls_download_guarded.__get__(ns)
     return ns
 

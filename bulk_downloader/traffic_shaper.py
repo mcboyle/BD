@@ -9,10 +9,11 @@ Incurs zero overhead when bandwidth limits are disabled.
 from __future__ import annotations
 
 import io
+import math
 import threading
 import time
 from collections.abc import Generator, Iterable
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 # 1 Mbps = 1,000,000 bits/sec = 125,000 bytes/sec
 BYTES_PER_MBIT = 125_000
@@ -127,6 +128,35 @@ class BandwidthShaper:
                 self._site_buckets[site_id] = TokenBucket(
                     rate_bytes_per_sec=rate, capacity=cap
                 )
+
+    def apply_to_socket(self, sock: Any, site_id: str | None = None) -> dict:
+        """Ask the kernel to pace *sock* at this shaper's cap, and report what took.
+
+        Row 1066. ``pace()`` above shapes the READ loop, which reaches the peer only
+        indirectly through the receive window and only after the bytes are already here.
+        This hands the same ceiling to the kernel's fair-queue scheduler, where it shapes
+        egress at transmit time. The two are complements, not alternatives.
+
+        The socket gets the TIGHTER of the site cap for *site_id* and the global cap:
+        ``pace()`` waits on both buckets, so a transfer never runs faster than the smaller.
+        A shaper with no cap applies nothing: pacing at some default would be a limit
+        nobody asked for, and the report would claim a ceiling the caller never chose.
+        A cap that is not a finite rate is no cap either: the setters accept inf (which
+        ``pace()`` never waits on) and NaN, and int() of either would raise here. So a
+        site whose cap is not finite leaves the global cap in force, exactly as ``pace()``
+        still waits on the global bucket for it.
+        """
+        from . import socket_pacing
+
+        with self._lock:
+            site = self._site_buckets.get(site_id) if site_id else None
+            candidates = (site, self._global_bucket)
+        rates = [b.rate for b in candidates
+                 if b is not None and b.rate > 0 and math.isfinite(b.rate)]
+        if not rates:
+            return {"applied": False, "rate_bytes_per_s": 0, "verified_bytes_per_s": None,
+                    "reason": "no finite bandwidth cap configured; nothing to ask the kernel for"}
+        return socket_pacing.set_pacing_rate(sock, int(min(rates)))
 
     def pace(self, bytes_count: int, site_id: str | None = None) -> float:
         """Pace a chunk of bytes_count through global and site-specific token buckets.

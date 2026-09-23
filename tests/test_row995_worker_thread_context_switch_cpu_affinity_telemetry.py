@@ -277,7 +277,7 @@ def test_a_platform_without_the_resource_module_still_runs_workers(tmp_path):
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(
         p for p in (str(root), os.environ.get("PYTHONPATH", "")) if p)}
     proc = subprocess.run([sys.executable, "-c", _NO_RESOURCE_WORKER_PASS], cwd=tmp_path, env=env,
-                          capture_output=True, text=True, timeout=300)
+                          capture_output=True, text=True, timeout=120)  # hotfix 1086: below the 240s bound (test_v3_66_1222)
     expected = f"WORKER-PASSES 1 {Path(runner_mod.__file__).resolve()}"
     assert expected in proc.stdout, ("ROW995-NEEDS-RESOURCE", proc.returncode, proc.stderr[-900:])
 

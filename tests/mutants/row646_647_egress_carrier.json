@@ -16,8 +16,8 @@
     {
       "label": "M1 SOCKS proxy is handed straight to the HTTP-only transfer backend",
       "file": "bulk_downloader/download_egress.py",
-      "old": "def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:\n",
-      "new": "def prepare_http_proxy(proxy_url: Optional[str]) -> PreparedHttpProxy:\n    return PreparedHttpProxy(proxy_url)\n",
+      "old": ") -> PreparedHttpProxy:\n",
+      "new": ") -> PreparedHttpProxy:\n    return PreparedHttpProxy(proxy_url)\n",
       "direction": "regression",
       "catcher": "tests/test_row439_segmented_transfers_honor_the_egress_gate.py::test_row646_segmented_transfer_completes_through_the_tunnel"
     },
