@@ -132,6 +132,8 @@ segment102.ts
     assert s1.sequence_number == 100
     assert s1.key_method == "AES-128"
     assert s1.key_uri == "https://auth.example.com/key.bin"
+    assert s1.key_iv == "0x00000000000000000000000000000064"
+    assert s1.key_iv == "0x00000000000000000000000000000064"
 
     s3 = manifest.segments[2]
     assert s3.byte_range == "1024@0"
@@ -205,7 +207,11 @@ def test_hls_drm_schemes_multi_key_methods():
     parser = StreamingManifestParser()
     manifest = parser.parse(media_content)
 
-    assert sorted(manifest.drm_schemes) == ["AES-128", "NONE", "SAMPLE-AES"]
+    assert sorted(manifest.drm_schemes) == ["AES-128", "SAMPLE-AES"]
+    assert len(manifest.segments) == 3
+    assert manifest.segments[2].key_method == "NONE"
+    assert manifest.segments[2].key_uri is None
+    assert manifest.segments[2].key_iv is None
 
 
 def test_dash_fallback_no_adaptation_excludes_audio():
@@ -249,3 +255,122 @@ def test_manifest_probe_product_caller_integration():
     assert res["variant_count"] == 2
     assert "streaming_manifest" in res
     assert res["streaming_manifest"]["format"] == "hls"
+
+
+@pytest.mark.parametrize(('tags', 'is_vod'), [
+    ('#EXT-X-PLAYLIST-TYPE:VOD', True),
+    ('#EXT-X-ENDLIST', True),
+    ('#EXT-X-PLAYLIST-TYPE:EVENT', False),
+    ('', False),
+])
+def test_hls_playlist_flags(tags, is_vod):
+    manifest = streaming_manifest.parse_streaming_manifest(
+        f'#EXTM3U\n{tags}\n#EXTINF:2,\npart.ts\n'
+    )
+    assert len(manifest.segments) == 1
+    assert (manifest.is_vod, manifest.is_live) == (is_vod, not is_vod)
+
+
+def test_hls_initialization_map_tracks_each_segment():
+    manifest = streaming_manifest.parse_streaming_manifest('''#EXTM3U
+#EXT-X-MAP:URI="init.mp4",BYTERANGE="100@0"
+#EXTINF:2,
+a.m4s
+#EXT-X-MAP:URI="next-init.mp4"
+#EXTINF:3,
+b.m4s
+#EXT-X-ENDLIST
+''', base_url='https://cdn.example.test/video/index.m3u8')
+    segments = manifest.to_dict()['segments']
+    assert len(segments) == 2
+    assert [s.get('initialization_uri') for s in segments] == [
+        'https://cdn.example.test/video/init.mp4',
+        'https://cdn.example.test/video/next-init.mp4',
+    ], 'EXT-X-MAP initialization URLs must remain attached to their media segments'
+    assert [s.get('initialization_byte_range') for s in segments] == ['100@0', None]
+    assert manifest.total_duration == 5
+
+
+@pytest.mark.parametrize(('duration', 'seconds'), [
+    ('P1D', 86400), ('P2DT3H4M5.5S', 183845.5), ('PT0.5S', 0.5),
+    ('PT1M', 60), ('P', 0), ('PT1Sgarbage', 0),
+])
+def test_dash_iso_duration_complete_value(duration, seconds):
+    assert streaming_manifest._parse_iso_duration(duration) == seconds
+
+
+def test_dash_template_inherits_base_url_and_expands_numbers():
+    manifest = streaming_manifest.parse_streaming_manifest('''
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT6S">
+  <BaseURL>https://cdn.example.test/root/</BaseURL>
+  <Period duration="PT6S"><BaseURL>period/</BaseURL>
+    <AdaptationSet mimeType="video/mp4">
+      <SegmentTemplate timescale="2" duration="4" startNumber="7"
+        initialization="init-$RepresentationID$.mp4"
+        media="seg-$Number%03d$-$Bandwidth$.m4s"/>
+      <Representation id="v1" bandwidth="1000"><BaseURL>video/</BaseURL></Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>''', base_url='https://origin.example.test/manifest.mpd')
+    variants = manifest.to_dict()['variants']
+    assert len(variants) == 1
+    variant = variants[0]
+    segments = variant.get('segments', [])
+    assert len(segments) == 3, 'DASH duration templates must expose addressable media segments'
+    prefix = 'https://cdn.example.test/root/period/video/'
+    assert [s['uri'] for s in segments] == [prefix + f'seg-{n:03d}-1000.m4s' for n in (7, 8, 9)]
+    assert [s['sequence_number'] for s in segments] == [7, 8, 9]
+    assert [s['duration'] for s in segments] == [2, 2, 2]
+    assert variant.get('initialization_uri') == prefix + 'init-v1.mp4'
+    assert variant['uri'] == segments[0]['uri']
+
+
+def test_dash_timeline_expands_time_and_bounded_negative_repeat():
+    manifest = streaming_manifest.parse_streaming_manifest('''
+<MPD mediaPresentationDuration="PT4S"><Period duration="PT4S">
+  <AdaptationSet mimeType="video/mp4">
+    <SegmentTemplate timescale="10" presentationTimeOffset="100" media="$RepresentationID$-$Time$.m4s">
+      <SegmentTimeline><S t="100" d="10" r="1"/><S d="5" r="-1"/><S t="130" d="10"/></SegmentTimeline>
+    </SegmentTemplate>
+    <Representation id="v" bandwidth="1000"/>
+  </AdaptationSet>
+</Period></MPD>''', base_url='https://cdn.example.test/index.mpd')
+    variants = manifest.to_dict()['variants']
+    assert len(variants) == 1
+    segments = variants[0].get('segments', [])
+    assert len(segments) == 5, 'DASH SegmentTimeline must expand finite repeats at their presentation times'
+    assert [s['uri'] for s in segments] == [f'https://cdn.example.test/v-{t}.m4s' for t in (100, 110, 120, 125, 130)]
+    assert [s['duration'] for s in segments] == [1, 1, .5, .5, 1]
+
+
+def test_dash_segment_list_and_segment_base_keep_period_urls():
+    manifest = streaming_manifest.parse_streaming_manifest('''
+<MPD mediaPresentationDuration="PT10S"><BaseURL>https://cdn.example.test/root/</BaseURL>
+  <Period id="first" duration="PT6S"><BaseURL>p1/</BaseURL><AdaptationSet mimeType="video/mp4">
+    <SegmentList duration="3"><Initialization sourceURL="init.mp4" range="0-99"/>
+      <SegmentURL media="one.m4s" mediaRange="100-199"/><SegmentURL media="two.m4s"/>
+    </SegmentList><Representation id="listed" bandwidth="1000"/>
+  </AdaptationSet></Period>
+  <Period id="second" start="PT6S" duration="PT4S"><BaseURL>p2/</BaseURL><AdaptationSet mimeType="video/mp4">
+    <Representation id="single" bandwidth="500"><BaseURL>whole.mp4</BaseURL>
+      <SegmentBase indexRange="100-199"><Initialization range="0-99"/></SegmentBase>
+    </Representation>
+  </AdaptationSet></Period>
+</MPD>''', base_url='https://origin.example.test/index.mpd')
+    variants = {v['stream_id']: v for v in manifest.to_dict()['variants']}
+    assert set(variants) == {'listed', 'single'}
+    listed, single = variants['listed'], variants['single']
+    assert len(listed.get('segments', [])) == 2, 'DASH SegmentList media URLs must be exposed'
+    assert [s['uri'] for s in listed['segments']] == [
+        'https://cdn.example.test/root/p1/one.m4s', 'https://cdn.example.test/root/p1/two.m4s',
+    ]
+    assert [s['duration'] for s in listed['segments']] == [3, 3]
+    assert listed['segments'][0]['byte_range'] == '100-199'
+    assert listed.get('initialization_uri') == 'https://cdn.example.test/root/p1/init.mp4'
+    assert listed.get('initialization_byte_range') == '0-99'
+    assert len(single.get('segments', [])) == 1, 'DASH SegmentBase must expose its media resource'
+    assert single['segments'][0]['uri'] == 'https://cdn.example.test/root/p2/whole.mp4'
+    assert single['segments'][0]['duration'] == 4
+    assert single.get('initialization_uri') == single['segments'][0]['uri']
+    assert single.get('initialization_byte_range') == '0-99'
+    assert single.get('index_range') == '100-199'
