@@ -252,7 +252,18 @@ def bundle(s_cfg: Optional[dict] = None,
 
     # Row 975: Real-Time Event Streaming Client Metadata
     snapshot["streaming_metadata"] = _capture_streaming_metadata()
+    # Row 993: process RSS, page faults and data-segment (heap) growth.
+    snapshot["process_memory"] = _capture_process_memory()
     return snapshot
+
+
+def _capture_process_memory() -> dict:
+    """Resident memory, page fault and heap growth telemetry (Row 993)."""
+    try:
+        from .memory_telemetry import get_memory_telemetry_snapshot
+        return get_memory_telemetry_snapshot()
+    except Exception as e:
+        return {"error": str(e)[:200]}
 
 
 def _capture_streaming_metadata() -> dict:
