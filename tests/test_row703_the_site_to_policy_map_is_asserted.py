@@ -108,10 +108,10 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_telemetry.py:347": PUBLIC_ONLY,  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
     "bulk_downloader/runner_transport.py:1275": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1253
     "bulk_downloader/runner_transport.py:1946": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1924
-    "bulk_downloader/runner_transport.py:3362": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340
-    "bulk_downloader/runner_transport.py:3754": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728
-    "bulk_downloader/runner_transport.py:3835": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3809
-    "bulk_downloader/runner_transport.py:3986": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960
+    "bulk_downloader/runner_transport.py:3372": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340
+    "bulk_downloader/runner_transport.py:3770": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728
+    "bulk_downloader/runner_transport.py:3851": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3809
+    "bulk_downloader/runner_transport.py:4002": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960
     "bulk_downloader/session_keeper.py:1522": PINNED,
     "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,

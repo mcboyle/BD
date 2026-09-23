@@ -582,6 +582,79 @@ class TelemetryMixin:
         attrs.setdefault("runner.site_id", getattr(self, "site_id", ""))
         return tracer.start_span(name, kind=span_kind, attributes=attrs)
 
+    # Row 986: this site's per-file progress tree. _http_download_claimed feeds
+    # it from its ~1 Hz progress tick, _http_download completes, cancels or
+    # fails the file's stream on every exit, and SiteRunner.get_status serves
+    # it (so /api/status does too).
+    _progress_tracker_lock = threading.Lock()
+
+    def get_progress_tracker(self):
+        """Row 986: this site's HierarchicalProgressTracker (lazy); its root
+        stream is the site id and every transfer is a child of it."""
+        tracker = getattr(self, "_progress_tracker", None)
+        if tracker is None:
+            from .runner_progress_telemetry import create_progress_tracker
+            with TelemetryMixin._progress_tracker_lock:
+                tracker = getattr(self, "_progress_tracker", None)
+                if tracker is None:
+                    tracker = create_progress_tracker()
+                    tracker.create_stream(self._progress_root_id())
+                    self._progress_tracker = tracker
+        return tracker
+
+    def _progress_root_id(self):
+        return str(getattr(self, "site_id", "") or "runner-root")
+
+    def record_transfer_progress(self, stream_id, completed_bytes, total_bytes=0,
+                                 speed_bps=None, label=""):
+        """Row 986: one transfer tick -> that file's stream under the site root
+        (created on the first tick, re-activated by a retry)."""
+        root_id = self._progress_root_id()
+        if not stream_id or stream_id == root_id:
+            return
+        self.get_progress_tracker().report_transfer(
+            stream_id, root_id, completed_bytes,
+            total_bytes=total_bytes if total_bytes and total_bytes > 0 else None,
+            speed_bps=speed_bps, label=label)
+
+    def finish_transfer_progress(self, stream_id, error=None):
+        """Row 986: a transfer's exit -> its stream completes; is cancelled when
+        the site is stopping (an operator stop is not a failure); otherwise
+        fails with a URL-free reason (exception class plus the message's
+        lead-in)."""
+        if not stream_id or stream_id == self._progress_root_id():
+            return
+        tracker = self.get_progress_tracker()
+        if error is None:
+            tracker.complete_stream(stream_id)
+            return
+        stop = getattr(self, "_stop", None)
+        if stop is not None and stop.is_set():
+            tracker.cancel_stream(stream_id)
+            return
+        reason = type(error).__name__
+        lead = str(error).split(":", 1)[0].strip()
+        if lead and "/" not in lead:
+            reason = f"{reason}: {lead[:80]}"
+        tracker.fail_stream(stream_id, reason)
+
+    def render_progress_telemetry(self, stream_id=None, max_width=100, use_ansi=False):
+        """Row 986: this site's progress tree as text (the site root unless
+        `stream_id` names a subtree)."""
+        from .runner_progress_telemetry import render_progress_hierarchy
+        return render_progress_hierarchy(
+            self.get_progress_tracker(), stream_id or self._progress_root_id(),
+            max_width=max_width, use_ansi=use_ansi)
+
+    def progress_telemetry_status(self, light=False):
+        """Row 986: the progress payload SiteRunner.get_status serves -- the
+        site rollup, plus the rendered tree unless `light`."""
+        root_id = self._progress_root_id()
+        status = {"rollup": self.get_progress_tracker().get_rollup(root_id)}
+        if not light:
+            status["tree"] = self.render_progress_telemetry(root_id)
+        return status
+
 
 def start_url_trace_span(runner, url):
     """Row 1061: start the per-URL "runner.process_url" span, or return None.

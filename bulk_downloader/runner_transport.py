@@ -3054,11 +3054,19 @@ class TransportMixin:
                 # remains able to record the current position.
                 pass
 
+        # Row 986: every exit of this transfer settles its stream in the
+        # site's progress tree (TelemetryMixin; optional here): completed on
+        # return, failed on any raise.
+        finish_progress = getattr(self, "finish_transfer_progress", None)
+        transfer_error = None
         try:
             return self._http_download_claimed(
                 page_url, page, ctx, file_url, final_path, ramdisk_claims,
                 _acquire_rate_limit, _release_rate_limit, _report_progress,
                 resource_url=resource_url)
+        except BaseException as exc:
+            transfer_error = exc
+            raise
         finally:
             # The inner response-loop finally releases at the historical
             # boundary. This idempotent outer call also covers failures after
@@ -3076,6 +3084,8 @@ class TransportMixin:
                     continue
                 if not has_bytes:
                     staging_claim.release(claimed_path, identity)
+            if callable(finish_progress):
+                finish_progress(page_url, error=transfer_error)
 
     def _run_http_attempts_with_resume(self, page_url, page, ctx, file_url,
                                        attempt_urls, final_path,
@@ -3612,6 +3622,12 @@ class TransportMixin:
                             else:
                                 msg=f"⬇ {fmt_bytes(downloaded)} • {fmt_bytes(int(speed))}/s{cap_str}"
                             report_progress(downloaded, msg)
+                            # Row 986: the same tick feeds this site's per-file
+                            # progress tree (TelemetryMixin; optional here).
+                            feed_progress = getattr(self, "record_transfer_progress", None)
+                            if callable(feed_progress):
+                                feed_progress(page_url, downloaded, total, speed,
+                                              label=final_path.name)
         except httpx.HTTPError as e:
             raise _HTTPDownloadFailed(f"http error: {e}")
         except (_HTTPDownloadFailed, HeaderDuplicateRejected):

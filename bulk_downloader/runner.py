@@ -2855,7 +2855,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # Row 1056: this site's recent workload bottleneck anomalies.
                 "workload_anomalies": [
                     a.to_dict() for a in self.check_workload_bottlenecks()[-10:]],
-                "worker_threads": self._worker_threads_status()}
+                "worker_threads": self._worker_threads_status(),
+                # Row 986: this site's per-file progress tree -- the rollup,
+                # plus the rendered tree when not light.
+                "progress_telemetry": self.progress_telemetry_status(light=light)}
 
 
 
