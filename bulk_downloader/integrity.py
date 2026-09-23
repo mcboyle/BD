@@ -148,3 +148,14 @@ def verify_file_hash_streaming(
 ) -> HashVerificationResult:
     """Inline cryptographic file verification using streaming reads."""
     return verify_file_streaming(file_path, expected_hash, algorithm=algorithm, chunk_size=chunk_size)
+
+
+def verify_payload_size_and_duration(path, expected_bytes=None, expected_duration=None, **kwargs):
+    """Format and dimension verification over payload size and media duration."""
+    from bulk_downloader.payload_verifier import verify_payload_duration_and_size
+    return verify_payload_duration_and_size(
+        path,
+        expected_bytes=expected_bytes,
+        expected_duration=expected_duration,
+        **kwargs,
+    )

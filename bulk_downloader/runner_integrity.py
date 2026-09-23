@@ -10,7 +10,7 @@ import os, sys, shutil
 
 from .db import db_log
 from .fname import format_duration_for_filename
-from .integrity import verify_media_integrity, _IMAGE_MAGIC
+from .integrity import verify_media_integrity, verify_payload_size_and_duration, _IMAGE_MAGIC
 from . import stream_verifier
 
 # dedup soft import (moved verbatim from runner.py; flat sibling). _dedup + _DEDUP_AVAILABLE.
@@ -344,6 +344,8 @@ class IntegrityMixin:
             elif not sv.checked:
                 reason = (reason + "; " if reason else "") + f"stream continuity unverified: {sv.errors[0] if sv.errors else 'probe did not run'}"
         if ok:
+            ok, reason = self._verify_payload(page_url, final_path, reason)
+        if ok:
             # Propagate the reason on the OK path. verify_media_integrity fails
             # OPEN when ffprobe is absent -- it returns (True, "ffprobe not
             # installed") -- and returning "" here discarded the only evidence
@@ -396,6 +398,9 @@ class IntegrityMixin:
                 # zero data corruption -- the download is never destroyed).
                 _re_ok, _re_reason = verify_media_integrity(_repaired.output_path)
                 if _re_ok:
+                    # A remux that opens has not recovered missing minutes.
+                    _re_ok, _re_reason = self._verify_payload(page_url, _repaired.output_path, _re_reason)
+                if _re_ok:
                     os.replace(str(_repaired.output_path), str(final_path))
                     self.log_event(
                         "container_repair",
@@ -421,6 +426,24 @@ class IntegrityMixin:
         db_log(self.site_id, self.config.get("name","?"), page_url, "failed",
                filename, downloaded_size, f"integrity: {reason}")
         return False, False, reason
+    def _verify_payload(self, page_url, path, reason):
+        """Row 1046: the file's measured media duration vs the job's expected duration.
+        Returns (ok, reason). A duration that could not be measured (UNCHECKED) fails open
+        like verify_media_integrity, but says so in reason.
+
+        No expected_bytes: byte completeness against Content-Length is enforced before
+        promotion (runner_transport refuses a short .part) and downloaded_size is a stat
+        of final_path, so a size leg here could never fail. Zips and images carry no
+        media duration and are skipped, as the stream verifier skips them."""
+        if not _is_stream_container(path):
+            return True, reason
+        res = verify_payload_size_and_duration(
+            path, expected_duration=self._job_expected_duration(page_url))
+        if res.ok:
+            return True, reason
+        if res.status == "unchecked":  # PayloadVerificationStatus is a str Enum; no new import edge
+            return True, (reason + "; " if reason else "") + f"payload duration unverified: {res.error}"
+        return False, res.error or str(res.status)
     def _embed_metadata_if_mp4(
         self,
         path,
