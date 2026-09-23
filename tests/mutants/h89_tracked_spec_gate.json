@@ -9,7 +9,7 @@
     {
       "label": "G1 the optional field is not admitted",
       "file": "tests/test_v3_66_1184_mutation_specs_are_tracked.py",
-      "old_regex": "(?m)(?<=^_OPTIONAL_TOP_LEVEL_FIELDS = \\{\\\"control_spec\\\"\\})(?=$)",
+      "old_regex": "(?m)(?<=^_OPTIONAL_TOP_LEVEL_FIELDS = \\{\\\"control_spec\\\", \\\"expected_escapes\\\"\\})(?=$)",
       "new": " - {\"control_spec\"}",
       "direction": "regression",
       "catcher": "tests/test_v3_66_1184_mutation_specs_are_tracked.py::test_a_tracked_spec_may_declare_control_spec_true_and_nothing_else"

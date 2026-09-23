@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_row763_frame_urls_never_reach_the_model_prompt.py::test_row763_the_frame_url_and_its_token_never_enter_the_model_prompt"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL replace the manual-review routing text, which no boundary assertion reads"
   ]
 }

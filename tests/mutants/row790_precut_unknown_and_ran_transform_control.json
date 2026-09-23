@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_row790_precut_names_footguns_ratchet_unknown.py::test_footguns_nonzero_not_3_is_unknown_not_swallowed"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL equivalent transform: .returncode or 0 in the footguns rc read"
   ]
 }

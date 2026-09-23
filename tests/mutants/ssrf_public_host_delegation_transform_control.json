@@ -23,5 +23,9 @@
    "direction": "regression",
    "catcher": "tests/test_v3_66_24_phase4_ssrf_hardening.py::TestDefaultHttpGetSSRFBlocking::test_aws_metadata_blocked"
   }
- ]
+ ],
+  "expected_escapes": [
+    "TC S4_template_pinned_redirect",
+    "TC S9_common_transport_initial"
+  ]
 }

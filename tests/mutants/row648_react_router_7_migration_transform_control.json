@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_row648_react_router_7_migration.py::test_frontend_declares_react_router_7_and_no_react_router_dom"
     }
+  ],
+  "expected_escapes": [
+    "TC1 App.tsx re-imports react-router-dom while only the manifest test runs"
   ]
 }

@@ -16,5 +16,8 @@
       "direction": "regression",
       "catcher": "tests/test_precut_selects_repo_wide_gates_by_marker.py::test_a_new_repo_wide_gate_is_selected_and_a_module_gate_is_not"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL equivalent transform: fh.read() or \"\" in _marker_text"
   ]
 }

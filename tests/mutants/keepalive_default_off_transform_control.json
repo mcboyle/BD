@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_keepalive_default_off.py::test_new_site_defaults_to_inert_keepalive"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL manual-login profile seed is not observed by the site-mint test"
   ]
 }

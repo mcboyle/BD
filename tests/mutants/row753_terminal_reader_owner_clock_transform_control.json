@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py::test_registration_channel_reader_close_fault_keeps_read_primary"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL the reader's window ignores the lateness it measured, outside the asserted path"
   ]
 }

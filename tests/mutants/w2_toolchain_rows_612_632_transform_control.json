@@ -23,5 +23,9 @@
       "direction": "regression",
       "catcher": "tests/test_import_graph_no_new_edges.py::test_baseline_present_and_well_formed"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL unrelated bd-precut auto-baseline version helper rename",
+    "CONTROL imported gate changes the unexecuted update branch"
   ]
 }

@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_row821_template_tiers_are_opt_in.py::test_the_family_is_measured_from_the_package"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL kink_network min_resolution overridden to 720 outside the asserted path"
   ]
 }

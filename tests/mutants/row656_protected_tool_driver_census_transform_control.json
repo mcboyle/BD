@@ -22,5 +22,8 @@
       ],
       "old_regex": "authorize_module(?=\\(_load\\(BDCUT)"
     }
+  ],
+  "expected_escapes": [
+    "CENSUS-CONTROL-policy-only"
   ]
 }

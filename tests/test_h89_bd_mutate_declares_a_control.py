@@ -281,3 +281,18 @@ def test_transform_control_only_loads_the_tool_without_grading_a_control():
     """
     import runpy
     runpy.run_path(str(_TOOL), run_name="bd_mutate_h89_transform_control")
+
+
+def test_emit_spec_does_not_publish_a_control_whose_row_was_caught(tmp_path):
+    """H98: an emitted control names every row in expected_escapes, so it may
+    only be published when every row MEASURED as CONTROL-ESCAPED. A caught
+    control (exit 1) would otherwise ship a declaration its own run refuted."""
+    work = _tree(tmp_path, catcher=_SEES_BEHAVIOUR)
+    _git_tree(work)
+    name = "v3_66_9999_h98_caught_control.json"
+    run = _run(_spec(work, _PLAIN, control_spec=True), work,
+               "--emit-spec", name, "--subject", "H98 caught control")
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert _payload(run)["rows"][0]["verdict"] == "CONTROL-CAUGHT", run.stdout
+    assert not (work / "tests" / "mutants" / name).exists(), \
+        "a caught control was published with expected_escapes naming it"

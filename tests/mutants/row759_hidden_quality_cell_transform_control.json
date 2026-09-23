@@ -15,5 +15,8 @@
    "direction": "regression",
    "catcher": "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py::TestHiddenCellIsNotACandidate::test_a_hidden_resolution_cell_is_not_the_quality_winner"
   }
- ]
+ ],
+  "expected_escapes": [
+    "TC1 pure parenthesisation of a _note_admission_drop argument (no behaviour change)"
+  ]
 }

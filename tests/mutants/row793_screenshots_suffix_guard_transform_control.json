@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_row793_screenshots_suffix_guard.py::test_double_extension_is_rejected_by_suffix_not_substring"
     }
+  ],
+  "expected_escapes": [
+    "M5 CONTROL meaning-preserving rewrite: endswith() in place of Path.suffix"
   ]
 }

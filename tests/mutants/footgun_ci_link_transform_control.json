@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_every_active_footgun_test_subject_is_executed_by_some_ci_job"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL rewording the module docstring's closing sentence"
   ]
 }

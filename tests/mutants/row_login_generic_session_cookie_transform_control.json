@@ -14,5 +14,8 @@
       "direction": "regression",
       "catcher": "tests/test_login_submit_robustness.py::test_generic_cookie_transform_control_only_imports_classifier"
     }
+  ],
+  "expected_escapes": [
+    "CONTROL restore generic session names under import only"
   ]
 }

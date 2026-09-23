@@ -31,9 +31,9 @@ _TOOL = _REPO / "toolchain" / "bin" / "bd-mutate"
 _SCHEMA_V1 = "bd-mutate-spec/1"
 _SCHEMA_V2 = "bd-mutation-spec/2"
 _TOP_LEVEL_FIELDS = {"schema", "_comment", "subject", "band", "mutants"}
-# H89: the one optional top-level field. A spec that is a transform control
-# declares it, and the only value a tracked spec may declare is a literal true.
-_OPTIONAL_TOP_LEVEL_FIELDS = {"control_spec"}
+# H89 declares a control. H98 names every intended escape when the control
+# reuses an ordinary regression catcher; the per-spec flag alone is insufficient.
+_OPTIONAL_TOP_LEVEL_FIELDS = {"control_spec", "expected_escapes"}
 _COMMON_MUTANT_FIELDS = {"label", "file", "new", "direction"}
 _REGRESSION_FIELDS = _COMMON_MUTANT_FIELDS | {"catcher"}
 _EXACT_REGRESSION_FIELDS = _REGRESSION_FIELDS | {"expected_failure", "preserves"}
@@ -219,6 +219,13 @@ def _validate_one_tracked_spec(path: Path, tracked: set[str]) -> None:
     named_references = []
     mutants = document["mutants"]
     assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
+    if "expected_escapes" in document:
+        assert _is_control_spec(path, document), (
+            f"{path}: expected_escapes is only valid for a declared control"
+        )
+        assert document["expected_escapes"] == [
+            mutant.get("label") for mutant in mutants if isinstance(mutant, dict)
+        ], f"{path}: expected_escapes must name every control mutant in order"
     for mutant in mutants:
         assert isinstance(mutant, dict), f"{path}: mutant is not an object"
         direction = mutant.get("direction")
@@ -319,6 +326,53 @@ def _tracked_spec_outcome(path: Path, tracked: set[str]) -> tuple[Path, str | No
     return path, None
 
 
+def _is_control_spec(path: Path, document: dict) -> bool:
+    return (document.get("control_spec") is True
+            or path.name.endswith("_transform_control.json"))
+
+
+def _assert_control_expectations(specs: list[Path], tracked: set[str]) -> None:
+    """A control's catchers are independent, or every intended escape is named.
+
+    The ordinary catcher population spans all tracked specs, including other CI
+    slices. Explicit row expectations preserve legitimate equivalent transforms
+    which deliberately exercise the same test as a real regression.
+    """
+    population = {_REPO / rel for rel in tracked
+                  if rel.startswith("tests/mutants/") and rel.endswith(".json")}
+    population.update(specs)
+    documents = {}
+    ordinary_catchers = set()
+    for path in sorted(population):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise AssertionError(f"{path}: cannot measure control catchers: {exc}") from exc
+        assert isinstance(document, dict), f"{path}: tracked specs use object form"
+        mutants = document.get("mutants")
+        assert isinstance(mutants, list) and mutants, f"{path}: mutant denominator is 0"
+        assert all(isinstance(mutant, dict) for mutant in mutants), path
+        documents[path] = document
+        if not _is_control_spec(path, document):
+            ordinary_catchers.update(
+                mutant["catcher"] for mutant in mutants
+                if isinstance(mutant.get("catcher"), str)
+            )
+    for path in specs:
+        document = documents[path]
+        if not _is_control_spec(path, document):
+            continue
+        mutants = document["mutants"]
+        independent = all(isinstance(mutant.get("catcher"), str)
+                          and mutant["catcher"] not in ordinary_catchers
+                          for mutant in mutants)
+        if not independent:
+            assert document.get("expected_escapes") == [
+                mutant["label"] for mutant in mutants
+            ], (f"{path}: control catcher is shared with a non-control spec or absent; "
+                "expected_escapes must explicitly name every control mutant in order")
+
+
 def _validate_tracked_specs_concurrently(specs: list[Path], tracked: set[str]) -> int:
     """Validate every spec concurrently and fail only after reconciling the set."""
     assert specs, "cannot validate a zero-spec population"
@@ -342,6 +396,7 @@ def _validate_tracked_specs_concurrently(specs: list[Path], tracked: set[str]) -
         f"{len(failures)} failed:\n"
         + "\n".join(f"{path}: {error}" for path, error in failures)
     )
+    _assert_control_expectations(specs, tracked)
     return processed
 
 
@@ -1368,3 +1423,113 @@ def test_v2_emits_candidate_bound_cut_mutation_result(tmp_path):
     mutant_run = node_value["runs"][1]
     assert mutant_run["label"] == "change value"
     assert mutant_run["actual_failure"] == value["mutants"][0]["actual_failures"][0]
+
+
+def _h98_control_fixture(tmp_path, monkeypatch, *, explicit=True, mixed=False):
+    """Real files and pytest collection; only the repository root is redirected."""
+    (tmp_path / "tests/mutants").mkdir(parents=True)
+    (tmp_path / "h98_value.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tests/test_h98_value.py").write_text(
+        "import h98_value\n"
+        "def test_regression():\n    assert h98_value.VALUE == 1\n"
+        "def test_import_only():\n    assert h98_value.__name__ == 'h98_value'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    mutant = {
+        "label": "real regression", "file": "h98_value.py", "old": "VALUE = 1",
+        "new": "VALUE = 2", "direction": "regression",
+        "catcher": "tests/test_h98_value.py::test_regression",
+    }
+    document = {
+        "schema": _SCHEMA_V1, "_comment": "H98 executable fixture",
+        "subject": "control catcher overlap", "band": ["tests/test_h98_value.py"],
+        "mutants": [mutant],
+    }
+    regular = tmp_path / "tests/mutants/regular.json"
+    regular.write_text(json.dumps(document), encoding="utf-8")
+    controls = [{**mutant, "label": "legitimate transform control",
+                 "catcher": "tests/test_h98_value.py::test_import_only"}]
+    if mixed:
+        controls.append({**mutant, "label": "misfiled real regression"})
+    document = {**document, "mutants": controls}
+    if explicit:
+        document["control_spec"] = True
+    name = "declared.json" if explicit else "named_transform_control.json"
+    control = tmp_path / "tests/mutants" / name
+    control.write_text(json.dumps(document), encoding="utf-8")
+    tracked = {"h98_value.py", "tests/test_h98_value.py",
+               "tests/mutants/regular.json", "tests/mutants/" + name}
+    monkeypatch.setitem(globals(), "_REPO", tmp_path)
+    return [regular, control], tracked
+
+
+@pytest.mark.parametrize("explicit", [True, False], ids=["field", "suffix"])
+@pytest.mark.parametrize("one_slice", [False, True], ids=["whole", "other-slice"])
+def test_h98_control_spec_cannot_hide_a_regression(tmp_path, monkeypatch, explicit, one_slice):
+    paths, tracked = _h98_control_fixture(
+        tmp_path, monkeypatch, explicit=explicit, mixed=True)
+    selected = paths[1:] if one_slice else paths
+    error = None
+    try:
+        _validate_tracked_specs_concurrently(selected, tracked)
+    except AssertionError as exc:
+        error = str(exc)
+    assert error is not None, "gate admitted a genuine regression in a control spec"
+    assert "control catcher" in error and "non-control" in error, error
+    assert str(paths[1]) in error, error
+
+
+@pytest.mark.parametrize("explicit", [True, False], ids=["field", "suffix"])
+def test_h98_disjoint_control_catchers_remain_valid(tmp_path, monkeypatch, explicit):
+    paths, tracked = _h98_control_fixture(tmp_path, monkeypatch, explicit=explicit)
+    assert _validate_tracked_specs_concurrently(paths, tracked) == 2
+
+
+def test_h98_shared_catchers_require_an_expectation_for_every_row(tmp_path, monkeypatch):
+    paths, tracked = _h98_control_fixture(tmp_path, monkeypatch, mixed=True)
+    control = paths[1]
+    document = json.loads(control.read_text(encoding="utf-8"))
+    document["expected_escapes"] = [mutant["label"] for mutant in document["mutants"]]
+    control.write_text(json.dumps(document), encoding="utf-8")
+    assert _validate_tracked_specs_concurrently(paths, tracked) == 2
+    document["expected_escapes"].pop()
+    control.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(AssertionError, match="expected_escapes must name every control mutant"):
+        _validate_tracked_specs_concurrently(paths, tracked)
+
+
+def test_h98_ordinary_specs_cannot_declare_expected_escapes(tmp_path, monkeypatch):
+    paths, tracked = _h98_control_fixture(tmp_path, monkeypatch)
+    regular = paths[0]
+    document = json.loads(regular.read_text(encoding="utf-8"))
+    document["expected_escapes"] = [mutant["label"] for mutant in document["mutants"]]
+    regular.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(AssertionError, match="expected_escapes is only valid for a declared control"):
+        _validate_tracked_specs_concurrently(paths, tracked)
+
+
+def test_h98_current_corpus_satisfies_control_expectations():
+    specs = _tracked_specs()
+    assert specs, "H98 must examine a nonempty tracked population"
+    _assert_control_expectations(specs, set(_git_paths()))
+
+
+def test_h98_emitted_controls_name_every_expected_escape(tmp_path, monkeypatch):
+    paths, tracked = _h98_control_fixture(tmp_path, monkeypatch)
+    document = json.loads(paths[1].read_text(encoding="utf-8"))
+    tool = _load_tool_module()
+    monkeypatch.setattr(tool, "_tracked_paths", lambda _work: tracked)
+    owner, emitted_rel, payload = tool._prepare_emitted_spec(
+        tmp_path, "v3_66_9999_h98_transform_control.json", "H98 control",
+        document["band"], document["mutants"], control_spec=True,
+    )
+    try:
+        emitted = json.loads(payload)
+        assert emitted.get("expected_escapes") == [mutant["label"] for mutant in document["mutants"]]
+        emitted_path = tmp_path / emitted_rel
+        emitted_path.write_bytes(payload)
+        published_tracked = tracked | {emitted_rel.as_posix()}
+        assert _validate_tracked_specs_concurrently([emitted_path], published_tracked) == 1
+    finally:
+        owner.close()

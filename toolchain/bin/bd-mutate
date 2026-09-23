@@ -1794,6 +1794,7 @@ def _prepare_emitted_spec(work: Path, name: str, subject: str, band: list[str],
     document: dict = {"schema": SPEC_SCHEMA}
     if control_spec:
         document["control_spec"] = True
+        document["expected_escapes"] = [mutant["label"] for mutant in mutants]
     document.update({
         "_comment": f"Re-run: toolchain/bin/bd-mutate --spec {rel.as_posix()}",
         "subject": subject.strip(),
@@ -3958,7 +3959,19 @@ def main() -> int:
                   file=sys.stderr)
             rc = 2
     if prepared_emit is not None:
-        if rc in (0, 1):
+        if control_spec and rc == 1:
+            # H98: an emitted control names every row in expected_escapes; a
+            # CONTROL-CAUGHT row refutes that declaration, so it is not published.
+            print("BD-MUTATE: --emit-spec NOT PUBLISHED: a declared control was "
+                  "CONTROL-CAUGHT, and expected_escapes would name it",
+                  file=sys.stderr)
+            try:
+                prepared_emit[0].close()
+            except (OSError, RuntimeError, ValueError) as e:
+                print("BD-MUTATE-UNRUNNABLE: emitted-spec owner cleanup is "
+                      "unproved: %s" % e, file=sys.stderr)
+                rc = 2
+        elif rc in (0, 1):
             try:
                 _publish_emitted_spec(*prepared_emit)
             except (OSError, RuntimeError, ValueError) as e:

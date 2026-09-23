@@ -23,5 +23,9 @@
    "direction": "regression",
    "catcher": "tests/test_row750_ipv6_unwrapped_metadata_bypass.py::test_every_metadata_spelling_is_refused_by_the_provider_classifier_by_name"
   }
- ]
+ ],
+  "expected_escapes": [
+    "TC row750_hooks_stash_sink",
+    "TC row750_hooks_home_assistant_sink"
+  ]
 }
