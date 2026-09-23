@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=16 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=13 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -371,7 +371,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 980 | CLOSED @1635 | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
 | 981 | CLOSED @1635 | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap -- MOOT-PREMISE (O1223): no product fleet-seat/workload-allocation concept or caller @5f74ea9c21ee (git grep FOUND NONE in code; positive control hour_heatmap FOUND 3); REFUTED bd-worker-W2-B bd-local-wt/row981-bd-worker-W2-B/DONE.md; prior cut REFUTED N4-B orphan module. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 982 | OPEN | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
-| 983 | OPEN | IN-PROCESS-HEAP-ARENA-COMPACTION-AND-GLIBC-MALLOC-TRIM-0-MITIGATOR-HEAPARENAMITIGATOR -- In-Process Heap Arena Compaction and Glibc malloc_trim(0) Mitigator (HeapArenaMitigator) |
+| 983 | CLOSED @1660 | IN-PROCESS-HEAP-ARENA-COMPACTION-AND-GLIBC-MALLOC-TRIM-0-MITIGATOR-HEAPARENAMITIGATOR -- In-Process Heap Arena Compaction and Glibc malloc_trim(0) Mitigator (HeapArenaMitigator) -- MOOT-DUPLICATE of row 1074 (RULING-0085 08:20Z): REFUTED /home/mboyle/bd-cuts/cut/row983-heap-compaction/DONE.md (row1074 arena_compactor landed T69 4c317d6f). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
 | 984 | OPEN | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
 | 985 | OPEN | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
@@ -387,7 +387,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
 | 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
 | 998 | OPEN | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol |
-| 999 | OPEN | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress |
+| 999 | CLOSED @1660 | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress -- MOOT-PREMISE: REFUTED /home/mboyle/bd-cuts/cut/row999-merkle-validator/DONE.md (fixer-A s3 04:45Z; N5-A F1 @1c0cf754; O1223). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
 | 1000 | CLOSED @1649 | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
 | 1001 | CLOSED @1623 | CRASH-CONSISTENT-WRITE-AHEAD-TRANSACTION-JOURNAL-FOR-CONTAINER-MUTATIONS -- Crash-Consistent Write-Ahead Transaction Journal for Container Mutations |
 | 1002 | CLOSED @1633 | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
@@ -459,7 +459,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1068 | CLOSED @1648 | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
 | 1069 | CLOSED @1636 | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
 | 1070 | CLOSED @1633 | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
-| 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
+| 1071 | CLOSED @1660 | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) -- MOOT-PREMISE: REFUTED /home/mboyle/bd-cuts/cut/row1071-structured-logging-stderr-elimination/DONE.md (W6-B; every product sys.stderr write already reaches logs/bulk_downloader.log at 2a0e64c1). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
 | 1072 | CLOSED @1637 | TEST-FIXTURE-ISOLATION-DATABASE-SANDBOXING-STANDARDIZATION-HERMETICFIXTURES -- Test Fixture Isolation & Database Sandboxing Standardization (HermeticFixtures) -- MOOT-PREMISE: per-test DB+env sandboxing is already standardized by the autouse fixture tests/conftest.py:857 isolated_bd_home (snapshots 7 BD_ env keys incl BD_HOME/BD_INSTALL_DIR, sets BD_HOME=tmp_path, chdir; db._resolve_db_path lands in tmp_path) @25245209179e; W9-B probe: autouse=True -> 2 passed, autouse=False -> 2 failed (negative control); the cut's HermeticFixtures module had 0 test/conftest users (FOUND NONE on main); REFUTED bd-worker-W9-B bd-cuts/cut/row1072-test-fixture-isolation-sandboxing/DONE.md (ORDERS-2312 BOUNCE; lenses P3-A/P4-B E1 MOOT-PREMISE; prior patch preserved harness-work/row1072-moot/patch-6eba6e8b.diff). Registrar-verified 2026-09-22T23:3xZ (ORDERS-2143 ADD 23:23Z) |
 | 1073 | CLOSED @1632 | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
 | 1074 | CLOSED @1634 | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
