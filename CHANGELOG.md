@@ -4,7 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1667 - train94: row
+## v3.66.1667 - train94: H664, H698, H153, H167
+
+Base T91 train/91-20260923 2f9827b7 (v3.66.1666). T94 (ROADMAP-0130; POLICY-0131 auto-approved, no bulk_downloader/ or frontend/ change; POLICY-0118 gate vmci): four harness rows, each boarded at its INDEX tree.
+
+- H664 wall-clock gate in test_v3_66_1046 scales with measured load instead of a hand-raised budget.
+- H698 bd-guard-declare --apply writes the guards.json pin again and records the reason.
+- H153 scripts/deploy.sh honours the measurement lease (a process is not a lease).
+- H167 bd-precut worker count follows sampled load, so subprocess-spawning gates stay inside their budgets.
 
 
 ## v3.66.1666 - train91: H404, H419, H621, H622, H667, H662, H644, H152, H105, H668
