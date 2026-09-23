@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4939,
+  "edge_count": 4947,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1396,7 +1396,8 @@
       "bulk_downloader/metadata_normalizer.py"
     ],
     "bulk_downloader/friendly_error.py": [
-      "bulk_downloader/error_advisor.py"
+      "bulk_downloader/error_advisor.py",
+      "bulk_downloader/exceptions.py"
     ],
     "bulk_downloader/gamification.py": [
       "bulk_downloader/db.py"
@@ -4081,6 +4082,15 @@
     "tests/test_row1022_acyclic_imports_refactoring.py": [
       "bulk_downloader/app_state.py",
       "bulk_downloader/app_template.py"
+    ],
+    "tests/test_row1023_exception_taxonomy_standardization.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/error_advisor.py",
+      "bulk_downloader/exceptions.py",
+      "bulk_downloader/friendly_error.py",
+      "bulk_downloader/hooks.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_telemetry.py"
     ],
     "tests/test_row1025_db_connection_lifecycle_traps.py": [
       "bulk_downloader/db.py",

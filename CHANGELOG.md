@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1654 - train79: row1023
+
+Base train/78 8e3cd4a7 (v3.66.1653 on T77 4d0f10ac; PR990). T79 (ORDERS-0060 T79 CANDIDATES 08:52Z): one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1023-exception-taxonomy: exception taxonomy (fixer-B; built from the review copy bd-review-wt/row1023-exception-taxonomy-local). N2-B at 32ded94a.
+- register: row 1023 CLOSED @1654 (1646-1653 held by T71-T78).
+- dropped at this base: row1046 (ratchet defect_DP_total +3 vs base, all in the new bulk_downloader/payload_verifier.py; O1282, T79-DROP-1046-S-A.md) -> fixer.
+- pending members for a later restack: row1080 hotfix (W4-B, ORDERS-0088), row1038 (P2-B leg), row1056 (fixer-B), row1028/1057 (fixer-A).
+
+
 ## v3.66.1653 - train78: row1053
 
 Base train/77 4d0f10ac (v3.66.1652 on T76 40ff0976; PR989). T78 (ORDERS-0060 T78 CANDIDATES 08:32Z): one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

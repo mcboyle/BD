@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1769,
+    "edge_count": 1770,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3426,6 +3426,9 @@
         "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_transport.py"
+      ],
+      "bulk_downloader/exceptions.py": [
+        "bulk_downloader/friendly_error.py"
       ],
       "bulk_downloader/exports.py": [
         "bulk_downloader/app_export.py",
@@ -6567,7 +6570,8 @@
         "bulk_downloader/metadata_normalizer.py"
       ],
       "bulk_downloader/friendly_error.py": [
-        "bulk_downloader/error_advisor.py"
+        "bulk_downloader/error_advisor.py",
+        "bulk_downloader/exceptions.py"
       ],
       "bulk_downloader/gamification.py": [
         "bulk_downloader/db.py"
