@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=36 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=33 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -388,7 +388,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
 | 998 | OPEN | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol |
 | 999 | OPEN | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress |
-| 1000 | OPEN | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
+| 1000 | CLOSED @1649 | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
 | 1001 | CLOSED @1623 | CRASH-CONSISTENT-WRITE-AHEAD-TRANSACTION-JOURNAL-FOR-CONTAINER-MUTATIONS -- Crash-Consistent Write-Ahead Transaction Journal for Container Mutations |
 | 1002 | CLOSED @1633 | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
 | 1003 | CLOSED @1631 | DECORRELATED-FULL-JITTER-EXPONENTIAL-BACKOFF-PROFILES -- Decorrelated Full-Jitter Exponential Backoff Profiles |
@@ -439,7 +439,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1048 | OPEN | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
 | 1049 | CLOSED @1648 | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
 | 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
-| 1051 | OPEN | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
+| 1051 | CLOSED @1649 | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
 | 1052 | CLOSED @1637 | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
 | 1053 | OPEN | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser -- RESCOPED (RULING-2338-row1053-RESCOPE-A): root-cause guard only -- stdin=subprocess.DEVNULL in subprocess_helpers.isolated_popen_kwargs and the 5 inheriting product Popen sites (+dev_tools), census test that every bulk_downloader Popen/run passes stdin=DEVNULL or -nostdin, ffmpeg overwrite-prompt RED->GREEN; detector/pauser/bdctl-prompt surface dropped (0 product callers). |
 | 1054 | CLOSED @1647 | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map -- MOOT-PREMISE: no product code constructs or registers a NodeSentinel or records a link, so the interconnect map has no honest caller (N5-A E1 @0e4eb4ed; O1223; POLICY-0010 s3); REFUTED bd-cuts/cut/row1054-cluster-topology-interconnect-map/DONE.md. Closed at T72 assembly (PM 05:42Z) |
@@ -451,7 +451,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1060 | CLOSED @1637 | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher -- MOOT-DUPLICATE of the shipped bounded ring pub/sub (RULING-2310-row1060-REFUTED-A option A): bulk_downloader/sse_broker.py per-subscriber queue.Queue(maxsize=SUBSCRIBER_QUEUE_MAX) drop-oldest fan-out with real SSE consumers + dev_events.py deque(maxlen) ring tap @25245209179e; the cut's dispatcher had 0 consumers and 8 lock acquisitions (lock-free is not a CPython property); REFUTED bd-worker-W3-A bd-cuts/cut/row1060-lockfree-ringbuffer-ipc-dispatcher/DONE.md (staged build preserved harness-work/row1060-refuted/staged-da41424b.patch). Registrar-verified 2026-09-22T23:1xZ |
 | 1061 | CLOSED @1648 | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
 | 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
-| 1063 | OPEN | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
+| 1063 | CLOSED @1649 | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
 | 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
