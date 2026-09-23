@@ -25,7 +25,12 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent
-sys.path.insert(0, str(_HERE))
+# H644: the repo root too, so `bulk_downloader` resolves the same way whether this
+# runs as a script (only tools/ on sys.path) or imported under pytest (root present);
+# otherwise the app-derived field sets silently fall back to empty and the counts move.
+for _p in (str(_REPO), str(_HERE)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 import spa_population  # noqa: E402  (needs the sys.path insert above)
 
 try:
