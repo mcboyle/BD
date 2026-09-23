@@ -50,6 +50,8 @@
     "BD_HUD_OVERLAY": "full",
     "BD_INSTALL_DIR": "display-only",
     "BD_KB_DIR": "display-only",
+    "BD_LEASE_DIR": "display-only",
+    "BD_LEASE_STALE": "display-only",
     "BD_LIB_RECONCILE_MISSING_DAYS": "full",
     "BD_LINT_KB_ALLOW": "full",
     "BD_LIVE_DISCONNECT_TOLERANCE_S": "full",
