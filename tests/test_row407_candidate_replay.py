@@ -894,7 +894,13 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         "    out.write(json.dumps({'pid': os.getpid(), 'argv': args}) + '\\n')\n"
         "if 'worktree' in args and 'add' in args:\n"
         "    (root / ('add-' + str(os.getpid()))).write_text('ready')\n"
+        # H419: the release can only come from the test; a shim whose replay
+        # died, or that outlived its deadline, exits instead of waiting forever.
+        "    parent = os.getppid()\n"
+        "    deadline = time.monotonic() + float(os.environ['BD_BARRIER_TIMEOUT'])\n"
         "    while not (root / 'release').exists():\n"
+        "        if os.getppid() != parent or time.monotonic() > deadline:\n"
+        "            sys.exit(97)\n"
         "        time.sleep(0.01)\n"
         "os.execv(os.environ['BD_REAL_GIT'], "
         "[os.environ['BD_REAL_GIT'], *args])\n"
@@ -905,6 +911,7 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         BD_BARRIER_ROOT=str(markers),
         BD_GIT_ARGV_LOG=str(git_log),
         BD_REAL_GIT=REAL_GIT,
+        BD_BARRIER_TIMEOUT="60",
         PATH=str(bin_dir) + os.pathsep + env.get("PATH", ""),
     )
     command = [
@@ -922,30 +929,40 @@ def test_concurrent_same_output_has_one_owner_and_loser_never_removes_winner(
         str(repo_case.output),
         "--json",
     ]
-    first = guarded_popen(
-        command,
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert _wait_until(lambda: bool(list(markers.glob("add-*"))))
-    second = guarded_popen(
-        command,
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert _wait_until(
-        lambda: second.poll() is not None
-        or len(list(markers.glob("add-*"))) == 2
-    )
-    (markers / "release").write_text("go\n")
-    first_stdout, first_stderr = first.communicate(timeout=20)
-    second_stdout, second_stderr = second.communicate(timeout=20)
+    launched: list[subprocess.Popen[str]] = []
+    try:
+        first = guarded_popen(
+            command,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        launched.append(first)
+        assert _wait_until(lambda: bool(list(markers.glob("add-*"))))
+        second = guarded_popen(
+            command,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        launched.append(second)
+        assert _wait_until(
+            lambda: second.poll() is not None
+            or len(list(markers.glob("add-*"))) == 2
+        )
+        (markers / "release").write_text("go\n")
+        first_stdout, first_stderr = first.communicate(timeout=20)
+        second_stdout, second_stderr = second.communicate(timeout=20)
+    finally:
+        # H419: a failed wait must not leave a replay (and its parked git) behind.
+        for proc in launched:
+            if proc.poll() is None:
+                proc.kill()
+                proc.communicate()
     results = [
         (first.returncode, json.loads(first_stdout), first_stderr),
         (second.returncode, json.loads(second_stdout), second_stderr),
