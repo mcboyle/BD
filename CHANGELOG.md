@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1659 - train84: row1084
+
+Base T83 tip 926e290f (v3.66.1658 restack per ORDERS-0094, train/83 PR995 base main; main 235be47f). T84: one hotfix cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010); register line folded in by fixup from a read-tree copy; ci.yml untouched (RULING-0080 s2).
+
+- row1084 hotfix-live-telemetry-status: tests/test_live_telemetry.py parametrizes the stop/failure-side-effects test over 403 -> 'failed' and 404 -> 'tombstone' (test-only; main red #4 gates, ORDERS-0093). P4-B BOARD at 056ba1db; copy 11f67d9a + register line.
+- register: row 1084 CLOSED @1659.
+
+
 ## v3.66.1658 - train83: row979, row1046, row1057, row1083
 
 Base main 235be47f (T82 v3.66.1657 landed 11:21Z; no regen commit at assembly). T83: four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010 decisive leg); per-row ci.yml shard lines dropped (RULING-0080 s2).
