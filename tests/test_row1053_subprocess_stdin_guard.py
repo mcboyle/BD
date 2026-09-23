@@ -39,12 +39,13 @@ BD_GATE_SCOPE = "repo-wide"
 _PKG = Path(__file__).resolve().parents[1] / "bulk_downloader"
 _CALLS = {"run", "Popen", "check_output", "check_call", "call"}
 # Exact population at this cut (rule 8): a new call site must be guarded AND
-# counted here, so the census cannot silently shrink. 65 literal
-# ``subprocess.<call>`` sites (render_diagnostics' default Popen among them)
+# counted here, so the census cannot silently shrink. 67 literal
+# ``subprocess.<call>`` sites (render_diagnostics' default Popen and
+# import_profiler x2 among them)
 # + 2 aliased ones (ytdlp_extractor ``_subprocess.run``, app_widgets_api
 # ``_sp.run``) + 5 reached through a binding (ai_boot_observation,
 # netns_isolation x2, ollama_boot_probe, provider_resolve_impl/youtube).
-_EXPECTED_SITES = 72
+_EXPECTED_SITES = 74
 
 
 def _not_none(value: ast.AST) -> bool:

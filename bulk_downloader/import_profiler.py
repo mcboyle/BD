@@ -122,7 +122,8 @@ def capture_importtime(module: str, python: Optional[str] = None, cwd: Optional[
         raise ValueError("%r is not a dotted module name" % (module,))
     completed = subprocess.run(
         [python or sys.executable, "-X", "importtime", "-c", "import %s" % module],
-        capture_output=True, text=True, cwd=cwd or _PACKAGE_PARENT, timeout=timeout, check=False)
+        capture_output=True, text=True, cwd=cwd or _PACKAGE_PARENT, timeout=timeout, check=False,
+        stdin=subprocess.DEVNULL)
     return completed.stderr or ""
 
 
@@ -144,7 +145,7 @@ def profile_cold_start(module: str, python: Optional[str] = None, cwd: Optional[
         completed = subprocess.run(
             [python or sys.executable, "-X", "importtime", "-c", "import %s" % module],
             capture_output=True, text=True, cwd=cwd or _PACKAGE_PARENT, timeout=timeout,
-            check=False)
+            stdin=subprocess.DEVNULL, check=False)
     except Exception as exc:               # noqa: BLE001 -- a launch failure is a MEASUREMENT result
         report["error"] = "%s: %s" % (type(exc).__name__, exc)
         return report
