@@ -50,6 +50,22 @@ def handler_contexts(tree: ast.AST) -> dict[int, str]:
     return result
 
 
+def function_contexts(tree: ast.AST) -> dict[int, str]:
+    """Map functions to qualified lexical names without layout or sibling offsets."""
+    result: dict[int, str] = {}
+
+    def visit(node: ast.AST, owners: tuple[str, ...]) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            owners = owners + (node.name,)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                result[id(node)] = ".".join(owners)
+        for child in ast.iter_child_nodes(node):
+            visit(child, owners)
+
+    visit(tree, ())
+    return result
+
+
 def finding_fingerprint(dp: str, path: str, node: ast.AST, context: str) -> str:
     """Hash semantic node shape and lexical owner; formatting is not identity."""
     normalized = ast.dump(node, annotate_fields=True, include_attributes=False)

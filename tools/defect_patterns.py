@@ -30,6 +30,7 @@ from bd_defect_suppressions import (  # noqa: E402
     SuppressionError,
     apply_suppressions,
     finding_fingerprint,
+    function_contexts,
     handler_contexts,
     load_suppressions,
 )
@@ -320,6 +321,7 @@ def dp11(path, src, tree):
     out = []
     if tree is None:
         return out
+    contexts = function_contexts(tree)
     for fn in [n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
         body = ast.dump(fn)
@@ -332,8 +334,12 @@ def dp11(path, src, tree):
         manual = any(s in body for s in ("is_private", "is_loopback", "is_link_local",
                                          "is_reserved"))
         if manual and not uses_global:
-            out.append(_find("DP-11", "low", HIGH, fn.lineno,
-                             f"IP classifier '{fn.name}' uses denylist ranges without is_global allowlist (misses CGNAT 100.64/10 etc.)"))
+            finding = _find("DP-11", "low", HIGH, fn.lineno,
+                             f"IP classifier '{fn.name}' uses denylist ranges without is_global allowlist (misses CGNAT 100.64/10 etc.)")
+            finding["fingerprint"] = finding_fingerprint(
+                "DP-11", path, fn, contexts[id(fn)]
+            )
+            out.append(finding)
     return out
 
 

@@ -479,3 +479,127 @@ def test_the_two_entry_points_return_identical_suppression_evidence(tmp_path: Pa
         assert cp.returncode == 0, cp.stdout + cp.stderr
         results.append({key: payload[key] for key in evidence_keys})
     assert results[0] == results[1]
+
+
+def _h718_source() -> str:
+    return (
+        "from ipaddress import ip_address\n"
+        "class Gateway:\n"
+        "    def classify_ip(self, value):\n"
+        "        return not ip_address(value).is_private\n"
+    )
+
+
+def _h718_findings(payload: dict) -> list[dict]:
+    return [finding for findings in payload["findings"].values()
+            for finding in findings if finding["dp"] == "DP-11"]
+
+
+def _h718_row(finding: dict) -> dict:
+    fingerprint = finding.get("fingerprint", "")
+    assert len(fingerprint) == 64 and set(fingerprint) <= set("0123456789abcdef")
+    return {"dp": "DP-11", "path": "bulk_downloader/probe.py",
+            "fingerprint": fingerprint, "rationale": "Audited fixture exception."}
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+def test_h718_fingerprint_survives_layout_and_unrelated_siblings(tmp_path, scanner):
+    root, target = _make_tree(tmp_path, _h718_source())
+    _write_authority(root, [])
+    cp, original = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert len(_h718_findings(original)) == 1
+    row = _h718_row(_h718_findings(original)[0])
+    target.write_text("# new header\n\n" + _h718_source().replace(
+        "        return", "        # reviewed classifier\n        return"
+    ) + "\ndef unrelated():\n    return 1\n", encoding="utf-8")
+    _write_authority(root, [row])
+    cp, formatted = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    _assert_valid_payload(formatted, raw=1, visible=0, suppressed=1, entries=1)
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+@pytest.mark.parametrize(("old", "new"), [
+    ("is_private", "is_loopback"),
+    ("class Gateway:", "class DifferentGateway:"),
+    ("def classify_ip", "def another_classifier"),
+    ("def classify_ip", "async def classify_ip"),
+])
+def test_h718_semantic_or_owner_change_invalidates_suppression(tmp_path, scanner, old, new):
+    root, target = _make_tree(tmp_path, _h718_source())
+    _write_authority(root, [])
+    cp, original = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    row = _h718_row(_h718_findings(original)[0])
+    target.write_text(_h718_source().replace(old, new), encoding="utf-8")
+    _write_authority(root, [row])
+    cp, changed = _run(scanner, root)
+    assert cp.returncode == 2, cp.stdout + cp.stderr
+    _assert_valid_payload(changed, raw=1, visible=1, suppressed=0, entries=1)
+    assert "stale suppression identity" in str(changed["suppression_errors"])
+    assert _h718_findings(changed)[0]["fingerprint"] != row["fingerprint"]
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+def test_h718_path_move_invalidates_suppression(tmp_path, scanner):
+    root, target = _make_tree(tmp_path, _h718_source())
+    _write_authority(root, [])
+    cp, original = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    row = _h718_row(_h718_findings(original)[0])
+    target.write_text("moved = True\n", encoding="utf-8")
+    target.with_name("moved.py").write_text(_h718_source(), encoding="utf-8")
+    _write_authority(root, [row])
+    cp, moved = _run(scanner, root)
+    assert cp.returncode == 2, cp.stdout + cp.stderr
+    _assert_valid_payload(moved, raw=1, visible=1, suppressed=0, entries=1)
+    assert "stale suppression identity" in str(moved["suppression_errors"])
+    assert _h718_findings(moved)[0]["fingerprint"] != row["fingerprint"]
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+def test_h718_ledger_suppresses_only_one_owner_and_cached_results_stay_raw(tmp_path, scanner):
+    source = _h718_source() + _h718_source().replace("class Gateway:", "class OtherGateway:")
+    root, _ = _make_tree(tmp_path, source)
+    cache_home = tmp_path / "cache-home"
+    _write_authority(root, [])
+    cp, original = _run(scanner, root, home=cache_home)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    findings = _h718_findings(original)
+    assert len(findings) == 2
+    rows = [_h718_row(finding) for finding in findings]
+    assert rows[0]["fingerprint"] != rows[1]["fingerprint"]
+    _write_authority(root, [rows[0]])
+    cp, suppressed = _run(scanner, root, home=cache_home)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    _assert_valid_payload(suppressed, raw=2, visible=1, suppressed=1, entries=1)
+    assert _h718_findings(suppressed)[0]["fingerprint"] == rows[1]["fingerprint"]
+    _write_authority(root, [])
+    cp, restored = _run(scanner, root, home=cache_home)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    _assert_valid_payload(restored, raw=2, visible=2, suppressed=0, entries=0)
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+def test_h718_ambiguous_identity_remains_visible(tmp_path, scanner):
+    root, target = _make_tree(tmp_path, _h718_source())
+    _write_authority(root, [])
+    cp, original = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    row = _h718_row(_h718_findings(original)[0])
+    target.write_text(_h718_source() * 2, encoding="utf-8")
+    _write_authority(root, [row])
+    cp, ambiguous = _run(scanner, root)
+    assert cp.returncode == 2, cp.stdout + cp.stderr
+    _assert_valid_payload(ambiguous, raw=2, visible=2, suppressed=0, entries=1)
+    assert "ambiguous suppression fingerprint" in str(ambiguous["suppression_errors"])
+
+
+@pytest.mark.parametrize("scanner", SCANNERS, ids=lambda p: p.name)
+def test_h718_global_allowlist_control_is_silent(tmp_path, scanner):
+    root, _ = _make_tree(tmp_path, _h718_source().replace("not ip_address(value).is_private", "ip_address(value).is_global"))
+    _write_authority(root, [])
+    cp, result = _run(scanner, root)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    _assert_valid_payload(result, raw=0, visible=0, suppressed=0, entries=0)

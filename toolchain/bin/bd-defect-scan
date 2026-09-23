@@ -30,6 +30,7 @@ from bd_defect_suppressions import (  # noqa: E402
     SuppressionError,
     apply_suppressions,
     finding_fingerprint,
+    function_contexts,
     handler_contexts,
     load_suppressions,
 )
@@ -580,6 +581,7 @@ def dp11(path, src, tree):
     out = []
     if tree is None:
         return out
+    contexts = function_contexts(tree)
     for fn in [n for n in ast.walk(tree)
                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
         body = ast.dump(fn)
@@ -592,8 +594,12 @@ def dp11(path, src, tree):
         manual = any(s in body for s in ("is_private", "is_loopback", "is_link_local",
                                          "is_reserved"))
         if manual and not uses_global:
-            out.append(_find("DP-11", "low", HIGH, fn.lineno,
-                             f"IP classifier '{fn.name}' uses denylist ranges without is_global allowlist (misses CGNAT 100.64/10 etc.)"))
+            finding = _find("DP-11", "low", HIGH, fn.lineno,
+                             f"IP classifier '{fn.name}' uses denylist ranges without is_global allowlist (misses CGNAT 100.64/10 etc.)")
+            finding["fingerprint"] = finding_fingerprint(
+                "DP-11", path, fn, contexts[id(fn)]
+            )
+            out.append(finding)
     return out
 
 
@@ -804,13 +810,13 @@ def scan_file(path, src, only=None):
 
 
 def scan_tree(root, include_suppression_report=False):
-    """A3 (702): memoized per FILE CONTENT. This scan re-parsed the entire tree on
+    """A3 (702): memoized per RELATIVE PATH AND FILE CONTENT. This scan re-parsed the entire tree on
     every run (17.9s) and bd-ratchet calls it for defect_DP_total INSIDE
     bd-precut --gate -- so every cut paid it. Between two cuts nearly every file is
     byte-identical, so the work is almost entirely redundant.
 
-    The cache is keyed on (sha256 of the file BYTES, hash of THIS ANALYZER'S
-    SOURCE). Never on mtime -- mtime lies. Change a detector and every entry it
+    The cache is keyed on (relative path, sha256 of the file BYTES, hash of
+    THIS ANALYZER'S SOURCE). Never on mtime -- mtime lies. Change a detector and every entry it
     produced misses, so the cache can never serve a finding from rules that no
     longer exist. BDTOOLS_CACHE=0 disables it."""
     suppressions = load_suppressions(root, DETECTORS)
@@ -852,9 +858,13 @@ def scan_tree(root, include_suppression_report=False):
                     rel = os.path.relpath(p, root)
                     enumerated += 1
                     try:
-                        if cache is not None:
-                            fnd = cache.get_or_compute(
-                                p, lambda p=p, rel=rel: scan_file(
+                        if cache is not None and cache.enabled:
+                            # Findings bind the relative path; identical bytes at
+                            # different paths must not reuse another identity.
+                            content_sha = _bc.file_sha(p)
+                            cache_key = json.dumps([rel, content_sha]) if content_sha else None
+                            fnd = cache.get_or_compute_sha(
+                                cache_key, lambda p=p, rel=rel: scan_file(
                                     rel, open(p, encoding="utf-8",
                                               errors="replace").read()))
                         else:
