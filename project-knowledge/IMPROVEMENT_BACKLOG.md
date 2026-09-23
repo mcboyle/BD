@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=4 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=3 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -454,7 +454,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1063 | CLOSED @1649 | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
 | 1064 | CLOSED @1662 | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
-| 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
+| 1066 | CLOSED @1663 | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
 | 1067 | CLOSED @1634 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
 | 1068 | CLOSED @1648 | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
 | 1069 | CLOSED @1636 | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
