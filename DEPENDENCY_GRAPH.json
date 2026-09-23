@@ -2414,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1795,
+    "edge_count": 1798,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4457,6 +4457,10 @@
         "bulk_downloader/app_wakeup.py",
         "bulk_downloader/runner.py"
       ],
+      "bulk_downloader/socket_pacing.py": [
+        "bulk_downloader/download_egress.py",
+        "bulk_downloader/traffic_shaper.py"
+      ],
       "bulk_downloader/socket_tracker.py": [
         "bulk_downloader/chunked_transfer.py"
       ],
@@ -4720,6 +4724,9 @@
       "bulk_downloader/tpdb.py": [
         "bulk_downloader/app_tpdb.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/traffic_shaper.py": [
+        "bulk_downloader/socket_pacing.py"
       ],
       "bulk_downloader/transaction_journal.py": [
         "bulk_downloader/container_repair.py"
@@ -6554,7 +6561,8 @@
       ],
       "bulk_downloader/download_egress.py": [
         "bulk_downloader/egress_identity.py",
-        "bulk_downloader/multi_homed_egress.py"
+        "bulk_downloader/multi_homed_egress.py",
+        "bulk_downloader/socket_pacing.py"
       ],
       "bulk_downloader/download_hold.py": [
         "bulk_downloader/global_config.py"
@@ -7424,6 +7432,9 @@
       "bulk_downloader/smart_wakeup.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/socket_pacing.py": [
+        "bulk_downloader/traffic_shaper.py"
+      ],
       "bulk_downloader/sqlite_cdc.py": [
         "bulk_downloader/wal_inspector.py"
       ],
@@ -7549,6 +7560,9 @@
         "bulk_downloader/app_queue.py",
         "bulk_downloader/app_state.py",
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/traffic_shaper.py": [
+        "bulk_downloader/socket_pacing.py"
       ],
       "bulk_downloader/tus_client.py": [
         "bulk_downloader/hooks.py"

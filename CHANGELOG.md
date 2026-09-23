@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1663 - train88: row1066
+
+Base main 2dcac16a (T87 v3.66.1662 landed 15:42Z; no regen commit at assembly). T88 (ORDERS-0109 pre-assemble, O1320): one cut, rebased onto main in place (O1319 keep-both on the row703 pin blocks); lens leg pending at push time per the order. Per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
+
+- row1066 socket pacing: SO_MAX_PACING_RATE kernel pacing for egress (bulk_downloader/socket_pacing.py, download_egress.py, runner_transport.py, traffic_shaper.py, tests/test_row1066_socket_pacing_so_max_pacing_rate.py, row646_647 mutant carrier, HLS extractor test, row703 map re-pins +22). Source cut tree 0a51baee (PATCH-SHA256 393b463f, base cc0840f0); resolved copy /home/mboyle/bd-cuts/cut/row1066-socket-pacing-resolved tree 9e240fe8 on 2dcac16a.
+- register: row 1066 CLOSED @1663.
+
+
 ## v3.66.1662 - train87: row1064, row985, row995, row984
 
 Base main 58e460ed (T86 v3.66.1661 landed; no regen commit at assembly). T87: four register cuts + one harness cut, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010; batching O1303); per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
