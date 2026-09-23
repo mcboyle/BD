@@ -67,3 +67,13 @@ REGISTRY: Dict[str, Dict[str, Any]] = {
 def get_schema(name: str) -> Optional[Dict[str, Any]]:
     """Look up a reference schema by `<prompt_id>.v<schema_version>` name."""
     return REGISTRY.get(name)
+
+
+def validate(name: str, payload: Any) -> tuple[bool, list[str]]:
+    """Validate a payload against a registered schema by name (Row 979)."""
+    schema = get_schema(name)
+    if schema is None:
+        return False, [f"Unknown schema: {name}"]
+    from .schema_runtime import validate_payload_against_schema
+    res = validate_payload_against_schema(payload, schema)
+    return res.valid, res.errors

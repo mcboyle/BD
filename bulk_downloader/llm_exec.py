@@ -28,6 +28,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
+from .schema_runtime import validate_schema
+
 _log = logging.getLogger("bulk_downloader.llm_exec")
 
 # Closed status taxonomy. `via` (model|fallback|none) is orthogonal to status:
@@ -133,64 +135,8 @@ def looks_like_secret(text: Optional[str]) -> bool:
 
 
 # ── light schema validation (stdlib-only; no jsonschema dependency) ───────
-_PYTYPES = {
-    "string": str, "number": (int, float), "integer": int,
-    "boolean": bool, "array": list, "object": dict, "null": type(None),
-}
-
-
-def _check_type(value: Any, t: str):
-    py = _PYTYPES.get(t)
-    if py is None:
-        return True, ""
-    if t in ("integer", "number") and isinstance(value, bool):
-        return False, f"expected {t}, got boolean"
-    if isinstance(value, py):
-        return True, ""
-    return False, f"expected {t}"
-
-
-def validate_schema(value: Any, schema: Optional[Dict[str, Any]]):
-    """Validate `value` against a minimal schema dialect:
-      {"type":"object","required":[...],"properties":{k:{"type":...}}}
-      {"type":"array","items":<schema>}
-      {"type":"string"|"number"|"integer"|"boolean"|"null"}
-    Returns (ok: bool, reason: str)."""
-    if not schema:
-        return True, ""
-    if "enum" in schema:
-        if value not in schema["enum"]:
-            return False, f"{value!r} not in enum {schema['enum']}"
-    t = schema.get("type")
-    if t == "object":
-        if not isinstance(value, dict):
-            return False, "expected object"
-        for k in schema.get("required", []):
-            if k not in value:
-                return False, f"missing required key: {k}"
-        for k, sub in (schema.get("properties") or {}).items():
-            if k not in value or not isinstance(sub, dict):
-                continue
-            if "enum" in sub and value[k] not in sub["enum"]:
-                return False, f"key {k}: {value[k]!r} not in enum {sub['enum']}"
-            if "type" in sub:
-                ok, why = _check_type(value[k], sub["type"])
-                if not ok:
-                    return False, f"key {k}: {why}"
-        return True, ""
-    if t == "array":
-        if not isinstance(value, list):
-            return False, "expected array"
-        items = schema.get("items")
-        if items:
-            for i, el in enumerate(value):
-                ok, why = validate_schema(el, items)
-                if not ok:
-                    return False, f"item {i}: {why}"
-        return True, ""
-    if t:
-        return _check_type(value, t)
-    return True, ""
+# validate_schema (imported above) is schema_runtime's since row 979: the same
+# dialect, verdicts and reasons, compiled once per schema object.
 
 
 # ── provider/model resolution + input hash ───────────────────────────────
