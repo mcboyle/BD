@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1653 - train78: row1053
+
+Base train/77 4d0f10ac (v3.66.1652 on T76 40ff0976; PR989). T78 (ORDERS-0060 T78 CANDIDATES 08:32Z): one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1053-user-confirmation-prompt-detector (RESCOPED per RULING-2338: stdin=DEVNULL / EOF guard at every bulk_downloader subprocess site, fixer-B): built from the review copy bd-review-wt/row1053-user-confirmation-prompt-detector-local (rebased on main cede20f7), N2-B at 1af7b32c.
+- register: row 1053 CLOSED @1653 (1646-1652 held by T71-T77).
+- pending members for a later restack: row1046 (W4-B), row1038 (W9-A), row1056 (fixer-B), row1028/1057 (fixer-A).
+
+
 ## v3.66.1652 - train77: row1012, row976
 
 Base train/76 40ff0976 (v3.66.1651 on T75 428b66bf, restacked on T74 6edb4de6; PR988). T77 (ORDERS-0087 s2): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

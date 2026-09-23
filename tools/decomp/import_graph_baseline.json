@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4937,
+  "edge_count": 4939,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4156,6 +4156,10 @@
     ],
     "tests/test_row1052_prom_memory_metrics.py": [
       "bulk_downloader/metrics_prom.py"
+    ],
+    "tests/test_row1053_subprocess_stdin_guard.py": [
+      "bulk_downloader/container_repair.py",
+      "bulk_downloader/subprocess_helpers.py"
     ],
     "tests/test_row1055_distributed_bandwidth_aggregator.py": [
       "bulk_downloader/bandwidth_aggregator.py",
