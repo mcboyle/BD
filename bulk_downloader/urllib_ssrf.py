@@ -10,7 +10,9 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import socket
+import ssl
 import string
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,11 +64,64 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
                 self._tunnel()
             self.sock = self._context.wrap_socket(
                 self.sock, server_hostname=self._pinned_server_hostname)
-        # Store AFTER the handshake: this is the negotiated session, which is the only one worth
-        # keeping. A server that declined to resume hands back a fresh one here, so a rejected
-        # ticket replaces itself rather than being retried forever.
+        # Store AFTER the handshake: this is the negotiated session. Under TLS 1.2 it is already
+        # resumable, and a server that declined to resume hands back a fresh one here, so a
+        # rejected ticket replaces itself. A TLS 1.3 full handshake's session carries no ticket
+        # yet: remember_session refuses it, so it is never a "hit" that resumes nothing (G1) and
+        # never evicts the ticket a concurrent connection just stored (G2). getresponse() stores
+        # the ticketed one (rc5 E1); a rejected 1.3 ticket is replaced there by the server's new
+        # one or, from a server that issues none, stays until its TTL (the handshake is full
+        # either way).
         remember_session(key_host, self.port, getattr(self.sock, "session", None),
                          self._context)
+
+    def getresponse(self):
+        # Row 1007 (rc5 E1): a TLS 1.3 peer issues its NewSessionTicket AFTER the handshake, and
+        # OpenSSL only takes it in when application data is read -- so the session connect() saw
+        # carried no ticket and resumed nothing (remember_session refuses it). The ticket precedes
+        # the response on the wire, so once the status line and headers are read the session is
+        # the resumable one; store it now. (TLS 1.2 stores the same session twice, harmlessly.)
+        # The socket is held first because a will-close response detaches it from the connection.
+        sock = self.sock
+        response = super().getresponse()
+        from .tls_session_cache import remember_session
+
+        remember_session(self._pinned_server_hostname or self.host, self.port,
+                         getattr(sock, "session", None), self._context)
+        return response
+
+
+_SHARED_CONTEXT = None
+_SHARED_CONTEXT_LOCK = threading.Lock()
+
+
+def _shared_https_context():
+    """The one verified client SSLContext every pinned HTTPS request in the process shares.
+
+    Row 1007 re-emit (N6-A E1): a session can only be resumed on the context that negotiated it,
+    and http.client builds a NEW default context for every connection it is not handed one for --
+    so with a context per connection the session cache never hit. This is the context http.client
+    would have built (same stdlib factory, so the same CA store and hostname checking), built once.
+    It is rebuilt only if that factory is replaced, so the verification policy stays the stdlib's.
+    G3: the private http.client._create_https_context exists only on CPython 3.12+; where it is
+    absent (3.9-3.11, which the installers accept) the same steps are taken inline.
+    """
+    global _SHARED_CONTEXT
+    factory = ssl._create_default_https_context
+    with _SHARED_CONTEXT_LOCK:
+        if _SHARED_CONTEXT is None or _SHARED_CONTEXT[0] is not factory:
+            create = getattr(http.client, "_create_https_context", None)
+            if create is not None:                          # CPython 3.12+
+                context = create(11)
+            else:
+                # CPython 3.9-3.11 have no such helper: their HTTPSConnection.__init__ runs the
+                # same three steps inline (3.11.16 measured), so do exactly those.
+                context = factory()
+                context.set_alpn_protocols(["http/1.1"])
+                if context.post_handshake_auth is not None:
+                    context.post_handshake_auth = True
+            _SHARED_CONTEXT = (factory, context)
+        return _SHARED_CONTEXT[1]
 
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
@@ -204,6 +259,7 @@ class PinnedUrlOpener:
         pinned = (request if hasattr(request, "_pinned_logical_url")
                   else self.pin_request(request))
         opener = urllib.request.build_opener(
-            _PinnedRedirectHandler(self.pin_request), _PinnedHTTPSHandler(),
+            _PinnedRedirectHandler(self.pin_request),
+            _PinnedHTTPSHandler(context=_shared_https_context()),
             _PinnedResponseHandler())
         return opener.open(pinned, timeout=timeout)

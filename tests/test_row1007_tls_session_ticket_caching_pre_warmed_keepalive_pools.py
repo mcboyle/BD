@@ -6,10 +6,12 @@ Guards:
 - TTL expiry removes stale entries on lookup
 - Thread-safety of concurrent store/lookup
 - Hit/miss/eviction statistics tracking
-- KeepalivePool register/checkout/checkin lifecycle
-- Pool slot state transitions (IDLE -> CHECKED_OUT -> IDLE)
-- Stale slot pruning past idle_timeout
-- Pool capacity enforcement and idle-eviction
+- Resumption through PinnedUrlOpener.open with no context handed in (N6-A E1)
+- TLS 1.3: the post-handshake ticket is cached (rc5 E1); a session that cannot resume never is --
+  no "hit" from a server that issues no tickets (G1), no eviction of a resumable one (G2)
+- The pinned opener works where http.client has no _create_https_context, CPython < 3.12 (G3)
+- Context keys never reused after a context is freed (N6-A E2)
+- No keepalive pool: urllib closes every connection (N6-A E3)
 - Metadata introspection via get_tls_session_cache_info
 """
 from __future__ import annotations
@@ -30,9 +32,9 @@ def test_capability_exists():
     assert hasattr(
         tls_session_cache, "TLSSessionCache"
     ), "Row 1007 capability missing: TLSSessionCache not exposed"
-    assert hasattr(
-        tls_session_cache, "KeepalivePool"
-    ), "Row 1007 capability missing: KeepalivePool not exposed"
+    assert not hasattr(tls_session_cache, "KeepalivePool"), (
+        "N6-A E3: the socket-less, caller-less KeepalivePool is back; urllib closes every "
+        "connection, so a keepalive pool on this seam has nothing to hold")
 
 
 def test_session_cache_store_and_lookup():
@@ -74,7 +76,7 @@ def test_session_cache_lru_eviction():
 
 def test_session_cache_ttl_expiry():
     """Expired entries are removed on lookup."""
-    from bulk_downloader.tls_session_cache import CachedSession, TLSSessionCache
+    from bulk_downloader.tls_session_cache import TLSSessionCache
 
     cache = TLSSessionCache(max_entries=10, ttl_seconds=0.01)
     cache.store("expire.com", 443, b"ticket")
@@ -138,121 +140,6 @@ def test_session_cache_invalid_params():
         TLSSessionCache(ttl_seconds=-1.0)
 
 
-def test_keepalive_pool_register_and_checkout():
-    """Register a slot and check it out."""
-    from bulk_downloader.tls_session_cache import KeepalivePool, PoolSlotState
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=60.0)
-    slot = pool.register("example.com", 443)
-    assert slot is not None
-    assert slot.state == PoolSlotState.IDLE
-
-    checkout = pool.checkout("example.com", 443)
-    assert checkout is not None
-    assert checkout.state == PoolSlotState.CHECKED_OUT
-    assert checkout.use_count == 1
-
-
-def test_keepalive_pool_checkin():
-    """Checkin returns a slot to IDLE."""
-    from bulk_downloader.tls_session_cache import KeepalivePool, PoolSlotState
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=60.0)
-    pool.register("example.com", 443)
-    slot = pool.checkout("example.com", 443)
-    assert slot is not None
-    pool.checkin(slot)
-    assert slot.state == PoolSlotState.IDLE
-    s = pool.stats()
-    assert s["total_checkouts"] == 1
-    assert s["total_returns"] == 1
-
-
-def test_keepalive_pool_stale_checkout_refused():
-    """A stale idle slot is refused on checkout."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=0.01)
-    pool.register("stale.com", 443)
-    time.sleep(0.02)
-    assert pool.checkout("stale.com", 443) is None
-
-
-def test_keepalive_pool_capacity():
-    """Pool refuses registration when full with checked-out slots."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=2, idle_timeout=60.0)
-    pool.register("a.com", 443)
-    pool.register("b.com", 443)
-    pool.checkout("a.com", 443)
-    pool.checkout("b.com", 443)
-    # Both checked out, no idle to evict
-    slot = pool.register("c.com", 443)
-    assert slot is None
-
-
-def test_keepalive_pool_idle_eviction():
-    """When pool is full, registering evicts the oldest idle slot."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=2, idle_timeout=60.0)
-    pool.register("a.com", 443)
-    time.sleep(0.01)
-    pool.register("b.com", 443)
-    # a.com is oldest idle
-    slot = pool.register("c.com", 443)
-    assert slot is not None
-    assert pool.checkout("a.com", 443) is None  # evicted
-
-
-def test_keepalive_pool_prune_stale():
-    """prune_stale removes idle slots past timeout."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=0.01)
-    pool.register("a.com", 443)
-    pool.register("b.com", 443)
-    time.sleep(0.02)
-    pruned = pool.prune_stale()
-    assert pruned == 2
-    assert pool.stats()["size"] == 0
-
-
-def test_keepalive_pool_remove():
-    """remove() deletes a specific slot."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=60.0)
-    pool.register("rm.com", 443)
-    assert pool.remove("rm.com", 443) is True
-    assert pool.remove("rm.com", 443) is False
-
-
-def test_keepalive_pool_stats():
-    """stats() reports correct counts."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    pool = KeepalivePool(max_slots=4, idle_timeout=60.0)
-    pool.register("a.com", 443)
-    pool.register("b.com", 443)
-    pool.checkout("a.com", 443)
-    s = pool.stats()
-    assert s["size"] == 2
-    assert s["idle"] == 1
-    assert s["checked_out"] == 1
-
-
-def test_keepalive_pool_invalid_params():
-    """Constructor rejects non-positive parameters."""
-    from bulk_downloader.tls_session_cache import KeepalivePool
-
-    with pytest.raises(ValueError, match="positive"):
-        KeepalivePool(max_slots=0)
-    with pytest.raises(ValueError, match="positive"):
-        KeepalivePool(idle_timeout=-1.0)
-
-
 def test_get_tls_session_cache_info():
     """Metadata introspection returns complete schema."""
     from bulk_downloader.tls_session_cache import get_tls_session_cache_info
@@ -261,9 +148,8 @@ def test_get_tls_session_cache_info():
     assert isinstance(info, dict)
     assert info["version"] >= 1
     assert "TLSSessionCache" in info["components"]
-    assert "KeepalivePool" in info["components"]
+    assert info["components"] == ["TLSSessionCache"]
     assert len(info["eviction_strategies"]) == 3
-    assert len(info["pool_slot_states"]) == 3
 
 
 def test_session_cache_concurrent_access():
@@ -334,14 +220,26 @@ def _self_signed(tmpdir):
 
 
 class _TLSEchoServer:
-    """A real TLS endpoint on loopback. TLS 1.2 on purpose: its session resumption is the
-    deterministic one -- a 1.3 ticket arrives after the handshake, which would make the test
-    depend on timing rather than on whether the cache offered a session."""
+    """A real TLS endpoint on loopback, pinned to ONE protocol version (TLS 1.2 by default).
+    A 1.3 ticket arrives after the handshake; the rc5 tests below pin 1.3 to measure that path
+    (the ticket precedes the response on the wire, so reading the response makes it deterministic).
+    issue_tickets=False: no session tickets at all -- TLS 1.3 sends no NewSessionTicket, and TLS 1.2
+    can then resume only by session id, from this server's own session cache. alpn=True: the server
+    speaks ALPN http/1.1, and `self.alpn` records the protocol each connection negotiated."""
 
-    def __init__(self, cert_path, key_path, connections=4):
+    def __init__(self, cert_path, key_path, connections=4, version=ssl.TLSVersion.TLSv1_2,
+                 close_header=False, issue_tickets=True, alpn=False):
+        self._reply = (b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                       + (b"Connection: close\r\n" if close_header else b"") + b"\r\nhi")
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+        ctx.minimum_version = ctx.maximum_version = version
         ctx.load_cert_chain(cert_path, key_path)
+        if not issue_tickets:
+            ctx.num_tickets = 0
+            ctx.options |= ssl.OP_NO_TICKET
+        if alpn:
+            ctx.set_alpn_protocols(["http/1.1"])
+        self.alpn = []
         self._ctx = ctx
         self._listener = socket.socket()
         self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -360,8 +258,9 @@ class _TLSEchoServer:
                 return
             try:
                 conn = self._ctx.wrap_socket(raw, server_side=True)
+                self.alpn.append(conn.selected_alpn_protocol())
                 conn.recv(4096)
-                conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")
+                conn.sendall(self._reply)
                 conn.close()
             except OSError:
                 pass
@@ -373,9 +272,9 @@ class _TLSEchoServer:
             pass
 
 
-def _client_context(cert_path):
+def _client_context(cert_path, version=ssl.TLSVersion.TLSv1_2):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+    ctx.minimum_version = ctx.maximum_version = version
     ctx.load_verify_locations(cert_path)
     return ctx
 
@@ -395,14 +294,17 @@ def _fetch_once(port, ctx):
 
 
 def _clear_session_cache():
-    """Empty the process cache if the module exists. Written so the resumption test below can
-    run AT BASE, where the module does not exist yet: its failure must be the handshake not
-    resuming, not an ImportError about the subject (F2)."""
+    """Empty the process cache if the module and its seam exist. Written so the resumption tests
+    below can run on a tree where the module is absent (the old base) or has no seam yet (the
+    first generation, which B3 refuted as unwired): their failure must be the handshake not
+    resuming, not an ImportError/AttributeError about the subject (F2)."""
     try:
         from bulk_downloader import tls_session_cache
     except ImportError:
         return
-    tls_session_cache.get_session_cache().clear()
+    get_cache = getattr(tls_session_cache, "get_session_cache", None)
+    if get_cache is not None:
+        get_cache().clear()
 
 
 # -- F1: the feature, exercised THROUGH its caller on a real handshake -------------------------
@@ -571,3 +473,363 @@ def test_the_seam_survives_a_session_that_belongs_to_another_context():
     assert tls_session_cache.REUSE_FAILURES.get("offer:ValueError", 0) == before + 1, (
         "the refused offer was not counted; a cache that silently stops resuming looks exactly "
         "like one that is working")
+
+
+# -- N6-A E1: resumption measured through PinnedUrlOpener.open, the way the product calls it ----
+
+def _instrument_opener(monkeypatch, cert_path, port, version=ssl.TLSVersion.TLSv1_2, seen=None):
+    """Route the PRODUCT opener at the loopback server and record `session_reused` per handshake.
+    The stdlib default-context factory is pointed at the test CA, as a system CA store would be;
+    no context is handed to the opener, so whatever SSLContext the product builds is the one
+    measured. Returns the list the spy appends to. Call ONCE per test (it wraps `connect`).
+    `seen`, if given, also gets (context used, session held) as connect() returns."""
+    from bulk_downloader import urllib_ssrf
+
+    monkeypatch.setattr(ssl, "_create_default_https_context",
+                        lambda *a, **k: _client_context(cert_path, version))
+    real_getaddrinfo = socket.getaddrinfo
+
+    def fake_getaddrinfo(host, *args, **kwargs):
+        if host == "localhost":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    reused = []
+    real_connect = urllib_ssrf._PinnedHTTPSConnection.connect
+
+    def spy_connect(conn):
+        real_connect(conn)
+        assert conn.sock.version() == {ssl.TLSVersion.TLSv1_2: "TLSv1.2",
+                                       ssl.TLSVersion.TLSv1_3: "TLSv1.3"}[version]
+        reused.append(conn.sock.session_reused)
+        if seen is not None:
+            seen.append((conn._context, conn.sock.session))
+
+    monkeypatch.setattr(urllib_ssrf._PinnedHTTPSConnection, "connect", spy_connect)
+    return reused
+
+
+def _opener_fetch(port, host="localhost"):
+    """One request through a NEW PinnedUrlOpener (the doh_resolver.py / hooks.py shape)."""
+    import urllib.request
+
+    from bulk_downloader import urllib_ssrf
+
+    opener = urllib_ssrf.PinnedUrlOpener(lambda address, host: (True, ""))
+    with opener.open(urllib.request.Request(f"https://{host}:{port}/"), timeout=10) as resp:
+        assert resp.read() == b"hi"
+
+
+def test_e1_repeat_opener_requests_resume_through_the_product_path(monkeypatch):
+    """E1: every PinnedUrlOpener.open built its handler with no context, so http.client made a
+    fresh SSLContext per connection and the (host, port, context) key never hit in production."""
+    _clear_session_cache()
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=3)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port)
+            for _ in range(3):
+                _opener_fetch(server.port)
+        finally:
+            server.close()
+    assert reused == [False, True, True], (
+        f"session_reused per opener request = {reused}: the product's pinned opener builds a new "
+        "SSLContext for every connection, so no cached session is ever offered")
+
+
+def test_e1_negative_control_an_empty_cache_resumes_nothing(monkeypatch):
+    """Control: same product path, cache cleared between the requests -> both handshakes full."""
+    from bulk_downloader import tls_session_cache
+
+    _clear_session_cache()
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port)
+            _opener_fetch(server.port)
+            tls_session_cache.get_session_cache().clear()
+            _opener_fetch(server.port)
+        finally:
+            server.close()
+    assert reused == [False, False], (
+        f"session_reused = {reused} with the cache emptied between requests: the resumption "
+        "measured above is not coming from this module's cache")
+
+
+# -- rc5 E1: the TLS 1.3 ticket arrives AFTER the handshake -----------------------------------
+
+def test_rc5_e1_tls13_repeat_opener_requests_resume_through_the_product_path(monkeypatch):
+    """rc5 E1: a TLS 1.3 server sends its NewSessionTicket after the handshake, and the client
+    only processes it when it reads application data. Caching `sock.session` straight after
+    wrap_socket kept a session with no ticket, so every TLS 1.3 request paid a full handshake."""
+    _clear_session_cache()
+    v13 = ssl.TLSVersion.TLSv1_3
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=3, version=v13)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, v13)
+            for _ in range(3):
+                _opener_fetch(server.port)
+        finally:
+            server.close()
+    assert reused == [False, True, True], (
+        f"rc5 E1: TLS 1.3 session_reused per opener request = {reused}: the session was cached "
+        "before the post-handshake NewSessionTicket arrived, so nothing resumable was offered")
+
+
+def test_rc5_e1_tls13_resumes_when_the_server_answers_connection_close(monkeypatch):
+    """rc5 E1, the common server shape: urllib sends `Connection: close`, many servers echo it,
+    and http.client then detaches the socket from the connection inside getresponse(). The
+    post-ticket session must be read from the socket the response arrived on, not from
+    `self.sock` after getresponse() has already set it to None."""
+    _clear_session_cache()
+    v13 = ssl.TLSVersion.TLSv1_3
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=3, version=v13,
+                                close_header=True)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, v13)
+            for _ in range(3):
+                _opener_fetch(server.port)
+        finally:
+            server.close()
+    assert reused == [False, True, True], (
+        f"rc5 E1: TLS 1.3 + 'Connection: close' session_reused = {reused}: the post-ticket "
+        "session was read after http.client detached the socket, so nothing was stored")
+
+
+def test_rc5_e1_negative_control_tls13_empty_cache_resumes_nothing(monkeypatch):
+    """Control: TLS 1.3, cache cleared between the requests -> both handshakes full."""
+    from bulk_downloader import tls_session_cache
+
+    _clear_session_cache()
+    v13 = ssl.TLSVersion.TLSv1_3
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2, version=v13)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, v13)
+            _opener_fetch(server.port)
+            tls_session_cache.get_session_cache().clear()
+            _opener_fetch(server.port)
+        finally:
+            server.close()
+    assert reused == [False, False], (
+        f"TLS 1.3 session_reused = {reused} with the cache emptied between requests: the "
+        "resumption measured above is not coming from this module's cache")
+
+
+# -- G1/G2 (bd-fixer-B findings on the boarded r3 tree c6a6af0e, RULING-0063): a session that ----
+# -- cannot resume is never cached -----------------------------------------------------------------
+
+def test_g1_a_tls13_server_that_issues_no_tickets_leaves_nothing_cached(monkeypatch):
+    """G1: connect() hands remember_session the session it holds straight after wrap_socket, and
+    under TLS 1.3 that session has no ticket and no id -- it cannot resume. A server that issues
+    no tickets makes this exact: nothing resumable ever exists, so nothing may be cached. Cached
+    anyway, the next lookup counts a hit while the handshake is still full: the stats lie."""
+    from bulk_downloader import tls_session_cache
+
+    _clear_session_cache()
+    cache = tls_session_cache.get_session_cache()
+    hits0, misses0 = cache.stats()["hits"], cache.stats()["misses"]
+    v13 = ssl.TLSVersion.TLSv1_3
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2, version=v13,
+                                issue_tickets=False)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, v13)
+            _opener_fetch(server.port)
+            _opener_fetch(server.port)
+        finally:
+            server.close()
+    stats = cache.stats()
+    measured = (reused, stats["size"], stats["hits"] - hits0, stats["misses"] - misses0)
+    assert measured == ([False, False], 0, 0, 2), (
+        f"G1: TLS 1.3 server issuing no tickets: (session_reused, cache size, hits, misses) = "
+        f"{measured}: a session that cannot resume was cached, so a lookup counted a hit while "
+        "the handshake was still full")
+
+
+def test_g1_control_a_tls12_session_resumable_by_id_alone_is_still_cached(monkeypatch):
+    """Control for the refusal above: a TLS 1.2 server that issues no tickets still resumes by
+    session id, so its session -- no ticket, but an id -- must still be cached and offered. The
+    refusal is 'neither a ticket nor an id', never merely 'no ticket'."""
+    _clear_session_cache()
+    seen = []
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2, issue_tickets=False)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, seen=seen)
+            _opener_fetch(server.port)
+            _opener_fetch(server.port)
+        finally:
+            server.close()
+    shape = [(session.has_ticket, len(session.id) > 0) for _ctx, session in seen]
+    assert (reused, shape) == ([False, True], [(False, True), (False, True)]), (
+        f"TLS 1.2 without tickets: session_reused = {reused}, (has_ticket, has id) = {shape}: a "
+        "session resumable by its id alone was refused, so session-id resumption stopped")
+
+
+def test_g2_a_concurrent_full_handshake_does_not_evict_a_resumable_session(monkeypatch):
+    """G2: workers share one context. A worker whose TLS 1.3 handshake began before any ticket was
+    cached does a full handshake, and its connect() stores its session -- still ticketless --
+    AFTER another worker's getresponse() cached a resumable one. Stored, it replaces that ticket
+    and the next connection pays a full handshake. Reproduced with no threads on two product
+    connections: `early` finishes its request exactly between `late`'s cache lookup and `late`'s
+    handshake (a hook on the lookup, which still returns the real answer)."""
+    from bulk_downloader import tls_session_cache
+    from bulk_downloader.urllib_ssrf import _PinnedHTTPSConnection
+
+    _clear_session_cache()
+    v13 = ssl.TLSVersion.TLSv1_3
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=3, version=v13)
+        try:
+            ctx = _client_context(cert_path, v13)
+
+            def connection():
+                return _PinnedHTTPSConnection("127.0.0.1", server_hostname="localhost",
+                                              port=server.port, context=ctx, timeout=10)
+
+            early, late = connection(), connection()
+            early.connect()
+            early_reused = early.sock.session_reused
+            real_lookup = tls_session_cache.resume_session_for
+            cached_before_late_stores = []
+
+            def lookup_then_early_finishes(host, port, context=None):
+                offered = real_lookup(host, port, context)
+                early.request("GET", "/")
+                early.getresponse().read()           # early's getresponse() caches its ticket
+                early.close()
+                cached = real_lookup(host, port, context)
+                cached_before_late_stores.append(getattr(cached, "has_ticket", None))
+                return offered
+
+            monkeypatch.setattr(tls_session_cache, "resume_session_for",
+                                lookup_then_early_finishes)
+            late.connect()                           # full handshake, then connect()'s own store
+            monkeypatch.setattr(tls_session_cache, "resume_session_for", real_lookup)
+            late_reused, late_has_ticket = late.sock.session_reused, late.sock.session.has_ticket
+            late.request("GET", "/")                 # late's response is left unread for now
+            next_reused = _fetch_once(server.port, ctx)
+            late.getresponse().read()
+            late.close()
+        finally:
+            server.close()
+    measured = (early_reused, cached_before_late_stores, late_reused, late_has_ticket, next_reused)
+    assert measured == (False, [True], False, False, True), (
+        f"G2: (early reused, ticket cached before late's store, late reused, late's session "
+        f"has_ticket, next reused) = {measured}: the ticketless session of a concurrent full "
+        "handshake replaced the resumable one, so the next connection paid a full handshake")
+
+
+# -- G3: the shared context must not need a private helper CPython < 3.12 lacks -----------------
+
+def test_g3_the_pinned_opener_works_where_http_client_has_no_context_helper(monkeypatch):
+    """G3: the shared context came from http.client._create_https_context, a PRIVATE helper only
+    CPython 3.12+ has (CPython 3.11.16 measured: absent). install_linux.sh, install_windows.bat
+    and doctor.py accept 3.9+, and there every PinnedUrlOpener.open -- hooks, the DoH resolver,
+    app_template, capture_diag -- raised before connecting. Without the helper the opener must
+    build the context the stdlib would (same factory, ALPN http/1.1, post-handshake auth) and
+    share it. Deleting the helper stands in for 3.11 only because the product hands urllib a
+    context: 3.12's own HTTPSHandler() calls the helper when given none."""
+    import http.client
+
+    _clear_session_cache()
+    monkeypatch.delattr(http.client, "_create_https_context", raising=False)
+    outcomes, seen = [], []
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2, alpn=True)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port, seen=seen)
+            for _ in range(2):
+                try:
+                    _opener_fetch(server.port)
+                    outcomes.append("200 hi")
+                except Exception as exc:  # noqa: BLE001 -- what the request did IS the measurement
+                    outcomes.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            server.close()
+    policy = [(c.verify_mode, c.check_hostname, c.post_handshake_auth) for c, _s in seen]
+    shared = len({id(c) for c, _s in seen})
+    measured = (outcomes, reused, server.alpn, policy, shared)
+    assert measured == (["200 hi", "200 hi"], [False, True], ["http/1.1", "http/1.1"],
+                        [(ssl.CERT_REQUIRED, True, True)] * 2, 1), (
+        f"G3: with no http.client._create_https_context (CPython < 3.12) the pinned opener gave "
+        f"(outcomes, session_reused, ALPN, (verify, check_hostname, PHA), contexts) = {measured}")
+
+
+# -- B3 gen-1 F2, measured on the product path --------------------------------------------------
+
+def test_host_case_does_not_split_the_cache_on_the_product_path(monkeypatch):
+    """B3 (gen 1) F2 said cache keys are case-sensitive. TLSSessionCache is (a plain mapping), but
+    its only production caller keys by urlsplit(url).hostname, which the stdlib lowercases -- so
+    'LocalHost' and 'localhost' are one peer, one entry, one resumable session."""
+    from bulk_downloader import tls_session_cache
+
+    _clear_session_cache()
+    with tempfile.TemporaryDirectory() as tmp:
+        cert_path, key_path = _self_signed(tmp)
+        server = _TLSEchoServer(cert_path, key_path, connections=2)
+        try:
+            reused = _instrument_opener(monkeypatch, cert_path, server.port)
+            _opener_fetch(server.port, host="LocalHost")
+            _opener_fetch(server.port, host="localhost")
+        finally:
+            server.close()
+    size = tls_session_cache.get_session_cache().stats()["size"]
+    assert (reused, size) == ([False, True], 1), (
+        f"'LocalHost' then 'localhost': session_reused = {reused}, cache size = {size}: one peer "
+        "was cached under two keys")
+
+
+# -- N6-A E2: a dead context's key is never handed to a new one --------------------------------
+
+def test_e2_a_freed_contexts_key_is_never_reused():
+    """E2: the key was id(context). CPython reuses a freed object's address at once, so a new
+    context inherited a dead one's cache entries and was offered a session it cannot resume
+    (ValueError -> reconnect). Keys must be unique for the life of the process."""
+    import gc
+
+    from bulk_downloader import tls_session_cache
+
+    keys = []
+    for _ in range(64):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        keys.append(tls_session_cache._context_key(ctx))
+        del ctx
+        gc.collect()
+    assert len(set(keys)) == len(keys), (
+        f"{len(keys) - len(set(keys))} of {len(keys)} short-lived SSLContexts were given the key of "
+        "an earlier, dead context: a new context would be offered a foreign session")
+
+
+def test_e2_control_a_live_context_keeps_its_key():
+    from bulk_downloader import tls_session_cache
+
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    assert tls_session_cache._context_key(ctx) == tls_session_cache._context_key(ctx)
+    assert tls_session_cache._context_key(None) == 0
+
+
+# -- N6-A escape m5: a falsy session is refused, not cached ------------------------------------
+
+@pytest.mark.parametrize("session", [None, b"", 0])
+def test_m5_remember_session_refuses_a_falsy_session(session):
+    from bulk_downloader import tls_session_cache
+
+    tls_session_cache.get_session_cache().clear()
+    assert tls_session_cache.remember_session("h.example", 443, session) is False
+    assert tls_session_cache.get_session_cache().stats()["size"] == 0, (
+        "a falsy session was stored: every later lookup would be a hit that resumes nothing")
+    assert tls_session_cache.remember_session("h.example", 443, object()) is True
