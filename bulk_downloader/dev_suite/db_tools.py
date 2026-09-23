@@ -489,11 +489,18 @@ _ADVISOR_TABLES = ["history", "queue", "session_history",
 
 
 
+_NON_TABLE_SCAN = _dl_re.compile(r"\bSCAN\s+(?:\d+\s+)?CONSTANT\s+ROWS?\b|\bSCAN\s+\(SUBQUERY-\d+\)")
+
+
 def _explain_query_plan(cx, sql, params):
     """Run EXPLAIN QUERY PLAN and classify the result. Returns
     {steps, uses_index, full_scan}. A step is a full table scan when
     its detail says SCAN without an index (USING INDEX / COVERING
-    INDEX / INTEGER PRIMARY KEY all count as indexed access)."""
+    INDEX / INTEGER PRIMARY KEY all count as indexed access).
+    Row 994: "SCAN CONSTANT ROW" ('SELECT 1'), "SCAN n CONSTANT ROWS" (a
+    VALUES list) and "SCAN (subquery-N)" (a materialized subquery or
+    co-routine, whose own steps are classified separately) read no table
+    and are never full table scans."""
     rows = cx.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall()
     steps = [str(r["detail"]) for r in rows]
     full_scan = False
@@ -504,7 +511,7 @@ def _explain_query_plan(cx, sql, params):
                    or "USING INTEGER PRIMARY KEY" in up)
         if indexed:
             uses_index = True
-        if "SCAN" in up and not indexed:
+        if "SCAN" in up and not indexed and not _NON_TABLE_SCAN.search(up):
             full_scan = True
     return {"steps": steps, "uses_index": uses_index,
             "full_scan": full_scan}

@@ -126,18 +126,41 @@ def db_init(_retry_seconds=10.0):
     LOCK, re-raises everything else, and gives up at the deadline rather than
     hanging.
     """
+    # Row 994: this loop is the contention profiler's feed.  One event per
+    # stalled init (first lock -> success or give-up), typed from the message.
+    from .db_profiler import get_contention_profiler
+    get_contention_profiler().attach_feed("db.db_init")
     deadline = _monotonic() + _retry_seconds
+    stalled_at = None
+    last_lock = None
     while True:
         try:
-            return _db_init_once()
+            result = _db_init_once()
         except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc) or _monotonic() >= deadline:
+            if "locked" not in str(exc):
+                raise
+            if stalled_at is None:
+                stalled_at = _monotonic()
+            last_lock = exc
+            if _monotonic() >= deadline:
+                _record_init_stall(stalled_at, last_lock)
                 raise
             # The failed attempt leaves its own half-open read transaction in
             # the thread-local pool; retrying on top of it would block on our
             # OWN residue for the whole deadline. Evict it and reopen clean.
             cleanup_thread_connections()
             _sleep(0.01)
+            continue
+        if stalled_at is not None:
+            _record_init_stall(stalled_at, last_lock)
+        return result
+
+
+def _record_init_stall(stalled_at, exc):
+    from .db_profiler import record_lock_stall
+    msg = str(exc)
+    table = msg.rsplit(":", 1)[1].strip() if ":" in msg else "unknown"
+    record_lock_stall(table, (_monotonic() - stalled_at) * 1000.0, exc, "db_init")
 
 
 def _db_init_once():
@@ -1249,6 +1272,12 @@ def db_explain(sql: str, *params) -> list:
     with db_conn() as cx:
         rows = cx.execute("EXPLAIN QUERY PLAN " + sql, params).fetchall()
         return [dict(r) for r in rows]
+
+
+def db_lock_contention_report() -> dict:
+    """Row 994: SQLite lock stalls the product observed (db_profiler); read by dev_suite.db_overview."""
+    from .db_profiler import get_contention_profiler
+    return get_contention_profiler().get_contention_report()
 
 
 def db_fts_optimize(*, force=False) -> tuple[bool, str]:

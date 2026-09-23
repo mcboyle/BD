@@ -96,6 +96,11 @@ def db_overview() -> dict:
                 "WHERE type='index'").fetchone()[0]
     except Exception as e:
         info["error"] = str(e)[:200]
+    # Row 994: lock stalls the product observed ("unobserved" = nothing feeds it).
+    try:
+        info["lock_contention"] = _db.db_lock_contention_report()
+    except Exception as e:
+        info["lock_contention"] = {"status": "error", "error": str(e)[:200]}
     return info
 
 
