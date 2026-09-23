@@ -31,6 +31,8 @@ import sys
 import time
 from typing import Optional
 
+from bulk_downloader.terminal_dashboard import TerminalDashboardController, terminal_key_reader
+
 
 _HAS_RICH = False
 
@@ -53,12 +55,17 @@ def is_available() -> bool:
 # ─── Data fetch ───────────────────────────────────────────────────────
 
 def _fetch_status(api_base: str) -> dict:
-    """One HTTP call to /api/status_all. Returns the parsed JSON."""
+    """One HTTP call to /api/status?light=1 (per-site counts, no job lists).
+
+    BD answers {sid: status} (there is no /api/status_all route); this returns
+    {"sites": {sid: status}}, the shape the renderers read."""
     try:
         import requests
-        r = requests.get(api_base.rstrip("/") + "/api/status_all", timeout=5)
+        r = requests.get(api_base.rstrip("/") + "/api/status",
+                         params={"light": "1"}, timeout=5)
         if r.ok:
-            return r.json() or {}
+            sites = r.json()
+            return {"sites": sites if isinstance(sites, dict) else {}}
     except Exception as e:
         return {"error": str(e)[:200]}
     return {}
@@ -76,13 +83,19 @@ def _fetch_capacity(api_base: str) -> dict:
 
 
 def _fetch_events(api_base: str, *, limit: int = 8) -> list:
-    """Pull recent events. BD exposes them under /api/events."""
+    """The `limit` newest events across all sites, newest first.
+
+    BD serves them at /api/events_all ({"events": [{ts, kind, message,
+    site_id, ...}]}, oldest first); there is no /api/events route. Per site
+    that route returns the OLDEST `limit` events of a 500-event buffer, so ask
+    for 500 (its cap) and keep the newest `limit`."""
     try:
         import requests
-        r = requests.get(api_base.rstrip("/") + "/api/events",
-                        params={"limit": limit}, timeout=5)
+        r = requests.get(api_base.rstrip("/") + "/api/events_all",
+                        params={"limit": 500}, timeout=5)
         if r.ok:
-            return (r.json() or {}).get("events", [])
+            events = (r.json() or {}).get("events")
+            return events[::-1][:limit] if isinstance(events, list) else []
     except Exception:
         pass
     return []
@@ -91,10 +104,17 @@ def _fetch_events(api_base: str, *, limit: int = 8) -> list:
 # ─── Summarize ────────────────────────────────────────────────────────
 
 def _summarize_site(site_state: dict) -> dict:
-    """Roll up per-site counts from the jobs dict."""
+    """Roll up per-site counts from the jobs dict, or from the per-status
+    `counts` that /api/status?light=1 sends in place of jobs."""
     jobs = (site_state or {}).get("jobs") or {}
     counts = {"running": 0, "queued": 0, "done": 0, "failed": 0,
               "needs_review": 0}
+    if not jobs and isinstance((site_state or {}).get("counts"), dict):
+        for s, n in site_state["counts"].items():
+            key = "queued" if s == "pending" else s
+            if key in counts and isinstance(n, int) and not isinstance(n, bool):
+                counts[key] += n
+        return counts
     for j in (jobs.values() if isinstance(jobs, dict) else []):
         s = (j or {}).get("status", "")
         if s in counts:
@@ -244,20 +264,34 @@ def _run_once_plain(api_base: str):
 
 def run_live(*, api_base: str = "http://127.0.0.1:5000",
             refresh_seconds: float = 2.0):
-    """Run the live dashboard. Blocks the terminal until ^C."""
+    """Run the live dashboard. Blocks the terminal until [q] or ^C.
+
+    Row 985: every `refresh_seconds` tick polls BD into a
+    TerminalDashboardController snapshot; each key goes to the controller and
+    is drawn at once (j/k select a site, x/u/t pause/resume/retry it, 1/2/3
+    switch view, p holds the refresh, r polls now, q quits). A key costs no
+    poll, so a burst of keys is not a burst of GETs."""
     if not _HAS_RICH:
         sys.stderr.write("rich not installed — falling back to one-shot mode.\n"
                          "pip install rich\n")
         return _run_once_plain(api_base)
     console = Console()
-    with Live(console=console, refresh_per_second=4, screen=True) as live:
+    dashboard = TerminalDashboardController(api_base=api_base)
+    with Live(console=console, refresh_per_second=4, screen=True) as live, \
+            terminal_key_reader() as read_key:
         try:
-            while True:
-                status = _fetch_status(api_base)
-                cap = _fetch_capacity(api_base)
-                events = _fetch_events(api_base)
-                live.update(_build_layout(status, cap, events))
-                time.sleep(refresh_seconds)
+            next_poll = 0.0
+            while not dashboard.should_quit:
+                if dashboard.refresh_requested or time.monotonic() >= next_poll:
+                    if not dashboard.state.paused:
+                        dashboard.assemble_snapshot(_fetch_status(api_base),
+                                                    _fetch_capacity(api_base),
+                                                    _fetch_events(api_base))
+                    next_poll = time.monotonic() + refresh_seconds
+                live.update(dashboard.render_rich_frame())
+                key = read_key(max(0.0, next_poll - time.monotonic()))
+                if key:
+                    dashboard.handle_key(key)
         except KeyboardInterrupt:
             pass
 

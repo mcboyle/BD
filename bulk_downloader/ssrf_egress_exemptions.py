@@ -109,6 +109,11 @@ ACCOUNTED = {
         "exempt",
         "polls the operator's own BD instance at the api_base the operator "
         "passed to the dashboard CLI"),
+    "bulk_downloader/terminal_dashboard.py::TerminalDashboardController.execute_site_action": (
+        "exempt",
+        ("posts one whitelisted site action (pause/resume/retry) for a site id the "
+         "dashboard fetched, quoted as a single path segment, to the operator's own "
+         "BD instance at the api_base the operator passed to the dashboard CLI")),
     "bulk_downloader/tray_app.py::_poll_loop": (
         "exempt",
         "polls the operator's own BD instance at the tray's configured url; "
