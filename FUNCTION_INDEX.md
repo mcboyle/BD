@@ -271,13 +271,13 @@ Schema version: 2
   - L3970 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
   - L3995 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
   - L4020 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L4041 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L4123 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L4489 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L4504 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4534 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L4560 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L4594 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L4049 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L4131 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L4497 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L4512 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L4542 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4568 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4602 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -494,7 +494,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_telemetry.py` (15 entries)
+## `bulk_downloader/runner_telemetry.py` (18 entries)
 
 ```
 - L0023 `TelemetryMixin` `[class]`
@@ -512,6 +512,9 @@ Schema version: 2
   - L0439 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
   - L0463 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
   - L0521 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
+  - L0538 `TelemetryMixin.create_trace_span` — Row 1061: OpenTelemetry trace span builder for runner telemetry.
+- L0548 `start_url_trace_span` — Row 1061: start the per-URL "runner.process_url" span, or return None.
+- L0572 `end_url_trace_span` — Row 1061: end a span from start_url_trace_span; None has nothing to end.
 ```
 
 
@@ -841,7 +844,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/_common.py` (19 entries)
+## `bulk_downloader/login_impl/_common.py` (22 entries)
 
 ```
 - L0006 `log_url` — A URL as it may appear in a diagnostic: scheme/host/path kept, EVERY
@@ -859,10 +862,13 @@ Schema version: 2
 - L0162 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
 - L0187 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
 - L0253 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
-- L0331 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0382 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0449 `_css_escape_for_id` `[private]`
-- L0458 `_ms_since` `[private]`
+- L0335 `get_input_scheduler` — Access the synthetic user input scheduler.
+- L0341 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
+- L0364 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
+- L0375 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0426 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0493 `_css_escape_for_id` `[private]`
+- L0502 `_ms_since` `[private]`
 ```
 
 
@@ -921,26 +927,26 @@ Schema version: 2
 ## `bulk_downloader/login_impl/submit.py` (20 entries)
 
 ```
-- L0035 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
-- L0047 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
-- L0062 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0091 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0133 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
-- L0240 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
-- L0275 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
-- L0320 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
-- L0418 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0454 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0469 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0553 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0569 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0667 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L0983 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1054 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1156 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1176 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1223 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1262 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0036 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
+- L0048 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
+- L0063 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0092 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0134 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
+- L0241 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
+- L0276 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
+- L0321 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
+- L0419 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0455 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0470 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0554 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0570 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0668 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
+- L0984 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1055 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1157 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1177 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1224 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1263 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -974,4 +980,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 798 across 22 files._
+_Total entries: 804 across 22 files._

@@ -2397,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1897,
+    "edge_count": 1900,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4111,6 +4111,9 @@
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_teach.py"
       ],
+      "bulk_downloader/ledger_sharding.py": [
+        "bulk_downloader/provenance.py"
+      ],
       "bulk_downloader/library.py": [
         "bulk_downloader/app_library.py",
         "bulk_downloader/app_widgets_api.py",
@@ -4322,6 +4325,9 @@
       ],
       "bulk_downloader/orm_engine.py": [
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/otel_trace_spans.py": [
+        "bulk_downloader/runner_telemetry.py"
       ],
       "bulk_downloader/password_import.py": [
         "bulk_downloader/app_secrets.py"
@@ -4899,6 +4905,9 @@
       "bulk_downloader/subtitles.py": [
         "bulk_downloader/app_subtitles.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/synthetic_input_scheduler.py": [
+        "bulk_downloader/login_impl/_common.py"
       ],
       "bulk_downloader/synthetic_tests.py": [
         "bulk_downloader/app_fixtures.py",
@@ -7201,6 +7210,9 @@
         "bulk_downloader/login_templates_data.py",
         "bulk_downloader/macro_recorder.py"
       ],
+      "bulk_downloader/login_impl/_common.py": [
+        "bulk_downloader/synthetic_input_scheduler.py"
+      ],
       "bulk_downloader/login_impl/manual.py": [
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/cloak.py",
@@ -7378,7 +7390,8 @@
         "bulk_downloader/llm_schemas.py"
       ],
       "bulk_downloader/provenance.py": [
-        "bulk_downloader/db.py"
+        "bulk_downloader/db.py",
+        "bulk_downloader/ledger_sharding.py"
       ],
       "bulk_downloader/provider_resolve_impl/_common.py": [
         "bulk_downloader/global_config.py",
@@ -7667,6 +7680,7 @@
         "bulk_downloader/db.py",
         "bulk_downloader/hooks.py",
         "bulk_downloader/notify_apprise.py",
+        "bulk_downloader/otel_trace_spans.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/sse_broker.py",

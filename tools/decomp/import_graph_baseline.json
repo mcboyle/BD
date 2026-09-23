@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5040,
+  "edge_count": 5052,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1653,6 +1653,9 @@
       "bulk_downloader/login_templates_data.py",
       "bulk_downloader/macro_recorder.py"
     ],
+    "bulk_downloader/login_impl/_common.py": [
+      "bulk_downloader/synthetic_input_scheduler.py"
+    ],
     "bulk_downloader/login_impl/manual.py": [
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/cloak.py",
@@ -1830,7 +1833,8 @@
       "bulk_downloader/llm_schemas.py"
     ],
     "bulk_downloader/provenance.py": [
-      "bulk_downloader/db.py"
+      "bulk_downloader/db.py",
+      "bulk_downloader/ledger_sharding.py"
     ],
     "bulk_downloader/provider_resolve_impl/_common.py": [
       "bulk_downloader/global_config.py",
@@ -2119,6 +2123,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/hooks.py",
       "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/otel_trace_spans.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
@@ -4252,6 +4257,9 @@
       "bulk_downloader/dedup.py",
       "bulk_downloader/text_similarity.py"
     ],
+    "tests/test_row1049_synthetic_user_input_scheduling.py": [
+      "bulk_downloader/synthetic_input_scheduler.py"
+    ],
     "tests/test_row1052_prom_memory_metrics.py": [
       "bulk_downloader/metrics_prom.py"
     ],
@@ -4276,6 +4284,12 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/lock_monitor.py"
     ],
+    "tests/test_row1061_opentelemetry_durable_trace_spans.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/otel_trace_spans.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_telemetry.py"
+    ],
     "tests/test_row1065_multi_homed_egress_failover.py": [
       "bulk_downloader/download_egress.py",
       "bulk_downloader/multi_homed_egress.py",
@@ -4284,6 +4298,12 @@
     "tests/test_row1067_mptcp_subflow_negotiation.py": [
       "bulk_downloader/mptcp_subflow.py",
       "bulk_downloader/multi_conn.py"
+    ],
+    "tests/test_row1068_ledger_partition_sharding.py": [
+      "bulk_downloader/app_provenance.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/ledger_sharding.py",
+      "bulk_downloader/provenance.py"
     ],
     "tests/test_row1069_async_testing_suite_standard.py": [
       "bulk_downloader/async_testing.py"

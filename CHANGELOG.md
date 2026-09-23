@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1648 - train73: row1049, row1068, row1061
+
+Base train/72 tip 204ac894 (T72 v3.66.1646 on T71 890d0d94 on main 4c317d6f; restack as the stack lands). Three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1049-synthetic-user-input-scheduling: synthetic user-input scheduling for browser sessions (4 paths). N6-A at dd98a31b.
+- row1068-ledger-partition-sharding (fixer-A rebuild; 3 paths). N6-A at 0e47deb7 (verdict filed in bd-review-wt/row1068-ledger-partition-sharding-local/.review, TREE == cut index; PM 06:22Z).
+- row1061-opentelemetry-durable-trace-spans r3: zero-overhead durable trace spans (5 paths; ci.yml shard line by anchor). N2-B at e0109a79.
+- register: rows 1049, 1068, 1061 CLOSED @1647.
+
+
 ## v3.66.1647 - train72: row1065, row1031
 
 Base train/71 tip 081f56af (T71 v3.66.1646 on main 259f8a11, PR982 open; restack onto main when it lands; ORDERS-0078: row1031 ci.yml shard line dropped, tests join shards by glob). Three cuts (restack 1: row976 dropped at VM gate, T72-DROPS-ee44cd52-R-B.md), each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
