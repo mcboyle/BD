@@ -4012,9 +4012,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             db_log(self.site_id, self.config.get("name", "?"),
                    url, "needs_review", "", 0, msg)
             return "needs_review"
-        self._handle_failure(
-            url, f"worker error: {str(exc)[:100]}",
-            _run_generation=run_generation)
+        from .friendly_error import format_standardized_error
+        msg = f"worker error: {format_standardized_error(exc, limit=100)}"
+        self._handle_failure(url, msg, _run_generation=run_generation)
         return "failure"
 
     def _process_worker_url(self, worker_idx, browser, url,

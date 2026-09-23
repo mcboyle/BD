@@ -199,4 +199,42 @@ def assert_url_round_trip(url: str) -> str:
 def advise_error(err: Any, context: Optional[dict] = None):
     """Contextual Error Classification & Remediation Advisor bridge."""
     from .error_advisor import advise_error as _advise
-    return _advise(err, context)
+    return _advise(_strip_standardized_code(err), context)
+
+
+def format_standardized_error(err: Any, limit: int | None = None) -> str:
+    """Render ``err`` as ``[<taxonomy code>] <message>`` (row 1023).
+
+    ``exceptions.classify_exception`` decides the code: a taxonomy instance
+    keeps its own code and message, anything else is classified by type.
+    ``limit`` caps the MESSAGE only, so the code prefix never consumes a
+    caller's diagnostic budget (the worker keeps its 100 raw characters).
+    """
+    from .exceptions import classify_exception
+
+    exc = err if isinstance(err, Exception) else Exception(str(err))
+    classified = classify_exception(exc)
+    message = str(classified.message)
+    if limit is not None:
+        message = message[:limit]
+    return f"[{classified.error_code}] {message}"
+
+
+# SiteRunner._publish_worker_exception publishes "worker error: [<code>] <raw text>",
+# behind the retry-kind tag ("[permanent] ", ...) when the failure has one. The code
+# always comes first, so only that bracket is removed ("[Errno 5] ..." after it stays);
+# a code has no whitespace, so text without one ("worker error: [Errno 5] ...") is kept.
+_WORKER_CODE_TOKEN = re.compile(r"^((?:\[[a-z_]+\] )?worker error: )\[[^\]\s]+\] ")
+
+
+def _strip_standardized_code(err: Any) -> Any:
+    """Give ``advise_error`` the failure text the worker raised (row 1023 x row 987).
+
+    The ``[<code>] `` token is metadata the worker seam puts in front of the
+    raw text. The advisor classifies RAW text and echoes it back (summary,
+    operator message), so it must never see the code. Other text, and any
+    non-text object, is returned unchanged.
+    """
+    if not isinstance(err, str):
+        return err
+    return _WORKER_CODE_TOKEN.sub(r"\1", err, count=1)
