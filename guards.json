@@ -1,6 +1,6 @@
 {
   "schema": "bd-guards/1",
-  "_comment": "SINGLE SOURCE OF TRUTH for the 7 release-guard SHAs (CLAUDE.md section 2). bd-guardcheck reads this file by default; the sha256 values below are FULL 64-hex digests of the files as they exist in this repository, derived by hashing the files -- never transcribed from the truncated 16-char table in CLAUDE.md, which is documentation and goes stale. To change a pin you must declare it: bd-guard-declare --apply --reason '...', then update this file. Git history is not authorization.",
+  "_comment": "SINGLE SOURCE OF TRUTH for the 7 release-guard SHAs (CLAUDE.md section 2). bd-guardcheck reads this file by default; the sha256 values below are FULL 64-hex digests of the files as they exist in this repository, derived by hashing the files -- never transcribed from the truncated 16-char table in CLAUDE.md, which is documentation and goes stale. To change a pin you must declare it: bd-guard-declare --file <guard> --apply --reason '...' writes the new pin here with a guards_changelog record (H698). Git history is not authorization.",
   "_fields": {
     "guards": "relative path (from the tree root) -> full lowercase sha256 hex of the file bytes"
   },

@@ -5,13 +5,14 @@ rebaselining its SHA atomically, instead of hand-editing.
 WHERE THE BASELINE LIVES (v3.66.855). It is `guards.json` at the repo root --
 the single source of truth read by bd-guardcheck (root guards.json).
 STATE.json, which this tool was written to rewrite, is RETIRED along with the
-sandbox that held it. So with no --state the tool no longer errors: it does the
-read-only half (recompute the live sha, diff it against the guards.json pin,
-refuse a non-guard) and then STOPS, printing the exact edit for the operator to
-make. It does not write guards.json itself. A brief CENSUS may declare a repin
-under the 20:3xZ ruling (carried by register row 744), and the operator or cut
-makes that printed edit. The --state path below is unchanged and still works if
-you hand it a real STATE.json.
+sandbox that held it. With no --state the dry-run does the read-only half
+(recompute the live sha, diff it against the guards.json pin, refuse a non-guard)
+and STOPS: without --apply it does not write guards.json itself. A brief CENSUS
+may declare a repin under the 20:3xZ ruling (carried by register row 744), and
+the cut records that declaration with --apply --reason: the full live sha goes
+into guards.json and a guards_changelog record (file, old/new sha256, reason,
+time) goes beside it, in the same reviewed patch (H698). The --state path below
+is unchanged and still works if you hand it a real STATE.json.
 
 THE 7 RELEASE GUARDS must stay byte-identical between releases UNLESS the operator
 explicitly declares a new SHA. Hand-declaring is error-prone: a typo'd SHA, or
@@ -21,8 +22,9 @@ mechanizes the SAFE parts:
   * verify the named file IS one of the 7 guards (refuses a non-guard),
   * recompute its live sha256 from the tree,
   * show the OLD (pinned) vs NEW (live) sha and require a reason,
-  * on --apply, rewrite STATE.guards[path] to the new 8-char sha + append a
-    guard_change record to STATE.guards_changelog (who/when/why/old->new),
+  * on --apply, rewrite guards.json guards[path] to the new full sha + append a
+    record to guards.json guards_changelog (when/why/old->new) -- or, given a
+    --state, the retired STATE.json maps as before,
   * print the KB_HANDOFF line to paste (the prose half stays a human step).
 
 It NEVER edits a guard file and NEVER touches the other 6 -- one guard, one
@@ -31,14 +33,13 @@ declaration, with the reason recorded. Without --apply it is a dry-run diff.
 Usage:
   bd-guard-declare --file tools/build_release.py --reason "carries in-sync gate" [--apply]
     --state   a STATE.json to rebaseline (no default -- STATE.json is retired;
-              without it the tool reports against guards.json and writes nothing)
+              without it the baseline is <root>/guards.json)
     --root    tree root to recompute the live sha from (default: the checkout
               this tool lives in, via bdtools_sec.DEFAULT_WORK)
-    --apply   actually rewrite the given --state (else dry-run)
-Exit 0 on a clean dry-run/apply; 1 if the file is not a guard or is missing;
-2 CANNOT-EVALUATE if there is no baseline to compare against, or if --apply was
-asked for with no writable STATE (in which case NOTHING was written and the
-guards.json edit to make is printed).
+    --apply   actually rewrite the pin (guards.json, or the given --state); needs --reason
+Exit 0 on a clean dry-run/apply; 1 if the file is not a guard or is missing, or
+--apply has no --reason (nothing written); 2 CANNOT-EVALUATE if there is no
+readable baseline to compare against.
 Stdlib only (plus bdtools_sec, which ships beside it).
 """
 import argparse
@@ -76,9 +77,8 @@ def _manifest_pin(root, rel):
     """The pin guards.json currently carries for `rel`, as (short8, full) or None.
 
     READ-ONLY. guards.json is the live single source of truth for the 7 guard
-    SHAs (root guards.json); this tool does not write it itself. A brief CENSUS
-    may declare a repin under the 20:3xZ ruling (register row 744), and the
-    operator or cut makes that printed edit.
+    SHAs (root guards.json). This reader does not write it: a brief CENSUS repin
+    (register row 744) is written only by the --apply path, _manifest_apply.
     """
     p = os.path.join(root, MANIFEST_NAME)
     if not os.path.isfile(p):
@@ -92,6 +92,29 @@ def _manifest_pin(root, rel):
         return None
     full = full.strip().lower()
     return full[:8], full
+
+
+def _manifest_apply(root, rel, old_full, new_full, reason):
+    """Write the declared pin into <root>/guards.json with its changelog record.
+
+    Only the one guard's pin moves; key order and the file's own formatting
+    (indent 2, trailing newline) are kept so the patch diff is the declaration
+    and nothing else. Written to a temp file and renamed: a half-written
+    manifest would read as UNKNOWN to bd-guardcheck.
+    """
+    p = os.path.join(root, MANIFEST_NAME)
+    with open(p, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["guards"][rel] = new_full
+    doc.setdefault("guards_changelog", []).append({
+        "file": rel, "old_sha256": old_full, "new_sha256": new_full, "reason": reason,
+        "declared_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, p)
+    return p
 
 
 def _find_state():
@@ -219,25 +242,18 @@ def main(argv=None):
         print(f"  {Y}DRIFT{RST}: guards.json {man8} -> live {live8}")
         if not a.apply:
             print()
-            print(f"{DIM}dry-run. This tool does not write guards.json itself. A brief CENSUS "
-                  f"may declare a repin under the 20:3xZ ruling (register row 744); the "
-                  f"operator or cut makes that printed edit.{RST}")
+            print(f"{DIM}dry-run. This dry-run does not write guards.json itself. A brief CENSUS "
+                  f"may declare a repin under the 20:3xZ ruling (register row 744); the cut "
+                  f"records it with --apply --reason \"...\".{RST}")
             return 0
-        # --apply with nothing writable: say so with a code that means "no verdict
-        # minted / nothing done", not 0 (which would read as APPLIED) and not 1
-        # (which this tool reserves for a bad --file).
-        sys.stderr.write(
-            "CANNOT-EVALUATE --apply: reason=ABSENT (no STATE.json to rewrite; the "
-            "STATE.json flow is retired)\n"
-            "  NOTHING WAS WRITTEN. To declare this guard change, set the full sha\n"
-            "  in guards.json BY HAND and record the reason:\n"
-            "    %s\n"
-            "      \"guards\": { \"%s\": \"%s\" }   (was %s)\n"
-            "      reason: %s\n"
-            "  Then re-derive with: bd-guardcheck --tree %s\n"
-            % (os.path.join(a.root, MANIFEST_NAME), rel, live, manfull,
-               a.reason or "(none given -- --reason is required to declare)", a.root))
-        return sec.EXIT_CANNOT_EVALUATE
+        if not a.reason:
+            print(f"{R}--reason is required with --apply{RST} (records WHY the guard changed). "
+                  f"NOTHING WAS WRITTEN.")
+            return 1
+        p = _manifest_apply(a.root, rel, manfull, live, a.reason)
+        print(f"  {G}APPLIED{RST} -- {p}: guards[{rel}] = {live8}; guards_changelog +1 ({a.reason}).")
+        print(f"  Re-derive with: bd-guardcheck --tree {a.root}")
+        return 0
     st = json.load(open(state_path))
     guards = st.get("guards", {})
     old8 = guards.get(rel, "(unset)")
