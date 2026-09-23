@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=39 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=36 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -437,7 +437,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
 | 1047 | CLOSED @1646 | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
 | 1048 | OPEN | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
-| 1049 | OPEN | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
+| 1049 | CLOSED @1648 | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
 | 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
 | 1051 | OPEN | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
 | 1052 | CLOSED @1637 | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
@@ -449,14 +449,14 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1058 | CLOSED @1643 | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer -- MOOT-PREMISE: no consensus/epoch/leader path exists on 7a99076ed256 and NodeSentinel is itself an orphan (O1223); REFUTED bd-cuts/cut/row1058-consensus-epoch-viewer/DONE.md. Closed at T70 assembly (REGISTER-CLOSE-0064) |
 | 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | CLOSED @1637 | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher -- MOOT-DUPLICATE of the shipped bounded ring pub/sub (RULING-2310-row1060-REFUTED-A option A): bulk_downloader/sse_broker.py per-subscriber queue.Queue(maxsize=SUBSCRIBER_QUEUE_MAX) drop-oldest fan-out with real SSE consumers + dev_events.py deque(maxlen) ring tap @25245209179e; the cut's dispatcher had 0 consumers and 8 lock acquisitions (lock-free is not a CPython property); REFUTED bd-worker-W3-A bd-cuts/cut/row1060-lockfree-ringbuffer-ipc-dispatcher/DONE.md (staged build preserved harness-work/row1060-refuted/staged-da41424b.patch). Registrar-verified 2026-09-22T23:1xZ |
-| 1061 | OPEN | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
+| 1061 | CLOSED @1648 | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
 | 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
 | 1063 | OPEN | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
 | 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
 | 1067 | CLOSED @1634 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
-| 1068 | OPEN | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
+| 1068 | CLOSED @1648 | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
 | 1069 | CLOSED @1636 | STRICT-LIFECYCLE-ASYNCHRONOUS-TESTING-SUITE-STANDARD-PYTEST-ASYNCIO-PYTEST-MOCK -- Strict Lifecycle Asynchronous Testing Suite Standard (pytest-asyncio & pytest-mock) |
 | 1070 | CLOSED @1633 | DETERMINISTIC-PILLOW-IMAGE-PROCESSING-ENGINE-HARDENING-PILLOW-HARDENING -- Deterministic Pillow & Image Processing Engine Hardening (Pillow Hardening) |
 | 1071 | OPEN | ENTERPRISE-STRUCTURED-LOGGING-MODERNIZATION-SYS-STDERR-ELIMINATION-STRUCTUREDLOGGING -- Enterprise Structured Logging Modernization & sys.stderr Elimination (StructuredLogging) |
