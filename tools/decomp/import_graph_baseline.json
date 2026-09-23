@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5004,
+  "edge_count": 5027,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1014,6 +1014,7 @@
       "bulk_downloader/staging_claim.py"
     ],
     "bulk_downloader/cli_dashboard.py": [
+      "bulk_downloader/terminal_dashboard.py",
       "bulk_downloader/terminal_drift.py"
     ],
     "bulk_downloader/client_config.py": [
@@ -1466,6 +1467,9 @@
     "bulk_downloader/i18n.py": [
       "bulk_downloader/constants.py"
     ],
+    "bulk_downloader/ingress_flow_controller.py": [
+      "bulk_downloader/cgroups_backpressure.py"
+    ],
     "bulk_downloader/inspect_pick.py": [
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/netlog_classify.py"
@@ -1800,6 +1804,7 @@
       "bulk_downloader/audio_normalize.py",
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/cgroups_backpressure.py",
       "bulk_downloader/circuit_breaker.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/cluster_rate.py",
@@ -1877,6 +1882,7 @@
       "bulk_downloader/takeover_vnc.py",
       "bulk_downloader/task_drain_engine.py",
       "bulk_downloader/template_assist.py",
+      "bulk_downloader/thread_telemetry.py",
       "bulk_downloader/thumbnail_gen.py",
       "bulk_downloader/tier_probe.py",
       "bulk_downloader/tombstone.py",
@@ -4266,6 +4272,13 @@
       "bulk_downloader/db.py",
       "bulk_downloader/dedup.py"
     ],
+    "tests/test_row1064_bitrot_scrubber_pacing.py": [
+      "bulk_downloader/app_bitrot.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/bitrot.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_row1065_multi_homed_egress_failover.py": [
       "bulk_downloader/download_egress.py",
       "bulk_downloader/multi_homed_egress.py",
@@ -5246,6 +5259,23 @@
       "bulk_downloader/adaptive_input_variance.py",
       "bulk_downloader/cloak.py"
     ],
+    "tests/test_row984_feature.py": [
+      "bulk_downloader/cgroups_backpressure.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/ingress_flow_controller.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/netns_isolation.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/smart_wakeup.py"
+    ],
+    "tests/test_row985_feature.py": [
+      "bulk_downloader/app_events_all.py",
+      "bulk_downloader/capacity.py",
+      "bulk_downloader/cli_dashboard.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/terminal_dashboard.py"
+    ],
     "tests/test_row987_feature.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/error_advisor.py",
@@ -5274,6 +5304,9 @@
     ],
     "tests/test_row994_dynamic_query_plan_lock_contention_profiler_for_sqlite.py": [
       "bulk_downloader/db.py"
+    ],
+    "tests/test_row995_worker_thread_context_switch_cpu_affinity_telemetry.py": [
+      "bulk_downloader/runner.py"
     ],
     "tests/test_row996_per_domain_token_bucket_rate_limit_backpressure_telemetry.py": [
       "bulk_downloader/rate_limit.py",

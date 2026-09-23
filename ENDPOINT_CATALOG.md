@@ -86,7 +86,7 @@ POST    /api/batch/retry                                       CSRF: yes
 POST    /api/bg/enable/<name>                                  CSRF: yes
 GET     /api/bg/status                                         CSRF: no
 GET     /api/bitrot/issues                                     CSRF: no
-POST    /api/bitrot/scan                                       CSRF: yes  — Trigger a bit-rot scan. Returns the summary {checked, intact,
+POST    /api/bitrot/scan                                       CSRF: yes  — Trigger a bit-rot scan or manage the continuous background scrubber.
 GET     /api/bitrot/stats                                      CSRF: no
 GET     /api/budget/<sid>                                      CSRF: no
 POST    /api/bulk/enqueue                                      CSRF: yes  — Cut 8: enqueue a BATCH of URLs on a configured site, tracked via the

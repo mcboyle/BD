@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1662 - train87: row1064, row985, row995, row984
+
+Base main 58e460ed (T86 v3.66.1661 landed; no regen commit at assembly). T87: four register cuts + one harness cut, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010; batching O1303); per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
+
+- row1064 bit-rot scrubber: continuous background bit-rot scrubbing with pacing (bulk_downloader/bitrot.py, app_bitrot.py, bg_scheduler.py, tests/test_row1064_bitrot_scrubber_pacing.py). P2-B BOARD at 83c81150 on review copy /home/mboyle/bd-review-wt/row1064-bd-agy-worker-g7-local (base cc0840f0; +/- identical to built cut eab396e0, ORDERS-0104).
+- row985 TUI dashboard: interactive terminal dashboard (cut /home/mboyle/bd-cuts/cut/row985-tui-dashboard, base cc0840f0). P2-B BOARD at c041f0d8.
+- row995 worker-thread context-switch & CPU-affinity telemetry (bulk_downloader/thread_telemetry.py, runner.py, tests/test_row995_thread_context_switch_cpu_affinity_telemetry.py; cut base 261069ff, rebased at assembly). cx1 BOARD at 683682e4 (PATCH-SHA256 ebcf5be7 == DONE), ORDERS-0105 late-board window.
+- H727 precut fast census (harness, no register row): toolchain/bin/bd-precut fast-gate census + tests/test_h701_precut_fast.py. P2-B BOARD at 25557799 on /home/mboyle/bd-review-wt/rowh727-precut-fast-census-local (base cc0840f0; live cut h727-precut-fast-census identical). ORDERS-0105 ADD 15:08Z.
+- row984 cgroups v2 backpressure: cgroup memory watermarks + ingress breaker (bulk_downloader/cgroups_backpressure.py, ingress_flow_controller.py, runner.py, tests/test_row984_feature.py; cut base cc0840f0). N2-B BOARD at 806da891 (PATCH-SHA256 df7eb02a == DONE; fixer-cx1 transfer). ORDERS-0105 ADD 15:17Z.
+- HOTFIX 1085 (ORDERS-0105 ADD 15:15Z, O1289/O805, folded into the row984 spec by fixup): IMPROVEMENT_BACKLOG_ARCHIVE.md row 238 anchor app.py:7056 -> the parse_allowlist( line on this tip (T86 moved it to 7063); fixes main red gates-rows-a test_row1020_gateway_routeregistry_decomp.
+- register: rows 1064, 985, 995, 984 CLOSED @1662.
+
+
 ## v3.66.1661 - train86: row1036, row993, row1076
 
 Base main cc0840f0 (T85 v3.66.1660 landed 13:54Z; no regen commit at assembly). T86: three cuts boarded at their INDEX trees by bd-review-correctness seats (POLICY-0010), rebased onto main at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2). row1076's one context-drift hunk (tests/test_row703_a_proxy_shadows_the_guarded_transport.py, moved by row1077) resolved in place per ORDERS-0101/O805; +/- lines identical to the boarded tree. Register amendments: rows 998, 1050 closed DEFERRED (O1305, ORDERS-0098 s1).
