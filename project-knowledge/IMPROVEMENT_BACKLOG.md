@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=8 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=4 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -372,8 +372,8 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 981 | CLOSED @1635 | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap -- MOOT-PREMISE (O1223): no product fleet-seat/workload-allocation concept or caller @5f74ea9c21ee (git grep FOUND NONE in code; positive control hour_heatmap FOUND 3); REFUTED bd-worker-W2-B bd-local-wt/row981-bd-worker-W2-B/DONE.md; prior cut REFUTED N4-B orphan module. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 982 | OPEN | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
 | 983 | CLOSED @1660 | IN-PROCESS-HEAP-ARENA-COMPACTION-AND-GLIBC-MALLOC-TRIM-0-MITIGATOR-HEAPARENAMITIGATOR -- In-Process Heap Arena Compaction and Glibc malloc_trim(0) Mitigator (HeapArenaMitigator) -- MOOT-DUPLICATE of row 1074 (RULING-0085 08:20Z): REFUTED /home/mboyle/bd-cuts/cut/row983-heap-compaction/DONE.md (row1074 arena_compactor landed T69 4c317d6f). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
-| 984 | OPEN | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
-| 985 | OPEN | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
+| 984 | CLOSED @1662 | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
+| 985 | CLOSED @1662 | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
 | 987 | CLOSED @1643 | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
 | 988 | CLOSED @1656 | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
@@ -383,7 +383,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 992 | CLOSED @1624 | HIGH-RESOLUTION-SOCKET-I-O-ACCOUNTING-MICROSECOND-LATENCY-TRACKER -- High-Resolution Socket I/O Accounting & Microsecond Latency Tracker |
 | 993 | CLOSED @1661 | RESIDENT-MEMORY-PAGE-FAULT-HEAP-GROWTH-TELEMETRY -- Resident Memory Page Fault & Heap Growth Telemetry |
 | 994 | CLOSED @1639 | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite -- RESCOPED (RULING-2338-row994-RESCOPE-a, O1263): lock-contention profiler only -- SQLiteLockContentionProfiler fed from db.db_init's locked-retry loop, BUSY/LOCKED by message text, 'unobserved' until a feed attaches, surfaced in dev_suite.db_overview() (/api/dev/db_stats); plan profiler + db_profile_query dropped: dev_suite/db_tools._explain_query_plan and index_advisor already classify EXPLAIN QUERY PLAN. |
-| 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
+| 995 | CLOSED @1662 | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
 | 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
 | 998 | CLOSED @1661 | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol -- DEFERRED (O1305, ORDERS-0098 s1, PM 14:10Z): dropped by fixer-A after 3+ bounces; no DONE. Closed DEFERRED at T86 assembly (ORDERS-0101) |
@@ -452,7 +452,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1061 | CLOSED @1648 | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
 | 1062 | CLOSED @1651 | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
 | 1063 | CLOSED @1649 | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
-| 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
+| 1064 | CLOSED @1662 | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
 | 1067 | CLOSED @1634 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
