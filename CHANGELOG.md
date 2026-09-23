@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1664 - train89: row982, row986
+
+Base T88 tip cefc596e (v3.66.1663; PR1000 base main; main 2dcac16a). T89 (ORDERS-0109 T89 PREVIEW + PUSH 16:35Z): two cuts, each boarded at its INDEX tree (982 P1-A orphaned BOARD, dropped from T69/T70 for row703 pin drift; 986 cx1 decisive), rebased in place (O1319/O805). Per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
+
+- row982 userspace zero-copy buffer ring pool: memoryview-sliced reusable buffers with object recycling (bulk_downloader/buffer_ring_pool.py, chunked_transfer.py, runner_transport.py, tests/test_row982_feature.py, test_adaptive_chunk_sizing.py). P1-A BOARD at 11709118 (cut base 0499e626). Row703 map re-pinned at assembly by fixup (runner_transport.py 3750/3831/3982 -> 3754/3835/3986, the +4 shift that dropped it from T70; O805 in place).
+- row986 hierarchical multi-stream progress telemetry (bulk_downloader/runner_progress_telemetry.py, runner_telemetry.py, runner_transport.py, runner.py, tests/test_row986_feature.py). cx1 BOARD at 26278f6a (PATCH-SHA256 c49af539, base 2dcac16a); resolved copy /home/mboyle/bd-cuts/cut/row986-multi-stream-progress-resolved tree 81ab9ff2 on the 982 spec (row703 pins re-derived 3362/3754/3835/3986 -> 3372/3770/3851/4002).
+- register: rows 982, 986 CLOSED @1664.
+
+
 ## v3.66.1663 - train88: row1066
 
 Base main 2dcac16a (T87 v3.66.1662 landed 15:42Z; no regen commit at assembly). T88 (ORDERS-0109 pre-assemble, O1320): one cut, rebased onto main in place (O1319 keep-both on the row703 pin blocks); lens leg pending at push time per the order. Per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
