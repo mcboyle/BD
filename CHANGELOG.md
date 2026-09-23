@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1644 - train69: row1074
+
+- row1074-ebpf-memory-arena-compactor forward fix (row CLOSED @1634; 2 paths). N4-A at 1316d294.
+- row1074-ebpf-memory-arena-compactor: memory arena compactor (bulk_downloader/arena_compactor.py)
+
+
 ## v3.66.1643 - train70: row987, row1019
 
 Base main f4fceccc (T66' v3.66.1640 landed 05:0xZ). Restack 5 (rebase after T66' landing; ORDERS-0067 drops): four cuts, each boarded at its INDEX tree by a
