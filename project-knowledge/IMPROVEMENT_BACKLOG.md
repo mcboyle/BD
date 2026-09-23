@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=3 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=1 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -370,11 +370,11 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 979 | CLOSED @1658 | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
 | 980 | CLOSED @1635 | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
 | 981 | CLOSED @1635 | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap -- MOOT-PREMISE (O1223): no product fleet-seat/workload-allocation concept or caller @5f74ea9c21ee (git grep FOUND NONE in code; positive control hour_heatmap FOUND 3); REFUTED bd-worker-W2-B bd-local-wt/row981-bd-worker-W2-B/DONE.md; prior cut REFUTED N4-B orphan module. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
-| 982 | OPEN | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
+| 982 | CLOSED @1664 | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
 | 983 | CLOSED @1660 | IN-PROCESS-HEAP-ARENA-COMPACTION-AND-GLIBC-MALLOC-TRIM-0-MITIGATOR-HEAPARENAMITIGATOR -- In-Process Heap Arena Compaction and Glibc malloc_trim(0) Mitigator (HeapArenaMitigator) -- MOOT-DUPLICATE of row 1074 (RULING-0085 08:20Z): REFUTED /home/mboyle/bd-cuts/cut/row983-heap-compaction/DONE.md (row1074 arena_compactor landed T69 4c317d6f). Closed at T85 assembly (REGISTER-CLOSE-0064, PM 11:42Z) |
 | 984 | CLOSED @1662 | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
 | 985 | CLOSED @1662 | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
-| 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
+| 986 | CLOSED @1664 | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
 | 987 | CLOSED @1643 | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
 | 988 | CLOSED @1656 | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
 | 989 | CLOSED @1634 | INTER-SEAT-IPC-LATENCY-MATRIX-MONITOR -- Inter-Seat IPC Latency Matrix Monitor |
