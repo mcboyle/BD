@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1667 - train94: row
+
+
 ## v3.66.1666 - train91: H404, H419, H621, H622, H667, H662, H644, H152, H105, H668
 
 Base T90 train/90-20260923 9f784d66 (v3.66.1665). T91 combined T91+T92+T93 (ORDERS-0127 / O1346; POLICY-0118 gate vmci; no product change, deploy skipped): ten harness rows, each boarded at its INDEX tree.
