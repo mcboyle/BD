@@ -295,6 +295,40 @@ if _running_pytest; then
   down. Wait for the run, or reap it, then re-run."
 fi
 
+# H153: A PROCESS IS NOT A LEASE. The guard above holds only while the suite
+# RUNS; its log is still unread when the process exits (2026-09-07: suite ended
+# 15:39:27Z, reset landed 15:39:52Z, log unread). The reader holds a lease
+# (bd-measure-lease.sh take/release) until it has READ the result, and a held
+# lease refuses here. Older than BD_LEASE_STALE seconds = forgotten, not
+# honoured, so a lost release cannot wedge deploys. A lease whose age cannot be
+# read is honoured: unknown is never permission. Files are parsed, never sourced.
+_held_measure_lease() {
+  local dir="${BD_LEASE_DIR:-$HOME/bd-persist/measure-leases}"
+  local stale="${BD_LEASE_STALE:-5400}" now f epoch label
+  [ -d "$dir" ] || return 1
+  now="$(date +%s)"
+  for f in "$dir"/*.lease; do
+    [ -f "$f" ] || continue
+    epoch="$(sed -n 's/^epoch=\([0-9][0-9]*\)$/\1/p' "$f" | head -1)"
+    label="$(sed -n 's/^label=//p' "$f" | head -1)"
+    if [ -z "$epoch" ]; then
+      HELD_LEASE="${label:-?} ($f: age unreadable)"; return 0
+    fi
+    [ $((now - epoch)) -gt "$stale" ] && continue
+    HELD_LEASE="${label:-?} ($f, age $((now - epoch))s)"; return 0
+  done
+  return 1
+}
+_refuse_held_measure_lease() {
+  HELD_LEASE=""
+  if _held_measure_lease; then
+    refuse "a measurement lease is held: $HELD_LEASE.
+  A finished run whose result is still unread would be reset under its reader.
+  Wait for 'bd-measure-lease.sh release', or ask its holder, then re-run."
+  fi
+}
+_refuse_held_measure_lease  # early-exit-ok: the only prior exit 0 is -h/--help, which does no work
+
 
 [ -e "$DIR/.git" ] || refuse "not a git work tree: $DIR"
 [ -f "$DIR/bulk_downloader/__init__.py" ] \
