@@ -24,6 +24,7 @@ import ast
 import importlib.machinery
 import importlib.util
 import json
+import math
 import os
 import pathlib
 import re
@@ -453,10 +454,90 @@ _ITEM_RESERVE_S = 30
 _MIN_INNER_BUDGET_S = 60
 
 
-def _inner_budget_s(suite):
-    """The subprocess budget for one suite -- ALWAYS below its item bound."""
+_MAX_LOAD_FACTOR = 4.0
+
+
+def _measured_load_factor():
+    try:
+        load = os.getloadavg()[0]
+        cpus = os.cpu_count()
+    except (AttributeError, OSError) as exc:
+        raise AssertionError("tool-state host load UNKNOWN") from exc
+    assert math.isfinite(load) and load >= 0 and cpus and cpus > 0, (
+        "tool-state host load UNKNOWN: load=%r cpus=%r" % (load, cpus))
+    return min(_MAX_LOAD_FACTOR, 1.0 + load / cpus)
+
+
+def _inner_budget_s(suite, load_factor=None):
+    if load_factor is None:
+        load_factor = _measured_load_factor()
     return max(_MIN_INNER_BUDGET_S,
-               int(_SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR))
+               int(_SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * load_factor))
+
+
+def test_h664_budget_scales_with_measured_load_and_stays_bounded(monkeypatch):
+    suite = "tests/test_v3_66_1040_remote_job_registry.py"
+    monkeypatch.setattr(os, "cpu_count", lambda: 4)
+    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))
+    quiet = _inner_budget_s(suite)
+    monkeypatch.setattr(os, "getloadavg", lambda: (8.0, 0.0, 0.0))
+    busy = _inner_budget_s(suite)
+    assert busy > quiet, "H664: measured contention does not affect the inner budget"
+    monkeypatch.setattr(os, "getloadavg", lambda: (10000.0, 0.0, 0.0))
+    saturated = _inner_budget_s(suite)
+    assert quiet <= busy <= saturated <= _item_timeout_s(suite) - _ITEM_RESERVE_S
+    assert saturated <= quiet * 4, "H664: load can remove the finite hang bound"
+
+
+@pytest.mark.parametrize("load,elapsed,passes", [
+    (0.0, 50.0, True), (8.0, 100.0, True),
+    (0.0, 100.0, False), (8.0, 250.0, False),
+])
+def test_h664_elapsed_check_uses_the_same_measured_load(
+        monkeypatch, tmp_path, load, elapsed, passes):
+    module = sys.modules[__name__]
+    jobs, runctx = tmp_path / "jobs", tmp_path / "runctx"
+    jobs.mkdir()
+    runctx.mkdir()
+    monkeypatch.setattr(module, "_REAL_STATE", (str(jobs),))
+    monkeypatch.setattr(module, "_PER_RUN_STATE", str(runctx))
+    monkeypatch.setattr(os, "cpu_count", lambda: 4)
+    samples = []
+
+    def measured_load():
+        samples.append(load)
+        return (load, 0.0, 0.0)
+
+    monkeypatch.setattr(os, "getloadavg", measured_load)
+    clock = iter((0.0, elapsed))
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    calls = []
+
+    def completed(argv, **kwargs):
+        calls.append(kwargs["timeout"])
+        mine = runctx / "inner"
+        mine.mkdir()
+        return subprocess.CompletedProcess(
+            argv, 0, stdout=f"1 passed\n1 worker chain(s): {mine}\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", completed)
+    suite = "tests/test_v3_66_1040_remote_job_registry.py"
+    if passes:
+        _run_tool_state_suite(suite)
+    else:
+        with pytest.raises(AssertionError, match="recorded baseline"):
+            _run_tool_state_suite(suite)
+    assert len(calls) == 1
+    assert samples == [load], "H664: one load sample must govern timeout and elapsed check"
+    if passes:
+        assert calls[0] >= elapsed
+
+
+@pytest.mark.parametrize("load", [-1.0, float("nan"), float("inf")])
+def test_h664_unknown_load_is_not_a_quiet_host(monkeypatch, load):
+    monkeypatch.setattr(os, "getloadavg", lambda: (load, 0.0, 0.0))
+    with pytest.raises(AssertionError, match="load UNKNOWN"):
+        _inner_budget_s(_A_SUITE)
 
 
 def _item_timeout_s(suite):
@@ -469,7 +550,10 @@ def _item_timeout_s(suite):
     inner budget can never fire has an unreachable error path and kills its
     worker instead of failing; that is the defect this replaces.
     """
-    return _inner_budget_s(suite) + _ITEM_RESERVE_S
+    # The marker is evaluated at collection; load is sampled at execution.
+    # Reserve the finite ceiling so a later load increase cannot kill pytest
+    # before the subprocess timeout reports its own failure.
+    return _inner_budget_s(suite, _MAX_LOAD_FACTOR) + _ITEM_RESERVE_S
 
 
 # The suite the monkeypatched controls below drive. They fake subprocess.run,
@@ -792,6 +876,9 @@ def test_budget_soundness_control_itself_refuses_a_changed_population(tmp_path, 
 
 def test_floor_governed_runtime_baseline_still_refuses_a_slow_run(tmp_path, monkeypatch):
     """A 60s subprocess floor must not hide a stale 7s runtime baseline."""
+    # H664 scales the elapsed limit by measured host load; this control is about the baseline, so it
+    # pins a quiet host (load 0) -- unpinned, any busy host lifts 14s above the 15s run and it cannot fire.
+    monkeypatch.setattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))
     monkeypatch.setattr(sys.modules[__name__], "_REAL_STATE", (tmp_path / "state",))
     monkeypatch.setattr(sys.modules[__name__], "_PER_RUN_STATE", tmp_path / "runs")
     monkeypatch.setattr(sys.modules[__name__], "_REPO", pathlib.Path(__file__).resolve().parents[1])
@@ -851,7 +938,7 @@ def _persist_inner_log(suite, body):
         return "UNKNOWN (the inner log could not be written: %s)" % exc
 
 
-def _inner_failure_refusal(suite, r, attributed, elapsed):
+def _inner_failure_refusal(suite, r, attributed, elapsed, budget=None):
     """Name the step that failed, and say whether THIS gate's subject is in it.
 
     Three situations reached the same sentence and lead to three different
@@ -898,7 +985,7 @@ def _inner_failure_refusal(suite, r, attributed, elapsed):
     return ("inner pytest failed, so its state evidence is not a valid "
             "completed denominator (rc=%d, %.1fs against a %ds budget).\n"
             "%s\n%s\n%s\nINNER-LOG: %s\nTAIL:\n%s"
-            % (r.returncode, elapsed, _inner_budget_s(suite), which, verdict,
+            % (r.returncode, elapsed, budget if budget is not None else _inner_budget_s(suite), which, verdict,
                where, _persist_inner_log(suite, body), body[-1200:]))
 
 
@@ -947,11 +1034,13 @@ def _run_tool_state_suite(suite):
                BD_RUN_BANNERS="1",
                BD_NESTED_PYTEST="1", BD_JOBS_RUN_MARKER=run_marker)
     env.pop("FORCE_COLOR", None)
+    load_factor = _measured_load_factor()
+    budget = _inner_budget_s(suite, load_factor)
     started = time.monotonic()
     r = subprocess.run([sys.executable, "-m", "pytest", suite, "-q",
                         "-p", "no:randomly"],
                        capture_output=True, text=True,
-                       timeout=_inner_budget_s(suite),
+                       timeout=budget,
                        cwd=str(_REPO), env=env)
     elapsed = time.monotonic() - started
     after = snapshot()
@@ -965,13 +1054,13 @@ def _run_tool_state_suite(suite):
     # says so here. This also catches the slow drift that created the defect in
     # the first place: the gate reached 221s against a 240s bound one suite at
     # a time, and nothing ever announced it.
-    assert elapsed <= _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR, (
-        "%s took %.1fs against a recorded baseline of %ds. Either the recorded "
+    assert elapsed <= _SUITE_BASELINE_S[suite] * _CONTENTION_FACTOR * load_factor, (
+        "%s took %.1fs against a recorded baseline of %ds (load factor %.2f). Either the recorded "
         "baseline is wrong -- in which case its budget is wrong too and this "
         "gate is one contended run from firing on correct work -- or the suite "
         "genuinely grew. Re-measure it on an idle host and update "
         "_SUITE_BASELINE_S; do not simply widen _CONTENTION_FACTOR."
-        % (suite, elapsed, _SUITE_BASELINE_S[suite]))
+        % (suite, elapsed, _SUITE_BASELINE_S[suite], load_factor))
 
     # THE DELTA IS COMPUTED BEFORE THE REFUSAL, not after it. Both snapshots
     # already exist at this point; computing them below the returncode
@@ -986,7 +1075,7 @@ def _run_tool_state_suite(suite):
     offenders = {_REAL_STATE[0]: attributed} if attributed else {}
 
     assert r.returncode == 0, (
-        _inner_failure_refusal(suite, r, attributed, elapsed))
+        _inner_failure_refusal(suite, r, attributed, elapsed, budget))
     assert "passed" in (r.stdout + r.stderr), (
         "the inner run produced no summary, so it may not have run at all:\n%s"
         % (r.stdout + r.stderr)[-1200:])
