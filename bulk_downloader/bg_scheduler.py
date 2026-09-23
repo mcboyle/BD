@@ -295,6 +295,16 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     register("ytdlp.refresh_status", _run_ytdlp_check,
              interval_seconds=3600)
 
+    # Row 1014: periodic PASSIVE WAL checkpoint of the app DB, routed through the
+    # async flusher pipeline (PASSIVE never blocks writers). A failed previous
+    # flush raises here, so it shows as this task's error in /api/bg/status.
+    def _run_wal_flush():
+        from . import db_maintenance as _dm
+        _dm.run_scheduled_wal_flush()
+
+    register("db.wal_flush", _run_wal_flush,
+             interval_seconds=300)
+
     # A5 template-lifecycle drift sweep: daily. The task fn is TOGGLE-GATED
     # (lifecycle_drift.scheduled_sweep no-ops unless automation.drift_sweep_enabled
     # is on, default OFF), so registering it is behaviour-neutral by default —

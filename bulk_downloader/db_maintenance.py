@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -311,6 +311,51 @@ def compact_database(
     except (sqlite3.Error, OSError) as exc:
         log.error("Database compaction failed: %s", exc)
         return {"ok": False, "error": str(exc)}
+
+
+def schedule_async_wal_flush(db_path: str, checkpoint_mode: str = "PASSIVE") -> str:
+    """Schedule an asynchronous, non-blocking WAL flush event in the background flusher pipeline."""
+    from .async_wal_flusher import get_async_wal_flusher
+    flusher = get_async_wal_flusher()
+    return flusher.enqueue_flush(db_path=db_path, checkpoint_mode=checkpoint_mode)
+
+
+_LAST_SCHEDULED_FLUSH: Optional[str] = None
+
+
+def run_scheduled_wal_flush(checkpoint_mode: str = "PASSIVE") -> str:
+    """Periodic WAL flush of the app DB through the async pipeline (bg_scheduler task).
+
+    Fail-closed: the previous scheduled flush is checked first; if it failed, or
+    never resolved, this raises so the scheduler records the task as errored.
+    """
+    global _LAST_SCHEDULED_FLUSH
+    from .async_wal_flusher import get_async_wal_flusher
+    from .db import _resolve_db_path
+
+    prev = _LAST_SCHEDULED_FLUSH
+    _LAST_SCHEDULED_FLUSH = schedule_async_wal_flush(str(_resolve_db_path()), checkpoint_mode)
+    if prev is not None:
+        res = get_async_wal_flusher().get_event_result(prev)
+        if res is None:
+            raise RuntimeError(f"previous WAL flush {prev} never completed")
+        if not res.success:
+            raise RuntimeError(
+                f"previous WAL flush {prev} failed: {res.error or f'busy={res.busy}'}")
+    return _LAST_SCHEDULED_FLUSH
+
+
+def trigger_async_wal_flush(
+    event_type: str = "MAINTENANCE",
+    priority: Any = None,
+    db_path: Optional[str] = None,
+) -> bool:
+    """Trigger non-blocking WAL flush event in the background pipeline."""
+    from .async_wal_flusher import FlushPriority, get_async_wal_flusher
+    flusher = get_async_wal_flusher()
+    pri = priority if priority is not None else FlushPriority.NORMAL
+    return flusher.submit_flush_event(event_type=event_type, priority=pri, db_path=db_path)
+
 
 
 from .sqlite_freelist_vacuum import IncrementalVacuumController
