@@ -98,7 +98,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/oidc.py:124": PINNED,
     "bulk_downloader/qb_bridge.py:162": PINNED,
     "bulk_downloader/runner.py:950": PUBLIC_ONLY,
-    "bulk_downloader/runner.py:1403": PUBLIC_ONLY,
+    "bulk_downloader/runner.py:1424": PUBLIC_ONLY,  # row 1028 moved it down 21 lines (_ACTIVE_RUNNERS block + SiteRunner.__init__ registration); same construction
     "bulk_downloader/runner_challenge.py:337": PINNED,
     "bulk_downloader/runner_challenge.py:351": PINNED,
     "bulk_downloader/runner_challenge.py:368": PINNED,

@@ -1300,6 +1300,31 @@ _TITLE_CUT_RX = re.compile(
 # Cache keyed by sha256(filename) -> result dict (advisory; process-local).
 _FILENAME_META_CACHE: Dict[str, Dict[str, Any]] = {}
 
+# Row 1028: Weakref Callback Lifecycle Manager & Unbounded Cache Pruning Engine integration
+from .weakref_lifecycle import (  # noqa: E402
+    get_cache_pruning_engine,
+)
+
+_FILENAME_CACHE_MAX_ENTRIES = 500
+get_cache_pruning_engine().register_cache(
+    "_FILENAME_META_CACHE",
+    _FILENAME_META_CACHE,
+    max_size=_FILENAME_CACHE_MAX_ENTRIES,
+)
+
+
+def prune_metadata_cache(max_size: Optional[int] = None) -> int:
+    """Prune metadata cache using WeakrefLifecycle CachePruningEngine (Row 1028)."""
+    return get_cache_pruning_engine().prune_cache("_FILENAME_META_CACHE", max_size_override=max_size)
+
+
+def _store_filename_cache(key: str, out: Dict[str, Any]) -> None:
+    _FILENAME_META_CACHE[key] = dict(out)
+    engine = get_cache_pruning_engine()
+    max_size = engine.get_cache_max_size("_FILENAME_META_CACHE", default=_FILENAME_CACHE_MAX_ENTRIES)
+    if len(_FILENAME_META_CACHE) > max_size:
+        engine.prune_cache("_FILENAME_META_CACHE")
+
 
 def _filename_cache_key(filename: str) -> str:
     return hashlib.sha256(filename.encode("utf-8", "replace")).hexdigest()
@@ -1366,13 +1391,13 @@ def normalize_filename(filename: str, *, _call=None) -> Dict[str, Any]:
             "height": (res or {}).get("height", 0),
             "confidence": 95, "via": "regex",
         }
-        _FILENAME_META_CACHE[key] = dict(out)
+        _store_filename_cache(key, out)
         return out
 
     if not _config["enabled"]:
         out = _blank_meta("no-match")
         out["title"] = _title_from_stem(filename)
-        _FILENAME_META_CACHE[key] = dict(out)
+        _store_filename_cache(key, out)
         return out
 
     # ── LLM fallback (opaque names only) ─────────────────────────────
@@ -1423,5 +1448,5 @@ def normalize_filename(filename: str, *, _call=None) -> Dict[str, Any]:
         "provider": getattr(result, "provider", "?"),
     }
     _record_call("fname", ms, True)
-    _FILENAME_META_CACHE[key] = dict(out)
+    _store_filename_cache(key, out)
     return out

@@ -987,6 +987,21 @@ def _run_lifecycle_serialized(method):
     return serialized
 
 
+# Row 1028: Weakref Callback Lifecycle Manager & WeakValueCache integration
+from typing import Optional as _Optional  # noqa: E402
+from .weakref_lifecycle import (  # noqa: E402
+    WeakValueCache,
+    get_weakref_lifecycle_manager,
+)
+
+_ACTIVE_RUNNERS = WeakValueCache()
+
+
+def get_active_runner(site_id: str) -> _Optional["SiteRunner"]:
+    """Return live SiteRunner instance if still referenced in memory (Row 1028)."""
+    return _ACTIVE_RUNNERS.get(site_id)
+
+
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
     _WORKER_CLAIM_STALE = "stale"
     _WORKER_CLAIM_INELIGIBLE = "ineligible"
@@ -1021,6 +1036,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             transport.set_rate_limit_autostart(val)
 
     def __init__(self,site_id,config):
+        # Row 1028: Register runner in WeakValueCache and WeakrefCallbackManager
+        _ACTIVE_RUNNERS[site_id] = self
+        get_weakref_lifecycle_manager().register(
+            self,
+            callback=lambda ref, sid=site_id: None,
+        )
         # Phase 34: structured logger, scoped to this site. Used in
         # preference to sys.stderr.write for code added from Phase 34
         # onward. Older sys.stderr.write calls remain for now — they're
