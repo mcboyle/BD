@@ -335,6 +335,10 @@ def boot_once(*, force: bool = False) -> bool:
                 del _watcher_boot_context.reopen_allowed
             except AttributeError:
                 pass
+        # Row 1076: unhandled crashes in the main thread and in worker threads
+        # leave a blackbox dump; the 500 handler covers request crashes.
+        from .blackbox_snapshotter import get_blackbox_snapshotter
+        get_blackbox_snapshotter().install_excepthook()
         _BOOTED_PATHS.add(key)
         # Request-capable background services start LAST, and after the latch is
         # set. Last, because the scheduler's tasks read tables the migrations
@@ -537,7 +541,10 @@ def _on_request_too_large(e):
 
 @app.errorhandler(500)
 def _on_internal_error(e):
-    # Last-resort catch — log and return generic JSON to API clients
+    # Last-resort catch — log, capture blackbox snapshot, and return generic JSON to API clients
+    # (the capture never raises: a failed one is counted in the snapshotter's metrics)
+    from .blackbox_snapshotter import capture_crash_snapshot
+    capture_crash_snapshot(e, context={"path": request.path, "method": request.method})
     try:
         from .log import get_logger
         get_logger("bulk_downloader.app").exception(

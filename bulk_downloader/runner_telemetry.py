@@ -63,6 +63,10 @@ class TelemetryMixin:
             "extra": extra or {},
         }
         self._event_log.append(ev)
+        # Row 1076: the same event feeds the crash flight recorder's ring (an in-memory append).
+        from .blackbox_snapshotter import record_flight_event
+        record_flight_event(f"site.{kind}", {"site_id": self.site_id, "message": ev["message"],
+                                              "url": url, "extra": ev["extra"]})
         # Mirror to stderr so console behavior is unchanged.
         # v3.43.24: include site_id in the prefix so multi-site logs are
         # filterable with grep. Format: [site_id][kind] {message}, with

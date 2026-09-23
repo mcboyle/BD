@@ -105,7 +105,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_challenge.py:382": PINNED,
     "bulk_downloader/runner_extractors.py:629": PUBLIC_ONLY,
     "bulk_downloader/runner_manual.py:422": PUBLIC_ONLY,
-    "bulk_downloader/runner_telemetry.py:343": PUBLIC_ONLY,
+    "bulk_downloader/runner_telemetry.py:347": PUBLIC_ONLY,  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
     "bulk_downloader/runner_transport.py:1253": PINNED,
     "bulk_downloader/runner_transport.py:1924": PINNED,
     "bulk_downloader/runner_transport.py:3340": PINNED,
