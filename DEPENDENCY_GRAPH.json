@@ -2397,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1882,
+    "edge_count": 1886,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2434,6 +2434,9 @@
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/runner_accounts.py"
+      ],
+      "bulk_downloader/adaptive_gc.py": [
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/admission.py": [
         "bulk_downloader/runner.py",
@@ -3099,6 +3102,9 @@
       "bulk_downloader/arena_compactor.py": [
         "bulk_downloader/dev_suite/introspection.py"
       ],
+      "bulk_downloader/async_wal_flusher.py": [
+        "bulk_downloader/db_maintenance.py"
+      ],
       "bulk_downloader/async_worker_runtime.py": [
         "bulk_downloader/guardrails.py"
       ],
@@ -3543,6 +3549,7 @@
         "bulk_downloader/cost_economics.py",
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/daily_budget.py",
+        "bulk_downloader/db_maintenance.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/dev_suite/introspection.py",
         "bulk_downloader/diagnostics_bundle.py",
@@ -5012,6 +5019,9 @@
       ],
       "bulk_downloader/transaction_journal.py": [
         "bulk_downloader/container_repair.py"
+      ],
+      "bulk_downloader/transport_circuit.py": [
+        "bulk_downloader/http_client.py"
       ],
       "bulk_downloader/ui_events.py": [
         "bulk_downloader/app_global_config.py",
@@ -6728,6 +6738,8 @@
         "bulk_downloader/staging_ingest.py"
       ],
       "bulk_downloader/db_maintenance.py": [
+        "bulk_downloader/async_wal_flusher.py",
+        "bulk_downloader/db.py",
         "bulk_downloader/sqlite_freelist_vacuum.py"
       ],
       "bulk_downloader/db_replication.py": [
@@ -7068,7 +7080,8 @@
       ],
       "bulk_downloader/http_client.py": [
         "bulk_downloader/egress_transport.py",
-        "bulk_downloader/global_config.py"
+        "bulk_downloader/global_config.py",
+        "bulk_downloader/transport_circuit.py"
       ],
       "bulk_downloader/hybrid_search.py": [
         "bulk_downloader/db.py",
@@ -7390,6 +7403,7 @@
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/runner.py": [
+        "bulk_downloader/adaptive_gc.py",
         "bulk_downloader/admission.py",
         "bulk_downloader/app_state.py",
         "bulk_downloader/audio_normalize.py",

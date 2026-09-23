@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1640 - train66: train66 version trio, regen, import-graph re-freeze
+
+- row1033: Structured CLI Operational Diagnostics & Self-Healing Advisor
+- row1004: Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery
+- row1014: Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline
+- row1029: Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCCont
+- register: row 977 REFUTED MOOT-PREMISE closed (O1223). Per-row CI shard lines placed by anchor (RULING-0029).
+- dropped (O1282, T66-DROPS-0f6e1a98): row963/row1049 (240s budget gate), row1068 (route map: /api/provenance/shards), row1021/row1020/row1031/row1065 (ratchet defect_DP_total +1 each); earlier ORDERS-0048 drops row998/row1053/H701 stand.
+
+
 ## v3.66.1639 - train67: train67 version trio, regen, import-graph re-freeze
 
 - row1022-acyclic-imports: import-graph acyclicity contract (2 paths). W9-A; N5-A at ed9023c4.

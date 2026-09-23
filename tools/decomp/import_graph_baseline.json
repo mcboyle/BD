@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4982,
+  "edge_count": 4997,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1217,6 +1217,8 @@
       "bulk_downloader/staging_ingest.py"
     ],
     "bulk_downloader/db_maintenance.py": [
+      "bulk_downloader/async_wal_flusher.py",
+      "bulk_downloader/db.py",
       "bulk_downloader/sqlite_freelist_vacuum.py"
     ],
     "bulk_downloader/db_replication.py": [
@@ -1557,7 +1559,8 @@
     ],
     "bulk_downloader/http_client.py": [
       "bulk_downloader/egress_transport.py",
-      "bulk_downloader/global_config.py"
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/transport_circuit.py"
     ],
     "bulk_downloader/hybrid_search.py": [
       "bulk_downloader/db.py",
@@ -1879,6 +1882,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/runner.py": [
+      "bulk_downloader/adaptive_gc.py",
       "bulk_downloader/admission.py",
       "bulk_downloader/app_state.py",
       "bulk_downloader/audio_normalize.py",
@@ -4094,6 +4098,11 @@
       "bulk_downloader/backoff_profiles.py",
       "bulk_downloader/retry_policy.py"
     ],
+    "tests/test_row1004_transport_layer_sliding_window_circuit_breakers_with_leaky_bucket_recovery.py": [
+      "bulk_downloader/challenge_circuit.py",
+      "bulk_downloader/http_client.py",
+      "bulk_downloader/transport_circuit.py"
+    ],
     "tests/test_row1005_dynamic_path_mtu_discovery_pmtu_tcp_mss_clamping_sentry.py": [
       "bulk_downloader/pmtu_sentry.py",
       "bulk_downloader/vpn_wireguard.py"
@@ -4113,6 +4122,12 @@
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
+    ],
+    "tests/test_row1014_async_event_wal_flusher.py": [
+      "bulk_downloader/async_wal_flusher.py",
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/db_maintenance.py"
     ],
     "tests/test_row1015_deeplane_red.py": [
       "bulk_downloader/bg_scheduler.py",
@@ -4155,10 +4170,20 @@
       "bulk_downloader/http_client.py",
       "bulk_downloader/ssrf_transport.py"
     ],
+    "tests/test_row1029_adaptive_gc_controller.py": [
+      "bulk_downloader/adaptive_gc.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_row1032_verification_settlement_session_header.py": [
       "bulk_downloader/runner_browser.py",
       "bulk_downloader/settlement.py",
       "bulk_downloader/verification_settlement.py"
+    ],
+    "tests/test_row1033_cli_operational_diagnostics_self_healing.py": [
+      "bulk_downloader/doctor.py"
+    ],
+    "tests/test_row1033_deeplane_red.py": [
+      "bulk_downloader/doctor.py"
     ],
     "tests/test_row1034_declarative_config_dryrun_simulator.py": [
       "bulk_downloader/_envfile.py",
