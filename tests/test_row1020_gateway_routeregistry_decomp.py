@@ -208,14 +208,53 @@ def test_the_pinned_order_is_exactly_what_discovery_finds():
     assert pinned - found == set(), f"registry names modules that expose no register_routes: {sorted(pinned - found)}"
 
 
+_ARCHIVE_ANCHOR = re.compile(r"`app\.py(?::\d+)?` \(`_tg_bot\.parse_allowlist`")
+
+
+def _allowlist_reparse_lines(app_src):
+    """Lines of every `_tg_bot.parse_allowlist(...)` call that re-parses `tg_bot_allowlist`, found by
+    SYMBOL in the AST (H733): a line-number pin broke main twice (T72 7259, T86 7056->7063) whenever
+    a train touched app.py, because the VM gate does not run this test."""
+    import ast
+    hits = []
+    for node in ast.walk(ast.parse(app_src)):
+        f = getattr(node, "func", None)
+        if (isinstance(node, ast.Call) and isinstance(f, ast.Attribute) and f.attr == "parse_allowlist"
+                and isinstance(f.value, ast.Name) and f.value.id == "_tg_bot"
+                and any(isinstance(c, ast.Constant) and c.value == "tg_bot_allowlist"
+                        for a in node.args for c in ast.walk(a))):
+            hits.append(node.lineno)
+    return hits
+
+
+def _anchor_problem(row, app_src):
+    """None when archive row 238 names the allowlist re-parse and app.py still performs it."""
+    if not _ARCHIVE_ANCHOR.search(row):
+        return "row 238 no longer carries an app.py `_tg_bot.parse_allowlist` anchor"
+    if not _allowlist_reparse_lines(app_src):
+        return "app.py no longer re-parses tg_bot_allowlist via _tg_bot.parse_allowlist"
+    return None
+
+
 def test_the_archived_allowlist_anchor_still_names_the_reparse():
     """T72 drop: shrinking app.py left IMPROVEMENT_BACKLOG_ARCHIVE row 238's `app.py:7259` past EOF
-    (bd-freshcheck STALE). The re-derived anchor must land on the allowlist re-parse it describes."""
+    (bd-freshcheck STALE). The anchor is resolved by symbol, not by the cited line number (H733)."""
     row = next(l for l in (ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md")
                .read_text(encoding="utf-8").splitlines() if l.startswith("| 238 |"))
-    m = re.search(r"`app\.py:(\d+)` \(`_tg_bot\.parse_allowlist`", row)
-    assert m, "row 238 no longer carries a re-derived app.py allowlist anchor"
-    lines = (ROOT / "bulk_downloader" / "app.py").read_text(encoding="utf-8").splitlines()
-    n = int(m.group(1))
-    assert n <= len(lines) and "parse_allowlist(" in lines[n - 1], (
-        f"row 238 cites app.py:{n}, which is not the tg_bot_allowlist re-parse")
+    problem = _anchor_problem(row, APP_PY.read_text(encoding="utf-8"))
+    assert problem is None, problem
+
+
+def test_the_allowlist_anchor_survives_app_py_line_shifts_but_not_losing_the_reparse():
+    """H733: an app.py edit above the re-parse moves its line; the check must not care. Removing the
+    re-parse (negative control) must still fail it, so the symbol probe can say NO."""
+    row = next(l for l in (ROOT / "project-knowledge" / "IMPROVEMENT_BACKLOG_ARCHIVE.md")
+               .read_text(encoding="utf-8").splitlines() if l.startswith("| 238 |"))
+    src = APP_PY.read_text(encoding="utf-8")
+    base_lines = _allowlist_reparse_lines(src)
+    assert base_lines, "positive control: the probe finds the re-parse in the real app.py"
+    for shift in ("", "\n", "\n" * 7, "\n" * 400):
+        assert _anchor_problem(row, shift + src) is None, f"shift of {shift.count(chr(10))} lines broke it"
+    assert _allowlist_reparse_lines("\n" * 7 + src) == [n + 7 for n in base_lines]
+    gone = src.replace("_tg_bot.parse_allowlist(", "_tg_bot.parse_nothing(")
+    assert _anchor_problem(row, gone) is not None, "negative control: a vanished re-parse must fail"
