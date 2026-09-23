@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1656 - train81: row988, row1056
+
+Base main a89d38d6 (T80 v3.66.1655 landed; ORDERS-0090). T81: two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2).
+
+- row988-terminal-drift: terminal drift detection (4 paths). N2-B at de2c93fd.
+- row1056-workload-bottleneck-anomaly-detector: workload bottleneck anomaly detector (8 paths; fixer-B fix of the T74 drop: record_transfer_completion guarded for the row825 DummyRunner). P2-B at 7b25a43d.
+- register: rows 988, 1056 CLOSED @1656.
+
+
 ## v3.66.1655 - train80: row1038, row1080
 
 Base train/79 e87bfcef (v3.66.1654, landed on main 09:2xZ). T80 (ORDERS-0060 T80 CANDIDATES 09:12Z + ORDERS-0088): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

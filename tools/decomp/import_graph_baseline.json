@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4949,
+  "edge_count": 4960,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1006,6 +1006,9 @@
       "bulk_downloader/library_final.py",
       "bulk_downloader/staging_claim.py"
     ],
+    "bulk_downloader/cli_dashboard.py": [
+      "bulk_downloader/terminal_drift.py"
+    ],
     "bulk_downloader/cloak.py": [
       "bulk_downloader/browser_sentinel.py",
       "bulk_downloader/frame_hierarchy.py",
@@ -2002,7 +2005,8 @@
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/ssrf_transport.py",
-      "bulk_downloader/tg_bot.py"
+      "bulk_downloader/tg_bot.py",
+      "bulk_downloader/workload_bottleneck.py"
     ],
     "bulk_downloader/runner_transport.py": [
       "bulk_downloader/affordance_learning.py",
@@ -2214,6 +2218,7 @@
     ],
     "bulk_downloader/template_keystone.py": [
       "bulk_downloader/template_backup.py",
+      "bulk_downloader/terminal_drift.py",
       "tools/template_drift_report.py"
     ],
     "bulk_downloader/template_manager.py": [
@@ -4179,6 +4184,13 @@
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
     ],
+    "tests/test_row1056_workload_bottleneck_anomaly_detector.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/workload_bottleneck.py"
+    ],
     "tests/test_row1059_adversary.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py",
@@ -5175,6 +5187,11 @@
       "bulk_downloader/error_advisor.py",
       "bulk_downloader/friendly_error.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_row988_feature.py": [
+      "bulk_downloader/cli_dashboard.py",
+      "bulk_downloader/template_keystone.py",
+      "bulk_downloader/terminal_drift.py"
     ],
     "tests/test_row989_adversary.py": [
       "bulk_downloader/service_mesh.py"

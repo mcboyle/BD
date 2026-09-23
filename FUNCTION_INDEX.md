@@ -249,35 +249,35 @@ Schema version: 2
   - L2387 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
   - L2710 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
   - L2734 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L2836 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L2853 `SiteRunner.state`
-  - L2855 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L2891 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L2898 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L2905 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L2971 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L3002 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L3023 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L3611 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L3640 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L3695 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L3753 `SiteRunner._worker_generation_is_current` `[private]`
-  - L3757 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L3818 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L3878 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L3910 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L3941 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L3961 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L3970 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L3995 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L4020 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L4049 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L4131 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L4497 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L4512 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4542 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L4568 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L4602 `SiteRunner._process_one` `[private]` — Process a single URL.
+  - L2839 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L2856 `SiteRunner.state`
+  - L2858 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L2894 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L2901 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L2908 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L2974 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L3005 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L3026 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L3614 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L3643 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L3698 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L3756 `SiteRunner._worker_generation_is_current` `[private]`
+  - L3760 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L3821 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L3881 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L3913 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L3944 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L3964 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L3973 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L3998 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L4023 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L4052 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L4134 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L4500 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L4515 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L4545 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4571 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4605 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -495,27 +495,30 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_telemetry.py` (18 entries)
+## `bulk_downloader/runner_telemetry.py` (21 entries)
 
 ```
-- L0023 `TelemetryMixin` `[class]`
-  - L0024 `TelemetryMixin._fmt_dur` `[private]` — Format seconds as a short human-readable duration string.
-  - L0033 `TelemetryMixin.log_event` — Append a structured event to the in-memory log. Mirrored to
-  - L0114 `TelemetryMixin.get_events` — Return events with seq > after_seq, optionally filtered by URL
-  - L0129 `TelemetryMixin._install_event_listeners` `[private]` — Phase 13.5/13.6: hook page-level Playwright events to capture
-  - L0220 `TelemetryMixin._flush_fingerprint_observation` `[private]` — Read back which fingerprinting APIs the page invoked (set by the
-  - L0238 `TelemetryMixin._parse_hm` `[private]` — Parse 'HH:MM' to minutes-since-midnight. On error, return default.
-  - L0245 `TelemetryMixin._extract_host` `[private]` — Return just the hostname for log messages.
-  - L0252 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
-  - L0333 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
-  - L0374 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
-  - L0406 `TelemetryMixin._config_selector_syntax_error` `[private]` — Row 722 (G25b): classify a worker exception as an invalid CONFIG
-  - L0439 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
-  - L0463 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
-  - L0521 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
-  - L0538 `TelemetryMixin.create_trace_span` — Row 1061: OpenTelemetry trace span builder for runner telemetry.
-- L0548 `start_url_trace_span` — Row 1061: start the per-URL "runner.process_url" span, or return None.
-- L0572 `end_url_trace_span` — Row 1061: end a span from start_url_trace_span; None has nothing to end.
+- L0030 `TelemetryMixin` `[class]`
+  - L0031 `TelemetryMixin._fmt_dur` `[private]` — Format seconds as a short human-readable duration string.
+  - L0040 `TelemetryMixin.log_event` — Append a structured event to the in-memory log. Mirrored to
+  - L0122 `TelemetryMixin.record_transfer_completion` — Row 1056: feed one completed file's wire throughput to the bottleneck detector.
+  - L0134 `TelemetryMixin.record_workload_observation` — Record an operational workload observation for automated bottleneck detection.
+  - L0140 `TelemetryMixin.check_workload_bottlenecks` — Return active workload bottleneck anomalies detected for this runner/site.
+  - L0148 `TelemetryMixin.get_events` — Return events with seq > after_seq, optionally filtered by URL
+  - L0163 `TelemetryMixin._install_event_listeners` `[private]` — Phase 13.5/13.6: hook page-level Playwright events to capture
+  - L0254 `TelemetryMixin._flush_fingerprint_observation` `[private]` — Read back which fingerprinting APIs the page invoked (set by the
+  - L0272 `TelemetryMixin._parse_hm` `[private]` — Parse 'HH:MM' to minutes-since-midnight. On error, return default.
+  - L0279 `TelemetryMixin._extract_host` `[private]` — Return just the hostname for log messages.
+  - L0286 `TelemetryMixin._pick_fastest_mirror` `[private]` — Phase 69 (v3.41.0): speculative mirror failover. Fire concurrent
+  - L0367 `TelemetryMixin._build_mirror_urls` `[private]` — Generate alternate URLs to try when the primary CDN fails.
+  - L0408 `TelemetryMixin._classify_error` `[private]` — Phase 6.3: classify a failure message into a retry category.
+  - L0440 `TelemetryMixin._config_selector_syntax_error` `[private]` — Row 722 (G25b): classify a worker exception as an invalid CONFIG
+  - L0473 `TelemetryMixin._handle_failure` `[private]` — Fence all worker failure side effects within one run transaction.
+  - L0497 `TelemetryMixin._handle_failure_current` `[private]` — Central failure handler. Classifies the error message into one of
+  - L0555 `TelemetryMixin._screenshot` `[private]` — Save a viewport screenshot of `page` to a deterministic filename
+  - L0572 `TelemetryMixin.create_trace_span` — Row 1061: OpenTelemetry trace span builder for runner telemetry.
+- L0582 `start_url_trace_span` — Row 1061: start the per-URL "runner.process_url" span, or return None.
+- L0606 `end_url_trace_span` — Row 1061: end a span from start_url_trace_span; None has nothing to end.
 ```
 
 
@@ -564,13 +567,13 @@ Schema version: 2
   - L0862 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
   - L0898 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
   - L1152 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L1351 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L1597 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L1820 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2088 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L2184 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L2250 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L2385 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+  - L1356 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L1602 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L1825 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L2093 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L2189 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L2255 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L2390 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -680,30 +683,30 @@ Schema version: 2
   - L1856 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
   - L1998 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
   - L2048 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L2970 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L3035 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L3083 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L3665 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L3715 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L4120 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L4153 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L4177 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L4202 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L4228 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L4248 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L4272 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L4289 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L4306 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L4321 `_ManifestConsumers` `[private]`
-  - L4322 `_ManifestConsumers.__init__` `[dunder]`
-  - L4325 `_ManifestConsumers.join`
-- L4332 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L4380 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L4390 `HTTP3Transport.__init__` `[dunder]`
-  - L4398 `HTTP3Transport.allocate_stream_id`
-  - L4403 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L4426 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L4439 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+  - L2975 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L3040 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L3088 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L3670 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L3720 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L4125 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L4158 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L4182 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L4207 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L4233 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L4253 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L4277 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L4294 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L4311 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L4326 `_ManifestConsumers` `[private]`
+  - L4327 `_ManifestConsumers.__init__` `[dunder]`
+  - L4330 `_ManifestConsumers.join`
+- L4337 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L4385 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L4395 `HTTP3Transport.__init__` `[dunder]`
+  - L4403 `HTTP3Transport.allocate_stream_id`
+  - L4408 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L4431 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L4444 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -982,4 +985,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 806 across 22 files._
+_Total entries: 809 across 22 files._

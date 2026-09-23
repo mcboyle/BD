@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1771,
+    "edge_count": 1774,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4626,6 +4626,10 @@
         "bulk_downloader/perturbation_harness.py",
         "tools/offline_capture_analyze.py"
       ],
+      "bulk_downloader/terminal_drift.py": [
+        "bulk_downloader/cli_dashboard.py",
+        "bulk_downloader/template_keystone.py"
+      ],
       "bulk_downloader/text_similarity.py": [
         "bulk_downloader/dedup.py"
       ],
@@ -4817,6 +4821,9 @@
       "bulk_downloader/widgets_config.py": [
         "bulk_downloader/app_store_raw_editor.py",
         "bulk_downloader/app_widgets_api.py"
+      ],
+      "bulk_downloader/workload_bottleneck.py": [
+        "bulk_downloader/runner_telemetry.py"
       ],
       "bulk_downloader/yt_dlp_archive.py": [
         "bulk_downloader/app.py",
@@ -6183,6 +6190,9 @@
         "bulk_downloader/library_final.py",
         "bulk_downloader/staging_claim.py"
       ],
+      "bulk_downloader/cli_dashboard.py": [
+        "bulk_downloader/terminal_drift.py"
+      ],
       "bulk_downloader/cloak.py": [
         "bulk_downloader/browser_sentinel.py",
         "bulk_downloader/frame_hierarchy.py",
@@ -7179,7 +7189,8 @@
         "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/ssrf_transport.py",
-        "bulk_downloader/tg_bot.py"
+        "bulk_downloader/tg_bot.py",
+        "bulk_downloader/workload_bottleneck.py"
       ],
       "bulk_downloader/runner_transport.py": [
         "bulk_downloader/affordance_learning.py",
@@ -7391,6 +7402,7 @@
       ],
       "bulk_downloader/template_keystone.py": [
         "bulk_downloader/template_backup.py",
+        "bulk_downloader/terminal_drift.py",
         "tools/template_drift_report.py"
       ],
       "bulk_downloader/template_manager.py": [
