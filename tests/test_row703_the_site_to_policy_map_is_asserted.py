@@ -109,9 +109,9 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_transport.py:1275": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1253
     "bulk_downloader/runner_transport.py:1946": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1924
     "bulk_downloader/runner_transport.py:3362": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340
-    "bulk_downloader/runner_transport.py:3750": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728
-    "bulk_downloader/runner_transport.py:3831": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3809
-    "bulk_downloader/runner_transport.py:3982": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960
+    "bulk_downloader/runner_transport.py:3754": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728
+    "bulk_downloader/runner_transport.py:3835": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3809
+    "bulk_downloader/runner_transport.py:3986": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960
     "bulk_downloader/session_keeper.py:1522": PINNED,
     "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
     "bulk_downloader/tg_bot.py:162": PINNED,

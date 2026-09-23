@@ -3509,14 +3509,18 @@ class TransportMixin:
                     # hot-loop work must not assume one yield per requested
                     # chunk.
                     if self.config.get("auto_chunk_size", False):
-                        from .chunked_transfer import AIMDChunkController, adaptive_chunks
+                        from .chunked_transfer import (
+                            AIMDChunkController, adaptive_chunks, stream_buffer_pool)
                         # Consume decoded client buffers without httpx's fixed
                         # batching, so observations measure upstream waits.
                         source = (resp.iter_content(chunk_size=2 * 1024 * 1024)
                                   if cffi_streamer is not None
                                   else resp.iter_bytes())
+                        # Row 982: chunks come from one reused pool slot; this
+                        # loop consumes each before asking for the next.
                         iterator = adaptive_chunks(
-                            source, AIMDChunkController(initial_bytes=chunk))
+                            source, AIMDChunkController(initial_bytes=chunk),
+                            stream_buffer_pool())
                     else:
                         iterator = (resp.iter_content(chunk_size=chunk)
                                     if cffi_streamer is not None

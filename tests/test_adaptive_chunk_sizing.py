@@ -236,6 +236,19 @@ def test_core_transfer_adapts_and_preserves_checksum(monkeypatch, tmp_path, resu
     assert all(MIN_CHUNK_BYTES <= size <= MAX_CHUNK_BYTES for size in emitted[:-1])
 
 
+def test_core_transfer_assembles_chunks_in_the_stream_pool(monkeypatch, tmp_path):
+    """Row 982: the download loop assembles its chunks in a reused pool slot and gives the
+    slot back; the harness above still proves the file's bytes are exact."""
+    from bulk_downloader import chunked_transfer
+    from bulk_downloader.buffer_ring_pool import BufferRingPool
+    pool = BufferRingPool(slot_size=MAX_CHUNK_BYTES, capacity=1, aligned=True)
+    monkeypatch.setattr(chunked_transfer, "stream_buffer_pool", lambda: pool)
+    _adaptive_transfer(monkeypatch, tmp_path, resume=False, cffi=False)
+    stats = pool.stats()
+    assert stats.acquisitions == 1, "Row 982 capability missing: the download never used the stream pool"
+    assert stats.in_use == 0, "ROW982-SLOT-NOT-RETURNED"
+
+
 def test_static_core_transfer_does_not_adapt(monkeypatch, tmp_path):
     decisions, requests, emitted = _adaptive_transfer(monkeypatch, tmp_path, adaptive=False)
     assert decisions == []
@@ -274,7 +287,7 @@ def test_core_transfer_negative_controls(monkeypatch, tmp_path, mutation, diagno
 
         def corrupt(*args):
             for buf in original_chunks(*args):
-                yield buf[::-1]  # same size, incorrect data: size gates cannot catch it
+                yield bytes(buf)[::-1]  # same size, incorrect data: size gates cannot catch it
 
         monkeypatch.setattr(chunked_transfer, "adaptive_chunks", corrupt)
     else:

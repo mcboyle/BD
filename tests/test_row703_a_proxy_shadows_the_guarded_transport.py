@@ -85,8 +85,8 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
     "bulk_downloader/runner_transport.py:3362",  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340 after row 1077
-    "bulk_downloader/runner_transport.py:3750",  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728 after row 1077
-    "bulk_downloader/runner_transport.py:3982",  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960 after row 1077
+    "bulk_downloader/runner_transport.py:3754",  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728 after row 1077
+    "bulk_downloader/runner_transport.py:3986",  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960 after row 1077
 }
 
 

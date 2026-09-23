@@ -9,14 +9,33 @@ regardless of how chunk sizes changed mid-transfer.
 """
 from __future__ import annotations
 
+import threading
 from time import monotonic
 from typing import Callable, Iterable, Iterator, Optional
+
+from .buffer_ring_pool import BufferPoolExhaustedError, BufferRingPool
 
 MIN_CHUNK_BYTES = 2 * 1024 * 1024   # 2 MiB
 MAX_CHUNK_BYTES = 64 * 1024 * 1024  # 64 MiB
 _ADDITIVE_STEP_BYTES = 1 * 1024 * 1024  # 1 MiB per good sample
 _MULTIPLICATIVE_BACKOFF = 0.5
 _JITTER_BACKOFF_MS = 50.0  # latency jitter at/above this triggers backoff
+_STREAM_POOL_SLOTS = 4  # concurrent pooled downloads; more fall back to a private buffer
+_stream_pool: Optional[BufferRingPool] = None
+_stream_pool_lock = threading.Lock()
+
+
+def stream_buffer_pool() -> BufferRingPool:
+    """Process-wide pool whose slots hold the largest chunk (row982).
+
+    Slots are anonymous mmaps, so a slot costs resident memory only for the
+    bytes the largest chunk it assembled actually touched."""
+    global _stream_pool
+    with _stream_pool_lock:
+        if _stream_pool is None:
+            _stream_pool = BufferRingPool(
+                slot_size=MAX_CHUNK_BYTES, capacity=_STREAM_POOL_SLOTS, aligned=True)
+        return _stream_pool
 
 
 class AIMDChunkController:
@@ -129,8 +148,10 @@ def split_into_chunks(
 
 
 def adaptive_chunks(
-    source: Iterable[bytes], controller: AIMDChunkController
-) -> Iterator[bytes]:
+    source: Iterable[bytes],
+    controller: AIMDChunkController,
+    pool: Optional[BufferRingPool] = None,
+) -> Iterator[bytes | memoryview]:
     """Batch decoded response bytes using actual upstream wait observations.
 
     Time only next(source), excluding caller disk writes, pauses and throttles.
@@ -138,9 +159,47 @@ def adaptive_chunks(
     interrupt a socket read already blocked in the HTTP client. Pending storage
     never exceeds the selected chunk size; even an oversized upstream buffer
     is consumed in contiguous slices. No new HTTP requests are made here.
+
+    Without ``pool`` each chunk is an independent ``bytes``. With ``pool``
+    (row982) chunks are assembled in one reused pool slot and yielded as a
+    memoryview that is valid only until the next iteration: it is released
+    when the generator resumes, so a consumer that keeps it fails loudly
+    instead of reading the next chunk's bytes. When the pool has no free slot
+    the chunks come from a private buffer under the same contract.
     """
+    if pool is not None and pool.slot_size < controller.max_bytes:
+        raise ValueError(
+            f"pool slot_size {pool.slot_size} is smaller than the controller's "
+            f"max chunk {controller.max_bytes}")
+    slot = None
+    if pool is not None:
+        try:
+            slot = pool.acquire(non_blocking=True)
+        except BufferPoolExhaustedError:
+            slot = None
+    area = slot.region() if slot is not None else memoryview(bytearray(controller.max_bytes))
+    try:
+        yield from _assemble(source, controller, area, transient=pool is not None)
+    finally:
+        area.release()
+        if slot is not None:
+            slot.release()
+
+
+def _assemble(source, controller, area, *, transient):
     iterator = iter(source)
-    pending = bytearray()
+    filled = 0
+
+    def emit(n):
+        if not transient:
+            return bytes(area[:n])
+        return area[:n]
+
+    def shift(n):
+        nonlocal filled
+        area[:filled - n] = area[n:filled]
+        filled -= n
+
     while True:
         started = monotonic()
         try:
@@ -155,20 +214,30 @@ def adaptive_chunks(
             latency_ms=max(0.0, elapsed) * 1000.0,
         )
         # A decrease can leave several new-sized chunks already pending.
-        while len(pending) >= target:
-            yield bytes(pending[:target])
-            del pending[:target]
+        while filled >= target:
+            out = emit(target)
+            yield out
+            if transient:
+                out.release()
+            shift(target)
         view = memoryview(buf)
         offset = 0
         while offset < len(view):
-            take = min(target - len(pending), len(view) - offset)
-            pending.extend(view[offset:offset + take])
+            take = min(target - filled, len(view) - offset)
+            area[filled:filled + take] = view[offset:offset + take]
+            filled += take
             offset += take
-            if len(pending) == target:
-                yield bytes(pending)
-                pending.clear()
-    if pending:
-        yield bytes(pending)
+            if filled == target:
+                out = emit(target)
+                yield out
+                if transient:
+                    out.release()
+                filled = 0
+    if filled:
+        out = emit(filled)
+        yield out
+        if transient:
+            out.release()
 
 
 # Row 992: High-Resolution Socket I/O Accounting & Microsecond Latency Tracker wiring
