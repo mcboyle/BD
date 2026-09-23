@@ -4,7 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1665 - train90: row
+## v3.66.1665 - train90: H733, H415, H341, H620, H718
+
+Base main 4d1b9945 (v3.66.1664). T90 (ORDERS-0119 / O1334 de-pin + toolchain; POLICY-0118 gate vmci): five harness rows, each boarded at its INDEX tree.
+
+- H733 row1020 test finds the app.py anchor by symbol, not line number (tests/test_row1020_gateway_routeregistry_decomp.py).
+- H415 h360 budget test pins bd-precut by AST symbol.
+- H341 bd-precut/bd-band battery slot limit (toolchain/bin/bd_battery.py, BD_BATTERY_MAX=2; nested entries pass via BD_BATTERY_HELD).
+- H620 bd-register-append duplicate guard.
+- H718 bd-defect-scan DP-11 stable fingerprint.
 
 
 ## v3.66.1664 - train89: row982, row986
