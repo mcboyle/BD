@@ -471,8 +471,10 @@ def test_template_health_document_matches_current_route_index() -> None:
 
 def test_cut_a_gate_is_directly_wired_once() -> None:
     relative = "tests/test_v3_66_1171_backlog_truth_is_current.py"
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    assert workflow.count(relative) == 1
+    # O1264(d): ci.yml carries shard names only; membership is what
+    # tools/ci_shards.py resolves for this tree (the run step invokes it).
+    from tools import ci_shards
+    assert sum(relative in files for files in ci_shards.shards(ROOT).values()) == 1
     # Row 810: the gate's census is derived from this file's own marker, so
     # membership is judged in the loaded module rather than counted in its text.
     import importlib.util

@@ -59,7 +59,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# CI-SHARD-CLAIM template-selectors: this gate drives Chromium against a local
+# CI-SHARD-CLAIM download-chain: this gate drives Chromium against a local
 # fixture host, so it must run on a shard that installs a browser.
 BD_GATE_SCOPE = "repo-wide"
 pytestmark = pytest.mark.capture_serial

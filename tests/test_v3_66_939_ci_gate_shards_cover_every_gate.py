@@ -100,7 +100,7 @@ BD_GATE_SCOPE = "repo-wide"
 # verbatim: _ci_shard_claims reads them from COMMENT tokens of this file and
 # test_every_explicit_shard_claim_is_bound_in_ci judges each against ci.yml.
 # CI-SHARD-CLAIM version-at-land version-at-land tests/test_row_version_at_land.py
-# CI-SHARD-CLAIM row-659 isolation tests/test_row659_witness_run_does_not_leak_capture_state.py
+# CI-SHARD-CLAIM row-659 gates-rows-b tests/test_row659_witness_run_does_not_leak_capture_state.py
 # CI-SHARD-CLAIM test2D-1 application-safety tests/test_test2d_1_persistent_profile_cookie_jar.py
 # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_ssrf_transport_is_installed_everywhere.py
 # CI-SHARD-CLAIM row-703 application-safety tests/test_row703_a_proxy_shadows_the_guarded_transport.py
@@ -112,27 +112,27 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-705 mutation-tools tests/test_row705_published_denominators.py
 # CI-SHARD-CLAIM row-797 mutation-tools tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
 # CI-SHARD-CLAIM row-820 mutation-tools tests/test_row810_spec_collection_slice_0.py
-# CI-SHARD-CLAIM row-700 recovered-contracts tests/test_row700_captcha_egress_disclosure.py
+# CI-SHARD-CLAIM row-700 gates-rows-b tests/test_row700_captcha_egress_disclosure.py
 # CI-SHARD-CLAIM row-723 application-safety tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
 # CI-SHARD-CLAIM row-741 application-safety tests/test_row741_relogin_refusals_are_typed.py
 # CI-SHARD-CLAIM row-750 application-safety tests/test_row750_ipv6_unwrapped_metadata_bypass.py
 # CI-SHARD-CLAIM row-772 application-safety tests/test_row772_rejected_login_is_not_success.py
 # CI-SHARD-CLAIM row-774 application-safety tests/test_row774_login_submit_refuses_cross_origin_navigation.py
 # CI-SHARD-CLAIM row-709 safety-censuses tests/test_row709_state_seed_is_not_a_verdict.py
-# CI-SHARD-CLAIM row-678 toolchain tests/test_row678_bandcheck_exclusion_tables.py
-# CI-SHARD-CLAIM receipts toolchain tests/test_row724_preflight_bandcheck_counts_failures.py
+# CI-SHARD-CLAIM row-678 gates-rows-b tests/test_row678_bandcheck_exclusion_tables.py
+# CI-SHARD-CLAIM receipts gates-rows-b tests/test_row724_preflight_bandcheck_counts_failures.py
 # CI-SHARD-CLAIM row-267 application-safety tests/test_app_measurements_fail_closed.py
 # CI-SHARD-CLAIM row-434 application-safety tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
 # CI-SHARD-CLAIM row-284 application-safety tests/test_v3_66_284_integrity.py
 # CI-SHARD-CLAIM row-645 application-safety tests/test_v3_62_2_guards.py
 # CI-SHARD-CLAIM row-507 application-safety tests/test_row492_a_release_proves_what_it_frees.py
-# CI-SHARD-CLAIM campaign-loginsession template-selectors tests/test_login_session_does_not_cover_the_scene_host.py
-# CI-SHARD-CLAIM row-663 template-selectors tests/test_row663_inspect_rung_matches_runner.py
-# CI-SHARD-CLAIM row-666 template-selectors tests/test_row666_candidates_inspect_prefers_caller_url.py
-# CI-SHARD-CLAIM row-672 template-selectors tests/test_row672_reviewed_template_is_reachable.py
-# CI-SHARD-CLAIM row-673 template-selectors tests/test_row673_reviewed_probe_adapter_ships_once.py
-# CI-SHARD-CLAIM row-674 template-selectors tests/test_row674_live_state_round_trips.py
-# CI-SHARD-CLAIM footgun-import-dodge tree-gates-3 tests/test_import_dodge_is_caught_in_the_cut_diff.py
+# CI-SHARD-CLAIM campaign-loginsession download-chain tests/test_login_session_does_not_cover_the_scene_host.py
+# CI-SHARD-CLAIM row-663 download-chain tests/test_row663_inspect_rung_matches_runner.py
+# CI-SHARD-CLAIM row-666 download-chain tests/test_row666_candidates_inspect_prefers_caller_url.py
+# CI-SHARD-CLAIM row-672 download-chain tests/test_row672_reviewed_template_is_reachable.py
+# CI-SHARD-CLAIM row-673 download-chain tests/test_row673_reviewed_probe_adapter_ships_once.py
+# CI-SHARD-CLAIM row-674 download-chain tests/test_row674_live_state_round_trips.py
+# CI-SHARD-CLAIM footgun-import-dodge gates-named-a tests/test_import_dodge_is_caught_in_the_cut_diff.py
 # CI-SHARD-CLAIM footgun-endpoint artifacts-pins tests/test_endpoint_catalog_in_sync.py
 # CI-SHARD-CLAIM footgun-function-index artifacts-pins tests/test_function_index_in_sync.py
 # CI-SHARD-CLAIM footgun-route-map artifacts-pins tests/test_route_map_invariant.py
@@ -143,24 +143,24 @@ BD_GATE_SCOPE = "repo-wide"
 # CI-SHARD-CLAIM row-761 download-chain tests/test_row761_listing_facet_is_not_a_download_candidate.py
 # CI-SHARD-CLAIM row-761b download-chain tests/test_row761b_deep.py
 # CI-SHARD-CLAIM row-761 download-chain tests/test_row761_astra_acceptance.py
-# CI-SHARD-CLAIM row-1157 toolchain-deep tests/test_v3_66_1157_build_output_is_from_this_attempt.py
-# CI-SHARD-CLAIM row-1035 parity-static tests/test_row331_guarded_imports_are_declared.py
+# CI-SHARD-CLAIM row-1157 gates-v3-a tests/test_v3_66_1157_build_output_is_from_this_attempt.py
+# CI-SHARD-CLAIM row-1035 gates-rows-a tests/test_row331_guarded_imports_are_declared.py
 # Row 648. The react-router 7 migration gate: declared range, lock, zero
 # react-router-dom specifiers under frontend/src, and no dependabot MAJOR
 # ignore. Static (no node), so it rides parity-static beside dep_freshness.
-# CI-SHARD-CLAIM row-648 parity-static tests/test_row648_react_router_7_migration.py
-# CI-SHARD-CLAIM row-753 measurement-tools-core tests/test_row753_a_run_records_its_own_outcome.py
-# CI-SHARD-CLAIM row-245 isolation tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
-# CI-SHARD-CLAIM row-1452 isolation tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
-# CI-SHARD-CLAIM row-1085 isolation tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
-# CI-SHARD-CLAIM row-689 tree-gates-3 tests/test_row689_install_linux_converges_test_manifest.py
-# CI-SHARD-CLAIM row-717 tree-gates-5 tests/test_row717_fresh_host_documents_cut_quality.py
-# CI-SHARD-CLAIM row-817 recovered-contracts tests/test_row817_astra_ack_consumption.py
+# CI-SHARD-CLAIM row-648 gates-rows-b tests/test_row648_react_router_7_migration.py
+# CI-SHARD-CLAIM row-753 gates-rows-b tests/test_row753_a_run_records_its_own_outcome.py
+# CI-SHARD-CLAIM row-245 gates-v3-b tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
+# CI-SHARD-CLAIM row-1452 gates-v3-b tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
+# CI-SHARD-CLAIM row-1085 gates-v3-a tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
+# CI-SHARD-CLAIM row-689 gates-rows-b tests/test_row689_install_linux_converges_test_manifest.py
+# CI-SHARD-CLAIM row-717 gates-rows-b tests/test_row717_fresh_host_documents_cut_quality.py
+# CI-SHARD-CLAIM row-817 gates-rows-a tests/test_row817_astra_ack_consumption.py
 # Row 728 follow-up: the redirect Location header is quoted stdlib-style
 # (iso-8859-1) before the logical host is restored, so a non-ASCII redirect
 # no longer raises UnicodeEncodeError inside the pinned opener. Repo-wide, so
 # it rides the same shard as the pin contract it extends.
-# CI-SHARD-CLAIM row-728 ssrf-pinned-urllib tests/test_row728_astra_boundaries.py
+# CI-SHARD-CLAIM row-728 gates-rows-b tests/test_row728_astra_boundaries.py
 #
 # One retired gate's WHY is kept because a test pins the prose: @1215 judges
 # two PRODUCTION toolchain scripts -- bd-wedge-hunt's remote transport and
@@ -338,36 +338,31 @@ def _workflow() -> dict:
     return yaml.safe_load(_CI.read_text("utf-8"))
 
 
+def _runs_the_shard_resolver(job: dict) -> bool:
+    return any("ci_shards.py" in str(step.get("run", ""))
+               for step in (job.get("steps") or []) if isinstance(step, dict))
+
+
 def _gate_suite_job() -> tuple[str, dict]:
-    """The one matrix job whose entries carry the declared suites."""
+    """The one matrix job whose run step hands pytest the resolved shard."""
     for job_name, job in ((_workflow().get("jobs") or {}).items()):
-        include = (((job.get("strategy") or {}).get("matrix") or {})
-                   .get("include") or [])
-        if any("suites" in entry for entry in include):
+        if _runs_the_shard_resolver(job):
             return str(job_name), job
     pytest.fail("no sharded gate job found to check")
 
 
 def _shard_lists() -> dict[str, list[str]]:
-    """{shard name: [test paths]} from the matrix include entries.
+    """{shard name: [test paths]} exactly as CI will resolve them.
 
-    Reads the matrix rather than grepping the run block: a grep would count a
-    path named in a comment, and this file's own docstring names several.
+    O1264(d)/O1265(g): ci.yml carries shard NAMES only. tools/ci_shards.py
+    partitions the declared gate census at run time and the gate-suites run
+    step invokes it, so the resolver is read here (never the run block, for the
+    same reason as before: a grep counts a path named in a comment).
+    tests/test_ci_shards.py holds the matrix names and the resolver's names to
+    each other.
     """
-    wf = _workflow()
-    for job_name, job in (wf.get("jobs") or {}).items():
-        include = (((job.get("strategy") or {}).get("matrix") or {})
-                   .get("include") or [])
-        if not include:
-            continue
-        out = {}
-        for entry in include:
-            if "suites" not in entry:
-                continue
-            out[str(entry.get("name") or len(out))] = str(entry["suites"]).split()
-        if out:
-            return out
-    return {}
+    from tools import ci_shards
+    return ci_shards.shards(_REPO)
 
 
 _SHARD_CLAIM_PREFIX = "CI-SHARD-CLAIM"
@@ -697,9 +692,12 @@ def test_ordinary_toolchain_prose_is_not_a_shard_claim():
     claims = _ci_shard_claims(source)
     assert claims, "precondition: the explicit claim denominator is empty"
     assert suite not in {path for _claim_id, _shard, path in claims}
+    shards = _shard_lists()
+    listed_in = [name for name, suites in shards.items() if suite in suites]
+    assert len(listed_in) == 1, f"{suite} is scheduled in {listed_in}"
     assert _shard_claim_mismatches(
-        [("ordinary-prose-control", "measurement-tools", suite)],
-        _shard_lists(),
+        [("ordinary-prose-control", listed_in[0], suite)],
+        shards,
     ) == {}
     unbound = _unbound_named_shard_claims(
         "# two PRODUCTION toolchain scripts\n"
@@ -726,7 +724,7 @@ def test_the_shards_exist_at_all():
     shards = _shard_lists()
     assert shards, (
         "no sharded gate job found in ci.yml -- expected a job whose "
-        "strategy.matrix.include entries each carry a `suites` string. Without "
+        "run step hands pytest a shard resolved by tools/ci_shards.py. Without "
         "it every assertion below passes over an empty set.")
     assert len(shards) >= 2, (
         f"found {len(shards)} shard(s); a one-shard 'split' is the unsplit lane "
@@ -1153,7 +1151,7 @@ def test_the_shard_job_checks_out_full_history():
     for job_name, job in (wf.get("jobs") or {}).items():
         include = (((job.get("strategy") or {}).get("matrix") or {})
                    .get("include") or [])
-        if not any("suites" in e for e in include):
+        if not _runs_the_shard_resolver(job):
             continue
         checkouts = [s for s in (job.get("steps") or [])
                      if str(s.get("uses", "")).startswith("actions/checkout")]
@@ -1173,9 +1171,7 @@ def test_the_shard_job_installs_runtime_dependencies():
     ci = _CI.read_text("utf-8")
     wf = _workflow()
     for job_name, job in (wf.get("jobs") or {}).items():
-        include = (((job.get("strategy") or {}).get("matrix") or {})
-                   .get("include") or [])
-        if not any("suites" in e for e in include):
+        if not _runs_the_shard_resolver(job):
             continue
         body = "\n".join(str(s.get("run", "")) for s in (job.get("steps") or []))
         assert "requirements.txt" in body, (

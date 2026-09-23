@@ -119,6 +119,13 @@ def ci_executed_paths(workflow=None) -> set[str]:
     """
     if workflow is None:
         workflow = yaml.safe_load(_CI.read_text("utf-8"))
+        # O1264(d): the gate-suites matrix carries shard names only; the paths
+        # its run step hands pytest are resolved by tools/ci_shards.py, so the
+        # live answer is the parsed workflow's paths plus the resolver's. A
+        # synthetic workflow passed in is judged as given.
+        from tools import ci_shards
+        return _paths_in(workflow) | {
+            path for files in ci_shards.shards(_REPO).values() for path in files}
     return _paths_in(workflow)
 
 

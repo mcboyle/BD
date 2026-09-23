@@ -10,10 +10,10 @@
   ],
   "mutants": [
     {
-      "label": "M1 guard file falls out of application-safety CI",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_v3_62_2_guards.py\n",
-      "new": "              # mutant: omit the row-645 guard file\n",
+      "label": "M1 guard file falls out of application-safety CI (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_v3_62_2_guards.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_every_explicit_shard_claim_matches_the_matrix"
     },

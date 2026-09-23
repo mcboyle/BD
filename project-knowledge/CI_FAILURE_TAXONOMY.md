@@ -418,7 +418,7 @@ AssertionError: node_modules is absent in frontend/... this is a failure, not a 
 
 #### Code Locations & Affected Files
 - `.github/workflows/ci.yml:469-520` (`application-safety` shard definition)
-- `.github/workflows/ci.yml:976-978` (`Install Chromium for browser-driven fixture gates`)
+- `.github/workflows/ci.yml:509-511` (`Install Chromium for browser-driven fixture gates`)
 - `tests/test_row775_turnstile_one_click_affordance.py`
 - `tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py`
 - `tests/test_row386_the_download_chain_is_gated.py`

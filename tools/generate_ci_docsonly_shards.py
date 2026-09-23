@@ -138,27 +138,38 @@ def _declared(repo: Path) -> set[str]:
     return declared
 
 
-def _matrix_shards(workflow: dict) -> tuple[str, dict[str, list[str]]]:
+def _ci_shards_module():
+    try:
+        from tools import ci_shards          # imported as a package module
+    except ImportError:
+        import ci_shards                     # run as tools/generate_ci_docsonly_shards.py
+    return ci_shards
+
+
+def _matrix_shards(workflow: dict, repo: Path) -> tuple[str, dict[str, list[str]]]:
+    """(matrix job, {shard: [suites]}) -- O1264(d): the matrix carries names only,
+    membership is what tools/ci_shards.py resolves for this tree."""
     candidates = []
     for job_name, job in workflow["jobs"].items():
-        include = (((job.get("strategy") or {}).get("matrix") or {})
-                   .get("include") or [])
-        entries = [entry for entry in include if isinstance(entry, dict)
-                   and "suites" in entry]
-        if entries:
-            candidates.append((str(job_name), entries))
+        steps = job.get("steps") or []
+        if any(isinstance(step, dict) and "ci_shards.py" in str(step.get("run", ""))
+               for step in steps):
+            candidates.append(str(job_name))
     if len(candidates) != 1:
         raise ManifestError(
-            "workflow", f"expected one suites matrix, found {len(candidates)}")
-    job_name, entries = candidates[0]
-    shards: dict[str, list[str]] = {}
-    for entry in entries:
-        name = entry.get("name")
-        suites = str(entry.get("suites") or "").split()
-        if not isinstance(name, str) or not name or not suites or name in shards:
-            raise ManifestError("workflow", f"invalid or duplicate matrix shard {name!r}")
-        shards[name] = suites
-    return job_name, shards
+            "workflow", f"expected one job running tools/ci_shards.py, found {candidates}")
+    ci_shards = _ci_shards_module()
+    try:
+        shards = ci_shards.shards(repo)
+    except ci_shards.ShardError as exc:
+        raise ManifestError("workflow", str(exc)) from exc
+    named = [entry.get("name") for entry in
+             (((workflow["jobs"][candidates[0]].get("strategy") or {}).get("matrix") or {})
+              .get("include") or []) if isinstance(entry, dict)]
+    if sorted(named) != sorted(shards):
+        raise ManifestError(
+            "workflow", f"matrix names {sorted(named)} != resolver shards {sorted(shards)}")
+    return candidates[0], shards
 
 
 def _independent_test_shards(
@@ -184,7 +195,7 @@ def _independent_test_shards(
 def derive_manifest(repo: Path) -> dict:
     workflow = _workflow(repo)
     declared = _declared(repo)
-    matrix_job, matrix = _matrix_shards(workflow)
+    matrix_job, matrix = _matrix_shards(workflow, repo)
     independent = _independent_test_shards(workflow, matrix_job)
     all_members = dict(matrix)
     overlap = sorted(set(all_members) & set(independent))
@@ -204,7 +215,8 @@ def derive_manifest(repo: Path) -> dict:
         raise ManifestError("declaration", "docs-only shard denominator is zero")
     return {
         "schema": "ci-docsonly-shards-v1",
-        "sources": [WORKFLOW.as_posix(), f"{DECLARATION.as_posix()}:_DECLARED"],
+        "sources": [WORKFLOW.as_posix(), "tools/ci_shards.py",
+                    f"{DECLARATION.as_posix()}:_DECLARED"],
         "all_shards": sorted(all_members),
         "docs_only_shards": docs_only,
     }
