@@ -17,6 +17,14 @@ Usage:
                                                           #   real problem -> gate a cut:
                                                           #   bd-precut --gate && bd-cut ...
   bd-precut --no-insync / --no-envscan                   # skip a check
+  bd-precut --fast [--root DIR]                           # H712: the fast gates ONLY (guard
+                                                          #   pins, env tranche, secrets, defect
+                                                          #   ratchet, register/trio); no pytest,
+                                                          #   no regeneration. Exit = the FIRST
+                                                          #   failing gate's rc, else 0; a gate
+                                                          #   that could not run is named UNKNOWN.
+                                                          #   Default when BD_PRECUT_FAST=1;
+                                                          #   --full wins.
 """
 import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile
 # `datetime` is imported on ITS OWN LINE, and the line above is left byte-identical to
@@ -868,12 +876,53 @@ def _run_underived_gates(root, present, env):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _run_ratchet_gate(root, rex=None):
+# H712 (POLICY-0010 s5, RULING-0044; first cut H701 for O1264c): --fast is EXACTLY the
+# fast gates, in this order -- guard pins (bd-guardcheck), env tranche (bd-envscan),
+# secret scan (bd-secrets), the defect ratchet (bd-ratchet --metric defect_DP_total) and
+# register/trio (bd-shipped's register containment, then the release trio read by
+# _release_trio_problem) -- and NOTHING else. Precut spent 20-23 min per train, ~19 of
+# them a test suite CI then reruns, while what it caught was guard-pin drift, an env
+# tranche and a secret: each a seconds-long tool (PM-EFFICIENCY-AUDIT-2358 s2).
+#   * no pytest: CI owns the suite. The register gate is bd-shipped itself, not
+#     tests/test_row473_register_tree_containment.py, the test file that drives it.
+#   * no regeneration: neither bd-regen-order nor bd-footguns, whose in-sync detectors
+#     regenerate derived docs and which runs bd-regen-order --check (its
+#     FG-CENSUS-NEEDS-THE-VENV refused every cut worktree lacking the untracked
+#     reports/gui_parity_inventory.json -- lens N5-A). Indexes regenerate on main.
+#   * no baseline archive, no tool-integrity run, no CI-headroom network call.
+# main() returns into _run_fast_gates before the full gate's first check, so the full
+# gate below is untouched by --fast. Every fast gate runs even after one fails (one run
+# names every red); the exit status is the rc of the FIRST gate that failed, so a caller
+# reads the failing gate's own code. A gate whose tool could not run (absent, timed out,
+# OSError), and a ratchet that is neither clean nor a regression (rc 2 on a capacity host
+# without ~/.bd_metrics_baseline.json), is UNKNOWN: named under NOT RUN, never absorbed
+# into cut-ready, and not a block -- the full gate's own rule for a check that did not run.
+_FAST_RATCHET_METRICS = ("defect_DP_total",)
+_FAST_REGISTER = "project-knowledge/IMPROVEMENT_BACKLOG.md"
+_FAST_REGISTER_EVIDENCE = "tests/fixtures/register_candidate_blobs_row473.json"
+_FAST_TRIO_RC = 3   # the in-process trio read has no tool rc of its own; 3 is the gate's hit code
+_FAST_NOT_RUN = ("test suite and test bands", "underived gates", "repo-wide marker census",
+                 "footgun registry (bd-footguns)", "tool integrity (bd-coretest)", "precut_check",
+                 "CI shard headroom")
+
+
+def _fast_mode(a):
+    if a.full:
+        return False
+    if a.fast:
+        return True
+    return os.environ.get("BD_PRECUT_FAST", "") == "1"
+
+
+def _run_ratchet_gate(root, rex=None, metrics=None):
     if not os.path.isfile(rex := rex or os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")): return None, "bd-ratchet not found"
+    argv = [sys.executable, rex, "--check", "--tree", root]
+    for m in (metrics or ()):
+        argv += ["--metric", m]   # H701: --fast checks the defect-pattern ratchet only (bd-ratchet --metric)
     try:
-        cp = subprocess.run([sys.executable, rex, "--check", "--tree", root], capture_output=True, text=True, timeout=900); sys.stdout.write(cp.stdout); sys.stderr.write(cp.stderr); out = cp.stdout
+        cp = subprocess.run(argv, capture_output=True, text=True, timeout=900); sys.stdout.write(cp.stdout); sys.stderr.write(cp.stderr); out = cp.stdout
     except TypeError:
-        cp = subprocess.run([sys.executable, rex, "--check", "--tree", root], timeout=900); out = getattr(cp, "stdout", "") or ""
+        cp = subprocess.run(argv, timeout=900); out = getattr(cp, "stdout", "") or ""
     if cp.returncode != 3: return cp.returncode, None
     deltas = []
     for ln in out.splitlines():
@@ -882,6 +931,134 @@ def _run_ratchet_gate(root, rex=None):
             k, b, c = m.groups(); d = f"{float(c)-float(b):+g}" if ("." in b or "." in c) else f"{int(c)-int(b):+d}"; deltas.append(f"metric: {k}\nbaseline: {b}\nvalue: {c}\ndelta: {d}\n"); print(f"  [advisory ratchet] {ln.strip()} (delta={d})")
     rev = os.path.join(root, ".review"); os.makedirs(rev, exist_ok=True); pathlib.Path(rev, "RATCHET-ADVISORY.md").write_text("# RATCHET-ADVISORY (O733)\n\n" + "\n".join(deltas or ["metric: unknown\nbaseline: unknown\nvalue: unknown\ndelta: unknown\n"]))
     return (3, "metric ratchet regressed -- see bd-ratchet output above") if os.environ.get("BD_RATCHET_BLOCK") == "1" else (0, "metric ratchet regressed -- ADVISORY, see .review/RATCHET-ADVISORY.md")
+
+
+def _release_trio_problem(root):
+    """N-1 of main(): the release trio read from the tree. None when version, pin,
+    CHANGELOG head and PIN_INDEX agree and the entry is ASCII, else the problem."""
+    trio_problem = None
+    try:
+        init = pathlib.Path(root, "bulk_downloader", "__init__.py").read_text(encoding="utf-8")
+        m = re.search(r'^__version__ = "([^"]+)"', init, re.M)
+        if not m:
+            trio_problem = "bulk_downloader/__init__.py declares no __version__"
+        else:
+            version = m.group(1)
+            pin = pathlib.Path(root, "tests", "test_settings_center_slice4.py").read_text(encoding="utf-8")
+            if ('__version__ == "%s"' % version) not in pin:
+                trio_problem = ("the version pin in tests/test_settings_center_slice4.py "
+                                "does not name %s" % version)
+            else:
+                changelog = pathlib.Path(root, "CHANGELOG.md").read_text(encoding="utf-8")
+                first = re.search(r"^## (v\S+)", changelog, re.M)
+                if not first:
+                    trio_problem = "CHANGELOG.md has no release header"
+                elif first.group(1) != "v" + version:
+                    trio_problem = ("CHANGELOG.md's top entry is %s, not v%s -- the "
+                                    "entry must be PREPENDED and anchored on the "
+                                    "previous release" % (first.group(1), version))
+                else:
+                    entry = changelog[first.start():]
+                    nxt = re.search(r"\n## v", entry)
+                    body = entry[:nxt.start()] if nxt else entry
+                    # AND THE GENERATED PIN, which is the half that actually
+                    # bit. At v3.66.1239 the three SOURCE facts agreed while
+                    # PIN_INDEX.json still recorded the previous version,
+                    # because a regen ran before the last version edit rather
+                    # than after it (A3 step 7). Source agreement is not
+                    # release readiness when a generated artifact carries the
+                    # same fact.
+                    pin_index = pathlib.Path(root, "PIN_INDEX.json")
+                    if pin_index.is_file():
+                        blob = pin_index.read_text(encoding="utf-8")
+                        if ('"%s"' % version) not in blob:
+                            trio_problem = (
+                                "PIN_INDEX.json does not record %s -- regenerate "
+                                "with bd-regen-order AFTER the last source edit"
+                                % version)
+                    nonascii = [c for c in body if ord(c) > 127]
+                    if trio_problem:
+                        pass
+                    elif nonascii:
+                        trio_problem = ("the %s CHANGELOG entry contains %d non-ASCII "
+                                        "character(s) (%r) -- A6 requires ASCII-only"
+                                        % (first.group(1), len(nonascii), nonascii[:4]))
+    except OSError as exc:
+        trio_problem = "release trio unreadable: %s" % exc
+    return trio_problem
+
+
+def _run_fast_tool(tool, *args):
+    """(rc, note) of one fast-gate tool of this toolchain: rc is the tool's own exit
+    status (note None when it is 0), or None when the tool could not run at all --
+    absent, timed out, OSError -- which the caller reports UNKNOWN, never a pass."""
+    exe = os.path.join(os.path.dirname(os.path.realpath(__file__)), tool)
+    if not os.path.isfile(exe):
+        return None, f"{tool} not found"
+    sys.stdout.flush()   # the tool writes straight to fd 1; keep the log in order
+    try:
+        rc = subprocess.run([sys.executable, exe, *args], timeout=900, check=False).returncode
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"{tool} {type(exc).__name__}: {exc}"
+    return rc, (None if rc == 0 else f"{tool} rc={rc}")
+
+
+def _fast_ratchet(root):
+    """The defect ratchet under --fast, by the full gate's rule: 0 is clean (or, O733,
+    a regression kept ADVISORY, with its note); 3 is a regression under
+    BD_RATCHET_BLOCK=1; anything else -- absent, timed out, or an rc that is neither
+    clean nor a regression, e.g. 2 on a capacity host with no ~/.bd_metrics_baseline.json
+    -- is UNKNOWN (rc None), not a block."""
+    try:
+        rc, err = _run_ratchet_gate(root, metrics=_FAST_RATCHET_METRICS)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"bd-ratchet {type(exc).__name__}: {exc}"
+    if rc == 0:
+        return 0, err
+    if rc == 3:
+        return 3, f"bd-ratchet rc=3 ({err})"
+    if rc is None:
+        return None, err
+    return None, f"bd-ratchet exited rc={rc} (neither clean nor a regression)"
+
+
+def _run_fast_gates(root):
+    """H712: run EXACTLY the fast gates over root (the H712 block above names them).
+
+    Each gate is ok, FAILED (its tool ran and exited non-zero) or UNKNOWN (it could
+    not run). Returns the rc of the FIRST gate that FAILED, else 0 -- with every
+    UNKNOWN named under NOT RUN, as the full gate reports its own."""
+    print(f"== bd-precut --fast --gate :: root={root}\n", flush=True)
+    results = []
+
+    def gate(label, rc, note):
+        state = "UNKNOWN" if rc is None else ("FAILED" if rc else "ok")
+        results.append((label, state, rc, note))
+        print(f"  [{label}] {state}" + (f" -- {note}" if note else ""), flush=True)
+
+    gate("guard pins", *_run_fast_tool("bd-guardcheck", "--tree", root))
+    gate("env tranche", *_run_fast_tool("bd-envscan", "--tree", root))
+    gate("secret scan", *_run_fast_tool("bd-secrets", "--work", root))
+    gate("metric ratchet", *_fast_ratchet(root))
+    gate("register containment", *_run_fast_tool(
+        "bd-shipped", "--repo", root, "--against", "origin/main",
+        "--register", os.path.join(root, _FAST_REGISTER),
+        "--candidate-blobs", os.path.join(root, _FAST_REGISTER_EVIDENCE)))
+    trio = _release_trio_problem(root)
+    gate("release trio", _FAST_TRIO_RC if trio else 0, trio)
+    failed = [(label, rc, note) for label, state, rc, note in results if state == "FAILED"]
+    if failed:
+        print("RESULT: NOT CUT-READY -- " + "; ".join(f"{label}: {note}" for label, _, note in failed))
+        return failed[0][1]
+    ran = ", ".join(label + (f" ({note})" if note else "")
+                    for label, state, _, note in results if state == "ok")
+    not_run = ([f"{label}: {note}" for label, state, _, note in results if state == "UNKNOWN"]
+               + [f"{name} (--fast: CI owns it)" for name in _FAST_NOT_RUN])
+    print(f"RESULT: cut-ready for what RAN ({ran}) -- {len(not_run)} check(s) NOT RUN, "
+          "so UNKNOWN, not OK:")
+    for item in not_run:
+        print(f"  - {item}")
+    return 0
 
 
 def main(argv=None):
@@ -905,14 +1082,28 @@ def main(argv=None):
                     help="skip the tool-integrity check (bd-coretest, ~12s)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--fast", action="store_true",
+                    help="H712: the fast gates ONLY -- bd-guardcheck, bd-envscan, "
+                         "bd-secrets, bd-ratchet (defect_DP_total), register/trio "
+                         "(bd-shipped register containment + release trio); no pytest, "
+                         "no regeneration. Always a gate: exit = the first failing "
+                         "gate's rc, else 0; a gate that could not run is named "
+                         "UNKNOWN, as in the full gate. Default when BD_PRECUT_FAST=1 "
+                         "(bd-worker-precut.sh and the train assembly export it); "
+                         "--full overrides the env.")
+    ap.add_argument("--full", action="store_true",
+                    help="run the full gate even when BD_PRECUT_FAST=1")
     a = ap.parse_args(argv)
     if not hasattr(a, "work"):
         a.work = a.root
     if a.selftest:
         return selftest()
+    a.fast = _fast_mode(a)
 
     root = a.root or _auto_root()
     sec.require_source_tree(root, label="--root")
+    if a.fast:
+        return _run_fast_gates(root)   # H712: exactly the fast gates; nothing below runs
     tmpdir = tempfile.mkdtemp(prefix="bd-precut-baseline.")
     atexit.register(shutil.rmtree, tmpdir, True)
     derived_reason = None
@@ -1028,55 +1219,7 @@ def main(argv=None):
     # every single time is worse than no line at all: it trains the reader to
     # skip the summary, which is where the real UNKNOWNs also live. This derives
     # the same three facts from the working tree.
-    trio_problem = None
-    try:
-        init = pathlib.Path(root, "bulk_downloader", "__init__.py").read_text(encoding="utf-8")
-        m = re.search(r'^__version__ = "([^"]+)"', init, re.M)
-        if not m:
-            trio_problem = "bulk_downloader/__init__.py declares no __version__"
-        else:
-            version = m.group(1)
-            pin = pathlib.Path(root, "tests", "test_settings_center_slice4.py").read_text(encoding="utf-8")
-            if ('__version__ == "%s"' % version) not in pin:
-                trio_problem = ("the version pin in tests/test_settings_center_slice4.py "
-                                "does not name %s" % version)
-            else:
-                changelog = pathlib.Path(root, "CHANGELOG.md").read_text(encoding="utf-8")
-                first = re.search(r"^## (v\S+)", changelog, re.M)
-                if not first:
-                    trio_problem = "CHANGELOG.md has no release header"
-                elif first.group(1) != "v" + version:
-                    trio_problem = ("CHANGELOG.md's top entry is %s, not v%s -- the "
-                                    "entry must be PREPENDED and anchored on the "
-                                    "previous release" % (first.group(1), version))
-                else:
-                    entry = changelog[first.start():]
-                    nxt = re.search(r"\n## v", entry)
-                    body = entry[:nxt.start()] if nxt else entry
-                    # AND THE GENERATED PIN, which is the half that actually
-                    # bit. At v3.66.1239 the three SOURCE facts agreed while
-                    # PIN_INDEX.json still recorded the previous version,
-                    # because a regen ran before the last version edit rather
-                    # than after it (A3 step 7). Source agreement is not
-                    # release readiness when a generated artifact carries the
-                    # same fact.
-                    pin_index = pathlib.Path(root, "PIN_INDEX.json")
-                    if pin_index.is_file():
-                        blob = pin_index.read_text(encoding="utf-8")
-                        if ('"%s"' % version) not in blob:
-                            trio_problem = (
-                                "PIN_INDEX.json does not record %s -- regenerate "
-                                "with bd-regen-order AFTER the last source edit"
-                                % version)
-                    nonascii = [c for c in body if ord(c) > 127]
-                    if trio_problem:
-                        pass
-                    elif nonascii:
-                        trio_problem = ("the %s CHANGELOG entry contains %d non-ASCII "
-                                        "character(s) (%r) -- A6 requires ASCII-only"
-                                        % (first.group(1), len(nonascii), nonascii[:4]))
-    except OSError as exc:
-        trio_problem = "release trio unreadable: %s" % exc
+    trio_problem = _release_trio_problem(root)   # H712: --fast runs the same read
     if trio_problem:
         blocking.append("release trio: " + trio_problem)
     else:

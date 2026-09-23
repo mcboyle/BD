@@ -445,7 +445,7 @@ def _reset_loaded_app_site_runtime(*, reopen=False):
 # Design notes carried over from the prior most-defensive variants:
 #   * Saves the UNION of env vars any variant touched
 #     (BD_HOME, BD_DISABLE_KEEPALIVE, BD_DEV_MODE, BD_DEV_MODE_DISABLE,
-#     BD_AUTH_TOKEN, BD_COCKPIT_TASKS, BD_INSTALL_DIR).
+#     BD_AUTH_TOKEN, BD_COCKPIT_TASKS, BD_INSTALL_DIR, BD_PRECUT_FAST).
 #   * Wipes tmp_path children at fixture start (from
 #     test_v3_50_phase3.py). The Anthropic-sandbox custom test runner
 #     reuses the same tmp_path across tests in one file; SQLite DBs
@@ -876,6 +876,7 @@ def isolated_bd_home(request, tmp_path):
         "BD_AUTH_TOKEN",
         "BD_COCKPIT_TASKS",
         "BD_INSTALL_DIR",
+        "BD_PRECUT_FAST",
     )
     saved_env = {k: os.environ.get(k) for k in _ENV_KEYS}
     saved_cwd = os.getcwd()
@@ -906,6 +907,10 @@ def isolated_bd_home(request, tmp_path):
     # need the install-dir seam set a test-owned path explicitly afterwards via
     # clean_workdir.
     os.environ.pop("BD_INSTALL_DIR", None)
+    # H712: bd-worker-precut.sh and bd-train.sh export BD_PRECUT_FAST=1 for their
+    # precut and then run pytest bands in the same environment; a test that drives
+    # bd-precut's full gate must not be handed --fast by the band it runs in.
+    os.environ.pop("BD_PRECUT_FAST", None)
     os.chdir(str(tmp_path))
 
     # Opt-in: drop bulk_downloader.* from sys.modules so a fresh import

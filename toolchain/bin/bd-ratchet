@@ -192,9 +192,11 @@ METRICS = {
 _REQUIRED_METRICS = frozenset({"defect_DP_total"})
 
 
-def _collect(tree):
+def _collect(tree, only=None):
     out = {}
     for name, (fn, _dir) in METRICS.items():
+        if only is not None and name not in only:
+            continue   # H701: --metric measures only what it compares
         try:
             v = fn(tree)
         except Exception:  # why: operation failed; degrade to the default and continue -- correctness unaffected, only completeness
@@ -245,7 +247,18 @@ def cmd_check(a):
     if not os.path.isfile(BASELINE):
         print("no baseline -- run: bd-ratchet --baseline"); return 2
     base = json.load(open(BASELINE))
-    cur = _collect(a.tree)
+    only = getattr(a, "metric", None)
+    if only:
+        unknown_names = sorted(set(only) - set(base))
+        if unknown_names:
+            pinned = ", ".join(sorted(n for n in base if not n.startswith("_")))
+            sys.stderr.write(f"CANNOT-EVALUATE: --metric names no pinned metric: {', '.join(unknown_names)} "
+                             f"(pinned: {pinned})\n")
+            return sec.EXIT_CANNOT_EVALUATE
+        base = {n: v for n, v in base.items() if n in only}
+        cur = _collect(a.tree, only=set(only))
+    else:
+        cur = _collect(a.tree)
     regressed = []
     required_unknown = []
     compared = 0
@@ -346,6 +359,9 @@ def main():
     ap.add_argument("--baseline", action="store_true")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--trend", metavar="NAME")
+    ap.add_argument("--metric", action="append", default=None, metavar="NAME",
+                    help="H701: with --check, compare ONLY these pinned metric(s); "
+                         "repeatable. An unknown name is CANNOT-EVALUATE, not a pass.")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest: return selftest()
