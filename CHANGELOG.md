@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1669 - train96: row
+
+- H736 (h736-lens-router): tests/test_h736_lens_router.py pins the lens router contract (builder exclusion, codex-first ranking, dead-seat REQUEUE, flock append before bd-say, exit 3 when nothing routes). Judges BD_H736_CANDIDATE or the deployed bd-persist/harness/bd-lens-router.sh; skips naming the path when neither exists. Test only; the router itself is a harness deploy.
+- H98 (h98-control-spec-expectations): bd-mutate's spec emitter no longer publishes a mutation control whose row was CAUGHT with that row as an expected escape (rc 1 on a control run = CONTROL-CAUGHT); tests/mutants control specs re-emitted and test_v3_66_1184_mutation_specs_are_tracked pins it.
+
+
 ## v3.66.1668 - train95: row
 
 - H685 (h685-running-nodeid): bd-flake-classifier streams child stdout/stderr in non-JSON mode (retries keep the mode) and CI runs unbuffered verbose pytest, so a killed shard shows the active test nodeid. Probe: tests/test_row883_flake_classifier.py::test_h685_cli_emits_current_nodeid_before_child_exits.
