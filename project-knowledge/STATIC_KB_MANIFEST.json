@@ -1,6 +1,6 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-23T03:28:02+00:00",
+ "generated": "2026-09-23T04:39:58+00:00",
  "version_context": "v3.66.1639",
  "file_count": 96,
  "files": {
@@ -81,11 +81,11 @@
    "bytes": 4352
   },
   "CI_DOCSONLY_SHARDS.json": {
-   "sha256": "14ee6374488b6f69919be5a2f26413f62e5f696e4825abc87b49f2be22d7e94d",
-   "bytes": 2063
+   "sha256": "e82af1f2182dd94c77f0f4939e5990281c8325531e738873dc882f5fff10209a",
+   "bytes": 925
   },
   "CI_FAILURE_TAXONOMY.md": {
-   "sha256": "1065916a74042c9ff6c94a52620af98422fa587b7ddb61227459a08466adb26e",
+   "sha256": "6f3cbfc3da4ecd78c55679182724cf1beb85233715780c481a19e84b3af99881",
    "bytes": 51476
   },
   "CODE_INTELLIGENCE_ARCHITECTURE.md": {
