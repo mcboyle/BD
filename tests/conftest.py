@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 from capture_lanes import classify_capture_path
 
-pytest_plugins = ("_row_census_pin",)
+pytest_plugins = ("_row_census_pin", "_timeout_reap")
 
 # H341 (T90 RED3, PM pick A): a pytest session is itself the battery; tests that drive
 # bd-band/bd-precut main() nest inside it instead of competing for host slots.
