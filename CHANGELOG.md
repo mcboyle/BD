@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1665 - train90: row
+
+
 ## v3.66.1664 - train89: row982, row986
 
 Base T88 tip cefc596e (v3.66.1663; PR1000 base main; main 2dcac16a). T89 (ORDERS-0109 T89 PREVIEW + PUSH 16:35Z): two cuts, each boarded at its INDEX tree (982 P1-A orphaned BOARD, dropped from T69/T70 for row703 pin drift; 986 cx1 decisive), rebased in place (O1319/O805). Per-row ci.yml shard lines dropped (RULING-0080 s2). Gate O1304: VM precut only.
