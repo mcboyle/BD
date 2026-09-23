@@ -52,6 +52,7 @@ SUPPORT_EXEMPTIONS = {
     "tests/_run_context.py": "support module or fixture input; not a collected test suite",
     "tests/_socket_record.py": "support module or fixture input; not a collected test suite",
     "tests/_sys_modules_guard.py": "support module or fixture input; not a collected test suite",
+    "tests/_timeout_reap.py": "support module or fixture input; not a collected test suite",
     "tests/_tmproot.py": "support module or fixture input; not a collected test suite",
     "tests/capture_lanes.py": "support module or fixture input; not a collected test suite",
     "tests/ci_workflow_model.py": "support module or fixture input; not a collected test suite",
