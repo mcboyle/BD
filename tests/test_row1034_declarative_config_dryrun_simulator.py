@@ -241,3 +241,99 @@ def test_row1034_none_submission_foundation_key_plans_as_rejected_matching_apply
     data = json.loads(r.data)
     assert key in data["rejected"]
     assert data["rejected"][key] == expected_reason
+
+
+def _plan_client(tmp_path, monkeypatch, envfile_text=""):
+    env_file = tmp_path / ".env"
+    env_file.write_text(envfile_text, encoding="utf-8")
+    monkeypatch.setattr(EF, "resolve_envfile_path", lambda: env_file)
+    return _app().test_client()
+
+
+def test_row1034_plan_never_discloses_a_value_for_a_name_outside_the_allow_list(tmp_path, monkeypatch):
+    """E1 (HIGH): the plan echoed os.environ[name] / the .env value for any submitted
+    name, so the settings API became a read-any-env-var oracle. RULING-0027: the plan
+    never returns an environment value at all, only whether the key is set."""
+    _dryrun()
+    env_secret, file_secret = "s3cret-env-value-1034", "s3cret-dotenv-value-1034"
+    monkeypatch.setenv("BD_PROBE_SECRET_1034", env_secret)
+    client = _plan_client(tmp_path, monkeypatch, f"OTHER_TOKEN_1034={file_secret}\n")
+    r = client.post("/api/settings/envfile/plan", json={"updates": {
+        "BD_PROBE_SECRET_1034": "x", "OTHER_TOKEN_1034": "y", "PATH": "z"}})
+    text = r.get_data(as_text=True)
+    for leaked in (env_secret, file_secret, os.environ["PATH"]):
+        assert leaked not in text, "plan endpoint disclosed a value it must not read: %r" % leaked
+    for a in json.loads(text)["actions"]:
+        assert a["action"] == "rejected", a
+        assert a["from"] is None and a["to"] is None and a["effective_set"] is None, a
+        assert "effective" not in a, a
+
+
+def test_row1034_a_rejected_editor_key_shows_no_saved_or_effective_value():
+    M = _dryrun()
+    key = _a_writable_key()
+    plan = M.plan_envfile_updates({key: "not-a-port"}, saved={key: "8080"}, effective={key: "8081"})
+    action = _by_name(plan, key)
+    assert action["action"] == "rejected"
+    assert (action["from"], action["to"], action["effective_set"]) == (None, None, None), action
+
+
+def test_row1034_a_noop_on_a_drifted_effective_value_still_needs_a_restart():
+    """E2: restart is decided against os.environ (effective), not the saved .env."""
+    M = _dryrun()
+    key = _a_writable_key()
+    plan = M.plan_envfile_updates({key: "8080"}, saved={key: "8080"}, effective={key: "9090"})
+    action = _by_name(plan, key)
+    assert action["action"] == "noop"
+    assert action["restart_required"] is True, action
+    assert plan["restart_required"] is True, plan
+
+
+def test_row1034_an_update_already_effective_needs_no_restart():
+    M = _dryrun()
+    key = _a_writable_key()
+    plan = M.plan_envfile_updates({key: "8099"}, saved={key: "8080"}, effective={key: "8099"})
+    action = _by_name(plan, key)
+    assert action["action"] == "update" and action["from"] == "8080"
+    assert action["restart_required"] is False, action
+    assert plan["restart_required"] is False, plan
+
+
+def test_row1034_the_plan_endpoint_decides_restart_from_the_process_environment(tmp_path, monkeypatch):
+    _dryrun()
+    key = _a_writable_key()
+    client = _plan_client(tmp_path, monkeypatch, f"{key}=8080\n")
+    monkeypatch.setenv(key, "8099")
+    body = json.loads(client.post("/api/settings/envfile/plan", json={"updates": {key: "8099"}}).data)
+    assert _by_name(body, key)["action"] == "update" and body["restart_required"] is False, body
+    assert _by_name(body, key)["effective_set"] is True, body
+    assert "8099" not in json.dumps([a.get("effective") for a in body["actions"]]), body
+    monkeypatch.setenv(key, "8080")
+    body = json.loads(client.post("/api/settings/envfile/plan", json={"updates": {key: "8099"}}).data)
+    assert body["restart_required"] is True, body
+
+
+def test_row1034_a_non_object_json_body_is_a_400_not_a_500(tmp_path, monkeypatch):
+    """E3: a JSON list body crashed body.get() with a 500."""
+    _dryrun()
+    client = _plan_client(tmp_path, monkeypatch)
+    for url in ("/api/settings/envfile/plan", "/api/settings/envfile"):
+        for payload in ([1, 2], "just-a-string", 7):
+            r = client.post(url, json=payload)
+            assert r.status_code == 400, (url, payload, r.status_code)
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == ""
+
+
+def test_row1034_an_accepted_key_reports_whether_it_is_set_never_its_environment_value(tmp_path, monkeypatch):
+    """RULING-0027: even for an allow-listed key the plan says set / not set, not the value."""
+    _dryrun()
+    key = _a_writable_key()
+    client = _plan_client(tmp_path, monkeypatch)
+    monkeypatch.setenv(key, "54321")
+    r = client.post("/api/settings/envfile/plan", json={"updates": {key: "8099"}})
+    assert "54321" not in r.get_data(as_text=True), "plan disclosed the process environment value"
+    action = _by_name(json.loads(r.data), key)
+    assert action["effective_set"] is True and action["restart_required"] is True, action
+    monkeypatch.delenv(key)
+    action = _by_name(json.loads(client.post("/api/settings/envfile/plan", json={"updates": {key: "8099"}}).data), key)
+    assert action["effective_set"] is False, action

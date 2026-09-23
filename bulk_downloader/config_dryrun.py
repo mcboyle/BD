@@ -76,11 +76,14 @@ def plan_envfile_updates(updates: Mapping[str, Any], *,
     actions = []
     counts = {"create": 0, "update": 0, "noop": 0, "unset": 0, "rejected": 0}
     for name, raw in submitted.items():
-        prior = saved.get(name)
-        live = effective.get(name)
         if name in rejected:
+            # Never read saved/effective for a rejected name: unknown names are
+            # rejected, so echoing them made the plan an any-env-var oracle.
+            prior = live = None
             action, to_value, restart = "rejected", None, False
         else:
+            prior = saved.get(name)
+            live = effective.get(name)
             to_value = accepted.get(name, "" if raw is None else str(raw))
             if prior is None:
                 action = "create"
@@ -95,7 +98,8 @@ def plan_envfile_updates(updates: Mapping[str, Any], *,
             "action": action,
             "from": prior,
             "to": to_value,
-            "effective": live,
+            # Never the os.environ value itself (RULING-0027): only whether it is set.
+            "effective_set": None if name in rejected else live is not None,
             "restart_required": bool(restart),
             "rejected": name in rejected,
             "reason": rejected.get(name, ""),

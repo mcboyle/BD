@@ -157,6 +157,18 @@ def _write_envfile(path: Path, accepted: dict) -> None:
             os.unlink(tmp)
 
 
+def _submitted_updates():
+    """The {KEY: value} object from a JSON body ({updates: {...}} or bare), or None
+    when the body is not a JSON object (a list/string/number must be a 400, not a 500)."""
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return None
+    updates = body.get("updates", body)
+    return updates if isinstance(updates, dict) else None
+
+
 @envfile_editor_bp.route("/api/settings/envfile", methods=["GET"])
 def api_settings_envfile_get():
     try:
@@ -167,9 +179,8 @@ def api_settings_envfile_get():
 
 @envfile_editor_bp.route("/api/settings/envfile", methods=["POST"])
 def api_settings_envfile_post():
-    body = request.get_json(silent=True) or {}
-    updates = body.get("updates", body)
-    if not isinstance(updates, dict):
+    updates = _submitted_updates()
+    if updates is None:
         return jsonify({"ok": False, "error": "expected an object of {KEY: value}"}), 400
     res = validate_envfile_updates(updates)
     if res["rejected"] or not res["accepted"]:
@@ -196,9 +207,8 @@ def api_settings_envfile_plan():
     scope: that module imports validate_envfile_updates from this one)."""
     from .config_dryrun import plan_envfile_updates, render_plan_text
 
-    body = request.get_json(silent=True) or {}
-    updates = body.get("updates", body)
-    if not isinstance(updates, dict):
+    updates = _submitted_updates()
+    if updates is None:
         return jsonify({"ok": False, "error": "expected an object of {KEY: value}"}), 400
     path = _envfile.resolve_envfile_path()
     try:
