@@ -13,6 +13,7 @@ from ..interstitial import _origin
 from ._common import (
     _css_escape_for_id,
     _fire_login_trigger_if_needed,
+    _inter_field_pause,
     _try_click,
     _try_fill,
     log_url,
@@ -1746,9 +1747,9 @@ def do_login(config, allow_manual_takeover=False):
 
         # Phase 15.5: brief "thinking" pause between username and password
         # fields. Real users don't tab instantly — they read the next field's
-        # label, position the cursor, etc. 300-900ms covers most patterns.
-        import random as _rnd
-        time.sleep(_rnd.uniform(0.3, 0.9))
+        # label, position the cursor, etc. Row 1049: the scheduler's
+        # inter-field delay supplies it.
+        _inter_field_pause()
 
         ok,info=_try_fill(page,pf_candidates,password,"password")
         if not ok:

@@ -265,8 +265,9 @@ def _try_fill(page,selectors,value,what):
     detectable), we focus the field then call `page.keyboard.type` with
     a randomized 50-150ms delay between keystrokes. Real browsers emit
     keydown/keypress/input/keyup for each character; bots that DOM-set
-    don't. Many enterprise WAFs key on this gap exclusively."""
-    import random
+    don't. Many enterprise WAFs key on this gap exclusively. Row 1049: the
+    per-keystroke delays now come from the synthetic input scheduler
+    (_type_field_value)."""
     tried=[]
     skipped=[]
     for sel in selectors:
@@ -313,8 +314,11 @@ def _try_fill(page,selectors,value,what):
                 # than no delay at all. Loop one char at a time, fresh sample
                 # each iteration, so the inter-keystroke gaps are actually
                 # non-uniform across the value.
-                for ch in value:
-                    page.keyboard.type(ch, delay=random.uniform(50, 150))
+                # Row 1049: the per-keystroke plan comes from the synthetic
+                # input scheduler and is executed by it. A keystroke failure
+                # propagates to the `continue` below (next match), exactly as
+                # the base loop did -- it is never retyped into the same field.
+                _type_field_value(page, sel, value)
                 return True,sel
             except Exception: continue
     # Row 770: "nothing matched" and "every match was a decoy" are opposite
@@ -326,6 +330,46 @@ def _try_fill(page,selectors,value,what):
                       f"skipped {len(skipped)} honeypot field(s): "
                       f"{', '.join(skipped[:5])}")
     return False,f"could not fill {what}; tried {len(tried)} selectors"
+
+
+def get_input_scheduler():
+    """Access the synthetic user input scheduler."""
+    from bulk_downloader.synthetic_input_scheduler import SyntheticInputScheduler
+    return SyntheticInputScheduler()
+
+
+def _type_field_value(page, sel, value):
+    """Row 1049: type ``value`` into the focused field through the scheduler's
+    field plan (TYPE_CHAR actions, per-character delay with hesitation) and
+    its executor. Only building the plan may fall back to the Phase 15.5
+    uniform(50,150) loop; typing is attempted once either way."""
+    import random
+    try:
+        from bulk_downloader.synthetic_input_scheduler import InputSchedule
+        sched = get_input_scheduler()
+        plan = InputSchedule(
+            actions=sched.schedule_field_input(sel, value, clear_first=False, click_to_focus=False),
+            profile=sched.profile, field_count=1, keystroke_count=len(value))
+    except Exception:
+        sched = None
+    if sched is None:
+        for ch in value:
+            page.keyboard.type(ch, delay=random.uniform(50, 150))
+        return
+    res = sched.execute_schedule(page, plan)
+    if res["characters_typed"] != len(value):
+        raise RuntimeError(f"typed {res['characters_typed']} of {len(value)} characters")
+
+
+def _inter_field_pause():
+    """Row 1049: the pause between two form fields comes from the scheduler
+    (sample_inter_field_delay, ms); Phase 15.5's 300-900ms if it cannot run."""
+    try:
+        delay_s = get_input_scheduler().sample_inter_field_delay() / 1000.0
+    except Exception:
+        import random
+        delay_s = random.uniform(0.3, 0.9)
+    time.sleep(delay_s)
 
 
 def _try_click(page,selectors,what):
