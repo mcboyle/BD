@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1765,
+    "edge_count": 1767,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2912,6 +2912,9 @@
         "tools/template.py",
         "tools/workbench.py"
       ],
+      "bulk_downloader/cas_ledger.py": [
+        "bulk_downloader/dedup.py"
+      ],
       "bulk_downloader/challenge_classify.py": [
         "bulk_downloader/challenge_handling.py"
       ],
@@ -3135,6 +3138,7 @@
         "bulk_downloader/bw_chart.py",
         "bulk_downloader/capacity.py",
         "bulk_downloader/capture_schedules.py",
+        "bulk_downloader/cas_ledger.py",
         "bulk_downloader/cleanup_helpers.py",
         "bulk_downloader/cluster_rate.py",
         "bulk_downloader/content_rights.py",
@@ -6145,6 +6149,9 @@
         "bulk_downloader/extraction_core.py",
         "bulk_downloader/netlog_classify.py"
       ],
+      "bulk_downloader/cas_ledger.py": [
+        "bulk_downloader/db.py"
+      ],
       "bulk_downloader/challenge_classify.py": [
         "bulk_downloader/llm_exec.py"
       ],
@@ -6253,6 +6260,7 @@
         "bulk_downloader/run_budget.py"
       ],
       "bulk_downloader/dedup.py": [
+        "bulk_downloader/cas_ledger.py",
         "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/text_similarity.py"
       ],

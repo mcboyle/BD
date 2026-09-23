@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1651 - train76: row1062, row1079
+
+Base train/75 428b66bf (v3.66.1650 on T74 6edb4de6 on main cede20f7; ORDERS-0086 restack; PR987). T76 (ORDERS-0082/0084; T76-PLAN-bd-integrator-R-B.md): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1062-cas-ledger-dedup: CAS ledger dedup engine (3 paths; W5-A rebase onto the T74 tip per ORDERS-0082). N2-B at 8942cf95.
+- row1079 hotfix-boto3-bound: requirements bound boto3/aiobotocore to what aioboto3 13.x resolves (RULING-0080 s1(b), O1289; 2 paths from the boarded tree object 8afb9fbf via review copy row1079-hotfix-boto3-bound-8afb9fbf; register row 1079 inserted by fixup per ORDERS-0084). P4-B at 8afb9fbf.
+- register: rows 1062, 1079 CLOSED @1651 (1646-1650 held by T71-T75).
+- dropped at this base: row1057 (app.py conflict with T75's row1020, T76-DROP-1057-R-B.md); row1028 (row703 pin runner.py:1403->1424 red, T76-DROP-1028-R-B.md) -> fixer-A (ORDERS-0084).
+
+
 ## v3.66.1650 - train75: row1020, row1037, row1048, row963
 
 Base train/74 tip 6edb4de6 (T74 v3.66.1649 on main cede20f7; ORDERS-0086 restack). Four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010 glob shards: per-row ci.yml lines dropped, RULING-0080 s2). ORDERS-0082.

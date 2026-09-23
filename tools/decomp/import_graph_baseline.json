@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4925,
+  "edge_count": 4930,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -984,6 +984,9 @@
       "bulk_downloader/extraction_core.py",
       "bulk_downloader/netlog_classify.py"
     ],
+    "bulk_downloader/cas_ledger.py": [
+      "bulk_downloader/db.py"
+    ],
     "bulk_downloader/challenge_classify.py": [
       "bulk_downloader/llm_exec.py"
     ],
@@ -1092,6 +1095,7 @@
       "bulk_downloader/run_budget.py"
     ],
     "bulk_downloader/dedup.py": [
+      "bulk_downloader/cas_ledger.py",
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/text_similarity.py"
     ],
@@ -4172,6 +4176,11 @@
       "bulk_downloader/otel_trace_spans.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_row1062_cas_ledger_dedup_engine.py": [
+      "bulk_downloader/cas_ledger.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/dedup.py"
     ],
     "tests/test_row1065_multi_homed_egress_failover.py": [
       "bulk_downloader/download_egress.py",
