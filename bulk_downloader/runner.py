@@ -4038,6 +4038,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # exits WITHOUT ever launching an un-isolated browser.
                 sys.stderr.write(f"[{self.site_id}] worker {worker_idx}: {e}\n")
                 return
+            # Row 1029: while any worker runs, the process-wide collector is
+            # tuned from measured overhead; the last worker out restores it
+            # and pays the deferred full collection after its browser closed.
+            from . import adaptive_gc as _adaptive_gc
+            _ns_stack.enter_context(
+                _adaptive_gc.get_adaptive_gc_controller().workload(
+                    f"{self.site_id}/{worker_idx}"))
             browser,persistent_ctx,pw,backend=self._launch_browser(
                 worker_idx=worker_idx, netns=netns)
             while not self._stop.is_set():
