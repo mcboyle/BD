@@ -809,7 +809,21 @@ def _underived_parallelism():
     """xdist arguments for the underived run, or [] when xdist is absent."""
     if importlib.util.find_spec("xdist") is None:
         return []
-    workers = max(1, min(_UNDERIVED_WORKERS_CAP, os.cpu_count() or 1))
+    # H167: min(cap, cpus) alone ran -n 16 on a 48-core box at load 30-85, and
+    # the gates' own subprocess budgets (sized for a quiet box) timed out. Only
+    # the cores the 1-minute load leaves idle are taken, so load + workers
+    # stays within the box; the floor is 1 worker, never 0.
+    cpus = os.cpu_count() or 1
+    try:
+        load1 = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        load1 = None
+    # An unsampled load is not an idle box: half the cap-bounded figure.
+    idle = min(_UNDERIVED_WORKERS_CAP, cpus) // 2 if load1 is None else int(cpus - load1)
+    workers = max(1, min(_UNDERIVED_WORKERS_CAP, cpus, idle))
+    print("bd-precut: underived workers=%d (cpus=%d load1=%s cap=%d; H167)"
+          % (workers, cpus, "UNSAMPLED" if load1 is None else "%.2f" % load1,
+             _UNDERIVED_WORKERS_CAP), file=sys.stderr, flush=True)
     return ["-n", str(workers), "--dist", "loadfile"]
 
 
