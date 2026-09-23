@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=50 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=48 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -375,7 +375,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 984 | OPEN | CGROUPS-V2-HIGH-WATER-MARK-DYNAMIC-BACKPRESSURE-CONTROLLER-AND-CIRCUIT-BREAKER-CGROUPSADMISSION -- Cgroups v2 High-Water Mark Dynamic Backpressure Controller and Circuit Breaker (CgroupsAdmission) |
 | 985 | OPEN | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
-| 987 | OPEN | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
+| 987 | CLOSED @1643 | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
 | 988 | OPEN | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
 | 989 | CLOSED @1634 | INTER-SEAT-IPC-LATENCY-MATRIX-MONITOR -- Inter-Seat IPC Latency Matrix Monitor |
 | 990 | CLOSED @1631 | QUEUE-STARVATION-PRIORITY-INVERSION-VISUALIZER -- Queue Starvation & Priority Inversion Visualizer |
@@ -407,7 +407,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1016 | CLOSED @1633 | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
 | 1017 | CLOSED @1637 | MULTI-TRACK-AUXILIARY-TEXT-CHAPTER-ANNOTATION-INGESTION -- Multi-Track Auxiliary Text & Chapter Annotation Ingestion -- MOOT-PREMISE / MOOT-DUPLICATE of row 910 (CLOSED @1585): tests/test_subtitle_chapter_harvester.py:1 is literally 'Row 910: multi-track auxiliary text and chapter annotation ingestion' (12 passed on pristine main); chapter embedding ships in mp4_metadata.embed_chapter_markers, SRT parsing in subtitle_search.parse_srt @25245209179e; the cut's multitrack_annotation module had 0 product callers (FOUND NONE on main); REFUTED bd-worker-W1-A bd-cuts/cut/row1017-multitrack-annotation/DONE.md (ORDERS-2302-BOUNCE; prior patch preserved harness-work/row1017-moot/patch-21326cf6.diff). Registrar-verified 2026-09-22T23:2xZ (ORDERS-2143 ADD 23:15Z) |
 | 1018 | CLOSED @1634 | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
-| 1019 | OPEN | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
+| 1019 | CLOSED @1643 | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
 | 1020 | OPEN | MONOLITHIC-GATEWAY-DECOMPOSITION-DYNAMIC-BLUEPRINT-REGISTRATION-ENGINE-ROUTEREGISTRY -- Monolithic Gateway Decomposition & Dynamic Blueprint Registration Engine (RouteRegistry) |
 | 1021 | OPEN | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
 | 1022 | CLOSED @1639 | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
