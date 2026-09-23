@@ -824,6 +824,14 @@ from .runner_queue import QueueMixin, job_status_writer  # noqa: E402
 from .runner_extractors import ExtractorsMixin  # noqa: E402
 from .runner_auth import AuthMixin  # noqa: E402
 from .runner_transport import TransportMixin  # noqa: E402
+from .runner_decoupling import (  # noqa: E402
+    BaseRunnerSubsystem,
+    LifecycleSubsystem,
+    QueueSubsystem,
+    TransportSubsystem,
+    TelemetrySubsystem,
+    RunnerSubsystemManager,
+)
 
 
 def _finite_config_float(raw, default):
@@ -984,6 +992,34 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     _WORKER_CLAIM_INELIGIBLE = "ineligible"
     _WORKER_CLAIM_PROCESSED = "processed"
 
+    @property
+    def _state(self) -> str:
+        lifecycle = getattr(self, "lifecycle_subsystem", None)
+        if lifecycle is not None:
+            return lifecycle.state
+        return getattr(self, "_state_val", "idle")
+
+    @_state.setter
+    def _state(self, val: str) -> None:
+        self._state_val = val
+        lifecycle = getattr(self, "lifecycle_subsystem", None)
+        if lifecycle is not None:
+            lifecycle.set_state(val)
+
+    @property
+    def _rl_autostart(self) -> bool:
+        transport = getattr(self, "transport_subsystem", None)
+        if transport is not None:
+            return transport.rl_autostart
+        return getattr(self, "_rl_autostart_val", False)
+
+    @_rl_autostart.setter
+    def _rl_autostart(self, val: bool) -> None:
+        self._rl_autostart_val = bool(val)
+        transport = getattr(self, "transport_subsystem", None)
+        if transport is not None:
+            transport.set_rate_limit_autostart(val)
+
     def __init__(self,site_id,config):
         # Phase 34: structured logger, scoped to this site. Used in
         # preference to sys.stderr.write for code added from Phase 34
@@ -1001,21 +1037,31 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._website_titles={}
         self._listing_titles={}
         self._lock=threading.Lock()
-        self._stop=threading.Event()
-        # P3-A: one-shot flag for rate-limit auto-resume. Set in
-        # trigger_rate_limit(), cleared in stop(); the cooldown-wait thread
-        # only re-resumes if it's still set (so an operator stop cancels it).
-        self._rl_autostart=False
-        self._pause=threading.Event(); self._pause.set()
-        # Active HTTP transfers register their bounded daily-byte batches here
-        # so operator pause/stop can persist already-written bytes even when a
-        # transport iterator is blocked waiting for its next response buffer.
-        self._daily_byte_accumulators_lock=threading.Lock()
-        self._daily_byte_accumulators=set()
-        # Phase 3: persistent worker threads pull from this queue.
-        self._url_queue=queue.Queue()
-        self._worker_threads=[]
-        self._state="idle"; self._login_thread=None; self._login_status=""
+
+        # Row 1021: Decoupled Subsystem Architecture (RunnerDecoupling)
+        self.subsystems = RunnerSubsystemManager(self)
+        self.lifecycle_subsystem = LifecycleSubsystem(self)
+        self.queue_subsystem = QueueSubsystem(self)
+        self.transport_subsystem = TransportSubsystem(self)
+        self.telemetry_subsystem = TelemetrySubsystem(self)
+        self.subsystems.register(self.lifecycle_subsystem)
+        self.subsystems.register(self.queue_subsystem)
+        self.subsystems.register(self.transport_subsystem)
+        self.subsystems.register(self.telemetry_subsystem)
+
+        # Wire subsystem events and state mirrors for 100% backward compatibility
+        self._stop = self.lifecycle_subsystem.stop_event
+        self._pause = self.lifecycle_subsystem.pause_event
+        self._url_queue = self.queue_subsystem.url_queue
+        self.jobs = self.queue_subsystem.jobs
+        self.urls = self.queue_subsystem.urls
+        self._daily_byte_accumulators = self.transport_subsystem.accumulators
+        self._daily_byte_accumulators_lock = self.transport_subsystem.lock
+        self._rl_autostart = False
+        self._worker_threads = self.lifecycle_subsystem.worker_threads
+        self._state = "idle"
+        self._login_thread = None
+        self._login_status = ""
         # Row 870: distributed work stealing coordinator
         self._work_stealing_coordinator = None
         self._stealable_sites: list[str] = []
@@ -1223,8 +1269,64 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         except Exception as _e:  # noqa: BLE001
             self.log.warning("ytdlp_extractor opt-in registration failed: %s", _e)
 
+    def get_subsystem(self, name: str) -> BaseRunnerSubsystem | None:
+        """Return the named runner subsystem if registered (Row 1021)."""
+        return self.subsystems.get(name)
 
+    def set_state(self, new_state: str) -> None:
+        """Update runner state via LifecycleSubsystem (Row 1021)."""
+        self._state = new_state
 
+    def add_url(self, url: str) -> None:
+        """Enqueue URL via QueueSubsystem (Row 1021)."""
+        if hasattr(self, "queue_subsystem") and self.queue_subsystem is not None:
+            self.queue_subsystem.add_url(url)
+        else:
+            self.urls.append(url)
+            self._url_queue.put(url)
+
+    def record_job(self, job_id: str, job_info: dict) -> None:
+        """Record job metadata via QueueSubsystem (Row 1021)."""
+        if hasattr(self, "queue_subsystem") and self.queue_subsystem is not None:
+            self.queue_subsystem.record_job(job_id, job_info)
+        else:
+            self.jobs[job_id] = dict(job_info)
+
+    def record_bytes(self, byte_count: int) -> None:
+        """Record transferred bytes via TelemetrySubsystem (Row 1021)."""
+        if hasattr(self, "telemetry_subsystem") and self.telemetry_subsystem is not None:
+            self.telemetry_subsystem.record_bytes(byte_count)
+
+    def record_error(self, error_type: str) -> None:
+        """Record error occurrence via TelemetrySubsystem (Row 1021)."""
+        if hasattr(self, "telemetry_subsystem") and self.telemetry_subsystem is not None:
+            self.telemetry_subsystem.record_error(error_type)
+
+    def register_accumulator(self, acc) -> None:
+        """Register byte accumulator via TransportSubsystem (Row 1021)."""
+        if hasattr(self, "transport_subsystem") and self.transport_subsystem is not None:
+            self.transport_subsystem.register_accumulator(acc)
+        else:
+            self._register_daily_byte_accumulator(acc)
+
+    def unregister_accumulator(self, acc) -> None:
+        """Unregister byte accumulator via TransportSubsystem (Row 1021)."""
+        if hasattr(self, "transport_subsystem") and self.transport_subsystem is not None:
+            self.transport_subsystem.unregister_accumulator(acc)
+        else:
+            self._unregister_daily_byte_accumulator(acc)
+
+    def trigger_rate_limit(self, url, reason="Rate limit detected"):
+        """Trigger rate limit and notify TransportSubsystem (Row 1021)."""
+        if hasattr(self, "transport_subsystem") and self.transport_subsystem is not None:
+            self.transport_subsystem.set_rate_limit_autostart(True)
+        return super().trigger_rate_limit(url, reason)
+
+    def log_event(self, kind, message, url=None, extra=None):
+        """Log event and mirror errors to TelemetrySubsystem (Row 1021)."""
+        if kind in ("error", "js_error", "network", "retry"):
+            self.record_error(kind)
+        return super().log_event(kind, message, url=url, extra=extra)
 
     def configure_work_stealing(self, coordinator, stealable_sites: list[str] | None = None) -> None:
         """Configure dynamic work stealing from other saturated site queues."""
@@ -2113,8 +2215,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         buttons that call them."""
         if self._state == "running":
             self._hold_refused_resume_state = None
-            self._pause.clear()
-            self._state = "paused"
+            if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
+                self.lifecycle_subsystem.pause()
+            else:
+                self._pause.clear()
+                self._state = "paused"
             _flush_pending = getattr(
                 self, "_flush_daily_byte_accumulators", None)
             if _flush_pending:
@@ -2161,10 +2266,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         resumable_state=resumable_state)
                     return
                 self._hold_refused_resume_state = None
-                self._state = "running"
+                if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
+                    self.lifecycle_subsystem.resume()
+                else:
+                    self._state = "running"
+                    self._pause.set()
                 if reset_no_button_streak:
                     self._consec_no_btn = 0
-                self._pause.set()
                 try:
                     from .task_drain_engine import get_task_drain_engine
                     get_task_drain_engine().resume_task(self.site_id)
@@ -2173,9 +2281,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
 
     @_run_lifecycle_serialized
     def stop(self):
-        self._rl_autostart=False  # P3-A: operator stop cancels a pending rate-limit resume
+        self._rl_autostart = False  # P3-A: operator stop cancels a pending rate-limit resume
         self._hold_refused_resume_state = None
-        self._stop.set(); self._pause.set()
+        if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
+            self.lifecycle_subsystem.stop()
+        else:
+            self._stop.set(); self._pause.set()
+            self._state = "stopped"
         _flush_pending = getattr(self, "_flush_daily_byte_accumulators", None)
         if _flush_pending:
             _flush_pending()
@@ -2982,6 +3094,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         "ts_iso": _ts_iso(),
                         **extra,
                     })
+                    if hasattr(self, "queue_subsystem") and self.queue_subsystem is not None:
+                        self.queue_subsystem.update_job_status(url, status, **extra)
                     mark_status_changed()
                 # v3.43.23: stamp last_progress_at whenever there's a
                 # real signal of progress. Two cases count as progress:
@@ -2998,6 +3112,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     self.jobs[url]["last_progress_at"] = now
                 if new_bytes > prev_bytes:
                     byte_advanced = True
+                    self.record_bytes(new_bytes - prev_bytes)
                     previous_sample = self._job_progress_samples.get(url) or {}
                     previous_sample_bytes = previous_sample.get("bytes")
                     previous_sample_at = previous_sample.get("at")
@@ -3054,6 +3169,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # page..." / "Downloading 23%". Filename and file_size land in
         # extra and are exposed as a structured field rather than text.
         if prev_status != status:
+            if status in ("failed", "error"):
+                self.record_error(str(extra.get("reason") or message or status))
             log_extra = {"prev": prev_status} if prev_status else {}
             for k in ("filename","file_size","retries","screenshot"):
                 if k in extra: log_extra[k] = extra[k]

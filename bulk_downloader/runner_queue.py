@@ -406,7 +406,7 @@ class QueueMixin:
     def reorder_urls(self,ordered):
         with self._lock:
             ex=set(self.urls)
-            self.urls=[u for u in ordered if u in ex]
+            self.urls[:]=[u for u in ordered if u in ex]
             for u in ex:
                 if u not in self.urls: self.urls.append(u)
         # Persist new ordering — one transaction (was a per-URL loop)
@@ -459,7 +459,7 @@ class QueueMixin:
                     if (self.jobs.get(u) or {}).get("status") == "needs_review":
                         skipped_review+=1
                     del self.jobs[u]; removed+=1
-            self.urls=[u for u in self.urls if u not in urls]
+            self.urls[:]=[u for u in self.urls if u not in urls]
             if removed:
                 mark_status_changed()
         try:
@@ -586,7 +586,7 @@ class QueueMixin:
                     seen.add(u)
             # Append the untouched tail (everything not in the request)
             tail = [u for u in self.urls if u not in seen]
-            self.urls = front + tail
+            self.urls[:] = front + tail
             # Persist ord = index across the table — one transaction
             try:
                 queue_reorder(self.site_id,
@@ -646,8 +646,9 @@ class QueueMixin:
         table) are NOT affected — those persist for audit/reporting."""
         with self._job_status_writer() as mark_status_changed:
             removed=[u for u,j in self.jobs.items() if j["status"] in ("done","stopped")]
-            self.jobs={u:j for u,j in self.jobs.items() if u not in removed}
-            self.urls=[u for u in self.urls if u not in removed]
+            # Row 1021: mutate in place -- runner.jobs/urls alias queue_subsystem.jobs/urls.
+            for u in removed: del self.jobs[u]
+            self.urls[:]=[u for u in self.urls if u not in removed]
             if removed:
                 mark_status_changed()
         try:
