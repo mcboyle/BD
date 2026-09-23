@@ -1477,6 +1477,81 @@ def cmd_dedup_find(args):
         print(f"  ...and {len(dups) - 20} more")
 
 
+# ── Row 1078: Network event log reduction and trace archival ───────────
+
+def cmd_netlog_reduce(args):
+    """Reduce a raw network log file into a compact trace archive."""
+    import json
+    from pathlib import Path
+    from bulk_downloader.network_log_reducer import (
+        NetworkTraceArchiver,
+        reduce_network_log,
+    )
+
+    in_path = Path(args.input_file)
+    if not in_path.exists():
+        print(f"Error: input file not found: {in_path}", file=sys.stderr)
+        return 1
+
+    try:
+        raw_data = json.loads(in_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"Error reading JSON from {in_path}: {e}", file=sys.stderr)
+        return 1
+
+    if not isinstance(raw_data, (dict, list)):
+        raw_data = []
+    res = reduce_network_log(raw_data, min_group_size=getattr(args, "min_group", 5) or 5)
+
+    out_path = Path(args.out) if getattr(args, "out", None) else in_path.with_suffix(".reduced.jsonl")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    trace_id = out_path.stem.replace(".reduced", "")
+    # The archiver names its file <trace_id>.jsonl; in out_path's own directory that
+    # can be a file the operator owns. Write into a private directory, then move
+    # only the archive onto out_path (the one path this command claims).
+    import os
+    import tempfile
+    stage = Path(tempfile.mkdtemp(prefix=".netlog-", dir=out_path.parent))
+    try:
+        info = NetworkTraceArchiver(archive_dir=stage).archive_trace(
+            trace_id, res, metadata={"source": str(in_path)})
+        os.replace(info.archive_file, out_path)
+    finally:
+        for leftover in stage.iterdir():
+            leftover.unlink()
+        stage.rmdir()
+
+    print(f"Reduced {res.total_original_events} events -> {len(res.reduced_summaries)} summaries + {len(res.individual_events)} individual events")
+    print(f"Archive written to: {out_path}")
+    return 0
+
+
+def cmd_netlog_stats(args):
+    """Inspect and report statistics on an archived network trace."""
+    from pathlib import Path
+    from bulk_downloader.network_log_reducer import NetworkTraceArchiver
+
+    trace_path = Path(args.archive_file)
+    if not trace_path.exists():
+        print(f"Error: trace file not found: {trace_path}", file=sys.stderr)
+        return 1
+
+    archiver = NetworkTraceArchiver(archive_dir=trace_path.parent)
+    try:
+        manifest, records = archiver.read_trace(trace_path)
+    except Exception as e:
+        print(f"Error reading trace {trace_path}: {e}", file=sys.stderr)
+        return 1
+
+    print("Network Trace Archive Statistics:")
+    print(f"  Trace ID: {manifest.get('trace_id')}")
+    print(f"  Original Events: {manifest.get('total_original_events', 0)}")
+    print(f"  Reduced Summaries: {manifest.get('reduced_summaries_count', 0)}")
+    print(f"  Individual Events: {manifest.get('individual_events_count', 0)}")
+    print(f"  Reduction Ratio: {manifest.get('reduction_ratio', 1.0):.2%}")
+    return 0
+
+
 def cmd_tg_status(args):
     """v3.43.71: show Telegram bot status (running, last poll, counts)."""
     r = _request("GET", "/api/tg/status")
@@ -1565,7 +1640,7 @@ def cmd_token(args):
 
 # ── Entry point ────────────────────────────────────────────────────────
 
-def main():
+def build_parser():
     p = argparse.ArgumentParser(
         prog="bdctl",
         description="Command-line companion for Bulk Downloader",
@@ -1580,6 +1655,7 @@ def main():
         help="enable llama-guard3 pre-download safety filter",
     )
     sub = p.add_subparsers(dest="cmd")
+    p._sub = sub
 
     sp = sub.add_parser("status", help="show site overview or one site")
     sp.add_argument("--site", help="site ID or name (partial match OK)")
@@ -1824,6 +1900,18 @@ def main():
                     help="max events (default 30)")
     sp.set_defaults(func=cmd_audit)
 
+    # Row 1078: network event log reduction and trace archival
+    sp = sub.add_parser("netlog", help="network log reduction and trace archival")
+    nsub = sp.add_subparsers(dest="netcmd")
+    nsp = nsub.add_parser("reduce", help="reduce a raw network log file")
+    nsp.add_argument("input_file", help="path to raw network log JSON file")
+    nsp.add_argument("--out", help="optional output path for reduced trace archive")
+    nsp.add_argument("--min-group", type=int, default=5, help="min group size for compaction")
+    nsp.set_defaults(func=cmd_netlog_reduce)
+    nsp = nsub.add_parser("stats", help="inspect network trace archive statistics")
+    nsp.add_argument("archive_file", help="path to trace archive file")
+    nsp.set_defaults(func=cmd_netlog_stats)
+
     # library — subcommands
     sp = sub.add_parser("library", help="library collection commands")
     lib_sub = sp.add_subparsers(dest="libcmd")
@@ -1899,6 +1987,12 @@ def main():
                             "--enable-guardrails", action="store_true", default=argparse.SUPPRESS,
                             help="enable llama-guard3 pre-download safety filter")
 
+    return p
+
+
+def main():
+    p = build_parser()
+    sub = getattr(p, "_sub", None)
     args = p.parse_args()
     if not args.cmd:
         p.print_help(); sys.exit(1)
@@ -1908,6 +2002,9 @@ def main():
     # v3.43.72: dedup needs a subsub too
     if args.cmd == "dedup" and not getattr(args, "dcmd", None):
         sub.choices["dedup"].print_help(); sys.exit(1)
+    # Row 1078: netlog needs a subsub too
+    if args.cmd == "netlog" and not getattr(args, "netcmd", None):
+        sub.choices["netlog"].print_help(); sys.exit(1)
     # v3.43.75: scrapers needs a subsub too
     if args.cmd == "scrapers" and not getattr(args, "scmd", None):
         sub.choices["scrapers"].print_help(); sys.exit(1)
