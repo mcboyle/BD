@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=57 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=55 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -382,7 +382,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 991 | CLOSED @1627 | RESOURCE-QUOTA-BUDGET-FILE-DESCRIPTOR-UTILIZATION-GAUGE -- Resource Quota Budget & File Descriptor Utilization Gauge |
 | 992 | CLOSED @1624 | HIGH-RESOLUTION-SOCKET-I-O-ACCOUNTING-MICROSECOND-LATENCY-TRACKER -- High-Resolution Socket I/O Accounting & Microsecond Latency Tracker |
 | 993 | OPEN | RESIDENT-MEMORY-PAGE-FAULT-HEAP-GROWTH-TELEMETRY -- Resident Memory Page Fault & Heap Growth Telemetry |
-| 994 | OPEN | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite -- RESCOPED (RULING-2338-row994-RESCOPE-a, O1263): lock-contention profiler only -- SQLiteLockContentionProfiler fed from db.db_init's locked-retry loop, BUSY/LOCKED by message text, 'unobserved' until a feed attaches, surfaced in dev_suite.db_overview() (/api/dev/db_stats); plan profiler + db_profile_query dropped: dev_suite/db_tools._explain_query_plan and index_advisor already classify EXPLAIN QUERY PLAN. |
+| 994 | CLOSED @1639 | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite -- RESCOPED (RULING-2338-row994-RESCOPE-a, O1263): lock-contention profiler only -- SQLiteLockContentionProfiler fed from db.db_init's locked-retry loop, BUSY/LOCKED by message text, 'unobserved' until a feed attaches, surfaced in dev_suite.db_overview() (/api/dev/db_stats); plan profiler + db_profile_query dropped: dev_suite/db_tools._explain_query_plan and index_advisor already classify EXPLAIN QUERY PLAN. |
 | 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
 | 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
@@ -410,7 +410,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1019 | OPEN | ASYNCHRONOUS-OBJECT-STORAGE-CLOUD-ARCHIVE-CLIENT-UPGRADE-AIOBOTO3-S3FS -- Asynchronous Object Storage & Cloud Archive Client Upgrade (aioboto3 / s3fs) |
 | 1020 | OPEN | MONOLITHIC-GATEWAY-DECOMPOSITION-DYNAMIC-BLUEPRINT-REGISTRATION-ENGINE-ROUTEREGISTRY -- Monolithic Gateway Decomposition & Dynamic Blueprint Registration Engine (RouteRegistry) |
 | 1021 | OPEN | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
-| 1022 | OPEN | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
+| 1022 | CLOSED @1639 | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
 | 1023 | OPEN | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
 | 1024 | CLOSED @1635 | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) -- MOOT-PREMISE (RULING-2136-row1024-BOUNCE scope 2): typed central config already exists as global_config.GLOBAL_CONFIG_SCHEMA (95 keys) + runtime_flags num/flag/choice @5f74ea9c21ee; ConfigProvider/UnifiedConfig has 0 product callers (git grep FOUND NONE; positive control get_config( FOUND); REFUTED bd-worker-W1-A bd-cuts/cut/row1024-configprovider-typed-unification/DONE.md (prior patch preserved harness-work/row1024-moot/patch-fe5b796e.diff). Registrar-verified 2026-09-22T22:0xZ (ORDERS-2143 ADD) |
 | 1025 | CLOSED @1631 | DATABASE-CONNECTION-POOL-LEASE-RELEASE-LIFECYCLE-THREAD-CLEANUP-TRAPS-DBCONNECTIONLIFECYCLEMANAGER -- Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps (DBConnectionLifecycleManager) |
