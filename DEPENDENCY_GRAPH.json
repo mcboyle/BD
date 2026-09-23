@@ -2397,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1886,
+    "edge_count": 1890,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3101,6 +3101,9 @@
       ],
       "bulk_downloader/arena_compactor.py": [
         "bulk_downloader/dev_suite/introspection.py"
+      ],
+      "bulk_downloader/async_object_storage.py": [
+        "bulk_downloader/storage_tier.py"
       ],
       "bulk_downloader/async_wal_flusher.py": [
         "bulk_downloader/db_maintenance.py"
@@ -3811,6 +3814,9 @@
       "bulk_downloader/eol_export.py": [
         "bulk_downloader/app_eol.py",
         "bulk_downloader/scheduled_exports.py"
+      ],
+      "bulk_downloader/error_advisor.py": [
+        "bulk_downloader/friendly_error.py"
       ],
       "bulk_downloader/error_fingerprint.py": [
         "bulk_downloader/app_widgets_api.py",
@@ -4797,6 +4803,7 @@
       "bulk_downloader/ssrf_transport.py": [
         "bulk_downloader/app_scrape_listing.py",
         "bulk_downloader/app_sites_auth.py",
+        "bulk_downloader/async_object_storage.py",
         "bulk_downloader/captcha_resolver.py",
         "bulk_downloader/community_scrapers.py",
         "bulk_downloader/cookie_health.py",
@@ -4854,6 +4861,7 @@
       "bulk_downloader/storage_tier.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_sites_integrations.py",
+        "bulk_downloader/async_object_storage.py",
         "bulk_downloader/dev_suite/housekeeping.py"
       ],
       "bulk_downloader/stream_relay.py": [
@@ -6475,6 +6483,10 @@
       "bulk_downloader/asgi_gateway.py": [
         "bulk_downloader/app.py"
       ],
+      "bulk_downloader/async_object_storage.py": [
+        "bulk_downloader/ssrf_transport.py",
+        "bulk_downloader/storage_tier.py"
+      ],
       "bulk_downloader/audio_fingerprint.py": [
         "bulk_downloader/ffmpeg_bin.py"
       ],
@@ -7040,6 +7052,9 @@
       ],
       "bulk_downloader/fname.py": [
         "bulk_downloader/metadata_normalizer.py"
+      ],
+      "bulk_downloader/friendly_error.py": [
+        "bulk_downloader/error_advisor.py"
       ],
       "bulk_downloader/gamification.py": [
         "bulk_downloader/db.py"
@@ -7796,6 +7811,7 @@
       ],
       "bulk_downloader/storage_tier.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/async_object_storage.py",
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/stream_relay.py": [

@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1643 - train70: row987, row1019
+
+Base main f4fceccc (T66' v3.66.1640 landed 05:0xZ). Restack 5 (rebase after T66' landing; ORDERS-0067 drops): four cuts, each boarded at its INDEX tree by a
+bd-review-correctness seat (POLICY-0010); TREE re-measured == verdict at assembly.
+
+- row1041-streaming-manifest-parser forward fix (row CLOSED @1633; 2 paths). N2-B at 8f04b009.
+- row987-error-advisor: contextual error classification & remediation advisor (4 paths). N4-A at ad0d583a.
+- row1019-async-object-storage (5 paths incl. requirements.txt). N6-A at c25131cd.
+- H703-verdict-patch-key: harness test pin (1 path; 4 tools deploy after landing). P2-B at edf1d01c.
+- register: rows 987, 1019 CLOSED @1643; 1041 already closed (forward fix).
+- register MOOT (REFUTED DONE evidence, PM orders): row1058 (REGISTER-CLOSE-0064), row1008 (boarded duplicate row1008-stale-dns-cache@87d3d136 NOT landed), row1030.
+- held: row1007 c6a6af0e, row1023 f65561c2 (fixer-B in place, RULING-0063).
+- dropped from 790481cd (O1282, back to fixers): row1061 (db-prune-safety: create_trace_span on _DedupRefusalRunner), row1066 (application-safety row703 pins x3 + mutation-tools row646_647 M1 anchor), row1076 (ratchet defect_DP_total +8), row1010 (ratchet defect_DP_total +9), row1063 (ratchet unwired_operator_endpoints +2: /api/provenance/* in app_provenance.py not SPA-wired), row982 (CI application-safety at 30806a4b: row703 httpx-construction line pins move when runner_transport.py grows).
+
+
 ## v3.66.1640 - train66: train66 version trio, regen, import-graph re-freeze
 
 - row1033: Structured CLI Operational Diagnostics & Self-Healing Advisor

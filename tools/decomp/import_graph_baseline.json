@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4997,
+  "edge_count": 5008,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -954,6 +954,10 @@
     "bulk_downloader/asgi_gateway.py": [
       "bulk_downloader/app.py"
     ],
+    "bulk_downloader/async_object_storage.py": [
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/storage_tier.py"
+    ],
     "bulk_downloader/audio_fingerprint.py": [
       "bulk_downloader/ffmpeg_bin.py"
     ],
@@ -1519,6 +1523,9 @@
     ],
     "bulk_downloader/fname.py": [
       "bulk_downloader/metadata_normalizer.py"
+    ],
+    "bulk_downloader/friendly_error.py": [
+      "bulk_downloader/error_advisor.py"
     ],
     "bulk_downloader/gamification.py": [
       "bulk_downloader/db.py"
@@ -2275,6 +2282,7 @@
     ],
     "bulk_downloader/storage_tier.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/async_object_storage.py",
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/stream_relay.py": [
@@ -4152,6 +4160,11 @@
       "bulk_downloader/db.py",
       "bulk_downloader/orm_engine.py"
     ],
+    "tests/test_row1019_async_object_storage_upgrade.py": [
+      "bulk_downloader/async_object_storage.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/storage_tier.py"
+    ],
     "tests/test_row1022_acyclic_imports_refactoring.py": [
       "bulk_downloader/app_state.py",
       "bulk_downloader/app_template.py"
@@ -5172,6 +5185,12 @@
     "tests/test_row980_feature.py": [
       "bulk_downloader/adaptive_input_variance.py",
       "bulk_downloader/cloak.py"
+    ],
+    "tests/test_row987_feature.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/error_advisor.py",
+      "bulk_downloader/friendly_error.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_row989_adversary.py": [
       "bulk_downloader/service_mesh.py"
