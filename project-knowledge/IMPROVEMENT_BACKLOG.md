@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=400 open=23 ids-sha256=329e4f128a50e0bc8a627aa0eb30adb5e2a4cf1f6ace5dbeb0eed4686e039328 -->
+<!-- canonical-task-register schema=1 rows=400 open=21 ids-sha256=329e4f128a50e0bc8a627aa0eb30adb5e2a4cf1f6ace5dbeb0eed4686e039328 -->
 
 ## Namespace and population
 
@@ -376,7 +376,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 985 | OPEN | INTERACTIVE-TERMINAL-UI-LIVE-OPERATIONAL-DASHBOARD -- Interactive Terminal UI Live Operational Dashboard |
 | 986 | OPEN | HIERARCHICAL-MULTI-STREAM-PROGRESS-TELEMETRY-RENDERER -- Hierarchical Multi-Stream Progress Telemetry Renderer |
 | 987 | CLOSED @1643 | CONTEXTUAL-ERROR-CLASSIFICATION-REMEDIATION-ADVISOR -- Contextual Error Classification & Remediation Advisor |
-| 988 | OPEN | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
+| 988 | CLOSED @1656 | TERMINAL-VISUAL-ARTIFACT-SCHEMA-DRIFT-DIFF-INSPECTOR -- Terminal Visual Artifact & Schema Drift Diff Inspector |
 | 989 | CLOSED @1634 | INTER-SEAT-IPC-LATENCY-MATRIX-MONITOR -- Inter-Seat IPC Latency Matrix Monitor |
 | 990 | CLOSED @1631 | QUEUE-STARVATION-PRIORITY-INVERSION-VISUALIZER -- Queue Starvation & Priority Inversion Visualizer |
 | 991 | CLOSED @1627 | RESOURCE-QUOTA-BUDGET-FILE-DESCRIPTOR-UTILIZATION-GAUGE -- Resource Quota Budget & File Descriptor Utilization Gauge |
@@ -444,7 +444,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1053 | CLOSED @1653 | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser -- RESCOPED (RULING-2338-row1053-RESCOPE-A): root-cause guard only -- stdin=subprocess.DEVNULL in subprocess_helpers.isolated_popen_kwargs and the 5 inheriting product Popen sites (+dev_tools), census test that every bulk_downloader Popen/run passes stdin=DEVNULL or -nostdin, ffmpeg overwrite-prompt RED->GREEN; detector/pauser/bdctl-prompt surface dropped (0 product callers). |
 | 1054 | CLOSED @1647 | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map -- MOOT-PREMISE: no product code constructs or registers a NodeSentinel or records a link, so the interconnect map has no honest caller (N5-A E1 @0e4eb4ed; O1223; POLICY-0010 s3); REFUTED bd-cuts/cut/row1054-cluster-topology-interconnect-map/DONE.md. Closed at T72 assembly (PM 05:42Z) |
 | 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
-| 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
+| 1056 | CLOSED @1656 | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
 | 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
 | 1058 | CLOSED @1643 | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer -- MOOT-PREMISE: no consensus/epoch/leader path exists on 7a99076ed256 and NodeSentinel is itself an orphan (O1223); REFUTED bd-cuts/cut/row1058-consensus-epoch-viewer/DONE.md. Closed at T70 assembly (REGISTER-CLOSE-0064) |
 | 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
