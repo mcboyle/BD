@@ -1728,6 +1728,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self._worker_run_generation += 1
             run_generation = self._worker_run_generation
             self._worker_heartbeats.clear()
+            self._worker_thread_telemetry = {}  # row 995: bound here or at a worker's first stamp
             self._worker_current_urls.clear()
             self._worker_url_generations.clear()
             self._hung_workers = []
@@ -2853,7 +2854,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 "hung_workers": list(getattr(self, "_hung_workers", [])),
                 # Row 1056: this site's recent workload bottleneck anomalies.
                 "workload_anomalies": [
-                    a.to_dict() for a in self.check_workload_bottlenecks()[-10:]]}
+                    a.to_dict() for a in self.check_workload_bottlenecks()[-10:]],
+                "worker_threads": self._worker_threads_status()}
 
 
 
@@ -4152,6 +4154,27 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             "memory budget exhausted", mem_report)
         return None
 
+    def _record_worker_thread_telemetry(self, worker_idx, run_generation):
+        """Row 995: must run ON the worker thread -- the reading is of the caller.
+        Dropped, like the heartbeat, once a newer run owns the worker index."""
+        from . import thread_telemetry
+        snap = thread_telemetry.current_thread_telemetry()
+        with self._worker_heartbeats_lock:
+            if run_generation != self._worker_run_generation:
+                return
+            telemetry = getattr(self, "_worker_thread_telemetry", None)
+            if telemetry is None:
+                telemetry = self._worker_thread_telemetry = {}
+            telemetry[worker_idx] = snap
+
+    def _worker_threads_status(self):
+        lock = getattr(self, "_worker_heartbeats_lock", None)
+        if lock is None:
+            return {}
+        with lock:
+            return {str(i): dict(snap) for i, snap in
+                    sorted(getattr(self, "_worker_thread_telemetry", {}).items())}
+
     def _worker_loop(self, worker_idx=0, run_generation=None):
         """One persistent worker thread. Owns its own playwright + browser
         for the entire lifetime; pulls URLs from self._url_queue and
@@ -4227,6 +4250,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     if run_generation != self._worker_run_generation:
                         break
                     self._worker_heartbeats[worker_idx] = time.time()
+                self._record_worker_thread_telemetry(worker_idx, run_generation)
                 self._pause.wait()
                 if self._stop.is_set(): break
                 # Phase 64 (v3.41.0): bandwidth-aware concurrency. If the
