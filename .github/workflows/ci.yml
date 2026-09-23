@@ -170,6 +170,9 @@ jobs:
             requirements-test.txt
 
       - name: Generated artifacts are in sync
+        # H702 (O1265h): the indexes are regenerated ON MAIN by bd-regen-main.sh (host cron) after every merge,
+        # so this drift check judges main pushes only; a PR carries source and is not expected to be in sync.
+        if: github.event_name == 'push'
         run: |
           python -m pip install -r requirements.txt
           python toolchain/bin/bd-regen-order --work "$GITHUB_WORKSPACE"
