@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=402 open=20 ids-sha256=e88eb7fcf0007704dbd098d5c006c24f47f6b33c287021b28ff9652ce722e11e -->
+<!-- canonical-task-register schema=1 rows=403 open=17 ids-sha256=9629b09511dd980693498f8f69dbb30ad467f8296733b54ac5d1438d9aaec7a9 -->
 
 ## Namespace and population
 
@@ -367,7 +367,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 976 | CLOSED @1652 | NATIVE-MEMORY-ALLOCATOR-RUNTIME-PROFILING-HEAP-ARENA-FRAGMENTATION-SUPPRESSOR-JEMALLOCPROFILE -- Native Memory Allocator Runtime Profiling & Heap Arena Fragmentation Suppressor (JemallocProfile) |
 | 977 | CLOSED @1640 | ADAPTIVE-ROLLING-WINDOW-COMPACTION-FOR-LOCAL-TIME-SERIES-TELEMETRY -- Adaptive Rolling-Window Compaction for Local Time-Series Telemetry -- MOOT-PREMISE (O1223; Q-row977-wire-or-moot-W9A.md; ORDERS-0017): premise anchor '# Future: add compaction for old data' absent on every base (cut-authored); compacted store has 0 product writers/readers, in-memory by default; REFUTED bd-worker-W9-A bd-cuts/cut/row977-telemetry-compaction/DONE.md |
 | 978 | CLOSED @1630 | ZERO-DOWNTIME-SCHEMA-MIGRATION-DDL-LOCKING-BARRIER -- Zero-Downtime Schema Migration & DDL Locking Barrier |
-| 979 | OPEN | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
+| 979 | CLOSED @1658 | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
 | 980 | CLOSED @1635 | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
 | 981 | CLOSED @1635 | DYNAMIC-FLEET-SEAT-WORKLOAD-ALLOCATION-CPU-HEATMAP -- Dynamic Fleet Seat Workload Allocation & CPU Heatmap -- MOOT-PREMISE (O1223): no product fleet-seat/workload-allocation concept or caller @5f74ea9c21ee (git grep FOUND NONE in code; positive control hour_heatmap FOUND 3); REFUTED bd-worker-W2-B bd-local-wt/row981-bd-worker-W2-B/DONE.md; prior cut REFUTED N4-B orphan module. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 982 | OPEN | USERSPACE-ZERO-COPY-REUSABLE-BUFFER-RING-POOL-WITH-MEMORYVIEW-SLICING-AND-OBJECT-RECYCLING-USERSPACEBUFFERPOOL -- Userspace Zero-Copy Reusable Buffer Ring Pool with memoryview Slicing and Object Recycling (UserspaceBufferPool) |
@@ -434,7 +434,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1043 | CLOSED @1635 | ASYNCHRONOUS-PROTOCOL-MESSAGE-EVENT-DISPATCHING -- Asynchronous Protocol Message Event Dispatching |
 | 1044 | CLOSED @1632 | SINGLE-ENTITY-VS-AGGREGATE-DATASET-STRUCTURAL-CLASSIFIER -- Single-Entity vs. Aggregate Dataset Structural Classifier |
 | 1045 | CLOSED @1635 | CANONICAL-RECORD-ATTRIBUTION-METADATA-NORMALIZATION -- Canonical Record Attribution & Metadata Normalization |
-| 1046 | OPEN | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
+| 1046 | CLOSED @1658 | PAYLOAD-DURATION-SIZE-VERIFICATION -- Payload Duration & Size Verification |
 | 1047 | CLOSED @1646 | TEXTUAL-SIMILARITY-INDEXING-DUPLICATE-RECORD-RECONCILIATION -- Textual Similarity Indexing & Duplicate Record Reconciliation |
 | 1048 | CLOSED @1650 | STANDARD-WEB-DIALOG-NOTICE-ACKNOWLEDGMENT-HANDLER -- Standard Web Dialog & Notice Acknowledgment Handler |
 | 1049 | CLOSED @1648 | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
@@ -445,7 +445,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1054 | CLOSED @1647 | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map -- MOOT-PREMISE: no product code constructs or registers a NodeSentinel or records a link, so the interconnect map has no honest caller (N5-A E1 @0e4eb4ed; O1223; POLICY-0010 s3); REFUTED bd-cuts/cut/row1054-cluster-topology-interconnect-map/DONE.md. Closed at T72 assembly (PM 05:42Z) |
 | 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
 | 1056 | CLOSED @1656 | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
-| 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
+| 1057 | CLOSED @1658 | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
 | 1058 | CLOSED @1643 | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer -- MOOT-PREMISE: no consensus/epoch/leader path exists on 7a99076ed256 and NodeSentinel is itself an orphan (O1223); REFUTED bd-cuts/cut/row1058-consensus-epoch-viewer/DONE.md. Closed at T70 assembly (REGISTER-CLOSE-0064) |
 | 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | CLOSED @1637 | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher -- MOOT-DUPLICATE of the shipped bounded ring pub/sub (RULING-2310-row1060-REFUTED-A option A): bulk_downloader/sse_broker.py per-subscriber queue.Queue(maxsize=SUBSCRIBER_QUEUE_MAX) drop-oldest fan-out with real SSE consumers + dev_events.py deque(maxlen) ring tap @25245209179e; the cut's dispatcher had 0 consumers and 8 lock acquisitions (lock-free is not a CPython property); REFUTED bd-worker-W3-A bd-cuts/cut/row1060-lockfree-ringbuffer-ipc-dispatcher/DONE.md (staged build preserved harness-work/row1060-refuted/staged-da41424b.patch). Registrar-verified 2026-09-22T23:1xZ |
@@ -471,4 +471,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1080 | CLOSED @1655 | HOTFIX-H701-PRECUT-FAST-TEST-BUDGET-BOUND -- test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6, ORDERS-0088) |
 | 1081 | CLOSED @1657 | HOTFIX-ROW1053-TEST-PINS-LC_ALL -- test_row1053_subprocess_stdin_guard pins LC_ALL for its subprocess env (main red e87bfcef gates-v3-a, ORDERS-0089) |
 | 1082 | CLOSED @1657 | HOTFIX-ROW1038-IMPORT-PROFILER-STDIN-DEVNULL -- import_profiler subprocess sites pass stdin=DEVNULL per the row1053 guard (main red a89d38d6 gates-rows-a, ORDERS-0091) |
-| 1083 | OPEN | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
+| 1083 | CLOSED @1658 | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
