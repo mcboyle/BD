@@ -191,6 +191,13 @@ def boot_once(*, force: bool = False) -> bool:
         # the store is absent).
         from . import run_history as _run_history
         _run_history.init()
+        # row1057: a deploy replaces the checkout and restarts the service, so a
+        # changed running revision at boot IS the deploy signal. Best-effort
+        # (record_running_revision never raises); a same-revision restart
+        # records nothing.
+        from . import deployment_timeline as _deployment_timeline
+        _deployment_timeline.record_running_revision(
+            _os.environ.get("BD_INSTALL_DIR") or _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
         # v3.47.8 (#42): one-shot integrity check on boot (rate-limited to 24h
         # via sentinel file). Catches SQLite corruption from power loss or disk
         # errors before the user wonders why a download "completed" but vanished.
@@ -6716,6 +6723,13 @@ try:
 except Exception as _webhooks_routes_err:
     import sys as _sys
     _sys.stderr.write(f"[app] Webhooks API not registered: {_webhooks_routes_err}\n")
+
+try:
+    from . import deployment_timeline as _deployment_timeline_routes
+    _deployment_timeline_routes.register_routes(app)
+except Exception as _reg_deployment_timeline_err:
+    import sys as _sys
+    _sys.stderr.write(f"[app] deployment_timeline routes not registered: {_reg_deployment_timeline_err}\n")
 
 try:
     from . import app_apple

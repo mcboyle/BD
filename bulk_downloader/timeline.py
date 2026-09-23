@@ -134,6 +134,15 @@ def _entries_from_maintenance(limit: int) -> list:
     return out
 
 
+def _entries_from_deployment_rollouts(since_ts: float, limit: int) -> list:
+    """Deployment lifecycle and revision rollout timeline entries (Row 1057)."""
+    try:
+        from .deployment_timeline import get_deployment_timeline
+        return get_deployment_timeline().get_timeline_entries(since_ts=since_ts, limit=limit)
+    except Exception:
+        return []
+
+
 def _normalize_ts(entry: dict) -> float:
     """Coerce any ts representation into a float Unix timestamp.
     Handles strings ('2025-01-15T12:00:00'), numbers, None."""
@@ -168,6 +177,7 @@ def merged_timeline(*, since_ts: Optional[float] = None,
     all_entries.extend(_entries_from_bitrot(limit_per_source))
     all_entries.extend(_entries_from_achievements(limit_per_source))
     all_entries.extend(_entries_from_maintenance(limit_per_source))
+    all_entries.extend(_entries_from_deployment_rollouts(since_ts, limit_per_source))
     # Filter by since_ts using normalized timestamps
     filtered = [e for e in all_entries if _normalize_ts(e) >= since_ts]
     # Sort merged by ts desc

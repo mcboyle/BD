@@ -25,6 +25,7 @@ import {
 } from "@/components/PluginConfigForm";
 import { DangerZone } from "@/components/ui/DangerZone";
 import { ProvenanceLedgerPanel } from "@/components/ProvenanceLedgerPanel";
+import { DeploymentTimelinePanel } from "@/components/DeploymentTimelinePanel";
 import {
   downloadDiagnosticsBundle,
   useDiagBundlePreview,
@@ -1206,6 +1207,11 @@ export function Maintenance() {
       <Card className="mt-4 p-4">
         <h2 className="section-head">Provenance ledger · compare with another node</h2>
         <ProvenanceLedgerPanel />
+      </Card>
+
+      <Card className="mt-4 p-4">
+        <h2 className="section-head">Deployments · revision rollout timeline</h2>
+        <DeploymentTimelinePanel />
       </Card>
 
       <Card className="mt-4 p-4">

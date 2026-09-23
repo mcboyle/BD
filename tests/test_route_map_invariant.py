@@ -59,7 +59,11 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # /api/provenance/digest and POST /api/provenance/reconcile (app_provenance.py),
 # the cross-replica ledger reconciliation pair. Baseline 1015 -> 1017 lines with
 # exactly those two additions. INTENTIONAL surface change, stated here.
-_BASELINE_SHA = "0d17ef8a31f6154c0de6242eaccf89323734526777121346c77eba8054ec93db"
+# row 1057: re-frozen. ONE route ADDED, none removed or re-pathed: GET
+# /api/deploy/timeline (deployment_timeline.api_deploy_timeline), the deployment
+# lifecycle / revision rollout timeline read. Baseline 1017 -> 1018 lines with
+# exactly that one addition. INTENTIONAL surface change, stated here.
+_BASELINE_SHA = "4c05311e06d7b2854a2a67570c7e94ea185f62e99e71ec1fd1099773c0f6740a"
 
 
 def _live_snapshot() -> str:

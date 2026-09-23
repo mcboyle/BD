@@ -149,6 +149,7 @@
 /api/deploy/compose	GET	api_deploy_compose
 /api/deploy/k8s	GET	api_deploy_k8s
 /api/deploy/systemd	GET	api_deploy_systemd
+/api/deploy/timeline	GET	api_deploy_timeline
 /api/dev/account_pool	GET	api_dev_account_pool
 /api/dev/ai_fallback	GET	api_dev_ai_fallback
 /api/dev/ai_health_history	GET	api_dev_ai_health_history
