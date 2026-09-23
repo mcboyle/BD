@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=17 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=16 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -465,7 +465,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1074 | CLOSED @1634 | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
 | 1075 | CLOSED @1631 | TRANSACTIONAL-TASK-STATE-PAUSE-DRAIN-AND-RESUMPTION-ENGINE -- Transactional Task State Pause, Drain, and Resumption Engine |
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
-| 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
+| 1077 | CLOSED @1660 | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
 | 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
 | 1079 | CLOSED @1651 | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
 | 1080 | CLOSED @1655 | HOTFIX-H701-PRECUT-FAST-TEST-BUDGET-BOUND -- test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6, ORDERS-0088) |
