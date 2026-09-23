@@ -187,7 +187,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (74 entries)
+## `bulk_downloader/runner.py` (88 entries)
 
 ```
 - L0083 `captcha_egress_disclosure_error` — Return a refusal when a paid solver transition lacks acknowledgement.
@@ -202,68 +202,82 @@ Schema version: 2
 - L0617 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
 - L0782 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
 - L0792 `get_global_concurrent_cap`
-- L0829 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0853 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
-- L0865 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
-- L0883 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
-- L0964 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
-- L0982 `SiteRunner` `[class]`
-  - L0987 `SiteRunner.__init__` `[dunder]`
-  - L1229 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
-  - L1234 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
-  - L1248 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L1341 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L1349 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L1362 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L1371 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
-  - L1402 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L1440 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
-  - L1450 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
-  - L1465 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
-  - L1479 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
-  - L1493 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
-  - L1498 `SiteRunner.start`
-  - L1554 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
-  - L1576 `SiteRunner._start_serialized` `[private]`
-  - L1941 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L1951 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L2012 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L2090 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
-  - L2103 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L2128 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L2175 `SiteRunner.stop`
-  - L2275 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
-  - L2598 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L2622 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
-  - L2724 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L2741 `SiteRunner.state`
-  - L2743 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L2779 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L2786 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L2793 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L2859 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L2890 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L2911 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L3494 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L3523 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L3578 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L3636 `SiteRunner._worker_generation_is_current` `[private]`
-  - L3640 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L3701 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L3761 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L3793 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L3824 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L3844 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L3853 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L3878 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L3903 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L3924 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L4006 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L4372 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L4387 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L4417 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L4443 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L4477 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0837 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0861 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L0873 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
+- L0891 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
+- L0972 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L0990 `SiteRunner` `[class]`
+  - L0996 `SiteRunner._state` `[private]`
+  - L1003 `SiteRunner._state` `[private]`
+  - L1010 `SiteRunner._rl_autostart` `[private]`
+  - L1017 `SiteRunner._rl_autostart` `[private]`
+  - L1023 `SiteRunner.__init__` `[dunder]`
+  - L1272 `SiteRunner.get_subsystem` — Return the named runner subsystem if registered (Row 1021).
+  - L1276 `SiteRunner.set_state` — Update runner state via LifecycleSubsystem (Row 1021).
+  - L1280 `SiteRunner.add_url` — Enqueue URL via QueueSubsystem (Row 1021).
+  - L1288 `SiteRunner.record_job` — Record job metadata via QueueSubsystem (Row 1021).
+  - L1295 `SiteRunner.record_bytes` — Record transferred bytes via TelemetrySubsystem (Row 1021).
+  - L1300 `SiteRunner.record_error` — Record error occurrence via TelemetrySubsystem (Row 1021).
+  - L1305 `SiteRunner.register_accumulator` — Register byte accumulator via TransportSubsystem (Row 1021).
+  - L1312 `SiteRunner.unregister_accumulator` — Unregister byte accumulator via TransportSubsystem (Row 1021).
+  - L1319 `SiteRunner.trigger_rate_limit` — Trigger rate limit and notify TransportSubsystem (Row 1021).
+  - L1325 `SiteRunner.log_event` — Log event and mirror errors to TelemetrySubsystem (Row 1021).
+  - L1331 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
+  - L1336 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
+  - L1350 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L1443 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L1451 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L1464 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L1473 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
+  - L1504 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L1542 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
+  - L1552 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
+  - L1567 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
+  - L1581 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
+  - L1595 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
+  - L1600 `SiteRunner.start`
+  - L1656 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
+  - L1678 `SiteRunner._start_serialized` `[private]`
+  - L2043 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L2053 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L2114 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L2192 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
+  - L2205 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L2233 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L2283 `SiteRunner.stop`
+  - L2387 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
+  - L2710 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L2734 `SiteRunner.get_status` — Return runner state. With `light=True`, omit `jobs` and
+  - L2836 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L2853 `SiteRunner.state`
+  - L2855 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L2891 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L2898 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L2905 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L2971 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L3002 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L3023 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L3611 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L3640 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L3695 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L3753 `SiteRunner._worker_generation_is_current` `[private]`
+  - L3757 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L3818 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L3878 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L3910 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L3941 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L3961 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L3970 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L3995 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L4020 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L4041 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L4123 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L4489 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L4504 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L4534 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L4560 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L4594 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -520,13 +534,13 @@ Schema version: 2
   - L0573 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
   - L0597 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
   - L0643 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0657 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0673 `QueueMixin.retry`
-  - L0675 `QueueMixin.clear`
-  - L0677 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0683 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L0700 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L0705 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0658 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0674 `QueueMixin.retry`
+  - L0676 `QueueMixin.clear`
+  - L0678 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0684 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0701 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0706 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -689,7 +703,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/db.py` (129 entries)
+## `bulk_downloader/db.py` (132 entries)
 
 ```
 - L0036 `get_queue_hot_buffer` — Row 1013: Return the process-wide ephemeral in-memory hot write buffer for high-frequency queue updates.
@@ -748,79 +762,82 @@ Schema version: 2
   - L0758 `_HistoryConnection._force_close` `[private]` — Physically close. The pool's path; never guarded by the lease.
   - L0765 `_HistoryConnection.close`
 - L0772 `_open_history_conn` `[private]` — v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
-- L0859 `_close_history_conn` `[private]` — Physically close a handle the POOL owns.
-- L0885 `cleanup_thread_connections` — Clean up and close idle pooled connections for a thread (Row 1025).
-- L0900 `close_all_pooled_connections` — Close all idle pooled connections across all threads (Row 1025).
-- L0910 `_begin_history_lease` `[private]`
-- L0916 `_end_history_lease` `[private]`
-- L0922 `_finish_history_lease` `[private]` — Finalize cursors before an otherwise-clean connection is cached.
-- L0933 `_reset_slow_query_trace` `[private]`
-- L0943 `_slow_query_config_token` `[private]` — Cheap in-process marker for "the parsed global config was replaced".
-- L0961 `_bind_slow_query_trace` `[private]` — (Re)configure this physical connection's slow-query tracer.
-- L0988 `_refresh_slow_query_trace` `[private]` — Apply a Settings write to a POOLED connection without polling.
-- L1004 `_history_file_identity` `[private]` — Return the named database inode, or None before first creation.
-- L1016 `_open_history_conn_bound` `[private]` — Open the history database and bind the handle to a PROVEN inode.
-- L1048 `db_conn` — Lease a thread-affine history connection and preserve commit boundaries.
-- L1155 `tune_history_conn` — Tune SQLite connection with zero-copy mmap_size and optimal page cache.
-- L1177 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
-- L1198 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
-- L1218 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
-- L1267 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
-- L1277 `db_lock_contention_report` — Row 994: SQLite lock stalls the product observed (db_profiler); read by dev_suite.db_overview.
-- L1283 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
-- L1326 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
-- L1356 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
-- L1377 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
-- L1416 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
-- L1498 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
-- L1524 `db_log` — Append one row to the history table. Called on every job-level
-- L1668 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
-- L1698 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
-- L1736 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
-- L1812 `db_search` — Read recent history rows with optional filters. `query` substring-
-- L1829 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
-- L1871 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent history row
-- L1986 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
-- L2071 `_transfer_proof_sql` `[private]` — The proof predicate for this database's ACTUAL schema, aliased ``h``.
-- L2103 `db_skip_identity` — Is the file already on disk PROVABLY the same work as ``page_url``?
-- L2294 `db_skip_attribution_state` — Measure whether a library path has lost its current history owner.
-- L2323 `db_stats` — Aggregate history counts and total downloaded bytes for the
-- L2341 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
-- L2387 `db_prune` — Delete history rows older than `days` days. Returns the count
-- L2547 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
-- L2567 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
-- L2596 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
-- L2634 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
-- L2648 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
-- L2698 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
-- L2768 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
-- L2796 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
-- L2802 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
-- L2808 `queue_delete_site` — Called when a site is removed.
-- L2823 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
-- L2845 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
-- L2869 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
-- L2891 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
-- L2916 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
-- L2981 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
-- L2993 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
-- L3007 `queue_count` — Return the number of queue rows for a site. With `status` set,
-- L3020 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
-- L3033 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
-- L3046 `session_event_record` — Append one row to session_history. event_type is one of:
-- L3087 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L3100 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L3150 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L3244 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L3251 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L3262 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L3274 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L3374 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L3387 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L3398 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L3418 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
-- L3437 `db_bulk_ingest_staging`
-- L3448 `db_staging_ingest_stats`
+- L0860 `_close_history_conn` `[private]` — Physically close a handle the POOL owns.
+- L0886 `cleanup_thread_connections` — Clean up and close idle pooled connections for a thread (Row 1025).
+- L0901 `close_all_pooled_connections` — Close all idle pooled connections across all threads (Row 1025).
+- L0911 `_begin_history_lease` `[private]`
+- L0917 `_end_history_lease` `[private]`
+- L0923 `_finish_history_lease` `[private]` — Finalize cursors before an otherwise-clean connection is cached.
+- L0934 `_reset_slow_query_trace` `[private]`
+- L0944 `_slow_query_config_token` `[private]` — Cheap in-process marker for "the parsed global config was replaced".
+- L0962 `_bind_slow_query_trace` `[private]` — (Re)configure this physical connection's slow-query tracer.
+- L0989 `_refresh_slow_query_trace` `[private]` — Apply a Settings write to a POOLED connection without polling.
+- L1005 `_history_file_identity` `[private]` — Return the named database inode, or None before first creation.
+- L1017 `_open_history_conn_bound` `[private]` — Open the history database and bind the handle to a PROVEN inode.
+- L1049 `db_conn` — Lease a thread-affine history connection and preserve commit boundaries.
+- L1156 `tune_history_conn` — Tune SQLite connection with zero-copy mmap_size and optimal page cache.
+- L1166 `get_segregated_pool` — Retrieve or create the segregated reader/writer connection pool for the path.
+- L1214 `db_read_conn` — Lease a dedicated read-only connection from the segregated pool.
+- L1222 `db_write_conn` — Lease the serialized writer connection; commit on exit, roll back on error.
+- L1255 `_slow_query_log_enabled` `[private]` — Check store/env override; default on. Set BD_SLOW_QUERY_LOG=0 to silence.
+- L1276 `_slow_query_threshold_ms` `[private]` — Override via store key `slow_query_ms` (v3.66.309) or BD_SLOW_QUERY_MS
+- L1296 `_make_slow_query_trace` `[private]` — Build a fresh tracer closure per connection. Each connection has its
+- L1345 `db_explain` — Helper: run EXPLAIN QUERY PLAN against a candidate SQL and return
+- L1355 `db_lock_contention_report` — Row 994: SQLite lock stalls the product observed (db_profiler); read by dev_suite.db_overview.
+- L1361 `db_fts_optimize` — v3.48 (#75): periodically optimize the FTS5 history index.
+- L1404 `_fts_indexed_docs` `[private]` — Rowids the history_fts inverted index actually holds, or None when
+- L1434 `db_fts_snapshot` — The PRE-UPDATE rows an FTS re-sync will need, on `cx`.
+- L1455 `db_fts_resync` — Re-point history_fts at the CURRENT values of `old_rows`, on `cx`.
+- L1494 `db_fts_forget` — Drop `rows` from the history_fts inverted index, on `cx`.
+- L1576 `db_queue_recovery_summary` — v3.48 (#127): on boot, report how many queue rows were recovered.
+- L1602 `db_log` — Append one row to the history table. Called on every job-level
+- L1746 `_history_title_projection` `[private]` — Return a title-enriched SELECT projection and optional library JOIN.
+- L1776 `db_normalize_history_title` — Retroactively strip a template once another scene proves it repeats.
+- L1814 `db_search_fts` — v3.43.80 Phase 92: full-text search over history via FTS5.
+- L1890 `db_search` — Read recent history rows with optional filters. `query` substring-
+- L1907 `db_search_cursor` — v3.48 (#74): cursor-based pagination on the history table.
+- L1949 `db_find_url_in_history` — F1.5: exact-URL pre-download dedup. Returns the most recent history row
+- L2064 `db_find_filename_duplicate` — Phase 66 (v3.41.0): cross-site filename duplicate detection. Returns
+- L2149 `_transfer_proof_sql` `[private]` — The proof predicate for this database's ACTUAL schema, aliased ``h``.
+- L2181 `db_skip_identity` — Is the file already on disk PROVABLY the same work as ``page_url``?
+- L2372 `db_skip_attribution_state` — Measure whether a library path has lost its current history owner.
+- L2401 `db_stats` — Aggregate history counts and total downloaded bytes for the
+- L2419 `db_hourly_success_rate` — Phase 74 (v3.41.0): time-of-day analytics. Aggregates from history
+- L2465 `db_prune` — Delete history rows older than `days` days. Returns the count
+- L2625 `db_vacuum` — Run SQLite VACUUM to reclaim space from deleted rows. Returns
+- L2645 `queue_load` — Return all queue entries for a site, ordered by `ord` then ts_added.
+- L2674 `queue_search` — v3.49 (#71): Server-side queue filtering with cursor pagination.
+- L2712 `queue_count_by_status` — v3.49: aggregate queue counts by status for a site (or globally).
+- L2726 `queue_group_by` — v3.49 (#57): bucket queue rows into groups for collapsible-section
+- L2776 `queue_upsert` — Insert or update a single queue row. Stamps ts_updated automatically.
+- L2846 `queue_bulk_upsert` — Bulk-insert URLs in one transaction. Massively faster than per-URL
+- L2874 `queue_delete` — Remove one URL from the queue table. Used when a user deletes
+- L2880 `queue_delete_status` — For "Clear Done" / "Clear Failed" bulk actions.
+- L2886 `queue_delete_site` — Called when a site is removed.
+- L2901 `queue_bulk_delete` — Delete N rows in one transaction. Returns rowcount.
+- L2923 `queue_bulk_mark` — Set status (and optionally message) on N URLs in one transaction.
+- L2947 `queue_reorder` — v3.49 (#56): bulk-update `ord` column for drag-to-reorder.
+- L2969 `queue_set_priority` — v3.49 (#71): tag a set of URLs with a priority label.
+- L2994 `queue_bulk_update` — v3.62.x: set the SAME column values on N URLs in ONE (chunked)
+- L3059 `db_queue_dead_letter` — Move a job to the terminal 'dead_letter' status with a reason. Returns
+- L3071 `db_queue_requeue_dead_letter` — Requeue a dead-lettered job: back to 'pending', retry counters cleared.
+- L3085 `queue_count` — Return the number of queue rows for a site. With `status` set,
+- L3098 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
+- L3111 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
+- L3124 `session_event_record` — Append one row to session_history. event_type is one of:
+- L3165 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L3178 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L3228 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L3322 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L3329 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L3340 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L3352 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L3452 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L3465 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L3476 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L3496 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L3515 `db_bulk_ingest_staging`
+- L3526 `db_staging_ingest_stats`
 ```
 
 
@@ -957,4 +974,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 781 across 22 files._
+_Total entries: 798 across 22 files._

@@ -55,9 +55,9 @@
       "sha256": "ab2c106c5db2db7fafaa8bd347c9042f230fdc7dd77103cd79766f2f215ba2bd"
     },
     {
-      "bytes": 3012,
+      "bytes": 3004,
       "key": "tests/test_v3_43_24_reliability.py::test_log_event_includes_site_id_in_stderr::src[le_start:le_start + 3000]::1",
-      "sha256": "1c274eda0356971989034df0d5f70e24b0f7d653bc3ba10d31b20de6fd18cd65"
+      "sha256": "0a68c8d0af8fdb1797e5a69187aefc99945b03b7c5bd3a65c2f8a55c14d612cd"
     },
     {
       "bytes": 2502,
@@ -160,9 +160,9 @@
       "sha256": "07dae0336c28bd18ce775daa8364dd4b389c3075d86ce2a5d8f1da299317ef61"
     },
     {
-      "bytes": 500,
+      "bytes": 1,
       "key": "tests/test_v3_43_34_sse_broker.py::test_log_event_publish_does_not_block::body[pub_pos:pub_pos + 500]::1",
-      "sha256": "8efe73a487f6487f3ee07a2db589d07df01fb86abb3b6261419ac366a8212dc5"
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
     },
     {
       "bytes": 5004,

@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1646 - train71: row1021, row1010, row1047
+
+Base main 626a53f5 (regen @259f8a11, T68 v3.66.1645). Restack 5 (ORDERS-0079: regen tip; ORDERS-0078; row1021 ci.yml shard line dropped, tests join shards by glob; ratchet drops at restack 2, T71-DROPS-dda20699-R-B.md): three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1021-siterunner-subsystems-decoupling: SiteRunner split into single-responsibility subsystems (6 paths; ci.yml line by anchor). P2-B at 82734f7e.
+- row1010-segregated-connection-pools: segregated reader/writer pools with non-blocking busy backoff (5 paths). P4-B at d8fde290.
+- row1047-textual-similarity-dedup: textual similarity indexing for duplicate-record reconciliation (4 paths). N5-A at bdb05c01.
+- register: rows 1021, 1010, 1047 CLOSED @1646 (1645 taken by T68).
+- dropped at VM gate (defect_DP_total ratchet vs base): row1050 (+1), row1063 (+1), row1056 (+2) -- back to fixers.
+
+
 ## v3.66.1645 - train68: ci-rework-O1264 r4 (one CI run per head, 37 contexts)
 
 - ci-rework (O1264/O1265): one CI run per head; gate-suites resolved by tools/ci_shards.py (37 contexts); docs-only shards generated. Harness cut, BOARD A at c2f8b691 (r4); judged alone on this head (T3).
