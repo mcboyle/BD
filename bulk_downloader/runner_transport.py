@@ -1145,13 +1145,35 @@ class TransportMixin:
                     f"{self.site_id!r} is vpn_required but resolution produced "
                     f"no egress proxy (no tunnel mapped to the site?) -- "
                     f"refusing to fetch segments on the clear interface."))
+        # Row 1066: the same cap the read loop honours is also handed to the kernel,
+        # so the SOCKS carrier's upstream socket is paced at transmit time instead of
+        # only being slowed after the bytes have arrived. NOTE the unit trap:
+        # _current_cap_mbps() returns MEGABYTES per second in this file (see cap_bps
+        # below), so the conversion is *1024*1024, not the megabit constant.
+        # Pacing is an addition to the transfer, never a precondition of it, and this
+        # gate never raises: a cap whose byte count is not finite (inf, nan, or large
+        # enough to overflow) asks the kernel for nothing, as the read loop treats it;
+        # a finite rate the socket option cannot carry is refused by socket_pacing and
+        # reported by the carrier; a cap that cannot be read runs the transfer unpaced,
+        # reported only where there is a carrier that would have been paced.
+        _unreadable = None
         try:
-            prepared = prepare_http_proxy(proxy_url or None)
+            _pace = self._current_cap_mbps() * 1024 * 1024
+        except (TypeError, ValueError, OverflowError) as e:
+            _unreadable, _pace = f"{type(e).__name__}: {e}", 0
+        try:
+            prepared = prepare_http_proxy(
+                proxy_url or None,
+                pacing_bytes_per_s=int(_pace) if _pace > 0 and math.isfinite(_pace) else 0)
         except EgressCarrierError as e:
             return _hls.DownloadResult(
                 ok=False, error="proxy_carrier_unavailable",
                 error_detail=str(e))
         try:
+            if _unreadable is not None and prepared.bridge is not None:
+                sys.stderr.write(
+                    f"  egress: speed cap for {self.site_id!r} is unreadable, so the "
+                    f"carrier is not paced: {_unreadable}\n")
             return _hls.download(manifest_url, output_path,
                                  proxy_url=prepared.proxy_url, **kwargs)
         finally:
