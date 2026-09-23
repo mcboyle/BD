@@ -229,8 +229,10 @@ def test_the_register_marker_counts_the_live_rows_only() -> None:
         int(match.group(2)),
         match.group(3),
     ), (
-        f"the register marker says rows={match.group(1)} open={match.group(2)} but its "
-        f"table derives rows={rows} open={opened}"
+        f"the register marker says rows={match.group(1)} open={match.group(2)} "
+        f"ids-sha256={match.group(3)} but its table derives rows={rows} open={opened} "
+        f"ids-sha256={digest}; replace the marker with the derived line:\n"
+        f"<!-- canonical-task-register schema=1 rows={rows} open={opened} ids-sha256={digest} -->"
     )
 
 

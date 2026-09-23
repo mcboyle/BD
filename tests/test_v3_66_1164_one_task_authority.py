@@ -99,9 +99,13 @@ def test_the_backlog_publishes_and_matches_its_exact_denominator():
     digest = hashlib.sha256(",".join(map(str, ids)).encode("ascii")).hexdigest()
     match = _META.search(BACKLOG.read_text(encoding="ascii"))
     assert match, "canonical backlog has no machine-visible exact denominator"
+    derived = (
+        "<!-- canonical-task-register schema=1 "
+        f"rows={len(rows)} open={open_count} ids-sha256={digest} -->"
+    )
     assert (int(match.group(1)), int(match.group(2)), match.group(3)) == (
         len(rows), open_count, digest
-    )
+    ), f"stale register marker; replace it with the derived line:\n{derived}"
 
 
 def test_pending_spec_obligations_have_exact_lifecycle_owners():
