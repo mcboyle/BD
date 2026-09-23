@@ -1055,6 +1055,33 @@ class TitleSimilarityIndex:
         return len(self._catalog)
 
 
+# ─── Row 1062: Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine ───
+
+from .cas_ledger import (
+    BlobAddress,
+    CASDeDuplicationEngine,
+    CASLedger,
+    CASStats,
+    PutResult,
+    cas_deduplicate_bytes,
+    compute_digest,
+    compute_file_digest,
+    get_global_cas_engine,
+)
+
+
+def cas_dedup_file(
+    source_path: str,
+    *,
+    owner: str = "",
+    virtual_path: str = "",
+    engine: CASDeDuplicationEngine | None = None,
+) -> PutResult:
+    """Convenience helper to put an existing file into the CAS engine."""
+    e = engine or get_global_cas_engine()
+    return e.put_file(source_path, owner=owner, virtual_path=virtual_path)
+
+
 __all__ = [
     "is_videohash_available",
     "is_ffmpeg_available",
@@ -1073,6 +1100,16 @@ __all__ = [
     "ReconciliationStrategy",
     "reconcile_text_records",
     "apply_text_reconciliation",
+    "BlobAddress",
+    "CASDeDuplicationEngine",
+    "CASLedger",
+    "CASStats",
+    "PutResult",
+    "cas_deduplicate_bytes",
+    "cas_dedup_file",
+    "compute_digest",
+    "compute_file_digest",
+    "get_global_cas_engine",
 ]
 
 
