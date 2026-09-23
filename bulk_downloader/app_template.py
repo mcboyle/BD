@@ -6,11 +6,15 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 
 Shared state (app, runners, s_cfg, s_meta) is owned by app.py and reached
 via _app_<name>() accessors (getattr, fresh per call -- same object by reference).
+runners/s_cfg/s_meta live in the leaf module app_state (it imports nothing from
+the package), so it is imported statically; only the app.py back-edges stay lazy.
 """
 from __future__ import annotations
 
 import time
 from flask import Blueprint, jsonify, request
+
+from . import app_state
 
 template_bp = Blueprint("template", __name__)
 
@@ -36,18 +40,15 @@ def _app_app():
 
 def _app_runners():
     """The live shared runners from app.py (fetched fresh per call, by reference)."""
-    import importlib
-    return getattr(importlib.import_module("bulk_downloader.app_state"), "runners")
+    return app_state.runners
 
 def _app_s_cfg():
     """The live shared s_cfg from app.py (fetched fresh per call, by reference)."""
-    import importlib
-    return getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg")
+    return app_state.s_cfg
 
 def _app_s_meta():
     """The live shared s_meta from app.py (fetched fresh per call, by reference)."""
-    import importlib
-    return getattr(importlib.import_module("bulk_downloader.app_state"), "s_meta")
+    return app_state.s_meta
 
 
 @template_bp.route("/api/template/extract", methods=["POST"])
