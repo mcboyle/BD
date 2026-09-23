@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import copy
+import functools
+import importlib.machinery
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import pytest
 
 from ci_workflow_model import enabled_guard_lanes, guard_lanes
@@ -151,6 +156,71 @@ def test_footgun_runtime_and_package_share_one_43_row_registry(tmp_path):
     )
     assert restored.returncode == 0, restored.stdout + restored.stderr
     assert {row["id"] for row in json.loads(restored.stdout)} == set(ids)
+
+
+@functools.cache
+def _footgun_tool():
+    """bd-footguns loaded in process for its registry loader (it is a script, not a module)."""
+    loader = importlib.machinery.SourceFileLoader("bd_footguns_1167", str(ROOT / "toolchain/bin/bd-footguns"))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    saved = list(sys.path)   # the tool prepends its own directory to sys.path on import
+    try:
+        loader.exec_module(module)
+    finally:
+        sys.path[:] = saved
+    return module
+
+
+def _footgun_rows():
+    return _strict_json((ROOT / "FOOTGUNS.json").read_text())["footguns"]
+
+
+def _footgun_registry_loads(tmp_path, rows) -> bool:
+    (tmp_path / "FOOTGUNS.json").write_text(json.dumps({"footguns": rows}))
+    try:
+        _footgun_tool()._load_registry(str(tmp_path))
+    except ValueError:
+        return False
+    return True
+
+
+def test_a_footgun_row_missing_any_key_every_row_carries_is_refused(tmp_path):
+    """H105: this gate checked the value domains (id, status, severity) but not the ROW SCHEMA, so
+    FOOTGUNS.json with one row's `detector` dropped loaded and the gate passed (bd-lens-L2,
+    2026-09-07). The required set is derived, never hand-listed: the keys every real row carries.
+    Each is dropped from one active and one retired row, and each row's detector is replaced by a
+    non-object; the runtime loader must refuse every fixture. The real registry loading is the
+    negative control, so the refusal is not simply refusing everything."""
+    rows = _footgun_rows()
+    shared = sorted(set.intersection(*(set(row) for row in rows)))
+    assert {"id", "status", "detector"} <= set(shared), shared
+    assert _footgun_registry_loads(tmp_path, rows), "negative control: the real registry loads"
+    samples = [next(i for i, row in enumerate(rows) if row["status"] == status)
+               for status in ("active", "retired")]
+    fixtures = []
+    for i in samples:
+        label = f"{rows[i]['id']} ({rows[i]['status']})"
+        for key in shared:
+            broken = copy.deepcopy(rows)
+            del broken[i][key]
+            fixtures.append((f"{label} without {key!r}", broken))
+        for bad in (None, "", "tests/test_x.py", [], {}):
+            broken = copy.deepcopy(rows)
+            broken[i]["detector"] = bad
+            fixtures.append((f"{label} with detector {bad!r}", broken))
+    loaded = [name for name, broken in fixtures if _footgun_registry_loads(tmp_path, broken)]
+    assert loaded == [], f"H105: bd-footguns loaded rows that are not a legal state: {loaded}"
+
+
+def test_bd_footguns_declares_exactly_the_keys_every_row_carries():
+    """H105 / M70: the required set is declared once, in the tool that enforces it, and pinned to the
+    artefact, so a key added to every row, or one some row no longer carries, moves this pin instead
+    of leaving a check named for the whole row asserting over part of it."""
+    shared = set.intersection(*(set(row) for row in _footgun_rows()))
+    declared = set(getattr(_footgun_tool(), "REQUIRED_ROW_KEYS", ()))
+    assert declared == shared, (
+        f"bd-footguns REQUIRED_ROW_KEYS {sorted(declared)} != the keys every FOOTGUNS.json row "
+        f"carries {sorted(shared)}")
 
 
 def test_defect_catalog_is_an_exact_view_of_the_executable_detector_set():

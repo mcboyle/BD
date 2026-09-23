@@ -32,6 +32,11 @@ import subprocess, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
 
+#: H105: the keys EVERY FOOTGUNS.json row carries, whatever its status; a row missing one is not a
+#: legal state. tests/test_v3_66_1167 pins this tuple to exactly the keys all real rows share, so the
+#: declaration cannot drift from the artefact it describes.
+REQUIRED_ROW_KEYS = ("id", "status", "severity", "rule", "detector", "provenance")
+
 def _load_registry(tree):
     candidates = (
         os.path.join(tree, "FOOTGUNS.json"),
@@ -62,10 +67,17 @@ def _load_registry(tree):
         fid = f["id"]
         if fid in reg:
             raise ValueError("duplicate footgun id: %s" % fid)
+        missing = [key for key in REQUIRED_ROW_KEYS if key not in f]
+        if missing:
+            raise ValueError("footgun %s lacks required key(s): %s" % (fid, ", ".join(missing)))
         if f.get("status") not in {"active", "retired"}:
             raise ValueError("invalid footgun status for %s" % fid)
         if f.get("status") == "active" and f.get("severity") not in {"blocking", "advisory"}:
             raise ValueError("invalid footgun severity for %s" % fid)
+        # H105: consumers read `fg.get("detector") or {}`, so a row whose detector is not an
+        # object loaded silently and enforced nothing.
+        if not (isinstance(f.get("detector"), dict) and f["detector"]):
+            raise ValueError("footgun %s declares no detector object" % fid)
         reg[fid] = f
     return list(reg.values())
 

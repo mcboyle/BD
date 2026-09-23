@@ -795,7 +795,7 @@ def _fg_tree(tmp_path, m, entries, run_tests_body=None):
     (tree / "tests" / "test_probe.py").write_text("def test_x():\n    pass\n")
     if run_tests_body is not None:
         (tree / "run_tests.py").write_text(run_tests_body)
-    reg = [{"id": f["id"], "status": "retired"} for f in m.SEED] + entries
+    reg = [dict(f, status="retired") for f in m.SEED] + entries
     (tree / "FOOTGUNS.json").write_text(json.dumps(
         {"version": 999999, "footguns": reg}))
     return tree
@@ -803,14 +803,14 @@ def _fg_tree(tmp_path, m, entries, run_tests_body=None):
 
 def _tool_entry(fid, argv, block_on=(3,)):
     return {"id": fid, "severity": "blocking", "status": "active",
-            "rule": "synthetic", "fix": "synthetic",
+            "rule": "synthetic", "fix": "synthetic", "provenance": "synthetic",
             "detector": {"kind": "tool", "cmd": list(argv),
                          "block_on_exit": list(block_on)}}
 
 
 def _insync_entry(fid, test="tests/test_probe.py"):
     return {"id": fid, "severity": "blocking", "status": "active",
-            "rule": "synthetic", "fix": "synthetic",
+            "rule": "synthetic", "fix": "synthetic", "provenance": "synthetic",
             "detector": {"kind": "insync", "test": test}}
 
 
@@ -1027,9 +1027,10 @@ def test_inactive_and_advisory_entries_do_not_become_failures(tmp_path):
     entries = [
         _tool_entry("FG-A", _passing_tool(tmp_path)),
         {"id": "FG-OFF", "severity": "blocking", "status": "retired",
-         "rule": "r", "fix": "f", "detector": {"kind": "tool", "cmd": ["nope"]}},
+         "rule": "r", "fix": "f", "provenance": "p",
+         "detector": {"kind": "tool", "cmd": ["nope"]}},
         {"id": "FG-NOTE", "severity": "advisory", "status": "active",
-         "rule": "r", "fix": "f", "detector": {"kind": "none"}},
+         "rule": "r", "fix": "f", "provenance": "p", "detector": {"kind": "none"}},
     ]
     tree = _fg_tree(tmp_path, m, entries)
     assert m.cmd_check(_Args(tree)) == 0

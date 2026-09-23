@@ -342,15 +342,15 @@ def _footgun_tree(tmp_path, m):
     (tree / "tests").mkdir()
     (tree / "tests" / "test_probe.py").write_text("def test_x():\n    pass\n")
 
-    entries = [{"id": f["id"], "status": "retired"} for f in m.SEED]
+    entries = [dict(f, status="retired") for f in m.SEED]
     entries += [
         {"id": "FG-PROBE-TOOL", "severity": "blocking", "status": "active",
-         "rule": "synthetic", "fix": "synthetic",
+         "rule": "synthetic", "fix": "synthetic", "provenance": "synthetic",
          "detector": {"kind": "tool",
                       "cmd": [sys.executable, str(tool), "--tree", "{tree}"],
                       "block_on_exit": [3]}},
         {"id": "FG-PROBE-INSYNC", "severity": "blocking", "status": "active",
-         "rule": "synthetic", "fix": "synthetic",
+         "rule": "synthetic", "fix": "synthetic", "provenance": "synthetic",
          "detector": {"kind": "insync", "test": "tests/test_probe.py"}},
     ]
     (tree / "FOOTGUNS.json").write_text(json.dumps(
