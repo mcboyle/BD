@@ -1363,6 +1363,24 @@ class TransportMixin:
             )
             return False
 
+        # Row 1077: liveness gate before fanning out N connections. SSRF-guarded and
+        # fail-closed: anything but HEALTHY, or a check that could not run, falls back
+        # to single-connection. Skipped when proxied or row 1065 interface-bound: a raw
+        # TCP connect would bypass that egress (the HTTP probe above went through it).
+        from .multi_homed_egress import get_multi_homed_router
+        if not proxy_url and not get_multi_homed_router().is_configured():
+            live_target = getattr(pr, "final_url", "") or file_url
+            try:
+                live = _mconn.check_connection_liveness(live_target)
+            except Exception as e:
+                live = {"state": "unknown", "error": f"{type(e).__name__}: {e}"}
+            if live.get("state") != "healthy":
+                sys.stderr.write(
+                    f"  multi_conn: endpoint liveness {live.get('state')} "
+                    f"({live.get('error')}); falling back\n"
+                )
+                return False
+
         # EXT-3: derive this run's connection count from the host's last observed
         # outcome (opt-in via multi_conn_adaptive; default-off -> fixed config N,
         # byte-identical). AIMD-lite: a clean prior run probes one more conn, a

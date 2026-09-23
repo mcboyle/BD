@@ -62,6 +62,13 @@ _EXPECTED_RUNTIME_CONSUMERS = {
     "bulk_downloader/app_template.py": {"_is_safe_public_host": 2,
                                         "_classify_ip": 2},
     "bulk_downloader/candidate_filter.py": {"_classify_ip": 1},
+    # ROW 1077. connection_liveness._refuse_non_public classifies EVERY address
+    # getaddrinfo returned before probe_socket's raw TCP connect, and only a
+    # vetted address is connected. Same shape as deep_http: `ok, reason = ...`
+    # then `if not ok:`; the reason is only carried into the refusal message
+    # (non-empty on every refusal, so probe_socket's `if refusal:` is the
+    # boolean again), never compared and never parsed.
+    "bulk_downloader/connection_liveness.py": {"_classify_ip": 1},
     "bulk_downloader/deep_detect/orchestrate.py": {"_is_safe_public_host": 1},
     # ROW 713. deep_http._check is the single classification point every
     # token-bearing deep integration sends through, on the first hop and on

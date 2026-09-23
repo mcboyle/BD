@@ -649,8 +649,28 @@ def should_use_multi_conn(
     return True
 
 
+def check_connection_liveness(
+    target: str,
+    default_port: int = 80,
+    timeout_s: float = 2.0,
+) -> dict:
+    """Row 1077: Probe connection liveness and health for a target endpoint."""
+    from .connection_liveness import get_connection_liveness_monitor
+    mon = get_connection_liveness_monitor()
+    res = mon.probe_target(target, timeout_s=timeout_s, default_port=default_port)
+    return res.to_dict()
+
+
+def get_connection_liveness_monitor():
+    """Row 1077: Central Connection Liveness and Health Probing monitor."""
+    from .connection_liveness import get_connection_liveness_monitor as _get_mon
+    return _get_mon()
+
+
 __all__ = [
     "DEFAULT_CHUNK_COUNT",
+    "check_connection_liveness",
+    "get_connection_liveness_monitor",
     "DEFAULT_MIN_SIZE_BYTES",
     "ProbeResult",
     "probe",

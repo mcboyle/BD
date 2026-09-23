@@ -809,6 +809,10 @@ def test_delayed_multi_conn_child_progress_is_rejected_after_stop(
             return True
 
         @staticmethod
+        def check_connection_liveness(*args, **kwargs):
+            return {"state": "healthy", "error": None}
+
+        @staticmethod
         def download(*args, progress_cb, **kwargs):
             def delayed_progress():
                 child_waiting.set()
