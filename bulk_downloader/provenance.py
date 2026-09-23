@@ -38,6 +38,35 @@ import json
 import time
 from typing import Optional, Iterator
 
+import sys
+import threading
+
+# Row 1068: the partition shards are an index over THIS ledger. Only an
+# absent module turns sharding off, and it says why; a module that is present
+# but broken raises here rather than being mistaken for "not installed".
+_SHARDING_IMPORT_ERROR: Optional[str] = None
+try:
+    from . import ledger_sharding as _ledger_sharding
+    _SHARDING_AVAILABLE = True
+except ImportError as _e:
+    _ledger_sharding = None
+    _SHARDING_AVAILABLE = False
+    _SHARDING_IMPORT_ERROR = repr(_e)[:200]
+    sys.stderr.write(f"[provenance] ledger sharding unavailable: {_SHARDING_IMPORT_ERROR}\n")
+
+# The shard mirror is rebuilt from the durable table the first time it is
+# needed in a process, then kept current by record(). _SHARD_MIRROR_THROUGH is
+# the highest provenance.id the mirror holds (None = not built yet), so a row
+# is never mirrored twice and never skipped.
+_SHARD_LOCK = threading.RLock()
+_SHARD_MIRROR: dict = {"router": None, "through": None}
+_SHARD_WRITE_FAILURES = 0
+_RECORD_LOCK = threading.Lock()
+
+
+class ShardingUnavailable(RuntimeError):
+    """The partition shards could not be consulted (rule 6: not "found none")."""
+
 
 def _row_content_hash(row: dict) -> str:
     """Stable hash of a row's content (excluding the chain hash itself).
@@ -147,49 +176,236 @@ def record(
     Fail-open: a provenance write failure is logged but never raises.
     Losing audit data is bad; failing a download because audit broke
     is worse."""
+    # One writer at a time: the chain link reads the previous row's hash,
+    # so two unserialized writers would both link to the same parent and
+    # fork the durable chain (row1068: verify now checks that chain).
+    with _RECORD_LOCK:
+        _ensure_table()
+        now = time.time()
+        row = {
+            "ts": now,
+            "site_id": site_id,
+            "account": account,
+            "source_url": source_url,
+            "resolved_url": resolved_url,
+            "final_filename": final_filename,
+            "file_size": int(file_size or 0),
+            "sha256": sha256,
+            "vpn_endpoint": vpn_endpoint,
+            "external_ip": external_ip,
+            "mirror_host": mirror_host,
+            "ts_requested": float(ts_requested or 0),
+            "ts_started": float(ts_started or 0),
+            "ts_finished": float(ts_finished or now),
+            "extra_json": json.dumps(extra or {}, separators=(",", ":"), default=str)[:5000],
+        }
+        content_hash = _row_content_hash(row)
+        prev = _last_chain_hash()
+        chain_hash = _chain_hash(prev, content_hash)
+        row["content_hash"] = content_hash
+        row["chain_hash"] = chain_hash
+        try:
+            from . import db as _db
+            with _db.db_conn() as cx:
+                cur = cx.execute("""INSERT INTO provenance(
+                    ts, site_id, account, source_url, resolved_url,
+                    final_filename, file_size, sha256, vpn_endpoint,
+                    external_ip, mirror_host, ts_requested, ts_started,
+                    ts_finished, content_hash, chain_hash, extra_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    tuple(row[k] for k in [
+                        "ts", "site_id", "account", "source_url", "resolved_url",
+                        "final_filename", "file_size", "sha256", "vpn_endpoint",
+                        "external_ip", "mirror_host", "ts_requested", "ts_started",
+                        "ts_finished", "content_hash", "chain_hash", "extra_json",
+                    ]))
+                row_id = cur.lastrowid
+                _mirror_row(row_id, row)
+                return row_id
+        except Exception as e:
+            import sys
+            sys.stderr.write(f"[provenance] record failed: {e}\n")
+            return None
+
+
+def shard_write_failures() -> int:
+    """Rows that reached the durable ledger but not its shard mirror."""
+    return _SHARD_WRITE_FAILURES
+
+
+def _mirror_row(row_id, row: dict) -> None:
+    """Append a just-recorded row to the shard mirror, if the mirror exists.
+    A failure is counted and logged: the durable row stands, and the next
+    verify_sharded_chains() reports the partition that diverged."""
+    global _SHARD_WRITE_FAILURES
+    if not _SHARDING_AVAILABLE or _ledger_sharding is None:
+        return
+    with _SHARD_LOCK:
+        through = _SHARD_MIRROR["through"]
+        if (_SHARD_MIRROR["router"] is not _ledger_sharding.get_ledger_router()
+                or through is None or row_id is None or row_id <= through):
+            return  # mirror not built yet: the rebuild will read this row
+        try:
+            _ledger_sharding.record_sharded_ledger_entry(
+                tenant_id=row["site_id"], url=row["source_url"], data=row,
+                timestamp=row["ts_finished"])
+        except Exception as e:
+            _SHARD_WRITE_FAILURES += 1
+            sys.stderr.write(f"[provenance] shard write failed for row {row_id}: {e}\n")
+        _SHARD_MIRROR["through"] = row_id
+
+
+def _iter_ledger_rows(*, batch_size: int = 1000):
+    """Durable rows in id order, as record() built them (id split off).
+    Every row: a tenant is selected by the router's own key (chain_heads),
+    never by SQL, whose lower() folds a site id differently."""
     _ensure_table()
-    now = time.time()
-    row = {
-        "ts": now,
-        "site_id": site_id,
-        "account": account,
-        "source_url": source_url,
-        "resolved_url": resolved_url,
-        "final_filename": final_filename,
-        "file_size": int(file_size or 0),
-        "sha256": sha256,
-        "vpn_endpoint": vpn_endpoint,
-        "external_ip": external_ip,
-        "mirror_host": mirror_host,
-        "ts_requested": float(ts_requested or 0),
-        "ts_started": float(ts_started or 0),
-        "ts_finished": float(ts_finished or now),
-        "extra_json": json.dumps(extra or {}, separators=(",", ":"), default=str)[:5000],
-    }
-    content_hash = _row_content_hash(row)
-    prev = _last_chain_hash()
-    chain_hash = _chain_hash(prev, content_hash)
-    row["content_hash"] = content_hash
-    row["chain_hash"] = chain_hash
+    from . import db as _db
+    last_id = 0
+    while True:
+        with _db.db_conn() as cx:
+            rows = cx.execute(
+                "SELECT * FROM provenance WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (last_id, batch_size)).fetchall()
+        if not rows:
+            return
+        for r in rows:
+            row = dict(r)
+            last_id = row.pop("id")
+            yield last_id, row
+
+
+def _replay(router, rows) -> None:
+    for _row_id, row in rows:
+        router.record_entry(row["site_id"], row["source_url"], row,
+                            timestamp=row["ts_finished"])
+
+
+def _sharded_router():
+    """The live shard router, rebuilt from the durable ledger on first use in
+    this process. Raises ShardingUnavailable when it cannot be consulted."""
+    if not _SHARDING_AVAILABLE or _ledger_sharding is None:
+        raise ShardingUnavailable(
+            f"ledger sharding unavailable: {_SHARDING_IMPORT_ERROR}")
+    with _SHARD_LOCK:
+        router = _ledger_sharding.get_ledger_router()
+        if _SHARD_MIRROR["router"] is router and _SHARD_MIRROR["through"] is not None:
+            return router
+        try:
+            router.reset()
+            through = 0
+            for row_id, row in _iter_ledger_rows():
+                _replay(router, [(row_id, row)])
+                through = row_id
+        except Exception as e:
+            router.reset()
+            _SHARD_MIRROR.update(router=None, through=None)
+            raise ShardingUnavailable(f"shard rebuild from ledger failed: {e}"[:200])
+        _SHARD_MIRROR.update(router=router, through=through)
+        return router
+
+
+def query_sharded(
+    *,
+    tenant_id: Optional[str] = None,
+    domain: Optional[str] = None,
+    epoch_from: Optional[int] = None,
+    epoch_to: Optional[int] = None,
+    sha256: Optional[str] = None,
+    filename: Optional[str] = None,
+    url: Optional[str] = None,
+    limit: int = 100,
+) -> list:
+    """Look up partitioned provenance rows by tenant, domain, or epoch range.
+    [] means the shards were consulted and nothing matched; a lookup that
+    could not be made raises ShardingUnavailable."""
+    return _sharded_router().query_entries(
+        tenant_id=tenant_id,
+        domain=domain,
+        epoch_from=epoch_from,
+        epoch_to=epoch_to,
+        sha256=sha256,
+        filename=filename,
+        url=url,
+        limit=limit,
+    )
+
+
+def get_sharded_partitions(tenant_id: Optional[str] = None) -> list[dict]:
+    """Metadata for the ledger partition shards (raises ShardingUnavailable)."""
+    return _sharded_router().list_partitions_metadata(tenant_id=tenant_id)
+
+
+def verify_sharded_chains(tenant_id: Optional[str] = None) -> dict:
+    """Verify every partition's chain AND that each partition still matches
+    the durable ledger it indexes.
+
+    status: "verified" (valid True), "tampered" (valid False), "empty"
+    (nothing to verify, valid None) or "unavailable" (could not look, valid
+    None). A partition is tampered when its own chain breaks, when the
+    durable rows it was built from changed, were deleted or were reordered
+    since (a fresh rebuild differs), or when verify_chain() fails on a row in
+    it -- the last one also catches edits made before this process started.
+    verify_chain() stops at its first bad row, so nothing after that row was
+    checked: a broken durable chain is never "verified". A break not pinned
+    to a partition in scope is "tampered" for the whole ledger and
+    "unavailable" for one tenant, whose later rows went unchecked.
+    """
+    try:
+        live = _sharded_router()
+        report = live.verify_all_partitions(tenant_id=tenant_id)
+        rebuilt = _ledger_sharding.MultiTenantLedgerRouter(
+            epoch_duration_seconds=live.epoch_duration_seconds)
+        _replay(rebuilt, _iter_ledger_rows())
+        durable = verify_chain()
+    except ShardingUnavailable as e:
+        return {"valid": None, "status": "unavailable", "verified_count": 0,
+                "tampered_partitions": [], "error": str(e)}
+    except Exception as e:
+        return {"valid": None, "status": "unavailable", "verified_count": 0,
+                "tampered_partitions": [], "error": f"{e}"[:200]}
+    tampered = set(report["tampered_partitions"])
+    heads_live = live.chain_heads(tenant_id=tenant_id)
+    heads_durable = rebuilt.chain_heads(tenant_id=tenant_id)
+    tampered |= {pid for pid in set(heads_live) | set(heads_durable)
+                 if heads_live.get(pid) != heads_durable.get(pid)}
+    if not durable.get("ok") and durable.get("first_bad_id") is not None:
+        pid = _partition_of_row(live, durable["first_bad_id"])
+        if pid and (tenant_id is None or pid in heads_live or pid in heads_durable):
+            tampered.add(pid)
+    tampered_list = sorted(tampered)
+    unpinned = {}
+    if tampered_list:
+        status, valid = "tampered", False
+    elif not durable.get("ok"):
+        whole_ledger = not (tenant_id or "").strip()  # the router's "no tenant filter"
+        if whole_ledger and durable.get("first_bad_id") is not None:
+            status, valid = "tampered", False
+        else:
+            status, valid = "unavailable", None
+        unpinned["error"] = f"durable chain not verified: {durable.get('message')}"[:200]
+    elif report["verified_count"] == 0:
+        status, valid = "empty", None
+    else:
+        status, valid = "verified", True
+    return {"valid": valid, "status": status,
+            "verified_count": report["verified_count"],
+            "tampered_partitions": tampered_list,
+            "durable_chain": durable, **unpinned}
+
+
+def _partition_of_row(router, row_id) -> Optional[str]:
     try:
         from . import db as _db
         with _db.db_conn() as cx:
-            cur = cx.execute("""INSERT INTO provenance(
-                ts, site_id, account, source_url, resolved_url,
-                final_filename, file_size, sha256, vpn_endpoint,
-                external_ip, mirror_host, ts_requested, ts_started,
-                ts_finished, content_hash, chain_hash, extra_json
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                tuple(row[k] for k in [
-                    "ts", "site_id", "account", "source_url", "resolved_url",
-                    "final_filename", "file_size", "sha256", "vpn_endpoint",
-                    "external_ip", "mirror_host", "ts_requested", "ts_started",
-                    "ts_finished", "content_hash", "chain_hash", "extra_json",
-                ]))
-            return cur.lastrowid
-    except Exception as e:
-        import sys
-        sys.stderr.write(f"[provenance] record failed: {e}\n")
+            r = cx.execute("SELECT site_id, source_url, ts_finished FROM "
+                           "provenance WHERE id = ?", (row_id,)).fetchone()
+        if r is None:
+            return None
+        r = dict(r)
+        return router.resolve_shard_key(r["site_id"], r["source_url"],
+                                        r["ts_finished"]).partition_id
+    except Exception:
         return None
 
 
