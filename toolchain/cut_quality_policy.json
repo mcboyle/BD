@@ -23,7 +23,7 @@
     "resolver_env": "BD_CUT_QUALITY_VALIDATOR"
   },
   "trusted_consumers": {
-    "toolchain/bin/bd-band": "94b96417f04c47b4a8b732159b03f70c5e6f8917f5410d8a7ec77a764ed3b2ad",
+    "toolchain/bin/bd-band": "81605318e7fe23a2c37f7cef2af4c2384751e61d4958a4b8e4ecadb29e6d9e5f",
     "toolchain/bin/bd-ci-verdict": "bc8eeae53c3baf723c49b1227dedb8e3adff0ef587e4feefeb417f5c1f0c5975",
     "toolchain/bin/bd-cut": "6137f957c937a6e381ebbac374638705c6db716ffb4754c58cb0718274655dfe",
     "toolchain/bin/bd-fleet-run": "19a4be83d846754c03bb964743a02ddbeae769af8a4df2d3f5fb900fe76d4196",
