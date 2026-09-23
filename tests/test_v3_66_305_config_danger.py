@@ -21,6 +21,8 @@ for p in (str(ROOT), str(TOOLS)):
 
 import config_surface_inventory as csi  # noqa: E402
 
+BD_GATE_SCOPE = "repo-wide"
+
 
 def _item(items, key):
     return next((i for i in items if i["key"] == key), None)

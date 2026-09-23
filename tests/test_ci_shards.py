@@ -138,3 +138,13 @@ def test_resolver_fails_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(ci_shards, "GLOBS", (("rest", ("tests/test_*.py",)),))
     with pytest.raises(ci_shards.ShardError, match="already pinned"):
         ci_shards.shards(repo)
+
+
+def test_config_danger_gate_executes_once_in_named_ci_shard():
+    table = ci_shards.shards(ROOT)
+    control = "tests/test_keepalive_default_off.py"
+    assert sum(control in files for files in table.values()) == 1
+    target = "tests/test_v3_66_305_config_danger.py"
+    owners = [name for name, files in table.items() if target in files]
+    assert owners == ["gates-v3-b"], (
+        f"H621: config-danger acceptance gate must run once in gates-v3-b; got {owners}")

@@ -600,7 +600,6 @@ tests/test_v3_66_302_login_flow_nstep.py
 tests/test_v3_66_302_rec3_autoplay.py
 tests/test_v3_66_303_import_preview_redaction.py
 tests/test_v3_66_303_ssrf_transport_guard.py
-tests/test_v3_66_305_config_danger.py
 tests/test_v3_66_306_queue_hk_parity.py
 tests/test_v3_66_308_capture_parity.py
 tests/test_v3_66_309_slow_query_parity.py
