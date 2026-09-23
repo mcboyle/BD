@@ -4818,6 +4818,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try: self._settle_after_navigation(page)
             except Exception as e:
                 sys.stderr.write(f"  spa settlement error (non-fatal): {str(e)[:80]}\n")
+            # Row 1048: standard web dialog and notice acknowledgment (default off)
+            try: self.maybe_acknowledge_dialogs(page)
+            except Exception as e:
+                sys.stderr.write(f"  dialog acknowledgment error (non-fatal): {str(e)[:80]}\n")
+
             # v3.45.8 Phase 186: pre-download macro replay. If the site
             # has `pre_download_macro` configured (a stored macro name),
             # run its actions against the freshly-loaded page. Useful for

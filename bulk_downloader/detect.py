@@ -2647,3 +2647,10 @@ def merge_plugin_recognitions(builtin, dom_excerpt="", network_summary=None,
         out.append(folded)
 
     return out
+
+
+# ─── STANDARD WEB DIALOG & NOTICE ACKNOWLEDGMENT (Row 1048) ───────────────────
+def acknowledge_web_dialog_notices(page_or_dom):
+    """Inspects and dismisses standard web dialogs, cookie notices, and modals (Row 1048)."""
+    from .web_dialog import acknowledge_web_dialogs
+    return acknowledge_web_dialogs(page_or_dom)

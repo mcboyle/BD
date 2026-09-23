@@ -1376,6 +1376,22 @@ class BrowserMixin:
         except Exception:
             return None
 
+    def maybe_acknowledge_dialogs(self, page):
+        """Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
+
+        Default OFF unless config 'acknowledge_dialogs' is enabled.
+        """
+        if not getattr(self, "config", {}).get("acknowledge_dialogs", False):
+            return None
+        try:
+            from .detect import acknowledge_web_dialog_notices
+            return acknowledge_web_dialog_notices(page)
+        except Exception as e:
+            if hasattr(self, "log_event"):
+                self.log_event("dialog_ack_error", f"Dialog notice acknowledgment failed: {e}")
+            return None
+
+
 
 from .browser_sentinel import (  # noqa: E402
     runner_maybe_recycle_browser as _rmrb,
