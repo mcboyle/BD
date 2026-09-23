@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1660 - train85: row1077
+
+Base main 261069ff (T84 v3.66.1659 landed 13:0xZ; no regen commit at assembly). T85: one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010; verdict keyed to PATCH-SHA256 c9b0dd82, H703), rebased onto main at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2). Register amendments: rows 983, 999, 1071 closed MOOT (REGISTER-CLOSE-0064, PM 11:42Z).
+
+- row1077 connection-liveness: connection liveness monitor + health probing (bulk_downloader/connection_liveness.py, multi_conn.py, runner_transport.py hooks, tests/test_row1077_connection_liveness_health_probing.py, row703 map re-pins for runner_transport line shifts, CENSUS-row1077.md). N2-B BOARD at 72bdd51f (fixer-A WF11 rebuild on 235be47f).
+- register: row 1077 CLOSED @1660; rows 983 (MOOT-DUPLICATE of 1074, RULING-0085), 999 (MOOT-PREMISE), 1071 (MOOT-PREMISE) closed MOOT @1660 with DONE.md evidence.
+
+
 ## v3.66.1659 - train84: row1084
 
 Base T83 tip 926e290f (v3.66.1658 restack per ORDERS-0094, train/83 PR995 base main; main 235be47f). T84: one hotfix cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010); register line folded in by fixup from a read-tree copy; ci.yml untouched (RULING-0080 s2).

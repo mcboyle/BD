@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4982,
+  "edge_count": 4988,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1632,6 +1632,7 @@
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/multi_conn.py": [
+      "bulk_downloader/connection_liveness.py",
       "bulk_downloader/mptcp_subflow.py",
       "bulk_downloader/ssrf_transport.py"
     ],
@@ -2040,6 +2041,7 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/jellyfin_deep.py",
       "bulk_downloader/multi_conn.py",
+      "bulk_downloader/multi_homed_egress.py",
       "bulk_downloader/pipeline_orchestrator.py",
       "bulk_downloader/plex_deep.py",
       "bulk_downloader/proxy_pool.py",
@@ -4281,6 +4283,12 @@
     "tests/test_row1075_task_state_pause_drain_resumption.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/task_drain_engine.py"
+    ],
+    "tests/test_row1077_connection_liveness_health_probing.py": [
+      "bulk_downloader/connection_liveness.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/multi_homed_egress.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_row1078_network_event_log_reduction.py": [
       "bulk_downloader/log.py",

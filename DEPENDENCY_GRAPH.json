@@ -2414,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1783,
+    "edge_count": 1785,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2986,6 +2986,9 @@
       ],
       "bulk_downloader/config_dryrun.py": [
         "bulk_downloader/app_envfile_editor.py"
+      ],
+      "bulk_downloader/connection_liveness.py": [
+        "bulk_downloader/multi_conn.py"
       ],
       "bulk_downloader/connection_pool.py": [
         "bulk_downloader/db.py"
@@ -3911,6 +3914,7 @@
       ],
       "bulk_downloader/multi_homed_egress.py": [
         "bulk_downloader/download_egress.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/multi_site_benchmark.py": [
@@ -6847,6 +6851,7 @@
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/multi_conn.py": [
+        "bulk_downloader/connection_liveness.py",
         "bulk_downloader/mptcp_subflow.py",
         "bulk_downloader/ssrf_transport.py"
       ],
@@ -7255,6 +7260,7 @@
         "bulk_downloader/hooks.py",
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/multi_conn.py",
+        "bulk_downloader/multi_homed_egress.py",
         "bulk_downloader/pipeline_orchestrator.py",
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/proxy_pool.py",
