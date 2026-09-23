@@ -213,21 +213,118 @@ def test_the_gate_verdict_names_1800s_when_the_variable_is_unset(gate_tree, chil
     assert f"did NOT finish within {DEFAULT_S}s over 1 gate file(s)" in out, out
 
 
+def _run_site(tree):
+    return next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "_run_underived_gates")
+
+
+def _is_budget_call(node):
+    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "_underived_budget_s")
+
+
+def _run_site_violations(tree):
+    """The run-site property over a parsed bd-precut; [] when it holds.
+
+    In _run_underived_gates, _underived_budget_s() is called exactly once and
+    its result is bound to ONE local name, and every timeout= (subprocess.run)
+    and timed_out_after= (_underived_detail) passes exactly that name. The
+    local's SPELLING is not part of the property (H415): a pure rename holds,
+    and the fixed constant at either site, or at both, does not.
+    """
+    fn = _run_site(tree)
+    calls = [n for n in ast.walk(fn) if _is_budget_call(n)]
+    if len(calls) != 1:
+        return [(f"_run_underived_gates must derive its wall from _underived_budget_s() "
+                 f"exactly once, found {len(calls)}")]
+    bound = [a.targets[0].id for a in ast.walk(fn)
+             if isinstance(a, ast.Assign) and a.value is calls[0]
+             and len(a.targets) == 1 and isinstance(a.targets[0], ast.Name)]
+    if not bound:
+        return [("the one _underived_budget_s() call must be the whole value of a plain "
+                 "`<local> = _underived_budget_s()` assignment")]
+    bindings = sum(1 for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == bound[0]
+                   and not isinstance(n.ctx, ast.Load))
+    if bindings != 1:
+        return [(f"the local {bound[0]!r} must be bound once, to _underived_budget_s(), and "
+                 f"never rebound: the walls carry the budget, not the fixed constant or "
+                 f"another value ({bindings} bindings)")]
+    walls = [(kw.arg, ast.unparse(kw.value)) for n in ast.walk(fn) if isinstance(n, ast.Call)
+             for kw in n.keywords if kw.arg in ("timeout", "timed_out_after")]
+    violations = []
+    if {arg for arg, _ in walls} != {"timeout", "timed_out_after"}:
+        violations.append("both walls, timeout= and timed_out_after=, must be passed: "
+                          + repr(sorted(walls)))
+    stray = sorted((arg, got) for arg, got in walls if got != bound[0])
+    if stray:
+        violations.append(f"every wall must be the one local bound to _underived_budget_s() "
+                          f"({bound[0]!r}), not the fixed constant or another value: {stray!r}")
+    return violations
+
+
 def test_the_run_site_consumes_the_budget_exactly_once():
     """Exact count over the tool's AST: in _run_underived_gates, subprocess.run's
     timeout= and _underived_detail's timed_out_after= are both the ONE local
-    budget, and the fixed constant is no longer passed at either site."""
+    bound to _underived_budget_s(), whatever it is named, and the fixed constant
+    is no longer passed at either site."""
+    violations = _run_site_violations(ast.parse(TOOL.read_text(encoding="utf-8"), str(TOOL)))
+    assert violations == [], violations
+
+
+def _rename_the_budget_local(fn):
+    """R-NEG-3: the local bound to _underived_budget_s() renamed at every site."""
+    (assign,) = [a for a in ast.walk(fn) if isinstance(a, ast.Assign) and _is_budget_call(a.value)]
+    old = assign.targets[0].id
+    uses = [n for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == old]
+    for node in uses:
+        node.id = old + "_renamed"
+    return len(uses)
+
+
+def _the_constant_at(*walls):
+    """The fixed constant passed at the named wall(s) instead of the local."""
+    def mutate(fn):
+        sites = [kw for n in ast.walk(fn) if isinstance(n, ast.Call)
+                 for kw in n.keywords if kw.arg in walls]
+        for kw in sites:
+            kw.value = ast.Name(id="_UNDERIVED_BUDGET_S", ctx=ast.Load())
+        return len(sites)
+    return mutate
+
+
+def _rebind_the_budget_local(fn):
+    """The local rebound to the fixed constant after the budget call: every wall
+    still names the local, but the value it carries is no longer the budget."""
+    for holder in ast.walk(fn):
+        body = getattr(holder, "body", None)
+        if not isinstance(body, list):
+            continue
+        for index, stmt in enumerate(body):
+            if isinstance(stmt, ast.Assign) and _is_budget_call(stmt.value):
+                name = stmt.targets[0].id
+                body.insert(index + 1, ast.Assign(
+                    targets=[ast.Name(id=name, ctx=ast.Store())],
+                    value=ast.Name(id="_UNDERIVED_BUDGET_S", ctx=ast.Load()), lineno=0))
+                return 1
+    return 0
+
+
+@pytest.mark.parametrize("mutate, holds", [
+    pytest.param(_rename_the_budget_local, True, id="R-NEG-3-pure-rename"),
+    pytest.param(_the_constant_at("timeout"), False, id="constant-at-timeout"),
+    pytest.param(_the_constant_at("timed_out_after"), False, id="constant-at-timed_out_after"),
+    pytest.param(_the_constant_at("timeout", "timed_out_after"), False, id="constant-at-both"),
+    pytest.param(_rebind_the_budget_local, False, id="local-rebound-to-constant"),
+])
+def test_the_run_site_check_follows_the_property_not_the_spelling(mutate, holds):
+    """H415 (lens rowh360b NOTE 2): the check above states the property, so a
+    pure rename of the local holds -- it used to turn the gate red with a message
+    denying what was true of the tree -- while the fixed constant at either site,
+    or at both, is still refused. Each mutant edits the real tool's AST."""
     tree = ast.parse(TOOL.read_text(encoding="utf-8"), str(TOOL))
-    fn = next(n for n in ast.walk(tree)
-              if isinstance(n, ast.FunctionDef) and n.name == "_run_underived_gates")
-    budget_calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
-                    and isinstance(n.func, ast.Name) and n.func.id == "_underived_budget_s"]
-    assert len(budget_calls) == 1, (
-        f"_run_underived_gates must derive its wall from _underived_budget_s() exactly once, "
-        f"found {len(budget_calls)}")
-    walls = {kw.arg: kw.value for n in ast.walk(fn) if isinstance(n, ast.Call)
-             for kw in n.keywords if kw.arg in ("timeout", "timed_out_after")}
-    assert set(walls) == {"timeout", "timed_out_after"}, sorted(walls)
-    names = {k: (v.id if isinstance(v, ast.Name) else ast.dump(v)) for k, v in walls.items()}
-    assert names == {"timeout": "budget", "timed_out_after": "budget"}, (
-        "both walls must be the one local budget, not the fixed constant: " + repr(names))
+    assert mutate(_run_site(tree)) >= 1, "the mutant changed nothing, so it proves nothing"
+    violations = _run_site_violations(tree)
+    if holds:
+        assert violations == [], violations
+    else:
+        assert any("not the fixed constant" in v for v in violations), violations
