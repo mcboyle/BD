@@ -819,7 +819,7 @@ from .runner_manual import ManualMixin, _ManualDownloadSession  # noqa: E402
 from .runner_accounts import AccountsMixin  # noqa: E402
 from .runner_browser import BrowserMixin  # noqa: E402
 from .runner_scheduler import SchedulerMixin  # noqa: E402
-from .runner_telemetry import TelemetryMixin  # noqa: E402
+from .runner_telemetry import TelemetryMixin, end_url_trace_span, start_url_trace_span  # noqa: E402
 from .runner_queue import QueueMixin, job_status_writer  # noqa: E402
 from .runner_extractors import ExtractorsMixin  # noqa: E402
 from .runner_auth import AuthMixin  # noqa: E402
@@ -4024,13 +4024,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             worker_idx, url, run_generation)
         if claim_result != "claimed":
             return claim_result
+        url_span = None  # Row 1061: this URL's trace span (runner_telemetry)
         try:
             self._update_job(
                 url, "running", "Claimed by worker",
                 _transition_prev_status="pending",
                 _memory_already_updated=True)
+            # Row 1061: started and ended by hand, not `with`, so the dispatch
+            # line below keeps the shape row664's M2 mutant anchors on.
+            url_span = start_url_trace_span(self, url)
             self._process_one(browser, url, persistent_ctx=persistent_ctx)
+            end_url_trace_span(url_span)
             return self._WORKER_CLAIM_PROCESSED
+        except BaseException as exc:
+            end_url_trace_span(url_span, exc)
+            raise
         finally:
             with self._worker_heartbeats_lock:
                 if (self._worker_url_generations.get(worker_idx) == run_generation

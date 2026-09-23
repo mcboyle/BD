@@ -534,3 +534,50 @@ class TelemetryMixin:
             # escapes (e.g. \7 → bell char) when injected into onclick.
             return target.as_posix()
         except Exception: return ""
+
+    def create_trace_span(self, name, kind=None, attributes=None):
+        """Row 1061: OpenTelemetry trace span builder for runner telemetry."""
+        from .otel_trace_spans import SpanKind, get_tracer
+        tracer = get_tracer()
+        span_kind = kind or SpanKind.INTERNAL
+        attrs = dict(attributes or {})
+        attrs.setdefault("runner.site_id", getattr(self, "site_id", ""))
+        return tracer.start_span(name, kind=span_kind, attributes=attrs)
+
+
+def start_url_trace_span(runner, url):
+    """Row 1061: start the per-URL "runner.process_url" span, or return None.
+
+    SiteRunner._process_worker_url calls this for each claimed URL and ends the
+    span with end_url_trace_span. A runner without TelemetryMixin -- a test
+    double that borrows _process_worker_url, as
+    tests/test_row664_dedup_refusal_reaches_history.py does -- has no
+    create_trace_span: it gets None, so its URL is processed exactly as before
+    and no span is recorded. The span carries the host only (the query may
+    carry tokens); a host that does not parse is recorded as "" -- the span is
+    never the reason a URL fails.
+    """
+    create_trace_span = getattr(runner, "create_trace_span", None)
+    if create_trace_span is None:
+        return None
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(url).hostname or ""
+    except ValueError:
+        host = ""
+    return create_trace_span("runner.process_url",
+                             attributes={"server.address": host})
+
+
+def end_url_trace_span(span, exc=None):
+    """Row 1061: end a span from start_url_trace_span; None has nothing to end.
+
+    With ``exc`` the span is first marked ERROR (message and error.type), the
+    same record a ``with`` block leaves when an exception crosses it.
+    """
+    if span is None:
+        return
+    if exc is None:
+        span.end()
+    else:
+        span.__exit__(type(exc), exc, exc.__traceback__)
