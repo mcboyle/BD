@@ -214,18 +214,32 @@ def _run_once_plain(api_base: str):
     # bulk_downloader/ package). cli_dashboard.py lives in the
     # package even though it's a CLI tool, so it must conform.
     out = sys.stdout
-    out.write(f"BulkDownloader status @ {time.strftime('%H:%M:%S')}\n")
-    out.write(f"  Sites: {len(sites)}\n")
+    frame: list = []
+
+    def emit(line: str) -> None:
+        # Row 988: each line is written as soon as it is built (as before)
+        # and kept, so the finished frame can be inspected once it is out.
+        frame.append(line)
+        out.write(line + "\n")
+
+    emit(f"BulkDownloader status @ {time.strftime('%H:%M:%S')}")
+    emit(f"  Sites: {len(sites)}")
     for sid, st in sorted(sites.items()):
         c = _summarize_site(st)
-        out.write(
+        emit(
             f"    {sid:20} run={c['running']:3} queue={c['queued']:3} "
             f"done={c['done']:5} fail={c['failed']:3} "
-            f"review={c['needs_review']:3}\n")
+            f"review={c['needs_review']:3}")
     disk = cap.get("disk", {})
     if disk:
-        out.write(f"  Disk: {disk.get('free_gb', 0):.0f} GB free\n")
+        emit(f"  Disk: {disk.get('free_gb', 0):.0f} GB free")
     out.flush()
+    # Row 988: stdout keeps the frame byte-for-byte (scripts parse it); what
+    # would corrupt the operator's terminal -- e.g. a site id carrying an
+    # unclosed ANSI style or a raw control char -- is named on stderr.
+    for anomaly in inspect_dashboard_frame("\n".join(frame)).anomalies:
+        sys.stderr.write(f"dashboard render anomaly: {anomaly.anomaly_type}: "
+                         f"{anomaly.description}\n")
 
 
 def run_live(*, api_base: str = "http://127.0.0.1:5000",
@@ -246,6 +260,12 @@ def run_live(*, api_base: str = "http://127.0.0.1:5000",
                 time.sleep(refresh_seconds)
         except KeyboardInterrupt:
             pass
+
+
+def inspect_dashboard_frame(frame_text: str, max_width: Optional[int] = None):
+    """Inspect a rendered dashboard frame for visual anomalies and ANSI integrity."""
+    from .terminal_drift import inspect_visual_artifact
+    return inspect_visual_artifact(frame_text, max_allowed_width=max_width)
 
 
 if __name__ == "__main__":

@@ -109,7 +109,9 @@ def drift_against_gold(host: str, candidate: Dict[str, Any], *,
                        reviewed_dir=None) -> Dict[str, Any]:
     """Drift of `candidate` vs the gold (else live), reusing the EXISTING
     section diffs from tools/template_drift_report. Returns a total count +
-    human-readable lines. No file writes."""
+    human-readable lines, plus the advisory whole-template "schema_drift"
+    ({count, items[{path, type}]} or {error}) when a baseline was compared.
+    No file writes."""
     h = _safe_host(host)
     if not h:
         return {"ok": False, "error": "invalid host"}
@@ -132,6 +134,19 @@ def drift_against_gold(host: str, candidate: Dict[str, Any], *,
         import template_drift_report as tdr  # type: ignore
     except Exception as e:
         return {"ok": False, "error": f"drift report unavailable: {e}"[:120]}
+    # Row 988: whole-template schema drift (added, removed and retyped fields and
+    # changed values, at any depth) rides along as "schema_drift". Advisory
+    # only: "drift" stays the section count the gates read, and an inspector
+    # failure is reported in place, like a section error, never raised through
+    # the keystone.
+    try:
+        rep = inspect_template_schema_drift(gold_t, candidate)
+        schema_drift = {
+            "count": rep.drift_count,
+            "items": [{"path": d.path, "type": d.drift_type} for d in rep.drifts]}
+    except Exception as e:
+        schema_drift = {"error": f"schema drift inspection failed: "
+                                 f"{type(e).__name__}: {e}"[:120]}
     out: list = []
     total = 0
     for fn in (tdr.diff_selectors, tdr.diff_row_selectors, tdr.diff_resolutions,
@@ -140,7 +155,8 @@ def drift_against_gold(host: str, candidate: Dict[str, Any], *,
             total += fn(candidate, gold_t, out)
         except Exception as e:  # a missing section must not crash the keystone
             out.append(f"  (diff section {fn.__name__} errored: {e})")
-    return {"ok": True, "drift": total, "lines": out, "baseline": str(base)}
+    return {"ok": True, "drift": total, "lines": out, "baseline": str(base),
+            "schema_drift": schema_drift}
 
 
 def commit_swap(host: str, *, reviewed_dir=None) -> Dict[str, Any]:
@@ -245,3 +261,9 @@ def keystone_present() -> bool:
         return True
     except Exception:
         return False
+
+
+def inspect_template_schema_drift(baseline: Dict[str, Any], candidate: Dict[str, Any]):
+    """Inspect schema drift between baseline and candidate template using terminal_drift."""
+    from .terminal_drift import inspect_schema_drift
+    return inspect_schema_drift(baseline, candidate)
