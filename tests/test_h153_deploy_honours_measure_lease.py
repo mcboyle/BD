@@ -79,6 +79,18 @@ def test_an_unreadable_lease_is_honoured_not_ignored(tmp_path: Path) -> None:
     assert "torn" in result.stderr and PROCEEDED not in result.stderr, result.stderr
 
 
+def test_a_non_canonical_epoch_is_honoured_not_ignored(tmp_path: Path) -> None:
+    # as1 REFUTE: 'epoch=08' matched a digits-only parse, bash arithmetic rejected it as
+    # octal, and the guard fell through as clear. Every non-canonical epoch must refuse.
+    for bad in ("08", "09", "0123"):
+        leases = tmp_path / f"leases-{bad}"
+        leases.mkdir()
+        (leases / "octal.lease").write_text(f"label=octal-{bad}\nepoch={bad}\n")
+        result = _deploy(tmp_path, leases)
+        assert result.returncode == 2, (bad, result.stderr)
+        assert f"octal-{bad}" in result.stderr and PROCEEDED not in result.stderr, (bad, result.stderr)
+
+
 def test_the_lease_guard_precedes_the_reset() -> None:
     code = DEPLOY.read_text(encoding="utf-8")
     assert "_held_measure_lease" in code

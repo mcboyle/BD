@@ -309,7 +309,9 @@ _held_measure_lease() {
   now="$(date +%s)"
   for f in "$dir"/*.lease; do
     [ -f "$f" ] || continue
-    epoch="$(sed -n 's/^epoch=\([0-9][0-9]*\)$/\1/p' "$f" | head -1)"
+    # Canonical decimal only: bash arithmetic reads a leading 0 as octal, so 'epoch=08' would
+    # abort the age test and fall through as clear (as1 REFUTE). Non-canonical = unreadable = held.
+    epoch="$(sed -n 's/^epoch=\([1-9][0-9]*\)$/\1/p' "$f" | head -1)"
     label="$(sed -n 's/^label=//p' "$f" | head -1)"
     if [ -z "$epoch" ]; then
       HELD_LEASE="${label:-?} ($f: age unreadable)"; return 0
