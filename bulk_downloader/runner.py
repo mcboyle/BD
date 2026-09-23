@@ -4152,6 +4152,26 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if mem_report.get("over"):
                 return hold("mem_budget_exhausted", 30,
                             "memory budget exhausted", mem_report)
+
+        # row984: the process's own cgroup v2 memory breaker. Unlike the
+        # gates above it is not configured, so it fails OPEN: no cgroup, no
+        # memory.high/memory.max, or an unreadable controller admits.
+        controller = self._cgroup_controller_or_none()
+        if controller is not None:
+            try:
+                admitted, reason, trial = controller.check_admission_with_trial()
+            except Exception:  # noqa: BLE001 -- the unconfigured gate fails open
+                admitted, reason, trial = True, "", None
+            if not admitted:
+                return hold("cgroup_backpressure",
+                            controller.config.cooldown_seconds, reason,
+                            {"circuit": controller.circuit_state.value})
+            # A HALF_OPEN trial is settled by this worker's URL alone, in
+            # the worker loop's per-URL finally (_cgroup_trial_feedback).
+            context = getattr(self, "_worker_context", None)
+            if context is not None:
+                context.cgroup_trial = (
+                    (controller, trial) if trial is not None else None)
         return None
 
     def _record_worker_thread_telemetry(self, worker_idx, run_generation):
@@ -4174,6 +4194,61 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         with lock:
             return {str(i): dict(snap) for i, snap in
                     sorted(getattr(self, "_worker_thread_telemetry", {}).items())}
+
+    def _cgroup_controller_or_none(self):
+        controller = getattr(self, "_cgroup_controller", None)
+        if controller is not None:
+            return controller
+        try:
+            from . import cgroups_backpressure as _cg
+            return _cg.get_cgroup_controller()
+        except Exception:  # noqa: BLE001 -- no controller: the gate is off
+            return None
+
+    def _cgroup_backpressure_delay_s(self):
+        """Seconds to slow the intake by on the high-water ramp (0 when the
+        cgroup is under its watermark or cannot be measured)."""
+        controller = self._cgroup_controller_or_none()
+        if controller is None:
+            return 0.0
+        try:
+            return max(0.0, controller.compute_delay_ms() / 1000.0)
+        except Exception:  # noqa: BLE001 -- an unmeasurable ramp adds no delay
+            return 0.0
+
+    def _cgroup_trial_feedback(self, processed=None, reached=True):
+        """Settle the HALF_OPEN trial this worker's URL was admitted as
+        (_resource_admission_hold); a URL admitted any other way reports
+        nothing. A trial that ran -- processed, or raised part-way --
+        closes the breaker unless the memory measured after it is at the
+        critical watermark or cannot be measured. One that never ran (a
+        stale or ineligible claim, or stopped before _process_worker_url)
+        hands its permit back: the next admission is the trial. Never
+        raises: it runs in the worker loop's per-URL finally."""
+        try:
+            context = getattr(self, "_worker_context", None)
+            carried = getattr(context, "cgroup_trial", None)
+            if carried is None:
+                return None
+            context.cgroup_trial = None
+            controller, trial = carried
+            if not reached or processed in (self._WORKER_CLAIM_STALE,
+                                            self._WORKER_CLAIM_INELIGIBLE):
+                controller.release_trial(trial)
+                return "released"
+            from . import cgroups_backpressure as _cg
+            try:
+                critical = controller.get_state() == _cg.CgroupV2State.CRITICAL
+                reason = ("cgroup at critical watermark after trial"
+                          if critical else None)
+            except Exception as e:  # noqa: BLE001 -- unmeasured is not recovered
+                # A trial whose outcome cannot be measured did not prove recovery.
+                critical, reason = True, f"trial feedback unmeasurable: {e}"[:200]
+            controller.record_feedback(not critical, reason, trial=trial)
+            return "reopened" if critical else "closed"
+        except Exception as e:  # noqa: BLE001 -- the worker outlives the breaker
+            # Unsettled, the trial ends by its HALF_OPEN timeout (re-sample).
+            return f"unsettled: {e}"[:200]
 
     def _worker_loop(self, worker_idx=0, run_generation=None):
         """One persistent worker thread. Owns its own playwright + browser
@@ -4457,9 +4532,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     self._url_queue.task_done()
                     self._stop.wait(resource_hold["wait_s"])
                     continue
+                cgroup_delay_s = self._cgroup_backpressure_delay_s()
+                if cgroup_delay_s > 0:
+                    self._stop.wait(cgroup_delay_s)
                 # Phase 6.4: acquire global semaphore (if active) before
                 # processing. Released in finally. If no cap, this is a no-op.
                 acquired_global=False
+                processed = None  # the claim result; None if it raised or never ran
                 try:
                     if _global_sem is not None:
                         # blocking — but with periodic check for stop signal
@@ -4469,7 +4548,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                             if _global_sem.acquire(timeout=0.5):
                                 acquired_global=True; break
                         if not acquired_global:
-                            self._url_queue.task_done(); continue
+                            continue
                     processed = self._process_worker_url(
                         worker_idx, browser, url,
                         persistent_ctx=persistent_ctx,
@@ -4507,6 +4586,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     # Phase 5.8: cheap drift check after every URL.
                     try: self._maybe_drift_recover()
                     except Exception: pass
+                    # row984: a URL admitted as the HALF_OPEN trial settles
+                    # it. It reached _process_worker_url unless it was left
+                    # waiting on the global cap when the runner stopped.
+                    try:
+                        self._cgroup_trial_feedback(
+                            processed,
+                            reached=_global_sem is None or acquired_global)
+                    except Exception as e:  # noqa: BLE001 -- the worker outlives the breaker
+                        sys.stderr.write(
+                            f"[{self.site_id}] cgroup trial feedback failed: {e}\n")
         except Exception as e:
             # Browser launch failed — fail any URLs already taken from the queue.
             sys.stderr.write(f"[{self.site_id}] worker_loop fatal: {e}\n")

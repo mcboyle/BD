@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from .cgroups_backpressure import CgroupV2BackpressureController, get_cgroup_controller
+
 
 class BlockingCategory(Enum):
     PASSABLE = "passable"
@@ -156,3 +158,7 @@ class IngressFlowController:
             "paused": state.paused,
             "categories": dict(state.categories),
         }
+
+    def get_cgroup_controller(self) -> CgroupV2BackpressureController:
+        """The process-wide Cgroups v2 backpressure controller (shared)."""
+        return get_cgroup_controller()
