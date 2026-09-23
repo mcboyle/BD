@@ -1560,6 +1560,66 @@ def cmd_netlog_stats(args):
     return 0
 
 
+# ── Row 1047: Textual similarity dedup scan ────────────────────────────
+
+def _load_text_records(path):
+    """Read a JSON array or JSONL file of record objects."""
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    if raw.lstrip().startswith("["):
+        records = json.loads(raw)
+    else:
+        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
+        raise ValueError("expected a JSON array (or JSONL) of record objects")
+    return records
+
+
+def cmd_dedup_text_scan(args):
+    """Row 1047: find textually near-duplicate records in a JSON/JSONL file.
+
+    Clusters records by title similarity, prints one reconciliation plan per
+    cluster, and with --output writes the reconciled records (duplicates
+    dropped, canonical records merged per --strategy) as JSONL.
+    """
+    from dataclasses import asdict
+    from bulk_downloader import dedup
+
+    try:
+        records = _load_text_records(args.path)
+        plans = dedup.reconcile_text_records(
+            records, text_key=args.text_key, id_key=args.id_key,
+            strategy=dedup.ReconciliationStrategy(args.strategy),
+            threshold=args.threshold,
+        )
+        kept = dedup.apply_text_reconciliation(records, plans, id_key=args.id_key)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                for rec in kept:
+                    f.write(json.dumps(rec, default=str) + "\n")
+    except (OSError, ValueError) as exc:
+        print(f"text-scan: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    report = {
+        "records": len(records),
+        "clusters": len(plans),
+        "kept": len(kept),
+        "threshold": args.threshold,
+        "strategy": args.strategy,
+        "plans": [dict(asdict(p), strategy=p.strategy.value) for p in plans],
+    }
+    if _maybe_json(report, args):
+        return 0
+    print(f"{len(plans)} duplicate cluster(s) in {len(records)} record(s) "
+          f"(threshold {args.threshold:.2f}, strategy {args.strategy})")
+    for p in plans:
+        print(f"  {p.canonical_id} <- {', '.join(p.duplicate_ids)}")
+    if args.output:
+        print(f"wrote {len(kept)} reconciled record(s) to {args.output}")
+    return 0
+
+
 def cmd_tg_status(args):
     """v3.43.71: show Telegram bot status (running, last poll, counts)."""
     r = _request("GET", "/api/tg/status")
@@ -1814,6 +1874,17 @@ def build_parser():
     dsp.add_argument("path", help="path to the file")
     dsp.add_argument("--distance", type=int, default=4, help="Hamming distance threshold (0-32)")
     dsp.set_defaults(func=cmd_dedup_find)
+
+    # Row 1047: textual similarity dedup scan
+    dsp = dsub.add_parser("text-scan", help="find near-duplicate records by title similarity")
+    dsp.add_argument("path", help="JSON array or JSONL file of record objects")
+    dsp.add_argument("--threshold", type=float, default=0.8, help="similarity threshold (0.0 - 1.0)")
+    dsp.add_argument("--text-key", default="title", help="record field compared (default: title)")
+    dsp.add_argument("--id-key", default="id", help="record id field (default: id)")
+    dsp.add_argument("--strategy", default="keep_first",
+                     choices=("keep_first", "keep_most_complete", "merge_attributes"))
+    dsp.add_argument("--output", help="write reconciled records here as JSONL")
+    dsp.set_defaults(func=cmd_dedup_text_scan)
 
     # v3.43.73: Scrapling adaptive selectors + Turnstile bypass.
     sp = sub.add_parser("scrapling-status",

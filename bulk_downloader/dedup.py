@@ -1068,4 +1068,46 @@ __all__ = [
     "apply_policy",
     "SimilarityMatch",
     "TitleSimilarityIndex",
+    "TextualSimilarityIndex",
+    "DuplicateRecordReconciler",
+    "ReconciliationStrategy",
+    "reconcile_text_records",
+    "apply_text_reconciliation",
 ]
+
+
+# ── Row 1047: Textual Similarity Indexing & Duplicate Record Reconciliation ──
+from .text_similarity import (
+    DuplicateRecordReconciler,
+    ReconciliationPlan,
+    ReconciliationStrategy,
+    TextualRecord,
+    TextualSimilarityIndex,
+)
+
+
+def reconcile_text_records(
+    records: list[dict],
+    text_key: str = "title",
+    id_key: str = "id",
+    strategy: ReconciliationStrategy = ReconciliationStrategy.KEEP_FIRST,
+    threshold: float = 0.8,
+) -> list[ReconciliationPlan]:
+    """Reconcile duplicate records based on textual similarity."""
+    reconciler = DuplicateRecordReconciler()
+    return reconciler.reconcile_records(
+        records,
+        text_key=text_key,
+        id_key=id_key,
+        strategy=strategy,
+        threshold=threshold,
+    )
+
+
+def apply_text_reconciliation(
+    records: list[dict],
+    plans: list[ReconciliationPlan],
+    id_key: str = "id",
+) -> list[dict]:
+    """Return records with reconcile_text_records plans applied (duplicates dropped)."""
+    return DuplicateRecordReconciler().apply_reconciliation(records, plans, id_key=id_key)
