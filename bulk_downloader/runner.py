@@ -3193,8 +3193,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # page..." / "Downloading 23%". Filename and file_size land in
         # extra and are exposed as a structured field rather than text.
         if prev_status != status:
-            if status in ("failed", "error"):
-                self.record_error(str(extra.get("reason") or message or status))
+            if status in ("failed", "error") and callable(getattr(self, "record_error", None)):
+                self.record_error(str(extra.get("reason") or message or status))  # row 1083: hook optional
             log_extra = {"prev": prev_status} if prev_status else {}
             for k in ("filename","file_size","retries","screenshot"):
                 if k in extra: log_extra[k] = extra[k]

@@ -471,3 +471,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1080 | CLOSED @1655 | HOTFIX-H701-PRECUT-FAST-TEST-BUDGET-BOUND -- test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6, ORDERS-0088) |
 | 1081 | CLOSED @1657 | HOTFIX-ROW1053-TEST-PINS-LC_ALL -- test_row1053_subprocess_stdin_guard pins LC_ALL for its subprocess env (main red e87bfcef gates-v3-a, ORDERS-0089) |
 | 1082 | CLOSED @1657 | HOTFIX-ROW1038-IMPORT-PROFILER-STDIN-DEVNULL -- import_profiler subprocess sites pass stdin=DEVNULL per the row1053 guard (main red a89d38d6 gates-rows-a, ORDERS-0091) |
+| 1083 | OPEN | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
