@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=403 open=17 ids-sha256=9629b09511dd980693498f8f69dbb30ad467f8296733b54ac5d1438d9aaec7a9 -->
+<!-- canonical-task-register schema=1 rows=404 open=17 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -472,4 +472,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1081 | CLOSED @1657 | HOTFIX-ROW1053-TEST-PINS-LC_ALL -- test_row1053_subprocess_stdin_guard pins LC_ALL for its subprocess env (main red e87bfcef gates-v3-a, ORDERS-0089) |
 | 1082 | CLOSED @1657 | HOTFIX-ROW1038-IMPORT-PROFILER-STDIN-DEVNULL -- import_profiler subprocess sites pass stdin=DEVNULL per the row1053 guard (main red a89d38d6 gates-rows-a, ORDERS-0091) |
 | 1083 | CLOSED @1658 | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
-| 1084 | OPEN | HOTFIX-ROW847-LIVE-TELEMETRY-TOMBSTONE-STATUS -- test_live_telemetry stop-serialization test pins 'failed' for a non-tombstone permanent failure and row847's 'tombstone' for HTTP 404 (main red, ORDERS-0093) |
+| 1084 | CLOSED @1659 | HOTFIX-ROW847-LIVE-TELEMETRY-TOMBSTONE-STATUS -- test_live_telemetry stop-serialization test pins 'failed' for a non-tombstone permanent failure and row847's 'tombstone' for HTTP 404 (main red, ORDERS-0093) |
