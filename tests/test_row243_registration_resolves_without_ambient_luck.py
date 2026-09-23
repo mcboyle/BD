@@ -443,9 +443,11 @@ def _copied_tool_with_failed_registrar(tmp_path: Path, tool_name: str) -> Path:
     tracked = ["toolchain/bin/" + tool_name, "toolchain/bin/bd-jobs"]
     if tool_name == "bd-band":
         shutil.copy2(BIN / "bdtools_sec.py", private_bin / "bdtools_sec.py")
+        shutil.copy2(BIN / "bd_battery.py", private_bin / "bd_battery.py")
         write_authorized_cut_quality_stub(private_bin)
         tracked.extend([
             "toolchain/bin/bdtools_sec.py",
+            "toolchain/bin/bd_battery.py",
             "toolchain/bin/bd_cut_quality.py",
         ])
     _git_init(anchor, *tracked)

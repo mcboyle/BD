@@ -57,6 +57,7 @@ def launch(tmp_path):
         cwd.mkdir()
         env = {k: v for k, v in os.environ.items() if k != "BD_BATTERY_HELD"}
         env["BD_BATTERY_MAX"] = maximum
+        env["LC_ALL"] = "C"
         if held is not None:
             env["BD_BATTERY_HELD"] = held
         child = subprocess.Popen(

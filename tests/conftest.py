@@ -34,6 +34,10 @@ from capture_lanes import classify_capture_path
 
 pytest_plugins = ("_row_census_pin",)
 
+# H341 (T90 RED3, PM pick A): a pytest session is itself the battery; tests that drive
+# bd-band/bd-precut main() nest inside it instead of competing for host slots.
+os.environ.setdefault("BD_BATTERY_HELD", str(os.getpid()))
+
 # Make sure the package is importable regardless of where pytest is invoked.
 # This must precede the row703 package preloads below.
 PKG_ROOT = Path(__file__).resolve().parent.parent
