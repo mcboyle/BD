@@ -237,6 +237,20 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     Tasks that need site config (ramdisk cleanup, etc.) call it
     lazily so the scheduler doesn't pin a stale snapshot."""
 
+    # SQLite maintenance (Row 1015): idle-cycle incremental vacuuming and WAL checkpointing
+    def _run_sqlite_freelist_maintenance():
+        from . import db as _db
+        from . import db_maintenance as _db_maint
+        with _db.db_conn() as cx:
+            return _db_maint.run_idle_freelist_maintenance(
+                cx,
+                is_idle_callback=is_idle,
+                max_duration_seconds=1.0,
+            )
+
+    register("sqlite.idle_freelist_maintenance", _run_sqlite_freelist_maintenance,
+             interval_seconds=3600)
+
     # Saved searches: re-run due queries every 5 minutes; the
     # schedule field inside each search controls how often it
     # actually fires (hourly/daily/weekly/manual).

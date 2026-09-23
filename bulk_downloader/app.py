@@ -221,6 +221,15 @@ def boot_once(*, force: bool = False) -> bool:
         except Exception as _e:
             pass  # FTS optimize is best-effort
 
+        # Row 1015: Initial non-blocking SQLite freelist maintenance on boot
+        try:
+            from .db import db_conn as _db_cx
+            from . import db_maintenance as _db_maint
+            with _db_cx() as _cx:
+                _db_maint.run_sqlite_maintenance(_cx)
+        except Exception:
+            pass
+
         # v3.48 (#127): log queue-recovery summary so the operator can confirm
         # no jobs were silently dropped across the restart.
         try:

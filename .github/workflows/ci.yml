@@ -583,6 +583,8 @@ jobs:
               tests/test_row971_onboarding_picks_content_not_login.py
               tests/test_row991_resource_quota_budget_file_descriptor_utilization_gauge.py
               tests/test_row1025_db_connection_lifecycle_traps.py
+              tests/test_row1015_sqlite_freelist_vacuum.py
+              tests/test_row1015_deeplane_red.py
           # Row 362. This is the executable contract for every selector entry
           # in all 91 committed templates. It uses only tracked HTML fixtures
           # in CI, including a post-click dropdown shape, while the static arm

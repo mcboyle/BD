@@ -266,6 +266,16 @@ def run_sqlite_maintenance(
                 except (sqlite3.Error, OSError):
                     pass
 
+    freelist_freed = 0
+    try:
+        av_row = cursor.execute("PRAGMA auto_vacuum").fetchone()
+        if av_row and av_row[0] == 2:
+            from .sqlite_freelist_vacuum import IncrementalVacuumController
+            ctl = IncrementalVacuumController(pages_per_step=100)
+            freelist_freed = ctl.step_vacuum(conn, pages=100)
+    except (sqlite3.Error, OSError) as exc:
+        log.debug("Freelist reclamation skipped: %s", exc)
+
     return {
         "ok": True,
         "checkpoint": {
@@ -276,6 +286,7 @@ def run_sqlite_maintenance(
         },
         "reindexed": reindexed,
         "deferred": deferred,
+        "freelist_freed": freelist_freed,
     }
 
 
@@ -300,3 +311,22 @@ def compact_database(
     except (sqlite3.Error, OSError) as exc:
         log.error("Database compaction failed: %s", exc)
         return {"ok": False, "error": str(exc)}
+
+
+from .sqlite_freelist_vacuum import IncrementalVacuumController
+
+
+
+def run_idle_freelist_maintenance(
+    conn: Any,
+    max_duration_seconds: float = 0.5,
+    is_idle_callback: Any = None,
+    pages_per_step: int = 100,
+) -> dict[str, Any]:
+    """Run incremental vacuuming during idle window."""
+    controller = IncrementalVacuumController(pages_per_step=pages_per_step)
+    return controller.run_idle_cycle(
+        conn,
+        is_idle_callback=is_idle_callback,
+        max_duration_seconds=max_duration_seconds,
+    )

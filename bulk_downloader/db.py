@@ -142,6 +142,16 @@ def db_init(_retry_seconds=10.0):
 
 def _db_init_once():
     with db_conn() as cx:
+        # Row 1015: Ensure incremental auto-vacuum is enabled for freelist reclamation
+        try:
+            av = cx.execute("PRAGMA auto_vacuum").fetchone()
+            if av and av[0] != 2:
+                cx.isolation_level = None
+                cx.execute("PRAGMA auto_vacuum = INCREMENTAL")
+                cx.execute("VACUUM")
+                cx.isolation_level = ""
+        except Exception:
+            pass
         cx.execute("""CREATE TABLE IF NOT EXISTS history(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             site_id TEXT, site_name TEXT, url TEXT, status TEXT,
