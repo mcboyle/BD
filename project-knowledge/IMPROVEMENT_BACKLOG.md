@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=48 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=45 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -396,7 +396,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1005 | CLOSED @1637 | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
 | 1006 | CLOSED @1630 | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
 | 1007 | CLOSED @1633 | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
-| 1008 | OPEN | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Asynchronous Refresh |
+| 1008 | CLOSED @1643 | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Async -- MOOT-PREMISE: REFUTED bd-cuts/cut/row1008-stale-dns-serve/DONE.md (tree a2187cdf); boarded duplicate cut row1008-stale-dns-cache@87d3d136 not landed. Closed at T70 assembly (ORDERS-0060 04:02Z)hronous Refresh |
 | 1009 | CLOSED @1637 | ADAPTIVE-SHARED-MEMORY-WAL-CHECKPOINT-CONTROLLER -- Adaptive Shared-Memory WAL Checkpoint Controller -- MOOT-PREMISE (RULING-2328-row1009-REFUTED-A): SQLite autocheckpoint already bounds the product WAL (W3-A at bc1544b7, positive control autocheckpoint=0 -> 37.6 MB WAL vs 4.1 MB default); the cut's lock is not cross-process, its module has 0 callers and E1's maintenance loop does not exist at base. W3-A DONE.md REFUTED, no patch; worktree kept. |
 | 1010 | OPEN | SEGREGATED-READER-WRITER-CONNECTION-POOLS-WITH-NON-BLOCKING-BUSY-BACKOFF -- Segregated Reader/Writer Connection Pools with Non-Blocking Busy Backoff |
 | 1011 | CLOSED @1636 | ZERO-COPY-MEMORY-MAPPED-I-O-MMAP-SIZE-PAGE-CACHE-AUTO-TUNER -- Zero-Copy Memory-Mapped I/O (mmap_size) & Page Cache Auto-Tuner |
@@ -418,7 +418,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1027 | CLOSED @1630 | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
 | 1028 | OPEN | WEAKREF-CALLBACK-LIFECYCLE-MANAGER-AND-UNBOUNDED-CACHE-PRUNING-ENGINE-WEAKREFLIFECYCLE -- Weakref Callback Lifecycle Manager and Unbounded Cache Pruning Engine (WeakrefLifecycle) |
 | 1029 | CLOSED @1640 | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
-| 1030 | OPEN | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
+| 1030 | CLOSED @1643 | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared -- MOOT: REFUTED bd-cuts/cut/row1030-shm-zero-copy-ipc/DONE.md. Closed at T70 assembly (ORDERS-0060 04:02Z) Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
 | 1031 | OPEN | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
 | 1032 | CLOSED @1637 | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
 | 1033 | CLOSED @1640 | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
@@ -446,7 +446,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
 | 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
 | 1057 | OPEN | DEPLOYMENT-LIFECYCLE-REVISION-ROLLOUT-TIMELINE -- Deployment Lifecycle & Revision Rollout Timeline |
-| 1058 | OPEN | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer |
+| 1058 | CLOSED @1643 | DISTRIBUTED-CONSENSUS-STATE-EPOCH-VIEWER -- Distributed Consensus State & Epoch Viewer -- MOOT-PREMISE: no consensus/epoch/leader path exists on 7a99076ed256 and NodeSentinel is itself an orphan (O1223); REFUTED bd-cuts/cut/row1058-consensus-epoch-viewer/DONE.md. Closed at T70 assembly (REGISTER-CLOSE-0064) |
 | 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | CLOSED @1637 | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher -- MOOT-DUPLICATE of the shipped bounded ring pub/sub (RULING-2310-row1060-REFUTED-A option A): bulk_downloader/sse_broker.py per-subscriber queue.Queue(maxsize=SUBSCRIBER_QUEUE_MAX) drop-oldest fan-out with real SSE consumers + dev_events.py deque(maxlen) ring tap @25245209179e; the cut's dispatcher had 0 consumers and 8 lock acquisitions (lock-free is not a CPython property); REFUTED bd-worker-W3-A bd-cuts/cut/row1060-lockfree-ringbuffer-ipc-dispatcher/DONE.md (staged build preserved harness-work/row1060-refuted/staged-da41424b.patch). Registrar-verified 2026-09-22T23:1xZ |
 | 1061 | OPEN | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
