@@ -198,7 +198,11 @@ RECURRING_CHARGE_LANGUAGE = re.compile(
     r"\buntil you cancel\b|\bwill be (?:charged|billed)\b|\brebills?\b|"
     r"\brecurring (?:charge|billing|payment|subscription)\b)", re.I)
 
-CHECKED_CONSENT_SELECTOR = "input[type='checkbox']:checked"
+# Row 1031: the native-input form of this selector could not see a consent box rendered as
+# role="checkbox" aria-checked="true" -- the standard accessible custom widget. It matched
+# nothing there, so a prechecked ARIA box came back as "clear" rather than as the "unknown"
+# this function fails closed on. The shared selector below names the accessible shapes too.
+from .a11y_checkbox import CHECKED_CONFIRMATION_SELECTOR as CHECKED_CONSENT_SELECTOR
 
 SAFETY_UNKNOWN_OUTCOMES = frozenset({
     "label_unknown",
