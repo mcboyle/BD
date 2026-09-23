@@ -1303,7 +1303,6 @@ class BrowserMixin:
           - The site already has cookies from a successful login (we're
             already known to the server)"""
         import random as _rnd
-        from .settlement import wait_for_settlement
         warmup_raw = (self.config.get("warmup_urls") or "").strip()
         if not warmup_raw: return
         every = int(self.config.get("warmup_every", 1800) or 1800)
@@ -1339,9 +1338,15 @@ class BrowserMixin:
                 # "read". The reading pause below is pacing, not readiness,
                 # and stays. A page that never settles just proceeds after the
                 # timeout (fail-soft: warmup is best effort).
-                settled = wait_for_settlement(page, timeout=5.0)
+                # Row 1032: the same barrier, through the verification watcher,
+                # which also records the allow-listed session headers seen
+                # (credential values never kept).
+                settled = self.watch_verification_settlement(page, timeout=5.0)
                 self.log_event("warmup", f"Settled: {settled.reason} in {settled.duration_ms:.0f}ms "
                                          f"({settled.requests_seen} requests, {settled.long_polls_ignored} long-polls ignored)", url=u)
+                if settled.headers_captured:
+                    self.log_event("warmup", "Session headers: " + ", ".join(
+                        f"{k}={v}" for k, v in sorted(settled.headers_captured.items())), url=u)
                 # Random scroll to look like reading
                 scroll_y = _rnd.randint(200, 800)
                 try: page.mouse.wheel(0, scroll_y)
@@ -1379,3 +1384,27 @@ from .browser_sentinel import (  # noqa: E402
 BrowserMixin.maybe_recycle_browser = _rmrb
 BrowserMixin.check_browser_rss = _rcbr
 
+
+def _watch_verification_settlement(
+    self,
+    page,
+    checkpoints=None,
+    timeout=10.0,
+    settlement_ms=None,
+):
+    """Watch page verification settlement and capture session headers."""
+    from .verification_settlement import VerificationSettlementWatcher
+
+    config = getattr(self, "config", None) or {}
+    settle_ms = settlement_ms or config.get("settlement_ms", 250.0)
+    watcher = VerificationSettlementWatcher(page, mutation_settle_ms=settle_ms)
+    try:
+        if checkpoints:
+            for name, pred in checkpoints.items():
+                watcher.add_checkpoint(name, pred)
+        return watcher.watch(timeout=timeout)
+    finally:
+        watcher.close()
+
+
+BrowserMixin.watch_verification_settlement = _watch_verification_settlement
