@@ -237,6 +237,12 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     Tasks that need site config (ramdisk cleanup, etc.) call it
     lazily so the scheduler doesn't pin a stale snapshot."""
 
+    from .jemalloc_profile import HeapArenaFragmentationSuppressor
+
+    suppressor = HeapArenaFragmentationSuppressor()
+    register("memory.check_fragmentation", suppressor.check_and_suppress,
+             interval_seconds=300)
+
     # SQLite maintenance (Row 1015): idle-cycle incremental vacuuming and WAL checkpointing
     def _run_sqlite_freelist_maintenance():
         from . import db as _db

@@ -1,0 +1,50 @@
+{
+  "_comment": "Durable module battery for row976 (runtime allocator wiring + native metric correctness). Re-run: toolchain/bin/bd-mutate --spec tests/mutants/row976_runtime_allocator.json --work <a detached scratch clone OUTSIDE this repository>. Every anchor is a unique structural span (no digit, quote, '=' or True/False/None) so the row357 gate classifies it STABLE without a stable-value exception; the fixed values (300 s interval, arena 4096, mallinfo2) sit outside the anchors.",
+  "schema": "bd-mutate-spec/1",
+  "subject": "row976 runtime allocator wiring and native metric correctness",
+  "band": [
+    "tests/test_row976_jemalloc_profile.py"
+  ],
+  "mutants": [
+    {
+      "label": "E1 remove runtime registration",
+      "file": "bulk_downloader/bg_scheduler.py",
+      "old": "HeapArenaFragmentationSuppressor()\n    register(",
+      "new": "HeapArenaFragmentationSuppressor()\n    (lambda *a, **k: None)(",
+      "direction": "regression",
+      "catcher": "tests/test_row976_jemalloc_profile.py::test_runtime_scheduler_executes_fragmentation_check[600-1]"
+    },
+    {
+      "label": "E2 disable glibc native statistics",
+      "file": "bulk_downloader/jemalloc_profile.py",
+      "old": "AllocatorType.GLIBC and self._libc and hasattr(",
+      "new": "AllocatorType.GLIBC and self._libc and False and hasattr(",
+      "direction": "regression",
+      "catcher": "tests/test_row976_jemalloc_profile.py::test_glibc_mallinfo2_values[600-0-0.4]"
+    },
+    {
+      "label": "F1 omit live mmap allocations",
+      "file": "bulk_downloader/jemalloc_profile.py",
+      "old": "mi.uordblks + mi.hblkhd",
+      "new": "mi.uordblks",
+      "direction": "regression",
+      "catcher": "tests/test_row976_jemalloc_profile.py::test_real_allocator_metrics_live_mmap"
+    },
+    {
+      "label": "native invalid all-arena command",
+      "file": "bulk_downloader/jemalloc_profile.py",
+      "old": "self.profiler._invoke_mallctl(cmd)",
+      "new": "self.profiler._invoke_mallctl(cmd.replace(\".4096.\", \".all.\"))",
+      "direction": "regression",
+      "catcher": "tests/test_row976_jemalloc_profile.py::test_jemalloc_all_arena_command[False-arena.4096.purge]"
+    },
+    {
+      "label": "native accept failed statistics",
+      "file": "bulk_downloader/jemalloc_profile.py",
+      "old": "raise OSError(rc, f",
+      "new": "OSError(rc, f",
+      "direction": "regression",
+      "catcher": "tests/test_row976_jemalloc_profile.py::test_jemalloc_failed_read_declines_fragmentation[stats.allocated]"
+    }
+  ]
+}
