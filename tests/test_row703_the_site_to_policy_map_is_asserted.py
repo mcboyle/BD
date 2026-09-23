@@ -57,7 +57,7 @@ PINNED = "pinned"
 # this gate does not pretend to. It is declared here so that a SECOND such site
 # -- a new construction whose policy stops being readable from the tree -- is
 # RED rather than silently unmeasured.
-SHARED_BUILDER = "bulk_downloader/provider_resolve_impl/_common.py:795"  # row 750 moved it down 55 lines (the embedded-IPv4 unwrap helper); same construction
+SHARED_BUILDER = "bulk_downloader/provider_resolve_impl/_common.py::_make_default_http_get._http_get"
 SHARED_BUILDER_NOTE = (
     "policy is the runtime allow_private_hosts argument of "
     "_make_default_http_get; COULD NOT LOOK statically, by construction")
@@ -65,65 +65,67 @@ SHARED_BUILDER_NOTE = (
 # ---------------------------------------------------------------------------
 # THE MAP.  53 constructions.  Derived from the tree, declared here.
 # Change a site's policy and you change this file in the same commit.
+# Keys are `file::Scope.qualname` (`#n` = n-th construction in that scope), not
+# `file:line` (H662): a line inserted above a site no longer turns this gate red.
 # ---------------------------------------------------------------------------
 POLICY_MAP: Dict[str, str] = {
-    "bulk_downloader/app_scrape_listing.py:70": PUBLIC_ONLY,
-    "bulk_downloader/app_sites_auth.py:398": PINNED,
-    "bulk_downloader/app_sites_auth.py:412": PINNED,
-    "bulk_downloader/captcha_resolver.py:257": PINNED,
-    "bulk_downloader/captcha_resolver.py:271": PINNED,
-    "bulk_downloader/captcha_resolver.py:317": PINNED,
-    "bulk_downloader/captcha_resolver.py:333": PINNED,
-    "bulk_downloader/community_scrapers.py:260": PINNED,
-    "bulk_downloader/community_scrapers.py:340": PINNED,
-    "bulk_downloader/cookie_health.py:259": PINNED,
-    "bulk_downloader/deep_detect/orchestrate.py:931": PUBLIC_ONLY,
-    "bulk_downloader/egress_transport.py:106": PUBLIC_ONLY,
-    "bulk_downloader/egress_transport.py:112": PINNED,
-    "bulk_downloader/extractors_dl8.py:624": PINNED,
-    "bulk_downloader/extractors_jsonapi.py:170": PINNED,
-    "bulk_downloader/extractors_jsonapi.py:368": PINNED,
-    "bulk_downloader/flaresolverr_client.py:114": PINNED,
-    "bulk_downloader/flaresolverr_client.py:351": PINNED,
-    "bulk_downloader/flaresolverr_client.py:443": PINNED,
-    "bulk_downloader/flaresolverr_client.py:465": PINNED,
-    "bulk_downloader/flaresolverr_client.py:483": PINNED,
-    "bulk_downloader/http3_client.py:278": PUBLIC_ONLY,
-    "bulk_downloader/jd_bridge.py:184": PINNED,
-    "bulk_downloader/mp4_metadata.py:317": PINNED,
-    "bulk_downloader/multi_conn.py:192": PUBLIC_ONLY,
-    "bulk_downloader/multi_conn.py:546": PUBLIC_ONLY,
-    "bulk_downloader/oidc.py:57": PINNED,
-    "bulk_downloader/oidc.py:97": PINNED,
-    "bulk_downloader/oidc.py:124": PINNED,
-    "bulk_downloader/qb_bridge.py:162": PINNED,
-    "bulk_downloader/runner.py:950": PUBLIC_ONLY,
-    "bulk_downloader/runner.py:1424": PUBLIC_ONLY,  # row 1028 moved it down 21 lines (_ACTIVE_RUNNERS block + SiteRunner.__init__ registration); same construction
-    "bulk_downloader/runner_challenge.py:337": PINNED,
-    "bulk_downloader/runner_challenge.py:351": PINNED,
-    "bulk_downloader/runner_challenge.py:368": PINNED,
-    "bulk_downloader/runner_challenge.py:382": PINNED,
-    "bulk_downloader/runner_extractors.py:629": PUBLIC_ONLY,
-    "bulk_downloader/runner_manual.py:422": PUBLIC_ONLY,
-    "bulk_downloader/runner_telemetry.py:347": PUBLIC_ONLY,  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:1275": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1253
-    "bulk_downloader/runner_transport.py:1946": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :1924
-    "bulk_downloader/runner_transport.py:3372": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340
-    "bulk_downloader/runner_transport.py:3770": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728
-    "bulk_downloader/runner_transport.py:3851": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3809
-    "bulk_downloader/runner_transport.py:4002": PINNED,  # row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960
-    "bulk_downloader/session_keeper.py:1522": PINNED,
-    "bulk_downloader/subtitles.py:265": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
-    "bulk_downloader/tg_bot.py:162": PINNED,
-    "bulk_downloader/tg_bot.py:185": PINNED,
-    "bulk_downloader/tier_probe.py:299": PUBLIC_ONLY,
-    "bulk_downloader/vpn_leak_tests.py:662": PINNED,
-    "bulk_downloader/vpn_providers/mullvad.py:99": PINNED,
-    "bulk_downloader/vpn_providers/mullvad.py:121": PINNED,
-    "bulk_downloader/vpn_providers/mullvad.py:204": PINNED,
-    "bulk_downloader/vpn_providers/pia.py:106": PINNED,
-    "bulk_downloader/vpn_providers/pia.py:204": PINNED,
-    "bulk_downloader/vpn_providers/pia.py:219": PINNED,
+    "bulk_downloader/app_scrape_listing.py::api_scrape_listing": PUBLIC_ONLY,
+    "bulk_downloader/app_sites_auth.py::api_captcha_test": PINNED,
+    "bulk_downloader/app_sites_auth.py::api_captcha_test#2": PINNED,
+    "bulk_downloader/captcha_resolver.py::submit_2captcha": PINNED,
+    "bulk_downloader/captcha_resolver.py::submit_2captcha#2": PINNED,
+    "bulk_downloader/captcha_resolver.py::submit_capsolver": PINNED,
+    "bulk_downloader/captcha_resolver.py::submit_capsolver#2": PINNED,
+    "bulk_downloader/community_scrapers.py::fetch_index": PINNED,
+    "bulk_downloader/community_scrapers.py::_fetch_raw_file": PINNED,
+    "bulk_downloader/cookie_health.py::check_site": PINNED,
+    "bulk_downloader/deep_detect/orchestrate.py::_build_default_http_client": PUBLIC_ONLY,
+    "bulk_downloader/egress_transport.py::HttpxEgressTransport.__init__": PUBLIC_ONLY,
+    "bulk_downloader/egress_transport.py::HttpxEgressTransport.__init__#2": PINNED,
+    "bulk_downloader/extractors_dl8.py::probe_badoink_candidates": PINNED,
+    "bulk_downloader/extractors_jsonapi.py::probe_site": PINNED,
+    "bulk_downloader/extractors_jsonapi.py::fetch_scene": PINNED,
+    "bulk_downloader/flaresolverr_client.py::ping": PINNED,
+    "bulk_downloader/flaresolverr_client.py::solve_cloudflare": PINNED,
+    "bulk_downloader/flaresolverr_client.py::create_session": PINNED,
+    "bulk_downloader/flaresolverr_client.py::destroy_session": PINNED,
+    "bulk_downloader/flaresolverr_client.py::list_sessions": PINNED,
+    "bulk_downloader/http3_client.py::_fetch_sync": PUBLIC_ONLY,
+    "bulk_downloader/jd_bridge.py::JDClient.__init__": PINNED,
+    "bulk_downloader/mp4_metadata.py::fetch_cover": PINNED,
+    "bulk_downloader/multi_conn.py::probe": PUBLIC_ONLY,
+    "bulk_downloader/multi_conn.py::download._worker": PUBLIC_ONLY,
+    "bulk_downloader/oidc.py::discover": PINNED,
+    "bulk_downloader/oidc.py::exchange_code": PINNED,
+    "bulk_downloader/oidc.py::verify_id_token": PINNED,
+    "bulk_downloader/qb_bridge.py::QBittorrentClient.__init__": PINNED,
+    "bulk_downloader/runner.py::_pending_url_ranker_accepts_media": PUBLIC_ONLY,
+    "bulk_downloader/runner.py::SiteRunner._scrape_listing_urls": PUBLIC_ONLY,
+    "bulk_downloader/runner_challenge.py::ChallengeMixin._try_turnstile_solve_LEGACY": PINNED,
+    "bulk_downloader/runner_challenge.py::ChallengeMixin._try_turnstile_solve_LEGACY#2": PINNED,
+    "bulk_downloader/runner_challenge.py::ChallengeMixin._try_turnstile_solve_LEGACY#3": PINNED,
+    "bulk_downloader/runner_challenge.py::ChallengeMixin._try_turnstile_solve_LEGACY#4": PINNED,
+    "bulk_downloader/runner_extractors.py::ExtractorsMixin._try_deep_detect_fallback": PUBLIC_ONLY,
+    "bulk_downloader/runner_manual.py::_ManualDownloadSession._run": PUBLIC_ONLY,
+    "bulk_downloader/runner_telemetry.py::TelemetryMixin._pick_fastest_mirror.probe": PUBLIC_ONLY,
+    "bulk_downloader/runner_transport.py::TransportMixin._do_direct_http_download._open_stream": PINNED,
+    "bulk_downloader/runner_transport.py::TransportMixin._do_probe_fetch": PINNED,
+    "bulk_downloader/runner_transport.py::TransportMixin._http_download_claimed": PINNED,
+    "bulk_downloader/runner_transport.py::TransportMixin._probe_size": PINNED,
+    "bulk_downloader/runner_transport.py::TransportMixin._http_download_parallel": PINNED,
+    "bulk_downloader/runner_transport.py::TransportMixin._http_download_parallel.worker": PINNED,
+    "bulk_downloader/session_keeper.py::SessionKeeper._heartbeat_httpx_fallback": PINNED,
+    "bulk_downloader/subtitles.py::download_track": PINNED,  # row 910 -- source-page .vtt/.srt sidecar fetch
+    "bulk_downloader/tg_bot.py::_http_get_json": PINNED,
+    "bulk_downloader/tg_bot.py::_http_post_json": PINNED,
+    "bulk_downloader/tier_probe.py::probe_higher_tiers": PUBLIC_ONLY,
+    "bulk_downloader/vpn_leak_tests.py::_http_get": PINNED,
+    "bulk_downloader/vpn_providers/mullvad.py::test_credentials": PINNED,
+    "bulk_downloader/vpn_providers/mullvad.py::list_locations": PINNED,
+    "bulk_downloader/vpn_providers/mullvad.py::register_device": PINNED,
+    "bulk_downloader/vpn_providers/pia.py::test_credentials": PINNED,
+    "bulk_downloader/vpn_providers/pia.py::_pia_token": PINNED,
+    "bulk_downloader/vpn_providers/pia.py::_pia_addkey": PINNED,
     SHARED_BUILDER: SHARED_BUILDER_NOTE,
 }
 
@@ -140,6 +142,23 @@ class _PolicyScan(ast.NodeVisitor):
         self.factory_aliases: Set[str] = set()      # names bound to guarded_transport
         self.policy_aliases: Dict[str, str] = {}    # local name -> "public-only"/"pinned"
         self.rows: List[dict] = []
+        self.scope: List[str] = []                  # enclosing class/def names
+        self.ordinals: Dict[str, int] = {}          # scope -> constructions seen so far
+
+    def _enter(self, node) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    visit_ClassDef = visit_FunctionDef = visit_AsyncFunctionDef = _enter
+
+    def _key(self) -> str:
+        """H662: `file::Qual.name` (`#n` for the n-th construction in that scope, n > 1).
+        A line-number key went red on every train that moved a line above a site
+        (T56/T66/T67/T76); a scope key moves only when the construction does."""
+        qual = ".".join(self.scope) or "<module>"
+        n = self.ordinals[qual] = self.ordinals.get(qual, 0) + 1
+        return f"{self.rel}::{qual}" + (f"#{n}" if n > 1 else "")
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -230,7 +249,7 @@ class _PolicyScan(ast.NodeVisitor):
                 else:
                     reason = "transport= is not a guarded_transport(...) call"
                 break
-            self.rows.append({"where": f"{self.rel}:{node.lineno}", "kind": kind,
+            self.rows.append({"where": f"{self.rel}:{node.lineno}", "key": self._key(), "kind": kind,
                               "policy": policy, "reason": reason})
         self.generic_visit(node)
 
@@ -283,6 +302,8 @@ def test_the_population_is_measured_and_carries_both_policies(scan):
         f"the tree has {len(scan)} httpx client constructions and POLICY_MAP declares "
         f"{len(POLICY_MAP)}. Every assertion below is over this population; a shrunken "
         "one passes them for free.")
+    keys = [row["key"] for row in scan]
+    assert len(set(keys)) == len(keys), "two constructions share a scope key; the map would conflate them"
     live = {row["policy"] for row in scan if row["policy"]}
     assert live == {PUBLIC_ONLY, PINNED}, (
         f"the tree uses policies {sorted(live)}. A map with only one policy in it "
@@ -304,7 +325,7 @@ def test_the_declared_map_uses_only_policies_the_seam_defines():
 # ---------------------------------------------------------------------------
 def test_every_construction_has_the_policy_this_file_declares(scan):
     """A one-token PUBLIC_ONLY <-> PINNED flip is RED here and nowhere else."""
-    actual = {row["where"]: row["policy"] for row in scan}
+    actual = {row["key"]: row["policy"] for row in scan}
     declared = dict(POLICY_MAP)
     declared[SHARED_BUILDER] = ""          # the runtime-policy site scans as unmapped
 
@@ -332,7 +353,7 @@ def test_every_construction_has_the_policy_this_file_declares(scan):
 
 def test_exactly_one_construction_has_a_runtime_policy(scan):
     """The site a static map cannot pin, pinned as an exception of size one."""
-    unmapped = sorted(row["where"] for row in scan if not row["policy"])
+    unmapped = sorted(row["key"] for row in scan if not row["policy"])
     assert unmapped == [SHARED_BUILDER], (
         "the set of constructions whose policy cannot be read from the tree changed:\n"
         f"  now: {unmapped}\n  declared: [{SHARED_BUILDER!r}]\n"
@@ -345,7 +366,7 @@ def test_exactly_one_construction_has_a_runtime_policy(scan):
 def test_the_public_only_sites_are_exactly_these(scan):
     """Stated as a set as well as a map: the strict-policy sites are the ones a
     reviewer reads first, and a flip out of this set is the dangerous direction."""
-    actual = {row["where"] for row in scan if row["policy"] == PUBLIC_ONLY}
+    actual = {row["key"] for row in scan if row["policy"] == PUBLIC_ONLY}
     declared = {w for w, p in POLICY_MAP.items() if p == PUBLIC_ONLY}
     assert actual == declared, (
         f"  no longer PUBLIC_ONLY (LOOSENED): {sorted(declared - actual)}\n"
@@ -372,11 +393,12 @@ def test_this_gates_policies_agree_with_the_census(scan):
     assert set(mine) == set(theirs), (
         f"population divergence.\n  only here: {sorted(set(mine) - set(theirs))}"
         f"\n  only census: {sorted(set(theirs) - set(mine))}")
+    shared = next(row["where"] for row in scan if row["key"] == SHARED_BUILDER)
     disagree = sorted(
         f"{w}: this gate says {mine[w] or '(unmapped)'}, census says {theirs[w]}"
-        for w in mine if mine[w] != theirs[w] and w != SHARED_BUILDER)
+        for w in mine if mine[w] != theirs[w] and w != shared)
     assert not disagree, "the two policy resolvers disagree:\n  " + "\n  ".join(disagree)
-    assert theirs[SHARED_BUILDER] == "shared-builder", (
+    assert theirs[shared] == "shared-builder", (
         f"{SHARED_BUILDER} is no longer the census's shared-builder site; the runtime "
         "exception this gate declares may have moved")
 
@@ -476,3 +498,29 @@ def test_an_unparseable_file_is_COULD_NOT_LOOK_and_never_a_pass(tmp_path):
 def test_a_missing_package_is_COULD_NOT_LOOK_and_never_a_pass(tmp_path):
     with pytest.raises(AssertionError, match="COULD NOT LOOK"):
         _scan_tree(tmp_path / "nothing-here")
+
+
+def test_a_line_shift_keeps_every_key_and_a_flip_under_it_is_still_a_policy_change(tmp_path):
+    """H662: the map is keyed by scope, so lines inserted above every site move no key;
+    the same shift plus a one-token flip still moves exactly one POLICY. Two constructions
+    in one scope stay distinct (`#2`)."""
+    two = f"{PACKAGE}/two.py"
+    base = dict(_FIXTURE)
+    base[two] = ("import httpx\n"
+                 "from bulk_downloader.ssrf_transport import guarded_transport, PINNED, PUBLIC_ONLY\n"
+                 "class C:\n"
+                 "    def go(self):\n"
+                 "        a = httpx.Client(transport=guarded_transport(PINNED))\n"
+                 "        return a, httpx.Client(transport=guarded_transport(PUBLIC_ONLY))\n")
+    before = {r["key"]: r["policy"] for r in _scan_tree(_write(tmp_path / "base", base))}
+    assert before[f"{two}::C.go"] == PINNED and before[f"{two}::C.go#2"] == PUBLIC_ONLY
+    assert before[f"{PACKAGE}/strict.py::go"] == PUBLIC_ONLY
+    shifted = {rel: "\n" * 9 + src for rel, src in base.items()}
+    after = {r["key"]: r["policy"] for r in _scan_tree(_write(tmp_path / "shifted", shifted))}
+    assert after == before, "a pure line shift moved a key"
+    shifted[f"{PACKAGE}/strict.py"] = shifted[f"{PACKAGE}/strict.py"].replace(
+        "guarded_transport(PUBLIC_ONLY)", "guarded_transport(PINNED)").replace(
+        "guarded_transport, PUBLIC_ONLY", "guarded_transport, PINNED")
+    flipped = {r["key"]: r["policy"] for r in _scan_tree(_write(tmp_path / "flipped", shifted))}
+    assert set(flipped) == set(before), "a flip must not move the population"
+    assert {k for k in before if before[k] != flipped[k]} == {f"{PACKAGE}/strict.py::go"}
