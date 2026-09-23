@@ -218,13 +218,13 @@ BD_GATE_SCOPE = "repo-wide"
 _CONFIRMED_SAFETY_GATE_FLOOR = 7
 
 _NON_DERIVABLE_DECLARED = {
-    # H622 / O1330: explicit restoration of nine landed acceptance modules.
+    # H622 / O1330: explicit restoration of eight landed acceptance modules
+    # (nine named; withdrawn 2026-09-23 (PM ruling A, QUESTION-T91-SQLITE-RATIO-S2-B): tests/test_inmemory_sqlite_fixture.py is a wall-clock ratio benchmark (hosted 4-core runner 3.3-3.5x < 4x); it stays BD_GATE_SCOPE=module, as before H622).
     # Their subject remains module-scoped; CI scheduling is independently
     # required. This named expansion of the legacy registry is pinned by
     # test_h622_ci_test_census.py; ordinary new repo-wide gates use the marker.
     "tests/test_adaptive_chunk_sizing.py",  # required module acceptance
     "tests/test_esxi_vm_clone_harness.py",  # required module acceptance
-    "tests/test_inmemory_sqlite_fixture.py",  # required module acceptance
     "tests/test_local_wheelhouse.py",  # required module acceptance
     "tests/test_proactive_token_refresh.py",  # required module acceptance
     "tests/test_shard_rebalancer.py",  # required module acceptance

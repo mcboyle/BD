@@ -20,10 +20,10 @@ from tools import ci_shards
 
 BD_GATE_SCOPE = "repo-wide"
 ROOT = Path(__file__).resolve().parents[1]
+# withdrawn 2026-09-23 (PM ruling A, QUESTION-T91-SQLITE-RATIO-S2-B): tests/test_inmemory_sqlite_fixture.py is a wall-clock ratio benchmark (hosted 4-core runner 3.3-3.5x < 4x); it stays BD_GATE_SCOPE=module, as before H622.
 ACCEPTANCE = {
     "tests/test_adaptive_chunk_sizing.py",
     "tests/test_esxi_vm_clone_harness.py",
-    "tests/test_inmemory_sqlite_fixture.py",
     "tests/test_local_wheelhouse.py",
     "tests/test_proactive_token_refresh.py",
     "tests/test_shard_rebalancer.py",
