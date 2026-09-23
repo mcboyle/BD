@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1661 - train86: row1036, row993, row1076
+
+Base main cc0840f0 (T85 v3.66.1660 landed 13:54Z; no regen commit at assembly). T86: three cuts boarded at their INDEX trees by bd-review-correctness seats (POLICY-0010), rebased onto main at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2). row1076's one context-drift hunk (tests/test_row703_a_proxy_shadows_the_guarded_transport.py, moved by row1077) resolved in place per ORDERS-0101/O805; +/- lines identical to the boarded tree. Register amendments: rows 998, 1050 closed DEFERRED (O1305, ORDERS-0098 s1).
+
+- row1036 profile-context-switcher: ergonomic multi-environment profile context switcher (bulk_downloader/profile_context.py, client_config.py, bdctl.py; tests/test_row1036_*).
+- row993 memory-page-fault-telemetry: resident memory page-fault and heap-growth telemetry (tests/test_row993_*).
+- row1076 postcrash-blackbox-snapshotter: post-crash flight-recorder blackbox snapshotter (bulk_downloader/blackbox_snapshotter.py, runner_telemetry.py feed, app.py wiring; tests/test_row1076_postcrash_blackbox_snapshotter.py; row703 pin maps re-pinned runner_telemetry :343 -> :347).
+
+
 ## v3.66.1660 - train85: row1077
 
 Base main 261069ff (T84 v3.66.1659 landed 13:0xZ; no regen commit at assembly). T85: one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010; verdict keyed to PATCH-SHA256 c9b0dd82, H703), rebased onto main at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2). Register amendments: rows 983, 999, 1071 closed MOOT (REGISTER-CLOSE-0064, PM 11:42Z).

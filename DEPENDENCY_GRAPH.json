@@ -2414,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1785,
+    "edge_count": 1791,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2797,6 +2797,10 @@
         "bulk_downloader/healthcheck.py",
         "bulk_downloader/metrics_prom.py"
       ],
+      "bulk_downloader/blackbox_snapshotter.py": [
+        "bulk_downloader/app.py",
+        "bulk_downloader/runner_telemetry.py"
+      ],
       "bulk_downloader/browser_sentinel.py": [
         "bulk_downloader/cloak.py",
         "bulk_downloader/runner_browser.py"
@@ -2829,6 +2833,7 @@
       ],
       "bulk_downloader/capture_artifact_redact.py": [
         "bulk_downloader/audit.py",
+        "bulk_downloader/blackbox_snapshotter.py",
         "bulk_downloader/challenge_handling.py",
         "bulk_downloader/dev_suite/audit_security.py",
         "bulk_downloader/diagnostics_bundle.py",
@@ -3821,6 +3826,7 @@
         "bulk_downloader/app_logs.py",
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/audit.py",
+        "bulk_downloader/blackbox_snapshotter.py",
         "bulk_downloader/cross_site_selectors.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dev_suite/logs.py",
@@ -3878,6 +3884,9 @@
       "bulk_downloader/mass_import.py": [
         "bulk_downloader/app_import.py",
         "bulk_downloader/perf_lab.py"
+      ],
+      "bulk_downloader/memory_telemetry.py": [
+        "bulk_downloader/diagnostics_bundle.py"
       ],
       "bulk_downloader/metadata_normalizer.py": [
         "bulk_downloader/fname.py",
@@ -4057,6 +4066,9 @@
         "bulk_downloader/metrics_prom.py",
         "bulk_downloader/queue_priority.py",
         "bulk_downloader/scheduling.py"
+      ],
+      "bulk_downloader/profile_context.py": [
+        "bulk_downloader/client_config.py"
       ],
       "bulk_downloader/profile_sync.py": [
         "bulk_downloader/app_sites_id_core.py",
@@ -5306,6 +5318,7 @@
         "bulk_downloader/audit.py",
         "bulk_downloader/auto_detect.py",
         "bulk_downloader/bg_scheduler.py",
+        "bulk_downloader/blackbox_snapshotter.py",
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/community_scrapers.py",
         "bulk_downloader/constants.py",
@@ -6146,6 +6159,10 @@
         "bulk_downloader/library_final.py",
         "bulk_downloader/provenance.py"
       ],
+      "bulk_downloader/blackbox_snapshotter.py": [
+        "bulk_downloader/capture_artifact_redact.py",
+        "bulk_downloader/log.py"
+      ],
       "bulk_downloader/blob_resolver.py": [
         "bulk_downloader/hls_downloader.py"
       ],
@@ -6229,6 +6246,9 @@
       ],
       "bulk_downloader/cli_dashboard.py": [
         "bulk_downloader/terminal_drift.py"
+      ],
+      "bulk_downloader/client_config.py": [
+        "bulk_downloader/profile_context.py"
       ],
       "bulk_downloader/cloak.py": [
         "bulk_downloader/browser_sentinel.py",
@@ -6462,6 +6482,7 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/events.py",
+        "bulk_downloader/memory_telemetry.py",
         "bulk_downloader/site_editor.py"
       ],
       "bulk_downloader/disco_runner.py": [
@@ -7227,6 +7248,7 @@
       ],
       "bulk_downloader/runner_telemetry.py": [
         "bulk_downloader/admission.py",
+        "bulk_downloader/blackbox_snapshotter.py",
         "bulk_downloader/capture_redact.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",

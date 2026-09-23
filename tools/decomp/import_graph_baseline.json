@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4988,
+  "edge_count": 5004,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -87,6 +87,7 @@
       "bulk_downloader/audit.py",
       "bulk_downloader/auto_detect.py",
       "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/blackbox_snapshotter.py",
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/community_scrapers.py",
       "bulk_downloader/constants.py",
@@ -927,6 +928,10 @@
       "bulk_downloader/library_final.py",
       "bulk_downloader/provenance.py"
     ],
+    "bulk_downloader/blackbox_snapshotter.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/log.py"
+    ],
     "bulk_downloader/blob_resolver.py": [
       "bulk_downloader/hls_downloader.py"
     ],
@@ -1010,6 +1015,9 @@
     ],
     "bulk_downloader/cli_dashboard.py": [
       "bulk_downloader/terminal_drift.py"
+    ],
+    "bulk_downloader/client_config.py": [
+      "bulk_downloader/profile_context.py"
     ],
     "bulk_downloader/cloak.py": [
       "bulk_downloader/browser_sentinel.py",
@@ -1243,6 +1251,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/events.py",
+      "bulk_downloader/memory_telemetry.py",
       "bulk_downloader/site_editor.py"
     ],
     "bulk_downloader/disco_runner.py": [
@@ -2008,6 +2017,7 @@
     ],
     "bulk_downloader/runner_telemetry.py": [
       "bulk_downloader/admission.py",
+      "bulk_downloader/blackbox_snapshotter.py",
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
@@ -2379,6 +2389,7 @@
       "bulk_downloader/db.py",
       "bulk_downloader/macro_recorder.py",
       "bulk_downloader/plugins.py",
+      "bulk_downloader/profile_context.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/vpn_config.py"
     ],
@@ -3378,7 +3389,8 @@
       "bulk_downloader/migrations.py"
     ],
     "tests/test_home_config_stores_are_guarded.py": [
-      "bulk_downloader/macro_recorder.py"
+      "bulk_downloader/macro_recorder.py",
+      "bulk_downloader/profile_context.py"
     ],
     "tests/test_hooks.py": [
       "bulk_downloader/hooks.py"
@@ -4159,6 +4171,10 @@
       "bulk_downloader/audit_journal.py",
       "bulk_downloader/db.py"
     ],
+    "tests/test_row1036_profile_context_switcher.py": [
+      "bulk_downloader/client_config.py",
+      "bulk_downloader/profile_context.py"
+    ],
     "tests/test_row1037_shell_autocompletion_engine.py": [
       "bulk_downloader/shell_completion.py"
     ],
@@ -4283,6 +4299,12 @@
     "tests/test_row1075_task_state_pause_drain_resumption.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/task_drain_engine.py"
+    ],
+    "tests/test_row1076_postcrash_blackbox_snapshotter.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/blackbox_snapshotter.py",
+      "bulk_downloader/log.py",
+      "bulk_downloader/runner_telemetry.py"
     ],
     "tests/test_row1077_connection_liveness_health_probing.py": [
       "bulk_downloader/connection_liveness.py",
@@ -5245,6 +5267,10 @@
     "tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py": [
       "bulk_downloader/chunked_transfer.py",
       "bulk_downloader/socket_tracker.py"
+    ],
+    "tests/test_row993_resident_memory_page_fault_heap_growth_telemetry.py": [
+      "bulk_downloader/diagnostics_bundle.py",
+      "bulk_downloader/memory_telemetry.py"
     ],
     "tests/test_row994_dynamic_query_plan_lock_contention_profiler_for_sqlite.py": [
       "bulk_downloader/db.py"
