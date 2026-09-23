@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=399 open=25 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
+<!-- canonical-task-register schema=1 rows=399 open=24 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
 
 ## Namespace and population
 
@@ -411,7 +411,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1020 | CLOSED @1650 | MONOLITHIC-GATEWAY-DECOMPOSITION-DYNAMIC-BLUEPRINT-REGISTRATION-ENGINE-ROUTEREGISTRY -- Monolithic Gateway Decomposition & Dynamic Blueprint Registration Engine (RouteRegistry) |
 | 1021 | CLOSED @1646 | DECOUPLING-MONOLITHIC-SITERUNNER-INTO-SINGLE-RESPONSIBILITY-SUBSYSTEMS-RUNNERDECOUPLING -- Decoupling Monolithic SiteRunner into Single-Responsibility Subsystems (RunnerDecoupling) |
 | 1022 | CLOSED @1639 | ELIMINATION-OF-REFLECTION-GETTER-BACK-EDGES-CIRCULAR-DEPENDENCY-REFACTORING-ACYCLICIMPORTS -- Elimination of Reflection Getter Back-Edges & Circular Dependency Refactoring (AcyclicImports) |
-| 1023 | OPEN | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
+| 1023 | CLOSED @1654 | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
 | 1024 | CLOSED @1635 | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) -- MOOT-PREMISE (RULING-2136-row1024-BOUNCE scope 2): typed central config already exists as global_config.GLOBAL_CONFIG_SCHEMA (95 keys) + runtime_flags num/flag/choice @5f74ea9c21ee; ConfigProvider/UnifiedConfig has 0 product callers (git grep FOUND NONE; positive control get_config( FOUND); REFUTED bd-worker-W1-A bd-cuts/cut/row1024-configprovider-typed-unification/DONE.md (prior patch preserved harness-work/row1024-moot/patch-fe5b796e.diff). Registrar-verified 2026-09-22T22:0xZ (ORDERS-2143 ADD) |
 | 1025 | CLOSED @1631 | DATABASE-CONNECTION-POOL-LEASE-RELEASE-LIFECYCLE-THREAD-CLEANUP-TRAPS-DBCONNECTIONLIFECYCLEMANAGER -- Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps (DBConnectionLifecycleManager) |
 | 1026 | CLOSED @1637 | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
