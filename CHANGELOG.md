@@ -4,7 +4,20 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1666 - train91: row
+## v3.66.1666 - train91: H404, H419, H621, H622, H667, H662, H644, H152, H105, H668
+
+Base T90 train/90-20260923 9f784d66 (v3.66.1665). T91 combined T91+T92+T93 (ORDERS-0127 / O1346; POLICY-0118 gate vmci; no product change, deploy skipped): ten harness rows, each boarded at its INDEX tree.
+
+- H404 tests/conftest.py bounded process-group cleanup for timed-out tests (_timeout_reap plugin; merged in place with T90's BD_BATTERY_HELD line, O1319).
+- H419 row407 test waits for the grandchild process.
+- H621 config_danger test joins a CI gate shard.
+- H622 CI test census: acceptance tests that never ran in CI are registered or exempted.
+- H667 register marker gate prints the exact fix (marker is hand-edited and drifted).
+- H662 row703 site-to-policy map ratchet keyed by function, not line numbers.
+- H644 config surface inventory is sys.path hermetic.
+- H152 SSRF client census covers the proxy class.
+- H105 FOOTGUNS census refuses a row with no `detector` key.
+- H668 version-pin coherence reports all five pins at once, not serially.
 
 
 ## v3.66.1665 - train90: H733, H415, H341, H620, H718
