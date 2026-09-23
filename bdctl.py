@@ -1250,6 +1250,10 @@ def cmd_doctor(args):
                   f"  ({remedy.get('action', 'run')})")
         sys.exit(0 if d.get("matched") else 1)
 
+    # --import-latency: LOCAL cold-start import profile (row 1038); needs no server.
+    if getattr(args, "import_latency", None):
+        _doctor_import_latency(args)
+        return
     # Full diagnostic report
     r = _request("GET", "/api/doctor")
     if not isinstance(r, dict) or not r.get("ok"):
@@ -1277,6 +1281,31 @@ def cmd_doctor(args):
           f"({report.get('elapsed_ms', 0)} ms)")
     # Exit 0 if no FAILs, 1 if any
     sys.exit(0 if report.get("ok") else 1)
+
+
+def _doctor_import_latency(args):
+    """Row 1038: profile this install's cold-start import locally (no server) and attribute
+    it to bulk_downloader modules. Exit 0 measured and within budget, 1 over budget,
+    2 not measured -- an import that did not complete is never reported as fast."""
+    from bulk_downloader import perf_lab
+    report = perf_lab.import_latency(args.import_latency, budget_us=args.budget_us)
+    budget = report.get("budget")
+    code = 2 if not report.get("ok") else (1 if budget and not budget["ok"] else 0)
+    if _maybe_json(report, args):
+        sys.exit(code)
+    if not report.get("ok"):
+        print(f"import-latency: {args.import_latency} not measured: {report.get('error')}",
+              file=sys.stderr)
+        sys.exit(code)
+    print(f"import-latency: {report['module']} cold start {report['total_us'] / 1000:.1f} ms")
+    for mod, self_us in report["owned"][:10]:
+        print(f"  {self_us / 1000:8.2f} ms  {mod}")
+    if budget:
+        worst = budget["worst"][0] if budget["worst"] else "?"
+        verdict = ("OK" if budget["ok"] else
+                   f"OVER by {budget['over_us'] / 1000:.1f} ms (worst: {worst})")
+        print(f"  budget {budget['budget_us'] / 1000:.1f} ms: {verdict}")
+    sys.exit(code)
 
 
 def cmd_thumbnails_regenerate(args):
@@ -1974,6 +2003,13 @@ def build_parser():
     # v3.54 (Phase 7): bd-doctor
     sp = sub.add_parser("doctor",
                          help="run diagnostics (env, deps, cookies)")
+    sp.add_argument("--import-latency", nargs="?", metavar="MODULE",
+                    const="bulk_downloader.app_kernel",
+                    help="profile this install's cold-start import cost locally "
+                         "(-X importtime) and attribute it to bulk_downloader modules "
+                         "(default module: bulk_downloader.app_kernel)")
+    sp.add_argument("--budget-us", type=int, metavar="N",
+                    help="with --import-latency: exit 1 when the cold start exceeds N us")
     sp.add_argument("--diagnose", metavar="ERROR_TEXT",
                     help="instead of the full pass, pattern-match a "
                          "single failure error string")

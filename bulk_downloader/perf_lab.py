@@ -437,6 +437,25 @@ def snapshot(runners=None) -> dict:
     }
 
 
+def import_latency(module: str = "bulk_downloader.app_kernel",
+                   budget_us: Optional[int] = None) -> dict:
+    """Row 1038: cold-start import cost for *module*, attributed to the modules we own.
+
+    This sits beside ``snapshot`` deliberately -- both answer "where did the time/memory go" --
+    but it is NOT part of ``snapshot``: it spawns a fresh interpreter, which is the only honest way
+    to time an import that this process has already performed, and that is far too expensive to run
+    on every read. Callers ask for it explicitly. ``budget_us`` adds a pass/fail and names the
+    costliest module we own when the budget is broken.
+    """
+    from . import import_profiler
+
+    report = import_profiler.profile_cold_start(module)
+    if budget_us is not None and report.get("ok"):
+        report["budget"] = import_profiler.check_budget(report["rows"], budget_us,
+                                                        root=module)
+    return report
+
+
 def audit(settle_seconds: float = 3.0, runners=None) -> dict:
     """Take a baseline, settle (gc.collect + wait), take a second
     snapshot, and report deltas with heuristic findings. Run a load
