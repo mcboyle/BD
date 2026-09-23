@@ -23,6 +23,7 @@ from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from .egress_identity import bind_site_carrier
+from .multi_homed_egress import connect_via_egress
 
 
 _PROXY_ENV_VARS = (
@@ -166,7 +167,7 @@ class SocksHttpConnectBridge:
         return host, port, remainder
 
     def _socks_connect(self, host: str, port: int) -> socket.socket:
-        upstream = socket.create_connection(
+        upstream = connect_via_egress(
             (self._socks_host, self._socks_port), timeout=_IO_TIMEOUT_S)
         try:
             upstream.sendall(b"\x05\x01\x00")

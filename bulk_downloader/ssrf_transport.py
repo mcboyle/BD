@@ -55,9 +55,13 @@ import sys
 from typing import Optional, Tuple
 
 import httpx
-from httpcore._backends.sync import SyncBackend
+from httpcore._backends.sync import SyncBackend, SyncStream
+from httpcore._exceptions import ConnectError as _CoreConnectError
+from httpcore._exceptions import ConnectTimeout as _CoreConnectTimeout
+from httpcore._exceptions import map_exceptions as _map_exceptions
 
 from bulk_downloader.happy_eyeballs import race_connect
+from bulk_downloader import multi_homed_egress
 
 PUBLIC_ONLY = "public-only"
 PINNED = "pinned"
@@ -232,16 +236,27 @@ class _HappyEyeballsBackend:
 
     def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
         candidates = self._transport._vetted_siblings.get(host) or (host,)
-        return race_connect(
-            candidates, port,
-            connect=lambda ip, p, t: self._base.connect_tcp(ip, p, t, local_address, socket_options),
-            timeout=timeout)
+        connect = lambda ip, p, t: self._base.connect_tcp(ip, p, t, local_address, socket_options)  # noqa: E731
+        if local_address is None and multi_homed_egress.get_multi_homed_router().is_configured():
+            # Row 1065: multi-homed host -- connect from the active physical interface.
+            connect = lambda ip, p, t: _egress_stream(ip, p, t, socket_options)  # noqa: E731
+        return race_connect(candidates, port, connect=connect, timeout=timeout)
 
     def connect_unix_socket(self, path, timeout=None, socket_options=None):
         return self._base.connect_unix_socket(path, timeout, socket_options)
 
     def sleep(self, seconds):
         return self._base.sleep(seconds)
+
+
+def _egress_stream(ip, port, timeout, socket_options):
+    """SyncBackend.connect_tcp, with the socket made by the row 1065 egress router."""
+    with _map_exceptions({socket.timeout: _CoreConnectTimeout, OSError: _CoreConnectError}):
+        sock = multi_homed_egress.connect_via_egress((ip, port), timeout=timeout)
+        for option in socket_options or ():
+            sock.setsockopt(*option)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    return SyncStream(sock)
 
 
 _ESTABLISHED_GUARD_CLS: Optional[type] = None
