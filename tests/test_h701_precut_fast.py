@@ -360,8 +360,9 @@ def test_a_test_body_never_sees_the_harness_mode_switch():
 
 def test_a_band_that_exports_the_harness_mode_switch_does_not_hand_it_to_a_test():
     node = "tests/test_h701_precut_fast.py::test_a_test_body_never_sees_the_harness_mode_switch"
+    # Budget: 3x the measured wall of this one-node run (max 2.3 s of 3, row 1080), under the 240 s bound.
     cp = subprocess.run([sys.executable, "-m", "pytest", node, "-q", "-p", "no:cacheprovider"],
                         cwd=REPO, env=dict(os.environ, BD_PRECUT_FAST="1"),
-                        capture_output=True, text=True, timeout=600)
+                        capture_output=True, text=True, timeout=7)
     assert cp.returncode == 0, cp.stdout[-3000:] + cp.stderr[-1000:]
     assert "1 passed" in cp.stdout, cp.stdout[-3000:]
