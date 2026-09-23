@@ -467,3 +467,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
 | 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
 | 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
+| 1079 | OPEN | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
