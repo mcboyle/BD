@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=68 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=61 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -385,7 +385,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 994 | OPEN | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite |
 | 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
-| 997 | OPEN | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
+| 997 | CLOSED @1637 | INLINE-STREAMING-CRYPTOGRAPHIC-HASH-VERIFICATION-ENGINE -- Inline Streaming Cryptographic Hash Verification Engine |
 | 998 | OPEN | TWO-PHASE-ATOMIC-STAGED-COMMIT-INODE-PUBLICATION-PROTOCOL -- Two-Phase Atomic Staged Commit & Inode Publication Protocol |
 | 999 | OPEN | BLOCK-LEVEL-MERKLE-TREE-HASH-VALIDATOR-FOR-SEGMENTED-EGRESS -- Block-Level Merkle Tree Hash Validator for Segmented Egress |
 | 1000 | OPEN | SQLITE-WAL-PAGE-HEADER-CHECKSUM-TORN-WRITE-DETECTOR -- SQLite WAL Page Header Checksum & Torn-Write Detector |
@@ -393,7 +393,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1002 | CLOSED @1633 | ASYMMETRIC-CRYPTOGRAPHIC-SIGNATURE-CHAINS-FOR-AUDIT-PROVENANCE -- Asymmetric Cryptographic Signature Chains for Audit Provenance |
 | 1003 | CLOSED @1631 | DECORRELATED-FULL-JITTER-EXPONENTIAL-BACKOFF-PROFILES -- Decorrelated Full-Jitter Exponential Backoff Profiles |
 | 1004 | OPEN | TRANSPORT-LAYER-SLIDING-WINDOW-CIRCUIT-BREAKERS-WITH-LEAKY-BUCKET-RECOVERY -- Transport-Layer Sliding-Window Circuit Breakers with Leaky-Bucket Recovery |
-| 1005 | OPEN | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
+| 1005 | CLOSED @1637 | DYNAMIC-PATH-MTU-DISCOVERY-PMTU-TCP-MSS-CLAMPING-SENTRY -- Dynamic Path MTU Discovery (PMTU) & TCP MSS Clamping Sentry |
 | 1006 | CLOSED @1630 | TIERED-DEADLINE-PROPAGATING-SOCKET-TIMEOUTS -- Tiered Deadline-Propagating Socket Timeouts |
 | 1007 | CLOSED @1633 | TLS-SESSION-TICKET-CACHING-PRE-WARMED-KEEPALIVE-POOLS -- TLS Session Ticket Caching & Pre-Warmed Keepalive Pools |
 | 1008 | OPEN | RFC-8767-SERVING-STALE-DNS-CACHE-WITH-ASYNCHRONOUS-REFRESH -- RFC 8767 Serving Stale DNS Cache with Asynchronous Refresh |
@@ -403,7 +403,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1012 | OPEN | AUTOMATED-QUERY-PLAN-OPTIMIZER-STATISTICS-INDEX-STABILIZER -- Automated Query Plan Optimizer & Statistics Index Stabilizer |
 | 1013 | CLOSED @1630 | EPHEMERAL-IN-MEMORY-HOT-WRITE-BUFFER-FOR-HIGH-FREQUENCY-QUEUE-STATE -- Ephemeral In-Memory Hot Write Buffer for High-Frequency Queue State |
 | 1014 | OPEN | ASYNCHRONOUS-NON-BLOCKING-EVENT-DRIVEN-WAL-FLUSHER-PIPELINE -- Asynchronous Non-Blocking Event-Driven WAL Flusher Pipeline |
-| 1015 | OPEN | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
+| 1015 | CLOSED @1637 | ADAPTIVE-SQLITE-B-TREE-PAGE-FREELIST-MONITOR-WITH-IDLE-CYCLE-INCREMENTAL-VACUUMING -- Adaptive SQLite B-Tree Page Freelist Monitor with Idle-Cycle Incremental Vacuuming |
 | 1016 | CLOSED @1633 | LOCK-FREE-BULK-INGESTION-PIPELINE-VIA-TEMPORARY-STAGING-TABLES -- Lock-Free Bulk Ingestion Pipeline via Temporary Staging Tables |
 | 1017 | OPEN | MULTI-TRACK-AUXILIARY-TEXT-CHAPTER-ANNOTATION-INGESTION -- Multi-Track Auxiliary Text & Chapter Annotation Ingestion |
 | 1018 | CLOSED @1634 | SQLALCHEMY-2-0-MODERN-ASYNC-ENGINE-DECLARATIVE-TYPED-ORM-CUTOVER-SQLALCHEMY-2-0 -- SQLAlchemy 2.0 Modern Async Engine & Declarative Typed ORM Cutover (SQLAlchemy 2.0) |
@@ -414,13 +414,13 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1023 | OPEN | UNIFIED-ERROR-HIERARCHY-ENTERPRISE-EXCEPTION-TAXONOMY-STANDARDIZATION-EXCEPTIONTAXONOMY -- Unified Error Hierarchy & Enterprise Exception Taxonomy Standardization (ExceptionTaxonomy) |
 | 1024 | CLOSED @1635 | CENTRALIZED-CONFIGURATION-MANAGEMENT-TYPED-MODEL-UNIFICATION-CONFIGPROVIDER -- Centralized Configuration Management & Typed Model Unification (ConfigProvider) -- MOOT-PREMISE (RULING-2136-row1024-BOUNCE scope 2): typed central config already exists as global_config.GLOBAL_CONFIG_SCHEMA (95 keys) + runtime_flags num/flag/choice @5f74ea9c21ee; ConfigProvider/UnifiedConfig has 0 product callers (git grep FOUND NONE; positive control get_config( FOUND); REFUTED bd-worker-W1-A bd-cuts/cut/row1024-configprovider-typed-unification/DONE.md (prior patch preserved harness-work/row1024-moot/patch-fe5b796e.diff). Registrar-verified 2026-09-22T22:0xZ (ORDERS-2143 ADD) |
 | 1025 | CLOSED @1631 | DATABASE-CONNECTION-POOL-LEASE-RELEASE-LIFECYCLE-THREAD-CLEANUP-TRAPS-DBCONNECTIONLIFECYCLEMANAGER -- Database Connection Pool Lease/Release Lifecycle & Thread Cleanup Traps (DBConnectionLifecycleManager) |
-| 1026 | OPEN | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
+| 1026 | CLOSED @1637 | ASYNCHRONOUS-CONCURRENCY-UNIFICATION-EVENT-LOOP-CONSOLIDATION-ASYNCWORKERRUNTIME -- Asynchronous Concurrency Unification & Event Loop Consolidation (AsyncWorkerRuntime) |
 | 1027 | CLOSED @1630 | DECOUPLING-EGRESS-TRANSPORT-ABSTRACTION-DUAL-CLIENT-UNIFICATION-EGRESSTRANSPORT -- Decoupling Egress Transport Abstraction & Dual-Client Unification (EgressTransport) |
 | 1028 | OPEN | WEAKREF-CALLBACK-LIFECYCLE-MANAGER-AND-UNBOUNDED-CACHE-PRUNING-ENGINE-WEAKREFLIFECYCLE -- Weakref Callback Lifecycle Manager and Unbounded Cache Pruning Engine (WeakrefLifecycle) |
 | 1029 | OPEN | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
 | 1030 | OPEN | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
 | 1031 | OPEN | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
-| 1032 | OPEN | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
+| 1032 | CLOSED @1637 | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
 | 1033 | OPEN | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
 | 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
 | 1035 | CLOSED @1633 | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
@@ -440,7 +440,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1049 | OPEN | SYNTHETIC-USER-INPUT-SCHEDULING-FOR-WEB-FORMS -- Synthetic User Input Scheduling for Web Forms |
 | 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
 | 1051 | OPEN | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
-| 1052 | OPEN | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
+| 1052 | CLOSED @1637 | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
 | 1053 | OPEN | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser |
 | 1054 | OPEN | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map |
 | 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
@@ -466,4 +466,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1075 | CLOSED @1631 | TRANSACTIONAL-TASK-STATE-PAUSE-DRAIN-AND-RESUMPTION-ENGINE -- Transactional Task State Pause, Drain, and Resumption Engine |
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
 | 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
-| 1078 | OPEN | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
+| 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
