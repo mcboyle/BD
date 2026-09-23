@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-23T05:11:54+00:00",
- "version_context": "v3.66.1644",
+ "generated": "2026-09-23T06:22:37+00:00",
+ "version_context": "v3.66.1645",
  "file_count": 96,
  "files": {
   "0_INDEX.md": {
@@ -85,7 +85,7 @@
    "bytes": 2063
   },
   "CI_FAILURE_TAXONOMY.md": {
-   "sha256": "1065916a74042c9ff6c94a52620af98422fa587b7ddb61227459a08466adb26e",
+   "sha256": "6f3cbfc3da4ecd78c55679182724cf1beb85233715780c481a19e84b3af99881",
    "bytes": 51476
   },
   "CODE_INTELLIGENCE_ARCHITECTURE.md": {

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5008,
+  "edge_count": 5023,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2869,6 +2869,9 @@
     "tests/test_child_test_install_dir_isolation.py": [
       "bulk_downloader/db.py"
     ],
+    "tests/test_ci_shards.py": [
+      "tools/ci_shards.py"
+    ],
     "tests/test_class_normalizer.py": [
       "bulk_downloader/class_normalizer.py"
     ],
@@ -3373,6 +3376,9 @@
     "tests/test_fixture_site2.py": [
       "tools/fixture_site2.py"
     ],
+    "tests/test_footgun_detectors_are_executed_by_ci.py": [
+      "tools/ci_shards.py"
+    ],
     "tests/test_frame_hierarchy.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/frame_hierarchy.py",
@@ -3604,7 +3610,8 @@
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py",
-      "bulk_downloader/session_scope.py"
+      "bulk_downloader/session_scope.py",
+      "tools/ci_shards.py"
     ],
     "tests/test_login_submit_robustness.py": [
       "bulk_downloader/cloak.py",
@@ -4396,11 +4403,13 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner_transport.py",
-      "bulk_downloader/website_title.py"
+      "bulk_downloader/website_title.py",
+      "tools/ci_shards.py"
     ],
     "tests/test_row387_ast_version_pin_guard.py": [
       "bulk_downloader/__init__.py",
-      "tools/build_pin_index.py"
+      "tools/build_pin_index.py",
+      "tools/ci_shards.py"
     ],
     "tests/test_row388_a_link_belongs_to_the_scene_on_the_page.py": [
       "bulk_downloader/detect.py",
@@ -4583,6 +4592,9 @@
       "bulk_downloader/crash_recovery.py",
       "bulk_downloader/staging_claim.py"
     ],
+    "tests/test_row530_docs_only_lane_fails_closed.py": [
+      "tools/ci_shards.py"
+    ],
     "tests/test_row535_a_reclaim_proves_the_bytes_it_adopts.py": [
       "bulk_downloader/staging_claim.py"
     ],
@@ -4696,7 +4708,8 @@
     "tests/test_row701_quality_scan_scopes_to_the_requested_scene.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py",
-      "bulk_downloader/runner_util.py"
+      "bulk_downloader/runner_util.py",
+      "tools/ci_shards.py"
     ],
     "tests/test_row703_a_proxy_shadows_the_guarded_transport.py": [
       "tools/ssrf_client_census.py"
@@ -5167,6 +5180,9 @@
     ],
     "tests/test_row917.py": [
       "bulk_downloader/app_sites_teach.py"
+    ],
+    "tests/test_row919.py": [
+      "tools/ci_shards.py"
     ],
     "tests/test_row971_onboarding_picks_content_not_login.py": [
       "bulk_downloader/app.py"
@@ -6368,7 +6384,8 @@
       "tools/body_contract.py"
     ],
     "tests/test_v3_66_1168_tests_are_current_contracts.py": [
-      "tools/check_skip_baseline.py"
+      "tools/check_skip_baseline.py",
+      "tools/ci_shards.py"
     ],
     "tests/test_v3_66_1169_openapi_has_one_producer.py": [
       "bulk_downloader/__init__.py",
@@ -6380,6 +6397,12 @@
     "tests/test_v3_66_116_template_autopilot.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_v3_66_1170_claude_is_concise_authority.py": [
+      "tools/ci_shards.py"
+    ],
+    "tests/test_v3_66_1171_backlog_truth_is_current.py": [
+      "tools/ci_shards.py"
     ],
     "tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py": [
       "bulk_downloader/selftest.py"
@@ -6424,6 +6447,9 @@
       "tools/autonomy_policy.py",
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_1218_vitest_delegating_shards_have_node.py": [
+      "tools/ci_shards.py"
     ],
     "tests/test_v3_66_121_class_b_automation.py": [
       "tools/autonomy_housekeeping.py",
@@ -8138,6 +8164,9 @@
       "bulk_downloader/dom_recorder.py",
       "tools/capture_model_golden.py"
     ],
+    "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py": [
+      "tools/ci_shards.py"
+    ],
     "tests/test_v3_66_940_envfile_seeds_only_declared_keys.py": [
       "bulk_downloader/_envfile.py"
     ],
@@ -8187,6 +8216,9 @@
     "tests/test_v3_66_99_cockpit_wave1.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_core.py"
+    ],
+    "tests/test_v3_66_h622a_gate_scope_slice_a.py": [
+      "tools/ci_shards.py"
     ],
     "tests/test_v3_66_wave2_input_redaction.py": [
       "bulk_downloader/dom_capture.py"
@@ -8721,6 +8753,9 @@
     "tools/gen_reference_docs.py": [
       "tools/changelog_analyzer.py",
       "tools/document_schemas.py"
+    ],
+    "tools/generate_ci_docsonly_shards.py": [
+      "tools/ci_shards.py"
     ],
     "tools/gui_parity_inventory.py": [
       "bulk_downloader/app.py",

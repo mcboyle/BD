@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1645 - train68: ci-rework-O1264 r4 (one CI run per head, 37 contexts)
+
+- ci-rework (O1264/O1265): one CI run per head; gate-suites resolved by tools/ci_shards.py (37 contexts); docs-only shards generated. Harness cut, BOARD A at c2f8b691 (r4); judged alone on this head (T3).
+
+
 ## v3.66.1644 - train69: row1074
 
 - row1074-ebpf-memory-arena-compactor forward fix (row CLOSED @1634; 2 paths). N4-A at 1316d294.

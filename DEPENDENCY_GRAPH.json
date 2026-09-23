@@ -2397,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1890,
+    "edge_count": 1891,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -5365,6 +5365,9 @@
       ],
       "tools/check_version_consistency.py": [
         "tools/verify_release.py"
+      ],
+      "tools/ci_shards.py": [
+        "tools/generate_ci_docsonly_shards.py"
       ],
       "tools/cockpit_console.py": [
         "bulk_downloader/app.py"
@@ -8369,6 +8372,9 @@
         "tools/changelog_analyzer.py",
         "tools/document_schemas.py"
       ],
+      "tools/generate_ci_docsonly_shards.py": [
+        "tools/ci_shards.py"
+      ],
       "tools/gui_parity_inventory.py": [
         "bulk_downloader/app.py",
         "tools/report_core.py"
@@ -8688,7 +8694,7 @@
       "tools/workflow_diagnostic.py",
       "tools/wow_promote_golden.py"
     ],
-    "total": 233,
+    "total": 234,
     "with_edges": [
       "tools/_probe_lib.py",
       "tools/adversarial_probe.py",
@@ -8758,6 +8764,7 @@
       "tools/fuzz_probe.py",
       "tools/gen_frontend_secret_keys.py",
       "tools/gen_reference_docs.py",
+      "tools/generate_ci_docsonly_shards.py",
       "tools/gui_parity_inventory.py",
       "tools/hook_payload_golden.py",
       "tools/install_report.py",
