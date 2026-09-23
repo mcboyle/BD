@@ -60,6 +60,50 @@ def api_provenance_stats():
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
+@provenance_bp.route("/api/provenance/digest")
+def api_provenance_digest():
+    """Row 1063. Chain digest of the local ledger for a peer/replica to
+    reconcile against: checkpoints every ?checkpoint_every= ids (+ head,
+    + ?want_ids=1,2,3). Read-only."""
+    from . import ledger_reconcile as _lr
+    try:
+        every = int(request.args.get("checkpoint_every", _lr.DEFAULT_CHECKPOINT_EVERY))
+        want = [int(x) for x in (request.args.get("want_ids") or "").split(",") if x.strip()]
+    except ValueError as e:
+        return jsonify({"ok": False, "error": f"bad query: {e}"}), 400
+    try:
+        with _lr.local_conn() as cx:
+            d = _lr.digest_from_conn(cx, checkpoint_every=every, want_ids=want)
+        return jsonify({"ok": True, "digest": d})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+@provenance_bp.route("/api/provenance/reconcile", methods=["POST"])
+def api_provenance_reconcile():
+    """Row 1063. Body {digest: <peer digest>, checkpoint_every?}. Answers the
+    verdict (in_sync|behind|ahead|forked|unknown) plus a local digest that
+    includes the peer's checkpoint ids, so the peer can compute the same
+    verdict. Read-only; POST only because it carries the peer digest."""
+    refused = _check_csrf()   # returns a 403 response to refuse; it does not abort
+    if refused is not None:
+        return refused
+    from . import ledger_reconcile as _lr
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "bad digest: body must be a JSON object"}), 400
+    try:
+        peer = _lr.validate_digest(body.get("digest"))
+        every = int(body.get("checkpoint_every", _lr.DEFAULT_CHECKPOINT_EVERY))
+    except (TypeError, ValueError) as e:
+        return jsonify({"ok": False, "error": f"bad digest: {e}"}), 400
+    try:
+        want = [i for i, _h in peer["checkpoints"]] + [peer["head_id"]]
+        with _lr.local_conn() as cx:
+            local = _lr.digest_from_conn(cx, checkpoint_every=every, want_ids=want)
+        return jsonify({"ok": True, "verdict": _lr.reconcile(local, peer), "digest": local})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
 def register_routes(app) -> int:
     app.register_blueprint(provenance_bp)
     return sum(1 for r in app.url_map.iter_rules()

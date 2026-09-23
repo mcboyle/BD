@@ -440,7 +440,9 @@
 /api/plugins/reload	POST	api_plugins_reload
 /api/plugins/status	GET	api_plugins_status
 /api/plugins/uninstall	POST	api_plugins_uninstall
+/api/provenance/digest	GET	api_provenance_digest
 /api/provenance/query	GET	api_provenance_query
+/api/provenance/reconcile	POST	api_provenance_reconcile
 /api/provenance/stats	GET	api_provenance_stats
 /api/provenance/verify	POST	api_provenance_verify
 /api/push/info	GET	api_push_info

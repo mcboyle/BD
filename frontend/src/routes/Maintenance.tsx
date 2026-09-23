@@ -24,6 +24,7 @@ import {
   type PluginConfigValues,
 } from "@/components/PluginConfigForm";
 import { DangerZone } from "@/components/ui/DangerZone";
+import { ProvenanceLedgerPanel } from "@/components/ProvenanceLedgerPanel";
 import {
   downloadDiagnosticsBundle,
   useDiagBundlePreview,
@@ -1200,6 +1201,11 @@ export function Maintenance() {
             Set concurrency
           </Button>
         </div>
+      </Card>
+
+      <Card className="mt-4 p-4">
+        <h2 className="section-head">Provenance ledger · compare with another node</h2>
+        <ProvenanceLedgerPanel />
       </Card>
 
       <Card className="mt-4 p-4">

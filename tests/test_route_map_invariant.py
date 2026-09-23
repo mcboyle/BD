@@ -55,7 +55,11 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # row 990: re-frozen. ONE route ADDED: GET /api/queue/starvation
 # (app_queue.api_queue_starvation), per-site queue starvation / priority-inversion report.
 # Baseline 1013 -> 1014 lines. INTENTIONAL surface change, stated here.
-_BASELINE_SHA = "2b87cc46f886c4674d596e8f87b14771f72c5351b976918f8ea9f25704b0916a"
+# row 1063: re-frozen. TWO routes ADDED, none removed or re-pathed: GET
+# /api/provenance/digest and POST /api/provenance/reconcile (app_provenance.py),
+# the cross-replica ledger reconciliation pair. Baseline 1015 -> 1017 lines with
+# exactly those two additions. INTENTIONAL surface change, stated here.
+_BASELINE_SHA = "0d17ef8a31f6154c0de6242eaccf89323734526777121346c77eba8054ec93db"
 
 
 def _live_snapshot() -> str:
