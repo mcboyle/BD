@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 144,
+    "total": 146,
     "version": 1,
-    "count_dict": 143,
-    "test_files_scanned": 1984,
+    "count_dict": 145,
+    "test_files_scanned": 1993,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -36,6 +36,7 @@
       "tests/test_dom_analyzer.py": 1,
       "tests/test_history_records_the_website_title.py": 7,
       "tests/test_kb_golden_questions.py": 1,
+      "tests/test_row1026_async_eventloop_consolidation.py": 2,
       "tests/test_row308_visual_audit_identity.py": 2,
       "tests/test_row331_guarded_imports_are_declared.py": 1,
       "tests/test_row346_plugin_sandbox_is_truthful.py": 1,
@@ -372,6 +373,24 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row1026_async_eventloop_consolidation.py",
+      "line": 413,
+      "value": {
+        "completed": 1
+      },
+      "gates_what": "test_graceful_shutdown_waits_for_running_task — GRACEFUL drains: an in-flight task finishes before shutdown returns."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_row1026_async_eventloop_consolidation.py",
+      "line": 433,
+      "value": {
+        "cancelled": 2
+      },
+      "gates_what": "test_graceful_shutdown_cancels_what_outlives_the_timeout — Past shutdown_timeout the stragglers are cancelled; nothing is left 'running'."
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_row308_visual_audit_identity.py",
       "line": 138,
       "value": {
@@ -608,7 +627,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1636",
+      "value": "3.66.1637",
       "gates_what": "test_containment_routes_and_version"
     },
     {

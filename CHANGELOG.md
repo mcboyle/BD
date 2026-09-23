@@ -4,6 +4,37 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1637 - train65: row1078, row1015, row1005, row1032, row1026, row997, row1052
+
+Base 0499e626 (v3.66.1636, restacked train64 head = h686 + row1011 + row1069 on 25245209; stacked per O1259/O1259b). Seven cuts, each
+boarded at its INDEX tree by at least one bd-review-correctness seat (POLICY-0010). Rebuilt from the T64 tip so the JWT-shaped fixture of
+the first row1078 generation is not in this branch's history (gitleaks scans commits).
+
+- row1078-network-event-log-reduction: structured network event log reduction and trace archival (network_log_reducer.py; `bdctl netlog`).
+  Deep lane r3 (ORDERS-2233). Boarded by N1-A (+ agy-lens-c3) at 016f1354; secret-scan fixture reshape (ORDERS-2312) at 74297cad.
+  SYN-34 orphan guard waived for this cut (RULING-2202; bdctl is the shipped caller).
+- row1015-sqlite-freelist-vacuum: adaptive SQLite freelist monitor with idle-cycle vacuum (sqlite_freelist_vacuum.py via db.py,
+  db_maintenance.py, bg_scheduler.py, app.py); two tests added to the ci.yml shard list. Deep lane r3 (ORDERS-2208). N2-B at de7a9693,
+  N3-B delta at d991ef6c (prep-lane rebase onto main).
+- row1005-pmtu-mss-sentry: dynamic path-MTU discovery and TCP MSS clamping sentry (pmtu_sentry.py, vpn_wireguard.py hook). N1-A at 3a755fff.
+- row1032-verification-settlement-session-header: verification settlement watcher and session header (verification_settlement.py,
+  runner_browser.py). N3-B at bae1b98f.
+- row1026-async-eventloop-consolidation: one asyncio worker runtime (async_worker_runtime.py, guardrails.py, bdctl wiring). N1-A at 62e9ce6b.
+- row997-streaming-hash: inline streaming cryptographic hash verification engine (streaming_hash.py, integrity.py, backup.py).
+  bd-review-correctness-A and N2-B at e1e0e4e6.
+- row1052-prom-memory-metrics: Prometheus memory metrics (prom_memory_metrics.py, metrics_prom.py); test added to the ci.yml shard list.
+  N6-A and P3-A at 4b158ea2.
+- register: rows 1078, 1015, 1005, 1032, 1026, 997, 1052 CLOSED @1637. Amendments by tool (POLICY-0010, registrar retired):
+  1060 MOOT-DUPLICATE (RULING-2310), 1017 and 1072 MOOT-PREMISE (REGISTRAR-DUPS-2309), 1009 MOOT-PREMISE (RULING-2328) -- all four CLOSED @1637;
+  963, 1053, 994 RESCOPED in place (RULING-2332, RULING-2338 x2), still OPEN. Marker re-derived, open 68 -> 57; rows and ids-sha256 unchanged.
+- row1005 fixture fixup folded into its spec commit (RULING-0019, O805): the two 44-char WireGuard key fixtures in its test reshaped to
+  FAKE-WG-* strings, test-only, 2 lines; every other path's added/removed line set is byte-identical to its boarded patch.
+- ci.yml shard line for row1052 placed by the integrator where the boarded hunk's context had moved (after the row1215 line).
+- Not on this train: row983-heap-compaction (dev_suite/introspection.py hunk conflicts with main after row1074; no Claude leg yet) -> prep lane.
+- Not on this train: row1066-socket-pacing 54461f2e (P4-B + P3-A) DROPPED (RULING-0022): it owned all four CI reds on the n=8 build bdfde783 (two
+  test_row703 pin maps, the row646 SOCKS refusal contract, mutant anchor row646_647 M1); bounced to W5-A (ORDERS-0022), returns on T66.
+
+
 ## v3.66.1636 - train64: h686, row1011, row1069
 
 Base 25245209 (v3.66.1635). Three cuts, each with a Claude correctness BOARD at its INDEX tree
@@ -26461,7 +26492,6 @@ out-of-process. This cut closes that gap.
 - Tests: tests/test_v3_66_778_force_isolation.py (8: 6 RED-first on 777 +
   2 invariant guards, incl. subprocess-override and cap-precedence proofs).
 
-(TODO changelog body)
 
 ## v3.66.777 - Plugin V3-C: manifest requires + enable/disable lifecycle
 
@@ -26495,7 +26525,6 @@ Completes the V3-C manifest-richness track (config_schema shipped @498).
   + 4 invariant guards, incl. a real subprocess bridge-runtime enforcement
   proof).
 
-(TODO changelog body)
 
 ## v3.66.776 - Plugin V3-E residual: metric percentiles + quarantine join
 
@@ -26520,7 +26549,6 @@ Completes the V3-E observability track (calls/fails/avg/last shipped @496/@499).
 - Tests: tests/test_v3_66_776_plugin_metrics_residual.py (6, 5 RED-first
   on 775 + 1 reset invariant) + PluginMetrics.test.tsx extension (RED-first).
 
-(TODO changelog body)
 
 ## v3.66.775 - Plugin V3-A grant-UI surfacing
 
@@ -26546,7 +26574,6 @@ The @774 per-capability grant model becomes operator-drivable from the GUI.
 - Tests: tests/test_v3_66_775_plugin_grant_ui.py (6, RED-first on 774) +
   frontend Maintenance.pluginGrants.test.tsx (2, RED-first).
 
-(TODO changelog body)
 
 ## v3.66.774 - Plugin-v3 V3-A (W3): per-capability grant model
 
@@ -27421,7 +27448,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
   instead of failing on them, each turn tests red.
 
 
-(TODO changelog body)
 
 ## v3.66.737 - L34: a concurrent probe must not report its OWN load as a finding
 
@@ -27448,7 +27474,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
   making phase 2 a laundry that passes everything ALSO turns it red.
 
 
-(TODO changelog body)
 
 ## v3.66.736 - build_release._load_exclusions no longer poisons the interpreter (GUARD RE-SHA)
 
@@ -27474,7 +27499,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
   each turn exactly one test red.
 
 
-(TODO changelog body)
 
 ## v3.66.735 - cookie_clipboard CONTROL cluster wired (FE); save takes the RAW TEXT
 
@@ -27502,7 +27526,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
 - Reachability ledger re-pinned in-cut: dark 111 -> 109.
 
 
-(TODO changelog body)
 
 ## v3.66.734 - L34 full-route-smoke: EXCEEDED is a finding, not a story
 
@@ -27533,7 +27556,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
   test red.
 
 
-(TODO changelog body)
 
 ## v3.66.733 - queue_templates CONTROL cluster wired (FE); mode rides the query string
 
@@ -27552,7 +27574,6 @@ the scraps. A reserve nobody enforces is a comment, not a budget.
 - Reachability ledger re-pinned in-cut: dark 114 -> 111.
 
 
-(TODO changelog body)
 
 ## v3.66.732 - the 7 dark cockpit views get navigation: dark=0, orphans=0
 
@@ -27675,7 +27696,6 @@ The guard that stops all five: a RESOURCE/VALUE complaint -- or an empty error m
 too thin to judge that endpoint. A to-do list, not a verdict.
 
 
-(TODO changelog body)
 
 ## v3.66.728 -- the /api/batch/* CONTROL cluster: retry, move, dedup_scan
 
@@ -28685,51 +28705,39 @@ this cut (1301 -> 1303). Non-guard: 7 release guards byte-identical.
 
 ## v3.66.700 - 700: FIX the v3.66.699 stash RED -- drop the BD_ prefix from the netns shim env vars. 699 named the Phase-2 browser-shim env vars BD_NETNS / BD_BROWSER and went RED on stash against TWO gates: test_v3_66_319_env_tranche_4_3d (open env_vars remain: BD_NETNS, BD_BROWSER) and test_v3_66_305_config_danger (open_runtime_tunable count bumped). ROOT CAUSE, and a correction to the received env-tranche lore: tools/config_surface_inventory.py does NOT only scan os.environ.get("BD_...") read sites -- it ALSO does a bare token-boundary scan for any BD_[A-Z0-9_]+ literal anywhere in a .py file (line ~126). So a BD_* name inside a STRING (the shim script body) or as a DICT KEY is registered as an operator-tunable env var even though nothing ever reads it via os.environ. FIX: these two names are an internal BD<->shim calling convention (closer to argv than to configuration) and are never operator-tunable, so the BD_ prefix is dropped entirely (NETNS_NS / NETNS_BROWSER_BIN) rather than classifying them deploy-only -- removing the tripwire at the root. New guard test freezes it: no BD_* token may appear in netns_isolation.py. Both previously-failing gates are sandbox-runnable and now GREEN (8/8); full netns family 57/57. No functional change to the shim mechanism (still exec ip netns exec, quoted argv passthrough, env-supplied ns+binary). No new route, no new import edge, no declared config field.
 
-(TODO changelog body)
 
 ## v3.66.699 - 699 (F5 Phase 2, fork 2b): launch the BROWSER inside a per-capture netns [safety]. Phase 1 (689) routed the yt-dlp/gallery-dl SUBPROCESS fallbacks through the netns engine, but the browser -- the primary capture path -- still egressed un-isolated, because Playwright spawns Chromium itself via its in-process API (launch_persistent_context/chromium.launch), leaving no argv to wrap with ip netns exec. FORK RESOLVED (operator confirmed 2b, avoiding 2a in-process setns and its much heavier CAP_SYS_ADMIN): exploit Playwrights executable_path seam (already used by cloak.py) and point it at a tiny shim that re-execs the real browser binary inside the namespace -- exec ip netns exec "$BD_NETNS" "$BD_BROWSER" "$@". Playwright spawns the shim believing it is the browser; exec (not fork) keeps Playwrights child handle pointing at the browser so its lifecycle management still works. New primitives: netns_browser_shim (pure script source), write_browser_shim (idempotent, chmod 0755), browser_launch_env (BD_NETNS/BD_BROWSER; empty dict when either is missing -> caller launches normally, unchanged path). The ns name and browser path arrive via the ENVIRONMENT, never interpolated into the script body, so no caller-supplied text is baked into an executable; "$@" is quoted because Playwright passes ~40 args (several containing =) and unquoted $@ would re-split them. Needs only CAP_NET_ADMIN. LIVE-VALIDATED against a real kernel before this cut: the netns substrate (686 default-drop, 697 move-into-ns + tunnel default route, 698 /etc/netns/<ns>/resolv.conf override + teardown cleanup) all execute rc=0 in the exact generated order, and a process launched through the shim reports the target netns identity, sees only lo (no eth0), and receives argv unmodified. Wiring the shim into runner_browser._launch_browser is the next cut (needs a live browser to validate). No new route, no new import edge, no declared config field; 686/689/697/698 regression suites unchanged (48/48).
 
-(TODO changelog body)
 
 ## v3.66.698 - 698 (F5 per-ns DNS): complete controlled egress with a per-namespace resolver [safety]. 697 moved a WireGuard tunnel into a per-capture netns and made it the only route, but a fresh netns does NOT inherit the host /etc/resolv.conf -- a tunnel-confined process could egress but not resolve names (the standard wg-in-netns DNS gotcha). This writes the ns own /etc/netns/<ns>/resolv.conf (the standard netns DNS override, read when a process enters the ns) so name resolution also goes through the tunnel. EgressSpec gains an optional dns IP; egress_commands appends the resolv.conf write AFTER the tunnel is up; ns_resolv_conf_path exposes the path. The dns value is IP-validated (ipaddress) before any interpolation -- a mis-typed value can never smuggle shell content into the write. teardown_commands/destroy gain an optional egress= param so a per-ns resolv dir is removed on teardown (netns resolv.conf files outlive the ns otherwise); default None keeps teardown byte-identical (686 exact-equality invariant holds). capture_netns threads egress through create+destroy end-to-end. egress_spec_from_cfg reads the optional dns from the undeclared backend-only cfg. Pure/unit only via the injected runner; LIVE exercise deferred with the rest of F5 (CAP_NET_ADMIN). 686/689/697 regression suites unchanged. No new route, no new import edge, no declared config field.
 
-(TODO changelog body)
 
 ## v3.66.697 - 697 (F5 controlled egress): route a per-capture netns through a WireGuard tunnel (VPN-into-ns) [safety]. The @686 engine created an egress-LESS namespace (loopback + nftables default-drop) so a confined capture could not reach the network; this adds the unbuilt piece that lets an opted capture egress ONLY through the VPN. New EgressSpec (wg_iface/wg_conf/address/mtu) + egress_commands (pure argv for the canonical wireguard.com/netns sequence: create the wg iface in the init ns, wg setconf, MOVE it into the ns, assign the tunnel address, up, default route -- wg0 becomes the ns only route so it is fail-closed by construction, tunnel-down halts all traffic, no killswitch needed). setup_commands/create gain an egress= param (supersedes default-drop when given; byte-identical @686 default-drop when omitted). egress_spec_from_cfg reads the UNDECLARED backend-only cfg netns_isolation.egress:{...} (invisible to the config/env inventory; incomplete -> None, degrade to default-drop). capture_netns wires it end-to-end, posture-aware + fail-closed. Pure/unit only (injected runner, no root); the LIVE exercise (a real wg tunnel in a real ns) needs CAP_NET_ADMIN on the stash service and is deferred like every runtime-gated F5 piece. Fork-independent foundation for Phase 2/3. No new route, no new import edge, no declared config field; 686/689 regression suites unchanged.
 
-(TODO changelog body)
 
 ## v3.66.696 - 696 (JD-3 FE): Check JD coverage button on SiteActions. Adds a read-only "Check JD coverage" entry to SiteActions INTEGRATION_CHECKS -- a GET mirroring the existing "Test JDownloader" (jd/diagnose) button -- wired with the FULL /api/sites/${...}/jd/coverage literal so gui_parity credits it spa_wired. JD-3 (694) shipped the /jd/coverage route backend-only (spa_wired:false); this surfaces it in the UI. gui_parity + ROUTE_INDEX regenerated (spa_wired 382->383, gui_parity before ROUTE_INDEX); no new route (spa-wiring flip only), no route_map change, no backend change. Frontend cut (tsc+vitest+vite).
 
-(TODO changelog body)
 
 ## v3.66.695 - 695: route a plugin @extractor HLS/DASH manifest through hls_downloader (the GH-2a follow-on). 691 wired the plugin @extractor dispatch and GH-2a maps an HLS-only source to {video_url:manifest,is_hls:True}, but _try_plugin_extractor deliberately fell through on is_hls (deferred). Now the manifest is routed through the existing hls_downloader -- the same ffmpeg remux path jsonapi/vixen use (is_available gate, referer + cancel_check threaded, output forced to .mp4, failure cleans up the partial file and returns False). ffmpeg absent / hls_downloader missing -> fall through, matching the jsonapi HLS contract. The progressive-http path is unchanged (regression-guarded). No new route, no new import edge (the runner_extractors->hls_downloader edge pre-existed via jsonapi/vixen), no declared config field. FUNCTION_INDEX regenerated (runner_extractors line-shift). Runtime gate: ffmpeg + a live HLS source (live exercise deferred; tests inject hls_downloader).
 
-(TODO changelog body)
 
 ## v3.66.694 - JD-3 (Batch B): JDownloader host-coverage report. New GET /api/sites/<sid>/jd/coverage (sites_bp, mirrors jd/diagnose) reports whether JD has a hoster plugin covering a site host, so the operator can see coverage before switching a site to the jd backend. jd_bridge gains: parse_supported_hosts (pure -- normalizes a JD supported-hosts response to a sorted lowercased host list; unwraps the deprecated-API {data:...} envelope; tolerates bare list / {data:[...]} / list-of-dicts); host_coverage (pure -- registrable-domain match, e.g. www.brazzers.com covered by brazzers.com); JDClient.supported_hosts(path) (queries the endpoint, degrades to [] on unreachable/404/bad-shape, never raises). RESOLVED THE PARKED FORK: JD2 deprecated Remote API has no cleanly-documented supported-hosts endpoint, so the query path is a DOCUMENTED ASSUMPTION (DEFAULT_SUPPORTED_HOSTS_PATH) overridable per-site via the undeclared cfg key jd_supported_hosts_path -- a JD without it reads available=False + a hint, never an error. Live verification (exact path + shape vs a real JD) deferred to on-stash, matching every runtime-gated integration. No declared config field, no new import edge. Route add: route_map_baseline re-frozen 999->1000, _BASELINE_SHA updated; ROUTE_INDEX/ENDPOINT_CATALOG/gui_parity/route-counts regenerated (gui_parity before ROUTE_INDEX).
 
-(TODO changelog body)
 
 ## v3.66.693 - GH-2a: yt-dlp to plugin @extractor adapter (Batch B; plugs into the 691 dispatch). New bulk_downloader/ytdlp_extractor.py: build_ytdlp_info_cmd (pure, smuggle-safe "yt-dlp -j --skip-download" info-probe builder -- socks5h remote-DNS proxy, maintained Netscape .txt cookies, bare -- option terminator); info_to_extractor_result (pure mapper: highest-resolution progressive muxed http format -> video_url/title/ext with is_hls False; HLS/DASH-only -> the manifest url with is_hls True so the 691 dispatch defers; nothing usable -> empty); make_ytdlp_extractor (the fn(url,ctx) shim -- binary-missing / nonzero-exit / bad-JSON all degrade to empty -> fall through, never raise); register_ytdlp_extractor + maybe_register_from_config (opt-in via the undeclared site-cfg key ytdlp_extractor -- backend-only, invisible to the config/env inventory). One guarded line wired into SiteRunner.__init__ opts a site in. No new route, no declared config field. Two new import edges (runner->ytdlp_extractor, ytdlp_extractor->plugins), import baseline re-frozen 1299->1301. Runtime gate: a live yt-dlp binary (live exercise deferred; every unit test injects the subprocess runner + binary resolver).
 
-(TODO changelog body)
 
 ## v3.66.692 - Fix v3.66.691 regression + document the plugin-extractor dispatch branch. (1) tests/test_v3_45_8_macro_replay.py used a brittle fixed 12000-char window from the _process_one header; the 691 plugin-dispatch insertion pushed replay_macro past it. Now extracts the real _process_one body (header to next method def) -- same three markers asserted, no byte-offset dependence. (2) The 691 plugin_extractor branch was added to _process_one but not to dev_suite _DISPATCH_CHAIN; documented it as step 7 (after library_extractor, before jsonapi) with matching dispatch_dry_run eligibility (side-effect-free get_extractor read), renumbered to 11 branches, updated the branch-count pins in test_dispatch_chain (10 -> 11). No runtime behavior change
 
-(TODO changelog body)
 
 ## v3.66.691 - PLUGIN-DISPATCH (Batch B 2b prerequisite): wire the plugin @extractor registry into the capture flow. plugins.register_extractor populated _extractors but nothing ever invoked a registered extractor during capture (get_extractor had zero callers) -- the whole @extractor mechanism was registration-only. New ExtractorsMixin._try_plugin_extractor consults get_extractor(site_id), runs fn(url, ctx), and downloads a {video_url} result via _do_direct_http_download; {}/None/no-video_url/HLS falls through unchanged. Wired into runner dispatch after the library extractor, naturally opt-in (no-op unless an extractor is registered for the site). Activates exec/node/py-bridge plugin extractors and unblocks the GH-2 yt-dlp shim (next cut)
 
-(TODO changelog body)
 
 ## v3.66.690 - INTEROP-EXT-4 (Batch B 1/3): Chrome extension .crx unpack + manifest validation + MV3 service-worker warning. New stdlib-only extension_crx (parse_crx CRX2/CRX3, zip-slip-safe unpack_crx, validate_manifest, crx_info); the /api/interop/register route unpacks a .crx item_id, validates, and registers the unpacked dir (dir_sha256 provenance unchanged), returning MV3/manifest warnings. Unit-tested on synthetic .crx fixtures; live load (headed Chromium) deferred to operator
 
-(TODO changelog body)
 
 ## v3.66.689 - F5 launch-routing (1/3): route the yt-dlp and gallery-dl subprocess download fallbacks through the netns isolation engine -- per-capture capture_netns bracket + netns_exec_argv wrap on the builders, fail-closed by default (netns_isolation.fail_closed), opt-in per site; no browser/in-process paths yet (Phases 2-3)
 
-(TODO changelog body)
 
 ## v3.66.688 - F6 bg_scheduler idle scaling (adaptive poll cadence: idle_poll_interval/note_activity/is_idle; back off when idle, wake-on-demand)
 
@@ -28753,7 +28761,6 @@ The loop's inter-poll wait is now interruptible via a wake Event; stop()
 also sets it so an idle back-off never delays shutdown. No route/DB/config
 or import-graph change.
 
-(TODO changelog body)
 
 ## v3.66.687 - F7 calendar/ICS export of scheduled jobs (capture_schedules.schedules_to_ics + GET /api/schedules/export.ics)
 
@@ -28774,7 +28781,6 @@ New route GET /api/schedules/export.ics (app_schedules) serves it as
 text/calendar with a Content-Disposition attachment, mirroring the existing
 activity export.csv download. No DB/config-schema change.
 
-(TODO changelog body)
 
 ## v3.66.686 - F5 per-capture netns isolation engine (netns_isolation.py: create/destroy/run_in_netns/isolated + nft drop-egress; sandbox-verified, launch-routing is a CAP_NET_ADMIN-gated follow-on)
 
@@ -28804,7 +28810,6 @@ netns_exec_argv is a deliberate follow-on -- it is a deep launch-path change
 AND requires the service to hold CAP_NET_ADMIN on the deploy host (the Linux
 kill-switch is process-level today precisely to avoid needing it).
 
-(TODO changelog body)
 
 ## v3.66.685 - F4 rotating proxy pool with health checks (proxy_pool.py: select/record_result/probe_pool; opt-in via proxy_pool site-cfg, wired in runner_transport._download_proxy_url; egress-resilience only)
 
@@ -28829,7 +28834,6 @@ over the tunnel exactly as a static proxy does). The VPN fail-closed
 posture is untouched. Opt-in -- with no `proxy_pool` configured the
 behavior is byte-identical to before. No route/DB/config-schema change.
 
-(TODO changelog body)
 
 ## v3.66.684 - F8/PIT template-set restore-to-known-good-date (selector_versions.plan_set_restore/restore_set_to_date; user_templates.restore_template_set single-writer apply)
 
@@ -28853,7 +28857,6 @@ template absent from the current store, or with no pre-cutoff version, is
 skipped and never created or emptied. Library-only (consistent with the
 routeless per-template revert); no route/ENDPOINT_CATALOG/DB/config change.
 
-(TODO changelog body)
 
 ## v3.66.683 - F1/CAP-1 record-time selector auto-narrow (auto_detect; default-on, opt-out via record_time_narrow cfg key)
 

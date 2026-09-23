@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4941,
+  "edge_count": 4977,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -236,6 +236,7 @@
       "bulk_downloader/daily_budget.py",
       "bulk_downloader/dashboard_widgets.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/db_maintenance.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/dev_metrics.py",
@@ -1011,7 +1012,8 @@
       "bulk_downloader/disco_runner.py"
     ],
     "bulk_downloader/backup.py": [
-      "bulk_downloader/dom_analyzer.py"
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/integrity.py"
     ],
     "bulk_downloader/backup_verify.py": [
       "bulk_downloader/db.py",
@@ -1033,6 +1035,8 @@
       "bulk_downloader/cookie_health.py",
       "bulk_downloader/cookie_relogin.py",
       "bulk_downloader/daily_digest.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/db_maintenance.py",
       "bulk_downloader/disco_runner.py",
       "bulk_downloader/discovery.py",
       "bulk_downloader/drift_repair.py",
@@ -1209,6 +1213,9 @@
       "bulk_downloader/orm_engine.py",
       "bulk_downloader/pg_backend.py",
       "bulk_downloader/staging_ingest.py"
+    ],
+    "bulk_downloader/db_maintenance.py": [
+      "bulk_downloader/sqlite_freelist_vacuum.py"
     ],
     "bulk_downloader/db_replication.py": [
       "bulk_downloader/backup_verify.py"
@@ -1512,6 +1519,9 @@
     "bulk_downloader/gamification.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/guardrails.py": [
+      "bulk_downloader/async_worker_runtime.py"
+    ],
     "bulk_downloader/healthcheck.py": [
       "bulk_downloader/account_health.py",
       "bulk_downloader/bitrot.py",
@@ -1560,7 +1570,8 @@
     ],
     "bulk_downloader/integrity.py": [
       "bulk_downloader/ffmpeg_bin.py",
-      "bulk_downloader/satellite_video.py"
+      "bulk_downloader/satellite_video.py",
+      "bulk_downloader/streaming_hash.py"
     ],
     "bulk_downloader/interstitial.py": [
       "bulk_downloader/registrable_domain.py"
@@ -1697,6 +1708,7 @@
       "bulk_downloader/circuit_breaker.py",
       "bulk_downloader/db.py",
       "bulk_downloader/policy_gates.py",
+      "bulk_downloader/prom_memory_metrics.py",
       "bulk_downloader/provenance.py",
       "bulk_downloader/takeover.py",
       "bulk_downloader/ytdlp_updater.py"
@@ -1724,6 +1736,10 @@
     ],
     "bulk_downloader/netlog_classify.py": [
       "bulk_downloader/drm_detect.py"
+    ],
+    "bulk_downloader/network_log_reducer.py": [
+      "bulk_downloader/capture_artifact_redact.py",
+      "bulk_downloader/capture_redact.py"
     ],
     "bulk_downloader/oidc.py": [
       "bulk_downloader/global_config.py",
@@ -1790,6 +1806,9 @@
     ],
     "bulk_downloader/profile_sync.py": [
       "bulk_downloader/session_keeper.py"
+    ],
+    "bulk_downloader/prom_memory_metrics.py": [
+      "bulk_downloader/perf_lab.py"
     ],
     "bulk_downloader/prompts.py": [
       "bulk_downloader/llm_schemas.py"
@@ -1983,8 +2002,8 @@
       "bulk_downloader/eme_detect.py",
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/plugins.py",
-      "bulk_downloader/settlement.py",
       "bulk_downloader/stealth.py",
+      "bulk_downloader/verification_settlement.py",
       "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/runner_challenge.py": [
@@ -2366,6 +2385,10 @@
       "bulk_downloader/selector_versions.py",
       "bulk_downloader/site_editor.py"
     ],
+    "bulk_downloader/verification_settlement.py": [
+      "bulk_downloader/capture_redact.py",
+      "bulk_downloader/settlement.py"
+    ],
     "bulk_downloader/vpn.py": [
       "bulk_downloader/egress_identity.py",
       "bulk_downloader/plugins.py",
@@ -2410,6 +2433,7 @@
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/vpn_wireguard.py": [
+      "bulk_downloader/pmtu_sentry.py",
       "bulk_downloader/vpn.py",
       "bulk_downloader/vpn_config.py",
       "bulk_downloader/vpn_socks.py"
@@ -4068,6 +4092,10 @@
       "bulk_downloader/backoff_profiles.py",
       "bulk_downloader/retry_policy.py"
     ],
+    "tests/test_row1005_dynamic_path_mtu_discovery_pmtu_tcp_mss_clamping_sentry.py": [
+      "bulk_downloader/pmtu_sentry.py",
+      "bulk_downloader/vpn_wireguard.py"
+    ],
     "tests/test_row1006_tiered_deadline_propagating_socket_timeouts.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/ssrf_transport.py"
@@ -4083,6 +4111,17 @@
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
+    ],
+    "tests/test_row1015_deeplane_red.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/sqlite_freelist_vacuum.py"
+    ],
+    "tests/test_row1015_sqlite_freelist_vacuum.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/db_maintenance.py",
+      "bulk_downloader/sqlite_freelist_vacuum.py"
     ],
     "tests/test_row1016_lockfree_bulk_ingest_staging.py": [
       "bulk_downloader/db.py",
@@ -4100,11 +4139,20 @@
       "bulk_downloader/db.py",
       "bulk_downloader/db_lifecycle.py"
     ],
+    "tests/test_row1026_async_eventloop_consolidation.py": [
+      "bulk_downloader/async_worker_runtime.py",
+      "bulk_downloader/guardrails.py"
+    ],
     "tests/test_row1027_egress_transport_unification.py": [
       "bulk_downloader/discovery.py",
       "bulk_downloader/egress_transport.py",
       "bulk_downloader/http_client.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_row1032_verification_settlement_session_header.py": [
+      "bulk_downloader/runner_browser.py",
+      "bulk_downloader/settlement.py",
+      "bulk_downloader/verification_settlement.py"
     ],
     "tests/test_row1034_declarative_config_dryrun_simulator.py": [
       "bulk_downloader/_envfile.py",
@@ -4130,6 +4178,9 @@
       "bulk_downloader/fname.py",
       "bulk_downloader/metadata_normalizer.py",
       "bulk_downloader/record_attribution.py"
+    ],
+    "tests/test_row1052_prom_memory_metrics.py": [
+      "bulk_downloader/metrics_prom.py"
     ],
     "tests/test_row1055_distributed_bandwidth_aggregator.py": [
       "bulk_downloader/bandwidth_aggregator.py",
@@ -4174,6 +4225,11 @@
     "tests/test_row1075_task_state_pause_drain_resumption.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/task_drain_engine.py"
+    ],
+    "tests/test_row1078_network_event_log_reduction.py": [
+      "bulk_downloader/log.py",
+      "bulk_downloader/netlog_classify.py",
+      "bulk_downloader/network_log_reducer.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
@@ -5100,6 +5156,12 @@
     "tests/test_row996_per_domain_token_bucket_rate_limit_backpressure_telemetry.py": [
       "bulk_downloader/rate_limit.py",
       "bulk_downloader/token_bucket_backpressure.py"
+    ],
+    "tests/test_row997_inline_streaming_cryptographic_hash_verification_engine.py": [
+      "bulk_downloader/backup.py",
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/integrity.py",
+      "bulk_downloader/streaming_hash.py"
     ],
     "tests/test_row_286_laundered_failures_hold.py": [
       "bulk_downloader/content_rights.py",
