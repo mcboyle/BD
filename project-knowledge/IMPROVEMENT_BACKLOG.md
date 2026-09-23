@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=399 open=26 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
+<!-- canonical-task-register schema=1 rows=399 open=25 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
 
 ## Namespace and population
 
@@ -441,7 +441,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1050 | OPEN | UNIFIED-CRYPTOGRAPHIC-TOKEN-SIGNATURE-ACCELERATION-CRYPTOGRAPHY-MODERN-API-JOSERFC -- Unified Cryptographic & Token Signature Acceleration (cryptography Modern API & joserfc) |
 | 1051 | CLOSED @1649 | FRONTEND-REACTIVE-ARCHITECTURE-MODERNIZATION-REACT-19-TAILWINDCSS-4-OXIDE-CUTOVER -- Frontend Reactive Architecture Modernization (React 19 & TailwindCSS 4 Oxide Cutover) |
 | 1052 | CLOSED @1637 | REAL-TIME-PROMETHEUS-OPENMETRICS-MEMORY-SUBSYSTEM-TELEMETRY-EXPORTER-PROMMEMORYMETRICS -- Real-Time Prometheus/OpenMetrics Memory Subsystem Telemetry Exporter (PromMemoryMetrics) |
-| 1053 | OPEN | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser -- RESCOPED (RULING-2338-row1053-RESCOPE-A): root-cause guard only -- stdin=subprocess.DEVNULL in subprocess_helpers.isolated_popen_kwargs and the 5 inheriting product Popen sites (+dev_tools), census test that every bulk_downloader Popen/run passes stdin=DEVNULL or -nostdin, ffmpeg overwrite-prompt RED->GREEN; detector/pauser/bdctl-prompt surface dropped (0 product callers). |
+| 1053 | CLOSED @1653 | INTERACTIVE-USER-CONFIRMATION-PROMPT-DETECTOR-QUEUE-PAUSER -- Interactive User Confirmation Prompt Detector & Queue Pauser -- RESCOPED (RULING-2338-row1053-RESCOPE-A): root-cause guard only -- stdin=subprocess.DEVNULL in subprocess_helpers.isolated_popen_kwargs and the 5 inheriting product Popen sites (+dev_tools), census test that every bulk_downloader Popen/run passes stdin=DEVNULL or -nostdin, ffmpeg overwrite-prompt RED->GREEN; detector/pauser/bdctl-prompt surface dropped (0 product callers). |
 | 1054 | CLOSED @1647 | REAL-TIME-MULTI-NODE-CLUSTER-TOPOLOGY-INTERCONNECT-MAP -- Real-Time Multi-Node Cluster Topology & Interconnect Map -- MOOT-PREMISE: no product code constructs or registers a NodeSentinel or records a link, so the interconnect map has no honest caller (N5-A E1 @0e4eb4ed; O1223; POLICY-0010 s3); REFUTED bd-cuts/cut/row1054-cluster-topology-interconnect-map/DONE.md. Closed at T72 assembly (PM 05:42Z) |
 | 1055 | CLOSED @1630 | DISTRIBUTED-INGESTION-THROUGHPUT-CAPACITY-BANDWIDTH-AGGREGATOR -- Distributed Ingestion Throughput Capacity & Bandwidth Aggregator |
 | 1056 | OPEN | AUTOMATED-WORKLOAD-BOTTLENECK-ANOMALY-DETECTOR -- Automated Workload Bottleneck Anomaly Detector |
