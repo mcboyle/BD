@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=404 open=13 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
+<!-- canonical-task-register schema=1 rows=404 open=10 ids-sha256=67326f1db31188236c3a872de27b45866ec3586d4d4a12930265fd7b8fdd8daa -->
 
 ## Namespace and population
 
@@ -381,7 +381,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 990 | CLOSED @1631 | QUEUE-STARVATION-PRIORITY-INVERSION-VISUALIZER -- Queue Starvation & Priority Inversion Visualizer |
 | 991 | CLOSED @1627 | RESOURCE-QUOTA-BUDGET-FILE-DESCRIPTOR-UTILIZATION-GAUGE -- Resource Quota Budget & File Descriptor Utilization Gauge |
 | 992 | CLOSED @1624 | HIGH-RESOLUTION-SOCKET-I-O-ACCOUNTING-MICROSECOND-LATENCY-TRACKER -- High-Resolution Socket I/O Accounting & Microsecond Latency Tracker |
-| 993 | OPEN | RESIDENT-MEMORY-PAGE-FAULT-HEAP-GROWTH-TELEMETRY -- Resident Memory Page Fault & Heap Growth Telemetry |
+| 993 | CLOSED @1661 | RESIDENT-MEMORY-PAGE-FAULT-HEAP-GROWTH-TELEMETRY -- Resident Memory Page Fault & Heap Growth Telemetry |
 | 994 | CLOSED @1639 | DYNAMIC-QUERY-PLAN-LOCK-CONTENTION-PROFILER-FOR-SQLITE -- Dynamic Query Plan & Lock Contention Profiler for SQLite -- RESCOPED (RULING-2338-row994-RESCOPE-a, O1263): lock-contention profiler only -- SQLiteLockContentionProfiler fed from db.db_init's locked-retry loop, BUSY/LOCKED by message text, 'unobserved' until a feed attaches, surfaced in dev_suite.db_overview() (/api/dev/db_stats); plan profiler + db_profile_query dropped: dev_suite/db_tools._explain_query_plan and index_advisor already classify EXPLAIN QUERY PLAN. |
 | 995 | OPEN | WORKER-THREAD-CONTEXT-SWITCH-CPU-AFFINITY-TELEMETRY -- Worker Thread Context Switch & CPU Affinity Telemetry |
 | 996 | CLOSED @1630 | PER-DOMAIN-TOKEN-BUCKET-RATE-LIMIT-BACKPRESSURE-TELEMETRY -- Per-Domain Token Bucket Rate-Limit & Backpressure Telemetry |
@@ -424,7 +424,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1033 | CLOSED @1640 | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
 | 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
 | 1035 | CLOSED @1633 | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
-| 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
+| 1036 | CLOSED @1661 | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
 | 1037 | CLOSED @1650 | DYNAMIC-SHELL-AUTOCOMPLETION-ENGINE-FOR-ZSH-BASH-AND-FISH -- Dynamic Shell Autocompletion Engine for Zsh, Bash, and Fish |
 | 1038 | CLOSED @1655 | COLD-START-KERNEL-MODULE-IMPORT-LATENCY-PROFILER -- Cold-Start Kernel & Module Import Latency Profiler |
 | 1039 | CLOSED @1635 | ENDPOINT-AUTHORIZATION-TOKEN-LIFECYCLE-CACHE-AUTHTOKENCACHE -- Endpoint Authorization Token Lifecycle Cache (AuthTokenCache) |
@@ -464,7 +464,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1073 | CLOSED @1632 | CONTINUOUS-HEAP-PROFILING-INTEGRATION-WITH-MEMRAY-AND-AUTOMATED-FLAMEGRAPH-GENERATION-MEMRAYPROFILE -- Continuous Heap Profiling Integration with Memray and Automated Flamegraph Generation (MemrayProfile) |
 | 1074 | CLOSED @1634 | KERNEL-EBPF-MEMORY-ALLOCATION-TRACER-AND-GLIBC-MEMORY-ARENA-COMPACTOR-ARENACOMPACTOR -- Kernel eBPF Memory Allocation Tracer and Glibc Memory Arena Compactor (ArenaCompactor) |
 | 1075 | CLOSED @1631 | TRANSACTIONAL-TASK-STATE-PAUSE-DRAIN-AND-RESUMPTION-ENGINE -- Transactional Task State Pause, Drain, and Resumption Engine |
-| 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
+| 1076 | CLOSED @1661 | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
 | 1077 | CLOSED @1660 | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
 | 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
 | 1079 | CLOSED @1651 | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
