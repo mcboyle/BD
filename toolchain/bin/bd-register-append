@@ -334,6 +334,49 @@ def _exclusive_register_lock(directory: Path):
             raise _PostReplaceOperationError(failures) from failures[0][1]
 
 
+def _duplicate_keys(item: str) -> list[tuple[str, str]]:
+    """Match reissues without treating ordinary shared words as duplicates."""
+    def normalize(value: str) -> str:
+        return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+    keys = [("title", normalize(item.split(" -- ", 1)[0]))]
+    acceptance = re.search(
+        r"\b(?i:ACCEPTANCE):\s*(.*?)(?=\s+[A-Z][A-Z0-9_-]*:|\Z)", item
+    )
+    if acceptance:
+        keys.append(("acceptance", normalize(acceptance[1])))
+        # Preserve the deployed dupcheck's acceptance-test identity check even
+        # when the surrounding prose changes.
+        keys.extend(
+            ("acceptance test", path)
+            for path in re.findall(
+                r"\btests/[A-Za-z0-9_][A-Za-z0-9_./-]*\.py\b", acceptance[1]
+            )
+        )
+    return [(kind, key) for kind, key in keys if key]
+
+
+def _assert_no_duplicates(text: str, proposed: list[tuple[int, str]]) -> None:
+    """Under the register lock, compare every status and earlier batch rows."""
+    seen: dict[tuple[str, str], int] = {}
+    for line in text.splitlines():
+        match = _ROW.fullmatch(line.strip())
+        if match:
+            for key in _duplicate_keys(match[3]):
+                seen.setdefault(key, int(match[1]))
+    for identity, line in proposed:
+        match = _ROW.fullmatch(line)
+        assert match is not None  # _load_request validated these rows.
+        keys = _duplicate_keys(match[3])
+        for key in keys:
+            if key in seen:
+                raise ValueError(
+                    f"duplicate proposed row {identity}: {key[0]} matches row {seen[key]}"
+                )
+        for key in keys:
+            seen.setdefault(key, identity)
+
+
 def append(repo: Path, request_path: Path, allow_gap: str | None = None) -> int:
     expected_digest, proposed = _load_request(request_path)
     register = repo / "project-knowledge" / "IMPROVEMENT_BACKLOG.md"
@@ -364,6 +407,8 @@ def append(repo: Path, request_path: Path, allow_gap: str | None = None) -> int:
                 raise ValueError(f"proposed row ID already exists: {min(overlap)}")
             if existing_ids and proposed_ids[0] <= max(existing_ids):
                 raise ValueError("proposed rows must use numeric insertion order after existing IDs")
+
+            _assert_no_duplicates(text, proposed)
 
             proposed_suffix = "".join(f"{row}\n" for _, row in proposed)
             appended = text + proposed_suffix

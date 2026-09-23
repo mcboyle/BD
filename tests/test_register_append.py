@@ -863,3 +863,73 @@ def test_help_describes_the_gap_declaration_interface() -> None:
     assert result.returncode == 0, result.stderr
     assert "--allow-gap" in result.stdout
     assert "REASON" in result.stdout
+
+
+@pytest.mark.parametrize("status", ["OPEN", "CLOSED @1359", "MOOT"])
+@pytest.mark.parametrize(
+    ("existing", "proposed", "reason"),
+    [
+        ("CACHE-PREFIX LOCK -- old detail", "cache prefix lock -- new detail", "title"),
+        (
+            "Old title -- ACCEPTANCE: Refuses stale input. DEPENDENCY: old",
+            "New title -- ACCEPTANCE: refuses stale input! DEPENDENCY: new",
+            "acceptance",
+        ),
+        (
+            "Old title -- ACCEPTANCE: tests/test_cache_lock.py verifies old wording",
+            "New title -- ACCEPTANCE: tests/test_cache_lock.py verifies new wording",
+            "acceptance test",
+        ),
+    ],
+)
+def test_h620_duplicate_refusal_is_atomic(
+    tmp_path: Path, status: str, existing: str, proposed: str, reason: str
+) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    text = register.read_text(encoding="ascii").replace(
+        "| 402 | CLOSED @1359 | preserved after |",
+        f"| 402 | {status} | {existing} |",
+    )
+    register.write_text(HEADER.sub(_marker(repo, text), text), encoding="ascii")
+    before = register.read_bytes()
+    allowlist = _write_allowlist(repo)
+    before_allowlist = allowlist.read_bytes()
+    request = tmp_path / "request.json"
+    _write_request(request, _request(repo, register, [f"| 405 | OPEN | {proposed} |"]))
+    result = _run(repo, request, "--allow-gap", "reserved sibling cuts")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "duplicate" in result.stderr
+    assert "405" in result.stderr and "402" in result.stderr
+    assert reason in result.stderr
+    assert register.read_bytes() == before
+    assert allowlist.read_bytes() == before_allowlist
+
+
+def test_h620_batch_duplicate_refuses_entire_publication(tmp_path: Path) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    before = register.read_bytes()
+    request = tmp_path / "request.json"
+    _write_request(request, _request(repo, register, [
+        "| 403 | OPEN | new title -- first details |",
+        "| 404 | OPEN | NEW-TITLE -- second details |",
+    ]))
+    result = _run(repo, request)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "duplicate" in result.stderr and "403" in result.stderr and "404" in result.stderr
+    assert register.read_bytes() == before
+
+
+def test_h620_novel_rows_with_distinct_acceptance_promote(tmp_path: Path) -> None:
+    repo, register = _fixture_repo(tmp_path)
+    request = tmp_path / "request.json"
+    rows = [
+        "| 403 | OPEN | new title -- ACCEPTANCE: rejects corrupt input |",
+        "| 404 | OPEN | another title -- ACCEPTANCE: accepts intact input |",
+        "| 405 | OPEN | punctuation-only acceptance -- ACCEPTANCE: ... |",
+        "| 406 | OPEN | no acceptance text -- ACCEPTANCE: ... |",
+    ]
+    _write_request(request, _request(repo, register, rows))
+    result = _run(repo, request)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert register.read_text(encoding="ascii").endswith("\n".join(rows) + "\n")
+    assert _derive(repo, register.read_text(encoding="ascii"))[0] == 6
