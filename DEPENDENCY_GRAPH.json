@@ -2414,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1798,
+    "edge_count": 1799,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2804,6 +2804,9 @@
       "bulk_downloader/browser_sentinel.py": [
         "bulk_downloader/cloak.py",
         "bulk_downloader/runner_browser.py"
+      ],
+      "bulk_downloader/buffer_ring_pool.py": [
+        "bulk_downloader/chunked_transfer.py"
       ],
       "bulk_downloader/bw_chart.py": [
         "bulk_downloader/app_bw_chart.py"
@@ -6251,6 +6254,7 @@
         "bulk_downloader/challenge_classify.py"
       ],
       "bulk_downloader/chunked_transfer.py": [
+        "bulk_downloader/buffer_ring_pool.py",
         "bulk_downloader/socket_tracker.py"
       ],
       "bulk_downloader/circuit_breaker.py": [

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5035,
+  "edge_count": 5039,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1003,6 +1003,7 @@
       "bulk_downloader/challenge_classify.py"
     ],
     "bulk_downloader/chunked_transfer.py": [
+      "bulk_downloader/buffer_ring_pool.py",
       "bulk_downloader/socket_tracker.py"
     ],
     "bulk_downloader/circuit_breaker.py": [
@@ -2449,6 +2450,7 @@
       "bulk_downloader/runner_transport.py"
     ],
     "tests/test_adaptive_chunk_sizing.py": [
+      "bulk_downloader/buffer_ring_pool.py",
       "bulk_downloader/chunked_transfer.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/ssrf_transport.py",
@@ -5272,6 +5274,10 @@
     "tests/test_row980_feature.py": [
       "bulk_downloader/adaptive_input_variance.py",
       "bulk_downloader/cloak.py"
+    ],
+    "tests/test_row982_feature.py": [
+      "bulk_downloader/buffer_ring_pool.py",
+      "bulk_downloader/chunked_transfer.py"
     ],
     "tests/test_row984_feature.py": [
       "bulk_downloader/cgroups_backpressure.py",
