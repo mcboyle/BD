@@ -1335,6 +1335,11 @@ class ExtractorsMixin:
                file_path=output_path, **history_title_kwargs(self, url))
         self.log_event("spa_api_done",
                        f"{height}p via {chosen.get('source')} (saw: {summary})", url=url)
+        # Row 1056: TelemetryMixin's workload feed is optional here, like the
+        # title harvester above -- a mixin host without it still completes.
+        record_completion = getattr(self, "record_transfer_completion", None)
+        if callable(record_completion):
+            record_completion(downloaded_size, time.monotonic() - _download_started)
         try:
             from .events import publish_download_completion
             publish_download_completion(

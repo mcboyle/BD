@@ -19,6 +19,13 @@ try:
 except ImportError:
     _HTTPX_AVAILABLE = False
 
+try:
+    from . import workload_bottleneck as _bottleneck
+    _BOTTLENECK_AVAILABLE = True
+except Exception:
+    _bottleneck = None
+    _BOTTLENECK_AVAILABLE = False
+
 
 class TelemetryMixin:
     def _fmt_dur(self, sec):
@@ -111,6 +118,33 @@ class TelemetryMixin:
         except Exception:
             pass
         return ev
+
+    def record_transfer_completion(self, bytes_fetched, duration_seconds):
+        """Row 1056: feed one completed file's wire throughput to the bottleneck detector.
+
+        Called from the per-file completion paths; the detector owns the rules
+        (no-byte files are not samples) and never raises: a sample it cannot
+        record is counted in its ingest_failures.
+        """
+        if not (_BOTTLENECK_AVAILABLE and _bottleneck is not None):
+            return
+        _bottleneck.get_bottleneck_detector().observe_completed_transfer(
+            bytes_fetched, duration_seconds, site_id=getattr(self, "site_id", None))
+
+    def record_workload_observation(self, metric_name, value, extra=None):
+        """Record an operational workload observation for automated bottleneck detection."""
+        if _BOTTLENECK_AVAILABLE and _bottleneck is not None:
+            detector = _bottleneck.get_bottleneck_detector()
+            detector.record_metric(metric_name, value, site_id=getattr(self, "site_id", None), extra=extra)
+
+    def check_workload_bottlenecks(self):
+        """Return active workload bottleneck anomalies detected for this runner/site."""
+        if _BOTTLENECK_AVAILABLE and _bottleneck is not None:
+            detector = _bottleneck.get_bottleneck_detector()
+            site_id = getattr(self, "site_id", None)
+            return [a for a in detector.get_active_anomalies() if a.site_id == site_id]
+        return []
+
     def get_events(self, after_seq=0, limit=200, url_filter=None, kind_filter=None):
         """Return events with seq > after_seq, optionally filtered by URL
         or kind. Used by /api/sites/<sid>/events for polling."""

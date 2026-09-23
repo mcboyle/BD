@@ -2829,7 +2829,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # v3.43.24: watchdog signal. Empty list = no problems;
                 # populated = at least one worker stuck >15min. UI shows
                 # a banner in the site card when non-empty.
-                "hung_workers": list(getattr(self, "_hung_workers", []))}
+                "hung_workers": list(getattr(self, "_hung_workers", [])),
+                # Row 1056: this site's recent workload bottleneck anomalies.
+                "workload_anomalies": [
+                    a.to_dict() for a in self.check_workload_bottlenecks()[-10:]]}
 
 
 

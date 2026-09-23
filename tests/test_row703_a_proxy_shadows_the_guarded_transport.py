@@ -83,10 +83,10 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # A proxy passed POSITIONALLY is not possible: httpx.Client takes no positional
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
-    "bulk_downloader/runner_telemetry.py:309",
-    "bulk_downloader/runner_transport.py:3317",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3307 after row 916
-    "bulk_downloader/runner_transport.py:3705",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3695 after row 916
-    "bulk_downloader/runner_transport.py:3937",  # row 1006 moved it (+10: deadline tiers above line 1226); was :3927 after row 916
+    "bulk_downloader/runner_telemetry.py:343",  # row 1056 moved it (+34: bottleneck import + feed methods above); was :309
+    "bulk_downloader/runner_transport.py:3322",  # row 1056 moved it (+5: guarded completion feed in _do_download); was :3317 after row 1006
+    "bulk_downloader/runner_transport.py:3710",  # row 1056 moved it (+5: guarded completion feed in _do_download); was :3705 after row 1006
+    "bulk_downloader/runner_transport.py:3942",  # row 1056 moved it (+5: guarded completion feed in _do_download); was :3937 after row 1006
 }
 
 

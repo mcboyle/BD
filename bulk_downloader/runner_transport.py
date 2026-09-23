@@ -2895,6 +2895,11 @@ class TransportMixin:
                 })
             except Exception as e:
                 sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
+            # Row 1056: TelemetryMixin's workload feed is optional here -- a
+            # lightweight TransportMixin host without it still completes.
+            record_completion = getattr(self, "record_transfer_completion", None)
+            if callable(record_completion):
+                record_completion(bytes_fetched, time.monotonic() - _download_started)
             try:
                 from .events import publish_download_completion
                 publish_download_completion(
