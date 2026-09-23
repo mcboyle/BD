@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=51 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=50 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -365,7 +365,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 974 | CLOSED @1624 | ASYNCHRONOUS-GATEWAY-MIGRATION-STARLETTE-FASTAPI-MODERN-ASGI-CUTOVER-ASGI-GATEWAY -- Asynchronous Gateway Migration & Starlette/FastAPI Modern ASGI Cutover (ASGI Gateway) |
 | 975 | CLOSED @1631 | ENTERPRISE-DISTRIBUTED-EVENT-STREAMING-CLIENT-MODERNIZATION-FASTSTREAM-AIOKAFKA -- Enterprise Distributed Event Streaming Client Modernization (faststream / aiokafka) |
 | 976 | OPEN | NATIVE-MEMORY-ALLOCATOR-RUNTIME-PROFILING-HEAP-ARENA-FRAGMENTATION-SUPPRESSOR-JEMALLOCPROFILE -- Native Memory Allocator Runtime Profiling & Heap Arena Fragmentation Suppressor (JemallocProfile) |
-| 977 | OPEN | ADAPTIVE-ROLLING-WINDOW-COMPACTION-FOR-LOCAL-TIME-SERIES-TELEMETRY -- Adaptive Rolling-Window Compaction for Local Time-Series Telemetry |
+| 977 | CLOSED @1640 | ADAPTIVE-ROLLING-WINDOW-COMPACTION-FOR-LOCAL-TIME-SERIES-TELEMETRY -- Adaptive Rolling-Window Compaction for Local Time-Series Telemetry -- MOOT-PREMISE (O1223; Q-row977-wire-or-moot-W9A.md; ORDERS-0017): premise anchor '# Future: add compaction for old data' absent on every base (cut-authored); compacted store has 0 product writers/readers, in-memory by default; REFUTED bd-worker-W9-A bd-cuts/cut/row977-telemetry-compaction/DONE.md |
 | 978 | CLOSED @1630 | ZERO-DOWNTIME-SCHEMA-MIGRATION-DDL-LOCKING-BARRIER -- Zero-Downtime Schema Migration & DDL Locking Barrier |
 | 979 | OPEN | ENTERPRISE-SCHEMA-VALIDATION-FAST-SERIALIZATION-RUNTIME-MIGRATION-MSGSPEC-PYDANTIC-V2 -- Enterprise Schema Validation & Fast Serialization Runtime Migration (msgspec & pydantic-v2) |
 | 980 | CLOSED @1635 | ADAPTIVE-INPUT-COORDINATE-VARIANCE-FOR-FORM-CONTROLS -- Adaptive Input Coordinate Variance for Form Controls |
