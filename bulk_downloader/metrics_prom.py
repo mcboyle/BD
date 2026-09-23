@@ -193,6 +193,19 @@ def render(s_cfg: Optional[dict] = None,
     except Exception:
         pass
 
+    # ── Row 1052: memory subsystem telemetry ─────────────────────────
+    # perf_lab has always measured RSS/threads/gc/tracemalloc, but only over the
+    # dev-suite HTTP surface, which a scraper never visits -- so a leak was
+    # visible in a debugging session and invisible to monitoring. Every reading
+    # carries a companion *_unknown gauge: a bare 0 for RSS is the most
+    # reassuring value for the most alarming state. Failure-isolated like every
+    # other block here.
+    try:
+        from . import prom_memory_metrics as _pmm
+        lines.extend(_pmm.render_lines())
+    except Exception:
+        pass
+
     # ── deep_detect live-mode counters (v3.66.12, roadmap P0.5) ──────
     # Shows whether the runner-integration features (P0) are firing
     # in production: budget-truncation, manifest-follow,
