@@ -66,6 +66,9 @@ class Construction:
     pinned: bool
     policy: str        # "pinned" | "public-only" | "shared-builder" | "" when unpinned
     evidence: str      # why it was judged pinned / unpinned
+    # H152: "none" | "explicit" (proxy= passed: httpx mounts its own proxy transport and the
+    # installed one is never entered while a proxy is set) | "unknown" (a **kwargs that may carry it)
+    proxy: str = "none"
 
     @property
     def where(self) -> str:
@@ -85,6 +88,16 @@ class Census:
     @property
     def pinned(self) -> Tuple[Construction, ...]:
         return tuple(c for c in self.constructions if c.pinned)
+
+    @property
+    def proxy_bypassed(self) -> Tuple[Construction, ...]:
+        """Pinned in the source, bypassed at runtime whenever the passed proxy= is set."""
+        return tuple(c for c in self.constructions if c.pinned and c.proxy == "explicit")
+
+    @property
+    def proxy_unknown(self) -> Tuple[Construction, ...]:
+        """Pinned, but a **kwargs splat may carry proxy= -- neither clean class."""
+        return tuple(c for c in self.constructions if c.pinned and c.proxy == "unknown")
 
     def per_file(self) -> dict:
         counts: dict = {}
@@ -240,6 +253,19 @@ def _judge(call: ast.Call, *, rel: str, enclosing: Tuple[ast.FunctionDef, ...],
     return False, "", "transport= is not the seam factory nor the shared builder's pin"
 
 
+# httpx keywords that route requests through a transport other than transport= (the same
+# set tests/test_row703_a_proxy_shadows_the_guarded_transport.py calls SHADOWING_KEYWORDS).
+SHADOWING_KEYWORDS = ("proxy", "proxies", "mounts")
+
+
+def _proxy_class(call: ast.Call) -> str:
+    if any(keyword.arg in SHADOWING_KEYWORDS for keyword in call.keywords):
+        return "explicit"
+    if any(keyword.arg is None for keyword in call.keywords):
+        return "unknown"
+    return "none"
+
+
 def constructions_in(rel: str, source: str) -> Tuple[Construction, ...]:
     """Every httpx client construction in one file's source, judged."""
     try:
@@ -262,7 +288,8 @@ def constructions_in(rel: str, source: str) -> Tuple[Construction, ...]:
                     pinned, policy, evidence = _judge(
                         child, rel=rel, enclosing=enclosing, seam_aliases=seam_aliases,
                         factory_names=factory_names, policy_names=policy_names)
-                    found.append(Construction(rel, child.lineno, kind, pinned, policy, evidence))
+                    found.append(Construction(rel, child.lineno, kind, pinned, policy, evidence,
+                                              _proxy_class(child)))
                 helper = _helper_kind(child, httpx_aliases, helper_names)
                 if helper is not None:
                     found.append(Construction(rel, child.lineno, helper, False, "", HELPER_EVIDENCE))
@@ -303,9 +330,18 @@ def verdict(root: Path) -> Tuple[str, str, Optional[Census]]:
             f"{len(result.unpinned)} of {len(result.constructions)} httpx client constructions "
             f"across {len(result.per_file())} files are NOT pinned through the guarded transport:\n  "
             + "\n  ".join(lines)), result
+    bypassed, unknown = result.proxy_bypassed, result.proxy_unknown
+    if not bypassed and not unknown:
+        return OK, (
+            f"{len(result.constructions)} constructions across {len(result.per_file())} files, "
+            f"all pinned"), result
+    lines = [f"{c.where} {c.kind} {c.policy} proxy={'explicit' if c.proxy == 'explicit' else 'UNKNOWN'}"
+             for c in bypassed + unknown]
     return OK, (
-        f"{len(result.constructions)} constructions across {len(result.per_file())} files, "
-        f"all pinned"), result
+        f"{len(result.constructions)} constructions across {len(result.per_file())} files: "
+        f"{len(result.constructions) - len(bypassed) - len(unknown)} pinned unconditionally, "
+        f"{len(bypassed)} transport-bypassed when proxy= is set, "
+        f"{len(unknown)} proxy UNKNOWN (**kwargs may carry proxy=):\n  " + "\n  ".join(lines)), result
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
@@ -316,7 +352,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     state, detail, result = verdict(Path(args.root).resolve())
     if result is not None:
         for c in result.constructions:
-            print(f"{'PINNED  ' if c.pinned else 'UNPINNED'} {c.where} {c.kind} {c.policy or '-'} {c.evidence}")
+            tag = {"none": "", "explicit": " proxy=explicit"}.get(c.proxy, " proxy=UNKNOWN")
+            print(f"{'PINNED  ' if c.pinned else 'UNPINNED'} {c.where} {c.kind} {c.policy or '-'} {c.evidence}{tag}")
     print(f"{state}: {detail}")
     return {OK: 0, FAIL: 1}.get(state, 2)
 
