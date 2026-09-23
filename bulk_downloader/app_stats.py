@@ -7,7 +7,7 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
-from .db import db_conn
+from .db import db_read_conn
 from .db import db_stats
 
 stats_bp = Blueprint("stats", __name__)
@@ -47,7 +47,7 @@ def api_stats_timeline():
                    COALESCE(SUM(file_size),0) AS bytes
               FROM history {where}
              GROUP BY day ORDER BY day"""
-    with db_conn() as cx:
+    with db_read_conn() as cx:
         rows=[dict(r) for r in cx.execute(sql,args)]
     return jsonify({"days":days,"site_id":sid,"buckets":rows})
 

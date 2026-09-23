@@ -769,7 +769,7 @@ class _HistoryConnection(sqlite3.Connection):
         self._force_close()
 
 
-def _open_history_conn(path=None):
+def _open_history_conn(path=None, *, check_same_thread=True):
     """v3.66.795 (MOD-3 cut 1): THE single history-DB connection point.
 
     Every history-DB connection in the app is created here. MOD-3 migrates this
@@ -795,7 +795,8 @@ def _open_history_conn(path=None):
     escape dual-write when the Postgres migration lands.
     """
     cx = sqlite3.connect(
-        path or _resolve_db_path(), timeout=10.0, factory=_HistoryConnection)
+        path or _resolve_db_path(), timeout=10.0, factory=_HistoryConnection,
+        check_same_thread=check_same_thread)
     cx.row_factory = sqlite3.Row
     # v3.43.13 / v3.47.1: SQLite contention fix.
     #
@@ -1155,6 +1156,83 @@ def db_conn(path=None):
 def tune_history_conn(conn, profile=TuningProfile.BALANCED):
     """Tune SQLite connection with zero-copy mmap_size and optimal page cache."""
     return auto_tune_connection(conn, profile=profile)
+
+
+# ── Row 1010: Segregated Reader/Writer Connection Pools ─────────────────────
+_SEGREGATED_POOLS = {}
+_SEGREGATED_POOLS_LOCK = _threading.Lock()
+
+
+def get_segregated_pool(path=None):
+    """Retrieve or create the segregated reader/writer connection pool for the path.
+
+    Keyed like ``db_conn``'s idle handle: a process fork, a dual-write toggle, or
+    a restore that swaps the database file retires the pool, so no pooled handle
+    keeps reading or writing a replaced inode. Leases already out finish on the
+    retired pool; their connections close on release.
+    """
+    target = path or _resolve_db_path()
+    target_key = _os.path.abspath(_os.fspath(target))
+    identity = _history_file_identity(target_key)
+    with _SEGREGATED_POOLS_LOCK:
+        entry = _SEGREGATED_POOLS.get(target_key)
+        pool = None
+        if entry is not None:
+            (pid, dual, ident), pool = entry
+            stale = (
+                pool._closed
+                or pid != _os.getpid()
+                or dual != pg_backend.dual_write_enabled()
+                or (ident is not None and ident != identity)
+            )
+            if stale:
+                pool.retire()
+                pool = None
+            elif ident is None and identity is not None:
+                # The first lease created the file; bind the pool to it.
+                _SEGREGATED_POOLS[target_key] = (
+                    (pid, dual, identity), pool)
+        if pool is None:
+            from bulk_downloader.connection_pool import SegregatedConnectionPool
+
+            def _conn_factory():
+                # Row 1010 (N6-A E2): pooled handles are leased to whichever thread
+                # asks next; a lease is exclusive (writer semaphore, reader active set).
+                return _open_history_conn(target, check_same_thread=False)
+
+            pool = SegregatedConnectionPool(
+                target_key,
+                connector=_conn_factory,
+                reader_connector=_conn_factory,
+            )
+            _SEGREGATED_POOLS[target_key] = (
+                (_os.getpid(), pg_backend.dual_write_enabled(), identity), pool)
+        return pool
+
+
+@contextmanager
+def db_read_conn(path=None):
+    """Lease a dedicated read-only connection from the segregated pool."""
+    pool = get_segregated_pool(path=path)
+    with pool.acquire_reader() as conn:
+        yield conn
+
+
+@contextmanager
+def db_write_conn(path=None):
+    """Lease the serialized writer connection; commit on exit, roll back on error.
+
+    Same transaction boundary as ``db_conn``: the pooled writer outlives the
+    block, so an uncommitted transaction must not leak into the next lease.
+    """
+    pool = get_segregated_pool(path=path)
+    with pool.acquire_writer() as conn:
+        try:
+            yield conn
+        except BaseException:
+            conn.rollback()
+            raise
+        conn.commit()
 
 
 # ── v3.48 (#22): Slow-query log ─────────────────────────────────────────
