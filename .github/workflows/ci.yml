@@ -234,7 +234,7 @@ jobs:
           elif v not in hdr: bad.append(f"CHANGELOG.md: top entry does not name {v}: {hdr.strip()!r}")
           pins=subprocess.run(["grep","-rnE",f'__version__ *== *"{v}"',"tests/"],
                               capture_output=True,text=True).stdout.strip()
-          if not pins: bad.append(f"tests/: no test pins __version__ == {v!r} (tests/test_settings_center_slice4.py)")
+          if not pins: bad.append(f"tests/: no test pins __version__ == {v!r} (settings-center slice4 pin test)")
           vp=[e for e in json.load(open('PIN_INDEX.json',encoding='utf-8')).get('pins',[]) if e.get('form')=='version']
           if not vp: bad.append("PIN_INDEX.json: no form=version pin")
           bad+=[f"PIN_INDEX.json: version pin {e.get('file')}:{e.get('line')} = {e.get('value')!r}, not {v!r}" for e in vp if e.get('value')!=v]
