@@ -222,18 +222,28 @@ jobs:
       - name: Version pin coherence
         run: |
           python - <<'PY'
-          import re,sys,subprocess
+          # H668: a bump touches FIVE carriers (toolchain/bin/bd-land-trio PATHS). Check every one and report EVERY
+          # mismatch in one run -- exiting on the first cost one CI cycle per missing file (run 35758385351).
+          import json,re,sys,subprocess
           v=re.search(r'__version__\s*=\s*"([^"]+)"',open('bulk_downloader/__init__.py').read()).group(1)
           print("__version__ =",v)
+          bad=[]
           # the subject is the FIRST '## ' header, wherever it sits -- not a fixed line window
           hdr=next((l for l in open('CHANGELOG.md',encoding='utf-8') if l.startswith('## ')),None)
-          if hdr is None: sys.exit("::error::no '## ' version header in CHANGELOG.md")
-          if v not in hdr: sys.exit(f"::error::CHANGELOG top entry does not name {v}: {hdr.strip()!r}")
+          if hdr is None: bad.append("CHANGELOG.md: no '## ' version header")
+          elif v not in hdr: bad.append(f"CHANGELOG.md: top entry does not name {v}: {hdr.strip()!r}")
           pins=subprocess.run(["grep","-rnE",f'__version__ *== *"{v}"',"tests/"],
                               capture_output=True,text=True).stdout.strip()
-          if not pins: sys.exit(f"::error::no test pins {v} -- a bump is three edits together (CLAUDE.md 3)")
+          if not pins: bad.append(f"tests/: no test pins __version__ == {v!r} (tests/test_settings_center_slice4.py)")
+          vp=[e for e in json.load(open('PIN_INDEX.json',encoding='utf-8')).get('pins',[]) if e.get('form')=='version']
+          if not vp: bad.append("PIN_INDEX.json: no form=version pin")
+          bad+=[f"PIN_INDEX.json: version pin {e.get('file')}:{e.get('line')} = {e.get('value')!r}, not {v!r}" for e in vp if e.get('value')!=v]
+          vc=json.load(open('project-knowledge/STATIC_KB_MANIFEST.json',encoding='utf-8')).get('version_context')
+          if vc!="v"+v: bad.append(f"project-knowledge/STATIC_KB_MANIFEST.json: version_context {vc!r}, not {'v'+v!r}")
+          for b in bad: print(f"::error::{b}")
+          if bad: sys.exit(f"{len(bad)} version carrier mismatch(es) against __version__ {v} -- a bump is five carriers together (CLAUDE.md A6)")
           print("pinned by:"); print(pins)
-          print("version pins coherent")
+          print("version pins coherent across all five carriers")
           PY
 
       - name: Guard files unchanged

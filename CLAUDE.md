@@ -143,7 +143,7 @@ Report completed measurements, not estimates. Verify summary lines against raw e
 
 ## A6 | Release and deployment
 
-Integrator stamps release trio at land with `toolchain/bin/bd-land-trio`. Worker patches and `DONE.md` never carry trio or `PIN_INDEX.json` edits; assembler refuses worker patch touching those paths. Version bump = three source edits together: `bulk_downloader/__init__.py` sets `__version__`; `tests/test_settings_center_slice4.py` pins exact value; ASCII-only `CHANGELOG.md` entry prepended, anchored on previous release header. Then regenerate + inspect `PIN_INDEX.json`; don't assume pin count/location. Run version, changelog, generated, release, frontend, packaging gates against final candidate.
+Integrator stamps release trio at land with `toolchain/bin/bd-land-trio`. Worker patches and `DONE.md` never carry trio or `PIN_INDEX.json` edits; assembler refuses worker patch touching those paths. Version bump = five carriers together (`bd-land-trio` PATHS; CI `Version pin coherence` checks all five and reports every mismatch): `bulk_downloader/__init__.py` sets `__version__`; `tests/test_settings_center_slice4.py` pins exact value; ASCII-only `CHANGELOG.md` entry prepended, anchored on previous release header; regenerated `PIN_INDEX.json` version pin and `project-knowledge/STATIC_KB_MANIFEST.json` `version_context`. Inspect `PIN_INDEX.json`; don't assume pin count/location. Run version, changelog, generated, release, frontend, packaging gates against final candidate.
 
 Environment = `venv` (not `.venv`); use `venv/bin/python`, never fall through to system interpreter.
 
