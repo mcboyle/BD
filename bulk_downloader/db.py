@@ -2640,6 +2640,18 @@ def db_vacuum():
     except Exception: return False
     finally: cx.close()
 
+
+def db_stabilize_statistics() -> dict:
+    """Automated SQLite statistics index stabilization & query plan optimization (Row 1012)."""
+    from .query_plan_stabilizer import StatisticsIndexStabilizer
+    cx = _open_history_conn()
+    try:
+        stabilizer = StatisticsIndexStabilizer()
+        return stabilizer.stabilize_database(cx)
+    finally:
+        cx.close()
+
+
 # ─── QUEUE PERSISTENCE (Phase 4.2) ─────────────────────────────────────────
 
 def queue_load(site_id):

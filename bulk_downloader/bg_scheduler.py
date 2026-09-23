@@ -251,6 +251,17 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
     register("sqlite.idle_freelist_maintenance", _run_sqlite_freelist_maintenance,
              interval_seconds=3600)
 
+    # Query planner statistics (Row 1012): ANALYZE + PRAGMA optimize once a day,
+    # only in an idle window (ANALYZE reads every index and takes the write lock).
+    def _run_sqlite_stabilize_statistics():
+        if not is_idle():
+            return {"ok": True, "skipped": "not idle"}
+        from . import db as _db
+        return _db.db_stabilize_statistics()
+
+    register("sqlite.stabilize_statistics", _run_sqlite_stabilize_statistics,
+             interval_seconds=86400)
+
     # Saved searches: re-run due queries every 5 minutes; the
     # schedule field inside each search controls how often it
     # actually fires (hourly/daily/weekly/manual).
