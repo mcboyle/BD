@@ -45,6 +45,10 @@ Optional:
   allowed_ips (str)        - default "0.0.0.0/0,::/0"
   persistent_keepalive (int) - default 25
   mtu (int)                - usually omit; let wg pick
+  endpoint_mtu (int)       - path MTU of the underlay toward the peer; when set, the
+                             interface MTU is capped at endpoint_mtu minus WireGuard
+                             overhead (pmtu_sentry) so full-size segments are not
+                             black-holed on a small underlay
 
 # Cross-platform
 
@@ -355,6 +359,11 @@ def render_conf(cfg: dict) -> str:
     mtu = cfg.get("mtu")
     if mtu:
         mtu_int = int(mtu)  # raises if non-int
+    endpoint_mtu = cfg.get("endpoint_mtu")
+    if endpoint_mtu:
+        from .pmtu_sentry import wireguard_interface_mtu
+        mtu_int = wireguard_interface_mtu(int(endpoint_mtu), mtu_int if mtu else None)
+        mtu = mtu_int
     psk = cfg.get("preshared_key")
     if psk:
         psk = _reject_injection("preshared_key", psk)
