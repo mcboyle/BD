@@ -44,9 +44,10 @@ def _workflow() -> dict:
 
 
 def _shards() -> dict[str, list[str]]:
-    job = _workflow()["jobs"]["gate-suites"]
-    include = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or []
-    return {e["name"]: str(e.get("suites", "")).split() for e in include}
+    """{shard: [suites]} as CI resolves them (O1264 d): ci.yml carries names
+    only; tools/ci_shards.py owns membership and the run step invokes it."""
+    from tools import ci_shards
+    return ci_shards.shards(ROOT)
 
 
 def _delegates_to_vitest(rel: str, root: pathlib.Path | None = None) -> bool:

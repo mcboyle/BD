@@ -63,56 +63,17 @@ def test_historical_ratchets_and_old_contract_names_are_physically_absent():
     assert not bad, f"retired test authority returned: {bad}"
 
 
-def _suites_in(text: str) -> set[str]:
-    """Suites CI will ACTUALLY RUN, read line-aware from the workflow.
-
-    WHY NOT `workflow.count(path)`. That counted a COMMENTED mention. Measured
-    2026-08-24: turning
-        `              tests/test_t1_dashboard_wired.py`
-    into
-        `              # tests/test_t1_dashboard_wired.py`
-    -- two characters -- de-wires a required live-contract test from CI while
-    this gate, whose entire job is proving it IS wired, stays green. CLAUDE.md
-    A5's "a gate CI does not run does not exist", defeated by the gate written
-    to prevent it.
-
-    WHY NOT yaml.safe_load EITHER, which was this fix's first draft. `suites`
-    is a FOLDED scalar (`>-`), and inside a folded scalar `#` is ordinary text,
-    not a comment -- so the loader returns the path plus a stray `#` token and
-    the evasion survives structural parsing. The evasion fixture below caught
-    that draft, which is precisely why the fixture ships with the fix.
-
-    So: find each `suites:` block, take its indented continuation lines, and
-    drop what a shell/YAML reader would treat as commented on EACH LINE before
-    tokenising. Line structure is the thing that matters here, and folding
-    destroys it -- so it is read before the fold.
-    """
-    lines = text.splitlines()
-    suites: set[str] = set()
-    i = 0
-    while i < len(lines):
-        stripped = lines[i].strip()
-        if stripped.startswith("suites:"):
-            base = len(lines[i]) - len(lines[i].lstrip())
-            j = i + 1
-            while j < len(lines):
-                raw = lines[j]
-                if not raw.strip():
-                    j += 1
-                    continue
-                if (len(raw) - len(raw.lstrip())) <= base:
-                    break
-                live = raw.split("#", 1)[0]
-                suites.update(tok for tok in live.split() if tok.endswith(".py"))
-                j += 1
-            i = j
-            continue
-        i += 1
-    return suites
-
-
 def _ci_wired_suites() -> set[str]:
-    return _suites_in((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    """Suites CI will ACTUALLY RUN.
+
+    O1264(d)/O1265(g) 2026-09-23: ci.yml carries shard NAMES only, so the
+    two-character de-wiring this gate was built against (a `#` in front of a
+    `suites:` line) has no line to land on. Wiring is now decided by
+    tools/ci_shards.py from each file's own BD_GATE_SCOPE marker (or the closed
+    legacy set), and the run step invokes that resolver -- so ask it.
+    """
+    from tools import ci_shards
+    return {suite for suites in ci_shards.shards(ROOT).values() for suite in suites}
 
 
 def test_current_behavior_contracts_are_tracked_and_directly_ci_wired():
@@ -128,24 +89,24 @@ def test_current_behavior_contracts_are_tracked_and_directly_ci_wired():
     assert not missing, f"current contract not wired in CI: {missing}"
 
 
-def test_a_commented_out_ci_wiring_line_does_not_count_as_wired():
-    """EVASION FIXTURE for the two-character de-wiring.
+def test_a_commented_out_gate_marker_does_not_count_as_wired():
+    """EVASION FIXTURE, moved to the seam that now decides wiring.
 
-    The original textual gate passed on this input, and so did the first
-    structural draft of the fix. It ships so that any future edit which
-    reintroduces either shape goes RED here."""
-    source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    The original two-character evasion commented out a ci.yml suites line.
+    That line no longer exists (O1264 d); the equivalent evasion is a `#` in
+    front of the file's BD_GATE_SCOPE marker, which turns a declared gate into
+    an undeclared file the resolver never schedules. The reader must answer
+    from the executed assignment, not from the marker's text being present."""
+    from tools import ci_shards
+    live = 'import os\nBD_GATE_SCOPE = "repo-wide"\n'
+    assert ci_shards.gate_scope(live) == "repo-wide", "the live marker is not read"
+    evaded = live.replace('BD_GATE_SCOPE', '# BD_GATE_SCOPE', 1)
+    assert 'BD_GATE_SCOPE' in evaded, "the commented form no longer names the marker"
+    assert ci_shards.gate_scope(evaded) is None, (
+        "a commented-out BD_GATE_SCOPE marker still reads as a declared gate")
     victim = sorted(DIRECT)[0]
-    assert victim in _suites_in(source), (
+    assert victim in _ci_wired_suites(), (
         f"{victim} is not wired to begin with; this fixture has no subject")
-    evaded = source.replace("              " + victim,
-                            "              # " + victim, 1)
-    assert evaded != source, "could not build the evasion fixture"
-    assert evaded.count(victim) >= 1, (
-        "the commented form no longer contains the path, so this fixture is "
-        "not reproducing the evasion it exists to pin")
-    assert victim not in _suites_in(evaded), (
-        f"a commented-out CI wiring line still reads as wired for {victim}")
 
 
 def test_skip_baseline_is_exact_identity_reason_data_not_a_count():

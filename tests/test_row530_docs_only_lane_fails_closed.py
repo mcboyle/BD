@@ -460,6 +460,9 @@ def test_this_gate_is_declared_and_scheduled_in_ci():
     spec.loader.exec_module(gate)
     assert THIS in gate._DECLARED, (
         "%s is not in the derived _DECLARED set" % THIS)
-    assert THIS in CI.read_text(encoding="utf-8"), (
+    # O1264(d): ci.yml carries shard names only; membership is what
+    # tools/ci_shards.py resolves for this tree (the run step invokes it).
+    from tools import ci_shards
+    assert any(THIS in files for files in ci_shards.shards(REPO).values()), (
         "%s is in no workflow shard, so it would leave a green tick having never run"
         % THIS)

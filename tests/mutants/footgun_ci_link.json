@@ -23,10 +23,10 @@
       "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_an_inactive_footgun_contributes_no_subject"
     },
     {
-      "label": "M3 DELETION TEST: one adopted suite is taken back out of the shard",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_route_map_invariant.py\n",
-      "new": "              tests/test_route_map_invariant_REMOVED_BY_THE_MUTANT.py\n",
+      "label": "M3 DELETION TEST: one adopted suite is taken back out of the shard (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_route_map_invariant.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_footgun_detectors_are_executed_by_ci.py::test_every_active_footgun_test_subject_is_executed_by_some_ci_job"
     },

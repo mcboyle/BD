@@ -38,13 +38,10 @@ def _require_one_version_pin(pins):
 
 
 def _workflow_suites():
-    workflow = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
-    matrix = workflow["jobs"]["gate-suites"]["strategy"]["matrix"]["include"]
-    return {
-        shard["name"]: shard["suites"].split()
-        for shard in matrix
-        if "suites" in shard
-    }
+    """{shard: [suites]} as CI resolves them (O1264 d): ci.yml carries names
+    only; tools/ci_shards.py owns membership and the run step invokes it."""
+    from tools import ci_shards
+    return ci_shards.shards(_REPO)
 
 
 def test_live_tree_has_the_one_authoritative_ast_version_pin():

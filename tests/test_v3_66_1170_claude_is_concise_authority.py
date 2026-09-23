@@ -249,15 +249,15 @@ def _ci_pytest_denominator(root: Path = ROOT) -> tuple[set[str], int]:
     named: set[str] = set()
     directory_args = 0
 
-    # (a) the gate-suite matrix: every `suites` value is a whitespace list of
-    #     paths handed to pytest through ${{ matrix.suites }}.
-    for job in (workflow.get("jobs") or {}).values():
-        include = ((job.get("strategy") or {}).get("matrix") or {}).get("include") or []
-        for entry in include:
-            if "suites" in entry:
-                for token in str(entry["suites"]).split():
-                    (named.add(token) if token.endswith(".py") else None)
-                    directory_args += len(_DIRECTORY_ARG.findall(token))
+    # (a) the gate-suite matrix: ci.yml carries shard names only (O1264 d);
+    #     the paths pytest receives are resolved by tools/ci_shards.py, so the
+    #     enumerated denominator is that resolver's union -- still a list of
+    #     named files, never a directory.
+    from tools import ci_shards
+    for files in ci_shards.shards(root).values():
+        for token in files:
+            (named.add(token) if token.endswith(".py") else None)
+            directory_args += len(_DIRECTORY_ARG.findall(token))
 
     # (b) every `run:` step that invokes pytest directly. Shell comment lines
     #     inside the block scalar are NOT arguments and are excluded here --
@@ -368,6 +368,13 @@ def test_a_name_in_a_comment_is_not_an_argument_to_pytest():
     named, _ = _ci_pytest_denominator()
     raw = (ROOT / CI_WORKFLOW).read_text(encoding="utf-8")
     text_needle = set(_TEST_PATH.findall(raw))
+    # O1264(d): the gate-suites paths are resolved by tools/ci_shards.py and are
+    # not in ci.yml's text at all, so the text/parse comparison is made over
+    # what ci.yml itself names -- the independent jobs' run steps.
+    from tools import ci_shards
+    resolved = {f for files in ci_shards.shards(ROOT).values() for f in files}
+    assert resolved, "the resolver schedules nothing, so this control has no subject"
+    named -= resolved
     assert named <= text_needle, (
         f"parse found arguments the text needle cannot see: {sorted(named - text_needle)}"
     )

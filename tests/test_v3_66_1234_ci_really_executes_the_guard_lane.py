@@ -562,12 +562,14 @@ _BENIGN_VARIANTS = {
         PULL_REQUEST,
         PULL_REQUEST + "    types: [opened, synchronize, reopened, ready_for_review]\n"),
     # An additional push branch. Narrowing is the hazard; adding is not.
-    # O934.1 (process-test-shard) added 'train/**' to the real anchor so a
-    # release train's push triggers the nightly-equivalent full-tree job;
-    # this fixture's anchor tracks that literal text, same as ci.yml's own.
+    # O1264/O1265 (one CI run per head) reduced the live push trigger to
+    # `branches: [main]` -- a PR head is run once, by pull_request, and never
+    # a second time by a branch push. This fixture's anchor tracks that
+    # literal text, same as ci.yml's own; the variant still proves the model
+    # accepts a WIDENED push trigger rather than crying wolf on it.
     "extra-push-branch": lambda: _rewrite(
-        "  push:\n    branches: [main, 'train/**']\n",
-        "  push:\n    branches: [main, 'train/**', release]\n"),
+        "  push:\n    branches: [main]\n",
+        "  push:\n    branches: [main, release]\n"),
 }
 
 

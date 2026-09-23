@@ -17,42 +17,42 @@
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     },
     {
-      "label": "M2 CI omits the prune-link owner",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_a_prune_repairs_only_the_links_it_broke.py\n",
-      "new": "              # mutant: omit the prune-link owner\n",
+      "label": "M2 CI omits the prune-link owner (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_a_prune_repairs_only_the_links_it_broke.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     },
     {
-      "label": "M3 CI omits the skip-identity owner",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_a_skip_must_prove_it_is_the_same_work.py\n",
-      "new": "              # mutant: omit the skip-identity owner\n",
+      "label": "M3 CI omits the skip-identity owner (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_a_skip_must_prove_it_is_the_same_work.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     },
     {
-      "label": "M4 CI omits the dedup-preflight owner",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py\n",
-      "new": "              # mutant: omit the dedup-preflight owner\n",
+      "label": "M4 CI omits the dedup-preflight owner (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     },
     {
-      "label": "M5 CI omits the whole-result skip-arm owner",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_row545_the_skip_arm_carries_its_whole_result.py\n",
-      "new": "              # mutant: omit the whole-result skip-arm owner\n",
+      "label": "M5 CI omits the whole-result skip-arm owner (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_row545_the_skip_arm_carries_its_whole_result.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     },
     {
-      "label": "M6 CI omits the real-transfer history owner",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_row607_a_history_row_proves_a_real_transfer.py\n",
-      "new": "              # mutant: omit the real-transfer history owner\n",
+      "label": "M6 CI omits the real-transfer history owner (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_row607_a_history_row_proves_a_real_transfer.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_db_prune_safety_family_is_reachable_from_ci"
     }

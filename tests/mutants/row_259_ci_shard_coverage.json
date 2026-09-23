@@ -8,10 +8,10 @@
   ],
   "mutants": [
     {
-      "label": "M1 THE DEFECT RESTORED: remove the live-response safety gate from its CI shard while leaving it declared",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_v3_66_1009_live_results_are_bundled.py\n",
-      "new": "              # mutant: omit the live-response logging safety gate\n",
+      "label": "M1 THE DEFECT RESTORED: remove the live-response safety gate from its CI shard while leaving it declared (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_v3_66_1009_live_results_are_bundled.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
     }

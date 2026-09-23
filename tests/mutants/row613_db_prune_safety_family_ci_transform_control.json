@@ -7,10 +7,10 @@
   ],
   "mutants": [
     {
-      "label": "TC1 CI removal escapes an import-only control",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_a_prune_repairs_only_the_links_it_broke.py\n",
-      "new": "              # mutant: omit the prune-link owner\n",
+      "label": "TC1 CI removal escapes an import-only control (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_a_prune_repairs_only_the_links_it_broke.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_transform_control_imports_gate_without_judging_db_prune_reachability"
     }

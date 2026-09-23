@@ -209,9 +209,24 @@ def test_executable_pytest_test_case_generation_and_offline_run(tmp_path: Path):
 
 
 def test_ci_workflow_wiring():
-    """Remedy E4: Verify tests/test_row919.py is wired into .github/workflows/ci.yml."""
+    """Remedy E4: Verify tests/test_row919.py is wired into CI's gate-suites.
+
+    O1264(d): .github/workflows/ci.yml carries shard NAMES only; the run step
+    resolves each shard's files through tools/ci_shards.py, so the wiring
+    question is answered by the resolver, not by the workflow's text. The
+    resolved shard must also be a matrix entry, or it is scheduled nowhere.
+    """
     assert _CI_YML.is_file(), f"Missing {_CI_YML}"
-    ci_text = _CI_YML.read_text(encoding="utf-8")
-    assert "tests/test_row919.py" in ci_text, (
-        "tests/test_row919.py is not wired into .github/workflows/ci.yml"
+    import yaml
+    from tools import ci_shards
+    me = "tests/test_row919.py"
+    shards = [name for name, files in ci_shards.shards(_ROOT).items() if me in files]
+    assert len(shards) == 1, (
+        f"{me} is resolved into {len(shards)} gate-suites shard(s) by "
+        "tools/ci_shards.py; it must be in exactly one or it runs nowhere / twice"
+    )
+    wf = yaml.safe_load(_CI_YML.read_text(encoding="utf-8"))
+    matrix = wf["jobs"]["gate-suites"]["strategy"]["matrix"]["include"]
+    assert any(e.get("name") == shards[0] for e in matrix), (
+        f"resolver shard {shards[0]!r} is not a gate-suites matrix entry in {_CI_YML}"
     )

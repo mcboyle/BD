@@ -33,10 +33,10 @@
       "catcher": "tests/test_capture_execution_lanes.py::test_recognizer_corpus_partition_has_five_parallel_loadfile_units"
     },
     {
-      "label": "M4 remove shard D from its CI shard, dropping it from the denominator",
-      "file": ".github/workflows/ci.yml",
-      "old": "              tests/test_recognizer_corpus_shard_d.py\n",
-      "new": "              # mutant: shard D is not scheduled\n",
+      "label": "M4 remove shard D from its CI shard, dropping it from the denominator (O1264: ci.yml carries names only; the omission lives in tools/ci_shards.py)",
+      "file": "tools/ci_shards.py",
+      "old": "    return declared | family\n",
+      "new": "    return (declared | family) - {\"tests/test_recognizer_corpus_shard_d.py\"}\n",
       "direction": "regression",
       "catcher": "tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py::test_declared_and_ci_executed_gate_denominators_are_exact"
     }

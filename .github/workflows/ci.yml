@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'train/**']
+    branches: [main]
   pull_request:
   schedule:
     - cron: '17 3 * * *'
@@ -385,547 +385,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # O1264(d)/O1265(g) 2026-09-23: NAMES ONLY. Membership is resolved at run
+          # time by tools/ci_shards.py from the declared gate census (BD_GATE_SCOPE
+          # markers + the two literal sets in tests/test_v3_66_939_*), so a new gate
+          # joins a shard by declaring itself and this file never gains a per-row
+          # line (ci.yml was the one path every stacked train collided on).
+          # tests/test_ci_shards.py asserts this list == `ci_shards.py names` and
+          # test_v3_66_939 asserts the resolved partition covers every declared gate
+          # exactly once. Node is provisioned for parity-graph only, Chromium for
+          # download-chain only; application-safety is the H686 quarantine.
           - name: version-at-land
-            suites: >-
-              tests/test_row_version_at_land.py
-          - name: toolchain
-            suites: >-
-              tests/test_row919.py
-              tests/test_row698_corpus_guard_execution.py
-              tests/test_row678_bandcheck_exclusion_tables.py
-              tests/test_row724_preflight_bandcheck_counts_failures.py
-              tests/test_row744_guard_declare_wording_matches_repin_rule.py
-              tests/test_row745_tool_lint_receipt_counts_what_it_read.py
-              tests/test_bd_tool_lint_unreadable_modes.py
-              tests/test_row746_bandcheck_empty_target_is_refused.py
-              tests/test_row747_bd_band_delegation_is_guarded.py
-              tests/test_row677_bandcheck_missing_is_unknown.py
-              tests/test_v3_66_1172_nested_freshness_and_legacy_retirement.py
-              tests/test_templates_list_identity.py
-              tests/test_row323_census_pins_declare_expiry.py
-              tests/test_v3_66_1179_frontend_secret_regen_is_canonical.py
-              tests/test_row354_capture_verdict_separates_an_inapplicable_pin.py
-              tests/test_v3_66_1160_bridge_verifier_isolation.py
-              tests/test_row350_job_api_durable_truth.py
-              tests/test_v3_66_1165_one_agent_contract.py
-              tests/test_v3_66_1167_safety_authorities_are_single_source.py
-              tests/test_v3_66_1177_ai_boot_observation_is_bounded.py
-              tests/test_v3_66_1166_historical_docs_are_adjudicated.py
-              tests/test_v3_66_1191_the_sweep_cannot_take_a_live_run.py
-              tests/test_v3_66_1178_orphan_tempfiles_are_recursive.py
-              tests/test_v3_66_1164_one_task_authority.py
-              tests/test_row496_deferral_intake_reconciles_backlog.py
-              tests/test_v3_66_1052_the_backlog_is_machine_visible.py
-              tests/test_register_archive_holds_the_moved_rows.py
-              tests/test_register_archive_frozen_pre_move_set.py
-              tests/test_frontend_secret_keys_in_sync.py
-          - name: toolchain-deep
-            suites: >-
-              tests/test_row469_toolchain_auditor_denominators_reconcile.py
-              tests/test_row469_toolchain_denominator_import_control.py
-              tests/test_v3_66_1174_defect_suppressions_are_ast_bound.py
-              tests/test_v3_66_1161_context_census_is_retired.py
-              tests/test_row345_opv_a11y_requires_served_cockpit.py
-              tests/test_row_282_bd_opv_isolates_every_store.py
-              tests/test_v3_66_1168_tests_are_current_contracts.py
-              tests/test_v3_66_1162_canonical_full_suite_uses_fixed_n24.py
-              tests/test_row353_mutant_anchors_survive_a_moved_census.py
-              tests/test_v3_66_1169_openapi_has_one_producer.py
-              tests/test_v3_66_1171_backlog_truth_is_current.py
-              tests/test_register_append.py
-              tests/test_v3_66_1170_claude_is_concise_authority.py
-              tests/test_defect_scan_precision.py
-              tests/test_v3_66_1173_gate_scope_debt_is_paid.py
-              tests/test_register_closed_versions_exist.py
-              tests/test_v3_66_1256_regen_order_selftest_has_an_independent_denominator.py
-              tests/test_v3_66_1157_build_output_is_from_this_attempt.py
-              tests/test_v3_66_1255_backlog_references_resolve.py
-              tests/test_row661_low_disk_return_releases_egress.py
-          # v3.66.1363 row 420. parity-graph was the CI critical path: 425s of a
-          # 497s total wall clock, measured at run 33344209740. Its Vitest
-          # delegators are split across TWO node-provisioned shards (the
-          # test_v3_66_1218 gate re-derives the delegating population, so both
-          # carry the setup-node/npm condition), and the pure-python suites
-          # moved to parity-static, which skips npm entirely. Per-suite
-          # durations came from a 117-suite parband measurement on an idle
-          # capacity host, not guesswork. The union is unchanged: split only,
-          # never trim (CLAUDE.md A5).
-          # v3.66.1363 second pass: three suites READ frontend/node_modules
-          # without DELEGATING to vitest (dependency security floor, Vite base
-          # derivation, secret-display scan), so the 1218 delegation population
-          # is narrower than "needs node". The first CI run of this matrix
-          # proved it -- 4 failures, all "node_modules is absent ... this is a
-          # failure, not a skip" -- exactly the fail-closed wording those gates
-          # were built with. They live in the node-provisioned shards now; the
-          # local timing lane could not see this because its worktree symlinked
-          # the integrator's node_modules.
-          - name: parity-graph
-            suites: >-
-              tests/test_t7_notifications_wired.py
-              tests/test_t3_t4_wired.py
-              tests/test_t5_t6_wired.py
-              tests/test_v3_66_1240_supervisor_settings_seeded.py
-              tests/test_t8_cluster_wired.py
-              tests/test_t11_approval_wired.py
-              tests/test_t10_devtools_wired.py
-              tests/test_secret_display_never.py
-              tests/test_frontend_dependency_security_floor.py
-          - name: parity-vitest-b
-            suites: >-
-              tests/test_t2_history_wired.py
-              tests/test_t1_dashboard_wired.py
-              tests/test_csrf_tool_contracts.py
-              tests/test_csrf_contract_reachability.py
-              tests/test_v3_66_1255_frontend_build_is_isolated.py
-              tests/test_t9a_live_stream_wired.py
-              tests/test_t9b_push_wired.py
-              tests/test_spa_root_routing_contract.py
-          - name: parity-static
-            suites: >-
-              tests/test_v3_66_1218_vitest_delegating_shards_have_node.py
-              tests/test_v3_66_1225_spa_scanner_populations.py
-              tests/test_no_raw_unicode_escape_in_jsx.py
-              tests/test_gui_parity.py
-              tests/test_row281_ui_wrappers_delegate.py
-              tests/test_config_parity_ratchet.py
-              tests/test_skip_baseline.py
-              tests/test_pytest_capture_results.py
-              tests/test_framework_gui.py
-              tests/test_v3_66_552_playground_ssrf.py
-              tests/test_v3_66_1181_capture_reconciliation.py
-              tests/test_csrf_session_bootstrap.py
-              tests/test_cockpit_route_contract.py
-              tests/test_cockpit_navigation_contract.py
-              tests/test_import_graph_no_new_edges.py
-              tests/test_row331_guarded_imports_are_declared.py
-              tests/test_route_index_in_sync.py
-              tests/test_row648_react_router_7_migration.py
-          # @1072 adds four suites here, and the last of them is THE GATE THAT
-          # GUARDS THIS MATRIX. Until now it ran nowhere: it was created at
-          # f736748, the same commit that deleted the `gates` job's pytest step,
-          # and appeared in that diff only inside a comment. So from v3.66.939
-          # to v3.66.1071 the only check that would notice a suite falling out
-          # of every shard was itself a suite that had fallen out of every one.
-          #
-          # A comment cannot go INSIDE the `>-` block below: a folded scalar is
-          # text, so a `#` line there becomes part of the suites string and
-          # pytest is handed its words as paths.
-          - name: measurement-tools
-            suites: >-
-              tests/test_v3_66_1043_measurement_and_fleet_tools.py
-              tests/test_v3_66_1216_vitest_is_a_real_ci_denominator.py
-              tests/test_v3_66_1215_a_wrapper_must_not_alter_its_subject.py
-              tests/test_row1052_prom_memory_metrics.py
-              tests/test_row1075_task_state_pause_drain_resumption.py
-          - name: measurement-tools-core
-            suites: >-
-              tests/test_row753_a_run_records_its_own_outcome.py
-              tests/test_row807_empty_stats_is_unknown_not_clean.py
-              tests/test_row_289_inherited_signals_are_environment_identity.py
-              tests/test_v3_66_1068_modwatch_measures_per_file.py
-              tests/test_v3_66_1062_vision_probes_are_loadable_images.py
-              tests/test_v3_66_1064_provisioning_paths_do_not_diverge.py
-              tests/test_row883_flake_classifier.py
-          # Backlog row 267. These application admission and integrity seams
-          # are a safety boundary, so their direct unavailable-measurement
-          # probes run on every PR instead of depending only on diff routing.
-          - name: application-safety
-            suites: >-
-              tests/test_app_measurements_fail_closed.py
-              tests/test_row439_segmented_transfers_honor_the_egress_gate.py
-              tests/test_row773_records_carry_egress_identity.py
-              tests/test_v3_66_284_integrity.py
-              tests/test_row492_a_release_proves_what_it_frees.py
-              tests/test_ffmpeg_capability_health.py
-              tests/test_row363_affordance_learning.py
-              tests/test_row356_cookie_quality_reports_unknown.py
-              tests/test_row360_turnstile_bypass_is_installed.py
-              tests/test_turnstile_click.py
-              tests/test_row763_child_frame_turnstile.py
-              tests/test_row764_turnstile_bypass_verdict.py
-              tests/test_row765_scrapling_selector_compatibility.py
-              tests/test_row763_frame_urls_never_reach_the_model_prompt.py
-              tests/test_rows706_714_test_hygiene.py
-              tests/test_row713_deep_integration_token_egress.py
-              tests/test_row1043_protocol_message_event_dispatching.py
-              tests/test_row346_plugin_sandbox_is_truthful.py
-              tests/test_row311_app_config_writers_are_serialized.py
-              tests/test_v3_66_261_contended_lifecycle_lock.py
-              tests/test_v3_57_phase9.py
-              tests/test_row434_resume_cannot_leave_the_hold_state_it_set.py
-              tests/test_v3_62_2_guards.py
-              tests/test_row634_live_registry_iteration_is_snapshotted.py
-              tests/test_login_api_refuses_impossible_manual_start.py
-              tests/test_row772_rejected_login_is_not_success.py
-              tests/test_row772_astra_settling.py
-              tests/test_row667_login_attempt_accounting.py
-              tests/test_row740_login_cap_writer_atomicity.py
-              tests/test_row806_health_payload_names_the_deployed_cloak_state.py
-              tests/test_row774_login_submit_refuses_cross_origin_navigation.py
-              tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py
-              tests/test_row719_scene_classifier_underselects.py
-              tests/test_row787_sentinel_must_not_look_found.py
-              tests/test_row741_relogin_refusals_are_typed.py
-              tests/test_row769_login_logs_carry_the_site_id.py
-              tests/test_keepalive_default_off.py
-              tests/test_row731_signed_url_branch_uses_pair_predicate.py
-              tests/test_row732_site_editor_redaction_descends.py
-              tests/test_row751_template_apply_gates_captcha_egress.py
-              tests/test_row751_template_strip_recurses.py
-              tests/test_row675_minified_js_is_not_a_secret.py
-              tests/test_test2d_1_persistent_profile_cookie_jar.py
-              tests/test_row777_retry_ladder.py
-              tests/test_row771_interstitial_comma.py
-              tests/test_row762_gate_click_refuses_prechecked_billing_upsell.py
-              tests/test_row703_ssrf_transport_is_installed_everywhere.py
-              tests/test_row703_a_proxy_shadows_the_guarded_transport.py
-              tests/test_row703_the_site_to_policy_map_is_asserted.py
-              tests/test_row785_login_evidence_filenames_are_shell_safe.py
-              tests/test_row805_ssrf_census_covers_every_transport.py
-              tests/test_row780_sites_config_listing_url_round_trip.py
-              tests/test_row750_ipv6_unwrapped_metadata_bypass.py
-              tests/test_row971_onboarding_picks_content_not_login.py
-              tests/test_row991_resource_quota_budget_file_descriptor_utilization_gauge.py
-              tests/test_row1025_db_connection_lifecycle_traps.py
-              tests/test_row1015_sqlite_freelist_vacuum.py
-              tests/test_row1015_deeplane_red.py
-          # Row 362. This is the executable contract for every selector entry
-          # in all 91 committed templates. It uses only tracked HTML fixtures
-          # in CI, including a post-click dropdown shape, while the static arm
-          # compiles the complete corpus with Playwright's selector parser.
-          # Row 377 adds the installed-layout selftest-state gate here: the
-          # same shard must also prove an unavailable verifier reads UNKNOWN
-          # rather than as a template defect.
-          # Row 666. Offline candidate inspection resolves relative download
-          # links against the caller-supplied page URL, not the login fallback.
-          # Row 670. The verifier carries an operator session into the browser
-          # context (fake browser, fixtures only) so a template can be resolved
-          # against an authenticated page; an unusable session reads UNKNOWN.
-          - name: template-selectors
-            suites: >-
-              tests/test_row362_templates_are_resolvable.py
-              tests/test_row670_verifier_carries_a_session.py
-              tests/test_row671_reviewed_template_selectors_are_enumerated.py
-              tests/test_row377_installed_template_selftest_states.py
-              tests/test_login_session_does_not_cover_the_scene_host.py
-              tests/test_row663_inspect_rung_matches_runner.py
-              tests/test_row666_candidates_inspect_prefers_caller_url.py
-              tests/test_row_pm_template_gap_matchers_and_corpus.py
-              tests/test_row672_reviewed_template_is_reachable.py
-              tests/test_row673_reviewed_probe_adapter_ships_once.py
-              tests/test_row674_live_state_round_trips.py
-              tests/test_v3_43_54_resolution.py
-              tests/test_row821_template_tiers_are_opt_in.py
-              tests/test_frame_hierarchy.py
-              tests/test_infinite_scroll_pager.py
-          # Row 386. The download chain end to end -- page DOM, candidate
-          # discovery, ranking, direct-URL resolution, filename, a real
-          # loopback transfer, and the history/library rows a completion
-          # produces -- against recorded fixtures. The measured failure it
-          # exists for was invisible to a 623-file affected band, so it runs on
-          # every PR rather than on a changed path. It drives real Chromium, so
-          # the install step's condition below names this shard too; its own
-          # test_this_gate_is_scheduled_in_ci_on_a_shard_that_has_chromium
-          # asserts that pairing, because nothing else did.
-          - name: download-chain
-            suites: >-
-              tests/test_row386_the_download_chain_is_gated.py
-              tests/test_row657_astra_bucket_progress.py
-              tests/test_row775_turnstile_one_click_affordance.py
-              tests/test_row761_listing_facet_is_not_a_download_candidate.py
-              tests/test_row761b_deep.py
-              tests/test_row761_astra_acceptance.py
-              tests/test_row701_quality_scan_scopes_to_the_requested_scene.py
-              tests/test_row759_modal_trigger_click_reenters.py
-              tests/test_row825_kafka_event_streamer.py
-              tests/test_row975_aiokafka_client.py
-              tests/test_row992_high_resolution_socket_i_o_accounting_microsecond_latency_tracker.py
-              tests/test_row994_dynamic_query_plan_lock_contention_profiler_for_sqlite.py
-              tests/test_row978_schema_migration.py
-          # Row 778. Page-native extractors return before the ordinary
-          # transport boundary, so their completion history must receive the
-          # settled document title through _process_one.
-          - name: extractor-completion-history
-            suites: >-
-              tests/test_row778_extractor_completion_harvests_document_title.py
-          # F31. A service-owned BD_INSTALL_DIR must not cross any child-test
-          # boundary. This shard runs the real nested-pytest and sacrificial-DB
-          # probes on every PR instead of relying on a diff-derived band.
-          - name: install-dir-isolation
-            suites: >-
-              tests/test_child_test_install_dir_isolation.py
-              tests/test_rowinstalldir_service_installer.py
-          # @1207 determinism review. The former measurement-tools entry had
-          # doubled and serialized every file in one Actions job. Four files
-          # are irreducible long poles (1043 consumed 158s of a measured 172s
-          # serial test5 core run; 1046 itself launches a nested battery; 1040
-          # and 1132 own process-heavy lifecycle matrices), so each stays whole
-          # under loadfile semantics but gets an independent runner.
-          - name: measurement-isolation
-            suites: >-
-              tests/test_v3_66_1046_tool_state_1040.py
-              tests/test_v3_66_1046_tool_state_1043.py
-              tests/test_v3_66_1046_tool_state_1044.py
-              tests/test_v3_66_1046_tool_state_1054.py
-              tests/test_v3_66_1220_a_timeout_names_its_test.py
-              tests/test_row_pytest_banners_only_on_failure.py
-          # @1241 row 237. --dist loadfile hands one FILE to one worker, so
-          # a single 174-node module is serial however many workers exist
-          # and is the suite's long pole. The split halves it by measured
-          # call time, and each half needs its own runner for the same
-          # reason the comment above gives.
-          # @1208. The heartbeat signal contract guards the boundary that made
-          # all seven fleet captures fail at once, so CI must see it: it is a
-          # module-scoped gate, and without an entry here a regression of
-          # scripts/lib/heartbeat.sh back to a bare `setsid "$@"` would be
-          # caught only by capture -- and capture is not CI. Its own runtime
-          # owners ride with it so the wrapper's bound, its vault descriptor
-          # handling and its signal semantics are judged together.
-          - name: capture-heartbeat-contract
-            suites: >-
-              tests/test_v3_66_1208_the_heartbeat_keeps_foreground_signal_semantics.py
-              tests/test_v3_66_1209_every_detached_launch_keeps_signal_semantics.py
-          # Row 728 (T3 security). The literal-pin behaviour -- resolve once,
-          # connect to the vetted address with Host/SNI kept -- is asserted
-          # only by test_row728_pinned_urllib.py, a module-scoped gate, so
-          # without an entry here a rebind between check and open would be
-          # caught by nothing in CI; the marker is repo-wide so the 939 gate
-          # derives it and this entry is required, not optional.
-          - name: ssrf-pinned-urllib
-            suites: >-
-              tests/test_row728_pinned_urllib.py
-              tests/test_row728_astra_boundaries.py
-          # Row 340. The production deploy harness drives real git and the
-          # complete step-12 health boundary. It is isolated because the suite
-          # constructs a fresh origin/clone per case and would otherwise make
-          # an existing shard's runtime depend on deploy coverage.
-          - name: deploy-readiness
-            suites: >-
-              tests/test_install_source_coverage.py
-              tests/test_row697_deploy_unlock_pending_vault.py
-              tests/test_row737_unreadable_hook_diagnostics.py
-          # Rows 617/623/624/625/628/629/631. Secrets delete/probe state is a
-          # cross-backend safety contract, including a deterministic two-writer
-          # transaction and the extension rate-accounting boundary.
-          - name: secrets-state
-            suites: >-
-              tests/test_rows617_623_624_625_628_629_631_secrets_family.py
-          # Row 529. Review completeness is a diff-wide denominator and cannot
-          # be selected from any one changed subject, so CI runs its real-git
-          # omission/search-only/complete reconciliation on every PR.
-          - name: review-denominator
-            suites: >-
-              tests/test_row529_review_coverage_reconciliation.py
-          # Row 344. This gate executes the destructive library function only
-          # against fixture-owned trees and proves its caller-selected glob
-          # cannot redirect pruning into a same-named decoy root.
-          # Row 613. These five module-scoped behavioural owners jointly guard
-          # db_prune and the skip-identity/dedup seam. A changed-path band can
-          # select them locally, but no PR shard did, so a revert of the
-          # ownership narrowing could leave CI green. Their independent family
-          # denominator lives in test_v3_66_939_ci_gate_shards_cover_every_gate.
-          - name: db-prune-safety
-            suites: >-
-              tests/test_a_prune_repairs_only_the_links_it_broke.py
-              tests/test_a_skip_must_prove_it_is_the_same_work.py
-              tests/test_row544_the_dedup_preflight_asks_the_ownership_question.py
-              tests/test_row545_the_skip_arm_carries_its_whole_result.py
-              tests/test_row607_a_history_row_proves_a_real_transfer.py
-              tests/test_row664_dedup_refusal_reaches_history.py
-              tests/test_row665_terminal_jobs_are_visible.py
-              tests/test_row665_absence_is_not_an_answer.py
-              tests/test_row990_feature.py
-          # Row 649 recovers three independent module-scoped contracts whose
-          # original test files never reached main. Keep their CI visibility
-          # explicit rather than relying on a future touched-file derivation.
-          - name: recovered-contracts
-            suites: >-
-              tests/test_row715_installer_refuses_a_foreign_directory.py
-              tests/test_row718_installer_refuses_an_unwritable_install_dir.py
-              tests/test_row089_capture_corpus_backup_restore.py
-              tests/test_row700_captcha_egress_disclosure.py
-              tests/test_row817_astra_ack_consumption.py
-              tests/test_row704_listing_routes_are_not_scenes.py
-          - name: provider-facade
-            suites: >-
-              tests/test_provider_resolve_surface_lock.py
-          - name: mutation-tools
-            suites: >-
-              tests/test_row810_spec_collection_slice_0.py
-              tests/test_row705_published_denominators.py
-              tests/test_row788_transform_control_is_separate.py
-              tests/test_v3_66_1184_mutation_specs_are_tracked.py
-              tests/test_row797_three_login_seams_carry_durable_mutant_pins.py
-              tests/test_cut_quality_permits.py
-              tests/test_row357_mutant_anchors_are_not_fragile.py
-              tests/test_row470_corpus_tools_fail_closed.py
-          - name: mutation-tools-b
-            suites: >-
-              tests/test_row810_spec_collection_slice_1.py
-          - name: mutation-tools-c
-            suites: >-
-              tests/test_row810_spec_collection_slice_2.py
-          - name: mutation-verifiers
-            suites: >-
-              tests/test_row355_mutate_timing_is_schedule_stable.py
-              tests/test_v3_66_939_ci_gate_shards_cover_every_gate.py
-              tests/test_rowssrf_loopback_reason_is_structured.py
-              tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py
-              tests/test_row804_browser_redirect_bypasses_metadata_guard.py
-              tests/test_row531_denominators_are_derived_not_pinned.py
-          - name: isolation
-            suites: >-
-              tests/test_v3_66_1034_guards_survive_a_module_wipe.py
-              tests/test_v3_66_1256_socket_recorder_keeps_its_measurements.py
-              tests/test_no_test_writes_the_repo_plugins_dir.py
-              tests/test_v3_66_1067_the_leaker_census_reads_code_not_prose.py
-              tests/test_v3_66_1080_the_suite_reclaims_its_tmpdirs.py
-              tests/test_v3_66_1191_a_run_root_records_its_own_outcome.py
-              tests/test_v3_66_1255_test_roots_publish_ownership_atomically.py
-              tests/test_v3_66_1085_module_identity_survives_a_sys_modules_patch.py
-              tests/test_v3_66_1257_cockpit_tasks_test_root_is_confined.py
-              tests/test_v3_66_1452_a_shuffle_lane_finds_order_dependencies.py
-              tests/test_row659_witness_run_does_not_leak_capture_state.py
-              tests/test_row791_witness_state_restored.py
-              tests/test_mainred_A_eventloop_scope.py
-          - name: regen-idempotence-isolation
-            suites: >-
-              tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py
-              tests/test_row300_parallel_display_cleanup_owns_process.py
-              tests/test_capture_provides_a_display.py
-              tests/test_row752_display_gate_owns_its_claim.py
-          - name: tree-gates-1
-            suites: >-
-              tests/test_v3_66_121_login_flow_derives_the_observed_drive.py
-              tests/test_capture_execution_lanes.py
-              tests/test_capture_shell_runtime.py
-              tests/test_row_285_deploy_fail_open.py
-              tests/test_parallel_capture_services.py
-              tests/test_row290_capture_serial_fixture_port.py
-              tests/test_capture_vault_is_isolated.py
-              tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py
-              tests/test_v3_66_1191_retention_review_edges.py
-              tests/test_v3_66_1018_registrable_domain_drain.py
-              tests/test_census_file_size_drift.py
-              tests/test_zip_era_tools_stay_retired.py
-              tests/test_v3_66_1117_cockpit_home_stays_retired.py
-          - name: tree-gates-2
-            suites: >-
-              tests/test_v3_66_1013_registrable_domain.py
-              tests/test_recognizer_fixture_site_identity.py
-              tests/test_row453_signed_jwplayer_behind_akamai.py
-              tests/test_history_records_whether_bytes_were_fetched.py
-              tests/test_v3_66_972_library_missing_stays_retired.py
-              tests/test_v3_66_1197_ambient_locale_into_subprocess.py
-              tests/test_v3_66_1234_ci_really_executes_the_guard_lane.py
-              tests/test_v3_66_1242_the_provisioner_really_dispatches_the_capabilities.py
-              tests/test_v3_66_1265_ipv6_unknown_holds_killswitch.py
-              tests/test_row_286_laundered_failures_hold.py
-              tests/test_row_293_ipv6_measured_pass_is_reachable.py
-              tests/test_row_299_live_sampling_collection_isolation.py
-              tests/test_row_309_capture_manifest_contract.py
-              tests/test_row_296_vpn_runner_gate_holds_on_unmeasurable_tunnel.py
-          - name: tree-gates-3
-            suites: >-
-              tests/test_v3_66_820_share_tools_saw_no_session_keys.py
-              tests/test_v3_66_1222_every_budget_is_subordinate_to_its_bound.py
-              tests/test_v3_66_1239_precut_runs_the_underived_gates.py
-              tests/test_precut_selects_repo_wide_gates_by_marker.py
-              tests/test_row790_precut_names_footguns_ratchet_unknown.py
-              tests/test_row463_precut_derives_its_baseline.py
-              tests/test_row794_precut_preamble_reports_only_run_checks.py
-              tests/test_import_dodge_is_caught_in_the_cut_diff.py
-              tests/test_row530_docs_only_lane_fails_closed.py
-              tests/test_verify_lane_state_naming.py
-              tests/test_history_file_size_is_the_size_on_disk.py
-              tests/test_playwright_engines_single_source.py
-              tests/test_row308_visual_audit_identity.py
-              tests/test_row343_fresh_host_bringup.py
-              tests/test_row689_install_linux_converges_test_manifest.py
-              tests/test_row1459_the_verified_binary_is_the_executed_binary.py
-              tests/test_row654_filename_citations_are_git_tracked.py
-          - name: tree-gates-4
-            suites: >-
-              tests/test_sandbox_home_stays_retired.py
-              tests/test_recognizer_corpus_shard_c.py
-              tests/test_row452_a62_breadth_real_captures.py
-              tests/test_v3_66_1098_no_assertion_can_be_trivially_true.py
-              tests/test_task_tracker_stays_retired.py
-              tests/test_codex_handoff_stays_retired.py
-              tests/test_v3_66_938_atomic_write_sidecars_are_ignored.py
-              tests/test_v3_66_1059_recorder_derives_its_blind_spot_counts.py
-              tests/test_v3_66_968_anchor_gate_sees_frontend_citations.py
-              tests/test_generated_artifact_workflow.py
-              tests/test_v3_66_918_tracked_source_denominator.py
-          - name: tree-gates-5
-            suites: >-
-              tests/test_recognizer_corpus_shard_b.py
-              tests/test_recognizer_corpus_shard_a.py
-              tests/test_recognizer_corpus_shard_d.py
-              tests/test_v3_66_1108_no_assertion_can_be_trivially_false.py
-              tests/test_deploy_manifest_stays_retired.py
-              tests/test_v3_66_1192_build_release_sh_stays_retired.py
-              tests/test_v3_66_935_scan_wait_reports_non_convergence.py
-              tests/test_git_deploy_gaps_are_documented.py
-              tests/test_row717_fresh_host_documents_cut_quality.py
-              tests/test_ct1_corpus_validation.py
-              tests/test_history_columns_go_through_migrations.py
-              tests/test_gitignore_rules_actually_match.py
-              tests/test_row688_gitignore_covers_sqlite_companions.py
-              tests/test_v3_66_944_static_kb_manifest_describes_the_tree.py
-              tests/test_row738_login_cap_single_process_premise.py
-              tests/test_row722_operator_decision.py
-              tests/test_row722_site_templates_verified.py
-          # Row 259. These five gates derive safety populations from live_tests,
-          # tools and product source. They were all frozen-baseline legacy and
-          # therefore absent from every PR shard even though each gate worked.
           - name: safety-censuses
-            suites: >-
-              tests/test_row532_a_mutant_anchor_must_resolve_into_code.py
-              tests/test_row709_state_seed_is_not_a_verdict.py
-              tests/test_capture_csrf_diag_redacts_cookies.py
-              tests/test_home_config_stores_are_guarded.py
-              tests/test_v3_66_1009_live_results_are_bundled.py
-              tests/test_v3_66_285_cloak_parity.py
-              tests/test_row667_keeper_browser_log_names_persistence.py
-              tests/test_v3_66_795_mod3_seam.py
-          # H622 slice A. The four tests/test_[a-f]*.py gates whose subject is the
-          # tracked tree, plus the gate that pins the slice-A classification itself.
-          # Measured on this container at the cut: 9 + 10 + 22 + 21 tests, 27s total,
-          # so the set is its own shard rather than inflating an existing one.
-          - name: gate-scope-slice-a
-            suites: >-
-              tests/test_v3_66_h622a_gate_scope_slice_a.py
-              tests/test_confirm_tiers_209.py
-              tests/test_cut40_dashboard_today_iso.py
-              tests/test_extraction_core.py
-              tests/test_fts_external_content_delete.py
-          - name: toolchain-verifiers
-            suites: >-
-              tests/test_desandbox_tool_verifiers.py
-              tests/test_row243_registration_resolves_without_ambient_luck.py
-              tests/test_row336_audit_and_scan_evidence.py
-              tests/test_row473_register_tree_containment.py
-              tests/test_row660_gate_is_read_only_over_generated_artifacts.py
+          - name: mutation-tools
+          - name: mutation-tools-b
           - name: artifacts-pins
-            suites: >-
-              tests/test_authority_documents.py
-              tests/test_changelog_draft_placeholder_is_refused.py
-              tests/test_v3_66_1183_inv_tags_generated.py
-              tests/test_v3_66_1183_source_window_content.py
-              tests/test_pin_index_in_sync.py
-              tests/test_row387_ast_version_pin_guard.py
-              tests/test_row1435_band_verdict_transfer.py
-              tests/test_settings_center_slice4.py
-              tests/test_endpoint_catalog_in_sync.py
-              tests/test_function_index_in_sync.py
-              tests/test_route_map_invariant.py
-              tests/test_settings_center_slice5.py
-              tests/test_rows972_973_rendered_runtime_controls.py
-              tests/test_rows972_973_rendered_proxy_forms.py
-              tests/test_footgun_detectors_are_executed_by_ci.py
-              tests/test_all_sources_parse.py
-    name: gate-suites (${{ matrix.name }})
+          - name: application-safety
+          - name: isolation
+          - name: parity-graph
+          - name: download-chain
+          - name: gates-rows-a
+          - name: gates-rows-b
+          - name: gates-v3-a
+          - name: gates-v3-b
+          - name: gates-named-a
+          - name: gates-named-b
+
     steps:
       - uses: actions/checkout@v4
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
@@ -999,13 +483,13 @@ jobs:
       # and left it stale), and v3.66.1242 makes it seven. The population is
       # re-derived by that test; a number here only goes quietly wrong.
       - uses: actions/setup-node@v4
-        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b')
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'parity-graph'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies (shards whose gates need node)
-        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'parity-graph' || matrix.name == 'parity-vitest-b')
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'parity-graph'
         working-directory: frontend
         run: npm ci
 
@@ -1026,16 +510,18 @@ jobs:
       # pairing is asserted by tests/test_row386_the_download_chain_is_gated.py,
       # so a shard that gains a browser-driven gate cannot silently lose it.
       - name: Install Chromium for browser-driven fixture gates
-        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && (matrix.name == 'template-selectors' || matrix.name == 'download-chain')
+        if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name) && matrix.name == 'download-chain'
         run: python -m playwright install --with-deps chromium
 
       - name: ${{ matrix.name }} gates
         if: contains(fromJSON(needs.ci_docs_only.outputs.selected_shards), matrix.name)
-        run: >-
-          python toolchain/bin/bd-flake-classifier --
-          python -m pytest -q -p no:randomly
-          --timeout=240 --timeout-method=signal
-          ${{ matrix.suites }}
+        # The path list comes from tools/ci_shards.py (stdlib, no pip needed):
+        # an empty list is exit 3 there and `test -n` here, because pytest with
+        # no paths would silently run the whole tree.
+        run: |
+          suites=$(python tools/ci_shards.py files "${{ matrix.name }}")
+          test -n "$suites"
+          python toolchain/bin/bd-flake-classifier -- python -m pytest -q -p no:randomly --timeout=240 --timeout-method=signal $suites
         # @850: two of these were added because they were RED somewhere nothing
         # could see.
         #   test_pk_mirrors_do_not_drift -- three project-knowledge mirrors
@@ -1055,7 +541,12 @@ jobs:
   # silently falling out), run only nightly and on a release train branch,
   # where the wall-clock cost of running everything is acceptable.
   process-tests:
-    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/heads/train/')
+    # One run per head (O1264 a): the train branch is no longer pushed-and-run, so
+    # the train-only lane keys on the PR's head ref (github.head_ref is set only
+    # on pull_request events) instead of the push ref. Not a per-PR shard, so it
+    # stays out of the docs-only manifest (generate_ci_docsonly_shards.py reads
+    # a schedule-gated `if` as train-only).
+    if: github.event_name == 'schedule' || startsWith(github.head_ref, 'train/')
     runs-on: ubuntu-latest
     # Sized from a measurement, not a guess (RULING-0045 / H674): the 56 declared
     # PROCESS files summed to 772 s of per-test time (--durations=0, remote band

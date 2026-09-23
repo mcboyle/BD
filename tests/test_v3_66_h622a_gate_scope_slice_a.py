@@ -41,7 +41,6 @@ BD_GATE_SCOPE = "repo-wide"
 
 _REPO = Path(__file__).resolve().parents[1]
 _BASELINE = _REPO / "tests" / "gate_scope_baseline.txt"
-_CI = _REPO / ".github" / "workflows" / "ci.yml"
 _MARKER = "BD_GATE_SCOPE"
 _VALID = {"repo-wide", "module"}
 
@@ -93,6 +92,16 @@ PRE_EXISTING_REPO_WIDE = (
     "tests/test_function_index_in_sync.py",
 )
 
+# Slice-A files that declared repo-wide AFTER this cut landed, each named with
+# the cut that added it. A new tree-subject gate in [a-f] registers here (and,
+# because it is repo-wide, tools/ci_shards.py must place it in a shard) rather
+# than being back-dated into PRE_EXISTING_REPO_WIDE.
+ADDED_SINCE_REPO_WIDE = (
+    # O1264(d): the gate over tools/ci_shards.py itself (names == matrix, the
+    # partition is exact, every declared gate is in exactly one shard).
+    "tests/test_ci_shards.py",
+)
+
 
 def _slice_a() -> list[str]:
     out = subprocess.run(["git", "ls-files", "--", "tests/test_[a-f]*.py"],
@@ -133,8 +142,15 @@ def _baseline_entries() -> set[str]:
 
 
 def _ci_named_files() -> set[str]:
-    text = _CI.read_text("utf-8")
-    return {rel for rel in _slice_a() if rel in text}
+    """The slice-A files CI's gate-suites job actually schedules.
+
+    O1264(d): ci.yml carries shard NAMES only and its run step resolves each
+    shard's files through tools/ci_shards.py, so "named in a CI shard" is
+    answered by the resolver over this tree, never by the workflow's text.
+    """
+    from tools import ci_shards
+    scheduled = {rel for files in ci_shards.shards(_REPO).values() for rel in files}
+    return set(_slice_a()) & scheduled
 
 
 def test_the_slice_is_not_empty() -> None:
@@ -198,7 +214,10 @@ def test_no_other_slice_a_file_claims_repo_wide() -> None:
     """
     claimed = sorted(rel for rel in _slice_a()
                      if _declared_scope(_REPO / rel) == "repo-wide")
-    assert claimed == sorted(set(REPO_WIDE) | set(PRE_EXISTING_REPO_WIDE)), (
+    expected = set(REPO_WIDE) | set(PRE_EXISTING_REPO_WIDE) | set(ADDED_SINCE_REPO_WIDE)
+    assert claimed == sorted(expected), (
         f"the repo-wide slice-A set moved without this pin: {claimed}")
     assert not (set(REPO_WIDE) & set(PRE_EXISTING_REPO_WIDE)), (
         "a pre-existing gate was counted as a slice-A migration")
+    assert not (set(ADDED_SINCE_REPO_WIDE) & (set(REPO_WIDE) | set(PRE_EXISTING_REPO_WIDE))), (
+        "a later addition was double-counted against this cut's pins")
