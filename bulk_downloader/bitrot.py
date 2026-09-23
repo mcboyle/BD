@@ -41,12 +41,509 @@ The scan is read-only on the data plane; the only DB writes are to
 """
 from __future__ import annotations
 
+import hashlib
 import os
-import random
 import sqlite3
+import threading
 import time
-from pathlib import Path
-from typing import Optional
+from collections.abc import Callable
+
+
+class ScrubberState:
+    IDLE = "idle"
+    SCRUBBING = "scrubbing"
+    PAUSED = "paused"
+    STOPPED = "stopped"
+    UNAVAILABLE = "unavailable"
+
+
+class PacingMode:
+    NOMINAL = "nominal"
+    THROTTLED = "throttled"
+    PAUSED_HIGH_LOAD = "paused_high_load"
+
+
+class AdaptiveIOPacer:
+    """I/O rate pacer with dynamic system load adaptation.
+
+    Controls byte read throughput during background verification to avoid
+    starving foreground downloads or saturating disk I/O. Dynamically
+    adjusts rate or pauses when system load exceeds thresholds.
+    """
+
+    def __init__(
+        self,
+        nominal_bytes_per_sec: float = 10 * 1024 * 1024,
+        throttle_bytes_per_sec: float = 1 * 1024 * 1024,
+        high_load_threshold: float = 0.80,
+        pause_load_threshold: float = 0.95,
+        load_getter: Callable[[], float] | None = None,
+        burst_seconds: float = 0.1,
+    ) -> None:
+        self.nominal_bytes_per_sec = float(nominal_bytes_per_sec)
+        self.throttle_bytes_per_sec = float(throttle_bytes_per_sec)
+        self.high_load_threshold = float(high_load_threshold)
+        self.pause_load_threshold = float(pause_load_threshold)
+        self.burst_seconds = burst_seconds
+        self._load_getter = load_getter
+
+        self._rate = self.nominal_bytes_per_sec
+        self._capacity = max(self._rate * self.burst_seconds, 65536.0)
+        self._tokens = self._capacity
+        self._last_update = time.perf_counter()
+        self._last_load_check = 0.0
+        self._current_load: float | None = None
+        self._mode = PacingMode.NOMINAL
+        self._lock = threading.Lock()
+        self._total_bytes_paced = 0
+        self._total_sleep_time = 0.0
+
+    def get_current_load(self) -> float:
+        if self._load_getter is not None:
+            return float(self._load_getter())
+        try:
+            load1, _, _ = os.getloadavg()
+            cpus = os.cpu_count() or 1
+            return load1 / cpus
+        except Exception:
+            return 0.0
+
+    def set_nominal_rate(self, bytes_per_sec: float) -> None:
+        with self._lock:
+            self.nominal_bytes_per_sec = max(1024.0, float(bytes_per_sec))
+            if self._mode == PacingMode.NOMINAL:
+                self._rate = self.nominal_bytes_per_sec
+                self._capacity = max(self._rate * self.burst_seconds, 65536.0)
+
+    def _update_mode_and_rate(self, now: float) -> None:
+        if now - self._last_load_check < 1.0 and self._current_load is not None:
+            return
+        self._last_load_check = now
+        load = self.get_current_load()
+        self._current_load = load
+
+        if load >= self.pause_load_threshold:
+            self._mode = PacingMode.PAUSED_HIGH_LOAD
+            self._rate = 0.0
+        elif load >= self.high_load_threshold:
+            self._mode = PacingMode.THROTTLED
+            self._rate = self.throttle_bytes_per_sec
+            self._capacity = max(self._rate * self.burst_seconds, 65536.0)
+        else:
+            self._mode = PacingMode.NOMINAL
+            self._rate = self.nominal_bytes_per_sec
+            self._capacity = max(self._rate * self.burst_seconds, 65536.0)
+
+    def pace_read(
+        self,
+        nbytes: int,
+        *,
+        block: bool = True,
+        stop_event: threading.Event | None = None,
+    ) -> float:
+        if nbytes <= 0:
+            return 0.0
+
+        total_slept = 0.0
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                return total_slept
+
+            with self._lock:
+                now = time.perf_counter()
+                self._update_mode_and_rate(now)
+
+                if self._mode == PacingMode.PAUSED_HIGH_LOAD:
+                    sleep_time = 0.2
+                    wait_pause = True
+                else:
+                    wait_pause = False
+                    elapsed = now - self._last_update
+                    self._last_update = now
+                    if self._rate > 0:
+                        self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
+
+                    if self._tokens >= nbytes:
+                        self._tokens -= nbytes
+                        self._total_bytes_paced += nbytes
+                        return total_slept
+
+                    needed = nbytes - self._tokens
+                    sleep_time = needed / self._rate if self._rate > 0 else 0.1
+                    if not block:
+                        return sleep_time
+                    # Admit the read now and sleep off the debt below. This is
+                    # its one charge: a PAUSED_HIGH_LOAD loop admits nothing and
+                    # charges nothing, so a held read is charged once, after the wait.
+                    self._tokens -= nbytes
+                    self._total_bytes_paced += nbytes
+
+            if not block:
+                return sleep_time
+
+            if wait_pause:
+                time.sleep(sleep_time)
+                total_slept += sleep_time
+                self._total_sleep_time += sleep_time
+            else:
+                remaining_sleep = sleep_time
+                while remaining_sleep > 0:
+                    if stop_event is not None and stop_event.is_set():
+                        return total_slept
+                    slice_sleep = min(remaining_sleep, 0.25)
+                    time.sleep(slice_sleep)
+                    total_slept += slice_sleep
+                    self._total_sleep_time += slice_sleep
+                    remaining_sleep -= slice_sleep
+                break
+
+        return total_slept
+
+    def status(self) -> dict:
+        with self._lock:
+            load = self._current_load if self._current_load is not None else self.get_current_load()
+            return {
+                "mode": self._mode,
+                "nominal_bytes_per_sec": self.nominal_bytes_per_sec,
+                "effective_bytes_per_sec": self._rate,
+                "current_load": round(load, 3),
+                "throttled": self._mode != PacingMode.NOMINAL,
+                "paused_high_load": self._mode == PacingMode.PAUSED_HIGH_LOAD,
+                "total_bytes_paced": self._total_bytes_paced,
+            }
+
+
+def compute_sha256_paced(
+    path: str,
+    *,
+    pacer: AdaptiveIOPacer | None = None,
+    chunk_size: int = 64 * 1024,
+    on_progress: Callable[[int, int], None] | None = None,
+    stop_event: threading.Event | None = None,
+) -> str | None:
+    """Stream a file through SHA-256 with adaptive I/O pacing.
+
+    Reads in `chunk_size` chunks, pacing through `pacer` if provided.
+    Calls `on_progress(bytes_read, total_size)` after each chunk.
+    Respects `stop_event` for clean cancellation.
+    Returns hex digest string, or None on error/abort.
+    """
+    try:
+        total_size = os.path.getsize(path)
+        bytes_read = 0
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    return None
+                buf = f.read(chunk_size)
+                if not buf:
+                    break
+                h.update(buf)
+                bytes_read += len(buf)
+                if pacer is not None:
+                    pacer.pace_read(len(buf), stop_event=stop_event)
+                if on_progress is not None:
+                    on_progress(bytes_read, total_size)
+        return h.hexdigest()
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"[bitrot] compute_sha256_paced failed on {path}: {e}\n")
+        return None
+
+
+class ContinuousBitRotScrubber:
+    """Continuous background bit-rot scrubber with adaptive pacing.
+
+    Continuously iterates over stored provenance entries, verifying hashes
+    using the AdaptiveIOPacer to ensure low system impact.
+    """
+
+    def __init__(self, pacer: AdaptiveIOPacer | None = None) -> None:
+        self.pacer = pacer or AdaptiveIOPacer()
+        self.state = ScrubberState.IDLE
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self._pause_event.set()
+        self._lock = threading.Lock()
+
+        # Telemetry
+        self.current_file: str | None = None
+        self.current_file_bytes: int | None = None
+        self.current_file_total_bytes: int | None = None
+        self.bytes_scrubbed_session: int | None = None
+        self.files_scrubbed_session: int = 0
+        self.bytes_per_sec: float | None = None
+        self.eta_seconds: float | None = None
+        self.last_scrub_ts: float | None = None
+        self._session_start_ts: float | None = None
+        self._download_dirs: list[str] = []
+
+    def start(
+        self,
+        *,
+        continuous: bool = True,
+        download_dirs: list[str] | None = None,
+        min_age_days: int = 7,
+        reverify_after_days: int = 90,
+        batch_size: int = 25,
+        idle_sleep_seconds: float = 30.0,
+    ) -> bool:
+        with self._lock:
+            if self.state == ScrubberState.SCRUBBING:
+                return True
+            if (self.state == ScrubberState.PAUSED
+                    and self._thread is not None and self._thread.is_alive()):
+                # pause() parks the live loop on _pause_event: resume it. A
+                # second Thread would run two scrub loops over the same
+                # candidates through one pacer.
+                self._pause_event.set()
+                self.state = ScrubberState.SCRUBBING
+                return True
+            if download_dirs is not None:
+                self._download_dirs = list(download_dirs)
+            else:
+                try:
+                    import importlib
+                    s_cfg = getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg", {})
+                    from . import library_final as _lf
+                    roots = _lf.download_roots(s_cfg)
+                    if roots or not self._download_dirs:
+                        self._download_dirs = roots
+                except Exception:
+                    if not self._download_dirs:
+                        self._download_dirs = []
+
+            if not self._download_dirs:
+                self.state = ScrubberState.UNAVAILABLE
+                return False
+
+            self._stop_event.clear()
+            self._pause_event.set()
+            self.state = ScrubberState.SCRUBBING
+            self._session_start_ts = time.time()
+            self.bytes_scrubbed_session = 0
+            self.files_scrubbed_session = 0
+
+            self._thread = threading.Thread(
+                target=self._scrub_loop,
+                kwargs={
+                    "continuous": continuous,
+                    "min_age_days": min_age_days,
+                    "reverify_after_days": reverify_after_days,
+                    "batch_size": batch_size,
+                    "idle_sleep_seconds": idle_sleep_seconds,
+                },
+                daemon=True,
+                name="bd-bitrot-scrubber",
+            )
+            self._thread.start()
+            return True
+
+    def pause(self) -> None:
+        with self._lock:
+            self._pause_event.clear()
+            self.state = ScrubberState.PAUSED
+
+    def resume(self) -> None:
+        with self._lock:
+            if self.state == ScrubberState.PAUSED:
+                self._pause_event.set()
+                self.state = (
+                    ScrubberState.SCRUBBING
+                    if (self._thread and self._thread.is_alive())
+                    else ScrubberState.IDLE
+                )
+
+    def stop(self, timeout: float = 2.0) -> None:
+        with self._lock:
+            self._stop_event.set()
+            self._pause_event.set()
+            t = self._thread
+            self._thread = None
+            self.state = ScrubberState.STOPPED
+            self.current_file = None
+            self.current_file_bytes = None
+            self.current_file_total_bytes = None
+            self.bytes_per_sec = None
+            self.eta_seconds = None
+        if t is not None and t.is_alive():
+            t.join(timeout=timeout)
+
+    def scrub_once(
+        self,
+        *,
+        download_dirs: list[str] | None = None,
+        min_age_days: int = 7,
+        reverify_after_days: int = 90,
+        scan_fraction: float = 1.0,
+        max_files: int = 10,
+    ) -> dict:
+        """Synchronously scrub up to max_files using paced verification."""
+        roots = download_dirs if download_dirs is not None else self._download_dirs
+        return run_scan(
+            scan_fraction=scan_fraction,
+            min_age_days=min_age_days,
+            reverify_after_days=reverify_after_days,
+            max_files=max_files,
+            download_dirs=roots,
+            pacer=self.pacer,
+        )
+
+    def _scrub_loop(
+        self,
+        continuous: bool,
+        min_age_days: int,
+        reverify_after_days: int,
+        batch_size: int,
+        idle_sleep_seconds: float,
+    ) -> None:
+        from . import library_final as _lf
+        while not self._stop_event.is_set():
+            self._pause_event.wait()
+            if self._stop_event.is_set():
+                break
+
+            try:
+                candidates = _candidates(
+                    min_age_days=min_age_days,
+                    reverify_after_days=reverify_after_days,
+                    limit=batch_size,
+                )
+            except Exception:
+                candidates = []
+
+            if not candidates:
+                if not continuous:
+                    break
+                self._stop_event.wait(timeout=idle_sleep_seconds)
+                continue
+
+            roots = self._download_dirs
+            if not roots:
+                self._stop_event.wait(timeout=idle_sleep_seconds)
+                continue
+
+            index = _lf._basename_index(roots) if roots else {}
+            measured_in_batch = 0
+
+            for row in candidates:
+                if self._stop_event.is_set():
+                    break
+                self._pause_event.wait()
+
+                filename = row.get("final_filename") or ""
+                self.current_file = filename
+                self.current_file_bytes = 0
+                self.current_file_total_bytes = int(row.get("file_size") or 0)
+
+                def on_progress(bytes_done, total):
+                    self.current_file_bytes = bytes_done
+                    self.current_file_total_bytes = total
+                    if self._session_start_ts and self.bytes_scrubbed_session:
+                        dur = max(0.001, time.time() - self._session_start_ts)
+                        self.bytes_per_sec = round(self.bytes_scrubbed_session / dur, 1)
+
+                try:
+                    res = verify_one(
+                        row,
+                        download_dir=roots,
+                        index=index,
+                        pacer=self.pacer,
+                        on_progress=on_progress,
+                        stop_event=self._stop_event,
+                    )
+                    kind = res.get("kind", "")
+                    if kind in ("intact", "modified", "truncated"):
+                        measured_in_batch += 1
+                        self.files_scrubbed_session += 1
+                        file_sz = int(row.get("file_size") or 0)
+                        if self.bytes_scrubbed_session is not None:
+                            self.bytes_scrubbed_session += file_sz
+                        self.last_scrub_ts = time.time()
+                except Exception as e:
+                    import sys
+                    sys.stderr.write(f"[bitrot] scrubber error on {filename}: {e}\n")
+
+                self.current_file = None
+                self.current_file_bytes = None
+                self.current_file_total_bytes = None
+
+            if not continuous:
+                break
+
+            if measured_in_batch == 0:
+                self._stop_event.wait(timeout=idle_sleep_seconds)
+            else:
+                self._stop_event.wait(timeout=0.05)
+
+        with self._lock:
+            if self._thread is threading.current_thread():
+                # Deregister before this thread ends, so start() spawns a
+                # fresh loop rather than resuming one that has finished.
+                self._thread = None
+            if self.state != ScrubberState.PAUSED:
+                self.state = ScrubberState.IDLE
+            self.current_file = None
+            self.current_file_bytes = None
+            self.current_file_total_bytes = None
+
+    def status(self) -> dict:
+        with self._lock:
+            st = self.state
+            disposition = (
+                "active" if st == ScrubberState.SCRUBBING
+                else "paused" if st == ScrubberState.PAUSED
+                else "unavailable" if st == ScrubberState.UNAVAILABLE
+                else "idle"
+            )
+            is_active = (st == ScrubberState.SCRUBBING)
+            return {
+                "ok": st != ScrubberState.UNAVAILABLE,
+                "state": st,
+                "running": is_active,
+                "paused": st == ScrubberState.PAUSED,
+                "disposition": disposition,
+                "pacer": self.pacer.status(),
+                "current_file": self.current_file if is_active else None,
+                "current_file_bytes": self.current_file_bytes if is_active else None,
+                "current_file_total_bytes": self.current_file_total_bytes if is_active else None,
+                "bytes_scrubbed_session": self.bytes_scrubbed_session if is_active else None,
+                "files_scrubbed_session": self.files_scrubbed_session,
+                "bytes_per_sec": self.bytes_per_sec if is_active else None,
+                "eta_seconds": self.eta_seconds if is_active else None,
+                "last_scrub_ts": self.last_scrub_ts,
+            }
+
+
+_SCRUBBER_INSTANCE: ContinuousBitRotScrubber | None = None
+_SCRUBBER_LOCK = threading.Lock()
+
+
+def get_scrubber() -> ContinuousBitRotScrubber:
+    """Return the global ContinuousBitRotScrubber singleton."""
+    global _SCRUBBER_INSTANCE
+    if _SCRUBBER_INSTANCE is None:
+        with _SCRUBBER_LOCK:
+            if _SCRUBBER_INSTANCE is None:
+                _SCRUBBER_INSTANCE = ContinuousBitRotScrubber()
+    return _SCRUBBER_INSTANCE
+
+
+def reset_scrubber() -> ContinuousBitRotScrubber:
+    """Reset the global scrubber singleton (used in test isolation).
+
+    A failed stop() of the old scrubber propagates and leaves it installed:
+    swapping in a fresh instance over one whose thread was never joined
+    would hide the failure.
+    """
+    global _SCRUBBER_INSTANCE
+    with _SCRUBBER_LOCK:
+        if _SCRUBBER_INSTANCE is not None:
+            _SCRUBBER_INSTANCE.stop(timeout=1.0)
+        _SCRUBBER_INSTANCE = ContinuousBitRotScrubber()
+    return _SCRUBBER_INSTANCE
 
 
 def _ensure_integrity_table():
@@ -191,8 +688,11 @@ def _record_issue(*, provenance_id: int, path: str, expected: str,
         sys.stderr.write(f"[bitrot] record_issue failed: {e}\n")
 
 
-def verify_one(row: dict, *, download_dir: str = "",
-               index: Optional[dict] = None) -> dict:
+def verify_one(row: dict, *, download_dir: str | list[str] | tuple[str, ...] = "",
+               index: dict | None = None,
+               pacer: AdaptiveIOPacer | None = None,
+               on_progress: Callable[[int, int], None] | None = None,
+               stop_event: threading.Event | None = None) -> dict:
     """Verify one provenance row's file against its recorded hash.
 
     Returns {ok, kind, message}:
@@ -203,9 +703,10 @@ def verify_one(row: dict, *, download_dir: str = "",
       ok=False, kind='error':     couldn't read the file
       ok=False, kind='ambiguous': several files share the recorded basename
       ok=False, kind='unknown':   no download_dir to resolve against
+      ok=False, kind='aborted':   stop_event was set before the hash finished
 
     Records an integrity_issues row for missing/modified/truncated/error.
-    Records NOTHING for ambiguous/unknown. Stamps last_verified_ts on intact.
+    Records NOTHING for ambiguous/unknown/aborted. Stamps last_verified_ts on intact.
 
     v3.66.925 -- `final_filename` IS A BARE BASENAME. runner.py:2040 records
     `extra["filename"]`, and runner_transport.py:1297 shows that key is the
@@ -266,13 +767,31 @@ def verify_one(row: dict, *, download_dir: str = "",
         return {"ok": False, "kind": "truncated",
                 "message": f"size {actual_size} ≠ recorded {expected_size}"}
     try:
-        from .provenance import compute_sha256
-        actual_hash = compute_sha256(str(p))
+        if pacer is None and on_progress is None and stop_event is None:
+            from .provenance import compute_sha256
+            actual_hash = compute_sha256(str(p))
+        else:
+            actual_hash = compute_sha256_paced(
+                str(p),
+                pacer=pacer,
+                on_progress=on_progress,
+                stop_event=stop_event,
+            )
     except Exception as e:
         _record_issue(provenance_id=row["id"], path=path,
                       expected=row.get("sha256", ""), actual="",
                       kind="error", notes=f"hash: {e}")
         return {"ok": False, "kind": "error", "message": str(e)}
+    if actual_hash is None:
+        if stop_event is not None and stop_event.is_set():
+            # A stop mid-file says nothing about the file. Record no issue and
+            # leave last_verified_ts alone, so the next pass measures it again.
+            return {"ok": False, "kind": "aborted",
+                    "message": "verification aborted: stop requested"}
+        _record_issue(provenance_id=row["id"], path=path,
+                      expected=row.get("sha256", ""), actual="",
+                      kind="error", notes="hash computation failed")
+        return {"ok": False, "kind": "error", "message": "hash computation failed"}
     expected = row.get("sha256", "") or ""
     if actual_hash != expected:
         _record_issue(provenance_id=row["id"], path=path,
@@ -290,7 +809,8 @@ def run_scan(*,
             max_files: int = 100,
             reverify_after_days: int = 90,
             download_dir: str = "",
-            download_dirs=()) -> dict:
+            download_dirs=(),
+            pacer: AdaptiveIOPacer | None = None) -> dict:
     """Verify a random subset of provenance rows. Returns summary.
 
     Designed to run from a nightly scheduler. The fraction × library
@@ -378,7 +898,7 @@ def run_scan(*,
     index = _lf._basename_index(roots)
     for row in candidates:
         try:
-            r = verify_one(row, download_dir=roots, index=index)
+            r = verify_one(row, download_dir=roots, index=index, pacer=pacer)
             summary["checked"] += 1
             kind = r.get("kind", "error")
             if kind in summary:
@@ -392,7 +912,7 @@ def run_scan(*,
     return summary
 
 
-def list_issues(*, kind: Optional[str] = None, repaired: Optional[bool] = None,
+def list_issues(*, kind: str | None = None, repaired: bool | None = None,
                 limit: int = 100) -> list:
     """Return recent integrity_issues rows. Filter by kind ('missing',
     'modified', 'truncated', 'error') and repaired status.
@@ -430,6 +950,16 @@ def stats() -> dict:
            "error": "", "open_issues": 0, "by_kind": {}, "repaired": 0,
            "last_scan_ts": 0}
     try:
+        out["scrubber"] = get_scrubber().status()
+    except Exception:
+        out["scrubber"] = {
+            "ok": False,
+            "state": ScrubberState.UNAVAILABLE,
+            "disposition": "unavailable",
+            "bytes_per_sec": None,
+            "current_file_bytes": None,
+        }
+    try:
         from . import db as _db
         with _db.db_conn() as cx:
             for row in cx.execute("""SELECT kind, COUNT(*) AS n
@@ -466,6 +996,13 @@ def stats() -> dict:
             "by_kind": None,
             "repaired": None,
             "last_scan_ts": None,
+            "scrubber": {
+                "ok": False,
+                "state": ScrubberState.UNAVAILABLE,
+                "disposition": "unavailable",
+                "bytes_per_sec": None,
+                "current_file_bytes": None,
+            },
         }
     except Exception as e:
         return {
@@ -477,6 +1014,13 @@ def stats() -> dict:
             "by_kind": None,
             "repaired": None,
             "last_scan_ts": None,
+            "scrubber": {
+                "ok": False,
+                "state": ScrubberState.UNAVAILABLE,
+                "disposition": "unavailable",
+                "bytes_per_sec": None,
+                "current_file_bytes": None,
+            },
         }
     return out
 

@@ -288,8 +288,9 @@ def register_default_tasks(*, s_cfg_getter: Optional[Callable] = None,
         # Without them every relative row resolves to "unknown" and the scan
         # decides nothing -- which is what it did until v3.66.930.
         roots = _lf.download_roots(s_cfg_getter()) if s_cfg_getter else []
+        scrubber = _br.get_scrubber()
         _br.run_scan(scan_fraction=0.05, min_age_days=7, max_files=100,
-                     download_dirs=roots)
+                     download_dirs=roots, pacer=scrubber.pacer)
 
     register("bitrot.nightly_scan", _run_bitrot,
              interval_seconds=86400)
