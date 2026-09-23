@@ -43,6 +43,8 @@ import tempfile
 import threading
 from dataclasses import dataclass
 
+from .wal_inspector import inspect_live_wal
+
 # ── WAL frame parsing ────────────────────────────────────────────────────
 
 _WAL_HEADER_SIZE = 32
@@ -389,3 +391,21 @@ class SqliteCDCStream:
         self._save_state()
         return {"transactions": len(transactions), "events": events_total,
                 "tables": [t for t, _ in self.tables]}
+
+
+def inspect_wal_health(wal_path: str) -> dict:
+    """Inspect SQLite WAL health and detect torn writes via wal_inspector.
+
+    The WAL may belong to a running database: only frames its wal-index says are
+    committed are judged (wal_inspector.inspect_live_wal), so a frame a writer is still
+    appending reports in_flight_tail, not a torn write. Raises wal_inspector.WalIndexBusy
+    when the log restarted under every read attempt (no consistent read was possible).
+    """
+    report = inspect_live_wal(wal_path)
+    return {
+        "is_healthy": report.is_healthy,
+        "valid_frames": report.valid_frames_count,
+        "torn_frames": report.torn_frames_count,
+        "anomalies": [a.message for a in report.anomalies],
+        "in_flight_tail": report.in_flight_tail,
+    }

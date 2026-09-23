@@ -12,7 +12,7 @@ Surfaces:
   - `bdctl doctor`  — CLI entry (added in Phase 7)
   - `/api/doctor`   — JSON endpoint for the Status tab
 
-The four diagnostic groups:
+The five diagnostic groups:
 
   environment_checks()
       Python version, ffmpeg/ffprobe presence + version, Playwright.
@@ -25,6 +25,10 @@ The four diagnostic groups:
   cookie_freshness(sites_config)
       Per-site cookie_file age. A cookie older than the warn threshold
       is flagged before the runner hits an auth-expiry mid-download.
+
+  wal_checks()
+      Read-only torn-write check of the history DB's WAL: judges only the
+      frames the -shm wal-index says are committed; never repairs.
 
   diagnose_failure(error_message)
       Pattern-matches a needs_review / failed error string against
@@ -420,6 +424,23 @@ def diagnose_failure(error_message: str) -> dict:
 
 # ── Top-level run ───────────────────────────────────────────────────────
 
+def wal_checks() -> list[dict]:
+    """Row 1000: read-only torn-write check of the history DB's WAL (never repairs)."""
+    try:
+        from . import db as _db
+        from .sqlite_cdc import inspect_wal_health
+        wal = _db._resolve_db_path() + "-wal"
+        if not os.path.isfile(wal):
+            return [_result(OK, "sqlite_wal", "no WAL file present", path=wal)]
+        h = inspect_wal_health(wal)
+    except Exception as e:  # noqa: BLE001 -- a diagnostic reports its own failure, never raises
+        return [_result(WARN, "sqlite_wal", f"WAL check could not run: {e}")]
+    if h["is_healthy"]:
+        return [_result(OK, "sqlite_wal", f"WAL healthy ({h['valid_frames']} frames)", path=wal)]
+    return [_result(WARN, "sqlite_wal", "WAL torn write: " + "; ".join(h["anomalies"][:3]),
+                    path=wal, torn_frames=h["torn_frames"])]
+
+
 def run_diagnostics(sites_config: dict | None = None) -> dict:
     """Run every diagnostic group, return one structured report.
 
@@ -431,6 +452,7 @@ def run_diagnostics(sites_config: dict | None = None) -> dict:
     checks.extend(environment_checks())
     checks.extend(dependency_checks())
     checks.extend(cookie_freshness(sites_config or {}))
+    checks.extend(wal_checks())
 
     summary = {OK: 0, WARN: 0, FAIL: 0}
     for c in checks:
