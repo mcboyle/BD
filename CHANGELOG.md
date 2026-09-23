@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1650 - train75: row1020, row1037, row1048, row963
+
+Base train/74 tip 6edb4de6 (T74 v3.66.1649 on main cede20f7; ORDERS-0086 restack). Four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010 glob shards: per-row ci.yml lines dropped, RULING-0080 s2). ORDERS-0082.
+
+- row1020-gateway-routeregistry: monolithic gateway decomposition, dynamic blueprint registration engine (RouteRegistry). N2-B at a6ddb88c (RULING-0079 s2); ci.yml hunk stripped.
+- row1037-shell-autocompletion: bdctl shell autocompletion (rebuilt on 626a53f5 by W5-A). N2-B at 7f671b08.
+- row1048-web-dialog-notice-acknowledgment: web dialog notice acknowledgment (N2-B review copy, patch d2629e73). N2-B at f5597bd1.
+- row963-sparse-checkout-worktree-footprint-minimizer (rescoped, agy-worker-g5 wt). P2-B at 0f2a36d2; ci.yml hunk stripped.
+- register: rows 1020, 1037, 1048, 963 CLOSED @1650.
+
+
 ## v3.66.1649 - train74: row1000, row1051, row1063
 
 Base main cede20f7 (T73 v3.66.1648 landed; ORDERS-0086 restack, row1056 dropped). Four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2).

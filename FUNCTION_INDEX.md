@@ -169,21 +169,21 @@ Schema version: 2
 - L6279 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
 - L6347 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
 - L6489 `serve_ss` `GET /screenshots/<path:filename>`
-- L7790 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7797 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7808 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7823 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7887 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7916 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7924 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7941 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7953 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7976 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7992 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L8008 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L8025 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L8078 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L8199 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L6791 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6798 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L6809 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L6824 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L6888 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L6917 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L6925 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L6942 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L6954 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L6977 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L6993 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7009 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7026 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7079 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7200 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -416,7 +416,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_browser.py` (44 entries)
+## `bulk_downloader/runner_browser.py` (45 entries)
 
 ```
 - L0032 `_adaptive_manifest_kind` `[private]` — Return "hls" for a URL whose PATH ends in .m3u8, "dash" for .mpd,
@@ -462,7 +462,8 @@ Schema version: 2
   - L1273 `BrowserMixin._wait_for_spa_settlement` `[private]` — Block until the DOM has settled since the LATEST route
   - L1290 `BrowserMixin._warm_session` `[private]` — Phase 15.7: visit configured warmup URLs before deep-linking
   - L1363 `BrowserMixin.check_challenge_and_pause` — Row 935: Scan frame descriptors on the current page for challenge widgets and pause lane on match.
-- L1388 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
+  - L1379 `BrowserMixin.maybe_acknowledge_dialogs` — Acknowledge standard web dialogs and consent banners if enabled (Row 1048).
+- L1404 `_watch_verification_settlement` `[private]` — Watch page verification settlement and capture session headers.
 ```
 
 
@@ -980,4 +981,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 804 across 22 files._
+_Total entries: 805 across 22 files._

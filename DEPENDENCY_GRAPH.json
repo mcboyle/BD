@@ -2244,6 +2244,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_envfile_editor.py",
         "bulk_downloader/app_settings_center.py",
+        "bulk_downloader/route_registry.py",
         "bulk_downloader/site_editor.py",
         "tools/config_surface_inventory.py",
         "tools/dependency_graph.py",
@@ -2297,6 +2298,7 @@
         "bulk_downloader/provider_resolve_impl/_common.py",
         "bulk_downloader/provider_resolve_impl/youtube.py",
         "bulk_downloader/redaction_profile.py",
+        "bulk_downloader/route_registry.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runtime_flags.py",
         "bulk_downloader/secrets_audit.py",
@@ -2400,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1905,
+    "edge_count": 1765,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2528,134 +2530,22 @@
         "tools/opv_guide_lint.py",
         "tools/security_probe.py"
       ],
-      "bulk_downloader/app_a11y.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_account_pool.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_accounts.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_activity.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_ai.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_alerts.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_analyzer.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_api_tokens.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_apple.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_audit.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_auth.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_auth_health.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_automation_status.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_backup.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_batch.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_bg.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_bitrot.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_budget.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_bulk.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_bw_chart.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_capacity.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_captcha_relay.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_captures.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_changelog.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_circuit.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cleanup.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cluster_rate.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_cockpit_home.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_community_scrapers.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_concurrent.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_config.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cookie_clipboard.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cookie_quality.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cookie_relogin.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_cost.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_crash_recovery.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_csrf.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_daily_budget.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_dashboard.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_data_layer.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_dedup.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_deploy.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_dev.py": [
-        "bulk_downloader/app.py",
         "bulk_downloader/app_dev_ai.py",
         "bulk_downloader/app_dev_auth.py",
         "bulk_downloader/app_dev_config.py",
@@ -2701,51 +2591,9 @@
       "bulk_downloader/app_dev_testci.py": [
         "bulk_downloader/app_dev.py"
       ],
-      "bulk_downloader/app_diagnostics.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_diagnostics_bundle.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_discovery.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_doctor.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_download_hold.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_edge_deploy.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_envfile_editor.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/config_dryrun.py"
-      ],
-      "bulk_downloader/app_eol.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_events_all.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_export.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_extension.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_fed.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_file.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_fixtures.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_flaresolverr.py": [
-        "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_gallerydl_status.py": [
         "bulk_downloader/app.py"
@@ -2753,207 +2601,28 @@
       "bulk_downloader/app_gallerydl_update.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_gamification.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_global_config.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_health.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_history.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_hourly_stats.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_i18n.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_import.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_integrations.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_interop.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_jobs.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_jsonapi.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_kernel.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_captures.py"
       ],
-      "bulk_downloader/app_knowledge.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_library.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_live_recorder.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_login_templates.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_logs.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_macros.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_marketplace.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_multi_conn.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_notify.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_oidc.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_openapi.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_pair.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_palette.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_pause_all.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_phoenix.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_playground.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_plex.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_plugins.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_provenance.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_push.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_queue.py": [
-        "bulk_downloader/app.py",
         "bulk_downloader/app_discovery.py",
         "bulk_downloader/tombstone.py"
       ],
-      "bulk_downloader/app_queue_templates.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_quick_add.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_ramdisk.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_rate_limit.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_rebalance.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_recommendations.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_replication.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_report_center.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_resume_all.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_retention.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_retry_policy.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_rights.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_route_preview.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_route_urls.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_runners.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_runs.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_saved_searches.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_scene_score.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_scheduled_exports.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_schedules.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_scrape_listing.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_scrapling.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_search.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_secrets.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_selector_drift.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_selftest.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_semantic_search.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_session_history.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_session_status.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_settings_center.py": [
         "bulk_downloader/app.py",
         "tools/config_surface_inventory.py"
       ],
-      "bulk_downloader/app_shares.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_shortcuts.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_sites.py": [
-        "bulk_downloader/app.py",
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/app_sites_collection.py",
         "bulk_downloader/app_sites_id_core.py",
@@ -2978,20 +2647,11 @@
       "bulk_downloader/app_sites_lifecycle.py": [
         "bulk_downloader/app_sites.py"
       ],
-      "bulk_downloader/app_sites_list.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_sites_queue.py": [
         "bulk_downloader/app_sites.py"
       ],
       "bulk_downloader/app_sites_teach.py": [
         "bulk_downloader/app_sites.py"
-      ],
-      "bulk_downloader/app_sse_status.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_start_all.py": [
-        "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_state.py": [
         "bulk_downloader/app.py",
@@ -3004,105 +2664,28 @@
         "bulk_downloader/runner.py",
         "bulk_downloader/tombstone.py"
       ],
-      "bulk_downloader/app_stats.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_status.py": [
-        "bulk_downloader/app.py",
         "bulk_downloader/dev_suite/housekeeping.py"
       ],
-      "bulk_downloader/app_storage.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_storage_rebalance.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_store_raw_editor.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_stream.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_subtitles.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_supervisor.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_synthetic_tests.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_tags.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_template.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_template_manager.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_template_manager_ui.py": [
         "bulk_downloader/app.py"
       ],
-      "bulk_downloader/app_templates.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_tg.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_thumbnail_sheets.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_thumbnails.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_thumbs.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_tool_bridge.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_tools.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_tpdb.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_ui_events.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_user_templates.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_vpn.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_vpn_api.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_wakeup.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_wayback.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_weather.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_webhooks.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/app_widgets_api.py": [
-        "bulk_downloader/app.py",
         "bulk_downloader/app_dashboard.py"
       ],
-      "bulk_downloader/app_ytdlp_archive.py": [
-        "bulk_downloader/app.py"
-      ],
       "bulk_downloader/app_ytdlp_status.py": [
-        "bulk_downloader/app.py"
-      ],
-      "bulk_downloader/app_ytdlp_update.py": [
         "bulk_downloader/app.py"
       ],
       "bulk_downloader/arena_compactor.py": [
@@ -3673,6 +3256,7 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/introspection.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_transport.py",
@@ -4553,6 +4137,9 @@
         "bulk_downloader/failure_reasons.py",
         "bulk_downloader/runner_scheduler.py"
       ],
+      "bulk_downloader/route_registry.py": [
+        "bulk_downloader/app.py"
+      ],
       "bulk_downloader/run_budget.py": [
         "bulk_downloader/deadline.py",
         "bulk_downloader/runner.py"
@@ -5194,6 +4781,9 @@
       "bulk_downloader/wayback_cdx.py": [
         "bulk_downloader/app_wayback.py"
       ],
+      "bulk_downloader/web_dialog.py": [
+        "bulk_downloader/detect.py"
+      ],
       "bulk_downloader/webhooks.py": [
         "bulk_downloader/alerts_engine.py",
         "bulk_downloader/app.py",
@@ -5634,169 +5224,26 @@
         "bulk_downloader/account_pool.py",
         "bulk_downloader/aiassist.py",
         "bulk_downloader/api_tokens.py",
-        "bulk_downloader/app_a11y.py",
-        "bulk_downloader/app_account_pool.py",
-        "bulk_downloader/app_accounts.py",
-        "bulk_downloader/app_activity.py",
-        "bulk_downloader/app_ai.py",
-        "bulk_downloader/app_alerts.py",
-        "bulk_downloader/app_analyzer.py",
-        "bulk_downloader/app_api_tokens.py",
         "bulk_downloader/app_apple.py",
-        "bulk_downloader/app_audit.py",
         "bulk_downloader/app_auth.py",
-        "bulk_downloader/app_auth_health.py",
         "bulk_downloader/app_automation_status.py",
-        "bulk_downloader/app_backup.py",
-        "bulk_downloader/app_batch.py",
-        "bulk_downloader/app_bg.py",
-        "bulk_downloader/app_bitrot.py",
-        "bulk_downloader/app_budget.py",
-        "bulk_downloader/app_bulk.py",
-        "bulk_downloader/app_bw_chart.py",
-        "bulk_downloader/app_capacity.py",
-        "bulk_downloader/app_captcha_relay.py",
-        "bulk_downloader/app_captures.py",
-        "bulk_downloader/app_changelog.py",
-        "bulk_downloader/app_circuit.py",
-        "bulk_downloader/app_cleanup.py",
-        "bulk_downloader/app_cluster_rate.py",
         "bulk_downloader/app_cockpit_home.py",
-        "bulk_downloader/app_community_scrapers.py",
-        "bulk_downloader/app_concurrent.py",
-        "bulk_downloader/app_config.py",
-        "bulk_downloader/app_cookie_clipboard.py",
-        "bulk_downloader/app_cookie_quality.py",
-        "bulk_downloader/app_cookie_relogin.py",
-        "bulk_downloader/app_cost.py",
-        "bulk_downloader/app_crash_recovery.py",
-        "bulk_downloader/app_csrf.py",
-        "bulk_downloader/app_daily_budget.py",
-        "bulk_downloader/app_dashboard.py",
         "bulk_downloader/app_data_layer.py",
-        "bulk_downloader/app_dedup.py",
-        "bulk_downloader/app_deploy.py",
-        "bulk_downloader/app_dev.py",
-        "bulk_downloader/app_diagnostics.py",
-        "bulk_downloader/app_diagnostics_bundle.py",
-        "bulk_downloader/app_discovery.py",
-        "bulk_downloader/app_doctor.py",
-        "bulk_downloader/app_download_hold.py",
-        "bulk_downloader/app_edge_deploy.py",
         "bulk_downloader/app_envfile_editor.py",
-        "bulk_downloader/app_eol.py",
-        "bulk_downloader/app_events_all.py",
-        "bulk_downloader/app_export.py",
-        "bulk_downloader/app_extension.py",
-        "bulk_downloader/app_fed.py",
-        "bulk_downloader/app_file.py",
-        "bulk_downloader/app_fixtures.py",
-        "bulk_downloader/app_flaresolverr.py",
         "bulk_downloader/app_gallerydl_status.py",
         "bulk_downloader/app_gallerydl_update.py",
-        "bulk_downloader/app_gamification.py",
-        "bulk_downloader/app_global_config.py",
-        "bulk_downloader/app_health.py",
-        "bulk_downloader/app_history.py",
-        "bulk_downloader/app_hourly_stats.py",
-        "bulk_downloader/app_i18n.py",
-        "bulk_downloader/app_import.py",
-        "bulk_downloader/app_integrations.py",
-        "bulk_downloader/app_interop.py",
-        "bulk_downloader/app_jobs.py",
-        "bulk_downloader/app_jsonapi.py",
         "bulk_downloader/app_kernel.py",
-        "bulk_downloader/app_knowledge.py",
-        "bulk_downloader/app_library.py",
         "bulk_downloader/app_live_recorder.py",
-        "bulk_downloader/app_login_templates.py",
-        "bulk_downloader/app_logs.py",
-        "bulk_downloader/app_macros.py",
-        "bulk_downloader/app_marketplace.py",
-        "bulk_downloader/app_multi_conn.py",
-        "bulk_downloader/app_notify.py",
         "bulk_downloader/app_oidc.py",
-        "bulk_downloader/app_openapi.py",
-        "bulk_downloader/app_pair.py",
-        "bulk_downloader/app_palette.py",
-        "bulk_downloader/app_pause_all.py",
-        "bulk_downloader/app_phoenix.py",
-        "bulk_downloader/app_playground.py",
-        "bulk_downloader/app_plex.py",
-        "bulk_downloader/app_plugins.py",
-        "bulk_downloader/app_provenance.py",
-        "bulk_downloader/app_push.py",
-        "bulk_downloader/app_queue.py",
-        "bulk_downloader/app_queue_templates.py",
-        "bulk_downloader/app_quick_add.py",
-        "bulk_downloader/app_ramdisk.py",
-        "bulk_downloader/app_rate_limit.py",
-        "bulk_downloader/app_rebalance.py",
-        "bulk_downloader/app_recommendations.py",
-        "bulk_downloader/app_replication.py",
         "bulk_downloader/app_report_center.py",
-        "bulk_downloader/app_resume_all.py",
-        "bulk_downloader/app_retention.py",
-        "bulk_downloader/app_retry_policy.py",
-        "bulk_downloader/app_rights.py",
-        "bulk_downloader/app_route_preview.py",
-        "bulk_downloader/app_route_urls.py",
-        "bulk_downloader/app_runners.py",
-        "bulk_downloader/app_runs.py",
-        "bulk_downloader/app_saved_searches.py",
-        "bulk_downloader/app_scene_score.py",
-        "bulk_downloader/app_scheduled_exports.py",
-        "bulk_downloader/app_schedules.py",
-        "bulk_downloader/app_scrape_listing.py",
-        "bulk_downloader/app_scrapling.py",
-        "bulk_downloader/app_search.py",
-        "bulk_downloader/app_secrets.py",
-        "bulk_downloader/app_selector_drift.py",
-        "bulk_downloader/app_selftest.py",
-        "bulk_downloader/app_semantic_search.py",
-        "bulk_downloader/app_session_history.py",
-        "bulk_downloader/app_session_status.py",
         "bulk_downloader/app_settings_center.py",
-        "bulk_downloader/app_shares.py",
-        "bulk_downloader/app_shortcuts.py",
-        "bulk_downloader/app_sites.py",
-        "bulk_downloader/app_sites_list.py",
-        "bulk_downloader/app_sse_status.py",
-        "bulk_downloader/app_start_all.py",
         "bulk_downloader/app_state.py",
-        "bulk_downloader/app_stats.py",
-        "bulk_downloader/app_status.py",
-        "bulk_downloader/app_storage.py",
-        "bulk_downloader/app_storage_rebalance.py",
         "bulk_downloader/app_store_raw_editor.py",
-        "bulk_downloader/app_stream.py",
-        "bulk_downloader/app_subtitles.py",
-        "bulk_downloader/app_supervisor.py",
-        "bulk_downloader/app_synthetic_tests.py",
         "bulk_downloader/app_tags.py",
-        "bulk_downloader/app_template.py",
-        "bulk_downloader/app_template_manager.py",
         "bulk_downloader/app_template_manager_ui.py",
-        "bulk_downloader/app_templates.py",
-        "bulk_downloader/app_tg.py",
-        "bulk_downloader/app_thumbnail_sheets.py",
-        "bulk_downloader/app_thumbnails.py",
-        "bulk_downloader/app_thumbs.py",
         "bulk_downloader/app_tool_bridge.py",
-        "bulk_downloader/app_tools.py",
-        "bulk_downloader/app_tpdb.py",
-        "bulk_downloader/app_ui_events.py",
-        "bulk_downloader/app_user_templates.py",
-        "bulk_downloader/app_vpn.py",
-        "bulk_downloader/app_vpn_api.py",
-        "bulk_downloader/app_wakeup.py",
-        "bulk_downloader/app_wayback.py",
-        "bulk_downloader/app_weather.py",
         "bulk_downloader/app_webhooks.py",
-        "bulk_downloader/app_widgets_api.py",
-        "bulk_downloader/app_ytdlp_archive.py",
         "bulk_downloader/app_ytdlp_status.py",
-        "bulk_downloader/app_ytdlp_update.py",
         "bulk_downloader/audit.py",
         "bulk_downloader/auto_detect.py",
         "bulk_downloader/bg_scheduler.py",
@@ -5833,6 +5280,7 @@
         "bulk_downloader/push.py",
         "bulk_downloader/rate_limit.py",
         "bulk_downloader/request_replay.py",
+        "bulk_downloader/route_registry.py",
         "bulk_downloader/run_history.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/saved_searches.py",
@@ -6827,7 +6275,8 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/dom_honeypot.py",
         "bulk_downloader/global_config.py",
-        "bulk_downloader/plugins.py"
+        "bulk_downloader/plugins.py",
+        "bulk_downloader/web_dialog.py"
       ],
       "bulk_downloader/dev_suite/_common.py": [
         "bulk_downloader/__init__.py",
@@ -7598,6 +7047,7 @@
         "bulk_downloader/challenge_detector.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/constants.py",
+        "bulk_downloader/detect.py",
         "bulk_downloader/eme_detect.py",
         "bulk_downloader/interop_registry.py",
         "bulk_downloader/plugins.py",
