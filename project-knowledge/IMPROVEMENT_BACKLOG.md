@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=399 open=24 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
+<!-- canonical-task-register schema=1 rows=400 open=23 ids-sha256=329e4f128a50e0bc8a627aa0eb30adb5e2a4cf1f6ace5dbeb0eed4686e039328 -->
 
 ## Namespace and population
 
@@ -426,7 +426,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1035 | CLOSED @1633 | APPEND-ONLY-OPERATOR-AUDIT-JOURNAL-MODIFICATION-PROVENANCE -- Append-Only Operator Audit Journal & Modification Provenance |
 | 1036 | OPEN | ERGONOMIC-MULTI-ENVIRONMENT-PROFILE-CONTEXT-SWITCHER -- Ergonomic Multi-Environment Profile Context Switcher |
 | 1037 | CLOSED @1650 | DYNAMIC-SHELL-AUTOCOMPLETION-ENGINE-FOR-ZSH-BASH-AND-FISH -- Dynamic Shell Autocompletion Engine for Zsh, Bash, and Fish |
-| 1038 | OPEN | COLD-START-KERNEL-MODULE-IMPORT-LATENCY-PROFILER -- Cold-Start Kernel & Module Import Latency Profiler |
+| 1038 | CLOSED @1655 | COLD-START-KERNEL-MODULE-IMPORT-LATENCY-PROFILER -- Cold-Start Kernel & Module Import Latency Profiler |
 | 1039 | CLOSED @1635 | ENDPOINT-AUTHORIZATION-TOKEN-LIFECYCLE-CACHE-AUTHTOKENCACHE -- Endpoint Authorization Token Lifecycle Cache (AuthTokenCache) |
 | 1040 | CLOSED @1635 | CLIENT-CONFIGURATION-PROFILE-STANDARDIZATION -- Client Configuration Profile Standardization -- MOOT-DUPLICATE of row 898 (CLOSED @1585): bulk_downloader/client_config.py:48 standard_profile() + tests/test_row898.py:1 ship it @5f74ea9c21ee; REFUTED bd-worker-W1-A bd-local-wt/row1040-W1-A/DONE.md. Registrar-verified 2026-09-22T21:5xZ (ORDERS-2143) |
 | 1041 | CLOSED @1633 | ADAPTIVE-STREAMING-MANIFEST-PARSER-HLS-DASH -- Adaptive Streaming Manifest Parser (HLS/DASH) |
@@ -468,4 +468,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
 | 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
 | 1079 | CLOSED @1651 | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
-| 1080 | OPEN | HOTFIX-H701-PRECUT-FAST-TEST-BUDGET-BOUND -- test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6, ORDERS-0088) |
+| 1080 | CLOSED @1655 | HOTFIX-H701-PRECUT-FAST-TEST-BUDGET-BOUND -- test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6, ORDERS-0088) |
