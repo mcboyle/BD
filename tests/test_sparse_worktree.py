@@ -66,7 +66,9 @@ def test_registrations_do_not_accumulate(tmp_path):
 
 def test_custom_scope_keeps_the_default_excludes(tmp_path):
     """Round 2 E1: scope_dirs=["tests"] without exclude_dirs used to carry
-    tests/corpus + fixtures + mutants (117 MB) and fail the size bound."""
+    tests/corpus + fixtures + mutants (117 MB) and fail the size bound. row963:
+    only the corpora are carved (tests/corpus, tests/fixtures/recon_corpus); the
+    rest of tests/fixtures and tests/mutants is what gates read and is kept."""
     lw = _load_lens_worktree_module()
     base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
                                  capture_output=True, text=True, check=True).stdout.strip()
@@ -75,7 +77,8 @@ def test_custom_scope_keeps_the_default_excludes(tmp_path):
                                          scope_dirs=["tests"])
     assert res["ok"] is True, res
     assert (wt / "tests").is_dir() and not (wt / "tests" / "corpus").exists()
-    assert not (wt / "tests" / "fixtures").exists() and not (wt / "tests" / "mutants").exists()
+    assert not (wt / "tests" / "fixtures" / "recon_corpus").exists()
+    assert (wt / "tests" / "fixtures").is_dir() and (wt / "tests" / "mutants").is_dir()
     assert lw.get_worktree_size_mb(wt) < lw.MAX_WORKTREE_MB
     # explicit exclude_dirs still wins (an empty list carves nothing out)
     assert lw.sparse_patterns(["tests"], []) == lw.sparse_patterns(["tests"], [])
@@ -177,20 +180,31 @@ def test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path):
     branch = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
                             capture_output=True, text=True, check=True).stdout.strip()
     if branch == "HEAD":  # source repo itself detached: make the control meaningful anyway
-        branch = "main"
-    tip = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", f"{branch}^{{commit}}"],
-                         capture_output=True, text=True, check=True).stdout.strip()
-    wt = tmp_path / "branch_wt"
-    res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=wt, commit=branch,
-                                         scope_dirs=["toolchain"])
-    assert res["ok"] is True, res
-    assert res["commit"] == tip
-    head = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    assert head == tip
-    assert (wt / "toolchain").is_dir() and not (wt / "bulk_downloader").exists()
-    bad = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=tmp_path / "nope",
-                                         commit="no-such-ref-row866", scope_dirs=["toolchain"])
-    assert bad["ok"] is False and "resolve" in bad["error"]
+        for candidate in ("main", "origin/main"):
+            if subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--verify", f"{candidate}^{{commit}}"],
+                              capture_output=True).returncode == 0:
+                branch = candidate
+                break
+        else:
+            branch = "test_sparse_wt_temp_branch"
+            subprocess.run(["git", "-C", str(REPO_ROOT), "branch", "-f", branch, "HEAD"], check=True)
+    try:
+        tip = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", f"{branch}^{{commit}}"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        wt = tmp_path / "branch_wt"
+        res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=wt, commit=branch,
+                                             scope_dirs=["toolchain"])
+        assert res["ok"] is True, res
+        assert res["commit"] == tip
+        head = subprocess.run(["git", "-C", str(wt), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        assert head == tip
+        assert (wt / "toolchain").is_dir() and not (wt / "bulk_downloader").exists()
+        bad = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=tmp_path / "nope",
+                                             commit="no-such-ref-row866", scope_dirs=["toolchain"])
+        assert bad["ok"] is False and "resolve" in bad["error"]
+    finally:
+        if branch == "test_sparse_wt_temp_branch":
+            subprocess.run(["git", "-C", str(REPO_ROOT), "branch", "-D", branch], capture_output=True)
 
 
 def test_size_bound_is_enforced_without_deleting(tmp_path, monkeypatch):
@@ -316,7 +330,15 @@ def test_teardown_tolerates_lens_runtime_leftovers_and_judges_tracked_files(tmp_
     (wt / ".review").mkdir(); (wt / ".review" / "VERDICT-correctness.md").write_text("VERDICT: BOARD\n")
     (wt / ".pytest_cache" / "v").mkdir(parents=True); (wt / ".pytest_cache" / "v" / "x").write_text("x")
     (wt / "toolchain" / "__pycache__").mkdir(); (wt / "toolchain" / "__pycache__" / "a.cpython-312.pyc").write_bytes(b"\x00" * 64)
-    os.symlink(str(REPO_ROOT / "venv"), str(wt / "venv"))
+    venv_target = REPO_ROOT / "venv"
+    if not venv_target.exists():
+        cand = Path(sys.executable).resolve().parent.parent
+        if (cand / "bin" / "python").exists():
+            venv_target = cand
+        elif Path("/home/mboyle/BulkDownloader/venv").exists():
+            venv_target = Path("/home/mboyle/BulkDownloader/venv")
+    if venv_target.exists():
+        os.symlink(str(venv_target), str(wt / "venv"))
 
     # negative control: a teardown whose sparse-checkout step silently does
     # nothing leaves tracked files populated and MUST be reported as such
@@ -432,3 +454,22 @@ def test_the_helper_distinguishes_unreadable_from_measured(tmp_path):
     head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
                           capture_output=True, text=True, check=True).stdout.strip()
     assert isinstance(lw.full_checkout_size_bytes(REPO_ROOT, head), int)
+
+
+def test_cli_teardown_drives_teardown_function_and_exits_clean(tmp_path, monkeypatch, capsys):
+    """Test that `bd-lens-worktree teardown` CLI subcommand invokes teardown and exits 0 on success."""
+    lw = _load_lens_worktree_module()
+    base_commit = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+    wt = tmp_path / "cli_teardown_wt"
+    res = lw.create_sparse_lens_worktree(repo_path=REPO_ROOT, worktree_path=wt, commit=base_commit,
+                                         scope_dirs=["toolchain"])
+    assert res["ok"] is True, res
+    monkeypatch.setattr(sys, "argv", ["bd-lens-worktree", "teardown", "--repo", str(REPO_ROOT),
+                                      "--worktree", str(wt)])
+    rc = lw.main()
+    captured = capsys.readouterr()
+    assert rc == 0, (rc, captured)
+    assert "Cleaned sparse state" in captured.out
+    assert not (wt / "toolchain").exists()
+

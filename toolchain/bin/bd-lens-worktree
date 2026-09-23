@@ -14,6 +14,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Sequence
 
@@ -40,14 +41,26 @@ MAX_WORKTREE_MB = 64.0
 # even while it is still under the absolute cap.
 MAX_WORKTREE_SHARE = 0.45
 
+# Row 963: creation latency is REPORTED (latency_ms) and bounded only when a caller
+# asks (max_latency_ms / --max-latency-ms). It is host- and load-dependent: at
+# 5f74ea9c on hub-mesh01 the `git checkout` step alone of the default scope takes
+# ~550 ms and the whole create 665-1217 ms, so a default bound would fail healthy
+# worktrees on a busy host (RULING-2332 option A). This is the row's figure, kept
+# for callers that want to apply it.
+MAX_CREATION_LATENCY_MS = 500.0
+
 # Default lens scope: the WHOLE tree (every gate finds what a full checkout has:
-# reports/, project-knowledge/, tools/ ...) MINUS the recorded corpora under tests/
-# (tests/corpus ~72 MB, tests/fixtures ~20 MB, tests/mutants ~4 MB of the repo's
-# 141 MB) that alone blow the bound: 48.3 MB measured at b9d1c8f7. Gates that
-# need a corpus pass --scope/--exclude explicitly and accept the size that comes
-# with it.
+# reports/, project-knowledge/, tools/, tests/mutants, tests/fixtures ...) MINUS the
+# two recorded corpora that alone blow the bound (at 5f74ea9c: tests/corpus 71.4 MB
+# and tests/fixtures/recon_corpus 18.6 MB of the 144.5 MB tree).
+# row963: carving out ALL of tests/fixtures and tests/mutants hid 2.5 MB of inputs
+# that bd-precut, bd-mutate and fixture-reading gates need (N3-B / RULING-2245), so
+# only the corpora are carved. A gate that reads a corpus is not served by the
+# default: every result names what it carved out ("exclude"), and such a gate
+# passes --scope bulk_downloader tests --exclude tests/corpus, which stays under
+# the bound.
 DEFAULT_SCOPE: list[str] = []          # [] = whole tree
-DEFAULT_EXCLUDE = ["tests/corpus", "tests/fixtures", "tests/mutants"]
+DEFAULT_EXCLUDE = ["tests/corpus", "tests/fixtures/recon_corpus"]
 
 
 def sparse_patterns(scope: Sequence[str], exclude: Sequence[str]) -> list[str]:
@@ -115,8 +128,10 @@ def create_sparse_lens_worktree(
     commit: str,
     scope_dirs: Sequence[str] | None = None,
     exclude_dirs: Sequence[str] | None = None,
+    max_latency_ms: float | None = None,
 ) -> dict:
     """Create a scoped worktree using no-checkout plus sparse-checkout."""
+    t_start = time.perf_counter()
     repo = Path(repo_path).resolve()
     wt = Path(worktree_path).resolve()
 
@@ -196,6 +211,7 @@ def create_sparse_lens_worktree(
         # An unmeasurable (None) or degenerate (0-byte) denominator is a refusal, not
         # a free pass: `share` stays None so no caller can assert a bound against it.
         share = (sz_bytes / full_bytes) if full_bytes else None
+        latency_ms = (time.perf_counter() - t_start) * 1000.0
         if sz_mb >= MAX_WORKTREE_MB:
             # Bound violated: report it as a failure. The worktree is NOT deleted
             # (Fleet Rule 22) -- the caller sees the path and the measured size.
@@ -209,6 +225,7 @@ def create_sparse_lens_worktree(
                 "scope": scope,
                 "exclude": exclude,
                 "commit": sha,
+                "latency_ms": latency_ms,
                 "error": (f"scoped worktree is {sz_mb:.2f} MB, not under the {MAX_WORKTREE_MB:.0f} MB bound; "
                           f"left in place at {wt} (Fleet Rule 22: never deleted)"),
             }
@@ -224,6 +241,7 @@ def create_sparse_lens_worktree(
                 "scope": scope,
                 "exclude": exclude,
                 "commit": sha,
+                "latency_ms": latency_ms,
                 "error": (f"could not measure a full checkout of {sha} (git ls-tree gave "
                           f"{full_bytes!r}), so the {MAX_WORKTREE_SHARE:.2f} share bound could "
                           f"not be applied to {sz_mb:.2f} MB; left in place at {wt} "
@@ -241,9 +259,26 @@ def create_sparse_lens_worktree(
                 "scope": scope,
                 "exclude": exclude,
                 "commit": sha,
+                "latency_ms": latency_ms,
                 "error": (f"scoped worktree is {share:.3f} of a full checkout, over the "
                           f"{MAX_WORKTREE_SHARE:.2f} share bound; left in place at {wt} "
                           f"(Fleet Rule 22: never deleted)"),
+            }
+
+        if max_latency_ms is not None and latency_ms > max_latency_ms:
+            return {
+                "ok": False,
+                "path": str(wt),
+                "size_bytes": sz_bytes,
+                "size_mb": sz_mb,
+                "full_size_bytes": full_bytes,
+                "share": share,
+                "scope": scope,
+                "exclude": exclude,
+                "commit": sha,
+                "latency_ms": latency_ms,
+                "error": (f"creation latency {latency_ms:.1f}ms exceeds {max_latency_ms:.0f}ms bound; "
+                          f"left in place at {wt} (Fleet Rule 22: never deleted)"),
             }
 
         return {
@@ -256,6 +291,7 @@ def create_sparse_lens_worktree(
             "scope": scope,
             "exclude": exclude,
             "commit": sha,
+            "latency_ms": latency_ms,
         }
     except Exception as exc:
         return {"ok": False, "error": f"failed to create sparse worktree: {exc}"}
@@ -320,7 +356,7 @@ def teardown_sparse_lens_worktree(
                 "error": (f"teardown left the worktree populated: tracked={populated[:10]}"
                           f"{' ...' if len(populated) > 10 else ''}, size {before} -> {after} bytes"),
             }
-        leftovers = sorted(p.name for p in wt.iterdir() if p.is_dir() and p.name != ".git")
+        leftovers = sorted(p.name for p in wt.iterdir() if (p.is_dir() or p.is_symlink()) and p.name != ".git")
         return {"ok": True, "cleaned": str(wt), "sparse": True,
                 "size_before_bytes": before, "size_after_bytes": after,
                 "untracked_dirs": leftovers}
@@ -339,6 +375,8 @@ def main() -> int:
     create_p.add_argument("--scope", nargs="*", default=None, help="Scoped directories (default: whole tree minus --exclude)")
     create_p.add_argument("--exclude", nargs="*", default=None,
                           help=f"Subdirectories carved out of the scope (default with the default scope: {' '.join(DEFAULT_EXCLUDE)})")
+    create_p.add_argument("--max-latency-ms", type=float, default=None,
+                          help=f"Maximum allowed creation latency in ms (default: unbounded; threshold: {MAX_CREATION_LATENCY_MS:.0f}ms)")
 
     teardown_p = subparsers.add_parser("teardown", help="Teardown sparse state in worktree")
     teardown_p.add_argument("--repo", default=".", help="Base repository path")
@@ -350,11 +388,12 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.action == "create":
-        res = create_sparse_lens_worktree(args.repo, args.worktree, args.commit, args.scope, args.exclude)
+        res = create_sparse_lens_worktree(args.repo, args.worktree, args.commit, args.scope, args.exclude, args.max_latency_ms)
         if not res.get("ok"):
             sys.stderr.write(f"error: {res.get('error')}\n")
             return 1
-        print(f"Created sparse worktree at {res['path']} ({res['size_mb']:.2f} MB)")
+        print(f"Created sparse worktree at {res['path']} ({res['size_mb']:.2f} MB, "
+              f"{res['latency_ms']:.0f} ms; not checked out: {' '.join(res['exclude']) or 'nothing'})")
         return 0
 
     if args.action == "teardown":
