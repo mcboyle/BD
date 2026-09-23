@@ -450,12 +450,20 @@ def test_this_gate_is_scheduled_in_ci_on_a_shard_that_has_chromium():
         (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     job = wf["jobs"]["gate-suites"]
     me = "tests/" + Path(__file__).name
-    shards = [s for s in job["strategy"]["matrix"]["include"]
-              if me in s["suites"].split()]
+    # O1264(d): ci.yml carries shard names only; membership is what
+    # tools/ci_shards.py resolves for this tree (the run step invokes it).
+    from tools import ci_shards
+    shards = [name for name, files in ci_shards.shards(ROOT).items() if me in files]
     assert len(shards) == 1, (
         f"{me} appears in {len(shards)} gate-suites shards; it must be in "
         "exactly one or it runs nowhere / twice")
-    name = shards[0]["name"]
+    name = shards[0]
+    assert name == "download-chain", (
+        f"{me} resolved to shard {name!r}; the only shard that installs "
+        "Chromium is 'download-chain', so this Chromium-driven gate must be "
+        "pinned there in tools/ci_shards.py")
+    assert any(e.get("name") == name for e in job["strategy"]["matrix"]["include"]), (
+        f"resolver shard {name!r} is not a gate-suites matrix entry")
     steps = [s for s in job["steps"]
              if "playwright install" in str(s.get("run", ""))]
     assert steps, "no step installs a browser on any gate shard"
