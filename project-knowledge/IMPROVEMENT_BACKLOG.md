@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=42 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=398 open=40 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
 
 ## Namespace and population
 
@@ -419,7 +419,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1028 | OPEN | WEAKREF-CALLBACK-LIFECYCLE-MANAGER-AND-UNBOUNDED-CACHE-PRUNING-ENGINE-WEAKREFLIFECYCLE -- Weakref Callback Lifecycle Manager and Unbounded Cache Pruning Engine (WeakrefLifecycle) |
 | 1029 | CLOSED @1640 | GENERATIONAL-GARBAGE-COLLECTION-TUNING-AND-DYNAMIC-CYCLE-COLLECTION-PAUSER-ADAPTIVEGCCONTROLLER -- Generational Garbage Collection Tuning and Dynamic Cycle Collection Pauser (AdaptiveGCController) |
 | 1030 | CLOSED @1643 | POSIX-SHARED-MEMORY-SHM-OPEN-ZERO-COPY-IPC-TRANSPORT-FOR-CLUSTER-WORKERS-SHAREDMEMORYIPC -- POSIX Shared -- MOOT: REFUTED bd-cuts/cut/row1030-shm-zero-copy-ipc/DONE.md. Closed at T70 assembly (ORDERS-0060 04:02Z) Memory (shm_open) Zero-Copy IPC Transport for Cluster Workers (SharedMemoryIPC) |
-| 1031 | OPEN | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
+| 1031 | CLOSED @1647 | ACCESSIBLE-CONFIRMATION-CHECKBOX-SELECTOR-INTERACTION-HANDLER -- Accessible Confirmation Checkbox Selector & Interaction Handler |
 | 1032 | CLOSED @1637 | VERIFICATION-SETTLEMENT-WATCHER-SESSION-HEADER-CAPTURE-HOOK -- Verification Settlement Watcher & Session Header Capture Hook |
 | 1033 | CLOSED @1640 | STRUCTURED-CLI-OPERATIONAL-DIAGNOSTICS-SELF-HEALING-ADVISOR -- Structured CLI Operational Diagnostics & Self-Healing Advisor |
 | 1034 | CLOSED @1632 | DECLARATIVE-CONFIGURATION-DRY-RUN-SIMULATOR-PLAN-VISUALIZER -- Declarative Configuration Dry-Run Simulator & Plan Visualizer |
@@ -453,7 +453,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
 | 1063 | OPEN | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
 | 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
-| 1065 | OPEN | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
+| 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
 | 1066 | OPEN | EGRESS-SOCKET-PACING-VIA-LINUX-SO-MAX-PACING-RATE-EBPF-EDT-SCHEDULER -- Egress Socket Pacing via Linux SO_MAX_PACING_RATE & eBPF EDT Scheduler |
 | 1067 | CLOSED @1634 | MULTIPATH-TCP-MPTCP-KERNEL-SUBFLOW-NEGOTIATION-RFC-8684 -- Multipath TCP (MPTCP) Kernel Subflow Negotiation (RFC 8684) |
 | 1068 | OPEN | MULTI-TENANT-LEDGER-PARTITION-SHARDING-BY-EPOCH-DOMAIN -- Multi-Tenant Ledger Partition Sharding by Epoch & Domain |
