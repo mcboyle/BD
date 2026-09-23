@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5046,
+  "edge_count": 5049,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3356,8 +3356,17 @@
       "tools/config_surface_inventory.py",
       "tools/gui_parity_inventory.py"
     ],
+    "tests/test_h152_ssrf_census_proxy_class.py": [
+      "tools/ssrf_client_census.py"
+    ],
     "tests/test_h621_harness_only_env_is_not_gui_parity_debt.py": [
       "bulk_downloader/app_envfile_editor.py",
+      "tools/config_surface_inventory.py"
+    ],
+    "tests/test_h622_ci_test_census.py": [
+      "tools/ci_shards.py"
+    ],
+    "tests/test_h644_config_inventory_syspath_hermetic.py": [
       "tools/config_surface_inventory.py"
     ],
     "tests/test_happy_eyeballs.py": [
