@@ -570,8 +570,13 @@ def test_stop_start_waits_for_old_profile_and_rejects_stale_worker_writes(
         worker.join(2.0)
 
 
+@pytest.mark.parametrize("failure_message,terminal_status", [
+    ("HTTP 403 from old worker", "failed"),
+    # Row 847: a permanent HTTP 404/410 failure is published as 'tombstone'.
+    ("HTTP 404 from old worker", "tombstone"),
+])
 def test_stop_serializes_failure_side_effects_and_rejects_stale_repeat(
-        monkeypatch):
+        monkeypatch, failure_message, terminal_status):
     """Failure DB/hooks are ordered before stop or rejected after it."""
     from bulk_downloader import hooks, runner_telemetry
 
@@ -614,7 +619,7 @@ def test_stop_serializes_failure_side_effects_and_rejects_stale_repeat(
 
     failure = threading.Thread(
         target=runner._handle_failure,
-        args=(url, "HTTP 404 from old worker"),
+        args=(url, failure_message),
         kwargs={"_run_generation": 1},
     )
     failure.start()
@@ -636,13 +641,13 @@ def test_stop_serializes_failure_side_effects_and_rejects_stale_repeat(
     assert not stopper.is_alive()
     assert stop_done.is_set()
     assert [kind for kind, *_ in side_effects] == ["db", "hook"]
-    assert runner.jobs[url]["status"] == "failed"
+    assert runner.jobs[url]["status"] == terminal_status
 
     before = list(side_effects)
     assert runner._handle_failure(
         url, "late failure from old worker", _run_generation=1) is False
     assert side_effects == before
-    assert runner.jobs[url]["status"] == "failed"
+    assert runner.jobs[url]["status"] == terminal_status
 
 
 def test_start_refuses_replacement_when_old_worker_misses_teardown_budget(

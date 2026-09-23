@@ -472,3 +472,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1081 | CLOSED @1657 | HOTFIX-ROW1053-TEST-PINS-LC_ALL -- test_row1053_subprocess_stdin_guard pins LC_ALL for its subprocess env (main red e87bfcef gates-v3-a, ORDERS-0089) |
 | 1082 | CLOSED @1657 | HOTFIX-ROW1038-IMPORT-PROFILER-STDIN-DEVNULL -- import_profiler subprocess sites pass stdin=DEVNULL per the row1053 guard (main red a89d38d6 gates-rows-a, ORDERS-0091) |
 | 1083 | CLOSED @1658 | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
+| 1084 | OPEN | HOTFIX-ROW847-LIVE-TELEMETRY-TOMBSTONE-STATUS -- test_live_telemetry stop-serialization test pins 'failed' for a non-tombstone permanent failure and row847's 'tombstone' for HTTP 404 (main red, ORDERS-0093) |
