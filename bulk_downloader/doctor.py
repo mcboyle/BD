@@ -34,6 +34,7 @@ The four diagnostic groups:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -250,53 +251,137 @@ def cookie_freshness(sites_config: dict,
 
 # ── Failure diagnoser ───────────────────────────────────────────────────
 
-# Ordered list of (signature substrings, cause, suggestion, confidence).
-# First match wins, so put the most specific signatures first. All
-# matching is case-insensitive on the error string.
+# Ordered list of (signatures, rule id, cause, suggestion, confidence,
+# remedy). First match wins, so the most specific signatures come first.
+#
+# row1033: every rule carries a STABLE id (an automation keys on the id, not
+# on prose that gets reworded) and a machine-readable remedy -- the command an
+# operator would have had to retype out of the suggestion, or None where the
+# repair is a human decision rather than a command.
+#
+# A single-word signature is matched on WORD BOUNDARIES. As bare substrings,
+# "auth" also matched "author" and "authored" and answered with confidence
+# "high"; a confidently wrong cause sends the operator to re-login instead of
+# reading the HTTP 500 in front of them.
 _FAILURE_SIGNATURES = [
-    (("rate limit", "429", "too many requests", "slow down"),
+    (("rate limit", "rate limited", "rate limiting", "429",
+      "too many requests", "slow down"),
+     "rate-limit",
      "Rate limiting",
      "The site is throttling requests. Increase the site's `delay` "
      "and `wait`, lower `max_concurrent`, or enable a warmup schedule.",
-     "high"),
+     "high",
+     {"action": "throttle", "command": "bdctl site set <site> --delay +2"}),
     (("captcha", "turnstile", "recaptcha", "hcaptcha", "challenge"),
+     "captcha",
      "Captcha challenge",
      "The site presented a captcha. Use 'Take over' to solve it "
      "manually, or configure a captcha provider (2captcha / capsolver) "
      "in the site's settings.",
-     "high"),
+     "high",
+     {"action": "takeover", "command": "bdctl takeover <site>"}),
     (("login", "auth", "401", "403", "forbidden", "sign in",
       "session expired", "unauthorized"),
+     "auth",
      "Authentication / session expiry",
      "Login failed or the session expired. Re-login for this site; "
-     "if it keeps happening, the stored cookies are stale — refresh "
+     "if it keeps happening, the stored cookies are stale \u2014 refresh "
      "them. Check `bdctl doctor` for the cookie age.",
-     "high"),
+     "high",
+     {"action": "relogin", "command": "bdctl login <site>"}),
     (("selector", "no such element", "element not found",
-      "waiting for selector", "timeout.*selector"),
+      "waiting for selector"),
+     "selector-drift",
      "Selector drift",
-     "A configured CSS selector no longer matches the page — the site "
+     "A configured CSS selector no longer matches the page \u2014 the site "
      "changed its layout. Re-teach the site or update the "
      "trigger_selector / dl_selector in the editor.",
-     "medium"),
+     "medium",
+     {"action": "reteach", "command": "bdctl teach <site>"}),
     (("disk", "no space", "ENOSPC", "quota exceeded"),
+     "disk",
      "Disk pressure",
      "The download disk is full or near-full. Free space, lower the "
      "site's `disk_threshold_gb`, or configure a spillover directory.",
-     "high"),
+     "high",
+     {"action": "free-space", "command": "bdctl prune --older-than 30d"}),
     (("timeout", "timed out", "connection reset", "connection refused",
       "network", "dns", "unreachable", "ssl"),
+     "network",
      "Network / connectivity",
-     "A network error interrupted the download. Often transient — a "
+     "A network error interrupted the download. Often transient \u2014 a "
      "retry usually clears it. If it persists, check connectivity, "
      "any proxy config, or whether the site is down.",
-     "medium"),
+     "medium",
+     {"action": "retry", "command": "bdctl retry <site>"}),
     (("404", "not found", "gone", "410"),
+     "content-removed",
      "Content removed",
-     "The target URL returned 404/410 — the content was taken down or "
+     "The target URL returned 404/410 \u2014 the content was taken down or "
      "the URL is wrong. Verify the URL is still valid on the site.",
-     "medium"),
+     "medium",
+     None),
 ]
+
+# A single-word signature is matched with stem and boundary awareness.
+# As a bare substring, "auth" also matched "author" and "authored" and
+# answered with confidence "high"; a confidently wrong cause sends the
+# operator to re-login instead of reading the HTTP 500 in front of them.
+# Similarly, "gone" matched "undergone".
+#
+# Matching preserves genuine stems, plurals, and exception compound shapes
+# (e.g. "selectors", "timeouterror", "connecttimeout", "openssl", "diskfull",
+# "authentication", "authorization", "oauth") while strictly rejecting false
+# positives ("author", "authored", "authority", "undergone").
+
+_STATUS_PREFIX = (r"(?<![a-z0-9])(?:http(?:/\d(?:\.\d)?)?|status(?:[\s_-]*code)?"
+                  r"|error(?:[\s_-]*code)?|code)[\s:=#]*")
+_STATUS_PHRASE = (r"(?:too many requests|unauthorized|forbidden|not found"
+                  r"|gone)(?![a-z0-9])")
+_WORD_SUFFIX = (r"(?:e?s)?(?:error|exception|required|full|failed|failure)?"
+                r"(?![a-z0-9])")
+
+
+def _signature_matches(signature: str, haystack: str) -> bool:
+    sig = signature.lower()
+    # Numeric status codes match ONLY in a status context ("HTTP 429",
+    # "status 403", "code: 429", "429 Too Many Requests"). A standalone number
+    # is a byte count ("received 429 of 1048576 bytes"), a path segment
+    # (/gallery/429) or a filename (429.jpg) at least as often as a status.
+    if sig.isdigit():
+        return (re.search(_STATUS_PREFIX + sig + r"(?!\w)", haystack) is not None
+                or re.search(rf"(?<![\w/.-]){sig}\s+{_STATUS_PHRASE}",
+                             haystack) is not None)
+    # 'gone' indicates content removal; must not match 'undergone' or 'foregone'.
+    if sig == "gone":
+        return re.search(r"(?<![a-z0-9])gone(?![a-z0-9])", haystack) is not None
+    # 'auth' must match authentication, authorization, authenticate, oauth, etc.,
+    # but never 'author', 'authored', 'authoring', 'authorship', 'authority',
+    # or 'authentic' / 'authenticity'.
+    if sig == "auth":
+        words = re.findall(r"[a-z0-9]+", haystack)
+        for w in words:
+            if "auth" in w:
+                if re.search(r"author(?!iz|is)", w):
+                    continue
+                if re.search(r"authentic(?!at)", w):
+                    continue
+                return True
+        return False
+    # 'ssl' matches ssl, openssl, libssl, sslerror, etc., but not words like seamlessly/lossless.
+    if sig == "ssl":
+        return re.search(r"(?<![a-z0-9])(?:open|lib|py)?ssl", haystack) is not None
+    # 'timeout' matches standalone or compound exceptions (ConnectTimeout, ReadTimeout, TimeoutError).
+    if sig == "timeout":
+        return "timeout" in haystack
+    # Every other signature is bounded on BOTH ends. The right end admits a
+    # plural and an exception-name suffix (selectors, captchas, networkerror,
+    # loginerror, loginrequired, diskfull) and nothing else: as bare
+    # substrings "sign in" fired inside "design in", "slow down" inside
+    # "downstream", "rate limit" inside "accurate limit", "no space" inside
+    # "spacecraft", "disk" inside "diskette", "challenge" inside "challenged".
+    return re.search(rf"(?<![a-z0-9]){re.escape(sig)}{_WORD_SUFFIX}",
+                     haystack) is not None
 
 
 def diagnose_failure(error_message: str) -> dict:
@@ -310,19 +395,20 @@ def diagnose_failure(error_message: str) -> dict:
     if not error_message or not isinstance(error_message, str):
         return {"matched": False, "cause": "Unknown",
                 "suggestion": "No error text to analyze.",
-                "confidence": "none"}
+                "confidence": "none", "rule": None, "remedy": None}
     haystack = error_message.lower()
-    for signatures, cause, suggestion, confidence in _FAILURE_SIGNATURES:
+    for signatures, rule, cause, suggestion, confidence, remedy in _FAILURE_SIGNATURES:
         for sig in signatures:
-            # Plain substring match — cheap and predictable. The few
-            # regex-looking entries above are treated as literals on
-            # purpose; a substring of "timeout" still catches them.
-            if sig.replace(".*", " ") in haystack or sig in haystack:
+            if _signature_matches(sig, haystack):
                 return {"matched": True, "cause": cause,
                         "suggestion": suggestion,
-                        "confidence": confidence}
+                        "confidence": confidence,
+                        "rule": rule,
+                        "remedy": dict(remedy) if remedy else None}
     return {
         "matched": False,
+        "rule": None,
+        "remedy": None,
         "cause": "Unrecognized error",
         "suggestion": "No known pattern matched. Check the full event "
                       "log for this URL, and the screenshot if one was "

@@ -1289,10 +1289,19 @@ def cmd_doctor(args):
         r = _request("POST", "/api/doctor/diagnose",
                      body={"error": args.diagnose})
         d = r.get("diagnosis", {}) if isinstance(r, dict) else {}
+        # row1033: --json was silently ignored on this path, so the one
+        # doctor sub-command an automation calls gave it nothing to parse.
+        if _maybe_json(d, args):
+            sys.exit(0 if d.get("matched") else 1)
         print(f"  cause:       {d.get('cause', '?')}")
         print(f"  confidence:  {d.get('confidence', '?')}")
         print(f"  suggestion:  {d.get('suggestion', '')}")
+        remedy = d.get("remedy") or {}
+        if remedy.get("command"):
+            print(f"  remedy:      {remedy['command']}"
+                  f"  ({remedy.get('action', 'run')})")
         sys.exit(0 if d.get("matched") else 1)
+
     # Full diagnostic report
     r = _request("GET", "/api/doctor")
     if not isinstance(r, dict) or not r.get("ok"):
