@@ -2929,10 +2929,27 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         now = time.time()
         # v3.43.80 Phase 86: friendly_error translates raw failure msgs.
         if status == "failed" and message:
+            raw_message = message
             try:
                 message = _translate_failed_message(message)
             except Exception:
                 pass  # translator failure must never block queue update
+            # Row 987: classify the RAW failure -- the translation above
+            # rewrites e.g. "[SSL: CERTIFICATE_VERIFY_FAILED]" into prose the
+            # classifier no longer recognises. An advisor fault is logged and
+            # recorded, never allowed to block the queue update.
+            try:
+                from .friendly_error import advise_error
+                advice_context = {"site_id": getattr(self, "site_id", ""), "url": url}
+                # The same live Turnstile measurement the translation takes
+                # (row 360): without it the advice can only say UNKNOWN.
+                if "turnstile" in str(raw_message).lower():
+                    advice_context["turnstile_bypass"] = _turnstile_bypass_state()
+                extra["remediation"] = advise_error(
+                    raw_message, context=advice_context).to_dict()
+            except Exception as exc:
+                self.log.warning("error advisor failed for %s: %s", url, exc)
+                extra["remediation"] = {"category": "unknown", "error": str(exc)}
         if status == "failed":
             try:
                 from . import tombstone
@@ -3004,6 +3021,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # disable retry on the NEXT corruption event for that URL.
                 if status == "done":
                     self.jobs[url].pop("corruption_retries", None)
+                    # Row 987: the advice describes the LAST FAILURE; a success
+                    # retires it (job detail serves the whole job dict).
+                    self.jobs[url].pop("remediation", None)
                     # v3.43.44: fold the successful URL's host +
                     # path-prefix into the per-site fingerprint so
                     # future scoring favors similar CDN/path patterns.

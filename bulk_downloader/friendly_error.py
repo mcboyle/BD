@@ -194,3 +194,9 @@ def assert_url_round_trip(url: str) -> str:
         return canonical
     except Exception:
         return url  # parser failure must never break the caller
+
+
+def advise_error(err: Any, context: Optional[dict] = None):
+    """Contextual Error Classification & Remediation Advisor bridge."""
+    from .error_advisor import advise_error as _advise
+    return _advise(err, context)
