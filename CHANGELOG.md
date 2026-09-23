@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1649 - train74: row1000, row1051, row1063
+
+Base main cede20f7 (T73 v3.66.1648 landed; ORDERS-0086 restack, row1056 dropped). Four cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2).
+
+- row1051-frontend-reactive-react19-tailwind4: frontend reactive architecture on React 19 / Tailwind 4 (58 paths). N5-A at 38454e8a.
+- row1000-wal-torn-write: SQLite WAL page-header torn-write detection (4 paths). P4-B at 293d0240.
+- H701-precut-fast: harness precut --fast (base 2a0e64c1; applied from the boarded tree object via review copy H701-precut-fast-23b2610a). N5-A at 23b2610a.
+- row1063-ledger-reconcile r5 (9 paths). N5-A at 37296dc1.
+- register: rows 1051, 1000, 1063 CLOSED @1649.
+- dropped (ORDERS-0086, member-caused gate-suites red: test_row825 DummyRunner lacks record_transfer_completion; T74-DROP-1056-R-B.md): row1056 @37a07dc0 -> fixer-B.
+
+
 ## v3.66.1648 - train73: row1049, row1068, row1061
 
 Base train/72 tip 204ac894 (T72 v3.66.1646 on T71 890d0d94 on main 4c317d6f; restack as the stack lands). Three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (821)
+## /api/* routes (823)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -467,7 +467,9 @@ GET     /api/plugins/installed                                 CSRF: no   — GU
 POST    /api/plugins/reload                                    CSRF: yes  — Scan and (re)load all plugins from the plugin dir.
 GET     /api/plugins/status                                    CSRF: no
 POST    /api/plugins/uninstall                                 CSRF: yes  — Remove a managed-installed plugin (destructive; the GUI gates this behind
+GET     /api/provenance/digest                                 CSRF: no   — Row 1063. Chain digest of the local ledger for a peer/replica to
 GET     /api/provenance/query                                  CSRF: no   — Query the ledger by url/filename/sha256/site/time range.
+POST    /api/provenance/reconcile                              CSRF: yes  — Row 1063. Body {digest: <peer digest>, checkpoint_every?}. Answers the
 GET     /api/provenance/stats                                  CSRF: no
 POST    /api/provenance/verify                                 CSRF: yes  — Run a full chain verification. Slow on large ledgers; intended
 GET     /api/push/info                                         CSRF: no   — Returns the server's VAPID public key + whether push is available

@@ -1226,11 +1226,14 @@
     "provenance": {
       "module": "app_provenance.py",
       "providers": [
+        "bulk_downloader/ledger_reconcile.py",
         "bulk_downloader/provenance.py"
       ],
-      "route_count": 3,
+      "route_count": 5,
       "routes": [
+        "ROUTE /api/provenance/digest",
         "ROUTE /api/provenance/query",
+        "ROUTE /api/provenance/reconcile",
         "ROUTE /api/provenance/stats",
         "ROUTE /api/provenance/verify"
       ],
@@ -2397,7 +2400,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1900,
+    "edge_count": 1905,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3564,6 +3567,7 @@
         "bulk_downloader/diagnostics_bundle.py",
         "bulk_downloader/disco_runner.py",
         "bulk_downloader/discovery.py",
+        "bulk_downloader/doctor.py",
         "bulk_downloader/eol_export.py",
         "bulk_downloader/error_fingerprint.py",
         "bulk_downloader/federation.py",
@@ -3572,6 +3576,7 @@
         "bulk_downloader/honeypot_threshold.py",
         "bulk_downloader/hybrid_search.py",
         "bulk_downloader/knowledge.py",
+        "bulk_downloader/ledger_reconcile.py",
         "bulk_downloader/library.py",
         "bulk_downloader/library_final.py",
         "bulk_downloader/log.py",
@@ -4110,6 +4115,9 @@
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_teach.py"
+      ],
+      "bulk_downloader/ledger_reconcile.py": [
+        "bulk_downloader/app_provenance.py"
       ],
       "bulk_downloader/ledger_sharding.py": [
         "bulk_downloader/provenance.py"
@@ -4806,6 +4814,9 @@
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_telemetry.py"
       ],
+      "bulk_downloader/sqlite_cdc.py": [
+        "bulk_downloader/doctor.py"
+      ],
       "bulk_downloader/sqlite_freelist_vacuum.py": [
         "bulk_downloader/db_maintenance.py"
       ],
@@ -5172,6 +5183,9 @@
         "tools/builder_gap_report.py",
         "tools/capture_model_golden.py",
         "tools/capture_session.py"
+      ],
+      "bulk_downloader/wal_inspector.py": [
+        "bulk_downloader/sqlite_cdc.py"
       ],
       "bulk_downloader/watch_folder.py": [
         "bulk_downloader/app.py",
@@ -6180,6 +6194,7 @@
         "bulk_downloader/plugins.py"
       ],
       "bulk_downloader/app_provenance.py": [
+        "bulk_downloader/ledger_reconcile.py",
         "bulk_downloader/provenance.py"
       ],
       "bulk_downloader/app_push.py": [
@@ -6947,8 +6962,10 @@
         "bulk_downloader/llm_exec.py"
       ],
       "bulk_downloader/doctor.py": [
+        "bulk_downloader/db.py",
         "bulk_downloader/scrapling_adapter.py",
-        "bulk_downloader/selftest.py"
+        "bulk_downloader/selftest.py",
+        "bulk_downloader/sqlite_cdc.py"
       ],
       "bulk_downloader/doh_resolver.py": [
         "bulk_downloader/urllib_ssrf.py"
@@ -7156,6 +7173,9 @@
         "bulk_downloader/deep_http.py"
       ],
       "bulk_downloader/knowledge.py": [
+        "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/ledger_reconcile.py": [
         "bulk_downloader/db.py"
       ],
       "bulk_downloader/library.py": [
@@ -7831,6 +7851,9 @@
       ],
       "bulk_downloader/smart_wakeup.py": [
         "bulk_downloader/db.py"
+      ],
+      "bulk_downloader/sqlite_cdc.py": [
+        "bulk_downloader/wal_inspector.py"
       ],
       "bulk_downloader/sse_broker.py": [
         "bulk_downloader/dev_events.py"

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5052,
+  "edge_count": 5061,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -623,6 +623,7 @@
       "bulk_downloader/plugins.py"
     ],
     "bulk_downloader/app_provenance.py": [
+      "bulk_downloader/ledger_reconcile.py",
       "bulk_downloader/provenance.py"
     ],
     "bulk_downloader/app_push.py": [
@@ -1390,8 +1391,10 @@
       "bulk_downloader/llm_exec.py"
     ],
     "bulk_downloader/doctor.py": [
+      "bulk_downloader/db.py",
       "bulk_downloader/scrapling_adapter.py",
-      "bulk_downloader/selftest.py"
+      "bulk_downloader/selftest.py",
+      "bulk_downloader/sqlite_cdc.py"
     ],
     "bulk_downloader/doh_resolver.py": [
       "bulk_downloader/urllib_ssrf.py"
@@ -1599,6 +1602,9 @@
       "bulk_downloader/deep_http.py"
     ],
     "bulk_downloader/knowledge.py": [
+      "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/ledger_reconcile.py": [
       "bulk_downloader/db.py"
     ],
     "bulk_downloader/library.py": [
@@ -2274,6 +2280,9 @@
     ],
     "bulk_downloader/smart_wakeup.py": [
       "bulk_downloader/db.py"
+    ],
+    "bulk_downloader/sqlite_cdc.py": [
+      "bulk_downloader/wal_inspector.py"
     ],
     "bulk_downloader/sse_broker.py": [
       "bulk_downloader/dev_events.py"
@@ -4103,6 +4112,12 @@
     "tests/test_row089_capture_corpus_backup_restore.py": [
       "bulk_downloader/backup.py",
       "bulk_downloader/dom_analyzer.py"
+    ],
+    "tests/test_row1000_sqlite_wal_page_header_checksum_torn_write_detector.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/doctor.py",
+      "bulk_downloader/sqlite_cdc.py",
+      "bulk_downloader/wal_inspector.py"
     ],
     "tests/test_row1001_crash_consistent_write_ahead_transaction_journal_for_container_mutations.py": [
       "bulk_downloader/container_repair.py",
