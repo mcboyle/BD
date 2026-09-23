@@ -1683,6 +1683,83 @@ def cmd_token(args):
     print(f"Configured: {'yes' if _token() else 'no (anonymous calls used)'}")
 
 
+# ── Row 1036: Profile Context Switcher ──────────────────────────────────
+
+def _profile_fail(msg: str):
+    print(f"Error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_profile(args):
+    """Manage multi-environment profiles (Row 1036). Errors exit 1."""
+    from bulk_downloader.profile_context import (
+        EnvironmentProfile,
+        ProfileContextError,
+        get_profile_switcher,
+    )
+
+    try:
+        return _cmd_profile(args, EnvironmentProfile, get_profile_switcher())
+    except ProfileContextError as exc:
+        _profile_fail(str(exc))
+
+
+def _cmd_profile(args, EnvironmentProfile, switcher):
+    action = getattr(args, "profile_action", "list") or "list"
+
+    if action == "list":
+        profiles = switcher.list_profiles()
+        curr = switcher.current_profile_name
+        if getattr(args, "json", False):
+            print(json.dumps([p.to_dict() for p in profiles], indent=2))
+            return 0
+        for p in profiles:
+            prefix = "* " if p.name == curr else "  "
+            print(f"{prefix}{p.name:<16} {p.api_base_url:<30} {p.description}")
+        return 0
+
+    if action == "current":
+        curr = switcher.current_profile()
+        if getattr(args, "json", False):
+            print(json.dumps(curr.to_dict(), indent=2))
+            return 0
+        print(f"Active profile: {curr.name}")
+        print(f"  API URL:     {curr.api_base_url}")
+        print(f"  Description: {curr.description}")
+        if curr.env_vars:
+            print("  Env Vars:")
+            for k, v in curr.env_vars.items():
+                print(f"    {k}={v}")
+        return 0
+
+    if action == "switch":
+        switched = switcher.switch_profile(args.name)
+        print(f"✓ Switched active profile to '{switched.name}' ({switched.api_base_url})")
+        return 0
+
+    if action == "show":
+        name = getattr(args, "name", None)
+        prof = switcher.get_profile(name) if name else switcher.current_profile()
+        if not prof:
+            _profile_fail(f"profile '{name}' not found")
+        print(json.dumps(prof.to_dict(), indent=2))
+        return 0
+
+    if action == "create":
+        url = getattr(args, "url", None) or "http://localhost:8080"
+        desc = getattr(args, "desc", "") or ""
+        switcher.create_profile(EnvironmentProfile(name=args.name, api_base_url=url, description=desc))
+        print(f"✓ Created profile '{args.name}'")
+        return 0
+
+    if action == "delete":
+        switcher.delete_profile(args.name)
+        print(f"✓ Deleted profile '{args.name}'")
+        return 0
+
+    _profile_fail(f"unknown profile action '{action}'")
+
+
 # ── Entry point ────────────────────────────────────────────────────────
 
 def build_parser():
@@ -2018,6 +2095,36 @@ def build_parser():
                          "database and read its table list (local, read-only)")
     sp.set_defaults(func=cmd_doctor)
 
+    # Row 1036: profile context switcher
+    sp = sub.add_parser("profile", help="manage multi-environment profiles")
+    psp = sp.add_subparsers(dest="profile_action")
+
+    p_list = psp.add_parser("list", help="list registered profiles")
+    p_list.set_defaults(func=cmd_profile, profile_action="list")
+
+    p_curr = psp.add_parser("current", help="show currently active profile")
+    p_curr.set_defaults(func=cmd_profile, profile_action="current")
+
+    p_sw = psp.add_parser("switch", help="switch active profile")
+    p_sw.add_argument("name", help="target profile name")
+    p_sw.set_defaults(func=cmd_profile, profile_action="switch")
+
+    p_show = psp.add_parser("show", help="inspect profile details")
+    p_show.add_argument("name", nargs="?", help="profile name (default: active profile)")
+    p_show.set_defaults(func=cmd_profile, profile_action="show")
+
+    p_cr = psp.add_parser("create", help="create a new profile")
+    p_cr.add_argument("name", help="new profile name")
+    p_cr.add_argument("--url", help="API base URL", default="http://localhost:8080")
+    p_cr.add_argument("--desc", help="profile description", default="")
+    p_cr.set_defaults(func=cmd_profile, profile_action="create")
+
+    p_del = psp.add_parser("delete", help="delete a profile")
+    p_del.add_argument("name", help="profile name to delete")
+    p_del.set_defaults(func=cmd_profile, profile_action="delete")
+
+    sp.set_defaults(func=cmd_profile, profile_action="list")
+
     # v3.60 (Phase 12, #98): universal --json. Rather than adding the
     # flag to all 44 subparsers by hand, add it post-hoc to every
     # subparser that doesn't already declare it. After this loop,
@@ -2034,7 +2141,7 @@ def build_parser():
             _sub_parser.add_argument(
                 "--enable-guardrails", action="store_true", default=argparse.SUPPRESS,
                 help="enable llama-guard3 pre-download safety filter")
-        # Sub-subcommand parsers (learned/dedup/site/library/scrapers)
+        # Sub-subcommand parsers (learned/dedup/site/library/scrapers/profile)
         for _act in _sub_parser._actions:
             choices = getattr(_act, "choices", None)
             if isinstance(choices, dict):
@@ -2061,21 +2168,27 @@ def main():
         p.print_help(); sys.exit(1)
     # Subcommand "learned" needs a subsub
     if args.cmd == "learned" and not getattr(args, "lcmd", None):
-        sub.choices["learned"].print_help(); sys.exit(1)
+        if sub: sub.choices["learned"].print_help()
+        sys.exit(1)
     # v3.43.72: dedup needs a subsub too
     if args.cmd == "dedup" and not getattr(args, "dcmd", None):
-        sub.choices["dedup"].print_help(); sys.exit(1)
+        if sub: sub.choices["dedup"].print_help()
+        sys.exit(1)
     # Row 1078: netlog needs a subsub too
     if args.cmd == "netlog" and not getattr(args, "netcmd", None):
-        sub.choices["netlog"].print_help(); sys.exit(1)
+        if sub: sub.choices["netlog"].print_help()
+        sys.exit(1)
     # v3.43.75: scrapers needs a subsub too
     if args.cmd == "scrapers" and not getattr(args, "scmd", None):
-        sub.choices["scrapers"].print_help(); sys.exit(1)
+        if sub: sub.choices["scrapers"].print_help()
+        sys.exit(1)
     # v3.53: library + site need a subsub too
     if args.cmd == "library" and not getattr(args, "libcmd", None):
-        sub.choices["library"].print_help(); sys.exit(1)
+        if sub: sub.choices["library"].print_help()
+        sys.exit(1)
     if args.cmd == "site" and not getattr(args, "sitecmd", None):
-        sub.choices["site"].print_help(); sys.exit(1)
+        if sub: sub.choices["site"].print_help()
+        sys.exit(1)
     args.func(args)
 
 

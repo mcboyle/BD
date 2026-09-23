@@ -1549,6 +1549,29 @@ def _never_write_the_real_home_config(tmp_path_factory):
         _mr_entry = _register_guard("bulk_downloader.macro_recorder", _mr,
                                     {"_macro_dir": _guarded_macro_dir})
 
+    # profile_context (row 1036, the `bdctl profile` store) has no env var
+    # either -- the row adds no BD_ variable -- so its layer 1 is the resolver
+    # too. Its only steering lever is an explicit
+    # ProfileContextSwitcher(storage_path=...), which never calls
+    # default_profiles_file(), so every call that DOES reach the resolver is
+    # the unsteered case and is diverted. __wrapped__ keeps the real resolver
+    # reachable for the test proving layer 2 refuses its answer.
+    _profiles_sandbox = sandbox / "profiles.json"
+    try:
+        from bulk_downloader import profile_context as _pc
+    except Exception:  # noqa: BLE001
+        _pc = None
+    if _pc is not None:
+        _real_profiles_file = _pc.default_profiles_file
+
+        def _guarded_profiles_file():
+            return _profiles_sandbox
+
+        _guarded_profiles_file.__wrapped__ = _real_profiles_file
+        _pc.default_profiles_file = _guarded_profiles_file
+        _pc_entry = _register_guard("bulk_downloader.profile_context", _pc,
+                                    {"default_profiles_file": _guarded_profiles_file})
+
     real_write_text = pathlib.Path.write_text
     real_write_bytes = pathlib.Path.write_bytes
     real_path_open = pathlib.Path.open
@@ -1621,6 +1644,9 @@ def _never_write_the_real_home_config(tmp_path_factory):
         if _mr is not None:
             _mr._macro_dir = _real_macro_dir
             _unregister_guard(_mr_entry)
+        if _pc is not None:
+            _pc.default_profiles_file = _real_profiles_file
+            _unregister_guard(_pc_entry)
 
 
 # ─── The repository's plugins/ directory is off limits to the whole suite ─────

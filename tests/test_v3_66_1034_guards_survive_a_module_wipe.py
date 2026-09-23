@@ -46,6 +46,7 @@ GUARDED = (
     ("bulk_downloader.plugins", "_quarantine_state_path", "_guarded_state_path"),
     ("bulk_downloader.vpn_config", "save", "_guarded_save"),
     ("bulk_downloader.macro_recorder", "_macro_dir", "_guarded_macro_dir"),
+    ("bulk_downloader.profile_context", "default_profiles_file", "_guarded_profiles_file"),
 )
 
 

@@ -35,6 +35,13 @@ which exactly three are $HOME-DEFAULTING PERSISTENT STORES:
 The other 16 are expanduser() over a CALLER-supplied path, read-only probes, a
 boot-seed candidate list, or download-dir defaults -- none is a store.
 
+Row 1036 (2026-09-23) added a fourth STORE, the `bdctl profile` store:
+
+    profile_context.py:46  ~/.config/bulk-downloader/profiles.json
+
+It lives in the app's own namespace, so layer 2 covers it with no new root; its
+layer 1 is the resolver (conftest), because the row adds no BD_ variable.
+
 test_every_home_defaulting_store_is_classified below re-derives that population
 at run time and fails on any store this file has not classified, so a store
 added tomorrow cannot be silently unguarded. That is what makes this
@@ -173,9 +180,10 @@ def test_the_session_redirects_the_store(var):
 
 
 def test_the_real_store_paths_are_covered_by_layer_2():
-    """The two ~/.config stores must resolve under a protected root when their
+    """The three ~/.config stores must resolve under a protected root when their
     override is absent. Asserted over the RESOLVED default, not over a literal,
-    so a change to either resolver is caught here."""
+    so a change to any resolver is caught here. profile_context has no override:
+    the subprocess has no conftest, so it runs the real resolver."""
     roots = [str(r) for r in _ct._protected_home_roots()]
     assert roots, "no protected roots -- Layer 2 is not armed"
     env = {**os.environ}
@@ -184,9 +192,10 @@ def test_the_real_store_paths_are_covered_by_layer_2():
     probe = (
         "import json,sys;"
         "sys.path.insert(0,%r);"
-        "from bulk_downloader import vpn_config, widgets_config;"
+        "from bulk_downloader import profile_context, vpn_config, widgets_config;"
         "print(json.dumps([str(vpn_config._config_path()),"
-        "str(widgets_config._config_path())]))" % str(REPO)
+        "str(widgets_config._config_path()),"
+        "str(profile_context.default_profiles_file())]))" % str(REPO)
     )
     r = subprocess.run([sys.executable, "-c", probe], cwd=str(REPO), env=env,
                        capture_output=True, text=True, timeout=120)
@@ -240,6 +249,11 @@ _CLASSIFIED = {
     "vpn_config.py": "STORE",
     "widgets_config.py": "STORE",
     "macro_recorder.py": "STORE",
+    # ROW-1036 (2026-09-23): profile_context.py persists `bdctl profile` state to
+    # ~/.config/bulk-downloader/profiles.json when no storage_path is given --
+    # a STORE. Layer 2 covers it (the app's own namespace); layer 1 is the
+    # conftest resolver diversion. Both pinned at the write, at the end of file.
+    "profile_context.py": "STORE",
     "app_envfile_editor.py": "NOT-A-STORE",
     "_envfile.py": "NOT-A-STORE",
     "detect.py": "NOT-A-STORE",
@@ -296,7 +310,7 @@ def test_every_store_is_either_layer_2_covered_or_explicitly_exempt():
     """A STORE may only skip Layer 2 with a recorded reason, so the safe-by-
     default answer is 'guarded' and the exception has to be argued for."""
     stores = {m for m, kind in _CLASSIFIED.items() if kind == "STORE"}
-    covered = {"vpn_config.py", "widgets_config.py"}
+    covered = {"vpn_config.py", "widgets_config.py", "profile_context.py"}
     gap = sorted(stores - covered - set(_LAYER2_CONDITIONAL) - set(_LAYER2_EXEMPT))
     assert not gap, (
         f"{gap} default under $HOME but are neither covered by a protected "
@@ -573,3 +587,54 @@ def test_the_frozen_half_applies_the_same_repo_exclusion(monkeypatch, tmp_path):
     monkeypatch.setattr(_ct, "_REPO_ROOT_FOR_GUARD", home / "BulkDownloader")
     inside = _ct._home_roots_for(home)
     assert config in inside and macros not in inside
+
+
+# ── Row 1036: the `bdctl profile` store, pinned at the WRITE ─────────────────
+#
+# profile_context.py is the fourth STORE. Both layers are asserted through the
+# store's own resolver and its own save route (mkdir, open the .tmp,
+# Path.replace), not through the predicate -- the gap the macros REDs above
+# already paid for once.
+
+
+def test_an_unsteered_profile_store_is_diverted_off_home(monkeypatch, tmp_path):
+    """RED for layer 1. ProfileContextSwitcher() with no storage_path is what
+    `bdctl profile` builds. With HOME standing in for the operator's, the store
+    must resolve off HOME and a mutation must land in the sandbox -- not under
+    HOME, and not as a layer 2 RuntimeError in whichever test got there."""
+    _fake_home(monkeypatch, tmp_path)
+    from bulk_downloader import profile_context as pc
+
+    switcher = pc.ProfileContextSwitcher()
+    store = Path(switcher.storage_path)
+    assert not str(store).startswith(str(tmp_path) + os.sep), (
+        f"an unsteered profile store resolved to {store}, under HOME={tmp_path}; "
+        "layer 1 is not diverting the resolver")
+    before = sorted(tmp_path.rglob("*"))
+    name = "guard-probe-%d" % os.getpid()
+    switcher.create_profile(pc.EnvironmentProfile(name=name, api_base_url="http://probe:1"))
+    try:
+        assert sorted(tmp_path.rglob("*")) == before, "a profile mutation wrote under HOME"
+        assert pc.ProfileContextSwitcher(storage_path=store).get_profile(name) is not None
+    finally:
+        switcher.delete_profile(name)
+
+
+def test_layer_2_refuses_the_profile_stores_real_write_route(monkeypatch, tmp_path):
+    """RED for layer 2. Lift layer 1 and take the store's REAL resolver: under a
+    relocated HOME its answer must fall inside a protected root, so the store's
+    own save route is refused and nothing is created."""
+    _fake_home(monkeypatch, tmp_path)
+    from bulk_downloader import profile_context as pc
+
+    resolver = getattr(pc.default_profiles_file, "__wrapped__", pc.default_profiles_file)
+    real = Path(resolver())
+    assert str(real).startswith(str(tmp_path) + os.sep), (
+        f"precondition: the real resolver follows HOME, got {real}")
+    switcher = pc.ProfileContextSwitcher(storage_path=real)
+    with pytest.raises(RuntimeError, match="refusing to write the operator's real config"):
+        switcher.create_profile(
+            pc.EnvironmentProfile(name="must-not-land", api_base_url="http://probe:1"))
+    assert not real.exists() and not real.with_suffix(".tmp").exists(), (
+        f"the profile store's save route reached {real}")
+    assert switcher.get_profile("must-not-land") is None

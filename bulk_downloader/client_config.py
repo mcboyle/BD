@@ -55,3 +55,15 @@ def standard_profile() -> dict:
         "audio": dict(AUDIO_PROFILE),
         "headers": dict(STANDARD_HEADERS),
     }
+
+
+# Row 1036: Multi-Environment Profile Context Switcher re-exports
+from .profile_context import (
+    EnvironmentProfile,
+    ProfileConflictError,
+    ProfileContextError,
+    ProfileContextSwitcher,
+    ProfileNotFoundError,
+    get_profile_switcher,
+)
+
