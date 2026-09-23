@@ -350,7 +350,7 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
                   "bg-primary/5 p-3 text-left",
                   "flex items-center gap-3 transition-colors",
                   "hover:bg-primary/10 hover:border-primary/50",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                 )}
               >
                 <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden />
@@ -580,7 +580,7 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
               className={cn(
                 "inline-flex items-center gap-1 text-xs text-ink-3",
                 "hover:text-ink hover:underline",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-sm",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary rounded-sm",
               )}
             >
               Use full editor
@@ -606,7 +606,7 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
                   "inline-flex items-center gap-1.5",
                   "transition-opacity hover:opacity-90 active:opacity-80",
                   "disabled:cursor-not-allowed disabled:opacity-50",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                  "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
                 )}
               >
                 {createMut.isPending ? "Saving…" : "Add site"}
@@ -681,7 +681,7 @@ function TemplatePicker({
                 onClick={() => onPick(t)}
                 className={cn(
                   "w-full rounded-md p-3 text-left transition-colors",
-                  "hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  "hover:bg-primary/5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                   t.suggested
                     ? "border-2 border-primary/50"
                     : "hairline border",

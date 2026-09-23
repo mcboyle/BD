@@ -64,7 +64,7 @@ export function SortableWaitingJobRow({
         className={cn(
           "grid h-8 w-8 shrink-0 cursor-grab place-items-center rounded-sm",
           "text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
           "active:cursor-grabbing",
         )}
         {...attributes}

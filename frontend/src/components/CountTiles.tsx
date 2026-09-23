@@ -30,7 +30,7 @@ export function CountTiles({ counts }: { counts: TileCounts }) {
           to={t.to}
           className={cn(
             "rounded-md hairline bg-surface p-3 transition-colors",
-            "hover:bg-surface-2 focus-visible:outline focus-visible:outline-2",
+            "hover:bg-surface-2 focus-visible:outline-solid focus-visible:outline-2",
           )}
         >
           <span className="block text-2xl font-semibold tabular-nums text-ink">

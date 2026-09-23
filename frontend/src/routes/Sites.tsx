@@ -366,7 +366,7 @@ export function Sites() {
               "flex flex-col items-center justify-center gap-1",
               "text-ink-3 transition-colors",
               "hover:border-primary/50 hover:bg-surface hover:text-ink-2",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
             )}
           >
             <div className="flex items-center gap-1.5 text-sm font-medium">

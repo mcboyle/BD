@@ -13,8 +13,8 @@
     {
       "label": "M1 literal re-root: Vite emits /app/assets references while Flask still mounts the dist tree at root",
       "file": "frontend/vite.config.ts",
-      "old": "  base: \"/\",\n  plugins: [react()],",
-      "new": "  base: \"/app/\",\n  plugins: [react()],",
+      "old": "  base: \"/\",\n  plugins: [react(), tailwindcss()],",
+      "new": "  base: \"/app/\",\n  plugins: [react(), tailwindcss()],",
       "direction": "regression",
       "catcher": "tests/test_spa_root_routing_contract.py::test_real_asset_served_from_root"
     },

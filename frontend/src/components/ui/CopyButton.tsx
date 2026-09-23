@@ -36,7 +36,7 @@ export function CopyButton({ value, secret = false, label = "Copy", className }:
       title={secret ? "Secrets can't be copied" : label}
       className={cn(
         "inline-flex items-center justify-center rounded p-1 text-ink-3",
-        "hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "hover:text-ink-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
         "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-3",
         className,
       )}

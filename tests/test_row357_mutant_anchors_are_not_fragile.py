@@ -1167,6 +1167,15 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_1191_two_captures_cannot_share_a_vault.py",
             r"def test_mutation_transform_control_only_imports_bd_gc\(\):",
         ),
+    # Row 1051 (2026-09-23): the Tailwind 4 cutover adds tailwindcss() to the Vite
+    # plugin line, so row229::M1 moves with it; base "/" is the fixed Flask mount
+    # (app.serve_spa_root), not a derived value; the same catcher audits it.
+    "94c3201f77d886f0c01fc56f167908873f493ff777a1e110c1ded759b34d5f9f":
+        StableValueException(
+            "Vite base \"/\" is the fixed SPA mount Flask serves at root; re-rooting must break the served-asset gate",
+            "tests/test_spa_root_routing_contract.py",
+            r"(?m)^def test_real_asset_served_from_root\(",
+        ),
     # O1054 (2026-09-20): reconcile 120-127 re-anchors 1228::M5 -- no PARKED row
     # remains, so the "silently reopened" mutant flips successor-closed row 120
     # instead; row id and successor id are fixed register facts no producer
@@ -1230,6 +1239,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 70
 _STABLE_VALUE_EXCEPTION_MAX += 6
 
 # O1054: 1228::M5 re-anchored onto row 120 (reconcile 120-127); one audited exception
+_STABLE_VALUE_EXCEPTION_MAX += 1
+
+# Row 1051: row229::M1 re-anchored onto the Tailwind 4 plugin line; one audited exception
 _STABLE_VALUE_EXCEPTION_MAX += 1
 
 _FRAGILE_RULES = (

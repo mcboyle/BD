@@ -184,7 +184,7 @@ export function Users() {
                     key={u.username}
                     className="flex flex-wrap items-center gap-3 py-2"
                   >
-                    <span className="font-mono text-sm min-w-[8rem]">
+                    <span className="font-mono text-sm min-w-32">
                       {u.username}
                     </span>
                     <StatusPill tone={u.role === "admin" ? "green" : "neutral"}>

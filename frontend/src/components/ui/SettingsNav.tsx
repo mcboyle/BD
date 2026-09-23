@@ -48,7 +48,7 @@ export function SettingsNav({
               aria-current={active ? "true" : undefined}
               className={cn(
                 "hairline inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                 active
                   ? "bg-primary-soft text-primary"
                   : "bg-surface-2 text-ink-2 hover:text-ink",
@@ -83,7 +83,7 @@ export function SettingsNav({
             aria-current={active ? "true" : undefined}
             className={cn(
               "group flex items-center justify-between rounded px-2 py-1.5 text-left text-sm",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
               active
                 ? "bg-surface-2 font-medium text-ink-1"
                 : "text-ink-2 hover:bg-surface-2/60 hover:text-ink-1",

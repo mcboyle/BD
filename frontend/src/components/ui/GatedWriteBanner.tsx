@@ -93,7 +93,7 @@ export function GatedWriteBanner({
             type="button"
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="inline-flex items-center gap-0.5 rounded font-medium text-amber-dim hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="inline-flex items-center gap-0.5 rounded font-medium text-amber-dim hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
           >
             Details
             <ChevronDown
@@ -105,7 +105,7 @@ export function GatedWriteBanner({
             type="button"
             onClick={dismiss}
             aria-label="Dismiss for this session"
-            className="rounded p-0.5 text-amber-dim/70 hover:text-amber-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="rounded p-0.5 text-amber-dim/70 hover:text-amber-dim focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
           >
             <X className="h-3 w-3" aria-hidden />
           </button>
@@ -140,7 +140,7 @@ export function GatedWriteBanner({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="ml-auto inline-flex items-center gap-1 rounded font-medium text-amber-dim hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="ml-auto inline-flex items-center gap-1 rounded font-medium text-amber-dim hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
         >
           Details
           <ChevronDown
@@ -152,7 +152,7 @@ export function GatedWriteBanner({
           type="button"
           onClick={dismiss}
           aria-label="Dismiss for this session"
-          className="rounded p-0.5 text-amber-dim/70 hover:text-amber-dim focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="rounded p-0.5 text-amber-dim/70 hover:text-amber-dim focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
         >
           <X className="h-3.5 w-3.5" aria-hidden />
         </button>

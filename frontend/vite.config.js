@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 // Phase 1 root flip (v3.66.203): Flask serves the built SPA at `/`
 // (catch-all SPA fallback in app.py serve_spa_root). The Vite `base`
@@ -9,7 +10,7 @@ import path from "path";
 // change one, change the other. (Pre-flip this was "/m2/".)
 export default defineConfig({
     base: "/",
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "./src"),

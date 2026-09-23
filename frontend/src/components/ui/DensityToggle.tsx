@@ -38,7 +38,7 @@ export function DensityToggle({ className }: { className?: string }) {
             className={cn(
               "inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors",
               active
-                ? "bg-surface text-ink shadow-sm"
+                ? "bg-surface text-ink shadow-xs"
                 : "text-ink-3 hover:text-ink",
             )}
           >

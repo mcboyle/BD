@@ -49,7 +49,7 @@ export function ValidationSummary({ problems, onJump, className }: ValidationSum
             <button
               type="button"
               onClick={() => onJump?.(p.field)}
-              className="font-medium text-ink-1 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="font-medium text-ink-1 underline-offset-2 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
             >
               {p.label}
             </button>

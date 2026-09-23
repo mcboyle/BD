@@ -183,7 +183,7 @@ export function TakeoverViewer({
         height={height}
         tabIndex={0}
         aria-label="Remote captcha solve view — click and type to interact"
-        className="block w-full max-w-full cursor-crosshair rounded outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        className="block w-full max-w-full cursor-crosshair rounded outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-400"
         onPointerMove={onPointerMove}
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}

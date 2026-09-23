@@ -38,7 +38,7 @@ export function RunningJobRow({ job, pctOverride, onClick, compact = false }: Ru
         "hairline space-y-1.5 rounded-md bg-surface p-3",
         compact && "space-y-1 p-2",
         "cursor-pointer transition-colors hover:bg-surface-2",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
       )}
     >
       <div className="flex items-center gap-2 text-sm">

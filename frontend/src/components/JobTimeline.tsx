@@ -77,7 +77,7 @@ export function JobTimeline({ runId, className }: JobTimelineProps) {
           {data.events.map((ev) => (
             <li key={ev.id} className="relative">
               <span
-                className="absolute -left-[1.30rem] top-1 h-2 w-2 rounded-full bg-ink-3"
+                className="absolute left-[-1.3rem] top-1 h-2 w-2 rounded-full bg-ink-3"
                 aria-hidden
               />
               <div className="flex items-baseline gap-2">
@@ -91,7 +91,7 @@ export function JobTimeline({ runId, className }: JobTimelineProps) {
                 )}
               </div>
               {ev.detail && (
-                <p className="break-words text-ink-3">{ev.detail}</p>
+                <p className="wrap-break-word text-ink-3">{ev.detail}</p>
               )}
             </li>
           ))}

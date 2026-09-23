@@ -208,7 +208,7 @@ export function MoreActions() {
               file upload; it has ALWAYS required one of them. This field is the thing that
               was missing -- the button used to arm on a site id and post {}. */}
           <textarea
-            className="w-full min-h-[5rem] rounded-md border bg-transparent p-2 text-sm"
+            className="w-full min-h-20 rounded-md border bg-transparent p-2 text-sm"
             placeholder="URLs to import, one per line"
             value={importText}
             onChange={(e) => setImportText(e.target.value)}

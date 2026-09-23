@@ -47,7 +47,7 @@ export function SortHeader({
         type="button"
         onClick={() => onToggle(sortKey)}
         className={cn(
-          "group inline-flex items-center gap-1 rounded-sm text-left transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "group inline-flex items-center gap-1 rounded-sm text-left transition-colors hover:text-ink focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
           align === "right" && "flex-row-reverse",
           isActive && "text-ink",
         )}

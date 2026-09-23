@@ -105,7 +105,7 @@ export function Collapsible({
         onClick={toggle}
         className={cn(
           "flex w-full items-center gap-2 text-left",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
           active && "text-ink",
           headerClassName,
         )}

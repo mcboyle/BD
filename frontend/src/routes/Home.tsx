@@ -506,7 +506,7 @@ function DashboardTile({
           // body of a tile during edit mode doesn't start a drag —
           // only the explicit grip does. Matches the U2 dnd-kit
           // pattern (grip on a dedicated handle, not the row body).
-          className="dashboard-tile-handle absolute right-1 top-1 z-10 grid h-6 w-6 cursor-grab place-items-center rounded-sm bg-surface/90 text-ink-3 backdrop-blur transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
+          className="dashboard-tile-handle absolute right-1 top-1 z-10 grid h-6 w-6 cursor-grab place-items-center rounded-sm bg-surface/90 text-ink-3 backdrop-blur-sm transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
           aria-label={`Drag to reorder ${id} tile`}
         >
           <GripVertical className="h-3.5 w-3.5" aria-hidden />

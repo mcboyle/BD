@@ -227,7 +227,7 @@ export function DesktopShell({
             className={cn(
               "mb-1 flex items-center gap-2.5 rounded-md border border-transparent px-2.5 py-2 text-sm",
               "text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
               collapsed ? "justify-center px-0" : "hairline border bg-surface-2/40",
             )}
           >
@@ -251,7 +251,7 @@ export function DesktopShell({
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium",
-                  "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                   collapsed && "justify-center px-0",
                   isActive
                     ? "bg-primary-soft text-primary"
@@ -301,7 +301,7 @@ export function DesktopShell({
                           rel="noopener noreferrer"
                           className={cn(
                             "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
-                            "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                            "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                             "text-ink-3 hover:bg-surface-2 hover:text-ink",
                           )}
                         >
@@ -316,7 +316,7 @@ export function DesktopShell({
                           className={({ isActive }) =>
                             cn(
                               "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
-                              "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                              "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                               isActive
                                 ? "bg-primary-soft text-primary"
                                 : "text-ink-3 hover:bg-surface-2 hover:text-ink",
@@ -383,7 +383,7 @@ export function DesktopShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            "hairline sticky top-0 z-20 border-b bg-bg/85 backdrop-blur",
+            "hairline sticky top-0 z-20 border-b bg-bg/85 backdrop-blur-sm",
             // V6: compact header keeps the pre-V6 single-row layout;
             // display variant expands vertically to fit the status
             // line + pills row. The extra padding lets the bigger
@@ -399,7 +399,7 @@ export function DesktopShell({
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
           >
             {collapsed ? (
               <ChevronsRight className="h-4 w-4" aria-hidden />
@@ -414,7 +414,7 @@ export function DesktopShell({
                   <Link
                     to={backTo.to}
                     aria-label={backTo.label ?? "Back"}
-                    className="inline-flex items-center gap-1 rounded text-ink-2 hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="inline-flex items-center gap-1 rounded text-ink-2 hover:text-ink-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
                   >
                     <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     {backTo.label ?? "Back"}

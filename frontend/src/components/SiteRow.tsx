@@ -44,7 +44,7 @@ export function SiteRow({
       className={cn(
         "hairline w-full rounded-md p-3 text-left",
         "flex items-center gap-3 transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
         // V3 — mockup signature: rows with auth/captcha issues get
         // an amber-soft surface tint so the issue is visible at a
         // glance from the list (matches sites.png screen). Selected

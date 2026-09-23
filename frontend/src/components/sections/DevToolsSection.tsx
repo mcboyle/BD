@@ -87,7 +87,7 @@ export function DevToolsSection() {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <Input
-          className="max-w-[12rem]"
+          className="max-w-48"
           placeholder="locale (e.g. es)"
           value={lang || ""}
           onChange={(e) => setLang(e.target.value || null)}

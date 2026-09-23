@@ -76,7 +76,7 @@ function Net({ title, state, detail, when, extra }: {
       <div className="min-w-0">
         <div className="text-sm font-medium">{title}</div>
         <div className="text-xs text-muted-foreground">{detail}</div>
-        {extra ? <div className="text-xs text-red-600 dark:text-red-400 break-words">{extra}</div> : null}
+        {extra ? <div className="text-xs text-red-600 dark:text-red-400 wrap-break-word">{extra}</div> : null}
         <div className="text-xs text-muted-foreground">Last checked: {when}</div>
       </div>
       <div className={`shrink-0 text-sm font-semibold tabular-nums ${TONE[state]}`}>

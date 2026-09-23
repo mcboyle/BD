@@ -355,7 +355,7 @@ export function SiteSettings() {
 
       {data && (
         <>
-          <div className="sticky top-0 z-10 mb-3 flex items-center justify-end gap-2 bg-bg/80 py-2 backdrop-blur">
+          <div className="sticky top-0 z-10 mb-3 flex items-center justify-end gap-2 bg-bg/80 py-2 backdrop-blur-sm">
             {dirty && (
               <span className="text-xs text-ink-2">
                 {Object.keys(patch).length} change(s) pending
@@ -475,14 +475,14 @@ function Switch({ checked, onChange, ariaLabel }: SwitchProps) {
       onClick={() => onChange(!checked)}
       className={cn(
         "relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
         checked ? "bg-primary" : "bg-surface-2",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform",
+          "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform",
           checked ? "translate-x-4" : "translate-x-0",
         )}
       />

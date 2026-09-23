@@ -39,7 +39,7 @@ export function StickySaveBar({
       aria-label="Unsaved changes"
       className={cn(
         "sticky bottom-0 z-20 mt-4 flex items-center justify-between gap-3",
-        "border-t hairline bg-surface-1/95 px-4 py-3 backdrop-blur",
+        "border-t hairline bg-surface-1/95 px-4 py-3 backdrop-blur-sm",
         className,
       )}
     >

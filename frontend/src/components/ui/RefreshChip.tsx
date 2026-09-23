@@ -39,7 +39,7 @@ export function RefreshChip({
         onClick={onRefresh}
         aria-label="Refresh"
         title="Refresh"
-        className="inline-flex items-center justify-center rounded p-1 text-ink-3 hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex items-center justify-center rounded p-1 text-ink-3 hover:text-ink-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
       >
         <RotateCw
           className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}

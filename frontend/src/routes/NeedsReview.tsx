@@ -199,7 +199,7 @@ export default function NeedsReview() {
                     <div className="text-xs font-medium uppercase tracking-wide text-muted">
                       Message
                     </div>
-                    <p className="whitespace-pre-wrap break-words text-sm text-ink">
+                    <p className="whitespace-pre-wrap wrap-break-word text-sm text-ink">
                       {(current.message as string) || "—"}
                     </p>
                     {typeof current.message === "string" && current.message ? (

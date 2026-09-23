@@ -150,6 +150,17 @@ _CLASSIFIED: dict[tuple[str, str], tuple[str, str]] = {
         "alike. Both are defects, so the population stays wide. Its real "
         "defect was the SILENT RETURN on a missing tree, "
         "which is fixed here: an unmeasurable claim is UNKNOWN, not a pass."),
+    ("tests/test_row1051_frontend_reactive_react19_tailwind4.py",
+     "v3_utility_sites"): (
+        ALL_SOURCE,
+        ("Row 1051's Tailwind 4 check forbids outline-none (v4 changed its "
+         "meaning; the v3 behaviour is outline-hidden) and the upgrade tool's "
+         "variant=\"outline-solid\" rewrite. It only forbids, so a spec can "
+         "add a finding but never hide a product one, and a spec rendering a "
+         "variant that does not exist is itself a defect: every .ts/.tsx "
+         "under frontend/src is read. An empty or absent tree raises "
+         "(UNKNOWN), and its planted control proves the spec and .ts halves "
+         "are read.")),
 
     # ── already guarded by their own cut; deliberately not re-touched ──
     ("tools/gui_parity_inventory.py", "_spa_wiring"): (

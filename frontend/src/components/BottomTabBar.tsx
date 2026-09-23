@@ -105,7 +105,7 @@ export function BottomTabBar({
                 type="button"
                 onClick={() => setMoreOpen(false)}
                 aria-label="Close menu"
-                className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surface-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="grid h-8 w-8 place-items-center rounded-md text-ink-3 hover:bg-surface-2 hover:text-ink focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -126,7 +126,7 @@ export function BottomTabBar({
                         onClick={() => setMoreOpen(false)}
                         className={cn(
                           "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm",
-                          "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                          "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                           "text-ink-2 hover:bg-surface-2 hover:text-ink",
                         )}
                       >
@@ -142,7 +142,7 @@ export function BottomTabBar({
                         className={({ isActive }) =>
                           cn(
                             "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm",
-                            "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                            "transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
                             isActive
                               ? "bg-primary-soft text-primary"
                               : "text-ink-2 hover:bg-surface-2 hover:text-ink",
@@ -208,7 +208,7 @@ export function BottomTabBar({
                             className={cn(
                               "absolute -right-2 -top-1.5 rounded-full bg-primary px-1",
                               "min-w-[18px] text-center text-[9px] font-bold leading-[14px] text-white",
-                              "tabular-nums shadow-sm",
+                              "tabular-nums shadow-xs",
                             )}
                           >
                             {queueRunningPct}%

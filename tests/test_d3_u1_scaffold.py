@@ -54,9 +54,11 @@ def test_d3_u1_frontend_dir_exists():
 def test_d3_u1_package_json_has_locked_deps():
     """package.json declares the locked stack from the design narrative.
 
-    The narrative pins React 18 (not 19), React Router (not TanStack
-    Router), TanStack Query, Tailwind, Vite. If any of those vanish
-    we're off-spec; if extras land we want to know it was deliberate.
+    The narrative pinned React 18, React Router (not TanStack Router),
+    TanStack Query, Tailwind, Vite. Row 1051 cut the stack over to React 19
+    and Tailwind CSS 4, whose @tailwindcss/vite plugin replaces the v3
+    PostCSS + autoprefixer pipeline. If any of those vanish we're
+    off-spec; if extras land we want to know it was deliberate.
     """
     pkg_path = _REPO / "frontend" / "package.json"
     assert pkg_path.is_file(), "frontend/package.json missing"
@@ -74,15 +76,15 @@ def test_d3_u1_package_json_has_locked_deps():
     for r in required:
         assert r in deps, f"frontend/package.json: required dep '{r}' missing"
 
-    # React must be 18.x, not 19 — design narrative explicitly chose
-    # 18 for ecosystem maturity at the time of writing.
+    # React must be 19.x: row 1051's cutover superseded the D3 narrative's
+    # 18 pin (chosen then for ecosystem maturity).
     react_ver = deps["react"]
-    assert react_ver.startswith("^18.") or react_ver.startswith("18."), \
-        f"react pin is {react_ver!r}, expected ^18.x (per D3 narrative)"
+    assert react_ver.startswith(("^19.", "19.")), \
+        f"react pin is {react_ver!r}, expected ^19.x (row 1051 cutover)"
 
     dev_deps = pkg.get("devDependencies", {})
     for r in ["vite", "@vitejs/plugin-react", "typescript",
-              "tailwindcss", "postcss", "autoprefixer", "vitest"]:
+              "tailwindcss", "@tailwindcss/vite", "postcss", "vitest"]:
         assert r in dev_deps, f"frontend/package.json: required devDep '{r}' missing"
 
 

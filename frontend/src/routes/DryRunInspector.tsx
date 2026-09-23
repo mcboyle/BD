@@ -253,7 +253,7 @@ export function DryRunInspector() {
           onChange={(e) => setHtml(e.target.value)}
           placeholder="Paste page HTML source here…"
           spellCheck={false}
-          className="h-40 w-full resize-y rounded-md border bg-surface p-2 font-mono text-[11px] text-ink hairline placeholder:text-ink-3 focus:outline-none focus:ring-1 focus:ring-green"
+          className="h-40 w-full resize-y rounded-md border bg-surface p-2 font-mono text-[11px] text-ink hairline placeholder:text-ink-3 focus:outline-hidden focus:ring-1 focus:ring-green"
         />
         <div className="flex gap-2">
           <Button

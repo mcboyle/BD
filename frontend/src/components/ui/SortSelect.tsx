@@ -54,7 +54,7 @@ export function SortSelect({
         aria-label={`Sort direction: ${dir === "asc" ? "ascending" : "descending"}`}
         title={dir === "asc" ? "Ascending" : "Descending"}
         onClick={() => onSet(current, dir === "asc" ? "desc" : "asc")}
-        className="hairline inline-flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="hairline inline-flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface text-ink-3 transition-colors hover:text-ink focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <DirIcon className="h-3.5 w-3.5" aria-hidden />
       </button>

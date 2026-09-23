@@ -114,7 +114,7 @@ export function ThemeMenu({
           aria-label="Theme"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center justify-center rounded p-1.5 text-ink-3 hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="inline-flex items-center justify-center rounded p-1.5 text-ink-3 hover:text-ink-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Palette className="h-4 w-4" />
         </button>

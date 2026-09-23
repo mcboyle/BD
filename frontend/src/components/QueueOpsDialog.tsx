@@ -204,7 +204,7 @@ export function QueueOpsDialog({
                   className={
                     "flex-1 rounded-sm px-3 py-1.5 text-sm " +
                     (mode === m
-                      ? "bg-surface text-ink shadow-sm"
+                      ? "bg-surface text-ink shadow-xs"
                       : "text-ink-3 hover:text-ink")
                   }
                 >

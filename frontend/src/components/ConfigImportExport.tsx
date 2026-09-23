@@ -158,7 +158,7 @@ export function ConfigImportExport() {
           className={cn(
             "mt-2 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2",
             "text-sm font-medium text-ink hover:bg-surface-2 transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
           )}
         >
           <Download className="h-4 w-4" aria-hidden /> Export config

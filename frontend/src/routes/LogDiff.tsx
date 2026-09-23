@@ -131,7 +131,7 @@ function SidePanel({
 }: {
   side: "a" | "b";
   data: JobLogDiffSide;
-  listRef: React.RefObject<HTMLUListElement>;
+  listRef: React.RefObject<HTMLUListElement | null>;
 }) {
   const labelColor = side === "a" ? "text-primary" : "text-amber-dim";
   return (
@@ -203,7 +203,7 @@ function EventLine({ ev }: { ev: JobLogEvent }) {
       >
         {ev.kind || "info"}
       </span>
-      <span className="min-w-0 break-words text-ink-2">{ev.message}</span>
+      <span className="min-w-0 wrap-break-word text-ink-2">{ev.message}</span>
     </li>
   );
 }

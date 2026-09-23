@@ -151,7 +151,7 @@ export function WaitingJobRow({
           "hairline relative flex items-center gap-3 rounded-md bg-surface p-3",
           compact && "gap-2 p-2",
           "cursor-pointer select-none transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
           selected && "bg-primary-soft ring-2 ring-primary",
         )}
       >
@@ -215,7 +215,7 @@ export function WaitingJobRow({
           "hairline relative flex items-center gap-3 rounded-md bg-surface p-3",
           compact && "gap-2 p-2",
           "cursor-pointer touch-pan-y select-none",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
           transitioning && "transition-transform duration-200 ease-out",
         )}
         style={{ transform: `translateX(${dragX}px)` }}
@@ -259,7 +259,7 @@ export function WaitingJobRow({
             className={cn(
               "grid h-7 w-7 shrink-0 place-items-center rounded-sm",
               "text-ink-3 transition-colors hover:bg-primary-soft hover:text-primary",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
             )}
           >
             <ArrowUpToLine className="h-4 w-4" aria-hidden />
@@ -277,7 +277,7 @@ export function WaitingJobRow({
           className={cn(
             "grid h-7 w-7 shrink-0 place-items-center rounded-sm",
             "text-ink-3 transition-colors hover:bg-red-soft hover:text-red",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
             isCancelling && "opacity-50",
           )}
         >

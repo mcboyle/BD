@@ -1,6 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+/* Tailwind 4 (row 1051): the JS theme stays the single token binding; @config
+ * loads it through v4's compatibility layer, so every utility name below and in
+ * src/ resolves to the same CSS variable it did under v3. */
+@config "../tailwind.config.js";
+
+/* v4 changed the default border color from gray-200 to currentcolor; keep the
+ * v3 default so un-colored `border` utilities render as before. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /* ──────────────────────────────────────────────────────────────────
  * Design tokens — bound to Tailwind via tailwind.config.js.

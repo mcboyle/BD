@@ -506,7 +506,7 @@ export function Settings() {
       {data && (
         <SettingsSearchContext.Provider value={query}>
         <div className={cn("space-y-5", query.trim() && "settings-searching")}>
-          <div className="sticky top-0 z-10 -mx-1 space-y-2 bg-bg/95 px-1 pb-2 pt-1 backdrop-blur">
+          <div className="sticky top-0 z-10 -mx-1 space-y-2 bg-bg/95 px-1 pb-2 pt-1 backdrop-blur-sm">
             <div className="relative">
               <Search
                 className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3"
@@ -1205,7 +1205,7 @@ export function Settings() {
             />
             <Link
               to="/settings/advanced"
-              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">Advanced</div>
@@ -1217,7 +1217,7 @@ export function Settings() {
             </Link>
             <Link
               to="/secrets"
-              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">Secrets vault</div>
@@ -1229,7 +1229,7 @@ export function Settings() {
             </Link>
             <Link
               to="/ai-teach"
-              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">AI selector repair</div>
@@ -1241,7 +1241,7 @@ export function Settings() {
             </Link>
             <Link
               to="/dom-analyzer"
-              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">DOM analyzer</div>
@@ -1280,7 +1280,7 @@ export function Settings() {
               <Link
                 key={to}
                 to={to}
-                className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex items-center justify-between p-3 hover:bg-surface-2 transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-ink">{label}</div>
@@ -2421,7 +2421,7 @@ function Switch({ checked, onChange, ariaLabel, disabled = false }: SwitchProps)
       onClick={() => !disabled && onChange(!checked)}
       className={cn(
         "relative inline-flex h-6 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary",
         "disabled:cursor-not-allowed disabled:opacity-50",
         checked ? "bg-primary" : "bg-surface-2",
       )}
@@ -2429,7 +2429,7 @@ function Switch({ checked, onChange, ariaLabel, disabled = false }: SwitchProps)
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform",
+          "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition-transform",
           checked ? "translate-x-4" : "translate-x-0",
         )}
       />

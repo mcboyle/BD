@@ -17,7 +17,7 @@ export function RowQuickActions({
   paused: boolean;
 }) {
   const btn =
-    "rounded-sm p-1 text-ink-3 hover:bg-surface-2 hover:text-ink focus-visible:outline focus-visible:outline-2";
+    "rounded-sm p-1 text-ink-3 hover:bg-surface-2 hover:text-ink focus-visible:outline-solid focus-visible:outline-2";
 
   return (
     <div className="inline-flex items-center gap-0.5">

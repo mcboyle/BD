@@ -79,14 +79,14 @@ export function MacrosOpsSection() {
       <h2 className="mb-2 font-medium">Macro inspect &amp; replay</h2>
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          className="max-w-[12rem]"
+          className="max-w-48"
           placeholder="site id"
           value={sid}
           onChange={(e) => setSid(e.target.value)}
           aria-label="macro site id"
         />
         <Input
-          className="max-w-[14rem]"
+          className="max-w-56"
           placeholder="macro name"
           value={name}
           onChange={(e) => setName(e.target.value)}

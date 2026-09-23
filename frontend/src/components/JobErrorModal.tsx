@@ -300,7 +300,7 @@ export function JobErrorModal({
                   >
                     {ev.kind || "info"}
                   </span>
-                  <span className="min-w-0 break-words text-ink-2">
+                  <span className="min-w-0 wrap-break-word text-ink-2">
                     {ev.message}
                   </span>
                 </li>

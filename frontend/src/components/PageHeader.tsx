@@ -77,7 +77,7 @@ export function PageHeader({
     <header
       className={cn(
         "sticky top-0 z-30",
-        "hairline border-b bg-bg/85 backdrop-blur",
+        "hairline border-b bg-bg/85 backdrop-blur-sm",
         "px-4 py-3",
         "pt-[max(env(safe-area-inset-top),0.75rem)]",
       )}
@@ -212,7 +212,7 @@ function BackBreadcrumb({
         <Link
           to={backTo.to}
           aria-label={backTo.label ?? "Back"}
-          className="inline-flex items-center gap-1 rounded text-ink-2 hover:text-ink-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="inline-flex items-center gap-1 rounded text-ink-2 hover:text-ink-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary"
         >
           <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
           {backTo.label ?? "Back"}

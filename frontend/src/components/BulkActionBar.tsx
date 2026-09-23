@@ -31,7 +31,7 @@ export function BulkActionBar({
     <div
       role="region"
       aria-label="Bulk actions"
-      className="sticky bottom-16 z-30 -mx-3 mt-3 border-t border-border bg-surface-1/95 px-3 py-2 backdrop-blur"
+      className="sticky bottom-16 z-30 -mx-3 mt-3 border-t border-border bg-surface-1/95 px-3 py-2 backdrop-blur-sm"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm">
