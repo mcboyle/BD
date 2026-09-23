@@ -2397,7 +2397,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1894,
+    "edge_count": 1897,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2414,6 +2414,9 @@
         "bulk_downloader/__init__.py",
         "bulk_downloader/app_envfile_editor.py",
         "bulk_downloader/config_dryrun.py"
+      ],
+      "bulk_downloader/a11y_checkbox.py": [
+        "bulk_downloader/interstitial.py"
       ],
       "bulk_downloader/accessibility.py": [
         "bulk_downloader/app_a11y.py"
@@ -4277,6 +4280,10 @@
         "bulk_downloader/app.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_transport.py"
+      ],
+      "bulk_downloader/multi_homed_egress.py": [
+        "bulk_downloader/download_egress.py",
+        "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/multi_site_benchmark.py": [
         "tools/multi_site_benchmark.py"
@@ -6966,7 +6973,8 @@
         "bulk_downloader/ai_provider.py"
       ],
       "bulk_downloader/download_egress.py": [
-        "bulk_downloader/egress_identity.py"
+        "bulk_downloader/egress_identity.py",
+        "bulk_downloader/multi_homed_egress.py"
       ],
       "bulk_downloader/download_hold.py": [
         "bulk_downloader/global_config.py"
@@ -7129,6 +7137,7 @@
         "bulk_downloader/streaming_hash.py"
       ],
       "bulk_downloader/interstitial.py": [
+        "bulk_downloader/a11y_checkbox.py",
         "bulk_downloader/registrable_domain.py"
       ],
       "bulk_downloader/jd_bridge.py": [
@@ -7813,7 +7822,8 @@
         "bulk_downloader/dev_events.py"
       ],
       "bulk_downloader/ssrf_transport.py": [
-        "bulk_downloader/happy_eyeballs.py"
+        "bulk_downloader/happy_eyeballs.py",
+        "bulk_downloader/multi_homed_egress.py"
       ],
       "bulk_downloader/staging_ingest.py": [
         "bulk_downloader/db.py"

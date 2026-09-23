@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1647 - train72: row1065, row1031
+
+Base train/71 tip 081f56af (T71 v3.66.1646 on main 259f8a11, PR982 open; restack onto main when it lands; ORDERS-0078: row1031 ci.yml shard line dropped, tests join shards by glob). Three cuts (restack 1: row976 dropped at VM gate, T72-DROPS-ee44cd52-R-B.md), each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1065-multi-homed-egress-failover r4: multi-homed physical egress routing with autonomous failover (4 paths; DP-11 waiver RULING-0071). N2-B at b2868ed3.
+- row1007-tls-session-ticket-caching forward fix (row CLOSED @1633; 3 paths; RULING-0063 findings fixed). N6-A at 65a3c4a0.
+- row1031-a11y-checkbox-selector r3: accessible confirmation checkbox selector (4 paths). N2-B + P2-B at 75e027ba.
+- register: rows 1065, 1031 CLOSED @1647; 1007 already closed (forward fix).
+- register MOOT-PREMISE (PM 05:42Z): row1054 (REFUTED bd-cuts/cut/row1054-cluster-topology-interconnect-map/DONE.md).
+- dropped (bd-freshcheck STALE anchor after app.py shrink, T72-DROP-1020-d920d999-R-B.md): row1020.
+
+
 ## v3.66.1646 - train71: row1021, row1010, row1047
 
 Base main 626a53f5 (regen @259f8a11, T68 v3.66.1645). Restack 5 (ORDERS-0079: regen tip; ORDERS-0078; row1021 ci.yml shard line dropped, tests join shards by glob; ratchet drops at restack 2, T71-DROPS-dda20699-R-B.md): three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

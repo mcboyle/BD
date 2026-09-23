@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5033,
+  "edge_count": 5040,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1425,7 +1425,8 @@
       "bulk_downloader/ai_provider.py"
     ],
     "bulk_downloader/download_egress.py": [
-      "bulk_downloader/egress_identity.py"
+      "bulk_downloader/egress_identity.py",
+      "bulk_downloader/multi_homed_egress.py"
     ],
     "bulk_downloader/download_hold.py": [
       "bulk_downloader/global_config.py"
@@ -1588,6 +1589,7 @@
       "bulk_downloader/streaming_hash.py"
     ],
     "bulk_downloader/interstitial.py": [
+      "bulk_downloader/a11y_checkbox.py",
       "bulk_downloader/registrable_domain.py"
     ],
     "bulk_downloader/jd_bridge.py": [
@@ -2272,7 +2274,8 @@
       "bulk_downloader/dev_events.py"
     ],
     "bulk_downloader/ssrf_transport.py": [
-      "bulk_downloader/happy_eyeballs.py"
+      "bulk_downloader/happy_eyeballs.py",
+      "bulk_downloader/multi_homed_egress.py"
     ],
     "bulk_downloader/staging_ingest.py": [
       "bulk_downloader/db.py"
@@ -4206,6 +4209,9 @@
       "bulk_downloader/adaptive_gc.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_row1031_checkbox_selector_interaction_handler.py": [
+      "bulk_downloader/interstitial.py"
+    ],
     "tests/test_row1032_verification_settlement_session_header.py": [
       "bulk_downloader/runner_browser.py",
       "bulk_downloader/settlement.py",
@@ -4269,6 +4275,11 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py",
       "bulk_downloader/lock_monitor.py"
+    ],
+    "tests/test_row1065_multi_homed_egress_failover.py": [
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/multi_homed_egress.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_row1067_mptcp_subflow_negotiation.py": [
       "bulk_downloader/mptcp_subflow.py",
