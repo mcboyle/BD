@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1657 - train82: row1081, row1028, row1082
+
+Base main dc713cd1 (T81 v3.66.1656 landed 10:21Z; ORDERS-0090/0091; PM 10:37Z: T82 = 1081 + 1028; row1082 boarded 11:02Z rides the top open train). T82: three cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010); hotfix register lines folded in by fixup from read-tree copies; per-row ci.yml shard lines dropped (RULING-0080 s2).
+
+- row1081 hotfix-1053-lc-all: test_row1053_subprocess_stdin_guard child env pins LC_ALL="C" (test-only; main red gates-v3-a, ORDERS-0089). P2-B BOARD at 6076cb12; copy c445acfe + register line.
+- row1028-weakref-cache-pruning: weakref cache pruning (5 paths: aiassist, runner, weakref_lifecycle + 2 tests). N6-A BOARD at 87cf70b1 (review copy; +/- identical to the live cut).
+- row1082 hotfix-1038-stdin-guard: import_profiler.py subprocess.run sites pass stdin=subprocess.DEVNULL per the row1053 guard (main red gates-rows-a, ORDERS-0091). bd-review-correctness-A BOARD at d988b79d; copy b41a9d04 + register line.
+- register: rows 1028, 1081, 1082 CLOSED @1657.
+
+
 ## v3.66.1656 - train81: row988, row1056
 
 Base main a89d38d6 (T80 v3.66.1655 landed; ORDERS-0090). T81: two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly; per-row ci.yml shard lines dropped (RULING-0080 s2).

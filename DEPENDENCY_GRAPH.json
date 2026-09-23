@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1774,
+    "edge_count": 1776,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4801,6 +4801,10 @@
       "bulk_downloader/wayback_cdx.py": [
         "bulk_downloader/app_wayback.py"
       ],
+      "bulk_downloader/weakref_lifecycle.py": [
+        "bulk_downloader/aiassist.py",
+        "bulk_downloader/runner.py"
+      ],
       "bulk_downloader/web_dialog.py": [
         "bulk_downloader/detect.py"
       ],
@@ -5230,7 +5234,8 @@
         "bulk_downloader/ai_provider.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/hooks.py",
-        "bulk_downloader/secrets_store.py"
+        "bulk_downloader/secrets_store.py",
+        "bulk_downloader/weakref_lifecycle.py"
       ],
       "bulk_downloader/alerts_engine.py": [
         "bulk_downloader/account_health.py",
@@ -7047,6 +7052,7 @@
         "bulk_downloader/upscale_detector.py",
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/vpn_stats.py",
+        "bulk_downloader/weakref_lifecycle.py",
         "bulk_downloader/webhooks.py",
         "bulk_downloader/website_title.py",
         "bulk_downloader/yt_dlp_archive.py",
