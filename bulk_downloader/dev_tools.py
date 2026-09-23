@@ -350,7 +350,7 @@ def start_run(target: str, *, kind: str = "file") -> dict:
                      {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
             proc = subprocess.Popen(
                 _outer_capped_command(cmd),
-                stdout=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 cwd=str(_repo_root()),
                 env=env,

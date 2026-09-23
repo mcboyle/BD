@@ -178,7 +178,7 @@ def remux_faststart(
             _logger.warning("could not remove faststart temp %s: %s", tmp_out, exc)
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False)
         if proc.returncode == 0 and tmp_out.is_file() and tmp_out.stat().st_size > 0 and is_faststart(tmp_out):
             os.replace(tmp_out, dest)
             return FaststartResult(ok=True, modified=True, path=str(dest))

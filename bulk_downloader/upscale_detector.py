@@ -85,7 +85,7 @@ def probe_video_metadata(path: str, timeout: float = 5.0) -> Tuple[int, int, flo
     ]
     p = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
@@ -165,7 +165,7 @@ def extract_sampled_frames(
 
     p = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,
     )

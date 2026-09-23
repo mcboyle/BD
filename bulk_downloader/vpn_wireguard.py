@@ -411,7 +411,7 @@ def _wg_up(conf_path: Path, iface: str) -> None:
         cmd = [_WG_BINARY, "up", str(conf_path)]
     result = subprocess.run(
         cmd,
-        capture_output=True,
+        stdin=subprocess.DEVNULL, capture_output=True,
         timeout=WG_UP_TIMEOUT_S,
         creationflags=_WIN_CREATE_FLAGS,
     )
@@ -453,7 +453,7 @@ def _wg_down_quiet(iface: str, conf_path: Path | str | None = None) -> None:
                 return
         result = subprocess.run(
             cmd,
-            capture_output=True,
+            stdin=subprocess.DEVNULL, capture_output=True,
             timeout=WG_DOWN_TIMEOUT_S,
             creationflags=_WIN_CREATE_FLAGS,
         )
@@ -483,7 +483,7 @@ def _iface_has_ip(iface: str, expected_ip: str) -> bool:
         if IS_WINDOWS:
             result = subprocess.run(
                 ["ipconfig"],
-                capture_output=True, timeout=5,
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=5,
                 creationflags=_WIN_CREATE_FLAGS,
                 text=True,
             )
@@ -491,20 +491,20 @@ def _iface_has_ip(iface: str, expected_ip: str) -> bool:
         if IS_LINUX:
             result = subprocess.run(
                 ["ip", "-4", "-o", "addr", "show", "dev", iface],
-                capture_output=True, timeout=5, text=True,
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             )
             if result.returncode == 0:
                 return expected_ip in (result.stdout or "")
             # Fallback: scan all interfaces
             result = subprocess.run(
                 ["ip", "-4", "-o", "addr"],
-                capture_output=True, timeout=5, text=True,
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             )
             return (iface in (result.stdout or "")) and (expected_ip in (result.stdout or ""))
         if IS_DARWIN:
             result = subprocess.run(
                 ["ifconfig", iface],
-                capture_output=True, timeout=5, text=True,
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             )
             return expected_ip in (result.stdout or "")
     except subprocess.TimeoutExpired:

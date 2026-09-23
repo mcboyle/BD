@@ -234,7 +234,7 @@ def run_command_hook(cmd_template, vars, timeout=120):
         # Substituted values are shlex.quote()'d above, so shell metachars
         # in filenames don't escape their quoted slot.
         result = subprocess.run(
-            rendered, shell=True, capture_output=True, text=True,
+            rendered, stdin=subprocess.DEVNULL, shell=True, capture_output=True, text=True,
             timeout=timeout, errors="replace",
         )
         out = (result.stdout or "") + (result.stderr or "")

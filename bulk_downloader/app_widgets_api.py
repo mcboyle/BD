@@ -622,7 +622,7 @@ def _collect_data(site_id: str | None) -> dict:
                 [_smi, "--query-gpu=utilization.gpu,memory.used,"
                        "memory.total,name",
                  "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=3, check=False,
+                stdin=_sp.DEVNULL, capture_output=True, text=True, timeout=3, check=False,
             )
             if _r.returncode == 0 and _r.stdout.strip():
                 # First row only; comma-separated, possibly with

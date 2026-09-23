@@ -197,7 +197,7 @@ def _unit_snapshot(run=subprocess.run) -> dict[str, Any] | None:
     command = ["systemctl", "show", UNIT]
     for name in UNIT_PROPERTIES:
         command.extend(["--property", name])
-    result = run(command, capture_output=True, text=True, timeout=10, check=False)
+    result = run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False)
     if result.returncode != 0:
         return None
     values: dict[str, Any] = {}

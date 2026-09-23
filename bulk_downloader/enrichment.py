@@ -77,7 +77,7 @@ def probe(path: str) -> Optional[dict]:
            "-show_format", "-show_streams", path]
     try:
         r = subprocess.run(
-            cmd, capture_output=True, text=True, encoding="utf-8", timeout=30)
+            cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=30)
         if r.returncode != 0:
             return None
         return json.loads(r.stdout or "{}")
@@ -117,7 +117,7 @@ def detect_chapters(
         "-an", "-f", "null", "-",
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8")
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600, encoding="utf-8")
     except (subprocess.TimeoutExpired, OSError) as e:
         sys.stderr.write(f"[enrichment] chapter detect failed: {e}\n")
         return []
@@ -175,7 +175,7 @@ def audio_fingerprint(path: str, *, duration_seconds: int = 120) -> Optional[str
         "-",
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=180)
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
         if r.returncode != 0 or not r.stdout:
             return None
         h = hashlib.sha256(r.stdout).hexdigest()

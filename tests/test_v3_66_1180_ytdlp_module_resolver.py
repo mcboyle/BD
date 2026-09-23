@@ -43,6 +43,7 @@ def test_path_ytdlp_version_probe_uses_the_path_executable(monkeypatch):
 
     assert yt.current_version() == "2026.07.04"
     assert calls == [(["/path/yt-dlp", "--version"], {
+        "stdin": yt.subprocess.DEVNULL,
         "capture_output": True, "text": True, "timeout": 10, "shell": False,
     })]
 
@@ -72,7 +73,8 @@ def test_module_only_install_is_truthful_in_status_and_uses_same_interpreter(mon
     }
     assert calls == [([
         "/opt/bulk-downloader/venv/bin/python", "-m", "yt_dlp", "--version",
-    ], {"capture_output": True, "text": True, "timeout": 10, "shell": False})]
+    ], {"stdin": yt.subprocess.DEVNULL,
+        "capture_output": True, "text": True, "timeout": 10, "shell": False})]
 
 
 def test_no_path_binary_and_no_interpreter_is_not_installed(monkeypatch):

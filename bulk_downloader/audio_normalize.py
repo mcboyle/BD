@@ -104,14 +104,14 @@ def _normalize_file(source_path: str, ffmpeg: str) -> None:
     temporary: Path | None = None
     try:
         probe = subprocess.run(build_probe_argv(str(source), ffprobe=ffprobe_for(ffmpeg)),
-                               capture_output=True, text=True, check=False)
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
         streams = count_audio_streams(probe.stdout) if probe.returncode == 0 else 1
         if streams < 1:
             return
         measurements = []
         for index in range(streams):
             analysis = subprocess.run(build_analysis_argv(str(source), ffmpeg=ffmpeg, audio_stream=index),
-                                      capture_output=True, text=True, check=False)
+                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
             if analysis.returncode:
                 return
             measurements.append(parse_measurements(analysis.stderr))
@@ -121,7 +121,7 @@ def _normalize_file(source_path: str, ffmpeg: str) -> None:
         temporary = Path(tmp_name)
         applied = subprocess.run(
             build_apply_argv(str(source), str(temporary), measurements, ffmpeg=ffmpeg),
-            capture_output=True, text=True, check=False,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False,
         )
         if applied.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
             temporary.replace(source)

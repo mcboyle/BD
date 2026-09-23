@@ -88,7 +88,7 @@ class OllamaBootProbe:
         try:
             result = self._run(
                 [executable, "--query-gpu=name", "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5, check=False,
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5, check=False,
             )
         except Exception:
             return {"available": False, "devices": [], "error": "nvidia-smi execution failed"}

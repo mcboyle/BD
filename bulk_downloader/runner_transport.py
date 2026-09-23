@@ -4237,7 +4237,7 @@ class TransportMixin:
                "-map", "0:v:0", "-map", "1:a:0", "-c", "copy",
                str(output_path)]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
         except Exception as exc:
             return {"ok": False, "error": str(exc), "output_path": None}
         if proc.returncode != 0:
@@ -4257,7 +4257,7 @@ class TransportMixin:
                "-show_entries", "stream=duration", "-of",
                "default=noprint_wrappers=1:nokey=1", str(path)]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
         except Exception:
             return None
         out = (proc.stdout or "").strip()

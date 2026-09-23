@@ -32,7 +32,7 @@ def record_frames(
     ]
     process = None
     try:
-        process = (spawn or subprocess.Popen)(command)
+        process = spawn(command) if spawn else subprocess.Popen(command, stdin=subprocess.DEVNULL)
         if process.wait(timeout=timeout_s) != 0:
             return []
         return sorted(output_dir.glob("frame-*.png"))

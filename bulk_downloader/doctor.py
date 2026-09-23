@@ -67,7 +67,7 @@ def _tool_version(tool: str, version_arg: str = "-version") -> str | None:
     if not path:
         return None
     try:
-        out = subprocess.run([path, version_arg], capture_output=True,
+        out = subprocess.run([path, version_arg], stdin=subprocess.DEVNULL, capture_output=True,
                              text=True, timeout=5)
         first = (out.stdout or out.stderr or "").splitlines()
         return first[0].strip() if first else path

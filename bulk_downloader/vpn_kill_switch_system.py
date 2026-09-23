@@ -470,7 +470,7 @@ def _rdp_in_use() -> bool:
     try:
         result = subprocess.run(
             ["query", "session"],
-            capture_output=True, timeout=5, text=True,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             creationflags=_WIN_CREATE_FLAGS,
         )
         if result.returncode != 0:
@@ -492,7 +492,7 @@ def _run_netsh(args: str) -> tuple[int, str, str]:
     try:
         result = subprocess.run(
             cmd,
-            capture_output=True, timeout=15, text=True,
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=15, text=True,
             creationflags=_WIN_CREATE_FLAGS,
         )
         return result.returncode, result.stdout or "", result.stderr or ""

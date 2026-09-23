@@ -120,7 +120,7 @@ def _default_runner(tool: Path, wacz_path: str,
     interp = sys.executable or str(_root() / "venv" / "bin" / "python")
     proc = subprocess.run(
         [interp, str(tool), wacz_path, "--mode", mode],
-        capture_output=True, text=True, shell=False, timeout=300,
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, shell=False, timeout=300,
         cwd=str(_root()),
     )
     return proc.returncode, (proc.stdout or ""), out_path

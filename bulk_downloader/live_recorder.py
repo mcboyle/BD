@@ -755,7 +755,7 @@ def _is_room_live(site: str, room: str, url: str,
         cmd += ["--json", url]
         result = subprocess.run(
             cmd,
-            capture_output=True,
+            stdin=subprocess.DEVNULL, capture_output=True,
             timeout=20,
             check=False,
             env=(prepared_egress.subprocess_env() if prepared_egress is not None

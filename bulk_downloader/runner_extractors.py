@@ -360,7 +360,7 @@ class ExtractorsMixin:
                                        rate_limit=rate_limit, netns=ns)
                 self.log_event("ytdlp", f"Trying yt-dlp fallback for {fail_reason or 'failed URL'}", url=url)
                 try:
-                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600, encoding="utf-8")
+                    r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600, encoding="utf-8")
                 except subprocess.TimeoutExpired:
                     return (False, "yt-dlp timed out after 10 minutes", None, 0, 0)
                 except Exception as e:
@@ -464,7 +464,7 @@ class ExtractorsMixin:
                 except Exception:
                     pass
                 try:
-                    r = subprocess.run(cmd, capture_output=True, text=True,
+                    r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                        timeout=600, encoding="utf-8")
                 except subprocess.TimeoutExpired:
                     return (False, "gallery-dl timed out after 10 minutes", None, 0, 0)

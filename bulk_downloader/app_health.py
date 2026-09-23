@@ -121,11 +121,17 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
     result = {"sha": None, "built_at": None, "source": "unknown"}
     try:
         import subprocess
-        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+        # Row 1053: git reads an empty stdin pipe (immediate EOF), never the
+        # server's inherited stdin. Not stdin=subprocess.DEVNULL: that opens
+        # /dev/null O_RDWR, and /api/health is the boot path bd-opv verifies
+        # inside its resource boundary, where
+        # tests/test_row_282_bd_opv_isolates_every_store.py counts any
+        # write-mode open outside the owned root as an escaped store write.
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], input="", cwd=root,
                               capture_output=True, text=True, timeout=10)
         if proc.returncode == 0 and proc.stdout.strip():
             sha = proc.stdout.strip()
-            when = subprocess.run(["git", "log", "-1", "--format=%cI"], cwd=root,
+            when = subprocess.run(["git", "log", "-1", "--format=%cI"], input="", cwd=root,
                                   capture_output=True, text=True, timeout=10)
             result = {"sha": sha[:12],
                       "built_at": when.stdout.strip() or None,

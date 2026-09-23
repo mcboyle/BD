@@ -115,7 +115,7 @@ def _verify_with_ffprobe(path):
     if not _fp: return True,"ffprobe not installed"
     try:
         r=subprocess.run([_fp,"-v","error","-show_streams","-of","json",str(path)],
-                         capture_output=True,timeout=60)
+                         stdin=subprocess.DEVNULL, capture_output=True,timeout=60)
         if r.returncode!=0:
             err=(r.stderr or b"").decode("utf-8","ignore")[:120].strip()
             return False,f"ffprobe rc={r.returncode}: {err or 'no detail'}"

@@ -49,7 +49,7 @@ def _probe_duration(path: str) -> float:
         out = subprocess.check_output(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
-            stderr=subprocess.DEVNULL, timeout=15)
+            stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
         return float(out.strip())
     except subprocess.CalledProcessError as e:
         raise FFprobeError(f"ffprobe_exit_{e.returncode}") from e
@@ -254,7 +254,7 @@ def _probe_tile_height(sprite_path: str, count: int) -> int:
             [ffprobe, "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=height",
              "-of", "default=noprint_wrappers=1:nokey=1", sprite_path],
-            stderr=subprocess.DEVNULL, timeout=10)
+            stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         total_h = int(out.strip())
         return max(1, total_h // count)
     except subprocess.CalledProcessError as e:

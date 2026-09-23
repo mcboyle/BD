@@ -253,7 +253,7 @@ def _ffprobe_meta(path: str) -> dict:
              "-show_entries", "stream=codec_name:format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1",
              path],
-            capture_output=True, text=True, encoding="utf-8", timeout=30,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=30,
         )
         if result.returncode != 0:
             detail = (result.stderr or "").strip()[:120]

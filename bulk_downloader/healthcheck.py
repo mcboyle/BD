@@ -208,7 +208,7 @@ def _ffmpeg_capability(ff: str) -> dict:
     import subprocess
     try:
         r = subprocess.run([ff, "-hide_banner", "-version"],
-                           capture_output=True, text=True, timeout=10)
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError) as e:
         return {"error": f"{type(e).__name__}: {e}"}
     if r.returncode != 0:
@@ -218,7 +218,7 @@ def _ffmpeg_capability(ff: str) -> dict:
         try:
             probe = subprocess.run(
                 [ff, "-hide_banner", option],
-                capture_output=True, text=True, timeout=10,
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10,
             )
         except (OSError, subprocess.SubprocessError) as e:
             return {

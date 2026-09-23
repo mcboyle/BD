@@ -303,7 +303,7 @@ def compute_audio_fingerprint(
     try:
         proc = subprocess.run(
             cmd,
-            capture_output=True,
+            stdin=subprocess.DEVNULL, capture_output=True,
             timeout=timeout,
             check=False,
             text=True,

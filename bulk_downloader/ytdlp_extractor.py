@@ -175,7 +175,7 @@ def _default_run(cmd: list):
     """Run the info cmd; return ``(returncode, stdout, stderr)``. A metadata
     probe is cheap -- bound it to 120s so a hung extractor can't wedge a
     worker. Never raises for a nonzero exit (that degrades to ``{}``)."""
-    r = _subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    r = _subprocess.run(cmd, stdin=_subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
     return (r.returncode, r.stdout or "", r.stderr or "")
 
 

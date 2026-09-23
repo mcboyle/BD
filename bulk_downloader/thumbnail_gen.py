@@ -121,7 +121,7 @@ def _probe_duration(path: str, *, timeout_s: float = 30.0) -> float:
              "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1",
              path],
-            capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=timeout_s,
         )
         if result.returncode != 0:
             detail = (result.stderr or "").strip()[:120]

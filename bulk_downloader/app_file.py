@@ -53,19 +53,19 @@ def api_file_reveal():
             # comma + lack of space after /select is the documented
             # syntax. Subprocess split because shell=True is unsafe.
             if p.is_dir():
-                subprocess.Popen(["explorer", str(p)], close_fds=True)
+                subprocess.Popen(["explorer", str(p)], stdin=subprocess.DEVNULL, close_fds=True)
             else:
                 subprocess.Popen(
-                    ["explorer", "/select,", str(p)], close_fds=True)
+                    ["explorer", "/select,", str(p)], stdin=subprocess.DEVNULL, close_fds=True)
         elif sys.platform == "darwin":
             # open -R reveals in Finder. Works for both files and dirs.
-            subprocess.Popen(["open", "-R", str(p)], close_fds=True)
+            subprocess.Popen(["open", "-R", str(p)], stdin=subprocess.DEVNULL, close_fds=True)
         else:
             # Linux/BSD: xdg-open the parent dir. There's no portable
             # "reveal and select" — desktop environments vary too much.
             subprocess.Popen(
                 ["xdg-open", str(p if p.is_dir() else p.parent)],
-                close_fds=True)
+                stdin=subprocess.DEVNULL, close_fds=True)
         return jsonify({"ok": True, "revealed": str(p)})
     except FileNotFoundError as e:
         return jsonify({"ok": False,

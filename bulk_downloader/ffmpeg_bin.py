@@ -112,7 +112,7 @@ def _probe_cuda_support() -> bool:
 
     if smi:
         try:
-            res = subprocess.run([smi, "-L"], capture_output=True, text=True, timeout=2)
+            res = subprocess.run([smi, "-L"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=2)
             if res.returncode != 0 or not res.stdout.strip():
                 return False
         except Exception:
@@ -232,16 +232,16 @@ def run_ffmpeg(
     """
     has_hwaccel = "-hwaccel" in cmd
     try:
-        proc = subprocess.run(cmd, *args, **kwargs)
+        proc = subprocess.run(cmd, *args, stdin=subprocess.DEVNULL, **kwargs)
         if has_hwaccel and proc.returncode != 0:
             if _is_cuda_failure(_stderr_text(proc.stderr)):
                 cpu_cmd = _strip_hwaccel(cmd)
-                return subprocess.run(cpu_cmd, *args, **kwargs)
+                return subprocess.run(cpu_cmd, *args, stdin=subprocess.DEVNULL, **kwargs)
         return proc
     except Exception:
         if has_hwaccel:
             cpu_cmd = _strip_hwaccel(cmd)
-            return subprocess.run(cpu_cmd, *args, **kwargs)
+            return subprocess.run(cpu_cmd, *args, stdin=subprocess.DEVNULL, **kwargs)
         raise
 
 
@@ -258,8 +258,8 @@ def check_call_ffmpeg(cmd: list[str], **kwargs) -> None:
     failure raises ``CalledProcessError`` exactly as before.
     """
     try:
-        subprocess.check_call(cmd, **kwargs)
+        subprocess.check_call(cmd, stdin=subprocess.DEVNULL, **kwargs)
     except subprocess.CalledProcessError:
         if "-hwaccel" not in cmd:
             raise
-        subprocess.check_call(_strip_hwaccel(cmd), **kwargs)
+        subprocess.check_call(_strip_hwaccel(cmd), stdin=subprocess.DEVNULL, **kwargs)

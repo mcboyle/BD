@@ -59,7 +59,7 @@ def _run_isolated(
     """Execute command with process group isolation and os.killpg cleanup (Rule 45)."""
     proc = subprocess.Popen(
         cmd,
-        stdout=subprocess.PIPE,
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,

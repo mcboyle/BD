@@ -213,7 +213,7 @@ def run(tool: str, flags: dict) -> dict:
     try:
         proc = subprocess.run(
             argv,
-            capture_output=True,
+            stdin=subprocess.DEVNULL, capture_output=True,
             text=True,
             shell=_USES_SHELL,  # False, pinned
             timeout=TIMEOUT_S,

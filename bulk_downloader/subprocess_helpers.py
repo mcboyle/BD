@@ -47,6 +47,10 @@ import time
 def isolated_popen_kwargs() -> dict:
     """Return Popen kwargs that put the child in its own process group.
 
+    stdin is DEVNULL (row 1053): a child that prompts (ffmpeg "Overwrite?
+    [y/N]", sudo, ssh) reads EOF and exits instead of wedging on an
+    inherited open stdin.
+
     Merge into your existing kwargs:
         proc = subprocess.Popen(cmd, **isolated_popen_kwargs())
     or
@@ -62,13 +66,13 @@ def isolated_popen_kwargs() -> dict:
             subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
             | subprocess.CREATE_NO_WINDOW       # type: ignore[attr-defined]
         )
-        return {"creationflags": creationflags}
+        return {"creationflags": creationflags, "stdin": subprocess.DEVNULL}
     # POSIX: set process group leader. Using start_new_session=True is
     # equivalent for our purposes and also detaches from the controlling
     # terminal so SIGINT (Ctrl+C) on the parent shell doesn't propagate
     # to the child by terminal-line discipline. Slightly stronger
     # isolation than bare setpgrp.
-    return {"start_new_session": True}
+    return {"start_new_session": True, "stdin": subprocess.DEVNULL}
 
 
 def kill_process_tree(proc: subprocess.Popen, timeout: float = 5.0) -> bool:
@@ -90,7 +94,7 @@ def kill_process_tree(proc: subprocess.Popen, timeout: float = 5.0) -> bool:
         try:
             subprocess.run(
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                check=False,
+                stdin=subprocess.DEVNULL, check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=timeout,

@@ -187,7 +187,7 @@ def _decipher_signed_formats_ytdlp(
     try:
         proc = _run(
             argv,
-            capture_output=True,
+            stdin=subprocess.DEVNULL, capture_output=True,
             timeout=_YT_CIPHER_SUBPROC_TIMEOUT_SECONDS,
             check=False,
         )

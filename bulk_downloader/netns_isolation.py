@@ -273,7 +273,7 @@ def is_supported() -> bool:
 def _run(runner: Optional[Runner], argv: List[str]) -> int:
     r = runner or subprocess.run
     try:
-        cp = r(argv, capture_output=True, text=True)
+        cp = r(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True)
         return int(getattr(cp, "returncode", 1) or 0)
     except Exception:
         return 1
@@ -308,7 +308,7 @@ def run_in_netns(ns: str, argv: List[str], *,
     """Run ``argv`` inside namespace ``ns`` and return the
     ``CompletedProcess``."""
     r = runner or subprocess.run
-    return r(netns_exec_argv(ns, argv), capture_output=True, text=True)
+    return r(netns_exec_argv(ns, argv), stdin=subprocess.DEVNULL, capture_output=True, text=True)
 
 
 @contextmanager

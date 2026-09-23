@@ -370,7 +370,7 @@ def start_replication(base_dir: str | os.PathLike | None = None) -> dict:
             os.makedirs(cfg["replica_root"], exist_ok=True)
             proc = subprocess.Popen(
                 ["litestream", "replicate", "-config", wc["path"]],
-                stdout=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
@@ -474,7 +474,7 @@ def restore_store(db_name: str, dest: str | os.PathLike,
         r = subprocess.run(
             ["litestream", "restore", "-o", dest,
              "-replica-path", replica_path, safe],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300,
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300,
         )
         if r.returncode != 0:
             return {"ok": False,

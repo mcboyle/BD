@@ -111,7 +111,7 @@ def _version_probe(executable: Optional[str] = None, *, _resolved=None) -> dict:
         result = {"version": None, "source": source, "error": unavailable_error}
     else:
         try:
-            r = subprocess.run(list(argv) + ["--version"], capture_output=True,
+            r = subprocess.run(list(argv) + ["--version"], stdin=subprocess.DEVNULL, capture_output=True,
                                text=True, timeout=10, shell=False)
             if r.returncode != 0:
                 result = {"version": None, "source": source, "error": "command_failed"}
@@ -195,7 +195,7 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
     cmd = [py, "-m", "pip", "install", "--upgrade", "--quiet", "yt-dlp"]
     _LAST_UPDATE_CHECK[update_key] = now
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             tail = (r.stderr or r.stdout or "")[-300:]
             return (False, f"pip install --upgrade yt-dlp failed: {tail}")
