@@ -19,14 +19,16 @@ Usage:
   bd-precut --no-insync / --no-envscan                   # skip a check
   bd-precut --fast [--root DIR]                           # H712: the fast gates ONLY (guard
                                                           #   pins, env tranche, secrets, defect
-                                                          #   ratchet, register/trio); no pytest,
+                                                          #   ratchet, register/trio, static census);
                                                           #   no regeneration. Exit = the FIRST
                                                           #   failing gate's rc, else 0; a gate
                                                           #   that could not run is named UNKNOWN.
+                                                          #   Static census failure/timeout: rc 5.
                                                           #   Default when BD_PRECUT_FAST=1;
                                                           #   --full wins.
 """
 import argparse, ast, atexit, glob, importlib.util, os, pathlib, re, shutil, subprocess, sys, tempfile
+import time
 # `datetime` is imported on ITS OWN LINE, and the line above is left byte-identical to
 # what it was at base, because tests/mutants/v3_66_1452_shuffle_lane_containment.json M3
 # anchors on that exact import line. MEASURED: folding `datetime` into it cost the anchor
@@ -880,10 +882,12 @@ def _run_underived_gates(root, present, env):
 # fast gates, in this order -- guard pins (bd-guardcheck), env tranche (bd-envscan),
 # secret scan (bd-secrets), the defect ratchet (bd-ratchet --metric defect_DP_total) and
 # register/trio (bd-shipped's register containment, then the release trio read by
-# _release_trio_problem) -- and NOTHING else. Precut spent 20-23 min per train, ~19 of
+# _release_trio_problem), then H727's measured static census -- and NOTHING else.
+# Precut spent 20-23 min per train, ~19 of
 # them a test suite CI then reruns, while what it caught was guard-pin drift, an env
 # tranche and a secret: each a seconds-long tool (PM-EFFICIENCY-AUDIT-2358 s2).
-#   * no pytest: CI owns the suite. The register gate is bd-shipped itself, not
+#   * only the fixed static census pytest list below: CI owns the remaining suite.
+#     The register gate is bd-shipped itself, not
 #     tests/test_row473_register_tree_containment.py, the test file that drives it.
 #   * no regeneration: neither bd-regen-order nor bd-footguns, whose in-sync detectors
 #     regenerate derived docs and which runs bd-regen-order --check (its
@@ -901,6 +905,20 @@ _FAST_RATCHET_METRICS = ("defect_DP_total",)
 _FAST_REGISTER = "project-knowledge/IMPROVEMENT_BACKLOG.md"
 _FAST_REGISTER_EVIDENCE = "tests/fixtures/register_candidate_blobs_row473.json"
 _FAST_TRIO_RC = 3   # the in-process trio read has no tool rc of its own; 3 is the gate's hit code
+_FAST_STATIC_RC = 5   # static census failed or exceeded its 90-second bound
+# H727 / ORDERS-0099: measured individually at cc0840f on 10.0.70.50; each <5s.
+# The seven slower candidates, including four seeds, are recorded in CENSUS-h727.md.
+_FAST_STATIC_CENSUS = (
+    "tests/test_census_exact_count_pins.py",
+    "tests/test_v3_66_1023_heavy_budget_fits_the_route_gate.py",
+    "tests/test_v3_66_1197_ambient_locale_into_subprocess.py",
+    "tests/test_v3_66_1235_the_work_default_census_is_behavioural.py",
+    "tests/test_v3_66_641_request_budget.py",
+    "tests/test_v3_66_672_run3_budget.py",
+    "tests/test_v3_66_679_install_playwright_pin.py",
+    "tests/test_v3_66_703_ffmpeg_binary_pin.py",
+    "tests/test_v3_66_754_flake729_serial_pin.py",
+)
 _FAST_NOT_RUN = ("test suite and test bands", "underived gates", "repo-wide marker census",
                  "footgun registry (bd-footguns)", "tool integrity (bd-coretest)", "precut_check",
                  "CI shard headroom")
@@ -1022,6 +1040,32 @@ def _fast_ratchet(root):
     return None, f"bd-ratchet exited rc={rc} (neither clean nor a regression)"
 
 
+def _fast_static_census(root):
+    """Run the measured census files present in this tree; name missing files."""
+    root = os.path.abspath(root)
+    files = []
+    for name in _FAST_STATIC_CENSUS:
+        if os.path.isfile(os.path.join(root, name)):
+            files.append(name)
+        else:
+            print(f"  [static census] NOT RUN -- {name}: absent", flush=True)
+    if not files:
+        return None, "no static census files present"
+    argv = [os.path.join(root, "venv", "bin", "python"), "-m", "pytest",
+            "-p", "no:cacheprovider", "-q", "-o", "addopts=", *files]
+    started = time.monotonic()
+    try:
+        rc = subprocess.run(argv, cwd=root, timeout=90, check=False).returncode
+    except subprocess.TimeoutExpired:
+        return _FAST_STATIC_RC, "static census exceeded 90 seconds"
+    except OSError as exc:
+        return None, f"static census {type(exc).__name__}: {exc}"
+    finally:
+        print(f"  [static census timing] files={len(files)} "
+              f"seconds={time.monotonic() - started:.3f}", flush=True)
+    return (_FAST_STATIC_RC, f"pytest rc={rc}") if rc else (0, None)
+
+
 def _run_fast_gates(root):
     """H712: run EXACTLY the fast gates over root (the H712 block above names them).
 
@@ -1046,6 +1090,7 @@ def _run_fast_gates(root):
         "--candidate-blobs", os.path.join(root, _FAST_REGISTER_EVIDENCE)))
     trio = _release_trio_problem(root)
     gate("release trio", _FAST_TRIO_RC if trio else 0, trio)
+    gate("static census", *_fast_static_census(root))
     failed = [(label, rc, note) for label, state, rc, note in results if state == "FAILED"]
     if failed:
         print("RESULT: NOT CUT-READY -- " + "; ".join(f"{label}: {note}" for label, _, note in failed))
@@ -1085,7 +1130,8 @@ def main(argv=None):
     ap.add_argument("--fast", action="store_true",
                     help="H712: the fast gates ONLY -- bd-guardcheck, bd-envscan, "
                          "bd-secrets, bd-ratchet (defect_DP_total), register/trio "
-                         "(bd-shipped register containment + release trio); no pytest, "
+                         "(bd-shipped register containment + release trio), then the "
+                         "fixed static census pytest list (failure/timeout rc=5); "
                          "no regeneration. Always a gate: exit = the first failing "
                          "gate's rc, else 0; a gate that could not run is named "
                          "UNKNOWN, as in the full gate. Default when BD_PRECUT_FAST=1 "

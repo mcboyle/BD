@@ -2,8 +2,9 @@
 
 POLICY-0010 s5 / RULING-0044 name them: guard pins (bd-guardcheck), env tranche
 (bd-envscan), secret scan (bd-secrets), the defect ratchet (bd-ratchet) and register/trio
-(bd-shipped's register containment, then the release-trio read). No pytest, no
-regeneration; the exit status is the rc of the FIRST gate that failed, and a gate that
+(bd-shipped's register containment, then the release-trio read). H727 adds the fixed
+static census pytest list after the trio, with no regeneration; the exit status is the
+rc of the FIRST gate that failed, and a gate that
 could not run is named UNKNOWN -- never counted as a pass, never a block (the full gate's
 rule for a check that did not run).
 
@@ -35,7 +36,8 @@ REPO = Path(__file__).resolve().parent.parent
 TOOL = REPO / "toolchain" / "bin" / "bd-precut"
 BIN = os.path.realpath(TOOL.parent)
 VERSION = "3.66.1634"
-FAST_GATES = ["bd-guardcheck", "bd-envscan", "bd-secrets", "bd-ratchet", "bd-shipped"]
+FAST_GATES = ["bd-guardcheck", "bd-envscan", "bd-secrets", "bd-ratchet", "bd-shipped", "pytest"]
+STATIC_FILE = "tests/test_census_exact_count_pins.py"
 # The regenerators, and bd-footguns, whose in-sync detectors run bd-regen-order --check.
 REGENERATORS = {"bd-regen-order", "bd-regen", "bd-footguns", "bd-kb-sync", "bd-imports"}
 RATCHET_ROSE = "  * defect_DP_total: rose 1399 -> 1620\n"
@@ -61,6 +63,8 @@ def _tree(root: Path, changelog_version: str = VERSION) -> Path:
     (root / "FUNCTION_INDEX.md").write_text("# stale on purpose\n")
     for gate in ("test_row473_register_tree_containment.py", "test_v3_66_1184_mutation_specs_are_tracked.py"):
         (root / "tests" / gate).write_text("def test_x():\n    pass\n")
+    (root / STATIC_FILE).write_text("def test_static():\n    pass\n")
+    (root / "venv").symlink_to(Path(sys.prefix), target_is_directory=True)
     return root
 
 
@@ -115,8 +119,9 @@ def _result(out: str) -> tuple[str, list[str]]:
 
 
 def _drive(monkeypatch, capsys, root: Path, argv: list[str], *, env_fast=None, block=None,
-           rcs=None, raises=None, ratchet_out="", absent=()):
+           rcs=None, raises=None, ratchet_out="", absent=(), static_files=(STATIC_FILE,)):
     module = _load()
+    monkeypatch.setattr(module, "_FAST_STATIC_CENSUS", static_files, raising=False)
     rec = _Recorder(rcs or {}, raises or {}, ratchet_out)
     monkeypatch.setattr(module.subprocess, "run", rec)
     forbidden: list[str] = []
@@ -176,13 +181,15 @@ def test_fast_runs_exactly_the_fast_gates_in_order(tmp_path, monkeypatch, capsys
         [py, os.path.join(BIN, "bd-shipped"), "--repo", r, "--against", "origin/main",
          "--register", os.path.join(r, "project-knowledge", "IMPROVEMENT_BACKLOG.md"),
          "--candidate-blobs", os.path.join(r, "tests", "fixtures", "register_candidate_blobs_row473.json")],
+        [str(root / "venv" / "bin" / "python"), "-m", "pytest", "-p", "no:cacheprovider",
+         "-q", "-o", "addopts=", STATIC_FILE],
     ], rec.calls
     assert out.count("  [release trio] ok") == 1, out
-    assert out.count("] ok") == 6, out   # the five tools and the trio read, each once
+    assert out.count("] ok") == 7, out   # five tools, trio and static census, each once
     assert f"== bd-precut --fast --gate :: root={r}" in out, out
     # what --fast leaves to CI is reported UNKNOWN by name, never absorbed into "cut-ready"
     assert ("\nRESULT: cut-ready for what RAN (guard pins, env tranche, secret scan, metric ratchet, "
-            "register containment, release trio) -- 7 check(s) NOT RUN, so UNKNOWN, not OK:\n"
+            "register containment, release trio, static census) -- 7 check(s) NOT RUN, so UNKNOWN, not OK:\n"
             "  - test suite and test bands (--fast: CI owns it)\n") in out, out
     assert len(_result(out)[1]) == 7, out
     assert rc == 0, out
@@ -199,12 +206,104 @@ def test_fast_regenerates_nothing(tmp_path, monkeypatch, capsys):
     assert rc == 0, out
 
 
-def test_fast_runs_no_test_suite(tmp_path, monkeypatch, capsys):
-    rec, rc, out = _drive(monkeypatch, capsys, _tree(tmp_path / "wt"), ["--fast"])
+def test_fast_runs_only_the_fixed_static_test_list(tmp_path, monkeypatch, capsys):
+    root = _tree(tmp_path / "wt")
+    rec, rc, out = _drive(monkeypatch, capsys, root, ["--fast"])
     assert "== bd-precut --fast --gate" in out, out
     suites = [argv for argv in rec.calls if _runs_tests(argv)]
-    assert suites == [], suites
+    assert suites == [[str(root / "venv" / "bin" / "python"), "-m", "pytest",
+                       "-p", "no:cacheprovider", "-q", "-o", "addopts=", STATIC_FILE]], suites
     assert rc == 0, out
+
+
+@pytest.mark.parametrize("fails,want_rc,override_list", [
+    (False, 0, True), (True, 5, True), (True, 5, False),
+], ids=["green-control", "red-census", "default-list-red"])
+def test_static_census_executes_real_pytest_and_blocks_its_failure(tmp_path, monkeypatch, capfd,
+                                                                 fails, want_rc, override_list):
+    root = _tree(tmp_path / "wt")
+    (root / STATIC_FILE).write_text(
+        "from pathlib import Path\n"
+        "def test_static():\n"
+        "    with Path('static-ran').open('a') as marker:\n"
+        "        marker.write('ran\\n')\n"
+        f"    assert {not fails!r}, 'H727-STATIC-CENSUS-RED'\n"
+    )
+    module = _load()
+    if override_list:
+        monkeypatch.setattr(module, "_FAST_STATIC_CENSUS", (STATIC_FILE,), raising=False)
+    calls = []
+
+    def tool(name, *args):
+        calls.append(name)
+        return 0, None
+
+    def ratchet(tree):
+        calls.append("bd-ratchet")
+        return 0, None
+
+    monkeypatch.setattr(module, "_run_fast_tool", tool)
+    monkeypatch.setattr(module, "_fast_ratchet", ratchet)
+    rc = module._run_fast_gates(str(root))
+    out = "".join(capfd.readouterr())
+    assert rc == want_rc, f"H727-STATIC-CENSUS-NOT-BLOCKING: rc={rc} expected={want_rc}\n{out}"
+    marker = root / "static-ran"
+    assert marker.is_file(), f"H727-STATIC-CENSUS-NOT-RUN: {out}"
+    assert marker.read_text() == "ran\n", out
+    assert calls == FAST_GATES[:-1], calls
+    assert out.index("[release trio] ok") < out.index("[static census]"), out
+    if fails:
+        assert "H727-STATIC-CENSUS-RED" in out, out
+        assert "[static census] FAILED" in out and "NOT CUT-READY" in out, out
+        assert "pytest rc=1" in out, out
+    else:
+        assert "[static census] ok" in out and "RESULT: cut-ready" in out, out
+    assert not (root / ".pytest_cache").exists()
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["partial-list", "all-absent"])
+def test_missing_static_files_are_not_run_or_passed(tmp_path, monkeypatch, capsys, present):
+    root = _tree(tmp_path / "wt")
+    missing = "tests/test_h727_absent.py"
+    selected = (STATIC_FILE, missing) if present else (missing,)
+    rec, rc, out = _drive(monkeypatch, capsys, root, ["--fast"], static_files=selected)
+    assert rc == 0, out
+    assert any(missing in line and "NOT RUN" in line for line in out.splitlines()), out
+    suites = [argv for argv in rec.calls if _runs_tests(argv)]
+    assert len(suites) == int(present), suites
+    assert all(missing not in argv for argv in suites), suites
+    if present:
+        assert suites[0][-1] == STATIC_FILE, suites
+        assert "[static census] ok" in out, out
+    else:
+        assert "[static census] UNKNOWN" in out, out
+        assert "static census" not in _result(out)[0], out
+
+
+def test_static_census_runs_after_an_earlier_gate_failed(tmp_path, monkeypatch, capsys):
+    rec, rc, out = _drive(monkeypatch, capsys, _tree(tmp_path / "wt"), ["--fast"],
+                          rcs={"bd-guardcheck": 1, "pytest": 1})
+    assert rc == 1, out
+    assert rec.tools() == FAST_GATES, rec.tools()
+    assert "[static census] FAILED" in out and "pytest rc=1" in out, out
+    assert "guard pins:" in out and "static census:" in out, out
+
+
+@pytest.mark.parametrize("error,want_rc", [
+    (subprocess.TimeoutExpired(["pytest"], 90), 5),
+    (OSError("H727-PYTEST-LAUNCH-FAILED"), 0),
+], ids=["timeout-blocks", "launch-error-unknown"])
+def test_static_census_unfinished_run_is_not_a_pass(tmp_path, monkeypatch, capsys, error, want_rc):
+    rec, rc, out = _drive(monkeypatch, capsys, _tree(tmp_path / "wt"), ["--fast"],
+                          raises={"pytest": error})
+    assert rc == want_rc, out
+    assert rec.tools() == FAST_GATES, rec.tools()
+    assert "[static census] ok" not in out, out
+    if want_rc:
+        assert "[static census] FAILED" in out and "90" in out, out
+    else:
+        assert "[static census] UNKNOWN" in out and "H727-PYTEST-LAUNCH-FAILED" in out, out
+        assert "static census" not in _result(out)[0], out
 
 
 @pytest.mark.parametrize("tool,code,label", [
@@ -265,7 +364,7 @@ def test_a_ratchet_that_can_not_compare_is_unknown_by_name_not_a_block(tmp_path,
     note = f"bd-ratchet exited rc={code} (neither clean nor a regression)"
     assert f"  [metric ratchet] UNKNOWN -- {note}\n" in out, out
     ran, not_run = _result(out)
-    assert ran == "guard pins, env tranche, secret scan, register containment, release trio", out
+    assert ran == "guard pins, env tranche, secret scan, register containment, release trio, static census", out
     assert not_run[0] == f"metric ratchet: {note}" and len(not_run) == 8, out
     assert rc == 0, out
     assert rec.tools() == FAST_GATES, rec.tools()
