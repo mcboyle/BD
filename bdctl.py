@@ -731,65 +731,13 @@ def cmd_teach(args):
 
 
 def cmd_completion(args):
-    """Phase 81 (v3.40.0): emit shell completion script.
+    """Phase 81 (v3.40.0) / Row 1037: emit shell completion script.
 
+    Generated from build_parser() so completions track the real command tree.
     The scripts call `bdctl _complete-sites` for live site-ID completion
     so completion stays current as sites are added/removed."""
-    cmds = ["status", "add", "start", "pause", "stop", "logs",
-            "teach", "learned", "token", "completion"]
-    if args.shell == "bash":
-        sys.stdout.write(f"""# Bulk Downloader bdctl completion for bash
-# Install:  source <(bdctl completion bash)
-# Or permanently:
-#   bdctl completion bash > ~/.local/share/bash-completion/completions/bdctl
-_bdctl_complete() {{
-  local cur prev cmds
-  cur="${{COMP_WORDS[COMP_CWORD]}}"
-  prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-  cmds="{ ' '.join(cmds) }"
-  if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
-    return
-  fi
-  if [ "$prev" = "--site" ]; then
-    local sites
-    sites="$(bdctl _complete-sites 2>/dev/null)"
-    COMPREPLY=( $(compgen -W "$sites" -- "$cur") )
-    return
-  fi
-  COMPREPLY=( $(compgen -W "--site --tail --follow --help" -- "$cur") )
-}}
-complete -F _bdctl_complete bdctl
-""")
-    elif args.shell == "zsh":
-        sys.stdout.write(f"""# Bulk Downloader bdctl completion for zsh
-# Install:  source <(bdctl completion zsh)
-# Or permanently, add to your fpath as `_bdctl`.
-#compdef bdctl
-_bdctl() {{
-  local -a cmds sites
-  cmds=({ ' '.join(f'"{c}"' for c in cmds) })
-  if (( CURRENT == 2 )); then
-    _describe 'command' cmds
-    return
-  fi
-  if [[ "${{words[CURRENT-1]}}" == "--site" ]]; then
-    sites=("${{(@f)$(bdctl _complete-sites 2>/dev/null)}}")
-    _describe 'site' sites
-    return
-  fi
-  _arguments '--site[site id]:site:' '--tail[number of events]:N:' '--follow[stream]' '--help[show help]'
-}}
-compdef _bdctl bdctl
-""")
-    elif args.shell == "fish":
-        sys.stdout.write(f"""# Bulk Downloader bdctl completion for fish
-# Install:  bdctl completion fish > ~/.config/fish/completions/bdctl.fish
-complete -c bdctl -n '__fish_use_subcommand' -a '{ ' '.join(cmds) }'
-complete -c bdctl -l site -d 'site id' -a '(bdctl _complete-sites 2>/dev/null)'
-complete -c bdctl -l tail -d 'number of events to show'
-complete -c bdctl -l follow -d 'stream events live'
-""")
+    from bulk_downloader.shell_completion import generate_shell_completion
+    sys.stdout.write(generate_shell_completion(build_parser(), args.shell, prog="bdctl"))
 
 
 def cmd_ytdlp_archive_stats(args):
