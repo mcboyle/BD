@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1668 - train95: row
+
+- H685 (h685-running-nodeid): bd-flake-classifier streams child stdout/stderr in non-JSON mode (retries keep the mode) and CI runs unbuffered verbose pytest, so a killed shard shows the active test nodeid. Probe: tests/test_row883_flake_classifier.py::test_h685_cli_emits_current_nodeid_before_child_exits.
+
+
 ## v3.66.1667 - train94: H664, H698, H153, H167
 
 Base T91 train/91-20260923 2f9827b7 (v3.66.1666). T94 (ROADMAP-0130; POLICY-0131 auto-approved, no bulk_downloader/ or frontend/ change; POLICY-0118 gate vmci): four harness rows, each boarded at its INDEX tree.
