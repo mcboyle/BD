@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1652 - train77: row1012, row976
+
+Base train/76 40ff0976 (v3.66.1651 on T75 428b66bf, restacked on T74 6edb4de6; PR988). T77 (ORDERS-0087 s2): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1012-query-plan-index-stabilizer: SQLite query-plan index stabilizer (W4-B rebase onto 7442c4a1; ci.yml shard hunk stripped, RULING-0080 s2). N2-B at bc6efdb9.
+- row976-jemalloc-profile: jemalloc allocator profile (W4-B rebase onto 7442c4a1). P2-B at 4e931527.
+- register: rows 1012, 976 CLOSED @1652 (1646-1651 held by T71-T76).
+- pending members for a later T77 restack: row1046 (W4-B rebase), row1038 (W9-A leg), row1028/1057 (fixer-A), row1056 (fixer-B).
+
+
 ## v3.66.1651 - train76: row1062, row1079
 
 Base train/75 428b66bf (v3.66.1650 on T74 6edb4de6 on main cede20f7; ORDERS-0086 restack; PR987). T76 (ORDERS-0082/0084; T76-PLAN-bd-integrator-R-B.md): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

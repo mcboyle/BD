@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4930,
+  "edge_count": 4937,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -906,6 +906,7 @@
       "bulk_downloader/drift_repair.py",
       "bulk_downloader/federation.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/jemalloc_profile.py",
       "bulk_downloader/library_final.py",
       "bulk_downloader/lifecycle_drift.py",
       "bulk_downloader/lock_monitor.py",
@@ -1081,6 +1082,7 @@
       "bulk_downloader/mmap_autotuner.py",
       "bulk_downloader/orm_engine.py",
       "bulk_downloader/pg_backend.py",
+      "bulk_downloader/query_plan_stabilizer.py",
       "bulk_downloader/staging_ingest.py"
     ],
     "bulk_downloader/db_maintenance.py": [
@@ -4029,6 +4031,11 @@
       "bulk_downloader/db.py",
       "bulk_downloader/mmap_autotuner.py"
     ],
+    "tests/test_row1012_query_plan_index_stabilizer.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/query_plan_stabilizer.py"
+    ],
     "tests/test_row1013_inmemory_hot_write_buffer.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/hot_write_buffer.py"
@@ -5132,6 +5139,10 @@
     "tests/test_row975_aiokafka_client.py": [
       "bulk_downloader/diagnostics_bundle.py",
       "bulk_downloader/events.py"
+    ],
+    "tests/test_row976_jemalloc_profile.py": [
+      "bulk_downloader/bg_scheduler.py",
+      "bulk_downloader/jemalloc_profile.py"
     ],
     "tests/test_row978_schema_migration.py": [
       "bulk_downloader/db.py",

@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1767,
+    "edge_count": 1769,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3684,6 +3684,9 @@
         "bulk_downloader/runner_integrations.py",
         "bulk_downloader/runner_transport.py"
       ],
+      "bulk_downloader/jemalloc_profile.py": [
+        "bulk_downloader/bg_scheduler.py"
+      ],
       "bulk_downloader/knowledge.py": [
         "bulk_downloader/app_knowledge.py",
         "tools/body_contract_fixtures.py"
@@ -4065,6 +4068,9 @@
         "bulk_downloader/dev_suite/audit_security.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_integrations.py"
+      ],
+      "bulk_downloader/query_plan_stabilizer.py": [
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/queue_policy.py": [
         "bulk_downloader/runner.py"
@@ -6071,6 +6077,7 @@
         "bulk_downloader/drift_repair.py",
         "bulk_downloader/federation.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/jemalloc_profile.py",
         "bulk_downloader/library_final.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/lock_monitor.py",
@@ -6246,6 +6253,7 @@
         "bulk_downloader/mmap_autotuner.py",
         "bulk_downloader/orm_engine.py",
         "bulk_downloader/pg_backend.py",
+        "bulk_downloader/query_plan_stabilizer.py",
         "bulk_downloader/staging_ingest.py"
       ],
       "bulk_downloader/db_maintenance.py": [
