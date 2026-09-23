@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1655 - train80: row1038, row1080
+
+Base train/79 e87bfcef (v3.66.1654, landed on main 09:2xZ). T80 (ORDERS-0060 T80 CANDIDATES 09:12Z + ORDERS-0088): two cuts, each boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.
+
+- row1038-import-latency-profiler: import latency profiler (W9-A rebase onto main cede20f7). P2-B at c5de9cac.
+- row1080 hotfix-h701-budget-bound: test_h701_precut_fast subprocess timeout bounded under the 240 s budget census (main red 6edb4de6 gates-v3-b, ORDERS-0088, O1289). P4-B at d9b2b10b; built from the read-tree copy bd-cuts/cut/row1080-hotfix-h701-budget-bound-d9b2b10b (live cut drifted to 4b80e4a4 after the BOARD); register row 1080 inserted by fixup.
+- register: rows 1038, 1080 CLOSED @1655 (1646-1654 held by T71-T79).
+- pending members for a later restack: row1046 (fixer-B, DP hits), row1056 (fixer-B), row1028/1057 (fixer-A).
+
+
 ## v3.66.1654 - train79: row1023
 
 Base train/78 8e3cd4a7 (v3.66.1653 on T77 4d0f10ac; PR990). T79 (ORDERS-0060 T79 CANDIDATES 08:52Z): one cut, boarded at its INDEX tree by a bd-review-correctness seat (POLICY-0010, O1264b); TREE re-measured == verdict at assembly.

@@ -2402,7 +2402,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1770,
+    "edge_count": 1771,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3650,6 +3650,9 @@
       "bulk_downloader/i18n.py": [
         "bulk_downloader/app_i18n.py",
         "bulk_downloader/dev_suite/housekeeping.py"
+      ],
+      "bulk_downloader/import_profiler.py": [
+        "bulk_downloader/perf_lab.py"
       ],
       "bulk_downloader/inspect_pick.py": [
         "tools/build_template_from_wacz.py",
@@ -6819,6 +6822,7 @@
       ],
       "bulk_downloader/perf_lab.py": [
         "bulk_downloader/db.py",
+        "bulk_downloader/import_profiler.py",
         "bulk_downloader/mass_import.py",
         "bulk_downloader/runner.py"
       ],

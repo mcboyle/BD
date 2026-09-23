@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 4947,
+  "edge_count": 4949,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1645,6 +1645,7 @@
     ],
     "bulk_downloader/perf_lab.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/import_profiler.py",
       "bulk_downloader/mass_import.py",
       "bulk_downloader/runner.py"
     ],
@@ -4135,6 +4136,9 @@
     ],
     "tests/test_row1037_shell_autocompletion_engine.py": [
       "bulk_downloader/shell_completion.py"
+    ],
+    "tests/test_row1038_import_latency_profiler.py": [
+      "bulk_downloader/perf_lab.py"
     ],
     "tests/test_row1041_streaming_manifest_parser_hls_dash.py": [
       "bulk_downloader/streaming_manifest.py"
