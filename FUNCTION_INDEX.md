@@ -675,45 +675,45 @@ Schema version: 2
   - L1010 `TransportMixin._flush_after_interrupted_write` `[private]`
   - L1018 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
   - L1072 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L1160 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L1316 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L1519 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L1552 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L1576 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
-  - L1610 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L1683 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L1738 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L1763 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L1772 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
-  - L1794 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
-  - L1845 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L1874 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L2016 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L2066 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L2993 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L3058 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L3106 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L3688 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L3738 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L4143 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L4176 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L4200 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L4225 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L4251 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L4271 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L4295 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L4312 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L4329 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L4344 `_ManifestConsumers` `[private]`
-  - L4345 `_ManifestConsumers.__init__` `[dunder]`
-  - L4348 `_ManifestConsumers.join`
-- L4355 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L4403 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L4413 `HTTP3Transport.__init__` `[dunder]`
-  - L4421 `HTTP3Transport.allocate_stream_id`
-  - L4426 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L4449 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L4462 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+  - L1182 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L1338 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L1541 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L1574 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L1598 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
+  - L1632 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L1705 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L1760 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L1785 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L1794 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
+  - L1816 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
+  - L1867 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L1896 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L2038 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L2088 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L3015 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L3080 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L3128 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L3710 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L3760 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L4165 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L4198 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L4222 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L4247 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L4273 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L4293 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L4317 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L4334 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L4351 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L4366 `_ManifestConsumers` `[private]`
+  - L4367 `_ManifestConsumers.__init__` `[dunder]`
+  - L4370 `_ManifestConsumers.join`
+- L4377 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L4425 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L4435 `HTTP3Transport.__init__` `[dunder]`
+  - L4443 `HTTP3Transport.allocate_stream_id`
+  - L4448 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L4471 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L4484 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
