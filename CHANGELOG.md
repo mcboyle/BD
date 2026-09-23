@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1638 - train66h: row1034
+
+Base 0e7383cf (v3.66.1637, main). Hotfix train ahead of T66 (ORDERS-0043/0051): row1034 forward fix plus the two CI harness cuts that make the
+PR-side artifacts check push-only. POLICY-0010 single decisive leg each.
+
+- row1034-config-dryrun forward fix (row CLOSED @1632; RULING-0027 LIVE-HIGH): the dry-run planner carries no os.environ value -- saved/effective read only
+  for validated allow-listed keys, "effective" replaced by "effective_set" (bool; None for a rejected name), restart_required still from os.environ; noop-with-drift
+  and already-effective pinned; non-object JSON bodies get 400 on plan/apply POSTs (app_envfile_editor.py, config_dryrun.py). W7-A; N6-A at 5ff16907.
+- H702-regen-on-main: the docs/register drift check runs push-only; regen happens on main by cron (.github/workflows/ci.yml +3). N5-A at f9703509.
+
+
 ## v3.66.1637 - train65: row1078, row1015, row1005, row1032, row1026, row997, row1052
 
 Base 0499e626 (v3.66.1636, restacked train64 head = h686 + row1011 + row1069 on 25245209; stacked per O1259/O1259b). Seven cuts, each
