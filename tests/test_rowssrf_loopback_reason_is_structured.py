@@ -41,6 +41,13 @@ _HOST_IPS = {
 _EXPECTED_RUNTIME_CONSUMERS = {
     "bulk_downloader/app.py": {"_is_safe_public_host": 1},
     "bulk_downloader/app_flaresolverr.py": {"_is_safe_public_host": 1},
+    # ROW 1019. The S3 endpoint pre-check (_precheck_endpoint) and the aiohttp
+    # resolver the aioboto3 client connects through (GuardedS3Resolver).  Both
+    # decide on the BOOLEAN (`ok, reason = ...` then `if not ok:` / `None if
+    # ok else str(reason)`); the reason is only carried into the refusal
+    # message, never compared and never parsed.
+    "bulk_downloader/async_object_storage.py": {"_is_safe_public_host": 1,
+                                                "_classify_ip": 1},
     # ROW 779. Two of the three _is_safe_public_host sites are the sandbox
     # pre-fetch check and the HTTP redirect-hop check. Separately,
     # _classify_ip is called once more for the browser mode's pin: it
@@ -97,6 +104,10 @@ _EXPECTED_RUNTIME_CONSUMERS = {
         "_is_safe_public_host": 1,
         "_via:_host_public": 2,
     },
+    # ROW 1019. The sync boto3 client's endpoint pre-check in
+    # _s3_client_from_config: `ok, reason = ...` then `if not ok:`; the reason
+    # is only formatted into the returned error string.
+    "bulk_downloader/storage_tier.py": {"_is_safe_public_host": 1},
     "bulk_downloader/site_weather.py": {
         "_is_safe_public_host": 1,
         "_via:_host_is_public": 1,

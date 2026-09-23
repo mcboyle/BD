@@ -72,6 +72,7 @@ old files — that would pick up files the user moved there manually
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import threading
@@ -95,6 +96,28 @@ DEFAULT_S3_PART_SIZE = 8 * 1024 * 1024
 
 
 S3_POINTER_SUFFIX = ".s3_pointer.json"
+
+
+def _is_s3_not_found(exc: Exception) -> bool:
+    """True iff the exception represents a confirmed 404 / NoSuchKey / NotFound from S3.
+
+    Non-404 errors (500 InternalServerError, 403 AccessDenied, network timeouts, throttles)
+    mean existence is UNVERIFIABLE and must fail closed to protect immutable archives.
+    """
+    resp = getattr(exc, "response", None)
+    if isinstance(resp, dict):
+        err = resp.get("Error", {})
+        code = str(err.get("Code", ""))
+        status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in ("404", "NoSuchKey", "NotFound") or status == 404:
+            return True
+        if code in ("403", "500", "AccessDenied", "InternalError", "SlowDown"):
+            return False
+    msg = str(exc)
+    msg_lower = msg.lower()
+    if any(err_tok in msg_lower for err_tok in ("500", "403", "accessdenied", "internalerror")):
+        return False
+    return any(tok in msg_lower for tok in ("nosuchkey", "404", "notfound", "not found"))
 
 
 def archive_to_s3(source_path: str, bucket: str, key: str, client,
@@ -135,8 +158,15 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
         # be overwritten (unless it IS this content, byte for byte).
         try:
             existing = client.head_object(Bucket=bucket, Key=key)
-        except Exception:
-            existing = None
+        except Exception as exc:
+            if _is_s3_not_found(exc):
+                existing = None
+            else:
+                return {
+                    "ok": False,
+                    "error": f"remote object existence unverifiable for s3://{bucket}/{key}: {exc}; "
+                             "archives are immutable, refusing to overwrite",
+                }
         if existing:
             existing_digest = (existing.get("Metadata") or {}).get("sha256")
             if existing_digest != digest or existing.get("ContentLength") != source_size:
@@ -229,6 +259,129 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
             "dest_path": f"s3://{bucket}/{key}", "etag": expected_etag}
 
 
+async def archive_to_s3_async(source_path: str, bucket: str, key: str, client,
+                              *, part_size: int = DEFAULT_S3_PART_SIZE) -> dict:
+    """Asynchronously stream a file to an S3-compatible store and replace it with a pointer.
+
+    The local media remains authoritative until the completed object reports
+    the exact length, ETag, and SHA-256 recorded during upload.
+    """
+    if not all(isinstance(value, str) and value for value in
+               (source_path, bucket, key)):
+        return {"ok": False, "error": "missing source, bucket, or key"}
+    if not isinstance(part_size, int) or part_size < MIN_S3_PART_SIZE:
+        return {"ok": False, "error": "part size must be at least 5 MiB"}
+    pointer_path = f"{source_path}{S3_POINTER_SUFFIX}"
+    if os.path.exists(pointer_path):
+        return {"ok": False, "error": f"already archived: pointer exists at {pointer_path}"}
+    try:
+        handle = open(source_path, "rb")
+    except OSError as exc:
+        return {"ok": False, "error": f"source unavailable: {exc}"}
+    with handle:
+        try:
+            identity = _file_identity(os.fstat(handle.fileno()))
+            source_size = identity[1]
+            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+            handle.seek(0)
+        except OSError as exc:
+            return {"ok": False, "error": f"source unavailable: {exc}"}
+
+        try:
+            existing = await client.head_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            if _is_s3_not_found(exc):
+                existing = None
+            else:
+                return {
+                    "ok": False,
+                    "error": f"remote object existence unverifiable for s3://{bucket}/{key}: {exc}; "
+                             "archives are immutable, refusing to overwrite",
+                }
+        if existing:
+            existing_digest = (existing.get("Metadata") or {}).get("sha256")
+            if existing_digest != digest or existing.get("ContentLength") != source_size:
+                return {"ok": False,
+                        "error": f"remote object exists at s3://{bucket}/{key} with different content; "
+                                 "archives are immutable, refusing to overwrite"}
+
+        upload_id = None
+        try:
+            created = await client.create_multipart_upload(
+                Bucket=bucket, Key=key, Metadata={"sha256": digest})
+            upload_id = created["UploadId"]
+            parts = []
+            part_md5s = []
+            uploaded_digest = hashlib.sha256()
+            part_number = 1
+            while payload := handle.read(part_size):
+                uploaded_digest.update(payload)
+                local_md5 = hashlib.md5(payload)
+                uploaded = await client.upload_part(
+                    Bucket=bucket, Key=key, UploadId=upload_id,
+                    PartNumber=part_number, Body=io.BytesIO(payload))
+                part_etag = str(uploaded.get("ETag", "")).strip('"')
+                if part_etag != local_md5.hexdigest():
+                    raise RuntimeError(
+                        f"part {part_number} stored bytes differ from source "
+                        f"(etag {part_etag!r} != md5 {local_md5.hexdigest()!r})")
+                part_md5s.append(local_md5.digest())
+                parts.append({"PartNumber": part_number, "ETag": uploaded["ETag"]})
+                part_number += 1
+            if uploaded_digest.hexdigest() != digest:
+                raise RuntimeError("source changed while uploading")
+            expected_etag = _multipart_etag(part_md5s)
+            completed = await client.complete_multipart_upload(
+                Bucket=bucket, Key=key, UploadId=upload_id,
+                MultipartUpload={"Parts": parts})
+            completed_etag = str(completed.get("ETag", "")).strip('"')
+            remote = await client.head_object(Bucket=bucket, Key=key)
+            remote_etag = str(remote.get("ETag", "")).strip('"')
+            remote_digest = (remote.get("Metadata") or {}).get("sha256")
+            if (remote.get("ContentLength") != source_size
+                    or completed_etag != expected_etag or remote_etag != expected_etag
+                    or remote_digest != digest):
+                return {"ok": False, "error": "remote checksum verification failed"}
+        except Exception as exc:
+            abort_error = None
+            if upload_id is not None:
+                try:
+                    await client.abort_multipart_upload(
+                        Bucket=bucket, Key=key, UploadId=upload_id)
+                except Exception as abort_exc:
+                    abort_error = f"{type(abort_exc).__name__}: {abort_exc}"
+            error_msg = f"upload failed: {type(exc).__name__}: {exc}"
+            if abort_error:
+                error_msg += f" (abort failed: {abort_error})"
+            return {"ok": False, "error": error_msg}
+
+        try:
+            now_fd = _file_identity(os.fstat(handle.fileno()))
+            now_path = _file_identity(os.stat(source_path))
+        except OSError as exc:
+            return {"ok": False, "error": f"source changed after upload: {exc}"}
+        if now_fd != identity or now_path != identity:
+            return {"ok": False,
+                    "error": "source changed after upload (identity mismatch); local file kept, "
+                             f"archive at s3://{bucket}/{key} left in place"}
+        pointer = {"bucket": bucket, "key": key, "etag": expected_etag,
+                   "sha256": digest}
+        try:
+            with open(pointer_path, "x", encoding="utf-8") as pointer_handle:
+                json.dump(pointer, pointer_handle, sort_keys=True)
+        except OSError as exc:
+            return {"ok": False, "error": f"pointer replacement failed: {exc}"}
+        try:
+            if _file_identity(os.stat(source_path)) != identity:
+                os.unlink(pointer_path)
+                return {"ok": False, "error": "source changed after upload (identity mismatch); local file kept"}
+            os.unlink(source_path)
+        except OSError as exc:
+            return {"ok": False, "error": f"pointer replacement failed: {exc}"}
+    return {"ok": True, "action": "archived_to_s3_async", "bytes_moved": source_size,
+            "dest_path": f"s3://{bucket}/{key}", "etag": expected_etag}
+
+
 def _file_identity(st: os.stat_result) -> tuple:
     return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_dev)
 
@@ -239,11 +392,34 @@ def _multipart_etag(part_md5_digests: list) -> str:
     return hashlib.md5(b"".join(part_md5_digests)).hexdigest() + f"-{len(part_md5_digests)}"
 
 
+def _run_async(coro):
+    """Execute coroutine safely whether an event loop is active or not."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    return asyncio.run(coro)
+
+
 def _s3_client_from_config(cfg: dict):
     """Return the configured S3 client without importing an optional client at boot."""
     client = cfg.get("storage_tier_s3_client")
     if client is not None:
         return client, None
+    endpoint = cfg.get("storage_tier_s3_endpoint")
+    if endpoint and not cfg.get("storage_tier_allow_private_hosts", False):
+        from urllib.parse import urlparse
+        from bulk_downloader.provider_resolve_impl._common import _is_safe_public_host, SSRFBlocked
+
+        parsed = urlparse(endpoint)
+        host = parsed.hostname or ""
+        ok, reason = _is_safe_public_host(host)
+        if not ok:
+            return None, f"SSRFBlocked: endpoint_url '{endpoint}' rejected by SSRF guard: {reason}"
     try:
         import boto3
     except ImportError:
@@ -525,24 +701,31 @@ def run_site_migration(site_id: str, cfg: dict,
         return {"ok": False, "error": "feature disabled",
                 "migrated_count": 0}
     mode = (cfg.get("storage_tier_mode") or "move").strip().lower()
-    if mode not in ("move", "symlink_after_move", "dry_run", "s3"):
+    if mode not in ("move", "symlink_after_move", "dry_run", "s3", "s3_async"):
         mode = "move"
+    is_s3 = mode in ("s3", "s3_async")
+    is_async_s3 = (mode == "s3_async" or (mode == "s3" and bool(cfg.get("storage_tier_s3_async"))))
     dest_root = (cfg.get("storage_tier_dir") or "").strip()
-    if mode != "s3" and not dest_root:
+    if not is_s3 and not dest_root:
         return {"ok": False, "error": "storage_tier_dir not set",
                 "migrated_count": 0}
-    if mode != "s3" and not os.path.isdir(dest_root):
+    if not is_s3 and not os.path.isdir(dest_root):
         return {"ok": False, "error": f"dest not a directory: {dest_root}",
                 "migrated_count": 0}
     s3_bucket = (cfg.get("storage_tier_s3_bucket") or "").strip()
     s3_client = None
-    if mode == "s3":
+    async_s3_client = None
+    if is_s3:
         if not s3_bucket:
             return {"ok": False, "error": "storage_tier_s3_bucket not set",
                     "migrated_count": 0}
-        s3_client, s3_error = _s3_client_from_config(cfg)
-        if s3_error:
-            return {"ok": False, "error": s3_error, "migrated_count": 0}
+        if is_async_s3:
+            from .async_object_storage import get_async_object_storage_client
+            async_s3_client = cfg.get("storage_tier_async_client") or get_async_object_storage_client(cfg)
+        else:
+            s3_client, s3_error = _s3_client_from_config(cfg)
+            if s3_error:
+                return {"ok": False, "error": s3_error, "migrated_count": 0}
     try:
         age_days = max(1, int(cfg.get("storage_tier_age_days") or 30))
     except (TypeError, ValueError):
@@ -581,10 +764,21 @@ def run_site_migration(site_id: str, cfg: dict,
                              min_size_bytes=min_size_mb * 1024 * 1024):
             summary["skipped_count"] += 1
             continue
-        if mode == "s3":
+        if is_s3:
             key = _s3_object_key(source, download_dir,
                                  cfg.get("storage_tier_s3_prefix") or "")
-            result = archive_to_s3(source, s3_bucket, key, s3_client)
+            if is_async_s3:
+                res = _run_async(async_s3_client.upload_file(source, s3_bucket, key))
+                result = {
+                    "ok": res.ok,
+                    "action": res.action,
+                    "bytes_moved": res.bytes_moved,
+                    "dest_path": res.dest_path,
+                    "etag": res.etag,
+                    "error": res.error,
+                }
+            else:
+                result = archive_to_s3(source, s3_bucket, key, s3_client)
             dest = f"{source}{S3_POINTER_SUFFIX}"
         else:
             dest = plan_destination(source, download_dir, dest_root)
@@ -606,6 +800,14 @@ def run_site_migration(site_id: str, cfg: dict,
                 f"{cand['filename']}: {result.get('error')}")
             summary["skipped_count"] += 1
     return summary
+
+
+async def run_site_migration_async(site_id: str, cfg: dict, download_dir: str) -> dict:
+    """Async variant of run_site_migration leveraging non-blocking object storage operations."""
+    async_cfg = dict(cfg)
+    async_cfg["storage_tier_mode"] = "s3_async"
+    async_cfg["storage_tier_s3_async"] = True
+    return run_site_migration(site_id, async_cfg, download_dir)
 
 
 def _update_queue_filename(site_id: str, url: str,

@@ -371,6 +371,11 @@ youtube-dl>=2021.12.17,<2022.0
 # archives. Declared HERE and not in a new optional manifest because deploy
 # converges only the manifests it names (test_v3_66_880's stranded gate).
 boto3>=1.34,<2.0
+aioboto3>=13.0,<14.0
+# Row 1019: imported directly by async_object_storage (AioConfig, the guarded aiohttp resolver).
+aiobotocore>=2.13,<3.0
+aiohttp>=3.9
+s3fs>=2024.2.0
 
 
 # Row 825: optional Kafka telemetry client for cluster LAN event streaming
