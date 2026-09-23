@@ -220,6 +220,7 @@ def _registered_pytest_argv(python, purpose, *pytest_args, repository_root=None)
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402
+from bd_battery import battery_limited  # noqa: E402
 import bd_cut_quality as cut_quality  # noqa: E402
 
 G, R, Y, DIM, RST = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
@@ -348,6 +349,7 @@ def rundir_probe(a):
     return a.work
 
 
+@battery_limited
 def main(argv=None):
     import sys as _s
     if "--selftest" in _s.argv: return selftest()

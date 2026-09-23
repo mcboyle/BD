@@ -42,6 +42,7 @@ import datetime
 # while ast.parse still accepts the file (the v3.66.851 trap).
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec  # noqa: E402  -- DEFAULT_WORK follows a relocated checkout
+from bd_battery import battery_limited  # noqa: E402
 
 IN_SYNC = [
     "tests/test_function_index_in_sync.py",
@@ -1106,6 +1107,7 @@ def _run_fast_gates(root):
     return 0
 
 
+@battery_limited
 def main(argv=None):
     class PrecutArgumentParser(argparse.ArgumentParser):
         def error(self, message):
