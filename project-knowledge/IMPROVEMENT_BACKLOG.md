@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=398 open=29 ids-sha256=26a0ae16ada52e8b9dbf43ad2a39c2733fb72b5bf4b57b4ea272ba46188a435a -->
+<!-- canonical-task-register schema=1 rows=399 open=28 ids-sha256=7b126c9ea80025337765f55e3dd464f0d63f8d1a115ffedb31baf0f355a1685e -->
 
 ## Namespace and population
 
@@ -450,7 +450,7 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1059 | CLOSED @1632 | DISTRIBUTED-MUTEX-CONTENTION-LOCK-QUEUE-MONITOR -- Distributed Mutex Contention & Lock Queue Monitor |
 | 1060 | CLOSED @1637 | LOCK-FREE-RING-BUFFER-IPC-EVENT-DISPATCHER -- Lock-Free Ring Buffer IPC Event Dispatcher -- MOOT-DUPLICATE of the shipped bounded ring pub/sub (RULING-2310-row1060-REFUTED-A option A): bulk_downloader/sse_broker.py per-subscriber queue.Queue(maxsize=SUBSCRIBER_QUEUE_MAX) drop-oldest fan-out with real SSE consumers + dev_events.py deque(maxlen) ring tap @25245209179e; the cut's dispatcher had 0 consumers and 8 lock acquisitions (lock-free is not a CPython property); REFUTED bd-worker-W3-A bd-cuts/cut/row1060-lockfree-ringbuffer-ipc-dispatcher/DONE.md (staged build preserved harness-work/row1060-refuted/staged-da41424b.patch). Registrar-verified 2026-09-22T23:1xZ |
 | 1061 | CLOSED @1648 | ZERO-OVERHEAD-DURABLE-DISTRIBUTED-TRACE-SPANS-WITH-OPENTELEMETRY-PROTOCOL -- Zero-Overhead Durable Distributed Trace Spans with OpenTelemetry Protocol |
-| 1062 | OPEN | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
+| 1062 | CLOSED @1651 | CONTENT-ADDRESSED-BLOB-STORAGE-CAS-LEDGER-DE-DUPLICATION-ENGINE -- Content-Addressed Blob Storage (CAS) Ledger & De-duplication Engine |
 | 1063 | CLOSED @1649 | MULTI-NODE-CROSS-REPLICA-LEDGER-RECONCILIATION-PROTOCOL -- Multi-Node Cross-Replica Ledger Reconciliation Protocol |
 | 1064 | OPEN | CONTINUOUS-BACKGROUND-BIT-ROT-SCRUBBER-WITH-ADAPTIVE-I-O-PACING -- Continuous Background Bit-Rot Scrubber with Adaptive I/O Pacing |
 | 1065 | CLOSED @1647 | MULTI-HOMED-PHYSICAL-EGRESS-ROUTING-AUTONOMOUS-INTERFACE-FAILOVER -- Multi-Homed Physical Egress Routing & Autonomous Interface Failover |
@@ -467,4 +467,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1076 | OPEN | POST-CRASH-FLIGHT-RECORDER-BLACKBOX-SNAPSHOTTER -- Post-Crash Flight-Recorder Blackbox Snapshotter |
 | 1077 | OPEN | CONNECTION-LIVENESS-MONITORING-HEALTH-PROBING -- Connection Liveness Monitoring & Health Probing |
 | 1078 | CLOSED @1637 | STRUCTURED-NETWORK-EVENT-LOG-REDUCTION-TRACE-ARCHIVAL -- Structured Network Event Log Reduction & Trace Archival |
-| 1079 | OPEN | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
+| 1079 | CLOSED @1651 | REQUIREMENTS-BOUND-BOTO3-AIOBOTOCORE-TO-AIOBOTO3-RESOLUTION -- requirements: bound boto3/aiobotocore to what aioboto3 13.x resolves (band venv pip backtracking, RULING-0080 s1) |
