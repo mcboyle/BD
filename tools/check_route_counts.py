@@ -89,7 +89,10 @@ def _sections_len(module_path: Path) -> int:
 
 
 def _inventory_counts(inv_path: Path) -> dict[str, int]:
-    data = json.loads(inv_path.read_text(encoding="utf-8"))
+    return _inventory_counts_of(json.loads(inv_path.read_text(encoding="utf-8")))
+
+
+def _inventory_counts_of(data: dict) -> dict[str, int]:
     items = data.get("items", [])
     out: dict[str, int] = {"data_layer.": 0, "report_center.": 0}
     for it in items:
@@ -192,40 +195,56 @@ def run(root: Path) -> int:
     inv = root / "reports" / "gui_parity_inventory.json"
     test = root / "tests" / "test_wave2_backlog.py"
 
-    missing = [p for p in (data_mod, rc_mod, inv, test)
+    missing = [p for p in (data_mod, rc_mod, test)
                if not p.exists()]
     if missing:
         for p in missing:
             print(f"check_route_counts: MISSING required file: {p}", file=sys.stderr)
         return 1
 
+    # H97: reports/ is gitignored, so the shipped inventory exists only where a
+    # service venv built it; a fresh worktree never has it and no cut can add
+    # it. Its absence makes the shipped-vs-live comparison UNKNOWN, named, never
+    # a pass and never a block; the counts below are then read from the live
+    # generator, so a real route-count drift still fails the gate.
     try:
-        shipped_inventory = json.loads(inv.read_text(encoding="utf-8"))
         live_inventory = _live_inventory(root)
+        shipped_inventory = (json.loads(inv.read_text(encoding="utf-8"))
+                             if inv.exists() else None)
     except Exception as exc:
         print(
             f"GUI-PARITY GATE FAIL: could not compare shipped inventory: {exc}",
             file=sys.stderr,
         )
         return 1
-    shipped_names = _inventory_names(shipped_inventory)
-    live_names = _inventory_names(live_inventory)
-    only_shipped = sorted(shipped_names - live_names)
-    only_live = sorted(live_names - shipped_names)
-    if only_shipped or only_live:
+    if shipped_inventory is None:
         print(
-            "GUI-PARITY GATE FAIL: shipped item-set differs from live generator.",
+            f"check_route_counts: UNKNOWN shipped inventory absent: {inv} "
+            "(untracked, gitignored); shipped-vs-live comparison NOT RUN; "
+            "inventory counts are the live generator's (H97)",
             file=sys.stderr,
         )
-        print(f"  only shipped: {only_shipped}", file=sys.stderr)
-        print(f"  only live: {only_live}", file=sys.stderr)
-        return 1
+        inventory = live_inventory
+    else:
+        shipped_names = _inventory_names(shipped_inventory)
+        live_names = _inventory_names(live_inventory)
+        only_shipped = sorted(shipped_names - live_names)
+        only_live = sorted(live_names - shipped_names)
+        if only_shipped or only_live:
+            print(
+                "GUI-PARITY GATE FAIL: shipped item-set differs from live generator.",
+                file=sys.stderr,
+            )
+            print(f"  only shipped: {only_shipped}", file=sys.stderr)
+            print(f"  only live: {only_live}", file=sys.stderr)
+            return 1
+        inventory = shipped_inventory
 
     src_data = _count_route_decorators(data_mod, "data_layer_bp")
     src_rc = _count_route_decorators(rc_mod, "report_center_bp")
     src_sections = _sections_len(rc_mod)
 
-    inv_counts = _inventory_counts(inv)
+    inv_counts = _inventory_counts_of(inventory)
     inv_data = inv_counts["data_layer."]
     inv_rc = inv_counts["report_center."]
 
