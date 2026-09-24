@@ -16,10 +16,12 @@ a bare `bd-*` on PATH) can be an entirely different build of the same tool.
 A NEW edge present in the live graph but not the baseline FAILS --check. An edge
 removed by a cut (coupling deleted — a good thing) is reported but does not fail;
 re-freeze with --update to keep the baseline tight. An intended new edge is
-declared by re-freezing ONCE on MERGED MAIN, not inside the cut that adds it:
-the baseline is a single shared file, so parallel cuts each re-freezing it
-collide, and a baseline frozen against an unmerged tree bakes in edges from work
-that has not landed. Rebase onto merged main, then run --update there.
+DECLARED by the worker cut that adds it (DONE.md, OWED TO THE INTEGRATOR -- NEW
+IMPORT EDGES), never re-frozen there: the baseline is a single shared file, so
+parallel cuts each re-freezing it collide, and a baseline frozen against an
+unmerged tree bakes in edges from work that has not landed. The integrator
+re-freezes ONCE per train, in the train (bd-train --finish runs --update), and
+again on every restack onto a new base (H116).
 
 Fail-closed contract (CLAUDE.md 0). The edge set is produced by
 tools/dependency_graph.py, whose `_parse()` returns None on SyntaxError and whose
@@ -300,8 +302,10 @@ def write_baseline(root: Path | None = None, allow_shrink: bool = False) -> int:
 UPDATE_COMMAND = "./venv/bin/python tools/decomp/import_graph_gate.py --update"
 
 NEW_EDGE_REMEDY = (
-    "If the edge is intended, do NOT re-freeze in this cut: rebase onto merged "
-    "main and re-freeze ONCE there -- `%s`" % UPDATE_COMMAND
+    "If the edge is intended, do NOT re-freeze in a worker cut: declare it in "
+    "DONE.md under OWED TO THE INTEGRATOR -- NEW IMPORT EDGES. The integrator "
+    "re-freezes ONCE per train, in the train (bd-train --finish runs `%s`), "
+    "and again on every restack onto a new base (H116)." % UPDATE_COMMAND
 )
 
 

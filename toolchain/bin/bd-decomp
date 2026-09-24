@@ -15,11 +15,12 @@ their logic -- the G-3 lesson) and turns four lenses into an answer.
 
 THE VALUE-ADD -- an extraction is a CUT, and a cut has gates:
 
-  * A new module is a NEW IMPORT EDGE -> the import-graph baseline MUST be
-    re-frozen ONCE on MERGED MAIN, never inside the cut that adds the edge
-    (FG-IMPORT-EDGE-BASELINE): the baseline is one shared file, so parallel
-    cuts collide on it and a baseline frozen against an unmerged tree bakes in
-    edges from work that has not landed. Rebase first, then re-freeze there.
+  * A new module is a NEW IMPORT EDGE -> DECLARE it in DONE.md (OWED TO THE
+    INTEGRATOR -- NEW IMPORT EDGES), never re-freeze the import-graph baseline
+    inside the worker cut that adds the edge (FG-IMPORT-EDGE-BASELINE): the
+    baseline is one shared file, so parallel cuts collide on it and a baseline
+    frozen against an unmerged tree bakes in edges from work that has not
+    landed. The train re-freezes it ONCE, and again on every restack (H116).
   * Moving functions SHIFTS LINES -> FUNCTION_INDEX must be regenerated
     (FG-FUNCTION-INDEX-LINESHIFT, which bit at 695).
   * Moving a ROUTE additionally moves route_map / ENDPOINT_CATALOG / gui_parity --
@@ -107,9 +108,10 @@ def gates_for(work, module, moves_route):
     gates = [
         ("FG-IMPORT-EDGE-BASELINE",
          "a new module = a new import edge",
-         "rebase onto merged main, then re-freeze ONCE there -- "
+         "declare it in DONE.md (OWED TO THE INTEGRATOR -- NEW IMPORT EDGES); "
+         "the train re-freezes ONCE, and again on every restack -- "
          "`./venv/bin/python tools/decomp/import_graph_gate.py --update` "
-         "(NOT in this cut) + band tests/test_import_graph_no_new_edges.py"),
+         "(NOT in a worker cut) + band tests/test_import_graph_no_new_edges.py"),
         ("FG-FUNCTION-INDEX-LINESHIFT",
          "moving functions shifts lines in a tracked module",
          "`./venv/bin/python tools/build_function_index.py` + band "

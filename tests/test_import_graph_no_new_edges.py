@@ -8,10 +8,10 @@ the accidental-coupling / lazy-accessor-sprawl class (hazard H-14).
 
 This test is that complement. It freezes the intended internal import-edge set
 (`tools/decomp/import_graph_baseline.json`) and asserts the live graph adds no
-edge outside it. When a cut *intends* a new edge, the baseline is re-frozen ONCE
-on MERGED MAIN -- rebase first, then run
-`./venv/bin/python tools/decomp/import_graph_gate.py --update` there. Never
-inside the cut that adds the edge: the baseline is one shared file, so parallel
+edge outside it. When a cut *intends* a new edge, the worker DECLARES it (DONE.md,
+OWED TO THE INTEGRATOR) and the train re-freezes ONCE -- bd-train --finish runs
+`./venv/bin/python tools/decomp/import_graph_gate.py --update` -- and again on
+every restack (H116). Never inside the worker cut that adds the edge: the baseline is one shared file, so parallel
 cuts collide on it and a baseline frozen against an unmerged tree bakes in edges
 from work that has not landed. Declared, never silent.
 
@@ -61,9 +61,9 @@ def test_no_new_edges():
     assert not new, (
         "NEW import edge(s) not in the frozen baseline — a cut coupled modules it "
         "should not have (or an intended edge was not declared). Review, then if "
-        "intended: rebase onto merged main and re-freeze ONCE there with "
+        "intended: declare it in DONE.md; the train re-freezes ONCE with "
         "`./venv/bin/python tools/decomp/import_graph_gate.py --update` — never "
-        "inside the cut that adds the edge:\n  " + "\n  ".join(f"{s} -> {d}" for s, d in new)
+        "inside the worker cut that adds the edge:\n  " + "\n  ".join(f"{s} -> {d}" for s, d in new)
     )
 
 
@@ -91,8 +91,8 @@ def _baseline_edge_set(base):
 # is worse than none: it is the line an agent copies.
 #   1. "re-freeze in the SAME cut" -- parallel cuts each re-freezing the
 #      baseline collide, and a baseline frozen against an unmerged tree bakes
-#      in edges from work that has not landed. Rebase, then re-freeze ONCE on
-#      merged main.
+#      in edges from work that has not landed. The worker declares; the train
+#      re-freezes ONCE, and again on every restack (H116: the executable rule).
 #   2. a bare `python3` -- the TOOL PIN LAW: repo tools are invoked through
 #      this checkout's interpreter, never a PATH binary that may be another
 #      build entirely.
@@ -147,11 +147,14 @@ def test_the_new_edge_remedy_says_rebase_then_refreeze_once_not_same_cut():
         "CUT. Parallel cuts collide on that file and a baseline frozen against "
         f"an unmerged tree is wrong. Emitted: {out!r}"
     )
-    assert "rebase" in lowered, (
-        f"the remedy does not tell the reader to rebase first. Emitted: {out!r}"
+    # H116: the executable rule (bd-train --finish re-freezes in the train; a restack
+    # re-freezes again) replaced "rebase onto merged main". The name is kept: the N7
+    # mutant spec bands cite it.
+    assert "worker cut" in lowered and "restack" in lowered, (
+        f"the remedy does not say worker-cut declares / train re-freezes on restack. Emitted: {out!r}"
     )
     assert "once" in lowered, (
-        "the remedy does not say the re-freeze happens ONCE, on merged main. "
+        "the remedy does not say the re-freeze happens ONCE, in the train. "
         f"Emitted: {out!r}"
     )
 
@@ -425,8 +428,8 @@ def test_the_bd_decomp_planning_remedy_is_correct_where_it_is_emitted():
     assert "same cut" not in remedy.lower(), (
         f"bd-decomp still tells a planner to re-freeze in the SAME cut: {remedy!r}"
     )
-    assert "rebase" in remedy.lower() and "once" in remedy.lower(), (
-        f"bd-decomp's remedy does not say rebase-then-re-freeze-ONCE: {remedy!r}"
+    assert "restack" in remedy.lower() and "once" in remedy.lower(), (
+        f"bd-decomp's remedy does not say train-re-freezes-ONCE-and-on-restack: {remedy!r}"
     )
 
 
@@ -450,7 +453,7 @@ def test_the_footguns_declaration_carries_the_corrected_rule_and_fix():
     assert _TOOL_PIN in entry["fix"], (
         f"FOOTGUNS.json fix is not the pinned interpreter: {entry['fix']!r}"
     )
-    assert "merged main" in entry["rule"].lower(), (
+    assert "train" in entry["rule"].lower() and "restack" in entry["rule"].lower(), (
         f"FOOTGUNS.json rule does not say where the re-freeze happens: "
         f"{entry['rule']!r}"
     )

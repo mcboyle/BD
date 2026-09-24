@@ -442,7 +442,7 @@
       "id": "FG-IMPORT-EDGE-BASELINE",
       "severity": "blocking",
       "status": "active",
-      "rule": "A new INTERNAL import edge must re-freeze the import_graph baseline ONCE on MERGED MAIN -- never inside the cut that adds the edge. The baseline is one shared file: parallel cuts collide on it, and a baseline frozen against an unmerged tree bakes in edges from work that has not landed.",
+      "rule": "A new INTERNAL import edge is DECLARED by the worker cut (DONE.md, OWED TO THE INTEGRATOR -- NEW IMPORT EDGES) and the import_graph baseline is re-frozen ONCE per TRAIN, in the train (bd-train --finish), and again on every restack -- never inside the worker cut that adds the edge. The baseline is one shared file: parallel cuts collide on it, and a baseline frozen against an unmerged tree bakes in edges from work that has not landed.",
       "detector": {
         "kind": "insync",
         "test": "tests/test_import_graph_no_new_edges.py",
@@ -451,7 +451,7 @@
       "protects": [
         "test_import_graph_no_new_edges"
       ],
-      "fix": "Rebase onto merged main, then re-freeze ONCE there: `./venv/bin/python tools/decomp/import_graph_gate.py --update` (then regen DEPENDENCY_GRAPH). Not in the cut that adds the edge.",
+      "fix": "Worker: declare the edge in DONE.md, do not re-freeze. Integrator: the train re-freezes ONCE (`./venv/bin/python tools/decomp/import_graph_gate.py --update`, then regen DEPENDENCY_GRAPH) and again on every restack. Not in the worker cut that adds the edge.",
       "provenance": {
         "review_id": "footgun-taxonomy #24"
       }

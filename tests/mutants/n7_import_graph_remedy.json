@@ -39,7 +39,7 @@
     {
       "label": "restore the SAME-cut wording in the FOOTGUNS declaration's rule",
       "file": "FOOTGUNS.json",
-      "old_regex": "(?m)(?<=      \"rule\": \")(?=A new INTERNAL import edge must re-freeze)",
+      "old_regex": "(?m)(?<=      \"rule\": \")(?=A new INTERNAL import edge is DECLARED)",
       "new": "In the SAME cut: ",
       "direction": "regression",
       "catcher": "tests/test_import_graph_no_new_edges.py::test_the_footguns_declaration_carries_the_corrected_rule_and_fix"

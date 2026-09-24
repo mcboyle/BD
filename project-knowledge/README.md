@@ -139,7 +139,7 @@ stale it, not just `requirements-cloak.txt`) · the source zip · `version.zip`
 | bd-ascii | non-ASCII/emoji scan (the gate that hit ×3) | `bd-ascii <file>` |
 | bd-pinscan | `== N` count/parity pins that should be `<= N` | — |
 | bd-bandcheck | validate a band list (real files/no hang/no test-fn-path/no leak co-band) | pass the band list |
-| bd-imports | undeclared import edges vs frozen baseline | `--update` re-freezes ONCE on merged main, never in the cut that adds the edge |
+| bd-imports | undeclared import edges vs frozen baseline | `--update` re-freezes ONCE per train (and on every restack), never in the worker cut that adds the edge |
 | bd-regen | derived-doc sync | **`--check` (default, READ-ONLY)** · `--write` regenerates |
 | bd-factcheck | canonical counts from tree vs doc/STATE numbers | — |
 
@@ -471,7 +471,7 @@ bd-tools
 # before a cut
 bd-ready                       # 7-gate preflight
 bd-regen --write               # if derived docs drifted
-bd-imports --update            # new import edge: ONCE on merged main, never in the cut (H102)
+bd-imports --update            # new import edge: ONCE per train (+ restack), never in the worker cut (H102, H116)
 bd-bump 3.66.N --title "…" --write ; venv/bin/python tools/build_pin_index.py
 
 # cut
