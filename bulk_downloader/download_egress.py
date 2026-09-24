@@ -15,16 +15,19 @@ stays a pure, side-effect-free decision -- the production resolver brings the
 tunnel up on demand and is therefore not safe to call from unit tests.
 """
 import ipaddress
+import logging
 import os
 import select
 import socket
-import sys
 import threading
 from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from .egress_identity import bind_site_carrier
 from .multi_homed_egress import connect_via_egress
+
+
+logger = logging.getLogger(__name__)
 
 
 _PROXY_ENV_VARS = (
@@ -229,8 +232,8 @@ class SocksHttpConnectBridge:
         if not report["applied"]:
             # Not "the kernel declined": a rate too large for setsockopt is refused before
             # any syscall, so the reason, not this line, says who refused.
-            print(f"[egress] SO_MAX_PACING_RATE not applied "
-                  f"({self.pacing_bytes_per_s} B/s): {report['reason']}", file=sys.stderr)
+            logger.warning("[egress] SO_MAX_PACING_RATE not applied "
+                           "(%s B/s): %s", self.pacing_bytes_per_s, report["reason"])
         return report
 
     def _handle_client(self, client: socket.socket) -> None:

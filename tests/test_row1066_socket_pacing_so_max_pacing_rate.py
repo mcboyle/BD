@@ -388,7 +388,7 @@ def test_a_carrier_with_no_cap_asks_the_kernel_for_nothing():
         "socks5://127.0.0.1:9", pacing_bytes_per_s=-5).pacing_bytes_per_s == 0
 
 
-def test_a_pacing_request_the_kernel_declined_is_reported_to_the_operator(capsys):
+def test_a_pacing_request_the_kernel_declined_is_reported_to_the_operator(caplog):
     """The row's thesis: a request the kernel refused is kept in the carrier's reports AND
     said out loud, because a throttle that silently does not throttle is the hazard."""
     bridge = download_egress.SocksHttpConnectBridge(
@@ -396,9 +396,11 @@ def test_a_pacing_request_the_kernel_declined_is_reported_to_the_operator(capsys
     report = bridge._pace_upstream(_FakeSock(errno_on_set=1))
     assert report["applied"] is False and "refused by fake kernel" in report["reason"], report
     assert bridge.pacing_reports == [report]
-    err = capsys.readouterr().err
+    err = caplog.text
     assert err.count("SO_MAX_PACING_RATE not applied (2000000 B/s)") == 1, err
     assert err.count("refused by fake kernel") == 1, err
+    assert [record.levelname for record in caplog.records
+            if record.name == download_egress.__name__] == ["WARNING"]
 
 
 def test_the_carrier_keeps_only_its_last_64_pacing_reports(capsys):
@@ -422,7 +424,7 @@ def test_the_carrier_keeps_only_its_last_64_pacing_reports(capsys):
 
 
 def test_a_rate_setsockopt_cannot_carry_is_refused_before_the_syscall_not_blamed_on_the_kernel(
-        capsys):
+        caplog):
     """setsockopt passes a C int, so CPython refuses 2**31 B/s and above (a runner cap of 2048
     MB/s or more) with a TypeError before any syscall -- and the carrier then told the operator
     the KERNEL had declined. Such a rate is never handed to setsockopt, and the reason says so."""
@@ -443,9 +445,11 @@ def test_a_rate_setsockopt_cannot_carry_is_refused_before_the_syscall_not_blamed
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         carried = bridge._pace_upstream(sock)
     assert carried["applied"] is False and "TypeError" not in carried["reason"], carried
-    err = capsys.readouterr().err
+    err = caplog.text
     assert err.count("SO_MAX_PACING_RATE not applied (2147483648 B/s)") == 1, err
     assert "kernel declined" not in err, err
+    assert [record.levelname for record in caplog.records
+            if record.name == download_egress.__name__] == ["WARNING"]
 
 
 def test_the_runner_hands_its_own_cap_to_the_carrier():
