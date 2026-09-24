@@ -4,7 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1673 - train100: row
+## v3.66.1673 - train100: H116
+
+Base main 0f2fe2db (v3.66.1672). T100 (ORDERS-0168 option (b), O1380; non-product: tools/toolchain/docs/tests only; lens P3-B BOARD at PATCH-SHA256 f7aefc12; VM gate + CI, no deploy per O1346/O1353).
+
+- H116: the new-import-edge remedy now states the executable train rule everywhere it is emitted or documented (tools/decomp/import_graph_gate.py NEW_EDGE_REMEDY + docstring, toolchain/bin/bd-imports, bd-decomp, bd-band-derive, FOOTGUNS.json FG-IMPORT-EDGE-BASELINE, project-knowledge KB_JUDGMENT/README/TOUCHED_FILE_TO_TEST): a worker cut DECLARES the edge in DONE.md (OWED TO THE INTEGRATOR -- NEW IMPORT EDGES) and never re-freezes; the train re-freezes the baseline ONCE (bd-train --finish runs the pinned --update) and again on every restack. Replaces "rebase onto merged main and re-freeze there". N7 safeguards kept (no same-cut licence, pinned interpreter); tests/test_import_graph_no_new_edges.py assertions follow the new wording; tests/mutants/n7_import_graph_remedy.json FOOTGUNS anchor re-pointed so the tracked-spec gate stays green.
 
 
 ## v3.66.1672 - train99: H758, H759
