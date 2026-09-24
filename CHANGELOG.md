@@ -4,7 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1671 - train98: row
+## v3.66.1671 - train98: H193
+
+Base main 00c81775 (v3.66.1670). T98 (ORDERS-0154; POLICY-0131 auto-approved, no bulk_downloader/ or frontend/ change; POLICY-0118 gate vmci; no deploy, O1346): one harness row, boarded at its INDEX tree.
+
+- H193 (h193-precut-heartbeat): bd-precut prints its header and a first HEARTBEAT before baseline discovery (previously only after the whole-tree git archive, unflushed), line-buffers stdout, and emits a HEARTBEAT at each step start, so a slow precut shows visible progress. Probe: tests/test_h193_precut_visible_progress.py.
 
 
 ## v3.66.1670 - train97: H97, H102
