@@ -4,7 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1670 - train97: row
+## v3.66.1670 - train97: H97, H102
+
+Base T96 main d87cb6c9 (v3.66.1669). T97 (ORDERS-0145; POLICY-0131 auto-approved, no bulk_downloader/ or frontend/ change; POLICY-0118 gate vmci; no deploy, O1346): two harness rows, each boarded at its INDEX tree.
+
+- H97 (h97-route-count-absent-inventory): tools/check_route_counts.py treats an absent gitignored reports/gui_parity_inventory.json as UNKNOWN named on stderr instead of a MISSING failure, so bd-regen-order --check passes in worktrees that never built the census. Probe: tests/test_h97_route_count_absent_inventory_scope.py.
+- H102 (h102-remedy-emitters): every emitter of the import-graph remedy (toolchain/bin/bd-imports plus the KB_JUDGMENT, README and TOUCHED_FILE_TO_TEST copies) now gives the correct re-freeze instruction; tests/test_import_graph_no_new_edges.py sweeps every tracked file so a sixth emitter fails the gate.
 
 
 ## v3.66.1669 - train96: row
