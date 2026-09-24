@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""bd-dag-schedule -- DAG task scheduler and parallel wave partitioner for test suites.
+
+Compiles task packets and test dependency graphs into topologically sorted
+execution waves and dispatches leaves across worker shards without race conditions.
+
+Fleet Rule 21 compliant: zero site interactions touched.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+try:
+    from dag_task_compiler.compiler import DAGCompiler
+    from dag_task_compiler.models import TaskDAG, TaskNode
+    from dag_task_compiler.scheduler import LeafDispatcher
+except ImportError:
+    alt_path = Path("/home/mboyle/teamwork_projects/frontier_blueprint_integration/src")
+    if alt_path.exists():
+        sys.path.insert(0, str(alt_path))
+    from dag_task_compiler.compiler import DAGCompiler
+    from dag_task_compiler.models import TaskDAG, TaskNode
+    from dag_task_compiler.scheduler import LeafDispatcher
+
+
+def load_dag_from_dict(data: dict[str, Any]) -> TaskDAG:
+    """Construct a TaskDAG from a dictionary."""
+    nodes = {}
+    tasks_data = data.get("tasks", data.get("nodes", []))
+    if isinstance(tasks_data, list):
+        for item in tasks_data:
+            if "id" in item and "task_id" not in item:
+                item["task_id"] = item["id"]
+            if "name" not in item:
+                item["name"] = item.get("task_id", "")
+            node = TaskNode(**item)
+            nodes[node.task_id] = node
+    elif isinstance(tasks_data, dict):
+        for tid, item in tasks_data.items():
+            if "task_id" not in item:
+                item["task_id"] = item.get("id", tid)
+            if "name" not in item:
+                item["name"] = item.get("task_id", "")
+            node = TaskNode(**item)
+            nodes[node.task_id] = node
+    else:
+        raise TypeError(f"Unrecognized tasks data format: {type(tasks_data)}")
+
+    return TaskDAG(nodes=nodes)
+
+
+def schedule_dag(
+    dag: TaskDAG,
+    num_slots: int = 4,
+    show_waves: bool = True,
+    prune_failed_id: str | None = None,
+) -> dict[str, Any]:
+    """Compile and partition DAG into execution waves and dispatch leaves."""
+    compiler = DAGCompiler()
+
+    if prune_failed_id:
+        compiler.prune_on_failure(dag, prune_failed_id)
+
+    waves = compiler.compile_waves(dag)
+    topo_order = compiler.topological_sort(dag)
+
+    dispatcher = LeafDispatcher()
+    slots_map: dict[str, list[dict[str, Any]]] = {f"slot_{i}": [] for i in range(num_slots)}
+
+    # Distribute wave 0 (ready leaves) across slots
+    ready_leaves = dispatcher.get_ready_leaves(dag)
+    for idx, leaf in enumerate(ready_leaves):
+        slot_key = f"slot_{idx % num_slots}"
+        slots_map[slot_key].append({
+            "task_id": leaf.task_id,
+            "action_type": leaf.action_type,
+            "timeout_sec": leaf.timeout_sec,
+            "state": leaf.state.value,
+        })
+
+    return {
+        "total_tasks": len(dag.nodes),
+        "topological_order": topo_order,
+        "wave_count": len(waves),
+        "waves": [
+            {
+                "wave_index": w.wave_index,
+                "task_ids": [t.task_id for t in w.tasks],
+                "task_count": len(w.tasks),
+            }
+            for w in waves
+        ],
+        "ready_leaves": [leaf.task_id for leaf in ready_leaves],
+        "slot_assignments": slots_map,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="DAG task scheduler and wave partitioner")
+    parser.add_argument("input", nargs="?", default="-", help="Path to input JSON DAG file or - for stdin")
+    parser.add_argument("--waves", action="store_true", help="Print execution wave breakdown")
+    parser.add_argument("--dispatch", action="store_true", help="Print slot dispatch distribution")
+    parser.add_argument("--slots", type=int, default=4, help="Number of worker slots (default: 4)")
+    parser.add_argument("--prune", type=str, default=None, help="Prune downstream tasks of specified failed task ID")
+    parser.add_argument("--json", action="store_true", help="Output full JSON result")
+
+    args = parser.parse_args(argv)
+
+    if args.input == "-":
+        raw = sys.stdin.read()
+    else:
+        path = Path(args.input)
+        if not path.exists():
+            print(f"ERROR: Input file not found: {path}", file=sys.stderr)
+            return 1
+        raw = path.read_text(encoding="utf-8")
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as err:
+        print(f"ERROR: Invalid JSON input: {err}", file=sys.stderr)
+        return 1
+
+    try:
+        dag = load_dag_from_dict(data)
+        scheduled = schedule_dag(dag, num_slots=args.slots, prune_failed_id=args.prune)
+    except Exception as err:  # noqa: BLE001
+        print(f"ERROR: DAG scheduling failed: {err}", file=sys.stderr)
+        return 2
+
+    if args.json or (not args.waves and not args.dispatch):
+        print(json.dumps(scheduled, indent=2))
+        return 0
+
+    if args.waves:
+        print(f"=== DAG Execution Waves ({scheduled['wave_count']} waves, {scheduled['total_tasks']} tasks) ===")
+        for wave in scheduled["waves"]:
+            tasks_str = ", ".join(wave["task_ids"])
+            print(f"  Wave {wave['wave_index']} [{wave['task_count']} tasks]: {tasks_str}")
+
+    if args.dispatch:
+        print(f"\n=== Initial Leaf Dispatch ({args.slots} worker slots) ===")
+        for slot, tasks in scheduled["slot_assignments"].items():
+            task_ids = [t.get("task_id", t.get("id")) for t in tasks]
+            print(f"  {slot}: {', '.join(task_ids) if task_ids else '(idle)'}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

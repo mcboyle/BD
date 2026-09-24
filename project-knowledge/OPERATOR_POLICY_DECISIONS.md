@@ -146,3 +146,11 @@ would bless the very drift the gate is meant to detect. The release ZIP excludes
 the graph DB, its SQLite sidecars, and both legacy and deployment pin filenames.
 
 Decision #15 remains settled; do not re-raise it without new evidence.
+
+---
+
+## Decision #16 — Authorized In-Browser Credential Autofill & Oracle Navigation Policy (@2026-09-24)
+
+| Item | Choice | Rationale |
+|---|---|---|
+| **#16 Credential Autofill & Oracle Scope** | **In-Browser Autofill + PIN 628895 + Unrestricted CDP Scope** | Operator authorized autonomous in-browser password manager autofill (Proton Pass / Chrome Native Credential Manager) and automated PIN submission (`628895`) on Google Password Manager / Windows Hello prompts across Windows nodes `bittorrent` (`10.0.70.181`) and `battlestation` (`10.0.10.137`). CDP navigation scope expanded to all required research and operational domains. Security invariant: zero plaintext credential extraction, scraping, or logging. |

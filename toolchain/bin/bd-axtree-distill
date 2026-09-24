@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""bd-axtree-distill -- Zero-token Accessibility Tree (AXTree) semantic distiller for UI/browser tests.
+
+Parses raw HTML DOM trees into compact, structured semantic descriptors (role, label,
+interactive action signatures, bounding boxes) preserving primary context budgets.
+
+Fleet Rule 21 compliant: zero site interactions touched.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+try:
+    from axtree_distill.distiller import distill_axtree, serialize_axtree
+    from axtree_distill.models import AXNode
+except ImportError:
+    alt_path = Path("/home/mboyle/teamwork_projects/frontier_blueprint_integration/src")
+    if alt_path.exists():
+        sys.path.insert(0, str(alt_path))
+    from axtree_distill.distiller import distill_axtree, serialize_axtree
+    from axtree_distill.models import AXNode
+
+
+def filter_interactive(nodes: list[AXNode]) -> list[AXNode]:
+    """Filter node tree to retain only interactive elements or containers with interactive children."""
+    filtered: list[AXNode] = []
+    for node in nodes:
+        interactive_children = filter_interactive(node.children) if hasattr(node, "children") and node.children else []
+        is_interactive = bool(node.actions) or len(interactive_children) > 0
+        if is_interactive:
+            filtered.append(node)
+    return filtered
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Zero-token AXTree semantic DOM distiller")
+    parser.add_argument("input", nargs="?", default="-", help="Path to HTML file or - for stdin")
+    parser.add_argument("--format", choices=["compact", "json"], default="compact", help="Output format (default: compact)")
+    parser.add_argument("--interactive-only", action="store_true", help="Filter for only interactive elements")
+    parser.add_argument("--stats", action="store_true", help="Print compression statistics to stderr")
+
+    args = parser.parse_args(argv)
+
+    if args.input == "-":
+        raw_html = sys.stdin.read()
+    else:
+        path = Path(args.input)
+        if not path.exists():
+            print(f"ERROR: File not found: {path}", file=sys.stderr)
+            return 1
+        raw_html = path.read_text(encoding="utf-8", errors="replace")
+
+    if not raw_html.strip():
+        print("ERROR: Empty HTML input", file=sys.stderr)
+        return 1
+
+    try:
+        nodes = distill_axtree(raw_html)
+    except Exception as err:  # noqa: BLE001
+        print(f"ERROR: AXTree distillation failed: {err}", file=sys.stderr)
+        return 2
+
+    if args.interactive_only:
+        nodes = [n for n in nodes if n.actions]
+
+    if args.format == "json":
+        output = json.dumps([n.to_dict() if hasattr(n, "to_dict") else n.__dict__ for n in nodes], indent=2)
+    else:
+        output = serialize_axtree(nodes)
+
+    print(output)
+
+    if args.stats:
+        raw_bytes = len(raw_html.encode("utf-8"))
+        distilled_bytes = len(output.encode("utf-8"))
+        reduction = (1.0 - (distilled_bytes / max(1, raw_bytes))) * 100.0
+        est_raw_tok = max(1, raw_bytes // 4)
+        est_dist_tok = max(1, distilled_bytes // 4)
+        print(
+            f"\n[AXTree Stats] Raw: {raw_bytes} bytes (~{est_raw_tok} tok) | "
+            f"Distilled: {distilled_bytes} bytes (~{est_dist_tok} tok) | "
+            f"Reduction: {reduction:.1f}%",
+            file=sys.stderr,
+        )
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

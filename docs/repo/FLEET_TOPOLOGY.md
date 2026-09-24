@@ -24,6 +24,8 @@ list. A missing or unreadable roles file deploys EVERYWHERE, deliberately.
     capacity    bd2    10.0.70.52     no          never
     capacity    bd3    10.0.70.53     no          never
     capacity    bd4    10.0.70.54     no          never
+    oracle      bittorrent 10.0.70.181    no          never
+    oracle/gpu  battlestation 10.0.10.137 no          never
 
 WHY RUNNERS ARE HELD BACK. Deploying onto a host mid-run restarts the service
 underneath a measurement, which is the boundary A6 draws. The filter matches the
@@ -129,3 +131,11 @@ and reads UNKNOWN -- never NO. Row 475 asks for this as a first-class tool.
 
 `ok=N healed=N bad=N of N` is the only summary to trust, and the denominator is
 the target list the roles file produced -- not the number of hosts you expected.
+
+## Windows Virtual Browser Oracle Nodes
+
+    bittorrent     10.0.70.181   Windows VM (32 vCPUs, 128 GB RAM), port 9222 CDP bridge
+    battlestation  10.0.10.137   Windows GPU workstation (Ryzen 3900X 24T, RTX 2080 Ti 11GB)
+
+Persistent Chrome DevTools Protocol bridges on port 9222 provide flat-rate consumer
+subscription oracle fanout (Gemini Ultra/Pro, ChatGPT Plus/Pro, Claude Account A/B).
