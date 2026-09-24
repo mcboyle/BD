@@ -162,7 +162,7 @@ is · canonical instance · the smell · the fix.**
   REQUIRED) or `app.py` CFG_FIELDS (the `multi_conn_count` precedent); band `test_v3_66_305` +
   `test_v3_66_319` on any config/env-reading cut. *Corollary:* function-local imports DO register a
   tracked dep/import-graph edge (supersedes the older "lazy imports don't" note) — re-freeze
-  `import_graph_gate --update` in the same cut; and *removing* an import stales DEPENDENCY_GRAPH too
+  `import_graph_gate --update` ONCE on merged main, never in the cut that adds the edge (H102); and *removing* an import stales DEPENDENCY_GRAPH too
   (regen after any import change, add or remove).
 
 *The entries below were folded in from operational memory (durable footguns that lived only in
@@ -422,8 +422,8 @@ The durable models that, once internalized, prevent a class of mistakes. (Anchor
 - **the import gate tracks function-local imports too** *(@582).* `dependency_graph.py::_internal_imports`
   uses `ast.walk`, so `import_graph_gate` counts **every** `import` / `from ... import` — nested and
   lazy ones included. A function-local import is "free" (no `--update`) *only when the src→dst edge
-  already exists*; a genuinely NEW module→module dependency is flagged and must be declared in the
-  same cut (`import_graph_gate --update` + `dependency_graph` regen), exactly like a guard-SHA change.
+  already exists*; a genuinely NEW module→module dependency is flagged and must be declared ONCE on
+  merged main, never in the cut that adds it (`import_graph_gate --update` + `dependency_graph` regen; H102).
   582 proved it: the lazy `diagnostics_bundle → capture_artifact_redact` in `_attach_logs` moved the
   count **1231→1232**. Corrects the earlier "lazy imports are never tracked" note — that held only
   because those specific edges already existed at module level.

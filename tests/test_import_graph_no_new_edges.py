@@ -225,16 +225,23 @@ def test_no_remedy_anywhere_in_the_gate_source_says_bare_python3():
 # rather than from a handed-over list, but the emitters it can FAIL on are frozen
 # to the four this cut corrects -- see _FROZEN_EMITTERS and the note above it.
 # --------------------------------------------------------------------------
+import re  # noqa: E402
 import subprocess  # noqa: E402
 
-# Executable emitters only. Excluded, each with its reason:
-#   *.md under project-knowledge/ and CHANGELOG.md -- register and append-only
-#     history; a worker does not rewrite either. Findings are reported, not edited.
+# H102: EVERY tracked file is swept -- executables AND documentation copies
+# (KB_JUDGMENT.md, README.md and TOUCHED_FILE_TO_TEST.md told readers to
+# re-freeze in the same cut). Excluded, each with
+# its reason:
+#   CHANGELOG.md and the IMPROVEMENT_BACKLOG register/archive -- append-only
+#     history that QUOTES old remedies; a worker does not rewrite either.
 #   tests/mutants/ -- mutation payloads carry the hazard BY DESIGN; a spec that
 #     restores the wrong remedy is the proof the gate has teeth, not a violation.
-_SWEEP_ROOTS = ("tools/", "toolchain/", "tests/")
-_SWEEP_FILES = ("FOOTGUNS.json",)
-_SWEEP_SKIP = ("tests/mutants/",)
+_SWEEP_SKIP = (
+    "tests/mutants/",
+    "CHANGELOG.md",
+    "project-knowledge/IMPROVEMENT_BACKLOG.md",
+    "project-knowledge/IMPROVEMENT_BACKLOG_ARCHIVE.md",
+)
 
 
 def _tracked_files():
@@ -255,6 +262,15 @@ def _is_import_edge_remedy(line):
     low = line.lower()
     if "import_graph_gate.py --update" in line:
         return True
+    # H102: bd-imports printed "re-freeze in THIS cut: bd-imports --update" and
+    # KB_JUDGMENT.md "`import_graph_gate --update` in the same cut" -- neither
+    # line names a baseline or an edge, so the N7 form alone never saw them.
+    if "bd-imports --update" in line:
+        return True
+    if "import_graph_gate" in line and "--update" in line:
+        return True
+    if "re-freeze" in low and " cut" in low:
+        return True
     return "re-freeze" in low and "baseline" in low and "edge" in low
 
 
@@ -273,8 +289,6 @@ def _remedy_lines():
     for rel in files:
         if any(rel.startswith(s) for s in _SWEEP_SKIP):
             continue
-        if not (rel in _SWEEP_FILES or any(rel.startswith(r) for r in _SWEEP_ROOTS)):
-            continue
         try:
             text = (_REPO_ROOT / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -291,13 +305,45 @@ def _remedy_lines():
 # failure of this test: an acceptance that grows after the fact manufactures
 # refusals against an object that already met the bar it was given. The sweep
 # below still runs over the WHOLE tree, because the denominator must be derived
-# from the filesystem, but only these four paths can FAIL it.
+# from the filesystem. (H102 lifted the "only these can FAIL" limit: this tuple
+# is now the SEEN-precondition, and every swept path can fail -- see _offenders.)
 _FROZEN_EMITTERS = (
     "tools/decomp/import_graph_gate.py",
     "toolchain/bin/bd-decomp",
     "toolchain/bin/bd-band-derive",
     "FOOTGUNS.json",
+    # H102 enumeration 2026-09-23 over all 4906 tracked files at 84dd33d56
+    # (harness-work/FIX/H102/enum-84dd33d5.txt): two more executable emitters
+    # and one documentation copy. bd-imports printed the WRONG remedy.
+    "toolchain/bin/bd-regen-order",
+    "toolchain/bin/bd-imports",
+    "project-knowledge/KB_JUDGMENT.md",
 )
+# H102: the frozen tuple is now only the SEEN-precondition. Every swept emitter
+# can FAIL the gate -- a sixth emitter with the wrong remedy turns it red, not
+# green. This file is excluded because it quotes the wrong remedies as controls.
+_SELF = "tests/test_import_graph_no_new_edges.py"
+
+
+_IN_THE_CUT = re.compile(r"\b(?:same|this) cut\b")
+# A negation earlier in the same clause ("do NOT ... in this cut", "must never
+# say again: ... SAME cut") marks a correct line; "." or ";" ends the clause.
+_NEGATED_CUT = re.compile(r"\b(?:not|never)\b[^.;]*\b(?:same|this) cut\b")
+
+
+def _says_refreeze_in_the_cut(text):
+    """True for "re-freeze in the SAME/THIS cut"; "do NOT ... in this cut" is correct."""
+    low = text.lower()
+    return bool(_IN_THE_CUT.search(low)) and not _NEGATED_CUT.search(low)
+
+
+def _offenders(swept):
+    """(same_cut, bare) remedy lines from every emitter except this test file."""
+    lines = [(r, n, t) for r, n, t in swept if r != _SELF]
+    same_cut = [(r, n, t) for r, n, t in lines if _says_refreeze_in_the_cut(t)]
+    bare = [(r, n, t) for r, n, t in lines
+            if "python3 tools/" in t or "python3 toolchain/" in t]
+    return same_cut, bare
 
 
 def test_every_emitted_import_edge_remedy_is_correct():
@@ -305,7 +351,7 @@ def test_every_emitted_import_edge_remedy_is_correct():
     swept = _remedy_lines()
 
     # PRECONDITION / DENOMINATOR: the tree-derived sweep really reaches each of
-    # the four frozen emitters. If it cannot see them it is measuring its own
+    # the frozen emitters. If it cannot see them it is measuring its own
     # extraction and every assertion below would be vacuously green.
     emitting_files = {rel for rel, _n, _t in swept}
     for expected in _FROZEN_EMITTERS:
@@ -317,7 +363,7 @@ def test_every_emitted_import_edge_remedy_is_correct():
     lines = [(r, n, t) for r, n, t in swept if r in _FROZEN_EMITTERS]
     assert len(lines) >= 6, (
         f"the sweep found only {len(lines)} import-edge remedy line(s) across "
-        f"the four frozen emitters; it is measuring its own extraction, not the "
+        f"the frozen emitters; it is measuring its own extraction, not the "
         f"tree: {lines!r}"
     )
 
@@ -325,18 +371,20 @@ def test_every_emitted_import_edge_remedy_is_correct():
     # Concatenated so the control is not itself swept as an offender.
     bad_same_cut = "re-freeze the baseline for a new edge in the SAME" + " cut"
     bad_bare = "  " + _BARE_PYTHON3 + " --update"
-    assert "same cut" in bad_same_cut.lower(), "the SAME-cut probe cannot say yes"
+    assert _says_refreeze_in_the_cut(bad_same_cut), "the SAME-cut probe cannot say yes"
+    bad_this_cut = "intended? re-freeze in THIS" + " cut: bd-imports --update"
+    assert _says_refreeze_in_the_cut(bad_this_cut), "the THIS-cut probe cannot say yes"
+    assert not _says_refreeze_in_the_cut(
+        "do NOT re-freeze in this cut: rebase onto merged main"), "negation misread"
     assert "python3 tools/" in bad_bare, "the bare-python3 probe cannot say yes"
 
-    same_cut = [(r, n, t) for r, n, t in lines if "same cut" in t.lower()]
+    same_cut, bare = _offenders(swept)
     assert same_cut == [], (
         f"{len(same_cut)} emitted remedy line(s) still tell a reader to re-freeze "
         f"the import-graph baseline IN THE SAME CUT. The baseline is one shared "
         f"file: parallel cuts collide on it and a baseline frozen against an "
         f"unmerged tree bakes in unlanded edges. Offenders: {same_cut!r}"
     )
-    bare = [(r, n, t) for r, n, t in lines
-            if "python3 tools/" in t or "python3 toolchain/" in t]
     assert bare == [], (
         f"{len(bare)} emitted remedy line(s) invoke a repo tool through a bare "
         f"`python3`, which the TOOL PIN LAW forbids -- a PATH interpreter can be "
@@ -406,3 +454,27 @@ def test_the_footguns_declaration_carries_the_corrected_rule_and_fix():
         f"FOOTGUNS.json rule does not say where the re-freeze happens: "
         f"{entry['rule']!r}"
     )
+
+
+def test_a_new_emitter_outside_the_frozen_set_fails_the_gate():
+    """H102 NEGATIVE CONTROL: a sixth emitter with the wrong remedy must turn red.
+
+    Before H102 only the frozen emitters could fail, so a new tool printing
+    "re-freeze in the SAME cut" or a bare python3 passed. The synthetic lines
+    are concatenated so this file is not itself swept as an offender.
+    """
+    sixth = "toolchain/bin/bd-sixth-emitter"
+    doc = "docs/repo/SIXTH_EMITTER.md"
+    assert sixth not in _FROZEN_EMITTERS and doc not in _FROZEN_EMITTERS
+    wrong_cut = (sixth, 1, "re-freeze the baseline for a new edge in the SAME" + " cut")
+    wrong_bare = (sixth, 2, "python3" + " tools/decomp/import_graph_gate.py --update")
+    wrong_this = (sixth, 3, "intended? re-freeze in THIS" + " cut: bd-imports --update")
+    wrong_doc = (doc, 4, "`import_graph_gate --update` in the same" + " cut")
+    wrong = [wrong_cut, wrong_bare, wrong_this, wrong_doc]
+    # Each wrong line is SEEN by the sweep's matcher, not only by _offenders.
+    assert [w for w in wrong if not _is_import_edge_remedy(w[2])] == []
+    same_cut, bare = _offenders(wrong)
+    assert same_cut == [wrong_cut, wrong_this, wrong_doc], same_cut
+    assert bare == [wrong_bare], bare
+    # This file's own quoted controls are not offenders.
+    assert _offenders([(_SELF, 1, wrong_cut[2]), (_SELF, 2, wrong_bare[2])]) == ([], [])

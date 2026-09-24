@@ -471,7 +471,7 @@ bd-tools
 # before a cut
 bd-ready                       # 7-gate preflight
 bd-regen --write               # if derived docs drifted
-bd-imports --update            # if you added an import edge (same cut)
+bd-imports --update            # new import edge: ONCE on merged main, never in the cut (H102)
 bd-bump 3.66.N --title "…" --write ; venv/bin/python tools/build_pin_index.py
 
 # cut
