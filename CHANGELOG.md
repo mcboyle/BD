@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1671 - train98: row
+
+
 ## v3.66.1670 - train97: H97, H102
 
 Base T96 main d87cb6c9 (v3.66.1669). T97 (ORDERS-0145; POLICY-0131 auto-approved, no bulk_downloader/ or frontend/ change; POLICY-0118 gate vmci; no deploy, O1346): two harness rows, each boarded at its INDEX tree.
