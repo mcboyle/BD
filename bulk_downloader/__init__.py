@@ -30,4 +30,4 @@ server. PyInstaller builds bundle the package automatically.
 from . import _envfile as _envfile  # noqa: E402
 _envfile.load_envfile()
 
-__version__ = "3.66.1671"
+__version__ = "3.66.1672"
