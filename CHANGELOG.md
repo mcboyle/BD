@@ -4,7 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
-## v3.66.1672 - train99: row
+## v3.66.1672 - train99: H758, H759
+
+Base main 2a9ca902 (v3.66.1671). T99 (ORDERS-0165; product rows found red on main by the H748 band; lens P3-B BOARD at PATCH-SHA256 41540adb; POLICY-0118 gate vmci; deploy per O1346 after land).
+
+- H758: bulk_downloader/download_egress.py logs the SO_MAX_PACING_RATE refusal through its module logger at WARNING (message unchanged) instead of print(file=sys.stderr), so test_no_print_in_any_library_module is green again; the row1066 pacing carrier tests pin level and text via caplog.
+- H759: reports/config_gui_manifest.json ledgers kafka_event_streaming_enabled and use_audio_normalization as full, like the adjacent site keys, so test_manifest_ledgers_all_site_keys is green again.
 
 
 ## v3.66.1671 - train98: H193
