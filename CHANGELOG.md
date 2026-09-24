@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1673 - train100: row
+
+
 ## v3.66.1672 - train99: H758, H759
 
 Base main 2a9ca902 (v3.66.1671). T99 (ORDERS-0165; product rows found red on main by the H748 band; lens P3-B BOARD at PATCH-SHA256 41540adb; POLICY-0118 gate vmci; deploy per O1346 after land).

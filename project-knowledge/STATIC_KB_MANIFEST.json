@@ -1,7 +1,7 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-24T00:06:07+00:00",
- "version_context": "v3.66.1672",
+ "generated": "2026-09-24T16:09:34+00:00",
+ "version_context": "v3.66.1673",
  "file_count": 96,
  "files": {
   "0_INDEX.md": {
@@ -181,8 +181,8 @@
    "bytes": 6449
   },
   "KB_JUDGMENT.md": {
-   "sha256": "fecdbfa8776784f7073e581d0ed1954eb61f9c93d67ec41a141742b2712443cb",
-   "bytes": 95259
+   "sha256": "82f38710fc916d477e13d30cc86fe75b191b76701f8b196f840c3f87ee77b27e",
+   "bytes": 95330
   },
   "KB_RECOGNIZER_COVERAGE_METHOD.md": {
    "sha256": "0be8eb27ebf64d12901d51b96ef7f39bd99fc0fea5a255805ad2da0eae91eba5",
@@ -241,8 +241,8 @@
    "bytes": 2617
   },
   "README.md": {
-   "sha256": "3ddd99aed68cf010f82a03031b175c33436ef77339ed391df1e3bca63e7c2f96",
-   "bytes": 25836
+   "sha256": "9810eabe894cfc36630bdc2d2e5e77394eddf4aed6ca94891c2ce9b5848183f9",
+   "bytes": 25881
   },
   "README_KB.md": {
    "sha256": "a3433738fbe027390505e6a9a424dc584f4b09e5ec8bbf1446ab1705798e90bc",
@@ -301,8 +301,8 @@
    "bytes": 4365
   },
   "TOUCHED_FILE_TO_TEST.md": {
-   "sha256": "d7035dd67f46c24c22bde7d919098e5c737201dc538c8e13c1558e95e0754b48",
-   "bytes": 6478
+   "sha256": "023a893fbe2e1f55ecb9b38c450eb1f7d8fb7adeb0bd092f17ba64b914dffa2c",
+   "bytes": 6548
   },
   "TRIAGE_RULES.json": {
    "sha256": "448030d6866d105c00116cc53b89cdf296cd5c32cbf70a28b42248b0d7b54d72",
