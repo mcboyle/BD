@@ -55,6 +55,20 @@ IN_SYNC = [
 ]
 
 
+# H193 (HARNESS_BACKLOG, REOPENED O1364): a working bd-precut was indistinguishable from a
+# hung one. The header printed only AFTER the whole-tree git archive, unflushed, so a pipe
+# or log saw NOTHING for minutes; and the two git calls in _derive_baseline had no wall.
+# Each step now announces itself, flushed, before it starts; stdout is line-buffered; the
+# git calls carry a wall (test: tests/test_h193_precut_visible_progress.py).
+_BASELINE_GIT_TIMEOUT_S = 120
+_HEARTBEAT_STEPS = 9
+
+
+def _heartbeat(step, started, name):
+    print("HEARTBEAT: step %d/%d %s; elapsed %.1fs"
+          % (step, _HEARTBEAT_STEPS, name, time.monotonic() - started), flush=True)
+
+
 def _version(name):
     m = re.search(r"v?(\d+)[._](\d+)[._](\d+)", os.path.basename(name))
     return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
@@ -97,14 +111,23 @@ def _derive_baseline(root, tmpdir):
     if not os.path.isdir(os.path.join(root, ".git")) and not os.path.isfile(
             os.path.join(root, ".git")):
         return None, "not a git checkout, so no baseline can be derived"
-    rev = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
-                          "origin/main^{commit}"], capture_output=True, text=True)
+    try:
+        rev = subprocess.run(["git", "-C", root, "rev-parse", "--verify", "-q",
+                              "origin/main^{commit}"], capture_output=True, text=True,
+                             timeout=_BASELINE_GIT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return None, ("git rev-parse origin/main timed out after %ss, so no baseline "
+                      "can be derived" % _BASELINE_GIT_TIMEOUT_S)
     if rev.returncode != 0 or not rev.stdout.strip():
         return None, "origin/main does not resolve here, so no baseline can be derived"
     sha = rev.stdout.strip()
     out = os.path.join(tmpdir, "baseline-origin-main.zip")
-    ar = subprocess.run(["git", "-C", root, "archive", "--format=zip", "-o", out, sha],
-                        capture_output=True, text=True)
+    try:
+        ar = subprocess.run(["git", "-C", root, "archive", "--format=zip", "-o", out, sha],
+                            capture_output=True, text=True, timeout=_BASELINE_GIT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return None, ("git archive of %s timed out after %ss, so no baseline can be derived"
+                      % (sha[:12], _BASELINE_GIT_TIMEOUT_S))
     if ar.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) == 0:
         return None, f"git archive of {sha[:12]} produced no usable baseline"
     return out, None
@@ -1170,11 +1193,15 @@ def main(argv=None):
     atexit.register(shutil.rmtree, tmpdir, True)
     derived_reason = None
     tracked_only = False
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)   # H193: a log must see each line as it happens
+    started = time.monotonic()
+    print(f"== bd-precut{' --gate' if a.gate else ''} :: root={root}", flush=True)
+    _heartbeat(1, started, "baseline discovery")
     baseline = a.baseline or _auto_baseline(root)
     if not baseline:
         baseline, derived_reason = _derive_baseline(root, tmpdir)
         tracked_only = baseline is not None
-    print(f"== bd-precut{' --gate' if a.gate else ''} :: root={root}")
     if baseline:
         kind = "derived from origin/main" if tracked_only else "release zip"
         print(f"               baseline={os.path.basename(baseline)} ({kind})\n")
@@ -1182,6 +1209,7 @@ def main(argv=None):
     blocking = []
     unknown = []          # checks that did NOT run -- never fold these into "OK"
 
+    _heartbeat(2, started, "advisory precut check")
     # A. precut_check (version/pin/surface) is a PREDICTOR, not a gate. Its own
     # module docstring says so and main() has no failing verdict. Every condition
     # it predicts is enforced independently below or by the release/freshness
@@ -1209,6 +1237,7 @@ def main(argv=None):
         print("  [advisory precut_check NOT RUN -- %s; outside the blocking "
               "verdict]\n" % why)
 
+    _heartbeat(3, started, "executable footguns")
     # 2. executable footgun registry (env-tranche F-01 + in-sync F-03 + route-map +
     #    import-edge + endpoint + pin + guard-sha) -- the single source of truth,
     #    so no lesson is forgotten and nothing is double-run.
@@ -1233,6 +1262,7 @@ def main(argv=None):
     ratchet_advisory = False
     rex = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-ratchet")
     if os.path.isfile(rex):
+        _heartbeat(4, started, "metric ratchets")
         rc, err = _run_ratchet_gate(root, rex)
         if rc == 3:
             blocking.append(err or "metric ratchet regressed -- see bd-ratchet output above")
@@ -1255,6 +1285,7 @@ def main(argv=None):
     #    once shipped a near-constant band (a false-GREEN class bug) caught only by
     #    manual diffing. ~12s against a ~32s gate: cheap insurance that the tool
     #    about to cut a release is not itself broken.
+    _heartbeat(5, started, "tool integrity")
     ct = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bd-coretest")
     if os.path.isfile(ct) and not a.no_coretest:
         import subprocess as _sp
@@ -1273,6 +1304,7 @@ def main(argv=None):
         unknown.append("core tool integrity (bd-coretest not found)")
 
     print()
+    _heartbeat(6, started, "release trio")
     # N-1. THE RELEASE TRIO, FROM GIT RATHER THAN FROM A ZIP.
     #
     # precut_check owns this, but it needs a baseline release zip and the zip
@@ -1287,6 +1319,7 @@ def main(argv=None):
     else:
         print("  [release trio] version, pin and CHANGELOG head agree; entry is ASCII")
 
+    _heartbeat(7, started, "CI shard headroom")
     # N-2. CI SHARD HEADROOM.
     #
     # CLAUDE.md A5 forbids trimming a slow shard and requires splitting or
@@ -1410,6 +1443,7 @@ def main(argv=None):
     # tracked tests/test*.py declaring BD_GATE_SCOPE = "repo-wide" is selected
     # beside the floor with NO edit to _UNDERIVED_GATES; a file the census could
     # not classify is UNKNOWN by name, never a silent drop.
+    _heartbeat(8, started, "underived gate census")
     census = _repo_wide_marker_census(root)
     if census["error"]:
         derived = []
@@ -1438,6 +1472,7 @@ def main(argv=None):
         env = dict(os.environ)
         env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
         env["BD_DISABLE_KEEPALIVE"] = "1"
+        _heartbeat(9, started, "underived gates")
         rc, detail = _run_underived_gates(root, gates, env)
         if rc != 0:
             blocking.append(
