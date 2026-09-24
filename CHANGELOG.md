@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1670 - train97: row
+
+
 ## v3.66.1669 - train96: row
 
 - H736 (h736-lens-router): tests/test_h736_lens_router.py pins the lens router contract (builder exclusion, codex-first ranking, dead-seat REQUEUE, flock append before bd-say, exit 3 when nothing routes). Judges BD_H736_CANDIDATE or the deployed bd-persist/harness/bd-lens-router.sh; skips naming the path when neither exists. Test only; the router itself is a harness deploy.
