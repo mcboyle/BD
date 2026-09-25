@@ -487,26 +487,43 @@ def _iface_has_ip(iface: str, expected_ip: str) -> bool:
                 creationflags=_WIN_CREATE_FLAGS,
                 text=True,
             )
-            return expected_ip in (result.stdout or "")
+            in_iface = False
+            for line in (result.stdout or "").splitlines():
+                stripped = line.strip()
+                if stripped.endswith(":") and line and not line[0].isspace():
+                    in_iface = stripped == f"{iface}:" or stripped.endswith(f" {iface}:")
+                    continue
+                if in_iface:
+                    label, separator, value = stripped.partition(":")
+                    if separator and "IPv4" in label and value.split("(", 1)[0].strip() == expected_ip:
+                        return True
+            return False
         if IS_LINUX:
             result = subprocess.run(
                 ["ip", "-4", "-o", "addr", "show", "dev", iface],
                 stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             )
-            if result.returncode == 0:
-                return expected_ip in (result.stdout or "")
-            # Fallback: scan all interfaces
-            result = subprocess.run(
-                ["ip", "-4", "-o", "addr"],
-                stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
-            )
-            return (iface in (result.stdout or "")) and (expected_ip in (result.stdout or ""))
+            if result.returncode != 0:
+                # Fallback: scan all interfaces, keeping each address with its iface.
+                result = subprocess.run(
+                    ["ip", "-4", "-o", "addr"],
+                    stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
+                )
+            for line in (result.stdout or "").splitlines():
+                fields = line.split()
+                if (len(fields) >= 4 and fields[1].split("@", 1)[0] == iface
+                        and fields[2] == "inet" and fields[3].split("/", 1)[0] == expected_ip):
+                    return True
+            return False
         if IS_DARWIN:
             result = subprocess.run(
                 ["ifconfig", iface],
                 stdin=subprocess.DEVNULL, capture_output=True, timeout=5, text=True,
             )
-            return expected_ip in (result.stdout or "")
+            return any(
+                fields[:2] == ["inet", expected_ip]
+                for fields in (line.split() for line in (result.stdout or "").splitlines())
+            )
     except subprocess.TimeoutExpired:
         return False
     except Exception:
