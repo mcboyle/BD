@@ -194,3 +194,7 @@ audit_venv/
 # Login evidence written by write_login_evidence (replay.py/submit.py)
 /login_evidence/
 login_evidence/
+
+# Machine-local agent rule symlinks (-> /home/mboyle/*.md); absolute targets dangle in CI, so never tracked (T101 fix of 28ee2fd17).
+/AGENTS.md
+/GEMINI.md

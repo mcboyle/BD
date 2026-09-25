@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+BD_GATE_SCOPE = "module"
+
 BIN_PATH = Path(__file__).resolve().parent.parent / "toolchain" / "bin" / "bd-axtree-distill"
 
 SAMPLE_HTML = """

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+BD_GATE_SCOPE = "module"
+
 BIN_PATH = Path(__file__).resolve().parent.parent / "toolchain" / "bin" / "bd-dag-schedule"
 
 
