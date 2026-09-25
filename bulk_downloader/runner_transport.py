@@ -1328,6 +1328,14 @@ class TransportMixin:
                                     f"Direct • {fmt_bytes(got)}",
                                     file_size=got,
                                 )
+                # Content-Length counts encoded bytes; iter_bytes yields decoded
+                # ones, so the comparison only holds for identity encoding.
+                encoding = (r.headers.get("content-encoding") or "identity").strip().lower()
+                if total and encoding == "identity" and got != total:
+                    sys.stderr.write(
+                        f"  direct_http: incomplete response ({got}/{total} bytes)\n"
+                    )
+                    return False
             return True
         except httpx.RequestError as e:
             sys.stderr.write(f"  direct_http: request error {e}\n")
@@ -4518,4 +4526,3 @@ def _extract_scoped_cookies(ctx, file_url):
     if not raw:
         return {}
     return {c["name"]: c["value"] for c in raw if isinstance(c, dict) and "name" in c and "value" in c}
-
