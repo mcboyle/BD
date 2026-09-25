@@ -114,6 +114,32 @@ def test_patch_bad_action_is_dropped_not_coerced():
     assert row["action"] == "notify"  # untouched default lane
 
 
+def test_patch_bad_schedule_keeps_rule_runnable():
+    from bulk_downloader import saved_searches as ss
+    from bulk_downloader.db import db_init
+
+    db_init()
+    c = _client()
+    sid = ss.add(name="patch-schedule", query="alpha", schedule="hourly")
+    assert sid is not None
+    tok = _csrf(c)
+
+    valid = c.patch(f"/api/saved_searches/{sid}", json={"schedule": "daily"},
+                    headers={"X-CSRF-Token": tok})
+    assert valid.status_code == 200 and valid.get_json()["ok"] is True
+    assert next(x for x in ss.list_all() if x["id"] == sid)["schedule"] == "daily"
+
+    invalid = c.patch(f"/api/saved_searches/{sid}", json={"schedule": "never"},
+                      headers={"X-CSRF-Token": tok})
+    assert invalid.status_code == 200 and invalid.get_json()["ok"] is False
+    assert next(x for x in ss.list_all() if x["id"] == sid)["schedule"] == "daily"
+
+    # Unhashable JSON values are refused the same way, not raised.
+    for bad in (["daily"], {"daily": 1}):
+        assert ss.update(sid, schedule=bad) is False
+    assert next(x for x in ss.list_all() if x["id"] == sid)["schedule"] == "daily"
+
+
 def test_patch_unmatched_id_reports_not_ok():
     from bulk_downloader.db import db_init
     db_init()

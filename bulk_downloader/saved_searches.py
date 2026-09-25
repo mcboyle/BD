@@ -211,6 +211,9 @@ def update(search_id: int, **fields) -> bool:
     changes = {k: v for k, v in fields.items() if k in allowed}
     if "action" in changes and changes["action"] not in _ACTIONS:
         changes.pop("action")
+    if "schedule" in changes and not (isinstance(changes["schedule"], str)
+                                      and changes["schedule"] in _SCHEDULE_INTERVALS):
+        changes.pop("schedule")
     if "daily_cap" in changes:
         try:
             changes["daily_cap"] = max(0, int(changes["daily_cap"]))
