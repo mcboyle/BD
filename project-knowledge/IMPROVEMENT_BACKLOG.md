@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=440 open=3 ids-sha256=5fc8f8cdac18dff12541cde5679aaf100188f1124af9c26545f2fb238b2db1af -->
+<!-- canonical-task-register schema=1 rows=453 open=16 ids-sha256=58018e8a4b0b2dbbd98ae955098af93d0c7c901c3efe259491d3861da439af75 -->
 
 ## Namespace and population
 
@@ -509,3 +509,16 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1118 | CLOSED @1675 | HUNT3-API-TOKEN-TTL -- api_tokens TTL handling (sol-hunt-3 FIND-11, lens bd-fixer-D-A) |
 | 1119 | CLOSED @1675 | HUNT2-TRANSPORT-BYTES -- runner_transport byte accounting (sol-hunt-2 FIND-11, lens bd-fixer-C-B) |
 | 1120 | CLOSED @1675 | H842-WEBRTC-RESULT-BOOL -- vpn_leak_tests: a string verdict passed the critical WebRTC probe (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1121 | OPEN | H843-DNS-WEATHER-SOCKET-TIMEOUT -- a DNS weather probe permanently changed the process-wide socket timeout (sol-hunt-4 FIND-14, H843) |
+| 1122 | OPEN | H844-PROTON-NONOBJECT-WG-CONFIG -- Proton accepted a non-object WireGuard config as valid, then render raised AttributeError (sol-hunt-4 FIND-15, H844) |
+| 1123 | OPEN | H845-SELFHOSTED-WG-ENDPOINT-PORT -- self-hosted WireGuard credentials accepted unusable endpoint ports 0, -1 and 65536 (sol-hunt-4 FIND-16, H845) |
+| 1124 | OPEN | HUNT2-ROLLUP-CANCELLED-PARENT -- a canceled parent download was reported completed in its progress rollup when its child completed (sol-hunt-2 FIND-12) |
+| 1125 | OPEN | HUNT3-BACKUP-TEMP-ARCHIVE-LEAK -- a successful backup download left a full temporary backup archive on disk after the response closed (sol-hunt-3 FIND-16) |
+| 1126 | OPEN | HUNT3-SCHEDULED-EXPORT-COLLISION -- concurrent scheduled exports in one directory overwrote or pruned each other's output (sol-hunt-3 FIND-13) |
+| 1127 | OPEN | HUNT2-SUBSCRIPTION-SCHEDULE-BLOCKS-SCAN -- one malformed subscription schedule prevented later valid subscriptions from being scanned (sol-hunt-2 FIND-14) |
+| 1128 | OPEN | HUNT3-BULK-NEGATIVE-LIMIT -- a negative bulk-operation limit selected every history row, bypassing the bounded selection (sol-hunt-3 FIND-15) |
+| 1129 | OPEN | H846-PIA-INCOMPLETE-ADDKEY -- PIA accepted an incomplete successful WireGuard addKey reply and returned an unusable tunnel config (sol-hunt-4 FIND-17, H846) |
+| 1130 | OPEN | H848-VPN-REQUIRED-FAIL-OPEN -- SECURITY: a site inheriting a required global VPN silently fell back to clear egress when its tunnel was missing (sol-hunt-4 FIND-19, H848) |
+| 1131 | OPEN | H849-EGRESS-WEIGHT-DAMPING -- a higher-weight healthy egress interface at equal priority never became active after damping (sol-hunt-4 FIND-20, H849) |
+| 1132 | OPEN | HUNT2-QUARANTINE-OVERWRITE -- a repeated failed download overwrote the prior quarantined file with the same name (sol-hunt-2 FIND-15) |
+| 1133 | OPEN | HUNT3-TAG-NEGATIVE-LIMIT -- a negative tag-row limit returned every tagged history row instead of a bounded result (sol-hunt-3 FIND-22) |
