@@ -33,19 +33,25 @@ def api_history():
     # db_search_cursor; otherwise the legacy BARE ARRAY contract is unchanged.
     cursor = request.args.get("cursor")
     paginate = (request.args.get("paginate") or "0") == "1"
+    default_limit = 100 if cursor is not None or paginate else 200
+    try:
+        limit = int(request.args.get("limit", default_limit))
+    except (TypeError, ValueError):
+        return jsonify({"error": "limit must be a positive integer"}), 400
+    if limit < 1:
+        return jsonify({"error": "limit must be a positive integer"}), 400
     if cursor is not None or paginate:
         from .db import db_search_cursor
         try:
             after_id = int(cursor) if cursor not in (None, "") else None
         except (TypeError, ValueError):
             after_id = None
-        limit = int(request.args.get("limit", 100))
         rows, next_cursor = db_search_cursor(
             site_id=site_id, status=status, query=query,
             after_id=after_id, limit=limit)
         return jsonify({"rows": rows, "next_cursor": next_cursor})
     return jsonify(db_search(site_id=site_id, status=status, query=query,
-                             limit=int(request.args.get("limit", 200))))
+                             limit=limit))
 
 def register_routes(app) -> int:
     app.register_blueprint(history_bp)
