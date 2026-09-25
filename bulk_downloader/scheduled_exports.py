@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -157,6 +158,7 @@ def _run_one(schedule: dict, *, s_cfg: Optional[dict] = None) -> dict:
         except OSError as e:
             return {"ok": False, "error": f"dest dir: {e}"}
     ts = time.strftime("%Y%m%d-%H%M%S")
+    run_tag = f"{schedule['id']}-{ts}-{uuid.uuid4().hex}"
     try:
         filter_dict = json.loads(schedule.get("filter_json") or "{}")
     except Exception:
@@ -166,7 +168,7 @@ def _run_one(schedule: dict, *, s_cfg: Optional[dict] = None) -> dict:
     src_rows = _resolve_source_rows(schedule.get("source_saved_search"))
 
     if fmt == "eol":
-        out_dir = os.path.join(dest_dir, f"bd-eol-{ts}")
+        out_dir = os.path.join(dest_dir, f"bd-eol-{run_tag}")
         try:
             from . import eol_export as _eol
             r = _eol.full_export(out_dir, s_cfg=s_cfg)
@@ -191,7 +193,7 @@ def _run_one(schedule: dict, *, s_cfg: Optional[dict] = None) -> dict:
             ext = "m3u"
         else:
             return {"ok": False, "error": f"unknown format: {fmt}"}
-        path = os.path.join(dest_dir, f"bd-{fmt}-{ts}.{ext}")
+        path = os.path.join(dest_dir, f"bd-{fmt}-{run_tag}.{ext}")
         Path(path).write_bytes(body)
         return {"ok": True, "file": path, "size_bytes": len(body)}
     except Exception as e:
@@ -208,7 +210,7 @@ def _apply_retention(schedule: dict):
         return
     try:
         # Find files matching the schedule's pattern
-        prefix = "bd-eol-" if fmt == "eol" else f"bd-{fmt}-"
+        prefix = f"bd-{fmt}-{schedule['id']}-"
         entries = []
         for name in os.listdir(dest):
             if not name.startswith(prefix):
