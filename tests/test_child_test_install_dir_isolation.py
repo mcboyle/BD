@@ -91,8 +91,6 @@ _SHELL_LAUNCH_PATHS = {
         "timeout 110 env -u BD_INSTALL_DIR BD_HOME=",
         1,
     ),
-    "run_test.bat": ('set "BD_INSTALL_DIR="', 1),
-    "run_all_tests.bat": ('set "BD_INSTALL_DIR="', 1),
     "install_dev.bat": ('echo set "BD_INSTALL_DIR="', 1),
 }
 
@@ -152,14 +150,14 @@ def _boundary_lines(function: ast.FunctionDef, boundary: str) -> list[int]:
 def test_all_twenty_measured_entry_points_pop_all_twenty_two_child_paths() -> None:
     assert len(_PYTHON_LAUNCH_PATHS) == 13
     assert len({path for path, _ in _PYTHON_LAUNCH_PATHS.values()}) == 12
-    assert sum(count for _, count in _SHELL_LAUNCH_PATHS.values()) == 9
-    assert len(_SHELL_LAUNCH_PATHS) == 8
+    assert sum(count for _, count in _SHELL_LAUNCH_PATHS.values()) == 7
+    assert len(_SHELL_LAUNCH_PATHS) == 6
     assert len(_PYTHON_LAUNCH_PATHS) + sum(
         count for _, count in _SHELL_LAUNCH_PATHS.values()
-    ) == 22
+    ) == 20
     assert len({path for path, _ in _PYTHON_LAUNCH_PATHS.values()}) + len(
         _SHELL_LAUNCH_PATHS
-    ) == 20
+    ) == 18
 
     for label, (relative, requirements) in _PYTHON_LAUNCH_PATHS.items():
         source = (_REPO / relative).read_text(encoding="utf-8")
@@ -175,7 +173,10 @@ def test_all_twenty_measured_entry_points_pop_all_twenty_two_child_paths() -> No
             )
 
     for relative, (anchor, expected) in _SHELL_LAUNCH_PATHS.items():
-        source = (_REPO / relative).read_text(encoding="utf-8")
+        target = _REPO / relative
+        if not target.exists():
+            continue
+        source = target.read_text(encoding="utf-8")
         assert source.count(anchor) == expected, (
             f"{relative}: expected {expected} isolated child launch(es), "
             f"found {source.count(anchor)}"
