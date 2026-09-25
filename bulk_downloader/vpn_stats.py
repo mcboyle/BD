@@ -140,7 +140,7 @@ def best_profile_for(site_id: str, *,
                 if r["site_id"] == site_id
                    and r["attempts"] >= min_attempts
                    and (r["vpn_profile"], site_id) not in blocked]
-    if candidate_profiles:
+    if candidate_profiles is not None:
         eligible = [r for r in eligible
                     if r["vpn_profile"] in candidate_profiles]
     if not eligible:
