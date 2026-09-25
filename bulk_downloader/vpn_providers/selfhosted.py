@@ -170,10 +170,12 @@ def _validate_wg(creds: dict) -> tuple[bool, str]:
     if ":" not in ep:
         return False, "wg_endpoint must be host:port"
     try:
-        host, port = ep.rsplit(":", 1)
-        int(port)
+        _host, port = ep.rsplit(":", 1)
+        port_number = int(port)
     except ValueError:
         return False, "wg_endpoint port not numeric"
+    if not 1 <= port_number <= 65535:
+        return False, "wg_endpoint port out of range"
     return True, "ok"
 
 
