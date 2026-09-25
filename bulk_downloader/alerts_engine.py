@@ -302,10 +302,18 @@ def evaluate(s_cfg: Optional[dict] = None,
     and it is now visible to the operator through /api/alerts/evaluate and,
     past the scheduler wrapper, through /api/bg/status.
     """
-    if rules is None:
-        rules = DEFAULT_RULES
     out = {"evaluated": 0, "tripping": 0, "fired": 0, "unknown": 0,
            "results": []}
+    if rules is None:
+        # Saved custom rules ride the default pass. A store that cannot be
+        # read is reported as UNKNOWN (row 421), never as "no custom rules".
+        rules, store_error = _merged_rules()
+        if store_error:
+            out["unknown"] += 1
+            out["results"].append({"rule_id": "custom_rules", "metric": "",
+                                   "value": None, "threshold": None,
+                                   "tripping": False, "fired": False,
+                                   "error": store_error})
     for rule in rules:
         out["evaluated"] += 1
         metric = rule.get("metric", "")
@@ -322,7 +330,13 @@ def evaluate(s_cfg: Optional[dict] = None,
             result["error"] = f"unknown op: {rule.get('op')}"
             out["results"].append(result)
             continue
-        tripping = op_fn(value, rule["threshold"])
+        try:
+            threshold = float(rule["threshold"])
+        except (KeyError, TypeError, ValueError):
+            result["error"] = f"bad threshold: {rule.get('threshold')!r}"
+            out["results"].append(result)
+            continue
+        tripping = op_fn(value, threshold)
         result["tripping"] = tripping
         if tripping:
             out["tripping"] += 1
@@ -399,6 +413,27 @@ def active_alerts(*, lookback_hours: int = 24) -> list:
         return []
 
 
+def _merged_rules() -> tuple:
+    """(DEFAULT_RULES overlaid with saved rules + custom-only rules, error).
+
+    ``error`` is None when alert_rules was read, else a string; the defaults
+    are still returned so built-in alerting survives a store outage."""
+    try:
+        _ensure_tables()
+        from . import db as _db
+        with _db.db_conn() as cx:
+            rows = cx.execute("SELECT rule_id, rule_json FROM alert_rules").fetchall()
+        custom = {r[0]: json.loads(r[1]) for r in rows}
+    except Exception as e:
+        return list(DEFAULT_RULES), f"alert_rules store unavailable: {type(e).__name__}"
+    out = []
+    for rule in DEFAULT_RULES:
+        out.append({**rule, **custom[rule["id"]]} if rule["id"] in custom else rule)
+    default_ids = {rule["id"] for rule in DEFAULT_RULES}
+    out.extend({**rule, "id": rid} for rid, rule in custom.items() if rid not in default_ids)
+    return out, None
+
+
 def list_rules(*, s_cfg: Optional[dict] = None) -> list:
     """All known rules, with their current metric values + state."""
     _ensure_tables()
@@ -454,10 +489,11 @@ def save_rule(rule: dict) -> Optional[str]:
     if not rid or metric not in _KNOWN_METRICS or op not in _VALID_OPS:
         return None
     try:
-        float(rule.get("threshold"))
+        threshold = float(rule.get("threshold"))
     except (TypeError, ValueError):
         return None
-    stored = {**rule, "id": rid, "metric": metric, "op": op}
+    stored = {**rule, "id": rid, "metric": metric, "op": op,
+              "threshold": threshold}
     try:
         from . import db as _db
         with _db.db_conn() as cx:
