@@ -3462,6 +3462,19 @@ class TransportMixin:
                         return final_path.stat().st_size, 0
                     raise _HTTPDownloadFailed("HTTP 416 with no resume position")
                 if resp.status_code==206:  # partial content — resume worked
+                    content_range = re.fullmatch(
+                        r"\s*bytes\s+(\d+)-(\d+)/(?:\d+|\*)\s*",
+                        resp.headers.get("Content-Range", ""), re.IGNORECASE,
+                    )
+                    # No Range was sent for a fresh download (resume_from 0); a
+                    # server may still answer 206 for the whole body from byte 0.
+                    if (content_range is None
+                            and resume_from > 0) or (
+                            content_range is not None
+                            and (int(content_range.group(1)) != resume_from
+                                 or int(content_range.group(2)) < resume_from)):
+                        raise _HTTPDownloadFailed(
+                            "HTTP 206 Content-Range does not match requested offset")
                     mode="ab"; downloaded=resume_from
                     total=resume_from+int(resp.headers.get("Content-Length",0))
                 elif resp.status_code==200:  # full content; if we tried to resume, we restart

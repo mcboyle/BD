@@ -1421,13 +1421,16 @@ def test_dashboard_aggregates_current_not_completion_throughput(fresh_app):
 
 
 class _StreamResponse:
-    def __init__(self, chunks, *, status_code=200, content_length=None):
+    def __init__(self, chunks, *, status_code=200, content_length=None,
+                 content_range=None):
         self.status_code = status_code
         self.headers = {
             "Content-Length": str(
                 sum(len(chunk) for chunk in chunks)
                 if content_length is None else content_length)
         }
+        if content_range is not None:
+            self.headers["Content-Range"] = content_range
         self._chunks = list(chunks)
 
     def __enter__(self):
@@ -1511,7 +1514,8 @@ def test_sequential_resume_progress_reports_absolute_file_size(monkeypatch, tmp_
     part_path.write_bytes(b"abcd")
     assert part_path.stat().st_size == 4
     response = _StreamResponse(
-        [b"ef", b"gh"], status_code=206, content_length=4)
+        [b"ef", b"gh"], status_code=206, content_length=4,
+        content_range="bytes 4-7/8")
     monkeypatch.setattr(httpx.Client, "stream", lambda self, *args, **kwargs: response)
     monkeypatch.setattr(transport.time, "time", _tick_clock())
     monkeypatch.setattr(transport, "record_bandwidth", lambda delta: None)

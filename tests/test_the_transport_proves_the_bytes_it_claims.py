@@ -113,10 +113,14 @@ class _Origin(BaseHTTPRequestHandler):
             {"path": self.path, "range": rng, "if_range": if_range})
 
         extra: list[tuple[str, str]] = []
-        if rng is None or cfg.get("ignore_range"):
+        if rng is None and cfg.get("unsolicited_206"):
+            status, payload = 206, body
+            extra.append(("Content-Range", f"bytes 0-{len(body) - 1}/{len(body)}"))
+        elif rng is None or cfg.get("ignore_range"):
             status, payload = 200, body
         else:
             start = int(rng.split("=", 1)[1].split("-", 1)[0])
+            start = cfg.get("range_response_start", start)
             if (if_range is not None and etag is not None and if_range != etag
                     and not cfg.get("ignore_if_range")):
                 # RFC 9110 14.2: validator no longer matches -> whole resource.
@@ -548,6 +552,42 @@ def test_a_genuine_206_resume_reports_only_the_new_bytes(
     assert dest.read_bytes() == payload, "the 206 did not glue on correctly"
     assert size == 4000
     assert fetched == 3000, "a 206 transfers total - resume_from, exactly"
+
+
+def test_a_wrong_206_range_cannot_append_unrelated_bytes(origin, monkeypatch, tmp_path):
+    """A 206 body must start at the offset requested by this .part."""
+    from bulk_downloader.runner_transport import _HTTPDownloadFailed
+
+    _isolate(monkeypatch, tmp_path)
+    payload = b"B" * 4000
+    base, handler = origin({
+        "/wrong.bin": {"body": payload, "etag": '"v1"', "range_response_start": 0}
+    })
+    dest, part, _meta = _prepare_part(
+        tmp_path, "wrong.bin", b"A" * 1000,
+        meta={"etag": '"v1"'}, page_url=base + "/wrong.bin",
+    )
+    assert part.stat().st_size == 1000
+    with pytest.raises(_HTTPDownloadFailed, match="Content-Range"):
+        _harness()._http_download(
+            base + "/wrong.bin", None, _Ctx(), base + "/wrong.bin", dest,
+        )
+    assert handler.requests[0]["range"] == "bytes=1000-"
+    assert not dest.exists()
+
+
+def test_an_unsolicited_206_from_byte_zero_is_a_fresh_download(origin, monkeypatch, tmp_path):
+    """No Range sent (no .part): a 206 carrying the whole body from 0 is still the file."""
+    _isolate(monkeypatch, tmp_path)
+    payload = b"Z" * 5000
+    base, handler = origin({"/z.bin": {"body": payload, "unsolicited_206": True}})
+    dest = tmp_path / "z.bin"
+    h = _harness()
+    size, fetched = h._http_download(base + "/z.bin", None, _Ctx(),
+                                      base + "/z.bin", dest)
+    assert handler.requests[0]["range"] is None
+    assert (size, fetched) == (5000, 5000)
+    assert dest.read_bytes() == payload
 
 
 def test_a_fresh_download_reports_every_byte(origin, monkeypatch, tmp_path):

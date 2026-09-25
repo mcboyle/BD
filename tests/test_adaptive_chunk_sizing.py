@@ -165,6 +165,9 @@ def _adaptive_transfer(monkeypatch, tmp_path, *, adaptive=True, resume=False, cf
     class Response:
         status_code = 206 if resume else 200
         headers = {"Content-Length": str(len(remaining)), "ETag": '"row966"'}
+        if resume:  # RFC 9110: a 206 names the range it carries
+            headers["Content-Range"] = (
+                f"bytes {len(prefix)}-{len(payload) - 1}/{len(payload)}")
 
         def close(self):
             pass
