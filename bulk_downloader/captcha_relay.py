@@ -537,6 +537,8 @@ def mark_resolved(url: str) -> bool:
         p = _pending.get(url)
         if p is None:
             return False
+        if p.status in ("resolved", "dismissed"):
+            return p.status == "resolved"
         site_id = p.site_id
         sid = p.solve_session_id
         p.status = "resolved"
@@ -556,6 +558,8 @@ def mark_dismissed(url: str) -> bool:
         p = _pending.get(url)
         if p is None:
             return False
+        if p.status in ("resolved", "dismissed"):
+            return p.status == "dismissed"
         site_id = p.site_id
         sid = p.solve_session_id
         p.status = "dismissed"
