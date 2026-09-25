@@ -12,8 +12,11 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parent.parent
+RUN_TESTS = REPO / "run_tests.py"
 
 
 def _python(source: str) -> subprocess.CompletedProcess[str]:
@@ -98,15 +101,13 @@ def test_explicit_activation_is_nestable_and_restores_an_absent_binding():
 
 
 def test_standalone_entrypoint_scopes_stub_on_normal_return():
+    if not RUN_TESTS.exists():
+        pytest.skip("run_tests.py absent in this tree")
     result = _python(
         """
-        import os
         import runpy
         import sys
         import run_tests_core
-
-        if not os.path.exists("run_tests.py"):
-            sys.exit(0)
 
         prior = sys.modules.pop("pytest", None)
         try:
@@ -125,15 +126,13 @@ def test_standalone_entrypoint_scopes_stub_on_normal_return():
 
 
 def test_standalone_entrypoint_restores_binding_on_exception():
+    if not RUN_TESTS.exists():
+        pytest.skip("run_tests.py absent in this tree")
     result = _python(
         """
-        import os
         import runpy
         import sys
         import run_tests_core
-
-        if not os.path.exists("run_tests.py"):
-            sys.exit(0)
 
         class Boom(Exception):
             pass
