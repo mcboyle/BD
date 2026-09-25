@@ -389,11 +389,16 @@ def api_queue_import(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error": "Not found"}), 404
     body = request.json or {}
-    rows = body.get("rows") or []
+    rows = body.get("rows")
     mode = (body.get("mode") or "append").lower()
     if mode not in ("append", "replace"):
         return jsonify({"ok": False, "error":
                         f"unknown mode: {mode}"}), 400
+    if not isinstance(rows, list) or any(
+        not isinstance(row, dict) or not isinstance(row.get("url", ""), str)
+        for row in rows
+    ):
+        return jsonify({"ok": False, "error": "rows must be a list of URL objects"}), 400
     runner = runners[sid]
     if mode == "replace":
         with runner._lock:
