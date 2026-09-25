@@ -98,7 +98,10 @@ def _build_query(*, table: str = "history",
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY id DESC LIMIT ?"
-    params.append(min(int(limit), 10000))
+    parsed_limit = int(limit)
+    if parsed_limit < 0:
+        raise ValueError("limit must be nonnegative")
+    params.append(min(parsed_limit, 10000))
     return sql, params
 
 
@@ -262,6 +265,9 @@ def bulk_dedup_scan(*, site_id: Optional[str] = None,
        total_files_scanned, candidates_with_size_collisions,
        confirmed_dup_groups, recoverable_gb}
     """
+    if int(limit) < 0:
+        # SQLite LIMIT -1 means unbounded: refuse rather than scan every row.
+        return {"error": "limit must be nonnegative", "duplicate_groups": []}
     try:
         from . import db as _db
         sql = """SELECT id, site_id, filename, file_size
