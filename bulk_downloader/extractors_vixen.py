@@ -536,12 +536,15 @@ def _pick_url_by_preference(
     if not urls:
         return "", 0
     # Dedup on URL (some records list the same URL twice)
-    seen: set = set()
+    seen: dict = {}
     unique: list = []
     for u, t in urls:
         if u in seen:
+            idx = seen[u]
+            if t > unique[idx][1]:
+                unique[idx] = (u, t)
             continue
-        seen.add(u)
+        seen[u] = len(unique)
         unique.append((u, t))
     # Sort by tier descending for fallback
     unique.sort(key=lambda ut: ut[1], reverse=True)
