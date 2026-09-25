@@ -6,6 +6,8 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 """
 from __future__ import annotations
 
+import math
+
 from flask import Blueprint, jsonify, request
 
 shares_bp = Blueprint("shares", __name__)
@@ -20,13 +22,22 @@ def _check_csrf(*_a, **_k):
 def api_shares_create():
     _check_csrf()
     body = request.json or {}
+    ttl_hours = None
+    if body.get("ttl_hours") is not None:
+        try:
+            if isinstance(body["ttl_hours"], bool):
+                raise TypeError("invalid ttl_hours")
+            ttl_hours = float(body["ttl_hours"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "ttl_hours must be positive"}), 400
+        if not math.isfinite(ttl_hours) or ttl_hours <= 0:
+            return jsonify({"ok": False, "error": "ttl_hours must be positive"}), 400
     try:
         from . import shares as _sh
         return jsonify(_sh.create_token(
             scopes=body.get("scopes", []) or [],
             label=body.get("label", ""),
-            ttl_hours=(int(body["ttl_hours"]) if body.get("ttl_hours")
-                       else None),
+            ttl_hours=ttl_hours,
             ip_whitelist=body.get("ip_whitelist", ""),
         ))
     except Exception as e:

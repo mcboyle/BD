@@ -86,7 +86,7 @@ def _signing_secret() -> str:
 
 
 def create_token(*, scopes: list, label: str = "",
-                ttl_hours: Optional[int] = None,
+                ttl_hours: float | None = None,
                 ip_whitelist: str = "") -> dict:
     """Mint a new share token. Returns
     {token, token_id, scopes, expires_at}."""
