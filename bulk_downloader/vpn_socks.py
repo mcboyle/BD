@@ -284,7 +284,11 @@ class SocksProxy:
                 raise OSError(
                     f"bind to outbound IP {self.outbound_bind_ip!r} failed: {e}"
                 ) from e
-        s.connect((host, port))
+        try:
+            s.connect((host, port))
+        except OSError:
+            s.close()
+            raise
         return s
 
     def _reply(self, client: socket.socket, code: int) -> None:
