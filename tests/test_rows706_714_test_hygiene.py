@@ -236,6 +236,7 @@ def test_row706_fail_closed_probe_never_reaches_the_live_resolver(
 def test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
     tmp_path: Path,
 ) -> None:
+    # T102 row1093: 69/38 -> 70/39 (tests/test_hunt_history_limit.py names a .invalid host; enters by the predicate, runs under the tripwire, not exempted).
     # rows 972-973: re-pinned 46/28 -> 69/38 (68/37 at r7, +1 for the r8 credential-leak test). The rendered-control tests added in this
     # cut (tests/test_rows972_973_rendered_runtime_controls.py 16 sites,
     # tests/test_rows972_973_rendered_proxy_forms.py 1, tests/test_settings_center_slice5.py
@@ -244,9 +245,9 @@ def test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
     # 37 nodeids under the DNS tripwire and still asserts zero resolver attempts.
     sites = _dns_adjacent_sites(_REPO)
     nodeids = tuple(sorted({nodeid for _, nodeid in sites}))
-    assert len(sites) == 69 and len(nodeids) == 38, (
+    assert len(sites) == 70 and len(nodeids) == 39, (
         "UNKNOWN: resolver-adjacent census drifted: "
-        "expected sites=69 nodeids=38; "
+        "expected sites=70 nodeids=39; "
         f"observed sites={len(sites)} nodeids={len(nodeids)}"
     )
     hook, sink = _install_dns_tripwire(tmp_path)
@@ -294,13 +295,13 @@ def test_row706_narrowed_census_is_unknown(
 ) -> None:
     sites = _dns_adjacent_sites(_REPO)
     nodeids = {nodeid for _, nodeid in sites}
-    assert len(sites) == 69 and len(nodeids) == 38
+    assert len(sites) == 70 and len(nodeids) == 39
     frequencies = Counter(nodeid for _, nodeid in sites)
     unique_nodeid = next(
         nodeid for nodeid, count in frequencies.items() if count == 1)
     narrowed = tuple(site for site in sites if site[1] != unique_nodeid)
-    assert len(narrowed) == 68
-    assert len({nodeid for _, nodeid in narrowed}) == 37
+    assert len(narrowed) == 69
+    assert len({nodeid for _, nodeid in narrowed}) == 38
     monkeypatch.setattr(
         sys.modules[__name__], "_dns_adjacent_sites", lambda repo: narrowed)
 
@@ -308,7 +309,7 @@ def test_row706_narrowed_census_is_unknown(
         AssertionError,
         match=(
             "UNKNOWN: resolver-adjacent census drifted: "
-            "expected sites=69 nodeids=38; observed sites=68 nodeids=37"
+            "expected sites=70 nodeids=39; observed sites=69 nodeids=38"
         ),
     ):
         test_row706_every_resolver_adjacent_site_runs_under_the_dns_tripwire(
