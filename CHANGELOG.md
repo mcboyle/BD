@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1675 - T102: row1086, row1087, row1088, row1089, row1090, row1091, row1092, row1093, row1094, row1095, row1096, row1097, row1098, row1099, row1100, row1101, row1102, row1103, row1104, row1105, row1106, row1108, row1109, row1110, row1111, row1113, row1114, row1115, row1116, row1117, row1118, row1119, row1120
+
+- Bug-hunt fixes (sol-hunt-2/3/4, ORDERS-0176): 33 fixes found by the hunters and approved by independent reviewers. Each has a regression test and a register row (1086-1120; 1107 and 1112 stay open for a re-diff).
+- Security (row1088): config export no longer leaks secrets nested below the top level.
+- Downloads: multi-connection downloads check Content-Range and cancel cleanly (1086, 1087). Direct HTTP downloads reject truncated bodies (1113). The yt-dlp fallback no longer reports success without a file (1114). The supervisor unthrottles in-flight transfers when disabled (1099).
+- API, config and queue: rejected global-config writes roll back (1091), queue import is validated and keeps metadata (1094, 1106), bad limit and timeout values return 400 instead of 500 (1105, 1110), and other handler and extractor fixes.
+- VPN and proxy: WireGuard config validation (1104), SOCKS connect socket leak (1103), leak-test verdict typing (1120), Mullvad relay parsing (1116), stats and proxy streak fixes (1102, 1109).
+
+
 ## v3.66.1674 - T101: row1085
 
 - Quality preference cascade (row1085, sol-hunt-2 FIND-1): the Aylo and JSON-API quality pickers now walk the preference list in order, like the DL8 and Vixen pickers. A list such as `[720, "best"]` picks 720 when it is offered; before this, any `"best"` entry made them pick the highest quality. `["best", ...]` and an empty preference still pick the highest.

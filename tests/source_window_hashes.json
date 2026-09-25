@@ -132,7 +132,7 @@
     {
       "bytes": 3007,
       "key": "tests/test_v3_43_31_rate_limit.py::test_app_config_handler_validates_rate_limit_fields::src[pos:pos + 3000]::1",
-      "sha256": "413df57e402ec3a2a7ed63440cfb39102ab1394ab875b20dc828b088ea468a97"
+      "sha256": "f552365e59a8e9dbd03b78f4d5dafb0f18023f6d79830ff054809fbdf7667661"
     },
     {
       "bytes": 2502,

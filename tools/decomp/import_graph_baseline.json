@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5051,
+  "edge_count": 5097,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3423,9 +3423,109 @@
     "tests/test_hooks_webhook_ssrf.py": [
       "bulk_downloader/hooks.py"
     ],
+    "tests/test_hunt4_captcha_start_pending.py": [
+      "bulk_downloader/app_captcha_relay.py",
+      "bulk_downloader/captcha_relay.py"
+    ],
+    "tests/test_hunt4_connect_authority.py": [
+      "bulk_downloader/download_egress.py"
+    ],
+    "tests/test_hunt4_cookie_import_temp_cleanup.py": [
+      "bulk_downloader/app_sites_auth.py"
+    ],
+    "tests/test_hunt4_flaresolverr_error_response.py": [
+      "bulk_downloader/flaresolverr_client.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_hunt4_flaresolverr_timeout_input.py": [
+      "bulk_downloader/app_flaresolverr.py"
+    ],
+    "tests/test_hunt4_proxy_cooldown.py": [
+      "bulk_downloader/proxy_pool.py"
+    ],
+    "tests/test_hunt4_vpn_config_root.py": [
+      "bulk_downloader/vpn_config.py"
+    ],
+    "tests/test_hunt4_vpn_history_limit.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/vpn_leak_tests.py"
+    ],
+    "tests/test_hunt4_vpn_socks_connect_cleanup.py": [
+      "bulk_downloader/vpn_socks.py"
+    ],
+    "tests/test_hunt4_vpn_stats_candidates.py": [
+      "bulk_downloader/vpn_stats.py"
+    ],
+    "tests/test_hunt4_webrtc_result_bool.py": [
+      "bulk_downloader/vpn_leak_tests.py"
+    ],
+    "tests/test_hunt_api_token_ttl.py": [
+      "bulk_downloader/api_tokens.py"
+    ],
+    "tests/test_hunt_batch_move_collision.py": [
+      "bulk_downloader/batch_ops.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_custom_alert_evaluation.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_direct_http_truncated.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_hunt_dl8_4k_probe.py": [
+      "bulk_downloader/extractors_dl8.py"
+    ],
+    "tests/test_hunt_global_config_rejected_write.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/log.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_hunt_history_limit.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_hold_broken_symlink.py": [
+      "bulk_downloader/download_hold.py"
+    ],
+    "tests/test_hunt_library_hls_query.py": [
+      "bulk_downloader/extractors.py"
+    ],
+    "tests/test_hunt_multi_conn_cancel.py": [
+      "bulk_downloader/multi_conn.py"
+    ],
+    "tests/test_hunt_multi_conn_range.py": [
+      "bulk_downloader/multi_conn.py"
+    ],
     "tests/test_hunt_quality_pref_cascade.py": [
       "bulk_downloader/extractors_aylo.py",
       "bulk_downloader/extractors_jsonapi.py"
+    ],
+    "tests/test_hunt_queue_import_metadata.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_queue_import_validation.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_hunt_queue_template_apply.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_queue_templates.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/queue_templates.py"
+    ],
+    "tests/test_hunt_supervisor_disable.py": [
+      "bulk_downloader/download_supervisor.py"
+    ],
+    "tests/test_hunt_ytdlp_no_artifact.py": [
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/test_hydration_extractor.py": [
       "bulk_downloader/hydration_extractor.py"
