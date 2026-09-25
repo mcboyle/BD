@@ -596,14 +596,13 @@ def pick_source(
             codec_rank = 1 if s.codec.lower() == "h265" else 0
         return (s.height, codec_rank, 1 if not s.is_hls else 0)
     uniq.sort(key=_key, reverse=True)
-    # No pref or "best" → highest
-    if not quality_pref or any(
-        isinstance(p, str) and p.lower() in ("best", "highest", "max")
-        for p in quality_pref
-    ):
+    # No pref → highest
+    if not quality_pref:
         return uniq[0]
     # Walk preference cascade
     for pref in quality_pref:
+        if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
+            return uniq[0]
         try:
             target = int(str(pref).rstrip("p"))
         except (ValueError, TypeError):

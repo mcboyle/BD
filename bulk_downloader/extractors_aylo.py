@@ -455,8 +455,8 @@ def pick_best_variant(
     Algorithm:
       1. Normalize every entry to AyloVariant; drop None
       2. Filter by force_format if set
-      3. If quality_pref is None/empty/contains "best": return highest
-      4. Otherwise: for each pref in order, find the closest match
+      3. If quality_pref is None/empty: return highest
+      4. For each pref in order, "best" takes highest; numeric tiers find the closest match
          (exact > within ±5% > below). First match wins.
     """
     if not mediadefs:
@@ -473,13 +473,12 @@ def pick_best_variant(
         return (v.quality, 1 if v.format == "mp4" else 0)
     variants.sort(key=_sort_key, reverse=True)
     # No preference: take the top sorted entry
-    if not quality_pref or any(
-        isinstance(p, str) and p.lower() in ("best", "highest", "max")
-        for p in quality_pref
-    ):
+    if not quality_pref:
         return variants[0]
     # Otherwise walk the preference cascade
     for pref in quality_pref:
+        if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
+            return variants[0]
         try:
             target = int(str(pref).rstrip("p"))
         except (ValueError, TypeError):
