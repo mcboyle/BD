@@ -6,7 +6,7 @@ free-name scan of the moved bodies (the seams doc omitted the dedup +
 mp4_metadata conditionals). Cycle rule: imports nothing from .runner.
 """
 import math
-import os, sys, shutil
+import os, sys
 
 from .db import db_log
 from .fname import format_duration_for_filename
@@ -37,6 +37,26 @@ def _is_stream_container(path) -> bool:
     False for the zip and image extensions it verifies structurally."""
     ext = os.path.splitext(str(path))[1].lower()
     return ext != ".zip" and ext not in _IMAGE_MAGIC
+
+
+def _quarantine_failure(final_path):
+    quarantine = final_path.parent / "_failed"
+    quarantine.mkdir(exist_ok=True)
+    for n in range(1000):
+        name = (final_path.name if n == 0 else
+                f"{final_path.stem}.{n}{final_path.suffix}")
+        target = quarantine / name
+        # Reserve the name exclusively, then move over our own placeholder:
+        # never replaces earlier evidence, and needs no hard-link support
+        # (SMB/exFAT download dirs refuse os.link).
+        try:
+            fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        os.replace(final_path, target)
+        return target
+    raise FileExistsError("no free hash-quarantine filename")
 
 
 class IntegrityMixin:
@@ -281,9 +301,7 @@ class IntegrityMixin:
                     h.update(buf)
             actual = h.hexdigest().lower()
             if actual != expected_hash.lower():
-                quarantine = final_path.parent / "_failed"
-                quarantine.mkdir(exist_ok=True)
-                try: shutil.move(str(final_path), str(quarantine/final_path.name))
+                try: _quarantine_failure(final_path)
                 except Exception: pass
                 msg = f"Hash mismatch: {expected_algo} expected {expected_hash[:12]}…, got {actual[:12]}…; moved to _failed/"
                 self._update_job(page_url, "failed", msg,
@@ -298,10 +316,8 @@ class IntegrityMixin:
             # digest was never verified.  The separate media-container probe
             # cannot establish that these are the bytes the publisher named,
             # so it is not an integrity backstop for this claim.
-            quarantine = final_path.parent / "_failed"
-            quarantine.mkdir(exist_ok=True)
             try:
-                shutil.move(str(final_path), str(quarantine / final_path.name))
+                _quarantine_failure(final_path)
             except Exception:
                 pass
             detail = f"{type(e).__name__}: {e}"[:120]
@@ -416,9 +432,7 @@ class IntegrityMixin:
             sys.stderr.write(f"  container_repair: {type(_e).__name__}: {_e}\n")
 
         # Either retry_on_corruption disabled or we already retried once
-        quarantine = final_path.parent / "_failed"
-        quarantine.mkdir(exist_ok=True)
-        try: shutil.move(str(final_path), str(quarantine/final_path.name))
+        try: _quarantine_failure(final_path)
         except Exception: pass
         self._update_job(page_url, "failed",
                          f"Saved but failed integrity check ({reason}); moved to _failed/",
