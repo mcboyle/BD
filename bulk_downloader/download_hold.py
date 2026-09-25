@@ -129,14 +129,14 @@ def _result(state: str, *, reason: str = "", detail: str = "",
 def _read_record(path: Optional[os.PathLike | str]) -> dict:
     p = _store_path(path)
     try:
-        exists = p.exists()
-    except OSError as e:                      # e.g. EACCES on a parent dir
-        return _result(UNKNOWN, reason="store_stat_failed",
-                       detail=type(e).__name__)
-    if not exists:
+        p.lstat()
+    except FileNotFoundError:
         # Fresh install: the store has never been written, so no hold has ever
         # been recorded. See MISSING STORE IS CLEAR above.
         return _result(CLEAR, reason="store_absent")
+    except OSError as e:                      # e.g. EACCES on a parent dir
+        return _result(UNKNOWN, reason="store_stat_failed",
+                       detail=type(e).__name__)
     try:
         raw = p.read_text(encoding="utf-8")
     except OSError as e:
