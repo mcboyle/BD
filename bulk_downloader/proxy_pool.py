@@ -74,6 +74,9 @@ def record_result(state: dict, url: str, ok: bool, *,
         rec["fails"] = 0
         rec["down_until"] = 0
     else:
+        if 0 < float(rec.get("down_until", 0) or 0) <= now:
+            rec["fails"] = 0
+            rec["down_until"] = 0
         rec["fails"] = int(rec.get("fails", 0)) + 1
         if rec["fails"] >= max_fails:
             rec["down_until"] = now + cooldown_s
