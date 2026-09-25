@@ -488,18 +488,18 @@ Schema version: 2
   - L0098 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
   - L0115 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
   - L0143 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
-  - L0222 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0365 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0390 `SchedulerMixin._load_rl` `[private]`
-  - L0402 `SchedulerMixin._save_rl` `[private]`
-  - L0417 `SchedulerMixin._clear_rl` `[private]`
-  - L0421 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0431 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0441 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0481 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
-  - L0501 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
-  - L0513 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
-  - L0523 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+  - L0223 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
+  - L0366 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0391 `SchedulerMixin._load_rl` `[private]`
+  - L0403 `SchedulerMixin._save_rl` `[private]`
+  - L0418 `SchedulerMixin._clear_rl` `[private]`
+  - L0422 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0432 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0442 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0482 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
+  - L0502 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
+  - L0514 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
+  - L0524 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 

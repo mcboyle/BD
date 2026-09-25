@@ -30,7 +30,8 @@ def api_shares_create():
             ttl_hours = float(body["ttl_hours"])
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "ttl_hours must be positive"}), 400
-        if not math.isfinite(ttl_hours) or ttl_hours <= 0:
+        if (not math.isfinite(ttl_hours)
+                or ttl_hours <= 0):
             return jsonify({"ok": False, "error": "ttl_hours must be positive"}), 400
     try:
         from . import shares as _sh
