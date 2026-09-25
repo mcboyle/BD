@@ -338,12 +338,15 @@ def _download_chunk(
     *, headers: dict, on_progress: Callable,
     buffer_size: int = DEFAULT_BUFFER_SIZE,
     chunk_retries: int = DEFAULT_CHUNK_RETRIES,
+    cancel_event: threading.Event | None = None,
 ) -> tuple:
     """Download one chunk. Returns (success: bool, bytes_written: int,
     error: str)."""
     import httpx
     attempt = 0
     while attempt <= chunk_retries:
+        if cancel_event is not None and cancel_event.is_set():
+            return False, 0, "cancelled"
         attempt += 1
         bytes_written = 0
         local_headers = dict(headers)
@@ -379,6 +382,8 @@ def _download_chunk(
                 with open(output_path, "r+b") as out_f:
                     out_f.seek(chunk.start)
                     for buf in r.iter_bytes(buffer_size):
+                        if cancel_event is not None and cancel_event.is_set():
+                            return False, bytes_written, "cancelled"
                         if not buf:
                             continue
                         out_f.write(buf)
@@ -569,6 +574,7 @@ def download(
                     client, url, chunk, output_path,
                     headers=headers, on_progress=_on_progress,
                     chunk_retries=chunk_retries,
+                    cancel_event=cancel_event,
                 )
                 if mptcp_cap.state == MptcpCapabilityState.SUPPORTED and ok:
                     mptcp_negotiator.record_subflow_io(
