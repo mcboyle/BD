@@ -457,7 +457,7 @@ def _phub_adapter(url: str, quality_preference: list[str],
             pass
         return ExtractResult(
             ok=True, file_url=direct,
-            is_hls=direct.endswith(".m3u8") or "/hls/" in direct,
+            is_hls=urlparse(direct).path.lower().endswith(".m3u8") or "/hls/" in direct,
             title=title, author=author, thumbnail_url=thumb,
             duration_sec=duration, quality=quality_preference[0] if quality_preference else "best",
             extractor="phub",
@@ -528,7 +528,7 @@ def _generic_eaf_adapter(libname: str, url: str,
                 v = getattr(video, attr, None)
                 if v and isinstance(v, str):
                     file_url = v
-                    is_hls = file_url.endswith(".m3u8")
+                    is_hls = urlparse(file_url).path.lower().endswith(".m3u8")
                     break
         if not file_url:
             return ExtractResult(ok=False, error="eaf_no_url",
