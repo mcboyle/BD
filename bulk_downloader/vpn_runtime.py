@@ -66,6 +66,7 @@ _site_to_tunnel: dict[str, str] = {}
 
 # Global default tunnel (used for sites without their own vpn field).
 _global_tunnel_id: Optional[str] = None
+_global_required = False
 
 # site_id -> 'required' flag
 _site_required: dict[str, bool] = {}
@@ -185,10 +186,10 @@ def init(
             count, errors = 0, [str(e)]
 
         # 3: build site → tunnel map
-        global _global_tunnel_id
+        global _global_tunnel_id, _global_required
         gv = sites_config.get("global_vpn") if isinstance(sites_config, dict) else None
-        if isinstance(gv, dict):
-            _global_tunnel_id = gv.get("tunnel_id")
+        _global_tunnel_id = gv.get("tunnel_id") if isinstance(gv, dict) else None
+        _global_required = bool(gv.get("required", False)) if isinstance(gv, dict) else False
         _site_to_tunnel.clear()
         _site_required.clear()
         sites = sites_config.get("sites", []) if isinstance(sites_config, dict) else []
@@ -285,13 +286,14 @@ def init(
 def _clear_runtime_state_locked() -> None:
     """Clear state owned by this module while ``_init_lock`` is held."""
     global _initialized, _siterunner_pauser, _siterunner_resumer
-    global _global_tunnel_id, _kill_callback, _kill_callback_generation
+    global _global_tunnel_id, _global_required, _kill_callback, _kill_callback_generation
 
     _site_to_tunnel.clear()
     _site_required.clear()
     _siterunner_pauser = None
     _siterunner_resumer = None
     _global_tunnel_id = None
+    _global_required = False
     _kill_callback = None
     _kill_callback_generation = None
     _initialized = False
@@ -373,7 +375,7 @@ def get_tunnel_for_site(site_id: str) -> Optional[str]:
 
 
 def is_vpn_required_for_site(site_id: str) -> bool:
-    return bool(_site_required.get(site_id, False))
+    return _site_required.get(site_id, _global_required)
 
 
 def get_socks_url_for_site(site_id: str) -> Optional[str]:
