@@ -93,10 +93,16 @@ def api_tags_remove():
 def api_tags_rows(tag):
     """Find all rows tagged X. ?site_id=Y to filter; ?limit=N."""
     try:
+        limit = int(request.args.get("limit", "100"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "limit must be a positive integer"}), 400
+    if limit <= 0:
+        return jsonify({"error": "limit must be a positive integer"}), 400
+    try:
         from . import tags as _tags
         return jsonify({"rows": _tags.rows_with_tag(
             tag,
-            limit=int(request.args.get("limit", 100) or 100),
+            limit=limit,
             site_id=request.args.get("site_id") or None,
         )})
     except Exception as e:
