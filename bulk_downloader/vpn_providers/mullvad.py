@@ -265,6 +265,8 @@ def _parse_relay_list(data: Any) -> list[dict]:
             continue
         rid = relay.get("hostname", "")
         loc = relay.get("location", {}) or {}
+        if not isinstance(loc, dict):
+            continue
         pubkey = relay.get("pubkey", "") or relay.get("public_key", "")
         ipv4 = relay.get("ipv4_addr_in") or relay.get("ipv4") or ""
         port = relay.get("port") or 51820
@@ -278,7 +280,10 @@ def _parse_relay_list(data: Any) -> list[dict]:
             continue
         if not _valid_port(port):
             continue
-        country = (loc.get("country") or "").lower()
+        country = loc.get("country") or ""
+        if not isinstance(country, str):
+            continue
+        country = country.lower()
         city = loc.get("city") or ""
         # Country/city are display-only in our UI -- still keep them sane.
         if not re.match(r"^[a-z0-9 .,'-]{0,64}$", country):
