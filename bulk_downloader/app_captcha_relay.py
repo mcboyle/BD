@@ -97,7 +97,8 @@ def captcha_start_solve():
             cached_clearance = cache.get_clearance(egress_ip, domain)
             if cached_clearance is not None:
                 session_id = f"cached-{int(time.time())}"
-                captcha_relay.mark_resolved(url)
+                if not captcha_relay.mark_resolved(url):
+                    return _err("url not pending", 404)
                 return jsonify({
                     "ok": True,
                     "cached": True,
