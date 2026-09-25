@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=468 open=31 ids-sha256=7bb38c01533c41b01668c59ee14be975cd4ee15a7ed77dff2d08c8eaab222996 -->
+<!-- canonical-task-register schema=1 rows=468 open=1 ids-sha256=7bb38c01533c41b01668c59ee14be975cd4ee15a7ed77dff2d08c8eaab222996 -->
 
 ## Namespace and population
 
@@ -495,12 +495,12 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1104 | CLOSED @1675 | H806-WG-CONFIG-INCOMPLETE -- vpn_providers/generic called an incomplete WireGuard config valid (sol-hunt-4, lens bd-review-correctness-B1) |
 | 1105 | CLOSED @1675 | H807-FLARESOLVERR-TIMEOUT-TYPE -- app_flaresolverr non-numeric timeout_s returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
 | 1106 | CLOSED @1675 | HUNT3-QUEUE-IMPORT-METADATA -- queue import metadata in app_sites_queue (sol-hunt-3 FIND-7 r2, lens bd-fixer-D-A) |
-| 1107 | OPEN | HUNT3-QUEUE-APPEND-KEEPS-PRIORITY -- queue import mode=append overwrote priority/force_download of queued jobs (sol-hunt-3 FIND-8, lens N3-B; needs re-diff on FIND-7 r2) |
+| 1107 | CLOSED @1676 | HUNT3-QUEUE-APPEND-KEEPS-PRIORITY -- queue import mode=append overwrote priority/force_download of queued jobs (sol-hunt-3 FIND-8, lens N3-B; needs re-diff on FIND-7 r2) |
 | 1108 | CLOSED @1675 | HUNT3-ALERTS-ENGINE -- alerts_engine fix (sol-hunt-3 FIND-12, lens bd-review-correctness-N3-B) |
 | 1109 | CLOSED @1675 | H808-VPN-STATS-EMPTY-CANDIDATES -- vpn_stats ignored an empty candidate set (sol-hunt-4, lens bd-review-correctness-B1) |
 | 1110 | CLOSED @1675 | H809-VPN-LEAK-HISTORY-LIMIT -- app_vpn_api non-integer leak-history limit returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
 | 1111 | CLOSED @1675 | HUNT3-QUEUE-TEMPLATE-APPLY -- app_queue_templates apply (sol-hunt-3 FIND-9 r2, lens bd-fixer-D-A) |
-| 1112 | OPEN | HUNT3-QUEUE-TEMPLATE-FOLLOWUP -- app_queue_templates follow-up (sol-hunt-3 FIND-10, lens N3-B; needs re-diff on FIND-9 r2) |
+| 1112 | CLOSED @1676 | HUNT3-QUEUE-TEMPLATE-FOLLOWUP -- app_queue_templates follow-up (sol-hunt-3 FIND-10, lens N3-B; needs re-diff on FIND-9 r2) |
 | 1113 | CLOSED @1675 | HUNT2-DIRECT-HTTP-TRUNCATED -- runner_transport direct HTTP download accepted a truncated body (sol-hunt-2 FIND-9, lens bd-fixer-C-B) |
 | 1114 | CLOSED @1675 | HUNT2-YTDLP-NO-ARTIFACT -- runner_extractors yt-dlp fallback reported success with no artifact (sol-hunt-2 FIND-10, lens bd-fixer-C-B) |
 | 1115 | CLOSED @1675 | H840-CAPTCHA-START-PENDING -- app_captcha_relay cached start reported success for an unknown URL (sol-hunt-4 FIND-11, lens bd-review-correctness-B1) |
@@ -509,31 +509,31 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1118 | CLOSED @1675 | HUNT3-API-TOKEN-TTL -- api_tokens TTL handling (sol-hunt-3 FIND-11, lens bd-fixer-D-A) |
 | 1119 | CLOSED @1675 | HUNT2-TRANSPORT-BYTES -- runner_transport byte accounting (sol-hunt-2 FIND-11, lens bd-fixer-C-B) |
 | 1120 | CLOSED @1675 | H842-WEBRTC-RESULT-BOOL -- vpn_leak_tests: a string verdict passed the critical WebRTC probe (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1121 | OPEN | H843-DNS-WEATHER-SOCKET-TIMEOUT -- a DNS weather probe permanently changed the process-wide socket timeout (sol-hunt-4 FIND-14, H843) |
-| 1122 | OPEN | H844-PROTON-NONOBJECT-WG-CONFIG -- Proton accepted a non-object WireGuard config as valid, then render raised AttributeError (sol-hunt-4 FIND-15, H844) |
-| 1123 | OPEN | H845-SELFHOSTED-WG-ENDPOINT-PORT -- self-hosted WireGuard credentials accepted unusable endpoint ports 0, -1 and 65536 (sol-hunt-4 FIND-16, H845) |
-| 1124 | OPEN | HUNT2-ROLLUP-CANCELLED-PARENT -- a canceled parent download was reported completed in its progress rollup when its child completed (sol-hunt-2 FIND-12) |
-| 1125 | OPEN | HUNT3-BACKUP-TEMP-ARCHIVE-LEAK -- a successful backup download left a full temporary backup archive on disk after the response closed (sol-hunt-3 FIND-16) |
-| 1126 | OPEN | HUNT3-SCHEDULED-EXPORT-COLLISION -- concurrent scheduled exports in one directory overwrote or pruned each other's output (sol-hunt-3 FIND-13) |
-| 1127 | OPEN | HUNT2-SUBSCRIPTION-SCHEDULE-BLOCKS-SCAN -- one malformed subscription schedule prevented later valid subscriptions from being scanned (sol-hunt-2 FIND-14) |
-| 1128 | OPEN | HUNT3-BULK-NEGATIVE-LIMIT -- a negative bulk-operation limit selected every history row, bypassing the bounded selection (sol-hunt-3 FIND-15) |
-| 1129 | OPEN | H846-PIA-INCOMPLETE-ADDKEY -- PIA accepted an incomplete successful WireGuard addKey reply and returned an unusable tunnel config (sol-hunt-4 FIND-17, H846) |
-| 1130 | OPEN | H848-VPN-REQUIRED-FAIL-OPEN -- SECURITY: a site inheriting a required global VPN silently fell back to clear egress when its tunnel was missing (sol-hunt-4 FIND-19, H848) |
-| 1131 | OPEN | H849-EGRESS-WEIGHT-DAMPING -- a higher-weight healthy egress interface at equal priority never became active after damping (sol-hunt-4 FIND-20, H849) |
-| 1132 | OPEN | HUNT2-QUARANTINE-OVERWRITE -- a repeated failed download overwrote the prior quarantined file with the same name (sol-hunt-2 FIND-15) |
-| 1133 | OPEN | HUNT3-TAG-NEGATIVE-LIMIT -- a negative tag-row limit returned every tagged history row instead of a bounded result (sol-hunt-3 FIND-22) |
-| 1134 | OPEN | HUNT3-SHARE-TTL-FRACTIONAL -- SECURITY: a half-hour share-token TTL silently became a non-expiring token (sol-hunt-3 FIND-25, lens Q1-A) |
-| 1135 | OPEN | H847-CHALLENGE-BACKOFF-OVERFLOW -- the challenge circuit crashed with OverflowError instead of saturating backoff after a long retry history (sol-hunt-4 FIND-18, H847) |
-| 1136 | OPEN | H850-WG-IFACE-IP-SUBSTRING -- WireGuard accepted a different interface IPv4 address whose text contained the configured address (sol-hunt-4 FIND-21, H850) |
-| 1137 | OPEN | H851-CAPTCHA-TERMINAL-ACTIONS -- repeated or stale captcha terminal actions called the ender again and could reverse a completed session (sol-hunt-4 FIND-22, H851) |
-| 1138 | OPEN | H852-OPENVPN-READY-AFTER-EXIT -- OpenVPN start reported a ready tunnel after its process exited or reported failure (sol-hunt-4 FIND-23, H852) |
-| 1139 | OPEN | H853-KILLSWITCH-PREVIEW-REMOVES-RULES -- previewing kill-switch rules removed active uncommitted firewall rules for the same tunnel (sol-hunt-4 FIND-24, H853) |
-| 1140 | OPEN | HUNT2-VIXEN-DUP-TIER -- a duplicate Vixen CDN URL dropped its known resolution and selected a lower quality tier (sol-hunt-2 FIND-16, lens C-B) |
-| 1141 | OPEN | HUNT2-VIXEN-SOURCE-TAG -- the Vixen HTML fallback missed a playable video whose URL was on a nested source tag (sol-hunt-2 FIND-17, lens C-B) |
-| 1142 | OPEN | HUNT2-QUEUE-TRANSFORM-COLLISION -- a skipped bulk URL rewrite deleted its persisted queue row (sol-hunt-2 FIND-18, lens P5-A) |
-| 1143 | OPEN | HUNT2-POOL-ROTATION-LOGIN -- account-pool rotation retried with the new account before starting its login (sol-hunt-2 FIND-19, lens P5-A) |
-| 1144 | OPEN | HUNT3-ENVFILE-INJECTION-DUP-KEY -- the .env editor accepted line separators in a value and a repeated key edit was overridden on restart (sol-hunt-3 FIND-17+18+20 merged, lens Q1-A) |
-| 1145 | OPEN | HUNT3-LIBRARY-SCAN-ROOTS-SHAPE -- library scan treated explicit empty roots as every site and a string root as characters (sol-hunt-3 FIND-19, lens Q1-A) |
-| 1146 | OPEN | HUNT3-RATING-RESPONSE-CLAMP -- the library rating API reported the submitted out-of-range value while storage saved a clamped rating (sol-hunt-3 FIND-21, lens Q1-A) |
-| 1147 | OPEN | HUNT3-WIDGETS-SAVE-FAILURE -- widget settings reported a successful save when disk replacement failed (sol-hunt-3 FIND-23, lens Q1-A) |
-| 1148 | OPEN | HUNT3-MASS-IMPORT-URL -- mass import accepted httpx:// and hostless http:// lines as URLs and created jobs for them (sol-hunt-3 FIND-24, lens N3-B) |
+| 1121 | CLOSED @1676 | H843-DNS-WEATHER-SOCKET-TIMEOUT -- a DNS weather probe permanently changed the process-wide socket timeout (sol-hunt-4 FIND-14, H843) |
+| 1122 | CLOSED @1676 | H844-PROTON-NONOBJECT-WG-CONFIG -- Proton accepted a non-object WireGuard config as valid, then render raised AttributeError (sol-hunt-4 FIND-15, H844) |
+| 1123 | CLOSED @1676 | H845-SELFHOSTED-WG-ENDPOINT-PORT -- self-hosted WireGuard credentials accepted unusable endpoint ports 0, -1 and 65536 (sol-hunt-4 FIND-16, H845) |
+| 1124 | CLOSED @1676 | HUNT2-ROLLUP-CANCELLED-PARENT -- a canceled parent download was reported completed in its progress rollup when its child completed (sol-hunt-2 FIND-12) |
+| 1125 | CLOSED @1676 | HUNT3-BACKUP-TEMP-ARCHIVE-LEAK -- a successful backup download left a full temporary backup archive on disk after the response closed (sol-hunt-3 FIND-16) |
+| 1126 | CLOSED @1676 | HUNT3-SCHEDULED-EXPORT-COLLISION -- concurrent scheduled exports in one directory overwrote or pruned each other's output (sol-hunt-3 FIND-13) |
+| 1127 | CLOSED @1676 | HUNT2-SUBSCRIPTION-SCHEDULE-BLOCKS-SCAN -- one malformed subscription schedule prevented later valid subscriptions from being scanned (sol-hunt-2 FIND-14) |
+| 1128 | CLOSED @1676 | HUNT3-BULK-NEGATIVE-LIMIT -- a negative bulk-operation limit selected every history row, bypassing the bounded selection (sol-hunt-3 FIND-15) |
+| 1129 | CLOSED @1676 | H846-PIA-INCOMPLETE-ADDKEY -- PIA accepted an incomplete successful WireGuard addKey reply and returned an unusable tunnel config (sol-hunt-4 FIND-17, H846) |
+| 1130 | CLOSED @1676 | H848-VPN-REQUIRED-FAIL-OPEN -- SECURITY: a site inheriting a required global VPN silently fell back to clear egress when its tunnel was missing (sol-hunt-4 FIND-19, H848) |
+| 1131 | CLOSED @1676 | H849-EGRESS-WEIGHT-DAMPING -- a higher-weight healthy egress interface at equal priority never became active after damping (sol-hunt-4 FIND-20, H849) |
+| 1132 | CLOSED @1676 | HUNT2-QUARANTINE-OVERWRITE -- a repeated failed download overwrote the prior quarantined file with the same name (sol-hunt-2 FIND-15) |
+| 1133 | CLOSED @1676 | HUNT3-TAG-NEGATIVE-LIMIT -- a negative tag-row limit returned every tagged history row instead of a bounded result (sol-hunt-3 FIND-22) |
+| 1134 | CLOSED @1676 | HUNT3-SHARE-TTL-FRACTIONAL -- SECURITY: a half-hour share-token TTL silently became a non-expiring token (sol-hunt-3 FIND-25, lens Q1-A) |
+| 1135 | CLOSED @1676 | H847-CHALLENGE-BACKOFF-OVERFLOW -- the challenge circuit crashed with OverflowError instead of saturating backoff after a long retry history (sol-hunt-4 FIND-18, H847) |
+| 1136 | CLOSED @1676 | H850-WG-IFACE-IP-SUBSTRING -- WireGuard accepted a different interface IPv4 address whose text contained the configured address (sol-hunt-4 FIND-21, H850) |
+| 1137 | CLOSED @1676 | H851-CAPTCHA-TERMINAL-ACTIONS -- repeated or stale captcha terminal actions called the ender again and could reverse a completed session (sol-hunt-4 FIND-22, H851) |
+| 1138 | CLOSED @1676 | H852-OPENVPN-READY-AFTER-EXIT -- OpenVPN start reported a ready tunnel after its process exited or reported failure (sol-hunt-4 FIND-23, H852) |
+| 1139 | CLOSED @1676 | H853-KILLSWITCH-PREVIEW-REMOVES-RULES -- previewing kill-switch rules removed active uncommitted firewall rules for the same tunnel (sol-hunt-4 FIND-24, H853) |
+| 1140 | CLOSED @1676 | HUNT2-VIXEN-DUP-TIER -- a duplicate Vixen CDN URL dropped its known resolution and selected a lower quality tier (sol-hunt-2 FIND-16, lens C-B) |
+| 1141 | CLOSED @1676 | HUNT2-VIXEN-SOURCE-TAG -- the Vixen HTML fallback missed a playable video whose URL was on a nested source tag (sol-hunt-2 FIND-17, lens C-B) |
+| 1142 | CLOSED @1676 | HUNT2-QUEUE-TRANSFORM-COLLISION -- a skipped bulk URL rewrite deleted its persisted queue row (sol-hunt-2 FIND-18, lens P5-A) |
+| 1143 | CLOSED @1676 | HUNT2-POOL-ROTATION-LOGIN -- account-pool rotation retried with the new account before starting its login (sol-hunt-2 FIND-19, lens P5-A) |
+| 1144 | CLOSED @1676 | HUNT3-ENVFILE-INJECTION-DUP-KEY -- the .env editor accepted line separators in a value and a repeated key edit was overridden on restart (sol-hunt-3 FIND-17+18+20 merged, lens Q1-A) |
+| 1145 | CLOSED @1676 | HUNT3-LIBRARY-SCAN-ROOTS-SHAPE -- library scan treated explicit empty roots as every site and a string root as characters (sol-hunt-3 FIND-19, lens Q1-A) |
+| 1146 | CLOSED @1676 | HUNT3-RATING-RESPONSE-CLAMP -- the library rating API reported the submitted out-of-range value while storage saved a clamped rating (sol-hunt-3 FIND-21, lens Q1-A) |
+| 1147 | CLOSED @1676 | HUNT3-WIDGETS-SAVE-FAILURE -- widget settings reported a successful save when disk replacement failed (sol-hunt-3 FIND-23, lens Q1-A) |
+| 1148 | CLOSED @1676 | HUNT3-MASS-IMPORT-URL -- mass import accepted httpx:// and hostless http:// lines as URLs and created jobs for them (sol-hunt-3 FIND-24, lens N3-B) |
