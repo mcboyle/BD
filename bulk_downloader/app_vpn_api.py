@@ -286,7 +286,10 @@ def vpn_leak_test_run(tunnel_id):
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>/leak_test/history", methods=["GET"]) if vpn_bp else (lambda f: f)
 def vpn_leak_test_history(tunnel_id):
     from . import vpn_leak_tests
-    limit = int(request.args.get("limit", "20"))
+    try:
+        limit = int(request.args.get("limit", "20"))
+    except ValueError:
+        return _err("limit must be an integer")
     return _ok({"history": vpn_leak_tests.get_history(tunnel_id, limit=limit)})
 
 
