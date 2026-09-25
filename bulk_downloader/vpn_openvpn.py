@@ -295,12 +295,15 @@ def start(tunnel: Tunnel) -> bool:
             break
         time.sleep(0.2)
 
-    if not ready_event.is_set():
+    if not ready_event.is_set() or failed_event.is_set() or proc.poll() is not None:
         # Capture last log lines for diagnosis
         tail = "\n".join(log_ring[-12:])
-        tunnel.last_error = (
-            f"openvpn did not become ready in {OVPN_READY_TIMEOUT_S}s\n--- last log ---\n{tail}"
+        reason = (
+            "openvpn failed after ready signal"
+            if ready_event.is_set()
+            else f"openvpn did not become ready in {OVPN_READY_TIMEOUT_S}s"
         )
+        tunnel.last_error = f"{reason}\n--- last log ---\n{tail}"
         _terminate(proc)
         _safe_unlink(conf_path)
         if auth_path:
@@ -327,6 +330,18 @@ def start(tunnel: Tunnel) -> bool:
         proxy.start()
     except OSError as e:
         tunnel.last_error = f"socks proxy bind failed: {e}"
+        _terminate(proc)
+        _safe_unlink(conf_path)
+        if auth_path:
+            _safe_unlink(auth_path)
+        return False
+
+    if failed_event.is_set() or proc.poll() is not None:
+        tunnel.last_error = "openvpn failed after ready signal"
+        try:
+            proxy.stop()
+        except (OSError, RuntimeError) as e:
+            sys.stderr.write(f"[vpn-ovpn] socks stop error: {e}\n")
         _terminate(proc)
         _safe_unlink(conf_path)
         if auth_path:
