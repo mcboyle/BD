@@ -89,7 +89,10 @@ def api_flaresolverr_test():
             return jsonify({"ok": False,
                             "error": f"endpoint host is not a public address: {_why}"})
     endpoint = raw_endpoint or _flare_client.DEFAULT_ENDPOINT
-    timeout_s = float(body.get("timeout_s", 60.0) or 60.0)
+    try:
+        timeout_s = float(body.get("timeout_s", 60.0) or 60.0)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid 'timeout_s'"}), 400
     sr = _flare_client.solve_cloudflare(
         url, endpoint=endpoint, timeout_s=timeout_s,
     )
