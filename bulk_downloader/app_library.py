@@ -167,8 +167,8 @@ def api_library_rating(lid):
     rating = body.get("rating")
     if rating is not None:
         try:
-            rating = int(rating)
-        except (TypeError, ValueError):
+            rating = max(1, min(5, int(rating)))
+        except (TypeError, ValueError, OverflowError):
             return jsonify({"ok": False,
                             "error": "rating must be integer or null"}), 400
     ok = _lib.library_set_rating(lid, rating)

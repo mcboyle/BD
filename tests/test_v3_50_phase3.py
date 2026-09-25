@@ -471,6 +471,24 @@ def test_api_library_rating_validates_type():
     assert r.status_code == 400
 
 
+def test_api_library_rating_response_matches_stored_value():
+    from bulk_downloader import app as a
+    from bulk_downloader import library as lib
+    lid = lib.library_record("/tmp/api/rating-response.mp4")
+    client = a.app.test_client()
+    for submitted, expected in ((3, 3), (99, 5), (-7, 1)):
+        response = client.post(f"/api/library/{lid}/rating", json={"rating": submitted})
+        assert response.status_code == 200
+        stored = lib.library_get(lid)["rating"]
+        assert stored == expected
+        assert response.get_json()["rating"] == stored
+    for raw in ('{"rating": Infinity}', '{"rating": 1e400}'):
+        response = client.post(f"/api/library/{lid}/rating", data=raw,
+                               content_type="application/json")
+        assert response.status_code == 400
+        assert lib.library_get(lid)["rating"] == 1
+
+
 def test_api_library_tag_add_requires_name():
     from bulk_downloader import app as a, library as lib
     lid = lib.library_record("/tmp/api/t.mp4")
