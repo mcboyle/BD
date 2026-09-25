@@ -526,6 +526,8 @@ class HierarchicalProgressTracker:
             # Determine composite status
             if node.status == StreamStatus.FAILED or any(s == StreamStatus.FAILED for s in child_statuses):
                 composite_status = StreamStatus.FAILED
+            elif node.status == StreamStatus.CANCELLED:
+                composite_status = StreamStatus.CANCELLED
             elif all(s == StreamStatus.COMPLETED for s in child_statuses) and child_statuses:
                 composite_status = StreamStatus.COMPLETED
             elif any(s == StreamStatus.ACTIVE for s in child_statuses) or node.status == StreamStatus.ACTIVE:
