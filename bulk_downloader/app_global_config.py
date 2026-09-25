@@ -141,7 +141,51 @@ def api_global_config_origins():
         # about provenance, not values; /api/global_config carries values).
         fields[key] = desc
     return jsonify({"ok": True, "fields": fields})
+def _rollback_on_reject(view):
+    """A rejected POST (status >= 400 or an exception) leaves _app_cfg and the
+    live module state exactly as it found them. The explicit branches apply
+    side effects (concurrency cap, byte budget, log level, aiassist, rate
+    limits) as they validate, so a later 400 would otherwise keep them live."""
+    import functools
+
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        if request.method != "POST":
+            return view(*args, **kwargs)
+        import copy
+        from . import aiassist, daily_budget, log as _log, runner
+        cfg = _app__app_cfg()
+        saved_cfg = copy.deepcopy(cfg)
+        cap, budget = runner.get_global_concurrent_cap(), daily_budget.get_global_budget()
+        ai, level = aiassist.get_config(), _log.get_level()
+
+        def restore():
+            cfg.clear()
+            cfg.update(saved_cfg)
+            if runner.get_global_concurrent_cap() != cap:
+                runner.set_global_concurrent_cap(cap)
+            daily_budget.set_global_budget(budget)
+            aiassist._config.clear()
+            aiassist._config.update(ai)
+            if _log.get_level() != level:
+                _log.set_level(level)
+            if any(str(k).startswith("rate_limit_") for k in (request.get_json(silent=True) or {})):
+                from . import rate_limit
+                rate_limit.configure_from_app_config(cfg)
+
+        try:
+            resp = view(*args, **kwargs)
+        except Exception:
+            restore()
+            raise
+        status = resp[1] if isinstance(resp, tuple) else resp.status_code
+        if status >= 400:
+            restore()
+        return resp
+    return wrapper
+
 @global_config_bp.route("/api/global_config",methods=["GET","POST"])
+@_rollback_on_reject
 def api_global_config():
     """Read/write global app settings. Currently:
       global_max_concurrent (int)  — total concurrent URLs across all sites
@@ -163,6 +207,15 @@ def api_global_config():
     from . import aiassist
     if request.method=="POST":
         data=request.json or {}
+        # Reject unknown keys before applying any config or live cap change.
+        from .global_config import GLOBAL_CONFIG_SCHEMA as _GCS
+        _known = set(_GCS) | _EXPLICIT_BRANCH_KEYS
+        _unknown = sorted(k for k in data if k not in _known)
+        if _unknown:
+            return jsonify({
+                "error": "unknown config key(s): %s" % ", ".join(_unknown),
+                "unknown_keys": _unknown,
+            }), 400
         if "global_max_concurrent" in data:
             n=max(0,min(64,int(data["global_max_concurrent"])))
             _app_cfg["global_max_concurrent"]=n
@@ -373,7 +426,6 @@ def api_global_config():
         # actually persists — closing the 306 latent bug where schema keys with
         # no explicit branch were silently dropped (POST 200, nothing written).
         # Type backstop (§3.2): a wrong-typed value is rejected 400, not coerced.
-        from .global_config import GLOBAL_CONFIG_SCHEMA as _GCS
         _gc_updates = {}
         for _k, _spec in _GCS.items():
             if _k not in data:
@@ -395,22 +447,6 @@ def api_global_config():
                 return jsonify({"error":
                     f"{_k} must be {getattr(_exp, '__name__', _exp)}"}), 400
             _gc_updates[_k] = _v
-        # v3.66.709 (A-GUI Cut 1): THE CONTRACT. Until now a key that matched no
-        # explicit branch and was absent from GLOBAL_CONFIG_SCHEMA was simply never
-        # visited by the loop above -- the POST returned 200 and wrote NOTHING. That
-        # silent-drop is why automation.master_off_switch (the emergency stop) sat
-        # unwritable while every parity gate read clean: a discarded write reported
-        # success, so nothing could detect it. An unrecognised key is now a 400.
-        #
-        # Declaring the missing keys alone would NOT be enough -- the next undeclared
-        # key would recreate the bug just as silently. Fix the contract, not the symptom.
-        _known = set(_GCS) | _EXPLICIT_BRANCH_KEYS
-        _unknown = sorted(k for k in data if k not in _known)
-        if _unknown:
-            return jsonify({
-                "error": "unknown config key(s): %s" % ", ".join(_unknown),
-                "unknown_keys": _unknown,
-            }), 400
         if _gc_updates:
             _app_cfg.update(_gc_updates)
         _save_app_config()
