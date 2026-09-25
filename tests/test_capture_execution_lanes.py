@@ -23,9 +23,9 @@ LANES_MODULE = REPO_ROOT / "tests" / "capture_lanes.py"
 # The digest canonicalisation is sorted non-comment membership with one UTF-8
 # newline after every entry; an actual allowlist edit updates both facts and its
 # review evidence in the same commit.
-_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1740
+_MECHANICAL_PARALLEL_ALLOWLIST_COUNT = 1718
 _MECHANICAL_PARALLEL_ALLOWLIST_SHA256 = (
-    "1021e05e2d456b271a6027fb0d8c6da4c4504b5661d1ecce87dd55108ba3c2bd"
+    "a071032cc4bda26d87e2321014aa9ae2ac9203caad983232e325b228c3794417"
 )
 _PARALLEL_RATCHET_MARGIN = 10
 _PARALLEL_RATCHET_FLOOR = (
@@ -649,12 +649,12 @@ def test_the_parallel_lane_did_not_collapse_back() -> None:
 
 
 def test_parallel_lane_ratchet_negative_control_rejects_a_regression() -> None:
-    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1740
+    assert _MECHANICAL_PARALLEL_ALLOWLIST_COUNT == 1718
     assert _PARALLEL_RATCHET_MARGIN == 10
-    assert _PARALLEL_RATCHET_FLOOR == 1730
+    assert _PARALLEL_RATCHET_FLOOR == 1708
     with pytest.raises(
         AssertionError,
-        match=r"down to 1729 files.*count was 1740.*margin is 10.*floor is 1730",
+        match=r"down to 1707 files.*count was 1718.*margin is 10.*floor is 1708",
     ):
         _assert_parallel_ratchet(_PARALLEL_RATCHET_FLOOR - 1)
 

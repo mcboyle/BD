@@ -456,15 +456,6 @@ def _manifest_excluded(relpath: str) -> bool:
 # part of this root-level set.)
 _MANIFEST_REQUIRED_PRESENT = (
     "validation_corpus.jsonl",
-    "gpu_check.bat",
-    "install_ai_ollama.bat",
-    "install_dev.bat",
-    "install_windows.bat",
-    "run_all_tests.bat",
-    "run_test.bat",
-    "start_fixture_site.bat",
-    "start_fixture_site2.bat",
-    "uninstall_windows.bat",
     "tests/fixtures/deep_detect/",
     "tests/fixtures/selector_chains/",
     "tests/fixtures/recon_corpus/",

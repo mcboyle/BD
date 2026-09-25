@@ -71,7 +71,7 @@ _PARBAND = _REPO / "toolchain" / "bin" / "bd-parband"
 # The file the divergence was measured on: 4 passed under pytest, IMPORT ERROR
 # under the stub. Fast, and it is real repo content rather than a fixture that
 # could drift away from the thing it demonstrates.
-_DIVERGENT = "tests/test_codex_handoff_stays_retired.py"
+_DIVERGENT = "tests/test_v3_66_935_scan_wait_reports_non_convergence.py"
 
 
 def _load(path: Path):

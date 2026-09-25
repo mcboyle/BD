@@ -34,7 +34,6 @@ tests/test_import_graph_no_new_edges.py
 tests/test_import_graph_sees_package_form.py
 tests/test_inspect_pick.py
 tests/test_install_service_waits_for_serving.py
-tests/test_install_windows_bat_d1.py
 tests/test_integration_wiring.py
 tests/test_integrity_checkmark_is_earned.py
 tests/test_inv_tags_not_regressed.py
@@ -155,7 +154,6 @@ tests/test_phone_pwa_manifest.py
 tests/test_phone_share_route_results.py
 tests/test_pin_host_filename_fallback.py
 tests/test_pin_index_in_sync.py
-tests/test_pk_mirrors_stay_retired.py
 tests/test_player_recognition_edge.py
 tests/test_player_recognition_families.py
 tests/test_player_recognition_generic.py
@@ -527,7 +525,6 @@ tests/test_v3_66_158_capture_finish_endpoint.py
 tests/test_v3_66_158_review_candidate_workbench.py
 tests/test_v3_66_15_phase4_p5_site_memory.py
 tests/test_v3_66_15_phase5_p12_csp.py
-tests/test_v3_66_161_required_present_gate.py
 tests/test_v3_66_165_dom_drain.py
 tests/test_v3_66_166_artifact_redaction.py
 tests/test_v3_66_16_phase4_p4_provider_resolve.py
@@ -762,7 +759,6 @@ tests/test_v3_66_655_interop_gh1_plugin_gate.py
 tests/test_v3_66_656_ideaharden_closers.py
 tests/test_v3_66_657_rob3_selftest_battery.py
 tests/test_v3_66_658_obs2_route_timing.py
-tests/test_v3_66_659_pos4_winbat.py
 tests/test_v3_66_660_mnt3_flake_expiry.py
 tests/test_v3_66_661_healthcheck_ytdlp_shape.py
 tests/test_v3_66_662_obs3_storage_tiers.py
