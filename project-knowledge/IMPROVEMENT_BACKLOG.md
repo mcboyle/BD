@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=405 open=2 ids-sha256=99d2918d1f51416a588b1a3879cfb76cfde09df9ecd63221ef13eaae69bcd2b4 -->
+<!-- canonical-task-register schema=1 rows=405 open=1 ids-sha256=99d2918d1f51416a588b1a3879cfb76cfde09df9ecd63221ef13eaae69bcd2b4 -->
 
 ## Namespace and population
 
@@ -473,4 +473,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1082 | CLOSED @1657 | HOTFIX-ROW1038-IMPORT-PROFILER-STDIN-DEVNULL -- import_profiler subprocess sites pass stdin=DEVNULL per the row1053 guard (main red a89d38d6 gates-rows-a, ORDERS-0091) |
 | 1083 | CLOSED @1658 | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
 | 1084 | CLOSED @1659 | HOTFIX-ROW847-LIVE-TELEMETRY-TOMBSTONE-STATUS -- test_live_telemetry stop-serialization test pins 'failed' for a non-tombstone permanent failure and row847's 'tombstone' for HTTP 404 (main red, ORDERS-0093) |
-| 1085 | OPEN | HUNT2-QUALITY-PREF-CASCADE -- aylo + jsonapi quality pickers return highest on any "best" in the pref list (pref [720,"best"] picked 1080, not 720); walk prefs in order like dl8/vixen (sol-hunt-2 FIND-1, lens bd-fixer-C-B BOARD, ORDERS-0176) |
+| 1085 | CLOSED @1674 | HUNT2-QUALITY-PREF-CASCADE -- aylo + jsonapi quality pickers return highest on any "best" in the pref list (pref [720,"best"] picked 1080, not 720); walk prefs in order like dl8/vixen (sol-hunt-2 FIND-1, lens bd-fixer-C-B BOARD, ORDERS-0176) |
