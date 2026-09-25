@@ -171,9 +171,6 @@ def apply(
         # forever (atexit's revert_all only walks _active.keys()).
         # Clean up the old entry synchronously before re-applying.
         _stale = _active.get(tunnel_id)
-    if _stale is not None and not _stale.committed:
-        # Outside the lock — revert() reacquires it.
-        revert(tunnel_id)
 
     allow = allow_ports if allow_ports is not None else DEFAULT_ALLOWLIST
     commands = _build_commands(tunnel_id, vpn_endpoint, allow)
@@ -192,6 +189,10 @@ def apply(
                 "error": "RDP session active but 3389 not in allowlist; refusing to apply "
                          "(would lock you out). Add 'rdp' to allow_ports.",
             }
+
+    if _stale is not None and not _stale.committed:
+        # Outside the lock — revert() reacquires it.
+        revert(tunnel_id)
 
     # Execute commands.
     rule_names: list[str] = []
