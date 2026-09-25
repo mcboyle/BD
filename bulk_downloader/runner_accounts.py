@@ -184,6 +184,15 @@ class AccountsMixin:
                     except Exception: pass
                 else:
                     self.set_cookies([])
+                # Start the new account's login like the legacy path does. The
+                # rotation has already happened: a login that fails to start
+                # must not fall into the except below and rotate a second time.
+                try:
+                    self.login_async(allow_manual=False)
+                except Exception as e:
+                    sys.stderr.write(
+                        f"[{self.site_id}] pool rotation: login did not start: "
+                        f"{type(e).__name__}: {e}\n")
                 return True
         except Exception as e:
             sys.stderr.write(
