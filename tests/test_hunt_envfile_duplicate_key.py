@@ -2,6 +2,8 @@ from flask import Flask
 
 from bulk_downloader import _envfile, app_envfile_editor
 
+BD_GATE_SCOPE = "module"
+
 
 def test_envfile_editor_updates_all_existing_key_occurrences(tmp_path, monkeypatch):
     envfile = tmp_path / ".env"

@@ -1,5 +1,7 @@
 from bulk_downloader.multi_homed_egress import FailoverPolicy, MultiHomedEgressRouter
 
+BD_GATE_SCOPE = "module"
+
 
 def test_higher_weight_route_becomes_active_after_damping():
     now = [10.0]

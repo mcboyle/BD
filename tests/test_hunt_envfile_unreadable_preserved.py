@@ -2,6 +2,8 @@ from flask import Flask
 
 from bulk_downloader import app_envfile_editor
 
+BD_GATE_SCOPE = "module"
+
 
 def test_envfile_editor_preserves_undecodable_existing_file(tmp_path, monkeypatch):
     envfile = tmp_path / ".env"

@@ -3,6 +3,8 @@ import pytest
 from bulk_downloader.vpn_providers import pia
 from bulk_downloader.vpn_wireguard import render_conf
 
+BD_GATE_SCOPE = "module"
+
 
 def test_pia_rejects_incomplete_addkey_reply(monkeypatch):
     monkeypatch.setattr(pia, "generate_keypair", lambda: ("private-key", "public-key"))

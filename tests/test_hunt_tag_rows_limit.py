@@ -4,6 +4,8 @@ from flask import Flask
 
 from bulk_downloader import app_tags, tags
 
+BD_GATE_SCOPE = "module"
+
 
 def test_tag_rows_rejects_negative_limit(tmp_path, monkeypatch):
     database = tmp_path / "tags.db"

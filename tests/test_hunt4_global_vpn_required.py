@@ -2,6 +2,8 @@ import pytest
 
 from bulk_downloader import vpn_runtime
 
+BD_GATE_SCOPE = "module"
+
 
 def test_global_required_vpn_blocks_missing_tunnel(monkeypatch, tmp_path):
     monkeypatch.delenv("BD_DISABLE_VPN_RUNTIME", raising=False)

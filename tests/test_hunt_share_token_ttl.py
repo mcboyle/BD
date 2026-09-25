@@ -5,6 +5,8 @@ from flask import Flask
 
 from bulk_downloader import app_shares, db, shares
 
+BD_GATE_SCOPE = "module"
+
 
 def test_share_token_fractional_ttl_expires(tmp_path, monkeypatch):
     database = tmp_path / "shares.db"

@@ -4,6 +4,8 @@ from flask import Flask
 
 from bulk_downloader import app_import, mass_import
 
+BD_GATE_SCOPE = "module"
+
 
 def test_mass_import_rejects_non_http_url_schemes(monkeypatch):
     received = []

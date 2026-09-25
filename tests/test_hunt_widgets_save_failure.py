@@ -5,6 +5,8 @@ from flask import Flask
 from bulk_downloader import widgets_config
 from bulk_downloader.app_widgets_api import widgets_bp
 
+BD_GATE_SCOPE = "module"
+
 
 def test_widget_save_failure_keeps_memory_and_disk_in_sync(tmp_path, monkeypatch):
     path = tmp_path / "widgets.json"

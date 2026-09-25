@@ -1,5 +1,7 @@
 from bulk_downloader.challenge_circuit import calculate_backoff
 
+BD_GATE_SCOPE = "module"
+
 
 def test_challenge_backoff_saturates_for_long_retry_history():
     assert calculate_backoff(1) == 30.0

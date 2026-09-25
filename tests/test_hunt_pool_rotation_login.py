@@ -3,6 +3,8 @@
 from bulk_downloader.account_pool import configure_pool, remove_pool
 from bulk_downloader.runner_accounts import AccountsMixin
 
+BD_GATE_SCOPE = "module"
+
 
 def test_pool_rotation_starts_login_like_legacy_rotation():
     class Runner:

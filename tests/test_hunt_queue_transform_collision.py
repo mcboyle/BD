@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from bulk_downloader import db
 from bulk_downloader.runner_queue import QueueMixin
 
+BD_GATE_SCOPE = "module"
+
 
 def test_bulk_transform_persists_only_applied_rewrites(monkeypatch):
     cx = sqlite3.connect(":memory:")
