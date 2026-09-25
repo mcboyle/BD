@@ -87,6 +87,7 @@ def api_backup_create():
 
     # Build into a temp file then stream — keeps the in-memory zip
     # path consistent with the create_backup atomicity guarantees.
+    import shutil
     import tempfile
     tmpdir = tempfile.mkdtemp(prefix="bdback_")
     fname = bd_backup.default_backup_filename()
@@ -103,7 +104,6 @@ def api_backup_create():
     if not result["ok"]:
         # Cleanup temp dir
         try:
-            import shutil
             shutil.rmtree(tmpdir)
         except Exception:
             pass
@@ -123,6 +123,11 @@ def api_backup_create():
     response.headers["X-Backup-Files"] = str(result["files"])
     response.headers["X-Backup-Encrypted"] = "1" if result["encrypted"] else "0"
     response.headers["X-Backup-Elapsed-Ms"] = str(result["elapsed_ms"])
+    # send_file uses direct_passthrough, so Response.call_on_close is bypassed.
+    from werkzeug.wsgi import ClosingIterator
+    response.response = ClosingIterator(
+        response.response, lambda: shutil.rmtree(tmpdir, ignore_errors=True)
+    )
     return response
 @backup_bp.route("/api/backup/preview", methods=["POST"])
 def api_backup_preview():
@@ -174,4 +179,3 @@ def register_routes(app) -> int:
     app.register_blueprint(backup_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("backup."))
-
