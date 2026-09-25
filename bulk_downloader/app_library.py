@@ -242,9 +242,13 @@ def api_library_scan_start():
     every site's download_dir as defaults."""
     s_cfg = _app_s_cfg()
     from . import library as _lib
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if body is None:
+        body = {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "expected a JSON object"}), 400
     roots = body.get("roots")
-    if not roots:
+    if roots is None:
         # Default: scan every site's configured download_dir
         roots = []
         for sid, cfg in s_cfg.items():
@@ -255,6 +259,9 @@ def api_library_scan_start():
             return jsonify({"ok": False,
                             "error": "no download_dir configured "
                                      "on any site; pass `roots` explicitly"}), 400
+    elif (not isinstance(roots, list) or not roots
+          or any(not isinstance(r, str) or not r.strip() for r in roots)):
+        return jsonify({"ok": False, "error": "roots must be a nonempty list of paths"}), 400
     # Validate every root with the same path-allowlist semantics
     cleaned = []
     for r in roots:
