@@ -605,6 +605,7 @@ class QueueMixin:
         Returns the count of URLs successfully renamed."""
         from .db import db_conn
         n = 0
+        applied = []
         with self._lock:
             for old_url, new_url in transforms:
                 if old_url == new_url: continue
@@ -616,21 +617,21 @@ class QueueMixin:
                     idx = self.urls.index(old_url)
                     self.urls[idx] = new_url
                 n += 1
+                applied.append((old_url, new_url))
         # Persist (outside the lock — DB has its own locking, slow ops here
         # would block the worker if held inside the runner lock)
         try:
             with db_conn() as cx:
-                for old_url, new_url in transforms:
-                    if old_url == new_url: continue
-                    # Move the queue row: copy old to new, delete old. We
-                    # use UPDATE OR IGNORE first; if a duplicate exists we
-                    # just keep the original.
+                for old_url, new_url in applied:
+                    # Only renames applied in memory are persisted: a skipped pair
+                    # (target already queued) must leave its old row intact.
                     cx.execute(
                         "UPDATE OR IGNORE queue SET url = ? "
                         "WHERE site_id = ? AND url = ?",
                         (new_url, self.site_id, old_url))
-                    # If the UPDATE was IGNOREd because new_url already exists,
-                    # delete the leftover old row so we don't keep a duplicate.
+                    # The table can already hold new_url while memory did not
+                    # (the UPDATE was IGNOREd): drop the old row so it does not
+                    # come back as a second job on reload.
                     cx.execute(
                         "DELETE FROM queue WHERE site_id = ? AND url = ?",
                         (self.site_id, old_url))
