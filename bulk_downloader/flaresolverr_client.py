@@ -388,7 +388,7 @@ def solve_cloudflare(
         return SolveResult(ok=False, error=err, elapsed_s=elapsed)
     status = str(data.get("status", "")).lower()
     if status != "ok":
-        err = f"flare_status_{status}:{data.get('message', '')[:120]}"
+        err = f"flare_status_{status}:{str(data.get('message') or '')[:120]}"
         _bump_failure(err)
         return SolveResult(ok=False, error=err, elapsed_s=elapsed)
 
