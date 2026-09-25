@@ -345,7 +345,7 @@ class MultiHomedEgressRouter:
         # its healthy state for the damping window.
         if (
             self.failover_policy.auto_failback
-            and best.priority < current.priority
+            and (best.priority, -best.weight) < (current.priority, -current.weight)
             and self._clock() - best.last_state_change >= self.failover_policy.flapping_damping_seconds
         ):
             self.active_interface_name = best.name
