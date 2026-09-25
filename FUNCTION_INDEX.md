@@ -390,20 +390,21 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_integrity.py` (11 entries)
+## `bulk_downloader/runner_integrity.py` (12 entries)
 
 ```
 - L0035 `_is_stream_container` `[private]` — True for the files verify_media_integrity checks with ffprobe (video/audio/unknown);
-- L0042 `IntegrityMixin` `[class]`
-  - L0043 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
-  - L0104 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
-  - L0173 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
-  - L0250 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
-  - L0264 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
-  - L0317 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0429 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
-  - L0447 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0567 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+- L0042 `_quarantine_failure` `[private]`
+- L0062 `IntegrityMixin` `[class]`
+  - L0063 `IntegrityMixin._dedup_hash_worker` `[private]` — v3.43.72: background worker that pHashes a finished download
+  - L0124 `IntegrityMixin._apply_quality_preference` `[private]` — Phase 67 (v3.38.x): explicit quality preference order. `qpref` is
+  - L0193 `IntegrityMixin._dedup_preflight` `[private]` — F1.5: pre-download history-match dedup. Returns a message string
+  - L0270 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
+  - L0284 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
+  - L0333 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
+  - L0443 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
+  - L0461 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0581 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -417,9 +418,9 @@ Schema version: 2
   - L0047 `AccountsMixin.trigger_rate_limit`
   - L0103 `AccountsMixin._get_active_account` `[private]` — Return the currently-active (username, password, cookie_file)
   - L0125 `AccountsMixin._rotate_account_if_available` `[private]` — Advance to the next account whose cooldown has elapsed.
-  - L0225 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
-  - L0234 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
-  - L0263 `AccountsMixin._wait_rl_autostart` `[private]`
+  - L0234 `AccountsMixin._persist_account_state` `[private]` — Save the accounts array (with updated cooldown_until values)
+  - L0243 `AccountsMixin._persist_pool_state` `[private]` — v3.43.35: merge the account pool's per-slot health state
+  - L0272 `AccountsMixin._wait_rl_autostart` `[private]`
 ```
 
 
@@ -487,18 +488,18 @@ Schema version: 2
   - L0098 `SchedulerMixin._parse_retry_schedule` `[private]` — Parse '1h,4h,24h' → [3600, 14400, 86400] in seconds. Tolerates
   - L0115 `SchedulerMixin._auto_retry_loop` `[private]` — Scan for retry-eligible jobs every 60s. Bumps stuck
   - L0143 `SchedulerMixin._scan_subscriptions` `[private]` — Phase 73 (v3.41.0): RSS-style URL subscriptions. Each subscription
-  - L0214 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
-  - L0357 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
-  - L0382 `SchedulerMixin._load_rl` `[private]`
-  - L0394 `SchedulerMixin._save_rl` `[private]`
-  - L0409 `SchedulerMixin._clear_rl` `[private]`
-  - L0413 `SchedulerMixin._next_sched_dt` `[private]`
-  - L0423 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
-  - L0433 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
-  - L0473 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
-  - L0493 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
-  - L0505 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
-  - L0515 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
+  - L0222 `SchedulerMixin._auto_retry_scan` `[private]` — One scan pass. Reads config flags inside the loop so toggle
+  - L0365 `SchedulerMixin._maybe_drift_recover` `[private]` — If learned download selectors are missing more than they hit,
+  - L0390 `SchedulerMixin._load_rl` `[private]`
+  - L0402 `SchedulerMixin._save_rl` `[private]`
+  - L0417 `SchedulerMixin._clear_rl` `[private]`
+  - L0421 `SchedulerMixin._next_sched_dt` `[private]`
+  - L0431 `SchedulerMixin.sched_next_str` — Render the next scheduled-run time as a short human string for
+  - L0441 `SchedulerMixin.start_scheduler` — Spawn the scheduler thread if `sched_enabled` is True. Idempotent
+  - L0481 `SchedulerMixin._stop_scheduler_locked` `[private]` — Stop the captured generation while its lifecycle lock is held.
+  - L0501 `SchedulerMixin.stop_scheduler` — Signal the scheduler thread to exit and wait boundedly for it.
+  - L0513 `SchedulerMixin.retire_scheduler` — Permanently stop this runner's scheduler for site deletion.
+  - L0523 `SchedulerMixin._sched_loop` `[private]` — Scheduler thread body. Waits until the configured sched_time,
 ```
 
 
@@ -553,14 +554,14 @@ Schema version: 2
   - L0551 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
   - L0573 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
   - L0597 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0643 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0658 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0674 `QueueMixin.retry`
-  - L0676 `QueueMixin.clear`
-  - L0678 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0684 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L0701 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L0706 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0644 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0659 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0675 `QueueMixin.retry`
+  - L0677 `QueueMixin.clear`
+  - L0679 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0685 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0702 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0707 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
@@ -998,4 +999,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 822 across 22 files._
+_Total entries: 823 across 22 files._

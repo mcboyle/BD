@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1676 - train103: T103 hunt fixes rows1107,1112,1121-1148 (H848, FIND-25 SECURITY)
+
+- Bug-hunt fixes (sol-hunt-2/3/4, ORDERS-0176): 30 fixes found by the hunters and approved by independent reviewers. Each has a regression test and a register row (1107, 1112, 1121-1148).
+- Security: a site that inherits a required global VPN no longer falls back to clear egress when its tunnel is missing (1130); a half-hour share-token TTL no longer becomes a non-expiring token (1134).
+- VPN: DNS weather probes keep the process socket timeout (1121); Proton, self-hosted and PIA WireGuard configs are validated (1122, 1123, 1129); egress damping failback (1131); WireGuard interface IP match (1136); OpenVPN readiness after process exit (1138); kill-switch preview keeps active rules (1139); challenge backoff saturates (1135); captcha terminal actions are idempotent (1137).
+- Downloads, queue and extractors: canceled parents are not rolled up as completed (1124), quarantined files are not overwritten (1132), skipped bulk URL rewrites keep their queue row (1142), pool rotation logs in before retrying (1143), Vixen tier and source-tag fixes (1140, 1141), queue append and template apply keep metadata (1107, 1112).
+- Library, history and settings: backup temp archive cleanup (1125), scheduled exports no longer collide (1126), subscription schedule isolation (1127), bounded negative limits (1128, 1133), .env editor injection and duplicate-key fixes (1144), scan-root validation (1145), rating response matches storage (1146), widget save failures are reported (1147), mass import rejects unusable URLs (1148).
+
+
 ## v3.66.1675 - T102: row1086, row1087, row1088, row1089, row1090, row1091, row1092, row1093, row1094, row1095, row1096, row1097, row1098, row1099, row1100, row1101, row1102, row1103, row1104, row1105, row1106, row1108, row1109, row1110, row1111, row1113, row1114, row1115, row1116, row1117, row1118, row1119, row1120
 
 - Bug-hunt fixes (sol-hunt-2/3/4, ORDERS-0176): 33 fixes found by the hunters and approved by independent reviewers. Each has a regression test and a register row (1086-1120; 1107 and 1112 stay open for a re-diff).
