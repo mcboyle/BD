@@ -418,11 +418,14 @@ def api_queue_import(sid):
         # load_urls returns (added, dupes) or (added, dupes, skipped)
         added = result[0] if isinstance(result, tuple) else len(new_urls)
         # Apply priority + force_download after load (load_urls is generic)
+        # Append must leave jobs that were already queued alone: metadata goes
+        # only to the URLs this import added (replace cleared the queue first).
+        new_url_set = set(new_urls)
         persist = []
         with runner._lock:
             for row in rows:
                 url = (row.get("url") or "").strip()
-                if url not in runner.jobs: continue
+                if url not in new_url_set or url not in runner.jobs: continue
                 fields = {}
                 priority = row.get("priority")
                 if priority and isinstance(priority, str):
