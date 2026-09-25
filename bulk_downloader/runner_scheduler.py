@@ -151,6 +151,7 @@ class SchedulerMixin:
         last_run_ts is persisted back to config so the schedule survives
         restart. The subscription itself never gets added to the queue
         — only the URLs it discovers."""
+        from math import isfinite
         subs = self.config.get("subscriptions") or []
         if not isinstance(subs, list) or not subs:
             return
@@ -164,8 +165,15 @@ class SchedulerMixin:
             if not isinstance(sub, dict):
                 continue
             sub_url = (sub.get("url") or "").strip()
-            interval_h = float(sub.get("interval_hours") or 24.0)
-            last_run = float(sub.get("last_run_ts") or 0.0)
+            try:
+                interval_h = float(sub.get("interval_hours") or 24.0)
+                last_run = float(sub.get("last_run_ts") or 0.0)
+                if not (isfinite(interval_h) and interval_h > 0 and
+                        isfinite(last_run)):
+                    raise ValueError("invalid subscription schedule")
+            except (TypeError, ValueError, OverflowError):
+                self.log.warning("invalid subscription schedule for %s", sub_url)
+                continue
             name = sub.get("name") or sub_url
             if not sub_url:
                 continue
