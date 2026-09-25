@@ -56,6 +56,8 @@ def _connect_authority(value: str) -> tuple[str, int]:
             raise ValueError("malformed IPv6 CONNECT authority")
         host = text[1:close]
         suffix = text[close + 1:]
+        if suffix and not suffix.startswith(":"):
+            raise ValueError("malformed IPv6 CONNECT authority")
         port = int(suffix[1:]) if suffix.startswith(":") else 443
     else:
         host, marker, port_text = text.rpartition(":")
