@@ -320,7 +320,7 @@ def record_external_probe_result(tunnel_id: str, probe_id: str, result: dict) ->
         duration_ms = 0
     pr = ProbeResult(
         probe_id=probe_id,
-        passed=bool(result.get("passed", False)),
+        passed=result.get("passed") is True,
         severity=_severity_for(probe_id),
         details=details,
         error=err,
