@@ -9,6 +9,8 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import sys
+
 from flask import Blueprint, jsonify, request
 
 queue_templates_bp = Blueprint("queue_templates", __name__)
@@ -93,15 +95,28 @@ def api_queue_template_apply(tid, sid):
         result = runner.load_urls(new_urls, folder_scan=False)
         added = result[0] if isinstance(result, tuple) else len(new_urls)
     # Apply priority + force flags from the template
+    from .db import queue_upsert
     pmap = t.get("priority_map") or {}
     fset = set(t.get("force_set") or [])
+    persist = []
     with runner._lock:
         for url in t["urls"]:
             if url not in runner.jobs: continue
-            if url in pmap:
+            fields = {}
+            if url in pmap and isinstance(pmap[url], str):
                 runner.jobs[url]["priority"] = pmap[url]
+                fields["priority"] = pmap[url]
             if url in fset:
                 runner.jobs[url]["force_download"] = True
+                fields["force_download"] = 1
+            if fields:
+                persist.append((url, fields))
+    # Persist outside the lock; a DB failure must not fail the apply.
+    for url, fields in persist:
+        try:
+            queue_upsert(sid, url, **fields)
+        except Exception as e:
+            sys.stderr.write(f"  template apply metadata persist failed: {e}\n")
     _qt.record_use(tid)
     return jsonify({"ok": True, "added": added, "applied": tid,
                     "site_id": sid, "mode": mode})
