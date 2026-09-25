@@ -463,3 +463,53 @@ class TestPhase41PreflightRegressions:
         # PUT with name=list should 400
         r = fresh_app.put(f"/api/sites/{sid}", json={"name": ["bad"]})
         assert r.status_code == 400
+
+
+def test_default_config_export_redacts_nested_account_password(fresh_app):
+    from bulk_downloader.app_state import s_cfg
+
+    secret = "NESTED_SECRET_FOR_TEST"
+    created = fresh_app.post("/api/sites", json={
+        "name": "NestedSecretSite",
+        "accounts": [{"username": "reader", "password": secret}],
+    })
+    assert created.status_code == 200
+    sid = created.get_json()["id"]
+    assert s_cfg[sid]["accounts"][0]["password"] == secret
+
+    exported = fresh_app.get("/api/config/export").get_json()
+    site = next(site for site in exported["sites"] if site["_id"] == sid)
+    assert site["accounts"][0]["username"] == "reader"
+    assert secret not in json.dumps(site)
+
+    full = fresh_app.get("/api/config/export?include_passwords=1").get_json()
+    full_site = next(site for site in full["sites"] if site["_id"] == sid)
+    assert full_site["accounts"][0]["password"] == secret
+
+
+def test_default_export_merge_import_keeps_nested_account_passwords(fresh_app):
+    """Lens (FIND-4): redacting nested secrets on export must not erase them on
+    a merge import of that same file; accounts pair by username, and a new
+    account never inherits another account's password."""
+    from bulk_downloader.app_state import s_cfg
+
+    created = fresh_app.post("/api/sites", json={
+        "name": "RoundTripSite",
+        "accounts": [{"username": "a", "password": "PW_A"},
+                     {"username": "b", "password": "PW_B"}],
+    })
+    assert created.status_code == 200
+    sid = created.get_json()["id"]
+
+    exported = fresh_app.get("/api/config/export").get_json()
+    site = next(s for s in exported["sites"] if s["_id"] == sid)
+    assert "PW_A" not in json.dumps(site) and "PW_B" not in json.dumps(site)
+    site["accounts"] = [site["accounts"][1], site["accounts"][0], {"username": "c"}]
+    site["accounts"][0]["password"] = "PW_B_NEW"  # an explicit new value wins
+
+    imported = fresh_app.post("/api/config/import?mode=merge", json=exported)
+    assert imported.status_code == 200, imported.get_data(as_text=True)
+    accounts = {a["username"]: a for a in s_cfg[sid]["accounts"]}
+    assert accounts["a"]["password"] == "PW_A"
+    assert accounts["b"]["password"] == "PW_B_NEW"
+    assert not accounts["c"].get("password")

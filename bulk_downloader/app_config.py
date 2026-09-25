@@ -300,19 +300,56 @@ def api_config_export():
         # Redact the FULL secret-field set (not just 'password'), using the
         # authoritative SoT so a default export can never leak plex_token /
         # *_api_key / auth_token etc. Same SoT the marketplace export uses.
-        from .site_editor import SECRET_FIELDS  # lazy: no static import edge
+        from .site_editor import (SECRET_FIELDS, _redact_nested_export_value)  # lazy: no static import edge
     payload=[]
     for sid,cfg in s_cfg.items():
         c=dict(cfg)
         if not include_pw:
             for _sk in SECRET_FIELDS:
                 if _sk in c: c[_sk]=""
+            for _key, _value in c.items():
+                if _key not in SECRET_FIELDS and isinstance(_value, (dict, list)):
+                    c[_key] = _redact_nested_export_value(_value, [], _key)
         c["_id"]=sid  # for round-trip merging
         payload.append(c)
     body=json.dumps({"version":"2.1.1","sites":payload},indent=2)
     fn="bulk_downloader_config.json"
     return Response(body,mimetype="application/json",
                     headers={"Content-Disposition":f"attachment;filename={fn}"})
+
+def _restore_redacted_nested_secrets(new, old, is_secret, depth=0):
+    """Put back nested secrets a default export dropped (e.g. accounts[i].password).
+
+    The default /api/config/export removes secret keys inside dict/list values;
+    a merge import of that file must not erase the stored credentials, the same
+    contract the top-level SECRET_FIELDS loop keeps ("if blank, the existing
+    password is preserved"). List items are paired by a non-empty ``username``
+    when both sides carry one, else by position when the lengths match.
+    """
+    if depth > 50:
+        return new
+    if isinstance(new, dict) and isinstance(old, dict):
+        for key, old_child in old.items():
+            if is_secret(key):
+                if old_child and not new.get(key):
+                    new[key] = old_child
+            elif key in new:
+                new[key] = _restore_redacted_nested_secrets(new[key], old_child, is_secret, depth + 1)
+        return new
+    if isinstance(new, list) and isinstance(old, list):
+        by_user = {o.get("username"): o for o in old
+                   if isinstance(o, dict) and o.get("username")}
+        for i, item in enumerate(new):
+            match = None
+            if isinstance(item, dict) and item.get("username"):
+                match = by_user.get(item["username"])
+            elif len(new) == len(old):
+                match = old[i]
+            if match is not None:
+                new[i] = _restore_redacted_nested_secrets(item, match, is_secret, depth + 1)
+        return new
+    return new
+
 
 @config_bp.route("/api/config/import",methods=["POST"])
 def api_config_import():
@@ -385,11 +422,16 @@ def api_config_import():
             if existing_sid and existing_sid not in runners:
                 existing_sid = None
             if existing_sid:
-                from .site_editor import SECRET_FIELDS
+                from .site_editor import SECRET_FIELDS, is_secret_config_key
                 old_cfg = s_cfg[existing_sid]
                 for secret_key in SECRET_FIELDS:
                     if not cfg.get(secret_key) and old_cfg.get(secret_key):
                         cfg[secret_key] = old_cfg[secret_key]
+                for _key, _value in cfg.items():
+                    if (_key not in SECRET_FIELDS and isinstance(_value, (dict, list))
+                            and _key in old_cfg):
+                        cfg[_key] = _restore_redacted_nested_secrets(
+                            _value, old_cfg[_key], is_secret_config_key)
                 _captcha_gate_input = dict(cfg)
                 _captcha_gate_input[CAPTCHA_EGRESS_ACK_FIELD] = (
                     _captcha_import_ack)
