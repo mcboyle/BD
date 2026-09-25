@@ -258,6 +258,14 @@ _DIST_ALIAS_OVERRIDES = {
 # imports this" -- the two questions have different consequences and different
 # manifests.
 _UNDECLARED_OUTSIDE_BY_DESIGN = {
+    "axtree_distill": "toolchain/bin/bd-axtree-distill only (33d2401ce): an "
+                      "out-of-tree package that exists only on the hub, on no "
+                      "index and in no manifest; its test lives in "
+                      "toolchain/tests-hub-only/ (T101, PM ruling A2)",
+    "dag_task_compiler": "toolchain/bin/bd-dag-schedule only (33d2401ce): an "
+                         "out-of-tree package that exists only on the hub, on "
+                         "no index and in no manifest; its test lives in "
+                         "toolchain/tests-hub-only/ (T101, PM ruling A2)",
     # PIL's waiver was REMOVED 2026-08-27: Pillow is declared in
     # requirements-test.txt now (operator decision). Rows 308 and 309 gate
     # project-knowledge/build_navigator.py and build_montage.py, so those
@@ -877,8 +885,11 @@ def test_tests_only_imports_are_declared_in_the_dev_manifest():
     # non-tests importer OUTSIDE bulk_downloader/, so the sliced denominator
     # called all seven test-only and demanded they move to the dev manifest --
     # seven false failures on runtime pins the service actually imports.
+    # toolchain/tests-hub-only/ holds tests too (T101, PM ruling A2): they run on
+    # the hub only, but a name they import is still a test dependency.
     tests_only = {t: files for t, files in all_tops.items()
-                  if all(f.startswith("tests/") for f in files)}
+                  if all(f.startswith(("tests/", "toolchain/tests-hub-only/"))
+                         for f in files)}
     assert tests_only, (
         "no third-party name is imported exclusively from tests/ -- either "
         "the tests/ prefix stopped matching or the scan is not reaching "
