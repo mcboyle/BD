@@ -213,7 +213,18 @@ def start_and_wait(lib: Any, roots: Iterable[str], *,
             "counter writes land in the NEW ScanState. Wait for the previous "
             f"scan first:\n{_describe(prior)}")
 
-    started = lib.scan_start(list(roots))
+    # T103 (bd-integrator-S2-B): the previous worker publishes finished_at a moment BEFORE its thread exits, and
+    # scan_start refuses "previous scan is still stopping" while the thread is alive. That refusal is transient by
+    # design ("try again"), so only it is retried, within the same budget; every other refusal still raises at once.
+    deadline = time.monotonic() + timeout
+    while True:
+        started = lib.scan_start(list(roots))
+        if (isinstance(started, dict) and not started.get("ok")
+                and "still stopping" in str(started.get("error", ""))
+                and time.monotonic() < deadline):
+            time.sleep(_POLL_S)
+            continue
+        break
     if not (isinstance(started, dict) and started.get("ok")):
         raise AssertionError(
             f"start_and_wait: scan_start refused the request and returned "
