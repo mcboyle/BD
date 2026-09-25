@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -349,8 +350,24 @@ def _download_chunk(
         local_headers["Range"] = f"bytes={chunk.start}-{chunk.end}"
         try:
             with client.stream("GET", url, headers=local_headers) as r:
-                if r.status_code not in (200, 206):
+                if r.status_code != 206:
                     err = f"chunk_{chunk.index}_http_{r.status_code}"
+                    if attempt > chunk_retries:
+                        return False, bytes_written, err
+                    log.info("multi_conn: %s on attempt %d; retrying",
+                             err, attempt)
+                    continue
+                content_range = r.headers.get("content-range", "")
+                range_match = re.fullmatch(
+                    r"bytes (\d+)-(\d+)/(\d+|\*)", content_range.strip(),
+                    flags=re.IGNORECASE,
+                )
+                if (range_match is None
+                        or int(range_match.group(1)) != chunk.start
+                        or int(range_match.group(2)) != chunk.end
+                        or (range_match.group(3) != "*"
+                            and int(range_match.group(3)) <= chunk.end)):
+                    err = f"chunk_{chunk.index}_range_mismatch"
                     if attempt > chunk_retries:
                         return False, bytes_written, err
                     log.info("multi_conn: %s on attempt %d; retrying",

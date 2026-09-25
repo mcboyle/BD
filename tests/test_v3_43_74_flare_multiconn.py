@@ -382,6 +382,7 @@ def test_multi_conn_progress_counts_unique_bytes_across_chunk_retry(
 
         def __init__(self, chunks):
             self._chunks = chunks
+            self.headers = {"content-range": "bytes 0-3/4"}
 
         def __enter__(self):
             return self
@@ -433,8 +434,9 @@ def test_multi_conn_progress_publication_is_monotonic_across_threads(
     class Response:
         status_code = 206
 
-        def __init__(self, chunks):
+        def __init__(self, chunks, content_range):
             self._chunks = chunks
+            self.headers = {"content-range": content_range}
 
         def __enter__(self):
             return self
@@ -457,8 +459,8 @@ def test_multi_conn_progress_publication_is_monotonic_across_threads(
 
         def stream(self, method, url, *, headers):
             if headers["Range"] == "bytes=0-1":
-                return Response([b"a", b"b"])
-            return Response([b"cd"])
+                return Response([b"a", b"b"], "bytes 0-1/4")
+            return Response([b"cd"], "bytes 2-3/4")
 
     fake_httpx = type("Httpx", (), {"Client": Client})
     monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
