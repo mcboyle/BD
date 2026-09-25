@@ -345,13 +345,15 @@ def _tier_from_url(url: str) -> int:
 
 
 _VIDEO_TAG_RE = re.compile(
-    r'<video[^>]*\bsrc=["\']([^"\']+)["\']',
+    r'<video\b[^>]*\bsrc=["\']([^"\']+)["\']',
     re.IGNORECASE,
 )
+_VIDEO_BLOCK_RE = re.compile(r'<video\b[^>]*>.*?(?:</video\s*>|$)', re.IGNORECASE | re.DOTALL)
+_SOURCE_TAG_RE = re.compile(r'<source\b[^>]*\bsrc=["\']([^"\']+)["\']', re.IGNORECASE)
 
 
 def find_video_src_in_html(html: str) -> Optional[str]:
-    """Look for a <video src="..."> with a Vixen CDN URL.
+    """Look for a <video src> or nested <source src> with a Vixen CDN URL.
 
     Returns the URL on success, None otherwise. Doesn't parse the
     full DOM — a regex on the rendered HTML is enough for this
@@ -365,6 +367,11 @@ def find_video_src_in_html(html: str) -> Optional[str]:
         url = url.replace("&amp;", "&")
         if _looks_like_vixen_cdn(url):
             return url
+    for block in _VIDEO_BLOCK_RE.finditer(html):
+        for m in _SOURCE_TAG_RE.finditer(block.group(0)):
+            url = m.group(1).replace("&amp;", "&")
+            if _looks_like_vixen_cdn(url):
+                return url
     return None
 
 
