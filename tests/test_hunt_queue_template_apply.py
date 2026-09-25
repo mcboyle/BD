@@ -64,3 +64,33 @@ def test_apply_ignores_non_string_priority(clean_workdir, monkeypatch):
     persisted = next(row for row in db.queue_load(sid) if row["url"] == url)
     assert persisted["priority"] == ""
     assert persisted["force_download"] == 1
+
+
+def test_append_keeps_existing_job_metadata(clean_workdir, monkeypatch):
+    db.db_init()
+    sid = "site"
+    existing = "https://example.test/existing"
+    fresh = "https://example.test/fresh"
+    runner = _Runner(sid)
+    runner.load_urls([existing])
+    runner.jobs[existing]["priority"] = "low"
+    db.queue_upsert(sid, existing, priority="low", force_download=0)
+    monkeypatch.setattr(app_queue_templates, "_app_runners", lambda: {sid: runner})
+    tid = queue_templates.create(
+        "saved", sid, [existing, fresh],
+        priority_map={existing: "high", fresh: "high"},
+        force_set=[existing, fresh],
+    )
+
+    with app_module.app.test_request_context(
+        f"/api/queue_templates/{tid}/apply/{sid}?mode=append", method="POST"
+    ):
+        response = app_queue_templates.api_queue_template_apply(tid, sid)
+    assert response.get_json()["added"] == 1
+    assert runner.jobs[fresh]["priority"] == "high"
+    assert runner.jobs[fresh]["force_download"] is True
+    assert runner.jobs[existing]["priority"] == "low"
+    assert runner.jobs[existing]["force_download"] is False
+    persisted = next(row for row in db.queue_load(sid) if row["url"] == existing)
+    assert persisted["priority"] == "low"
+    assert persisted["force_download"] == 0

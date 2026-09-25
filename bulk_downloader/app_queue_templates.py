@@ -100,7 +100,8 @@ def api_queue_template_apply(tid, sid):
     fset = set(t.get("force_set") or [])
     persist = []
     with runner._lock:
-        for url in t["urls"]:
+        # Append skips URLs already queued, so their metadata stays as it was.
+        for url in new_urls:
             if url not in runner.jobs: continue
             fields = {}
             if url in pmap and isinstance(pmap[url], str):
