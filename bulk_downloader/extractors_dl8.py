@@ -594,7 +594,7 @@ def probe_badoink_candidates(
     referer: str = "",
     cookies: Optional[dict] = None,
     timeout_s: float = 6.0,
-    max_attempts: int = 8,
+    max_attempts: int = 10,
 ) -> Optional[BadoinkCandidate]:
     """HEAD-probe each candidate in descending tier order; return the
     first one that 200s (or 206 via Range GET if HEAD is 405).
@@ -603,8 +603,8 @@ def probe_badoink_candidates(
     unavailable. Caller falls through to the runner's standard path.
 
     `max_attempts` caps total HEAD requests. Some Badoink CDNs charge
-    for excessive requests; default of 8 is enough to cover the
-    main 8K/6K/5K/4K variants (8 templates) without wasting on the
+    for excessive requests; default of 10 covers both 4K variants after
+    the eight 8K/7K/6K/5K templates without wasting on the
     mobile/console fallbacks.
     """
     if not candidates:
