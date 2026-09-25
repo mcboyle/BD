@@ -94,16 +94,21 @@ def widgets_put_scope(scope):
             saved = widgets_config.set_for_site(scope, raw)
     except ValueError as e:
         return _err(str(e))
+    except OSError as e:
+        return _err(f"could not save widget settings: {e}", 500)
     return jsonify({"ok": True, "scope": scope, "widgets": saved})
 
 
 @widgets_bp.route("/api/widgets/<scope>", methods=["DELETE"]) if widgets_bp else (lambda f: f)
 def widgets_delete_scope(scope):
     from . import widgets_config
-    if scope == "_global":
-        widgets_config.reset_global()
-        return jsonify({"ok": True, "scope": scope, "widgets": widgets_config.get_global()})
-    removed = widgets_config.reset_for_site(scope)
+    try:
+        if scope == "_global":
+            widgets_config.reset_global()
+            return jsonify({"ok": True, "scope": scope, "widgets": widgets_config.get_global()})
+        removed = widgets_config.reset_for_site(scope)
+    except OSError as e:
+        return _err(f"could not save widget settings: {e}", 500)
     return jsonify({"ok": True, "scope": scope, "removed_override": removed})
 
 

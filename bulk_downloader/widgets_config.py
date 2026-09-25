@@ -161,6 +161,7 @@ def save() -> None:
                 tmp.unlink()
         except OSError:
             pass
+        raise
 
 
 def get_global() -> list[dict]:
@@ -187,8 +188,13 @@ def set_global(widgets: list[dict]) -> list[dict]:
     """Replace the global widget list. Returns the sanitized list."""
     sanitized = _sanitize_list(widgets)
     with _lock:
+        previous = _state["global"]
         _state["global"] = sanitized
-    save()
+        try:
+            save()
+        except OSError:
+            _state["global"] = previous
+            raise
     return sanitized
 
 
@@ -199,19 +205,32 @@ def set_for_site(site_id: str, widgets: list[dict]) -> list[dict]:
         raise ValueError("site_id required")
     sanitized = _sanitize_list(widgets)
     with _lock:
+        previous = _state["per_site"].get(site_id)
         if sanitized:
             _state["per_site"][site_id] = sanitized
         else:
             _state["per_site"].pop(site_id, None)
-    save()
+        try:
+            save()
+        except OSError:
+            if previous is None:
+                _state["per_site"].pop(site_id, None)
+            else:
+                _state["per_site"][site_id] = previous
+            raise
     return sanitized
 
 
 def reset_global() -> list[dict]:
     """Reset global widgets to defaults."""
     with _lock:
+        previous = _state["global"]
         _state["global"] = list(DEFAULT_WIDGETS)
-    save()
+        try:
+            save()
+        except OSError:
+            _state["global"] = previous
+            raise
     return get_global()
 
 
@@ -219,9 +238,13 @@ def reset_for_site(site_id: str) -> bool:
     """Remove per-site override. Returns True if there was an override to remove."""
     with _lock:
         existed = site_id in _state["per_site"]
-        _state["per_site"].pop(site_id, None)
-    if existed:
-        save()
+        if existed:
+            previous = _state["per_site"].pop(site_id)
+            try:
+                save()
+            except OSError:
+                _state["per_site"][site_id] = previous
+                raise
     return existed
 
 
