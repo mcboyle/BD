@@ -380,17 +380,25 @@ class ExtractorsMixin:
                 # did not happen.
                 fetched = True
                 for line in stdout.splitlines():
+                    # A merged download names each part ("...f137.mp4") as a
+                    # Destination, then merges into the final file and deletes
+                    # the parts: the Merger line is the file that exists.
+                    if line.startswith("[Merger] Merging formats into "):
+                        filename = line.split("Merging formats into ", 1)[1].strip().strip('"')
+                        continue
                     if "[download] Destination:" in line:
-                        filename = line.split("Destination:", 1)[1].strip()
-                        break
+                        filename = filename or line.split("Destination:", 1)[1].strip()
+                        continue
                     if "has already been downloaded" in line:
                         filename = line.split("[download]", 1)[1].split(" has already")[0].strip()
                         fetched = False
                         break
-                size = 0
-                if filename and os.path.exists(filename):
-                    try: size = os.path.getsize(filename)
-                    except Exception: pass
+                if not filename or not os.path.isfile(filename):
+                    return (False, "yt-dlp produced no output file", None, 0, 0)
+                try:
+                    size = os.path.getsize(filename)
+                except OSError:
+                    return (False, "yt-dlp output file is unreadable", None, 0, 0)
                 msg = ("Downloaded via yt-dlp fallback" if fetched
                        else "Already present (yt-dlp reported no download)")
                 return (True, msg, filename, size, size if fetched else 0)
