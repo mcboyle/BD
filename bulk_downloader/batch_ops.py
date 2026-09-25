@@ -231,6 +231,8 @@ def bulk_move(filter_dict: dict, *, target_dir: str,
         if os.path.normpath(src) == os.path.normpath(dst):
             continue
         try:
+            if os.path.lexists(dst):
+                raise FileExistsError(f"destination exists: {dst}")
             shutil.move(src, dst)
             from . import db as _db
             with _db.db_conn() as cx:
