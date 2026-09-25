@@ -274,16 +274,16 @@ class _SupervisorState:
             self._cfg.global_bps = int(max(0, global_bps))
             self._cfg.per_site_bps = dict(per_site_bps or {})
             # Apply to existing buckets
-            self._global_bucket.set_rate(self._cfg.global_bps)
+            self._global_bucket.set_rate(self._cfg.global_bps if self._cfg.enabled else UNLIMITED)
             # Update or create per-site buckets
             for site_id, bps in self._cfg.per_site_bps.items():
                 bucket = self._site_buckets.get(site_id)
                 if bucket is None:
                     bucket = TokenBucket(f"site:{site_id}",
-                                          int(max(0, bps)))
+                                          int(max(0, bps)) if self._cfg.enabled else UNLIMITED)
                     self._site_buckets[site_id] = bucket
                 else:
-                    bucket.set_rate(int(max(0, bps)))
+                    bucket.set_rate(int(max(0, bps)) if self._cfg.enabled else UNLIMITED)
             # Sites no longer in config: set unlimited (don't delete —
             # in-flight workers may still reference them)
             for site_id, bucket in self._site_buckets.items():
