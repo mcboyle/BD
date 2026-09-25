@@ -228,6 +228,12 @@ def _build_wg_config(loc: dict, private_key: str, addkey: dict) -> dict:
     """Pure assembler: turn an addKey response into a vpn_wireguard config
     dict. No network. Missing fields fall back to PIA defaults."""
     addkey = addkey or {}
+    missing = [
+        key for key in ("peer_ip", "server_key", "server_ip")
+        if not isinstance(addkey.get(key), str) or not addkey[key].strip()
+    ]
+    if missing:
+        raise ValueError(f"PIA addKey missing required fields: {', '.join(missing)}")
     peer_ip = str(addkey.get("peer_ip") or "").strip()
     server_key = str(addkey.get("server_key") or "").strip()
     server_ip = str(addkey.get("server_ip") or "").strip()
