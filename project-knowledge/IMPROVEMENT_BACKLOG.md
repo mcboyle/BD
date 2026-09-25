@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=440 open=36 ids-sha256=5fc8f8cdac18dff12541cde5679aaf100188f1124af9c26545f2fb238b2db1af -->
+<!-- canonical-task-register schema=1 rows=440 open=3 ids-sha256=5fc8f8cdac18dff12541cde5679aaf100188f1124af9c26545f2fb238b2db1af -->
 
 ## Namespace and population
 
@@ -474,38 +474,38 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1083 | CLOSED @1658 | HOTFIX-ROW1021-RECORD-ERROR-STUB-RUNNER -- runner._update_job_current record_error hook vs row847 MockRunner (main red, ORDERS-0092) |
 | 1084 | CLOSED @1659 | HOTFIX-ROW847-LIVE-TELEMETRY-TOMBSTONE-STATUS -- test_live_telemetry stop-serialization test pins 'failed' for a non-tombstone permanent failure and row847's 'tombstone' for HTTP 404 (main red, ORDERS-0093) |
 | 1085 | CLOSED @1674 | HUNT2-QUALITY-PREF-CASCADE -- aylo + jsonapi quality pickers return highest on any "best" in the pref list (pref [720,"best"] picked 1080, not 720); walk prefs in order like dl8/vixen (sol-hunt-2 FIND-1, lens bd-fixer-C-B BOARD, ORDERS-0176) |
-| 1086 | OPEN | HUNT2-MULTICONN-CONTENT-RANGE -- multi_conn accepted 200 / any 206 without checking Content-Range, so a full body at offset>0 overwrote other chunks (sol-hunt-2 FIND-2, lens bd-fixer-C-B) |
-| 1087 | OPEN | HUNT2-MULTICONN-CANCEL -- multi_conn cancel path (sol-hunt-2 FIND-3, stacked on FIND-2, lens bd-fixer-C-B) |
-| 1088 | OPEN | HUNT3-CONFIG-EXPORT-NESTED-SECRET -- config export leaked secrets nested below the top level (SECURITY; sol-hunt-3 FIND-4, lens bd-review-correctness-N3-B) |
-| 1089 | OPEN | HUNT2-DL8-4K-PROBE -- dl8 extractor default max_attempts 8->10 so the 4k probe is reachable (sol-hunt-2 FIND-4, lens bd-fixer-C-B) |
-| 1090 | OPEN | HUNT2-LIBRARY-HLS-QUERY -- phub and generic EAF adapters classify urlparse(path), not the raw URL with its query (sol-hunt-2 FIND-5, lens bd-fixer-C-B) |
-| 1091 | OPEN | HUNT3-GLOBAL-CONFIG-REJECT-ROLLBACK -- a rejected global-config write left earlier live side effects applied (sol-hunt-3 FIND-1, lens bd-fixer-D-A) |
-| 1092 | OPEN | HUNT3-BULK-MARK-KEEPS-MESSAGE -- bulk mark without a message erased the persisted message (sol-hunt-3 FIND-2, lens bd-fixer-D-A) |
-| 1093 | OPEN | HUNT3-HISTORY-LIMIT -- app_history limit handling (sol-hunt-3 FIND-3, lens bd-review-correctness-N3-B) |
-| 1094 | OPEN | HUNT3-QUEUE-IMPORT-VALIDATION -- queue import validation in app_sites_queue (sol-hunt-3 FIND-6, lens bd-review-correctness-N3-B) |
-| 1095 | OPEN | H800-COOKIE-IMPORT-TEMP-CLEANUP -- app_sites_auth cookie import leaked its temp file (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1096 | OPEN | H801-CONNECT-AUTHORITY-JUNK -- download_egress accepted a bracketed CONNECT authority with a junk suffix (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1097 | OPEN | H802-FLARESOLVERR-NULL-MESSAGE -- flaresolverr_client TypeError on a null error message (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1098 | OPEN | H803-VPN-CONFIG-ROOT-SHAPE -- vpn_config AttributeError on a non-object JSON root (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1099 | OPEN | HUNT2-SUPERVISOR-DISABLE-UNBLOCKS -- download_supervisor configure(enabled=False) left bucket rates set, so in-flight acquires stayed throttled (sol-hunt-2 FIND-6, lens bd-fixer-C-B) |
-| 1100 | OPEN | HUNT3-SAVED-SEARCH-PATCH -- saved_searches patch handling (sol-hunt-3 FIND-5 r2, lens bd-fixer-D-A) |
-| 1101 | OPEN | HUNT2-DOWNLOAD-HOLD-LSTAT -- download_hold _read_record: missing file is CLEAR, other OSError is UNKNOWN (sol-hunt-2 FIND-7, lens bd-fixer-C-B) |
-| 1102 | OPEN | H804-PROXY-POST-EXPIRY-STREAK -- proxy_pool failure streak after expiry (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1103 | OPEN | H805-VPN-SOCKS-CONNECT-LEAK -- vpn_socks leaked the socket on a failed connect (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1104 | OPEN | H806-WG-CONFIG-INCOMPLETE -- vpn_providers/generic called an incomplete WireGuard config valid (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1105 | OPEN | H807-FLARESOLVERR-TIMEOUT-TYPE -- app_flaresolverr non-numeric timeout_s returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1106 | OPEN | HUNT3-QUEUE-IMPORT-METADATA -- queue import metadata in app_sites_queue (sol-hunt-3 FIND-7 r2, lens bd-fixer-D-A) |
+| 1086 | CLOSED @1675 | HUNT2-MULTICONN-CONTENT-RANGE -- multi_conn accepted 200 / any 206 without checking Content-Range, so a full body at offset>0 overwrote other chunks (sol-hunt-2 FIND-2, lens bd-fixer-C-B) |
+| 1087 | CLOSED @1675 | HUNT2-MULTICONN-CANCEL -- multi_conn cancel path (sol-hunt-2 FIND-3, stacked on FIND-2, lens bd-fixer-C-B) |
+| 1088 | CLOSED @1675 | HUNT3-CONFIG-EXPORT-NESTED-SECRET -- config export leaked secrets nested below the top level (SECURITY; sol-hunt-3 FIND-4, lens bd-review-correctness-N3-B) |
+| 1089 | CLOSED @1675 | HUNT2-DL8-4K-PROBE -- dl8 extractor default max_attempts 8->10 so the 4k probe is reachable (sol-hunt-2 FIND-4, lens bd-fixer-C-B) |
+| 1090 | CLOSED @1675 | HUNT2-LIBRARY-HLS-QUERY -- phub and generic EAF adapters classify urlparse(path), not the raw URL with its query (sol-hunt-2 FIND-5, lens bd-fixer-C-B) |
+| 1091 | CLOSED @1675 | HUNT3-GLOBAL-CONFIG-REJECT-ROLLBACK -- a rejected global-config write left earlier live side effects applied (sol-hunt-3 FIND-1, lens bd-fixer-D-A) |
+| 1092 | CLOSED @1675 | HUNT3-BULK-MARK-KEEPS-MESSAGE -- bulk mark without a message erased the persisted message (sol-hunt-3 FIND-2, lens bd-fixer-D-A) |
+| 1093 | CLOSED @1675 | HUNT3-HISTORY-LIMIT -- app_history limit handling (sol-hunt-3 FIND-3, lens bd-review-correctness-N3-B) |
+| 1094 | CLOSED @1675 | HUNT3-QUEUE-IMPORT-VALIDATION -- queue import validation in app_sites_queue (sol-hunt-3 FIND-6, lens bd-review-correctness-N3-B) |
+| 1095 | CLOSED @1675 | H800-COOKIE-IMPORT-TEMP-CLEANUP -- app_sites_auth cookie import leaked its temp file (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1096 | CLOSED @1675 | H801-CONNECT-AUTHORITY-JUNK -- download_egress accepted a bracketed CONNECT authority with a junk suffix (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1097 | CLOSED @1675 | H802-FLARESOLVERR-NULL-MESSAGE -- flaresolverr_client TypeError on a null error message (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1098 | CLOSED @1675 | H803-VPN-CONFIG-ROOT-SHAPE -- vpn_config AttributeError on a non-object JSON root (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1099 | CLOSED @1675 | HUNT2-SUPERVISOR-DISABLE-UNBLOCKS -- download_supervisor configure(enabled=False) left bucket rates set, so in-flight acquires stayed throttled (sol-hunt-2 FIND-6, lens bd-fixer-C-B) |
+| 1100 | CLOSED @1675 | HUNT3-SAVED-SEARCH-PATCH -- saved_searches patch handling (sol-hunt-3 FIND-5 r2, lens bd-fixer-D-A) |
+| 1101 | CLOSED @1675 | HUNT2-DOWNLOAD-HOLD-LSTAT -- download_hold _read_record: missing file is CLEAR, other OSError is UNKNOWN (sol-hunt-2 FIND-7, lens bd-fixer-C-B) |
+| 1102 | CLOSED @1675 | H804-PROXY-POST-EXPIRY-STREAK -- proxy_pool failure streak after expiry (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1103 | CLOSED @1675 | H805-VPN-SOCKS-CONNECT-LEAK -- vpn_socks leaked the socket on a failed connect (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1104 | CLOSED @1675 | H806-WG-CONFIG-INCOMPLETE -- vpn_providers/generic called an incomplete WireGuard config valid (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1105 | CLOSED @1675 | H807-FLARESOLVERR-TIMEOUT-TYPE -- app_flaresolverr non-numeric timeout_s returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1106 | CLOSED @1675 | HUNT3-QUEUE-IMPORT-METADATA -- queue import metadata in app_sites_queue (sol-hunt-3 FIND-7 r2, lens bd-fixer-D-A) |
 | 1107 | OPEN | HUNT3-QUEUE-APPEND-KEEPS-PRIORITY -- queue import mode=append overwrote priority/force_download of queued jobs (sol-hunt-3 FIND-8, lens N3-B; needs re-diff on FIND-7 r2) |
-| 1108 | OPEN | HUNT3-ALERTS-ENGINE -- alerts_engine fix (sol-hunt-3 FIND-12, lens bd-review-correctness-N3-B) |
-| 1109 | OPEN | H808-VPN-STATS-EMPTY-CANDIDATES -- vpn_stats ignored an empty candidate set (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1110 | OPEN | H809-VPN-LEAK-HISTORY-LIMIT -- app_vpn_api non-integer leak-history limit returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
-| 1111 | OPEN | HUNT3-QUEUE-TEMPLATE-APPLY -- app_queue_templates apply (sol-hunt-3 FIND-9 r2, lens bd-fixer-D-A) |
+| 1108 | CLOSED @1675 | HUNT3-ALERTS-ENGINE -- alerts_engine fix (sol-hunt-3 FIND-12, lens bd-review-correctness-N3-B) |
+| 1109 | CLOSED @1675 | H808-VPN-STATS-EMPTY-CANDIDATES -- vpn_stats ignored an empty candidate set (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1110 | CLOSED @1675 | H809-VPN-LEAK-HISTORY-LIMIT -- app_vpn_api non-integer leak-history limit returned 500 (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1111 | CLOSED @1675 | HUNT3-QUEUE-TEMPLATE-APPLY -- app_queue_templates apply (sol-hunt-3 FIND-9 r2, lens bd-fixer-D-A) |
 | 1112 | OPEN | HUNT3-QUEUE-TEMPLATE-FOLLOWUP -- app_queue_templates follow-up (sol-hunt-3 FIND-10, lens N3-B; needs re-diff on FIND-9 r2) |
-| 1113 | OPEN | HUNT2-DIRECT-HTTP-TRUNCATED -- runner_transport direct HTTP download accepted a truncated body (sol-hunt-2 FIND-9, lens bd-fixer-C-B) |
-| 1114 | OPEN | HUNT2-YTDLP-NO-ARTIFACT -- runner_extractors yt-dlp fallback reported success with no artifact (sol-hunt-2 FIND-10, lens bd-fixer-C-B) |
-| 1115 | OPEN | H840-CAPTCHA-START-PENDING -- app_captcha_relay cached start reported success for an unknown URL (sol-hunt-4 FIND-11, lens bd-review-correctness-B1) |
-| 1116 | OPEN | H841-MULLVAD-RELAY-LOCATION -- vpn_providers/mullvad malformed relay location dropped the live list (sol-hunt-4 FIND-12, lens bd-review-correctness-B1) |
-| 1117 | OPEN | HUNT3-BATCH-MOVE-COLLISION -- batch_ops move collision (sol-hunt-3 FIND-14, lens bd-review-correctness-N3-B) |
-| 1118 | OPEN | HUNT3-API-TOKEN-TTL -- api_tokens TTL handling (sol-hunt-3 FIND-11, lens bd-fixer-D-A) |
-| 1119 | OPEN | HUNT2-TRANSPORT-BYTES -- runner_transport byte accounting (sol-hunt-2 FIND-11, lens bd-fixer-C-B) |
-| 1120 | OPEN | H842-WEBRTC-RESULT-BOOL -- vpn_leak_tests: a string verdict passed the critical WebRTC probe (sol-hunt-4, lens bd-review-correctness-B1) |
+| 1113 | CLOSED @1675 | HUNT2-DIRECT-HTTP-TRUNCATED -- runner_transport direct HTTP download accepted a truncated body (sol-hunt-2 FIND-9, lens bd-fixer-C-B) |
+| 1114 | CLOSED @1675 | HUNT2-YTDLP-NO-ARTIFACT -- runner_extractors yt-dlp fallback reported success with no artifact (sol-hunt-2 FIND-10, lens bd-fixer-C-B) |
+| 1115 | CLOSED @1675 | H840-CAPTCHA-START-PENDING -- app_captcha_relay cached start reported success for an unknown URL (sol-hunt-4 FIND-11, lens bd-review-correctness-B1) |
+| 1116 | CLOSED @1675 | H841-MULLVAD-RELAY-LOCATION -- vpn_providers/mullvad malformed relay location dropped the live list (sol-hunt-4 FIND-12, lens bd-review-correctness-B1) |
+| 1117 | CLOSED @1675 | HUNT3-BATCH-MOVE-COLLISION -- batch_ops move collision (sol-hunt-3 FIND-14, lens bd-review-correctness-N3-B) |
+| 1118 | CLOSED @1675 | HUNT3-API-TOKEN-TTL -- api_tokens TTL handling (sol-hunt-3 FIND-11, lens bd-fixer-D-A) |
+| 1119 | CLOSED @1675 | HUNT2-TRANSPORT-BYTES -- runner_transport byte accounting (sol-hunt-2 FIND-11, lens bd-fixer-C-B) |
+| 1120 | CLOSED @1675 | H842-WEBRTC-RESULT-BOOL -- vpn_leak_tests: a string verdict passed the critical WebRTC probe (sol-hunt-4, lens bd-review-correctness-B1) |
