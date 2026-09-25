@@ -50,6 +50,12 @@ def test_credentials(credentials: dict) -> tuple[bool, str]:
     parsed = _parse_configs((credentials or {}).get("configs", ""))
     if not parsed:
         return False, "no configs found — paste at least one .conf or .ovpn"
+    for _, kind, text in parsed:
+        if kind == "wireguard":
+            try:
+                _parse_wg_conf(text)
+            except ValueError as exc:
+                return False, str(exc)
     wg_count = sum(1 for _, kind, _ in parsed if kind == "wireguard")
     ovpn_count = sum(1 for _, kind, _ in parsed if kind == "openvpn")
     return True, f"loaded {wg_count} WireGuard + {ovpn_count} OpenVPN config(s)"
