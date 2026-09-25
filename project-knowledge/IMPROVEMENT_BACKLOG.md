@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=453 open=16 ids-sha256=58018e8a4b0b2dbbd98ae955098af93d0c7c901c3efe259491d3861da439af75 -->
+<!-- canonical-task-register schema=1 rows=468 open=31 ids-sha256=7bb38c01533c41b01668c59ee14be975cd4ee15a7ed77dff2d08c8eaab222996 -->
 
 ## Namespace and population
 
@@ -522,3 +522,18 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1131 | OPEN | H849-EGRESS-WEIGHT-DAMPING -- a higher-weight healthy egress interface at equal priority never became active after damping (sol-hunt-4 FIND-20, H849) |
 | 1132 | OPEN | HUNT2-QUARANTINE-OVERWRITE -- a repeated failed download overwrote the prior quarantined file with the same name (sol-hunt-2 FIND-15) |
 | 1133 | OPEN | HUNT3-TAG-NEGATIVE-LIMIT -- a negative tag-row limit returned every tagged history row instead of a bounded result (sol-hunt-3 FIND-22) |
+| 1134 | OPEN | HUNT3-SHARE-TTL-FRACTIONAL -- SECURITY: a half-hour share-token TTL silently became a non-expiring token (sol-hunt-3 FIND-25, lens Q1-A) |
+| 1135 | OPEN | H847-CHALLENGE-BACKOFF-OVERFLOW -- the challenge circuit crashed with OverflowError instead of saturating backoff after a long retry history (sol-hunt-4 FIND-18, H847) |
+| 1136 | OPEN | H850-WG-IFACE-IP-SUBSTRING -- WireGuard accepted a different interface IPv4 address whose text contained the configured address (sol-hunt-4 FIND-21, H850) |
+| 1137 | OPEN | H851-CAPTCHA-TERMINAL-ACTIONS -- repeated or stale captcha terminal actions called the ender again and could reverse a completed session (sol-hunt-4 FIND-22, H851) |
+| 1138 | OPEN | H852-OPENVPN-READY-AFTER-EXIT -- OpenVPN start reported a ready tunnel after its process exited or reported failure (sol-hunt-4 FIND-23, H852) |
+| 1139 | OPEN | H853-KILLSWITCH-PREVIEW-REMOVES-RULES -- previewing kill-switch rules removed active uncommitted firewall rules for the same tunnel (sol-hunt-4 FIND-24, H853) |
+| 1140 | OPEN | HUNT2-VIXEN-DUP-TIER -- a duplicate Vixen CDN URL dropped its known resolution and selected a lower quality tier (sol-hunt-2 FIND-16, lens C-B) |
+| 1141 | OPEN | HUNT2-VIXEN-SOURCE-TAG -- the Vixen HTML fallback missed a playable video whose URL was on a nested source tag (sol-hunt-2 FIND-17, lens C-B) |
+| 1142 | OPEN | HUNT2-QUEUE-TRANSFORM-COLLISION -- a skipped bulk URL rewrite deleted its persisted queue row (sol-hunt-2 FIND-18, lens P5-A) |
+| 1143 | OPEN | HUNT2-POOL-ROTATION-LOGIN -- account-pool rotation retried with the new account before starting its login (sol-hunt-2 FIND-19, lens P5-A) |
+| 1144 | OPEN | HUNT3-ENVFILE-INJECTION-DUP-KEY -- the .env editor accepted line separators in a value and a repeated key edit was overridden on restart (sol-hunt-3 FIND-17+18+20 merged, lens Q1-A) |
+| 1145 | OPEN | HUNT3-LIBRARY-SCAN-ROOTS-SHAPE -- library scan treated explicit empty roots as every site and a string root as characters (sol-hunt-3 FIND-19, lens Q1-A) |
+| 1146 | OPEN | HUNT3-RATING-RESPONSE-CLAMP -- the library rating API reported the submitted out-of-range value while storage saved a clamped rating (sol-hunt-3 FIND-21, lens Q1-A) |
+| 1147 | OPEN | HUNT3-WIDGETS-SAVE-FAILURE -- widget settings reported a successful save when disk replacement failed (sol-hunt-3 FIND-23, lens Q1-A) |
+| 1148 | OPEN | HUNT3-MASS-IMPORT-URL -- mass import accepted httpx:// and hostless http:// lines as URLs and created jobs for them (sol-hunt-3 FIND-24, lens N3-B) |
