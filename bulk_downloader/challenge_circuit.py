@@ -68,7 +68,10 @@ def calculate_backoff(
     """Calculate exponential backoff delay in seconds for task re-queueing."""
     if attempt <= 1:
         return min(float(base_delay), float(max_delay))
-    delay = float(base_delay) * (float(factor) ** (attempt - 1))
+    try:
+        delay = float(base_delay) * (float(factor) ** (attempt - 1))
+    except OverflowError:
+        return float(max_delay)
     return min(delay, float(max_delay))
 
 
