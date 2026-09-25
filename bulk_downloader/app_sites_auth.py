@@ -173,12 +173,16 @@ def api_cookies_import(sid):
     try:
         from . import cookies as _ck
         import tempfile as _tf
-        with _tf.NamedTemporaryFile("w", suffix=".json", delete=False,
-                                    encoding="utf-8") as tmp:
-            tmp.write(text)
-            tmp_path = tmp.name
-        parsed = _ck.load_cookies_from_file(tmp_path)
-        os.unlink(tmp_path)
+        tmp_path = None
+        try:
+            with _tf.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                        encoding="utf-8") as tmp:
+                tmp_path = tmp.name
+                tmp.write(text)
+            parsed = _ck.load_cookies_from_file(tmp_path)
+        finally:
+            if tmp_path is not None:
+                os.unlink(tmp_path)
     except Exception as e:
         return jsonify({"ok": False,
                         "error": f"not valid cookie JSON: {e}"}), 400
