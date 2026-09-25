@@ -360,3 +360,28 @@ def test_runner_bulk_ops_do_not_loop_queue_upsert():
         assert "queue_upsert(" not in body, \
             f"{name} still calls queue_upsert — likely a per-URL " \
             f"N+1 loop; use a bulk primitive instead"
+
+
+def test_bulk_mark_without_message_preserves_persisted_message():
+    c, sid, app_module = _setup()
+    from bulk_downloader.db import queue_load, queue_upsert
+
+    url = "https://example.com/v0"
+    runner = app_module.runners[sid]
+    with runner._lock:
+        runner.jobs[url]["message"] = "original"
+    queue_upsert(sid, url, message="original")
+
+    response = c.post(f"/api/sites/{sid}/jobs/bulk_mark", json={
+        "urls": [url], "status": "failed"})
+    assert response.status_code == 200
+    assert response.get_json()["affected"] == 1
+    assert runner.jobs[url]["message"] == "original"
+    row = next(r for r in queue_load(sid) if r["url"] == url)
+    assert row["message"] == "original"
+
+    response = c.post(f"/api/sites/{sid}/jobs/bulk_mark", json={
+        "urls": [url], "status": "pending", "message": "updated"})
+    assert response.status_code == 200
+    row = next(r for r in queue_load(sid) if r["url"] == url)
+    assert row["message"] == "updated"

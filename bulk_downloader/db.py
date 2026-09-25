@@ -2948,7 +2948,7 @@ def queue_bulk_mark(site_id, urls, status, *, message=""):
             chunk = urls[chunk_start:chunk_start + 500]
             placeholders = ",".join("?" * len(chunk))
             cur = cx.execute(
-                f"UPDATE queue SET status=?, message=?, "
+                f"UPDATE queue SET status=?, message=COALESCE(NULLIF(?, ''), message), "
                 f"ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now') "
                 f"WHERE site_id=? AND url IN ({placeholders})",
                 (status, message, site_id, *chunk))
