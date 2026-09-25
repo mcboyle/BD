@@ -152,7 +152,11 @@ def _parse_device_configs(raw: Any) -> dict:
 
 
 def _device_configs_have_entries(raw: Any) -> bool:
-    return bool(_parse_device_configs(raw))
+    required = ("private_key", "address", "peer_public_key", "endpoint")
+    return any(
+        isinstance(cfg, dict) and all(cfg.get(key) for key in required)
+        for cfg in _parse_device_configs(raw).values()
+    )
 
 
 def _render_wireguard(loc: dict, credentials: dict) -> dict:
@@ -164,6 +168,8 @@ def _render_wireguard(loc: dict, credentials: dict) -> dict:
             f"Get one from account.protonvpn.com → Downloads → WireGuard config, "
             f"then paste into the device_configs field for this location."
         )
+    if not isinstance(cfg, dict):
+        raise TypeError(f"Proton WireGuard config for {loc['id']!r} must be an object")
     required = ("private_key", "address", "peer_public_key", "endpoint")
     missing = [k for k in required if not cfg.get(k)]
     if missing:
