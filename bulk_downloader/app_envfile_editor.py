@@ -81,6 +81,13 @@ def validate_envfile_updates(updates: dict) -> dict:
             rejected[k] = f"expected scalar, got {type(v).__name__}"
             continue
         sval = "" if v is None else str(v)
+        if any(ch in sval for ch in "\x00\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"):
+            rejected[k] = "value must be a single line without NUL"
+            continue
+        if sval.endswith("\\"):
+            # systemd EnvironmentFile joins a trailing-backslash line with the next.
+            rejected[k] = "value must not end with a backslash"
+            continue
         kind = meta["kind"]
         if meta["foundation"]:
             p = Path(sval).expanduser()
@@ -130,9 +137,12 @@ def validate_envfile_updates(updates: dict) -> dict:
 def _write_envfile(path: Path, accepted: dict) -> None:
     """Atomically merge `accepted` into the `.env`, preserving comments + unrelated
     lines. Updates a key in place if present, else appends it (temp + os.replace)."""
+    # Only a MISSING file is empty. An unreadable or non-UTF-8 file must abort
+    # the write: treating it as empty would replace every other key with just
+    # the edited ones (the caller maps the exception to a 500, file untouched).
     try:
         existing = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
+    except FileNotFoundError:
         existing = []
     remaining = dict(accepted)
     out = []
@@ -140,8 +150,9 @@ def _write_envfile(path: Path, accepted: dict) -> None:
         line = raw.strip()
         if line and not line.startswith("#") and "=" in line:
             key = line.partition("=")[0].strip()
-            if key in remaining:
-                out.append(f"{key}={remaining.pop(key)}")
+            if key in accepted:
+                out.append(f"{key}={accepted[key]}")
+                remaining.pop(key, None)
                 continue
         out.append(raw)
     for key, val in remaining.items():
