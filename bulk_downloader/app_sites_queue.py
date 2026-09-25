@@ -418,14 +418,27 @@ def api_queue_import(sid):
         # load_urls returns (added, dupes) or (added, dupes, skipped)
         added = result[0] if isinstance(result, tuple) else len(new_urls)
         # Apply priority + force_download after load (load_urls is generic)
+        persist = []
         with runner._lock:
             for row in rows:
                 url = (row.get("url") or "").strip()
                 if url not in runner.jobs: continue
-                if row.get("priority"):
-                    runner.jobs[url]["priority"] = row["priority"]
+                fields = {}
+                priority = row.get("priority")
+                if priority and isinstance(priority, str):
+                    runner.jobs[url]["priority"] = priority
+                    fields["priority"] = priority
                 if row.get("force_download"):
                     runner.jobs[url]["force_download"] = True
+                    fields["force_download"] = 1
+                if fields:
+                    persist.append((url, fields))
+        # Persist outside the lock; a DB failure must not fail the import.
+        for url, fields in persist:
+            try:
+                queue_upsert(sid, url, **fields)
+            except Exception as e:
+                sys.stderr.write(f"  queue import metadata persist failed: {e}\n")
     return jsonify({"ok": True, "added": added,
                     "mode": mode, "site_id": sid})
 
