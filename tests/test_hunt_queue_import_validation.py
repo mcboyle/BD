@@ -5,6 +5,8 @@ from threading import RLock
 from bulk_downloader import app as app_module
 from bulk_downloader import app_sites_queue, db
 
+BD_GATE_SCOPE = "module"
+
 
 class _Runner:
     def __init__(self):

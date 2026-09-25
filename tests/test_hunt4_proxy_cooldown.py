@@ -1,5 +1,7 @@
 from bulk_downloader import proxy_pool
 
+BD_GATE_SCOPE = "module"
+
 
 def test_expired_cooldown_starts_new_consecutive_failure_streak():
     state = {}

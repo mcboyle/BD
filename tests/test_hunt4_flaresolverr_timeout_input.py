@@ -4,6 +4,8 @@ from flask import Flask
 
 from bulk_downloader import app_flaresolverr
 
+BD_GATE_SCOPE = "module"
+
 
 class FakeFlareClient:
     DEFAULT_ENDPOINT = "http://127.0.0.1:8191"

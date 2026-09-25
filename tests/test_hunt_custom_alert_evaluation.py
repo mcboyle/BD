@@ -1,6 +1,8 @@
 """Saved custom alert rules are included in the periodic evaluation pass."""
 from bulk_downloader import alerts_engine
 
+BD_GATE_SCOPE = "module"
+
 
 def test_saved_custom_rule_is_evaluated_by_default(clean_workdir, monkeypatch):
     rule_id = "hunt_custom_pending"

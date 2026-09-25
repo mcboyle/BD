@@ -1,5 +1,7 @@
 from bulk_downloader.vpn_providers import generic
 
+BD_GATE_SCOPE = "module"
+
 VALID_WG = """[Interface]
 PrivateKey = private
 Address = 10.0.0.2/32

@@ -2,6 +2,8 @@ import pytest
 
 from bulk_downloader import vpn_socks
 
+BD_GATE_SCOPE = "module"
+
 
 class FakeSocket:
     def __init__(self, fail):
