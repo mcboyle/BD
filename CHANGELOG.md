@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1674 - T101: row1085
+
+- Quality preference cascade (row1085, sol-hunt-2 FIND-1): the Aylo and JSON-API quality pickers now walk the preference list in order, like the DL8 and Vixen pickers. A list such as `[720, "best"]` picks 720 when it is offered; before this, any `"best"` entry made them pick the highest quality. `["best", ...]` and an empty preference still pick the highest.
+
+
 ## v3.66.1673 - train100: H116
 
 Base main 0f2fe2db (v3.66.1672). T100 (ORDERS-0168 option (b), O1380; non-product: tools/toolchain/docs/tests only; lens P3-B BOARD at PATCH-SHA256 f7aefc12; VM gate + CI, no deploy per O1346/O1353).

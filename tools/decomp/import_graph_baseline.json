@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5049,
+  "edge_count": 5051,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3422,6 +3422,10 @@
     ],
     "tests/test_hooks_webhook_ssrf.py": [
       "bulk_downloader/hooks.py"
+    ],
+    "tests/test_hunt_quality_pref_cascade.py": [
+      "bulk_downloader/extractors_aylo.py",
+      "bulk_downloader/extractors_jsonapi.py"
     ],
     "tests/test_hydration_extractor.py": [
       "bulk_downloader/hydration_extractor.py"
