@@ -186,7 +186,9 @@ def load() -> dict:
             return dict(_state)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
+            if not isinstance(data, dict):
+                raise ValueError("VPN config root must be an object")
+        except (OSError, json.JSONDecodeError, ValueError) as e:
             sys.stderr.write(f"[vpn-config] could not read {path}: {e}\n")
             _loaded = True
             return dict(_state)
