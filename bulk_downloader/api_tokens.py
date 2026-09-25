@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import secrets
 import sys
 import time
@@ -133,7 +134,7 @@ def _log(token_id: str, path: str, method: str, scope: Optional[str],
 
 
 def create_token(*, scope: str, label: str = "",
-                 ttl_hours: Optional[int] = None) -> dict:
+                 ttl_hours: Optional[float] = None) -> dict:
     """Mint a scoped API token.
 
     Returns {ok, token, token_id, scope, expires_at} on success. The
@@ -147,15 +148,17 @@ def create_token(*, scope: str, label: str = "",
         return {"ok": False,
                 "error": f"scope '{scope}' is reserved and cannot be minted"}
     try:
-        ttl = int(ttl_hours) if ttl_hours not in (None, "") else None
-        if ttl is not None and ttl <= 0:
-            ttl = None
+        ttl = None if ttl_hours is None or ttl_hours == "" else float(ttl_hours)
+        if ttl is not None and (not math.isfinite(ttl) or ttl <= 0):
+            return {"ok": False, "error": "ttl_hours must be positive"}
     except (TypeError, ValueError):
-        return {"ok": False, "error": "ttl_hours must be an integer"}
+        return {"ok": False, "error": "ttl_hours must be a number"}
 
     token_id = secrets.token_urlsafe(8)
     nonce = secrets.token_urlsafe(16)
     expires_at = (time.time() + ttl * 3600) if ttl else None
+    if expires_at is not None and not math.isfinite(expires_at):
+        return {"ok": False, "error": "ttl_hours is too large"}
     secret = _signing_secret()
     sig_body = f"{token_id}.{nonce}"
     sig = hmac.new(secret.encode("utf-8"), sig_body.encode("utf-8"),
