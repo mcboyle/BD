@@ -68,6 +68,7 @@ def probe_dns(site_id: str, hostname: str, *,
              timeout: float = 5.0) -> dict:
     """Try to resolve the hostname."""
     started = time.time()
+    original_timeout = socket.getdefaulttimeout()
     try:
         socket.setdefaulttimeout(timeout)
         ip = socket.gethostbyname(hostname)
@@ -79,6 +80,8 @@ def probe_dns(site_id: str, hostname: str, *,
         _record(site_id, "dns", False, latency_ms=latency,
                 error=str(e)[:200])
         return {"ok": False, "error": str(e)[:200], "latency_ms": latency}
+    finally:
+        socket.setdefaulttimeout(original_timeout)
 
 
 # v3.66.550 (F-COREBD17-02): the config-derived probe URL (weather_url/homepage_url/
