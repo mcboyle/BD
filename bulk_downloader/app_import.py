@@ -9,6 +9,8 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from flask import Blueprint, jsonify, request
 
 import_bp = Blueprint("import", __name__)
@@ -43,8 +45,15 @@ def api_import_start(sid):
         content = (request.json or {}).get("text", "")
     elif request.form:
         content = request.form.get("text", "")
-    urls = [u.strip() for u in content.splitlines()
-            if u.strip().startswith("http")]
+    def is_http_url(value):
+        try:
+            parsed = urlsplit(value)
+            return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+        except ValueError:
+            return False
+
+    urls = [url for line in content.splitlines()
+            if (url := line.strip()) and is_http_url(url)]
     if not urls:
         return jsonify({"ok": False, "error": "no valid URLs"}), 400
     folder_scan = (request.args.get("folder_scan") == "1"
