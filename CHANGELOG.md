@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1677 - train104: row127-mirror MOD3 mirror scope (PG mirror restricted to schema tables)
+
+
 ## v3.66.1676 - train103: T103 hunt fixes rows1107,1112,1121-1148 (H848, FIND-25 SECURITY)
 
 - Bug-hunt fixes (sol-hunt-2/3/4, ORDERS-0176): 30 fixes found by the hunters and approved by independent reviewers. Each has a regression test and a register row (1107, 1112, 1121-1148).
