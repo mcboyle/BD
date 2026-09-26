@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=469 open=1 ids-sha256=3e9e3244789dd581daedc55091450f2766cfe262319211ec957e7a41ddf4116a -->
+<!-- canonical-task-register schema=1 rows=470 open=2 ids-sha256=ae00347c451bfd429e66c40986b64e28c4dc0308a0c229182c379f5fa7a00d24 -->
 
 ## Namespace and population
 
@@ -538,3 +538,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1147 | CLOSED @1676 | HUNT3-WIDGETS-SAVE-FAILURE -- widget settings reported a successful save when disk replacement failed (sol-hunt-3 FIND-23, lens Q1-A) |
 | 1148 | CLOSED @1676 | HUNT3-MASS-IMPORT-URL -- mass import accepted httpx:// and hostless http:// lines as URLs and created jobs for them (sol-hunt-3 FIND-24, lens N3-B) |
 | 1149 | CLOSED @1680 | PG-PARITY-AND-BACKFILL -- schema parity, idempotent backfill, history content probe (row127 Stage 3.2 PG cutover; O1412/O1417, cut row127-parity R3) |
+| 1150 | OPEN | PG-BACKEND DP HYGIENE -- contextlib.suppress on close/rollback; psycopg sql.Identifier for table/column names at pg_backend.py:360/:974; ratchet back to <=1643 (T1 hygiene; follow-up of T107 row1149, RULING-T107-RATCHET-bd-pm-A-20260926T1656Z, O733) |
