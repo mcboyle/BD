@@ -311,7 +311,7 @@ _NODE_MODULES_TEXT_NEGATIVE_CONTROLS = (
     "tests/test_v3_66_1157_build_output_is_from_this_attempt.py",
     "tests/test_v3_66_947_the_kb_manifest_can_be_regenerated.py",
     "tests/test_playwright_engines_single_source.py",
-    "tests/test_deploy_manifest_stays_retired.py",
+    "tests/test_capture_csrf_diag_redacts_cookies.py",
     "tests/test_desandbox_tool_verifiers.py",
 )
 

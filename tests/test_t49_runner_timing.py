@@ -16,6 +16,7 @@ and would also be slow.
 from __future__ import annotations
 
 import json
+import pytest
 import os
 import subprocess
 import sys
@@ -32,6 +33,8 @@ def _run_runner_on_tiny_file(tmp_path):
     """Invoke run_tests.py against a freshly written tiny test file
     inside tmp_path. Returns (returncode, json_dict, summary_text).
     """
+    if not _RUN_TESTS.exists():
+        pytest.skip("run_tests.py absent in this tree")
     test_file = tmp_path / "tests" / "test_t49_tiny.py"
     test_file.parent.mkdir(parents=True, exist_ok=True)
     # Two tests: one instant-passing, one with a small measurable

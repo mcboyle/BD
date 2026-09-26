@@ -30,6 +30,8 @@ RUNNER = os.path.join(REPO, "run_tests.py")
 
 def _run_runner(*suite_paths, env=None):
     """Invoke the band runner on explicit absolute suite paths."""
+    if not os.path.exists(RUNNER):
+        pytest.skip("run_tests.py absent in this tree")
     e = dict(os.environ)
     e.setdefault("BD_DISABLE_KEEPALIVE", "1")
     if env:

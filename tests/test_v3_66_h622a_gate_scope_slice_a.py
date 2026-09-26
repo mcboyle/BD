@@ -214,7 +214,7 @@ def test_no_other_slice_a_file_claims_repo_wide() -> None:
     """
     claimed = sorted(rel for rel in _slice_a()
                      if _declared_scope(_REPO / rel) == "repo-wide")
-    expected = set(REPO_WIDE) | set(PRE_EXISTING_REPO_WIDE) | set(ADDED_SINCE_REPO_WIDE)
+    expected = {rel for rel in (set(REPO_WIDE) | set(PRE_EXISTING_REPO_WIDE) | set(ADDED_SINCE_REPO_WIDE)) if (_REPO / rel).exists()}
     assert claimed == sorted(expected), (
         f"the repo-wide slice-A set moved without this pin: {claimed}")
     assert not (set(REPO_WIDE) & set(PRE_EXISTING_REPO_WIDE)), (

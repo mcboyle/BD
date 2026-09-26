@@ -148,7 +148,6 @@ PINNED: tuple[tuple[str, tuple[str, ...]], ...] = (
     )),
     ("artifacts-pins", (
         # Regenerated-artifact pins; tests/test_row387_ast_version_pin_guard.py asserts it runs exactly once here.
-        "tests/test_authority_documents.py",
         "tests/test_changelog_draft_placeholder_is_refused.py",
         "tests/test_v3_66_1183_inv_tags_generated.py",
         "tests/test_v3_66_1183_source_window_content.py",

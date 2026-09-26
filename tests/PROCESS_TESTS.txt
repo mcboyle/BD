@@ -23,7 +23,6 @@ tests/test_cloud_setup_truthfulness.py
 tests/test_deploy_script.py
 tests/test_failed_measurements_have_distinct_states.py
 tests/test_generated_artifacts_are_not_tracked.py
-tests/test_pk_mirrors_stay_retired.py
 tests/test_register_content_amend.py
 tests/test_release_hygiene_gates.py
 tests/test_row312_bd_jobs_reap_holds_identity.py
