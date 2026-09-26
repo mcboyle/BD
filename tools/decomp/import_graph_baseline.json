@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5139,
+  "edge_count": 5140,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -7043,6 +7043,9 @@
       "bulk_downloader/capture_artifact_redact.py",
       "bulk_downloader/template_normalize.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_v3_66_1678_mod3_shadow_scope.py": [
+      "bulk_downloader/pg_backend.py"
     ],
     "tests/test_v3_66_16_phase4_p4_provider_resolve.py": [
       "bulk_downloader/provider_resolve.py"

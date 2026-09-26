@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1678 - train105: row127-shadow MOD3 shadow scope
+
+
 ## v3.66.1677 - train104: row127-mirror MOD3 mirror scope (PG mirror restricted to schema tables)
 
 
