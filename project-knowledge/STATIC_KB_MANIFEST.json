@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-25T23:56:47+00:00",
+ "generated": "2026-09-26T00:11:39+00:00",
  "version_context": "v3.66.1676",
- "file_count": 42,
+ "file_count": 43,
  "files": {
   "AUDIT_COMPLETION_LEDGER.json": {
    "sha256": "a90bb5b2ae544b8842383941ea5dbc9d6c396f9bfe9bb46a8ba150476ae9db0e",
@@ -103,6 +103,10 @@
   "audit_partition.py": {
    "sha256": "3067d27d9fc9670828644e4aecbf80e9c62b6891d7716b9c47bf2ef1d1d85262",
    "bytes": 3658
+  },
+  "build_current_overlay.py": {
+   "sha256": "1e276e5634d1a0b247e3f76f432af62ff75ac548c96696c20d21681ed184a6f9",
+   "bytes": 7773
   },
   "build_montage.py": {
    "sha256": "7e109c37abb1abc268a8ce3658d87aa77f3c8b921ccf753b0647459b1ea9b324",
