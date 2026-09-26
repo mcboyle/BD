@@ -426,6 +426,29 @@ def _attach_cloak_capability(payload: dict) -> None:
                             "record_path": None,
                             "detail": f"{type(e).__name__}"}
 
+
+def _attach_mod3_health(payload: dict) -> None:
+    """Row 127: Expose MOD3 dual-write / shadow-read / cutover telemetry.
+
+    Pure read of env and in-process counters: this is the deploy boot probe
+    and must never open a PG connection. cutover_engaged is therefore None
+    (not evaluated): pg_backend.cutover_engaged() runs preflight_cutover(),
+    whose reachability check is a real connect (5 s on an unreachable DSN)."""
+    try:
+        import importlib
+        _pg = importlib.import_module("bulk_downloader.pg_backend")
+        payload["mod3"] = {
+            "dual_write": bool(_pg.dual_write_enabled()),
+            "shadow_read": bool(_pg.shadow_read_enabled()),
+            "cutover_requested": bool(_pg.cutover_requested()),
+            "cutover_engaged": None,
+            "stats": dict(_pg.stats()),
+            "shadow": dict(_pg.shadow_stats()),
+        }
+    except Exception as e:
+        err_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}"
+        payload["mod3"] = {"error": err_msg}
+
 @health_bp.route("/api/health")
 def api_health():
     _app_boot_time = _app__app_boot_time()
@@ -474,6 +497,7 @@ def api_health():
     _attach_download_hold(payload)
     _attach_sites_config_health(payload)
     _attach_cloak_capability(payload)
+    _attach_mod3_health(payload)
     # B1.3 (post-365): build identity. Read build_info.json from the install
     # dir so the Dashboard can compare the FE-loaded VITE_BUILD_STAMP against
     # the backend build sha. Absent file -> no `build` key (graceful: dev tree
@@ -546,6 +570,7 @@ def api_health_v2():
     _attach_download_hold(payload)
     _attach_sites_config_health(payload)
     _attach_cloak_capability(payload)
+    _attach_mod3_health(payload)
     # Disk free per download dir — first 5 only (mockup shows
     # aggregate, not per-dir; this is for the Settings → Health pane).
     disks = []

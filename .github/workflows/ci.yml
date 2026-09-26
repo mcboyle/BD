@@ -120,6 +120,7 @@ jobs:
             tests/test_v3_66_803_mod3_migration_rehearsal.py \
             tests/test_v3_66_804_mod3_cutover.py \
             tests/test_v3_66_1266_mod3_mirror_scope.py \
+            tests/test_v3_66_1267_mod3_health_telemetry.py \
             tests/test_v3_66_1678_mod3_shadow_scope.py
 
   gates:
