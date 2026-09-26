@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5145,
+  "edge_count": 5146,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -7054,6 +7054,9 @@
     "tests/test_v3_66_1679_mod3_pg_parity_backfill.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/migrations.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_1681_mod3_shadow_dialect.py": [
       "bulk_downloader/pg_backend.py"
     ],
     "tests/test_v3_66_16_phase4_p4_provider_resolve.py": [
