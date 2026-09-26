@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=471 open=1 ids-sha256=6fb3d911d382bcbb9bb9bc4e76ebc50cb577add5c7e69e6f9f6e4f44dd8af303 -->
+<!-- canonical-task-register schema=1 rows=472 open=2 ids-sha256=5cba8f4b1a5150753dcf1ffed98eadd4c9f09afc8e4b72a53c8b8ea9f4f0c255 -->
 
 ## Namespace and population
 
@@ -540,3 +540,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1149 | CLOSED @1680 | PG-PARITY-AND-BACKFILL -- schema parity, idempotent backfill, history content probe (row127 Stage 3.2 PG cutover; O1412/O1417, cut row127-parity R3) |
 | 1150 | CLOSED @1682 | PG-BACKEND DP HYGIENE -- contextlib.suppress on close/rollback; psycopg sql.Identifier for table/column names at pg_backend.py:360/:974; ratchet back to <=1643 (T1 hygiene; follow-up of T107 row1149, RULING-T107-RATCHET-bd-pm-A-20260926T1656Z, O733) |
 | 1151 | CLOSED @1682 | CI-REAL-PG-TESTS-MUST-NOT-SKIP -- 1678/1679/1681 real-PG proofs skipped in shard order; fail closed (row127 follow-up; cut row127-1678-shard-skip, O1414) |
+| 1152 | OPEN | HARNESS-PREP-FLOCK -- serialize review prep (prep-one/prep-rescan/offer-sweep/boardgate) under one flock so MECHANICAL runs never interleave (harness lane R4; cut harness-prep-flock-bd-worker-B2-B, BOARD A8-A) |
