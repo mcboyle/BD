@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5143,
+  "edge_count": 5137,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2591,9 +2591,6 @@
       "tools/promote_template.py",
       "tools/template_inventory.py"
     ],
-    "tests/test_bat_lint_parser.py": [
-      "bulk_downloader/_bat_lint.py"
-    ],
     "tests/test_batch_b_dev_shell_authgate.py": [
       "bulk_downloader/app.py",
       "tools/cockpit_console.py"
@@ -3087,9 +3084,6 @@
       "bulk_downloader/app.py"
     ],
     "tests/test_d3_u6_activity.py": [
-      "bulk_downloader/app.py"
-    ],
-    "tests/test_d3_u9_opt_in.py": [
       "bulk_downloader/app.py"
     ],
     "tests/test_daily_digest.py": [
@@ -6685,9 +6679,6 @@
     "tests/test_v3_66_1115_live_checks_read_keys_the_producer_emits.py": [
       "bulk_downloader/vpn_kill_switch.py"
     ],
-    "tests/test_v3_66_1117_cockpit_home_stays_retired.py": [
-      "bulk_downloader/app.py"
-    ],
     "tests/test_v3_66_111_login_template_intel.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
@@ -6727,9 +6718,6 @@
     "tests/test_v3_66_116_template_autopilot.py": [
       "tools/cockpit_console.py",
       "tools/cockpit_templates.py"
-    ],
-    "tests/test_v3_66_1170_claude_is_concise_authority.py": [
-      "tools/ci_shards.py"
     ],
     "tests/test_v3_66_1171_backlog_truth_is_current.py": [
       "tools/ci_shards.py"
@@ -7041,9 +7029,6 @@
     "tests/test_v3_66_15_phase4_p5_site_memory.py": [
       "bulk_downloader/learn.py",
       "bulk_downloader/runner.py"
-    ],
-    "tests/test_v3_66_161_required_present_gate.py": [
-      "bulk_downloader/__init__.py"
     ],
     "tests/test_v3_66_165_dom_drain.py": [
       "bulk_downloader/dom_capture.py",
@@ -7937,9 +7922,6 @@
       "bulk_downloader/__init__.py",
       "bulk_downloader/app.py",
       "bulk_downloader/dev_metrics.py"
-    ],
-    "tests/test_v3_66_659_pos4_winbat.py": [
-      "bulk_downloader/notify_apprise.py"
     ],
     "tests/test_v3_66_661_healthcheck_ytdlp_shape.py": [
       "bulk_downloader/healthcheck.py",
