@@ -443,7 +443,8 @@ def _attach_mod3_health(payload: dict) -> None:
             "cutover_requested": bool(_pg.cutover_requested()),
             "cutover_engaged": None,
             "stats": dict(_pg.stats()),
-            "shadow": dict(_pg.shadow_stats()),
+            "shadow": {**_pg.shadow_stats(),
+                       "skip_reasons": _pg.shadow_skip_reasons()},
         }
     except Exception as e:
         err_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}"

@@ -113,8 +113,8 @@ def test_mod3_payload_exact_keys_and_types(monkeypatch, path):
     # shadow object verbatim from shadow_stats()
     shadow = mod3["shadow"]
     assert isinstance(shadow, dict)
-    assert set(shadow.keys()) == _SHADOW_KEYS
-    assert len(shadow) == 6
+    assert set(shadow.keys()) == _SHADOW_KEYS | {"skip_reasons"}
+    assert len(shadow) == 7
 
 
 def test_negative_control_dsn_unset(monkeypatch):
@@ -134,6 +134,12 @@ def test_negative_control_dsn_unset(monkeypatch):
     assert mod3["stats"]["skipped"] == 0
     assert mod3["stats"]["failed"] == 0
     assert mod3["stats"]["degraded_reason"] is None
+
+
+def test_health_exposes_nonempty_skip_reasons(monkeypatch):
+    monkeypatch.setattr(pg_backend, "_shadow_skip_reasons", {"strftime": 7})
+    payload = _client(monkeypatch).get("/api/health").get_json()
+    assert payload["mod3"]["shadow"]["skip_reasons"] == {"strftime": 7}
 
 
 def test_pg_backend_exception_failsafe(monkeypatch):
@@ -204,4 +210,4 @@ def test_counter_values_come_from_pg_backend(monkeypatch, path):
     assert res.status_code == 200
     mod3 = res.get_json()["mod3"]
     assert mod3["stats"] == stats
-    assert mod3["shadow"] == shadow
+    assert mod3["shadow"] == {**shadow, "skip_reasons": {}}

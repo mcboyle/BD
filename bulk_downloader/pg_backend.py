@@ -498,7 +498,7 @@ def _shadow_dialect(sql, params=()):
             expr = f"CAST({arg} AS interval)"
         if arg is not None and not (isinstance(offset, str)
                                     and _OFFSET.fullmatch(offset)):
-            return None, "modifier"
+            return None, fn
         now = "(now() AT TIME ZONE 'UTC')"
         if expr:
             now = f"({now} + {expr})"
@@ -694,6 +694,10 @@ _shadow_skip_reasons: dict = {}
 
 
 def _shadow_skip(reason):
+    if reason.startswith("dialect:"):
+        reason = reason.removeprefix("dialect:")
+    elif reason.startswith("dialect-unknown:"):
+        reason = "other:" + reason.removeprefix("dialect-unknown:")
     with _lock:
         _shadow["skipped"] += 1
         _shadow_skip_reasons[reason] = _shadow_skip_reasons.get(reason, 0) + 1
@@ -701,7 +705,8 @@ def _shadow_skip(reason):
 
 def shadow_skip_reasons():
     with _lock:
-        return dict(_shadow_skip_reasons)
+        return dict(sorted(_shadow_skip_reasons.items(),
+                           key=lambda item: (-item[1], item[0]))[:12])
 _SHADOW_MAX_ROWS = 5000     # a comparison bigger than this is skipped, not faked
 
 
@@ -1002,39 +1007,80 @@ def cutover_requested():
         in ("1", "true", "yes", "on")
 
 
-def preflight_cutover():
+def preflight_cutover(health=None):
     """Is it SAFE to make Postgres authoritative for reads?
 
     Returns {ok, reasons[], checks{}}. Never raises. Every refusal is NAMED,
     and the numbers judged on are returned so the verdict is auditable rather
     than trusted."""
     reasons = []
-    st = shadow_stats()
+    remote = health is not None
+    if isinstance(health, str):
+        import json
+        from urllib.request import urlopen
+        try:
+            with urlopen(health, timeout=5) as response:
+                health = json.load(response)
+        except (OSError, ValueError, TypeError) as e:
+            return {"ok": False, "reasons": [f"health unavailable: {e}"],
+                    "checks": {}}
+    if remote:
+        mod3 = health.get("mod3", health) if isinstance(health, dict) else {}
+        if not isinstance(mod3, dict):
+            mod3 = {}
+        st = mod3.get("shadow", {})
+        mirror = mod3.get("stats", {})
+        if not isinstance(st, dict) or not isinstance(mirror, dict):
+            st, mirror = {}, {}
+        required = ("compared", "diverged", "errors", "skipped")
+        for key in required:
+            if type(st.get(key)) is not int or st[key] < 0:
+                reasons.append(f"health shadow.{key} is missing or invalid")
+        dual_write = mod3.get("dual_write") is True
+        shadow_read = mod3.get("shadow_read") is True
+        degraded = mirror.get("degraded_reason")
+    else:
+        st = shadow_stats()
+        dual_write = dual_write_enabled()
+        shadow_read = shadow_read_enabled()
+        degraded = stats().get("degraded_reason")
+    compared = st.get("compared", 0) if type(st.get("compared")) is int else 0
+    skipped = st.get("skipped", 0) if type(st.get("skipped")) is int else 0
+    ratio = skipped / (compared + skipped) if compared + skipped else 0.0
     checks = {
-        "dual_write": dual_write_enabled(),
-        "shadow_read": shadow_read_enabled(),
-        "shadow_compared": st.get("compared", 0),
+        "dual_write": dual_write,
+        "shadow_read": shadow_read,
+        "shadow_compared": compared,
         "shadow_diverged": st.get("diverged", 0),
-        "shadow_skipped": st.get("skipped", 0),
-        "degraded_reason": st.get("degraded_reason"),
+        "shadow_errors": st.get("errors", 0),
+        "shadow_skipped": skipped,
+        "shadow_skip_ratio": ratio,
+        "degraded_reason": degraded,
     }
-    if not dual_write_enabled():
+    if not dual_write:
         reasons.append("dual-write is not enabled -- Postgres has not been "
                        "receiving writes")
-    if not shadow_read_enabled():
+    if not shadow_read:
         reasons.append("shadow-read is not enabled -- no comparison evidence "
                        "exists")
     # THE refusal. compared == 0 means the comparison never ran; a zero
     # divergence count over a zero denominator is not agreement.
-    if checks["shadow_compared"] < _MIN_SHADOW_COMPARISONS:
+    minimum = 100 if remote else _MIN_SHADOW_COMPARISONS
+    if checks["shadow_compared"] < minimum:
         reasons.append(
-            "shadow-read has compared %d statement(s): zero comparisons is "
-            "NOT evidence of agreement, it is an empty denominator"
-            % checks["shadow_compared"])
+            "shadow-read has compared %d statement(s): need at least %d"
+            % (checks["shadow_compared"], minimum))
     if checks["shadow_diverged"]:
         reasons.append("shadow-read recorded %d divergence(s)"
                        % checks["shadow_diverged"])
-    if not _connect_ok():
+    if checks["shadow_errors"]:
+        reasons.append("shadow-read recorded %d error(s)"
+                       % checks["shadow_errors"])
+    if degraded:
+        reasons.append("mirror degraded: %s" % degraded)
+    if remote and ratio >= 0.5:
+        reasons.append("shadow skip ratio %.3f is at least 0.5" % ratio)
+    if not remote and not _connect_ok():
         reasons.append("postgres is not reachable")
     return {"ok": not reasons, "reasons": reasons, "checks": checks}
 
@@ -1322,8 +1368,15 @@ def main(argv=None):
         print(json.dumps(res, indent=2, sort_keys=True))
         return 1 if "error" in res or any(
             v["missing"] for v in res.values()) else 0
+    if cmd == "preflight":
+        if args[:1] != ["--health"] or len(args) != 2:
+            print("usage: preflight --health URL", file=sys.stderr)
+            return 2
+        res = preflight_cutover(args[1])
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 0 if res["ok"] else 1
     print("usage: python -m bulk_downloader.pg_backend {backfill [table ...]"
-          "|parity}", file=sys.stderr)
+          "|parity|preflight --health URL}", file=sys.stderr)
     return 2
 
 

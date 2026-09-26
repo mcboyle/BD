@@ -152,16 +152,16 @@ class TestRealPGShadowDialect:
     @pytest.mark.parametrize("sql,params,reason", [
         (("SELECT strftime('%Y-%m-%d %H:00', ts) AS h, COUNT(*) FROM history "
           "WHERE ts >= datetime('now', ?) GROUP BY h"), ("-1 day",),
-         "dialect:strftime"),
+         "strftime"),
         ("SELECT julianday('now') - julianday(ts) FROM history", (),
-         "dialect:julianday"),
+         "julianday"),
         ("SELECT group_concat(site_id) FROM history", (),
-         "dialect:group_concat"),
-        ("SELECT datetime(ts, '+1 hour') FROM history", (), "dialect:datetime"),
+         "group_concat"),
+        ("SELECT datetime(ts, '+1 hour') FROM history", (), "datetime"),
         ("SELECT count(*) FROM history WHERE ts >= datetime('now', ?)",
-         ("start of day",), "modifier"),
+         ("start of day",), "datetime"),
         (("SELECT count(*) FROM history WHERE ts >= datetime('now', "
-          "'localtime')"), (), "modifier"),
+          "'localtime')"), (), "datetime"),
     ])
     def test_untranslatable_is_skipped_with_reason_not_error(
             self, shadow, lite, sql, params, reason):
@@ -171,6 +171,15 @@ class TestRealPGShadowDialect:
         assert (st["skipped"], st.get("errors", 0), st["compared"]) \
             == (1, 0, 0), st
         assert _reasons() == {reason: 1}
+
+    def test_health_names_real_pg_skip_reason(self, shadow, lite, monkeypatch):
+        from test_v3_66_1267_mod3_health_telemetry import _client
+
+        sql = "SELECT group_concat(site_id) FROM history"
+        assert _compare(lite, sql) is None
+        assert shadow == []
+        payload = _client(monkeypatch).get("/api/health").get_json()
+        assert payload["mod3"]["shadow"]["skip_reasons"] == {"group_concat": 1}
 
     def test_broken_statement_still_counts_as_error_negative_control(
             self, shadow):
@@ -213,7 +222,7 @@ def test_census_every_app_select_idiom_is_translated_or_skip_listed():
             sql, ("-1 hour",) * sql.count("?"))
         if pg_sql is not None:
             translated.append((path, line, sql))
-        elif reason.startswith("dialect:") or reason == "modifier":
+        elif reason.startswith("dialect:") or reason == "datetime":
             skipped.append((path, line, reason))
         else:
             bad.append((path, line, reason))
