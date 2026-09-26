@@ -1,8 +1,8 @@
 {
  "schema": "static-kb-manifest/v2",
- "generated": "2026-09-26T00:25:39+00:00",
+ "generated": "2026-09-26T00:40:36+00:00",
  "version_context": "v3.66.1676",
- "file_count": 44,
+ "file_count": 45,
  "files": {
   "AUDIT_COMPLETION_LEDGER.json": {
    "sha256": "a90bb5b2ae544b8842383941ea5dbc9d6c396f9bfe9bb46a8ba150476ae9db0e",
@@ -91,6 +91,10 @@
   "RETENTION_AND_TAKEDOWN_POLICY.md": {
    "sha256": "4b43d3097b6446c2059053e3e2e384ef8c367b237128840190883231984acc9f",
    "bytes": 4434
+  },
+  "SANDBOX.md": {
+   "sha256": "8b21c7f4ed4509f1859def17beb78c73b725a8f786ef27671ed6db533731d28b",
+   "bytes": 34533
   },
   "SCHEMAS.md": {
    "sha256": "88cdac03e9c8701c0aba905fa5acc7b1655e44ac139887cb69ff64ca3ea99923",
