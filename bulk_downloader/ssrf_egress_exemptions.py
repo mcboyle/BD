@@ -109,6 +109,10 @@ ACCOUNTED = {
         "exempt",
         "polls the operator's own BD instance at the api_base the operator "
         "passed to the dashboard CLI"),
+    "bulk_downloader/pg_backend.py::preflight_cutover": (
+        "exempt",
+        "reads the operator's own BD /api/health at the URL the operator "
+        "passed to `pg_backend preflight --health`; no request reaches it"),
     "bulk_downloader/terminal_dashboard.py::TerminalDashboardController.execute_site_action": (
         "exempt",
         ("posts one whitelisted site action (pause/resume/retry) for a site id the "
