@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1679 - train106: row127-telemetry MOD3 health telemetry
+
+
 ## v3.66.1678 - train105: row127-shadow MOD3 shadow scope
 
 

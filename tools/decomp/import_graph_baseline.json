@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5140,
+  "edge_count": 5142,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -6815,6 +6815,10 @@
     ],
     "tests/test_v3_66_1266_mod3_mirror_scope.py": [
       "bulk_downloader/_envfile.py",
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_1267_mod3_health_telemetry.py": [
+      "bulk_downloader/app_health.py",
       "bulk_downloader/pg_backend.py"
     ],
     "tests/test_v3_66_126_eligibility_governance.py": [
