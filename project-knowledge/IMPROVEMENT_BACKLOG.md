@@ -5,7 +5,7 @@ tracked, gated register after untracked work proved undiscoverable (2026-08-12).
 CLAUDE.md section1: a deferral needs a machine-readable owner, not prose alone.
 Re-derive status/scope before starting work; historical priority is not evidence.
 
-<!-- canonical-task-register schema=1 rows=469 open=2 ids-sha256=3e9e3244789dd581daedc55091450f2766cfe262319211ec957e7a41ddf4116a -->
+<!-- canonical-task-register schema=1 rows=469 open=1 ids-sha256=3e9e3244789dd581daedc55091450f2766cfe262319211ec957e7a41ddf4116a -->
 
 ## Namespace and population
 
@@ -537,4 +537,4 @@ remainder99. Then89 capture corpus;95/98 residue;97 fresh-host prerequisite for9
 | 1146 | CLOSED @1676 | HUNT3-RATING-RESPONSE-CLAMP -- the library rating API reported the submitted out-of-range value while storage saved a clamped rating (sol-hunt-3 FIND-21, lens Q1-A) |
 | 1147 | CLOSED @1676 | HUNT3-WIDGETS-SAVE-FAILURE -- widget settings reported a successful save when disk replacement failed (sol-hunt-3 FIND-23, lens Q1-A) |
 | 1148 | CLOSED @1676 | HUNT3-MASS-IMPORT-URL -- mass import accepted httpx:// and hostless http:// lines as URLs and created jobs for them (sol-hunt-3 FIND-24, lens N3-B) |
-| 1149 | OPEN | PG-PARITY-AND-BACKFILL -- schema parity, idempotent backfill, history content probe (row127 Stage 3.2 PG cutover; O1412/O1417, cut row127-parity R3) |
+| 1149 | CLOSED @1680 | PG-PARITY-AND-BACKFILL -- schema parity, idempotent backfill, history content probe (row127 Stage 3.2 PG cutover; O1412/O1417, cut row127-parity R3) |
