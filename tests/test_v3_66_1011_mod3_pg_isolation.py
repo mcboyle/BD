@@ -52,6 +52,7 @@ from __future__ import annotations
 import ast
 import os
 import pathlib
+import subprocess
 import sys
 
 import pytest
@@ -67,12 +68,14 @@ _REAL_PG_MODULES = (
     "test_v3_66_801_mod3_shadow_read.py",
     "test_v3_66_803_mod3_migration_rehearsal.py",
     "test_v3_66_804_mod3_cutover.py",
+    "test_v3_66_1266_mod3_mirror_scope.py",
+    "test_v3_66_1678_mod3_shadow_scope.py",
 )
 
 
 def _dsn():
-    return (os.environ.get("MOD3_PG_DSN")
-            or os.environ.get("MOD3_PG_TEST_DSN") or "").strip()
+    return (os.environ.get("MOD3_PG_TEST_DSN")
+            or os.environ.get("MOD3_PG_DSN") or "").strip()
 
 
 def _skip_without_pg():
@@ -330,3 +333,76 @@ def test_the_isolation_is_REAL_and_not_a_name_that_lands_in_public(tmp_path):
     assert s in got and "public" not in got.split(","), (
         "search_path is %r, not the isolated schema -- the option did not take, "
         "and every MOD3 module is still sharing public.history" % got)
+
+
+# ── CI postgres-integration shard census (FLEET_RULE 46) ──────────
+
+def test_postgres_integration_shard_reports_zero_skips_for_real_pg_files():
+    """CENSUS (ROW127-1678-SHARD-SKIP):
+    When MOD3_PG_TEST_DSN is armed, executing the postgres-integration shard
+    in CI list order must report 0 skips across all real-PG test files.
+    Fail-closed: missing schemas or connection failures must fail, never skip (FLEET_RULE 46).
+    """
+    _skip_without_pg()
+    base_dsn = _dsn()
+
+    ci_yml = REPO / ".github" / "workflows" / "ci.yml"
+    assert ci_yml.is_file(), f"missing {ci_yml}"
+    lines = ci_yml.read_text(encoding="utf-8").splitlines()
+    shard_files = []
+    in_pg_job = False
+    in_run_step = False
+    for line in lines:
+        if line.strip().startswith("postgres-integration:"):
+            in_pg_job = True
+            continue
+        if in_pg_job:
+            if line and not line.startswith(" ") and not line.startswith("\t"):
+                break
+            if "run: |" in line:
+                in_run_step = True
+                continue
+            if in_run_step:
+                stripped = line.strip().rstrip("\\").strip()
+                if stripped.startswith("tests/test_") and stripped.endswith(".py"):
+                    shard_files.append(stripped)
+                elif (stripped and not stripped.startswith("python -m pytest")
+                      and not stripped.startswith("#")
+                      and not line.startswith("            ")):
+                    in_run_step = False
+
+    assert len(shard_files) >= 5, f"expected at least 5 shard files, found: {shard_files}"
+    for f in shard_files:
+        assert (REPO / f).is_file(), f"shard file does not exist: {f}"
+
+    # Verify that all real-PG modules are part of this shard
+    for m in _REAL_PG_MODULES:
+        assert any(f.endswith(m) for f in shard_files), (
+            f"real-PG module {m} is missing from postgres-integration shard in ci.yml"
+        )
+
+    # Execute the exact shard list in a clean subprocess
+    env = dict(os.environ, MOD3_PG_TEST_DSN=base_dsn)
+    env.pop("MOD3_PG_DSN", None)
+
+    cmd = [
+        sys.executable, "-m", "pytest", "-q",
+        *shard_files
+    ]
+    res = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        env=env,
+        timeout=120,
+        check=False,
+    )
+    assert res.returncode == 0, (
+        f"shard run failed (rc={res.returncode}):\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+    )
+    # Must report zero skips: if any tests skipped, "skipped" will appear in the pytest summary line
+    summary_line = res.stdout.strip().splitlines()[-1] if res.stdout.strip() else ""
+    assert "skipped" not in summary_line.lower() or " 0 skipped" in summary_line, (
+        f"postgres-integration shard reported skips in real-PG files:\n{summary_line}\nFull stdout:\n{res.stdout}"
+    )

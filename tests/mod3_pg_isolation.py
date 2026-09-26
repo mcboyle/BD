@@ -35,9 +35,15 @@ _PREFIX = "bd_t_"
 
 
 def real_dsn() -> str:
-    """The operator's DSN, or "" when the real-PG lane is not armed."""
-    return (os.environ.get("MOD3_PG_DSN")
-            or os.environ.get("MOD3_PG_TEST_DSN") or "").strip()
+    """The operator's DSN, or "" when the real-PG lane is not armed.
+
+    MOD3_PG_TEST_DSN takes precedence over MOD3_PG_DSN: in test execution
+    (e.g. CI's postgres-integration shard), tests must use the dedicated
+    test database even if an earlier test module or ambient environment
+    leaked or set MOD3_PG_DSN.
+    """
+    return (os.environ.get("MOD3_PG_TEST_DSN")
+            or os.environ.get("MOD3_PG_DSN") or "").strip()
 
 
 def schema_for(module_name: str) -> str:

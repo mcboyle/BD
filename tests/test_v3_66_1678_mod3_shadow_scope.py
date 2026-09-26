@@ -47,12 +47,12 @@ def _pg_dsn() -> str:
         pytest.skip("psycopg not installed (optional dep)")
     dsn = mod3_pg_isolation.dsn_for(_MODULE)
     if not dsn:
-        pytest.skip("could not create isolated schema")
+        pytest.fail("could not create isolated schema")
     try:
         with psycopg.connect(dsn, connect_timeout=5):
             return dsn
     except (psycopg.Error, OSError) as e:
-        pytest.skip(f"postgres unreachable: {type(e).__name__}")
+        pytest.fail(f"postgres unreachable: {type(e).__name__}")
 
 
 @pytest.fixture
@@ -201,3 +201,23 @@ class TestRealPGShadowScope:
                 if "shadow" in r.getMessage().lower()]
         assert len([m for m in msgs if "ts_added" in m]) == 1, msgs
         assert len([m for m in msgs if "length(" in m]) == 1, msgs
+
+
+# -- 3. Fail-Closed Contract & DSN Precedence (FLEET_RULE 46) ------------------
+
+class TestFailClosedAndPrecedence:
+    def test_real_pg_shadow_scope_fails_closed_when_schema_cannot_be_created(
+            self, monkeypatch):
+        """FLEET_RULE 46 fail-closed: when MOD3_PG_TEST_DSN is set,
+        _pg_dsn() must fail (never skip) if the schema cannot be created."""
+        monkeypatch.setenv("MOD3_PG_TEST_DSN", "postgresql://user:pass@127.0.0.1:5432/db")
+        monkeypatch.setattr(mod3_pg_isolation, "dsn_for", lambda mod: "")
+        with pytest.raises(pytest.fail.Exception, match="could not create isolated schema"):
+            _pg_dsn()
+
+    def test_real_dsn_prefers_test_dsn_over_ambient_dsn(self, monkeypatch):
+        """MOD3_PG_TEST_DSN must take precedence so ambient/leaked MOD3_PG_DSN
+        cannot shadow the test database."""
+        monkeypatch.setenv("MOD3_PG_TEST_DSN", "postgresql://test_runner:5432/test_db")
+        monkeypatch.setenv("MOD3_PG_DSN", "postgresql://dead_ambient:5432/dead_db")
+        assert mod3_pg_isolation.real_dsn() == "postgresql://test_runner:5432/test_db"

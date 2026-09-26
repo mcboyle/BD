@@ -63,11 +63,15 @@ def _pg_available() -> tuple[bool, str]:
         return False, "psycopg not installed (optional dep)"
     dsn = mod3_pg_isolation.dsn_for(_MODULE)
     if not dsn:
+        if os.environ.get("MOD3_PG_TEST_DSN"):
+            pytest.fail("could not create isolated schema")
         return False, "could not create isolated schema"
     try:
         with psycopg.connect(dsn, connect_timeout=5):
             return True, dsn
     except (psycopg.Error, OSError) as e:
+        if os.environ.get("MOD3_PG_TEST_DSN"):
+            pytest.fail(f"postgres unreachable: {type(e).__name__}")
         return False, f"postgres unreachable: {type(e).__name__}"
 
 
@@ -222,14 +226,18 @@ class TestEnvfileMod3Keys:
             encoding="utf-8",
         )
 
-        applied = EF.load_envfile(env_file)
-        assert applied == 3
+        try:
+            applied = EF.load_envfile(env_file)
+            assert applied == 3
 
-        err = capsys.readouterr().err
-        assert err == "", f"expected clean stderr, got: {err}"
-        assert os.environ.get("MOD3_PG_DSN") == "postgresql://test_user:test_pass@localhost:5432/test_db"
-        assert os.environ.get("MOD3_SHADOW_READ") == "1"
-        assert os.environ.get("MOD3_CUTOVER") == "1"
+            err = capsys.readouterr().err
+            assert err == "", f"expected clean stderr, got: {err}"
+            assert os.environ.get("MOD3_PG_DSN") == "postgresql://test_user:test_pass@localhost:5432/test_db"
+            assert os.environ.get("MOD3_SHADOW_READ") == "1"
+            assert os.environ.get("MOD3_CUTOVER") == "1"
+        finally:
+            for k in ("MOD3_PG_DSN", "MOD3_SHADOW_READ", "MOD3_CUTOVER"):
+                os.environ.pop(k, None)
 
     def test_envfile_still_warns_on_actually_unknown_key_negative_control(
         self, monkeypatch, tmp_path, capsys
@@ -246,11 +254,15 @@ class TestEnvfileMod3Keys:
             encoding="utf-8",
         )
 
-        applied = EF.load_envfile(env_file)
-        assert applied == 1
+        try:
+            applied = EF.load_envfile(env_file)
+            assert applied == 1
 
-        err = capsys.readouterr().err
-        assert "ignoring 1 undeclared key(s)" in err
-        assert "TOTALLY_UNKNOWN_ROGUE_KEY" in err
-        assert "MOD3_PG_DSN" not in err
-        assert "TOTALLY_UNKNOWN_ROGUE_KEY" not in os.environ
+            err = capsys.readouterr().err
+            assert "ignoring 1 undeclared key(s)" in err
+            assert "TOTALLY_UNKNOWN_ROGUE_KEY" in err
+            assert "MOD3_PG_DSN" not in err
+            assert "TOTALLY_UNKNOWN_ROGUE_KEY" not in os.environ
+        finally:
+            os.environ.pop("MOD3_PG_DSN", None)
+            os.environ.pop("TOTALLY_UNKNOWN_ROGUE_KEY", None)
