@@ -2,7 +2,8 @@
 
 SQLite remains AUTHORITATIVE. This module mirrors history-DB *writes* to
 Postgres so a later cut can shadow-read and compare, then cut over. Nothing
-here is on the read path (cut 3) and nothing here backfills (cut 4).
+here is on the read path (cut 3). backfill() (v3.66.1679) copies the
+baseline once, on operator request, before shadow-read.
 
 Three properties, in the order they matter:
 
@@ -60,18 +61,30 @@ _lock = threading.Lock()
 
 # --- explicit PG-dialect schema ------------------------------------------
 # Mirrors the SQLite history DB shape from db.db_init(). Written by hand, in PG
-# dialect, on purpose (see property 3). Column sets track db.py; a divergence
-# here surfaces as a mirror failure, which is exactly where cut 3 will look.
+# dialect, on purpose (see property 3): these are the FRESH-INSTALL shapes, and
+# they carry db.py's primary keys because backfill() conflicts on them.
+#
+# v3.66.1679 (row 127 PG-PARITY): the hand DDL had drifted in 5 of 6 tables
+# (queue lacked ts_added/ts_updated/lane/depends_on/listing_title/file_size;
+# push_subscriptions, session_history, captures and host_throughput had
+# invented column sets). Hand DDL alone cannot keep up: SQLite's live shape is
+# CREATE + migrations.py + lazy ALTERs in other modules. So ensure_schema() no
+# longer trusts this list to be complete -- it reads the live SQLite columns
+# (PRAGMA table_info) and ADDs whatever Postgres lacks (_sqlite_col_to_pg is the
+# one translation, tested per column type). It never drops or retypes.
+_PG_TS_DEFAULT = "to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS')"
+_PG_EPOCH_DEFAULT = "extract(epoch from now())"
 _PG_SCHEMA = (
-    """CREATE TABLE IF NOT EXISTS history(
+    f"""CREATE TABLE IF NOT EXISTS history(
         id BIGSERIAL PRIMARY KEY,
         site_id TEXT, site_name TEXT, url TEXT, status TEXT,
         filename TEXT, file_size BIGINT, message TEXT, screenshot TEXT,
         honeypot_score DOUBLE PRECISION DEFAULT NULL,
+        bytes_fetched BIGINT DEFAULT NULL,
         transfer_mode TEXT DEFAULT NULL,
         egress_ip TEXT NOT NULL DEFAULT 'UNKNOWN',
-        ts TEXT DEFAULT to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SS'))""",
-    """CREATE TABLE IF NOT EXISTS queue(
+        ts TEXT DEFAULT {_PG_TS_DEFAULT})""",
+    f"""CREATE TABLE IF NOT EXISTS queue(
         site_id TEXT NOT NULL,
         url TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -82,19 +95,45 @@ _PG_SCHEMA = (
         force_download BIGINT DEFAULT 0,
         priority TEXT DEFAULT '',
         ord BIGINT DEFAULT 0,
-        filename TEXT DEFAULT '')""",
-    """CREATE TABLE IF NOT EXISTS push_subscriptions(
+        filename TEXT DEFAULT '',
+        listing_title TEXT DEFAULT '',
+        file_size BIGINT DEFAULT 0,
+        lane TEXT DEFAULT 'default',
+        depends_on TEXT DEFAULT '',
+        ts_added TEXT DEFAULT {_PG_TS_DEFAULT},
+        ts_updated TEXT DEFAULT {_PG_TS_DEFAULT},
+        PRIMARY KEY(site_id, url))""",
+    f"""CREATE TABLE IF NOT EXISTS push_subscriptions(
         endpoint TEXT PRIMARY KEY,
-        subscription TEXT,
-        ts TEXT)""",
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT DEFAULT '',
+        created_at TEXT DEFAULT {_PG_TS_DEFAULT},
+        last_sent_at DOUBLE PRECISION DEFAULT 0)""",
     """CREATE TABLE IF NOT EXISTS session_history(
         id BIGSERIAL PRIMARY KEY,
-        site_id TEXT, event TEXT, detail TEXT, ts TEXT)""",
-    """CREATE TABLE IF NOT EXISTS captures(
-        id BIGSERIAL PRIMARY KEY,
-        site_id TEXT, url TEXT, path TEXT, ts TEXT)""",
-    """CREATE TABLE IF NOT EXISTS host_throughput(
-        host TEXT, ts TEXT, bytes BIGINT, seconds DOUBLE PRECISION)""",
+        ts DOUBLE PRECISION NOT NULL,
+        site_id TEXT NOT NULL,
+        account_idx BIGINT,
+        event_type TEXT NOT NULL,
+        detail TEXT DEFAULT '')""",
+    f"""CREATE TABLE IF NOT EXISTS captures(
+        rel_path TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        dir TEXT DEFAULT '',
+        host TEXT DEFAULT '',
+        captured_at DOUBLE PRECISION DEFAULT 0,
+        size BIGINT DEFAULT 0,
+        kind TEXT DEFAULT '',
+        redacted BIGINT DEFAULT 0,
+        first_seen DOUBLE PRECISION DEFAULT {_PG_EPOCH_DEFAULT},
+        indexed_at DOUBLE PRECISION DEFAULT {_PG_EPOCH_DEFAULT})""",
+    f"""CREATE TABLE IF NOT EXISTS host_throughput(
+        host TEXT PRIMARY KEY,
+        chunk_count BIGINT DEFAULT 0,
+        avg_speed_bps DOUBLE PRECISION DEFAULT 0,
+        chunks_failed BIGINT DEFAULT 0,
+        updated_at DOUBLE PRECISION DEFAULT {_PG_EPOCH_DEFAULT})""",
 )
 
 # Mirrored tables derived from _PG_SCHEMA. DML targeting any table outside this
@@ -149,17 +188,181 @@ def _connect():
         return None
 
 
+# Tables whose SQLite key is INTEGER PRIMARY KEY AUTOINCREMENT (-> BIGSERIAL
+# here). Their ids are assigned by SQLite; a mirrored INSERT that let Postgres
+# pick its own id would FORK the id space, and every later id-keyed UPDATE /
+# DELETE (batch_ops, library, storage_rebalance) would hit a different row --
+# same row count, different content. See mirror(rowid=...).
+_ROWID_TABLES = frozenset(
+    m.group(1).lower()
+    for ddl in _PG_SCHEMA
+    if re.search(r"\bid\s+BIGSERIAL\s+PRIMARY\s+KEY", ddl, re.IGNORECASE)
+    and (m := re.search(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)", ddl, re.IGNORECASE))
+)
+
+_SQLITE_TS_DEFAULT = re.compile(
+    r"^\(?\s*strftime\s*\(\s*'%Y-%m-%dT%H:%M:%S'\s*,\s*'now'\s*\)\s*\)?$", re.IGNORECASE)
+_SQLITE_EPOCH_DEFAULT = re.compile(
+    r"^\(?\s*strftime\s*\(\s*'%s'\s*,\s*'now'\s*\)\s*\)?$", re.IGNORECASE)
+_SQL_LITERAL = re.compile(r"^(NULL|-?\d+(\.\d+)?|'(?:[^']|'')*')$", re.IGNORECASE)
+
+
+def _pg_type(decl):
+    """SQLite declared type -> PG type, by SQLite's own affinity rules
+    (sqlite.org/datatype3 3.1): INT -> integer; CHAR/CLOB/TEXT -> text;
+    REAL/FLOA/DOUB -> real; BLOB -> blob; anything else TEXT (the value a
+    SQLite column with no usable affinity round-trips as)."""
+    d = (decl or "").upper()
+    if "INT" in d:
+        return "BIGINT"
+    if "CHAR" in d or "CLOB" in d or "TEXT" in d:
+        return "TEXT"
+    if "BLOB" in d:
+        return "BYTEA"
+    if "REAL" in d or "FLOA" in d or "DOUB" in d:
+        return "DOUBLE PRECISION"
+    return "TEXT"
+
+
+def _pg_default(dflt):
+    """PRAGMA table_info dflt_value -> PG default expression, or None when
+    there is none OR it is an expression this translator does not positively
+    understand (an unknown default is dropped, never guessed at)."""
+    if dflt is None:
+        return None
+    d = str(dflt).strip()
+    if _SQLITE_TS_DEFAULT.match(d):
+        return _PG_TS_DEFAULT
+    if _SQLITE_EPOCH_DEFAULT.match(d):
+        return _PG_EPOCH_DEFAULT
+    if _SQL_LITERAL.match(d):
+        return d
+    return None
+
+
+def _sqlite_col_to_pg(name, decl, notnull, dflt):
+    """One PRAGMA table_info column -> the `name TYPE [NOT NULL] [DEFAULT x]`
+    fragment used by ALTER TABLE ... ADD COLUMN. NOT NULL is only carried
+    with a default: adding a defaultless NOT NULL column to a populated PG
+    table fails, and failing the whole sync over one constraint is worse."""
+    frag = f'"{name}" {_pg_type(decl)}'
+    default = _pg_default(dflt)
+    if notnull and default is not None and default.upper() != "NULL":
+        frag += " NOT NULL"
+    if default is not None:
+        frag += f" DEFAULT {default}"
+    return frag
+
+
+def _sqlite_columns(tables=None):
+    """({table: [(name, decl, notnull, dflt, pk), ...]}, error) read from the
+    LIVE SQLite store through the seam. A table SQLite has not created yet
+    (host_throughput is lazy) maps to []. Uses the proxy's underlying
+    connection so this schema read is never itself shadow-compared."""
+    try:
+        from . import db as _db  # deferred: db imports pg_backend (see rehearsal)
+        out = {}
+        with _db.db_conn() as cx:
+            raw = getattr(cx, "_cx", cx)
+            for t in sorted(tables or _MIRRORED_TABLES):
+                out[t] = [(r[1], r[2], int(r[3] or 0), r[4], int(r[5] or 0))
+                          for r in raw.execute(f"PRAGMA table_info({t})").fetchall()]
+        return out, None
+    except Exception as e:
+        return {}, f"sqlite schema read failed ({type(e).__name__})"
+
+
+def _pg_columns(cx, table):
+    """{column: data_type} for `table` in the connection's current schema."""
+    rows = cx.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name = %s",
+        (table,)).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+_PG_TYPE_NAMES = {"BIGINT": "bigint", "TEXT": "text", "BYTEA": "bytea",
+                  "DOUBLE PRECISION": "double precision"}
+
+
+def schema_parity():
+    """{table: {missing, extra, type_mismatch, sqlite_absent}} comparing the
+    live SQLite columns against Postgres, or {"error": ...}. Never raises.
+    `missing` (in SQLite, not PG) is what breaks mirror writes and shadow
+    reads; `extra` is harmless PG debris; `type_mismatch` is reported, never
+    auto-fixed (retyping a populated column is an operator decision)."""
+    cols, err = _sqlite_columns()
+    if err:
+        return {"error": err}
+    cx = _connect()
+    if cx is None:
+        return {"error": "postgres unavailable"}
+    out = {}
+    try:
+        for t in sorted(_MIRRORED_TABLES):
+            pg = _pg_columns(cx, t)
+            sq = {c[0]: _PG_TYPE_NAMES[_pg_type(c[1])] for c in cols.get(t, [])}
+            out[t] = {
+                "sqlite_absent": not sq,
+                "missing": sorted(set(sq) - set(pg)),
+                "extra": sorted(set(pg) - set(sq)) if sq else [],
+                "type_mismatch": sorted(
+                    f"{c}: sqlite->{sq[c]} pg={pg[c]}"
+                    for c in set(sq) & set(pg) if sq[c] != pg[c]),
+            }
+        return out
+    except Exception as e:
+        return {"error": f"parity check failed ({type(e).__name__})"}
+    finally:
+        try:
+            cx.close()
+        except Exception:
+            pass
+
+
+def _has_unique_key(cx, table, cols):
+    """Whether `table` already has a unique index over exactly `cols`."""
+    rows = cx.execute(
+        "SELECT array_agg(a.attname::text ORDER BY a.attname) "
+        "FROM pg_index i JOIN pg_attribute a "
+        "  ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+        "WHERE i.indrelid = to_regclass(%s) AND i.indisunique "
+        "GROUP BY i.indexrelid", (table,)).fetchall()
+    want = sorted(cols)
+    return any(list(r[0]) == want for r in rows)
+
+
 def ensure_schema():
     """Best-effort bootstrap of the PG-side schema. Returns True when the
     schema is known-present, False when the mirror is unavailable -- never
-    raises, and never reports True on an unverified store."""
+    raises, and never reports True on an unverified store.
+
+    v3.66.1679: after the CREATEs, every column the LIVE SQLite table has and
+    Postgres lacks is ADDED (ADD COLUMN IF NOT EXISTS; nothing is ever dropped
+    or retyped), and a unique index on SQLite's primary key is ensured so a
+    table created by an older, keyless DDL can still be backfilled with
+    ON CONFLICT. A column that cannot be read or added makes this False."""
     cx = _connect()
     if cx is None:
         return False
     try:
-        with cx:
-            for ddl in _PG_SCHEMA:
-                cx.execute(ddl)
+        for ddl in _PG_SCHEMA:
+            cx.execute(ddl)
+        cx.commit()
+        cols, err = _sqlite_columns()
+        if err:
+            _degrade(f"schema column sync failed: {err}")
+            return False
+        for t, tcols in cols.items():
+            have = _pg_columns(cx, t)
+            for name, decl, notnull, dflt, _pk in tcols:
+                if name not in have:
+                    cx.execute(f'ALTER TABLE {t} ADD COLUMN IF NOT EXISTS '
+                               f'{_sqlite_col_to_pg(name, decl, notnull, dflt)}')
+            pk = [c[0] for c in sorted(tcols, key=lambda c: c[4]) if c[4]]
+            if pk and not _has_unique_key(cx, t, pk):
+                cx.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS mod3_pk_{t} "
+                           f"ON {t}(" + ", ".join(f'"{c}"' for c in pk) + ")")
             cx.commit()
         return True
     except Exception as e:
@@ -266,9 +469,74 @@ def translate(sql):
     return "".join(out)
 
 
-def mirror(sql, params=()):
+_INSERT_COLS = re.compile(
+    r"^(\s*INSERT\s+INTO\s+[\"`']?[A-Za-z0-9_]+[\"`']?\s*\()([^)]*)(\)\s*VALUES\s*\()",
+    re.IGNORECASE)
+
+
+def _with_rowid(pg_sql, params, rowid):
+    """(sql, params) with SQLite's assigned id prepended to a single-row
+    `INSERT INTO t(cols) VALUES(...)`, or None when the statement is not that
+    shape (INSERT ... SELECT, named params, no column list). An id-less
+    mirror INSERT into a _ROWID_TABLES table is refused, not sent: letting
+    Postgres pick the id forks the id space (see _ROWID_TABLES)."""
+    m = _INSERT_COLS.match(pg_sql)
+    if not m or rowid is None or isinstance(params, dict):
+        return None
+    cols = [c.strip().strip('"`').lower() for c in m.group(2).split(",")]
+    if "id" in cols:
+        return pg_sql, params          # caller already supplied the id
+    return (m.group(1) + "id, " + m.group(2) + m.group(3) + "%s, "
+            + pg_sql[m.end():]), (int(rowid),) + tuple(params or ())
+
+
+def inserted_rowid(cur):
+    """The id SQLite assigned to the row this statement inserted, or None.
+    sqlite3 leaves `lastrowid` at the PREVIOUS insert's value when a statement
+    inserts nothing, so it is only trusted when exactly one row changed; the
+    mirror() refuses an id-less INSERT into an id-keyed table rather than let
+    Postgres fork the id space (_ROWID_TABLES)."""
+    try:
+        return cur.lastrowid if cur.rowcount == 1 else None
+    except Exception:
+        return None
+
+
+def _upsert_on_id(cx, table, pg_sql):
+    """`pg_sql` (an id-aligned INSERT) as an upsert on id. SQLite is
+    authoritative while dual-write is on, so a Postgres row already holding
+    this id is a fork -- a PG-native write, or a row the pre-alignment mirror
+    wrote under a PG-picked id -- and SQLite's row replaces it whole. EXCLUDED
+    carries the defaults for columns the INSERT omits, so the result equals a
+    fresh insert (RULING-ROW127-PARITY-R3-803, option B)."""
+    if re.search(r"\bON\s+CONFLICT\b", pg_sql, re.IGNORECASE):
+        return pg_sql
+    sets = ", ".join(f'"{c}" = EXCLUDED."{c}"'
+                     for c in sorted(_pg_columns(cx, table)) if c != "id")
+    return (pg_sql.rstrip().rstrip(";")
+            + (f" ON CONFLICT (id) DO UPDATE SET {sets}" if sets
+               else " ON CONFLICT (id) DO NOTHING"))
+
+
+def _advance_serial(cx, table, rowid):
+    """Keep `table`'s BIGSERIAL sequence at or past the explicit id the mirror
+    just wrote. An explicit-id INSERT does not touch the sequence, so without
+    this the next Postgres-native INSERT draws an id SQLite already owns and
+    dies on the primary key. GREATEST, never a plain setval(rowid): a mirror
+    of an older row must not move the sequence backwards."""
+    cx.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+               f"GREATEST(%s, COALESCE(pg_sequence_last_value("
+               f"pg_get_serial_sequence('{table}', 'id')::regclass), 1)))",
+               (int(rowid),))
+
+
+def mirror(sql, params=(), rowid=None):
     """Best-effort mirror of one DML statement. Returns True if it reached
-    Postgres. NEVER raises -- see property 2."""
+    Postgres. NEVER raises -- see property 2.
+
+    `rowid` is the id SQLite assigned to this INSERT (cursor.lastrowid, passed
+    by the db.py seam). For _ROWID_TABLES it is written explicitly so both
+    stores agree on which row every later `WHERE id = ?` means."""
     if not dual_write_enabled():
         return False
     if not is_mirrored(sql):
@@ -276,6 +544,12 @@ def mirror(sql, params=()):
             _stats["skipped"] += 1
         return False
     pg_sql = translate(sql)
+    seq_table = None
+    if pg_sql is not None and _verb(sql) == "INSERT" \
+            and _target_table(sql) in _ROWID_TABLES:
+        aligned = _with_rowid(pg_sql, params, rowid)
+        pg_sql, params = aligned if aligned else (None, params)
+        seq_table = _target_table(sql)
     if pg_sql is None:
         with _lock:
             _stats["skipped"] += 1
@@ -286,7 +560,11 @@ def mirror(sql, params=()):
             _stats["failed"] += 1
         return False
     try:
+        if seq_table is not None:
+            pg_sql = _upsert_on_id(cx, seq_table, pg_sql)
         cx.execute(pg_sql, tuple(params or ()))
+        if seq_table is not None:
+            _advance_serial(cx, seq_table, rowid)
         cx.commit()
         with _lock:
             _stats["mirrored"] += 1
@@ -672,9 +950,40 @@ def cutover_engaged():
     if not cutover_requested():
         return False
     try:
-        return bool(preflight_cutover()["ok"])
+        return bool(preflight_cutover()["ok"]) and _sync_serials()
     except Exception:
         return False        # cannot verify -> not engaged
+
+
+_serials_synced = False
+
+
+def _sync_serials():
+    """Once per process at cutover engage: every _ROWID_TABLES sequence to
+    >= max(id), so a PG-native write after cutover never draws an id the
+    mirror already wrote. False (-> not engaged) if it cannot be done."""
+    global _serials_synced
+    if _serials_synced:
+        return True
+    cx = _connect()
+    if cx is None:
+        return False
+    try:
+        for t in sorted(_ROWID_TABLES):
+            seq = f"pg_get_serial_sequence('{t}', 'id')"
+            cx.execute(f"SELECT setval({seq}, GREATEST("
+                       f"(SELECT COALESCE(max(id), 1) FROM {t}), "
+                       f"COALESCE(pg_sequence_last_value({seq}::regclass), 1)))")
+        cx.commit()
+        _serials_synced = True
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            cx.close()
+        except Exception:
+            pass
 
 
 def read_authoritative(sql, params=()):
@@ -744,3 +1053,176 @@ class _PgRow:
 
     def __repr__(self):
         return f"_PgRow({self._d!r})"
+
+
+# ── row 127 PG-PARITY (v3.66.1679): baseline BACKFILL ────────────────────
+#
+# Dual-write only moves rows written AFTER it was switched on, so without a
+# baseline copy every aggregate shadow read diverges by design and
+# preflight_cutover() can never see shadow_diverged == 0 (plan Stage 3.2).
+# This copies SQLite -> Postgres for the mirrored tables, once, before
+# shadow-read.
+#
+# ON CONFLICT (SQLite's primary key) DO UPDATE ... WHERE IS DISTINCT FROM: an
+# upsert, because SQLite is authoritative and a PG row on the same key with
+# other content is a fork -- chiefly history/session_history rows the
+# pre-alignment mirror wrote under PG-picked ids (RULING-ROW127-PARITY-R3-803).
+# The WHERE keeps it idempotent: a second run copies exactly 0. Keys PG holds
+# that SQLite lacks are left alone. Safety under dual-write comes from the
+# per-batch SQLite write lock in _backfill_table (see the lock comment there).
+_BACKFILL_BATCH = 500
+
+
+def _backfill_table(cx, raw, table, sqlite_cols):
+    cols = [c[0] for c in sqlite_cols]
+    pk = [c[0] for c in sorted(sqlite_cols, key=lambda c: c[4]) if c[4]]
+    if not pk:
+        return {"error": f"{table}: no primary key in SQLite -- refusing a "
+                         f"copy that could not be idempotent"}
+    missing = set(cols) - set(_pg_columns(cx, table))
+    if missing:
+        return {"error": f"{table}: postgres lacks column(s) {sorted(missing)}"}
+    qcols = ", ".join(f'"{c}"' for c in cols)
+    rest = [c for c in cols if c not in pk]
+    on_pk = f"ON CONFLICT ({', '.join(chr(34) + c + chr(34) for c in pk)}) "
+    ins = (f"INSERT INTO {table} AS t ({qcols}) VALUES "
+           f"({', '.join(['%s'] * len(cols))}) " + on_pk
+           + ("DO UPDATE SET " + ", ".join(f'"{c}" = EXCLUDED."{c}"'
+                                            for c in rest)
+              + f" WHERE ({', '.join(f't.{chr(34)}{c}{chr(34)}' for c in rest)})"
+              f" IS DISTINCT FROM ({', '.join(f'EXCLUDED.{chr(34)}{c}{chr(34)}' for c in rest)})"
+              if rest else "DO NOTHING"))
+    qpk = ", ".join(f'"{c}"' for c in pk)
+    first = f"SELECT {qcols} FROM {table} ORDER BY {qpk} LIMIT ?"
+    after = (f"SELECT {qcols} FROM {table} WHERE ({qpk}) > "
+             f"({', '.join(['?'] * len(pk))}) ORDER BY {qpk} LIMIT ?")
+    pk_at = [cols.index(c) for c in pk]
+    source = copied = 0
+    last = None
+    while True:
+        # THE RACE THIS CLOSES (lens REFUTE on tree 001bcbef): a mirrored
+        # UPDATE landing between this batch's SQLite read and its PG insert
+        # hit 0 PG rows, then the insert wrote the older snapshot and ON
+        # CONFLICT DO NOTHING kept it stale forever. Holding SQLite's write
+        # lock (BEGIN IMMEDIATE) from the read until the PG commit makes a
+        # concurrent writer either finish first (we read its committed value)
+        # or wait (its mirror lands on the row we just inserted). The db.py
+        # seam writes SQLite BEFORE mirroring, so the lock orders both stores.
+        # A fresh keyset SELECT per batch keeps each lock short (busy_timeout
+        # is 10 s on seam connections).
+        if raw.in_transaction:
+            raise RuntimeError("seam connection already inside a transaction")
+        raw.execute("BEGIN IMMEDIATE")
+        try:
+            batch = [tuple(r) for r in (
+                raw.execute(first, (_BACKFILL_BATCH,)) if last is None else
+                raw.execute(after, (*last, _BACKFILL_BATCH)))]
+            if batch:
+                with cx.cursor() as cur:
+                    # psycopg >= 3.1 sums rowcount across executemany; a row
+                    # already equal contributes 0 (the IS DISTINCT FROM
+                    # guard), so this counts inserts + repaired rows.
+                    cur.executemany(ins, batch)
+                    copied += max(cur.rowcount, 0)
+                cx.commit()
+        finally:
+            raw.rollback()      # read-only: releases the write lock
+        if not batch:
+            break
+        source += len(batch)
+        last = tuple(batch[-1][i] for i in pk_at)
+    if table in _ROWID_TABLES:
+        # PG's own sequence must not hand out an id SQLite already owns.
+        cx.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                   f"GREATEST((SELECT max(id) FROM {table}), 1))")
+        cx.commit()
+    return {"source": source, "copied": copied, "skipped": source - copied}
+
+
+def backfill(tables=None):
+    """Copy the SQLite baseline into Postgres for the mirrored tables.
+
+    Returns {table: {source, copied, skipped, seconds}} (or {table: {error,
+    seconds}}). NEVER raises; a table outside _MIRRORED_TABLES is refused by
+    name rather than silently ignored."""
+    import time as _time
+    want = [t.lower() for t in (tables or sorted(_MIRRORED_TABLES))]
+    out = {}
+    for t in want:
+        if t not in _MIRRORED_TABLES:
+            out[t] = {"error": f"{t}: not a mirrored table -- refused",
+                      "seconds": 0.0}
+    todo = [t for t in want if t in _MIRRORED_TABLES]
+    if not todo:
+        return out
+    if not dual_write_enabled():
+        return {**out, **{t: {"error": "no MOD3_PG_DSN configured",
+                              "seconds": 0.0} for t in todo}}
+    if not ensure_schema():
+        return {**out, **{t: {"error": "schema bootstrap failed: "
+                              + str(stats().get("degraded_reason")),
+                              "seconds": 0.0} for t in todo}}
+    cols, err = _sqlite_columns(todo)
+    if err:
+        return {**out, **{t: {"error": err, "seconds": 0.0} for t in todo}}
+    cx = _connect()
+    if cx is None:
+        return {**out, **{t: {"error": "postgres unavailable",
+                              "seconds": 0.0} for t in todo}}
+    try:
+        from . import db as _db  # deferred: db imports pg_backend
+        with _db.db_conn() as scx:
+            raw = getattr(scx, "_cx", scx)   # the seam's connection, unshadowed
+            for t in todo:
+                t0 = _time.time()
+                if not cols.get(t):
+                    res = {"source": 0, "copied": 0, "skipped": 0}
+                else:
+                    try:
+                        res = _backfill_table(cx, raw, t, cols[t])
+                    except Exception as e:
+                        try:
+                            cx.rollback()
+                        except Exception:
+                            pass
+                        res = {"error": f"{t}: backfill failed "
+                                        f"({type(e).__name__}: {e})"[:300]}
+                res["seconds"] = round(_time.time() - t0, 3)
+                out[t] = res
+    except Exception as e:
+        for t in todo:
+            out.setdefault(t, {"error": f"sqlite read failed "
+                                        f"({type(e).__name__})", "seconds": 0.0})
+    finally:
+        try:
+            cx.close()
+        except Exception:
+            pass
+    return out
+
+
+def main(argv=None):
+    """`python -m bulk_downloader.pg_backend backfill [table ...]` -- the
+    one-shot baseline copy the operator runs before shadow-read -- or
+    `... parity` for the read-only column report. Prints JSON; exit 1 when
+    any table reports an error or any column is missing."""
+    import json
+    import sys
+    args = list(sys.argv[1:] if argv is None else argv)
+    cmd = args.pop(0) if args else ""
+    if cmd == "backfill":
+        res = backfill(args or None)
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 1 if any("error" in v for v in res.values()) else 0
+    if cmd == "parity":
+        res = schema_parity()
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 1 if "error" in res or any(
+            v["missing"] for v in res.values()) else 0
+    print("usage: python -m bulk_downloader.pg_backend {backfill [table ...]"
+          "|parity}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

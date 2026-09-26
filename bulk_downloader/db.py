@@ -578,7 +578,7 @@ class _DualWriteConn:
         cur = self._cx.execute(sql, params)      # SQLite always runs: it stays
                                                  # current so rollback is free
         if pg_backend.is_mirrored(sql):          # scope boundary, AT the seam
-            pg_backend.mirror(sql, params)       # best-effort, cannot raise
+            pg_backend.mirror(sql, params, pg_backend.inserted_rowid(cur))
             return cur
         # v3.66.804 (cut 5): when cutover is ENGAGED (fail-closed -- preflight
         # must pass), Postgres serves the read. None from read_authoritative
@@ -640,7 +640,7 @@ class _DualWriteCursor:
     def execute(self, sql, params=()):
         r = self._cur.execute(sql, params)
         if pg_backend.is_mirrored(sql):
-            pg_backend.mirror(sql, params)
+            pg_backend.mirror(sql, params, pg_backend.inserted_rowid(self._cur))
         elif pg_backend.shadow_read_enabled():
             try:
                 conn = self._cur.connection

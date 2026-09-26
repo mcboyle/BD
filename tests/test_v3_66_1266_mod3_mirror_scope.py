@@ -208,7 +208,11 @@ class TestEnvfileMod3Keys:
         """RED on 9224efccc552: load_envfile warned 'ignoring 1 undeclared key(s)
         in .env: MOD3_PG_DSN'. GREEN: it applies cleanly with zero stderr warnings."""
         for k in ("MOD3_PG_DSN", "MOD3_SHADOW_READ", "MOD3_CUTOVER"):
-            monkeypatch.delenv(k, raising=False)
+            # setenv FIRST so monkeypatch records the original state:
+            # delenv of an absent var records nothing, and load_envfile's
+            # writes then leaked into every later module (1678 skipped).
+            monkeypatch.setenv(k, "")
+            monkeypatch.delenv(k)
 
         env_file = tmp_path / ".env"
         env_file.write_text(
@@ -231,7 +235,8 @@ class TestEnvfileMod3Keys:
         self, monkeypatch, tmp_path, capsys
     ):
         """Negative control: genuinely undeclared keys are still reported."""
-        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        monkeypatch.setenv("MOD3_PG_DSN", "")    # record, then clear (above)
+        monkeypatch.delenv("MOD3_PG_DSN")
         monkeypatch.delenv("TOTALLY_UNKNOWN_ROGUE_KEY", raising=False)
 
         env_file = tmp_path / ".env"

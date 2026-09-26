@@ -175,6 +175,14 @@ class TestRealPGShadowScope:
     def test_in_scope_schema_error_is_an_error_not_divergence(
             self, shadow, caplog):
         caplog.set_level(logging.WARNING, logger=pg_backend.log.name)
+        # Planted drift: ensure_schema now gives PG every SQLite queue column
+        # (v3.66.1679), so the schema error is made explicit, not inherited.
+        import os
+
+        import psycopg
+        with psycopg.connect(os.environ["MOD3_PG_DSN"]) as c:
+            c.execute("ALTER TABLE queue DROP COLUMN IF EXISTS ts_added")
+            c.commit()
         sql = "SELECT * FROM queue WHERE site_id = ? ORDER BY ord, ts_added"
         for _ in range(3):
             assert pg_backend.shadow_compare(sql, ("s",), []) is None

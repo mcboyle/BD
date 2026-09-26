@@ -192,10 +192,18 @@ class TestRealRehearsal:
         pg.ensure_schema()
         with psycopg.connect(dsn) as c:
             c.execute("DELETE FROM history WHERE site_id LIKE %s", ("seed-%",))
+            c.commit()
+        # Seeds are mirrored FIRST, the canary is written natively AFTER with
+        # a DEFAULT id. The mirror writes SQLite's ids, so a PG-native row
+        # written first would squat an id SQLite hands out next -- not a
+        # supported state during dual-write; the mirror overwrites such forks
+        # by design (v3.66.1679, RULING-ROW127-PARITY-R3-803). Native-after-
+        # mirror is the real sequence: the canary must draw an unused id.
+        self._seed(db, 5)
+        with psycopg.connect(dsn) as c:
             c.execute("INSERT INTO history(site_id, status) VALUES (%s,%s)",
                       ("live-canary", "untouched"))
             c.commit()
-        self._seed(db, 5)
         pg.rehearse_migration()
         with psycopg.connect(dsn) as c:
             row = c.execute(
