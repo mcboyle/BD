@@ -186,7 +186,10 @@ class TestRealPGShadowScope:
         sql = "SELECT * FROM queue WHERE site_id = ? ORDER BY ord, ts_added"
         for _ in range(3):
             assert pg_backend.shadow_compare(sql, ("s",), []) is None
-        fn = "SELECT julianday(ts) FROM history WHERE site_id = ?"
+        # PG-side UndefinedFunction that passes the dialect layer (length is
+        # allowlisted; PG has no length(text, integer)). SQLite-only functions
+        # such as julianday are skipped before PG since v3.66.1681.
+        fn = "SELECT length(ts, 1) FROM history WHERE site_id = ?"
         assert pg_backend.shadow_compare(fn, ("scope-pos",), [(1.0,)]) is None
         st = pg_backend.shadow_stats()
         assert shadow == [1, 1, 1, 1], "in-scope reads must reach PG"
@@ -197,4 +200,4 @@ class TestRealPGShadowScope:
         msgs = [r.getMessage() for r in caplog.records
                 if "shadow" in r.getMessage().lower()]
         assert len([m for m in msgs if "ts_added" in m]) == 1, msgs
-        assert len([m for m in msgs if "julianday" in m]) == 1, msgs
+        assert len([m for m in msgs if "length(" in m]) == 1, msgs

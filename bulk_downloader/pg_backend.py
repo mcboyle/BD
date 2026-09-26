@@ -432,6 +432,90 @@ def _read_tables(sql):
     return frozenset(tables)
 
 
+# ── MOD-3 row 127 class 5: SQLite dialect on the shadow READ path ─────────
+# The app's SELECTs are SQLite dialect. Forwarding one verbatim to Postgres is
+# a guaranteed error (UndefinedFunction), which buries real errors in noise.
+# _shadow_dialect() rewrites the idioms that have an exact PG equivalent and
+# names everything else as a skip reason; nothing unrecognised reaches PG.
+# Read side only: mirror()/translate() are unchanged.
+
+# Called functions whose SQLite and PG meaning agree for this app's data.
+# date(x) on a non-'now' argument is PG's function-style cast to date, which
+# renders the same 'YYYY-MM-DD' as SQLite's date() for ISO timestamps.
+_PG_SAME_FUNCS = frozenset({
+    "count", "sum", "min", "max", "avg", "abs", "coalesce", "nullif",
+    "lower", "upper", "length", "substr", "replace", "trim", "cast", "date",
+    # emitted by the rewrites below
+    "to_char", "now"})
+# SQLite functions with no exact PG rewrite: a read using one is skipped.
+_SHADOW_SKIP_FUNCS = frozenset({
+    "strftime", "julianday", "group_concat", "total", "printf", "instr",
+    "iif", "round", "unixepoch", "datetime"})
+# SQL words that may precede "(" without being a function call.
+_PAREN_WORDS = frozenset({
+    "in", "exists", "values", "as", "on", "using", "over", "and", "or", "not",
+    "from", "join", "where", "select", "when", "then", "else", "case", "is",
+    "like", "between", "by", "filter", "all", "any", "distinct", "having",
+    "union", "limit", "offset", "set", "into", "with"})
+_LITERAL = re.compile(r"'(?:[^']|'')*'")
+_NOW_CALL = re.compile(
+    r"\b(datetime|date)\s*\(\s*'now'\s*(?:,\s*('(?:[^']|'')*'|\?)\s*)?\)",
+    re.IGNORECASE)
+# SQLite offsets PG's interval parses identically. Months/years are excluded:
+# SQLite normalises day overflow ('2026-01-31' +1 month) differently.
+_OFFSET = re.compile(
+    r"\s*[+-]?\d+(?:\.\d+)?\s+(?:second|minute|hour|day)s?\s*",
+    re.IGNORECASE)
+_NOW_FMT = {"datetime": "YYYY-MM-DD HH24:MI:SS", "date": "YYYY-MM-DD"}
+
+
+def _outside_literals(sql, pos):
+    """Whether offset `pos` of `sql` lies outside every string literal."""
+    return not any(m.start() <= pos < m.end() for m in _LITERAL.finditer(sql))
+
+
+def _shadow_dialect(sql, params=()):
+    """(pg_sql, None) with SQLite-only idioms rewritten, or (None, reason).
+
+    Placeholders are never added, removed or reordered, so `params` is passed
+    through unchanged; it is read only to validate a `?` offset argument."""
+    params = tuple(params or ())
+    out, last = [], 0
+    for m in _NOW_CALL.finditer(sql):
+        if not _outside_literals(sql, m.start()):
+            continue
+        fn, arg = m.group(1).lower(), m.group(2)
+        if arg is None:
+            offset, expr = None, None
+        elif arg == "?":
+            idx = _LITERAL.sub("", sql[:m.start()]).count("?")
+            offset = params[idx] if idx < len(params) else None
+            expr = "CAST(? AS interval)"
+        else:
+            offset = arg[1:-1].replace("''", "'")
+            expr = f"CAST({arg} AS interval)"
+        if arg is not None and not (isinstance(offset, str)
+                                    and _OFFSET.fullmatch(offset)):
+            return None, "modifier"
+        now = "(now() AT TIME ZONE 'UTC')"
+        if expr:
+            now = f"({now} + {expr})"
+        out.append(sql[last:m.start()])
+        out.append(f"to_char({now}, '{_NOW_FMT[fn]}')")
+        last = m.end()
+    pg_sql = "".join(out) + sql[last:]
+    pg_sql = re.sub(r"\bIFNULL\s*\(", "COALESCE(", pg_sql, flags=re.IGNORECASE)
+    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                         _LITERAL.sub("''", pg_sql)):
+        name = m.group(1).lower()
+        if name in _PG_SAME_FUNCS or name in _PAREN_WORDS:
+            continue
+        if name in _SHADOW_SKIP_FUNCS:
+            return None, "dialect:" + name
+        return None, "dialect-unknown:" + name
+    return pg_sql, None
+
+
 def is_mirrored(sql):
     """Whether this statement is in scope for the mirror. Public so the gate
     can assert the scope boundary rather than infer it."""
@@ -602,6 +686,20 @@ _shadow = {"compared": 0, "matched": 0, "diverged": 0, "skipped": 0,
 # once per message, and never touches degraded_reason.
 _shadow_errors_seen: set = set()
 _SHADOW_ERRORS_SEEN_MAX = 256    # bounds the log-once memory, not the count
+# Why reads were skipped (reason -> count). Kept beside, not inside, _shadow so
+# shadow_stats()'s pinned key set is unchanged.
+_shadow_skip_reasons: dict = {}
+
+
+def _shadow_skip(reason):
+    with _lock:
+        _shadow["skipped"] += 1
+        _shadow_skip_reasons[reason] = _shadow_skip_reasons.get(reason, 0) + 1
+
+
+def shadow_skip_reasons():
+    with _lock:
+        return dict(_shadow_skip_reasons)
 _SHADOW_MAX_ROWS = 5000     # a comparison bigger than this is skipped, not faked
 
 
@@ -701,17 +799,24 @@ def shadow_compare(sql, params, sqlite_rows):
     if _verb(sql) != "SELECT":
         return None
     tables = _read_tables(sql)
-    pg_sql = translate(sql)
-    if (not tables or not tables <= _MIRRORED_TABLES or pg_sql is None
-            or len(sqlite_rows or []) > _SHADOW_MAX_ROWS):
-        with _lock:
-            _shadow["skipped"] += 1
+    if not tables or not tables <= _MIRRORED_TABLES:
+        _shadow_skip("scope")
+        return None
+    if len(sqlite_rows or []) > _SHADOW_MAX_ROWS:
+        _shadow_skip("oversized")
+        return None
+    pg_sql, reason = _shadow_dialect(sql, params)
+    if pg_sql is None:
+        _shadow_skip(reason)
+        return None
+    pg_sql = translate(pg_sql)
+    if pg_sql is None:
+        _shadow_skip("untranslatable")
         return None
     pg_rows, errored = _shadow_fetch(pg_sql, params)
     if pg_rows is None:
         if not errored:
-            with _lock:
-                _shadow["skipped"] += 1
+            _shadow_skip("unreachable")
         return None
     same = _rows_equal(sqlite_rows, pg_rows)
     with _lock:
