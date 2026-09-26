@@ -192,6 +192,43 @@ def _target_table(sql):
     return (m.group(1) or "").lower() if m else ""
 
 
+_NAME = r'["`\[]?(?:[A-Za-z0-9_]+\.)?([A-Za-z0-9_]+)["`\]]?'
+_ALIAS_STOP = frozenset({
+    "WHERE", "GROUP", "ORDER", "LIMIT", "HAVING", "UNION", "INTERSECT",
+    "EXCEPT", "ON", "USING", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+    "CROSS", "FULL", "NATURAL", "OFFSET", "WINDOW"})
+
+
+def _read_tables(sql):
+    """Lowercased set of the tables a SELECT reads (every FROM list entry and
+    JOIN target), frozenset() when it names none, or None when the statement
+    has a shape this parser does not positively understand (subquery, table
+    function). None is out of scope, never 'no tables'."""
+    s = re.sub(r"'(?:[^']|'')*'", "''", sql or "")
+    if re.search(r"\(\s*SELECT\b", s, re.IGNORECASE):
+        return None
+    tables = set()
+    for kw in re.finditer(r"\b(FROM|JOIN)\s+", s, re.IGNORECASE):
+        pos = kw.end()
+        while True:
+            m = re.compile(_NAME).match(s, pos)
+            if not m or re.match(r"\s*\(", s[m.end():]):
+                return None
+            tables.add(m.group(1).lower())
+            pos = m.end()
+            if kw.group(1).upper() != "FROM":
+                break
+            a = re.compile(r"\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+                           re.IGNORECASE).match(s, pos)
+            if a and a.group(1).upper() not in _ALIAS_STOP:
+                pos = a.end()
+            c = re.compile(r"\s*,\s*").match(s, pos)
+            if not c:
+                break
+            pos = c.end()
+    return frozenset(tables)
+
+
 def is_mirrored(sql):
     """Whether this statement is in scope for the mirror. Public so the gate
     can assert the scope boundary rather than infer it."""
@@ -280,7 +317,13 @@ def mirror(sql, params=()):
 # cannot translate and then reports clean is the failure shape this project
 # exists to catch. Skips are counted separately and never as agreement.
 _shadow = {"compared": 0, "matched": 0, "diverged": 0, "skipped": 0,
-           "last_divergence": None}
+           "errors": 0, "last_divergence": None}
+# Distinct shadow-read error messages already logged. An in-scope read the PG
+# side cannot answer (UndefinedColumn, UndefinedFunction, ...) is a schema or
+# translation gap, not a degraded store: it is counted in `errors`, logged
+# once per message, and never touches degraded_reason.
+_shadow_errors_seen: set = set()
+_SHADOW_ERRORS_SEEN_MAX = 256    # bounds the log-once memory, not the count
 _SHADOW_MAX_ROWS = 5000     # a comparison bigger than this is skipped, not faked
 
 
@@ -341,17 +384,28 @@ def _rows_equal(a, b):
 
 
 def _shadow_fetch(sql, params=()):
-    """Rows from Postgres for a translated SELECT, or None when the shadow
-    cannot answer. None means UNKNOWN -- callers must not read it as empty."""
+    """(rows, errored) from Postgres for a translated SELECT. rows is None when
+    the shadow cannot answer -- UNKNOWN, callers must not read it as empty;
+    errored says whether PG answered with an error (counted in `errors`) as
+    opposed to being unreachable."""
     cx = _connect()
     if cx is None:
-        return None
+        return None, False
     try:
         cur = cx.execute(sql, tuple(params or ()))
-        return cur.fetchall()
+        return cur.fetchall(), False
     except Exception as e:
-        _degrade(f"shadow read failed ({type(e).__name__})")
-        return None
+        msg = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
+        with _lock:
+            _shadow["errors"] += 1
+            first = (msg not in _shadow_errors_seen
+                     and len(_shadow_errors_seen) < _SHADOW_ERRORS_SEEN_MAX)
+            if first:
+                _shadow_errors_seen.add(msg)
+        if first:
+            log.warning("MOD3 shadow read error: %s -- %s", msg,
+                        (sql or "")[:120])
+        return None, True
     finally:
         try:
             cx.close()
@@ -368,15 +422,18 @@ def shadow_compare(sql, params, sqlite_rows):
         return None
     if _verb(sql) != "SELECT":
         return None
+    tables = _read_tables(sql)
     pg_sql = translate(sql)
-    if pg_sql is None or len(sqlite_rows or []) > _SHADOW_MAX_ROWS:
+    if (not tables or not tables <= _MIRRORED_TABLES or pg_sql is None
+            or len(sqlite_rows or []) > _SHADOW_MAX_ROWS):
         with _lock:
             _shadow["skipped"] += 1
         return None
-    pg_rows = _shadow_fetch(pg_sql, params)
+    pg_rows, errored = _shadow_fetch(pg_sql, params)
     if pg_rows is None:
-        with _lock:
-            _shadow["skipped"] += 1
+        if not errored:
+            with _lock:
+                _shadow["skipped"] += 1
         return None
     same = _rows_equal(sqlite_rows, pg_rows)
     with _lock:
