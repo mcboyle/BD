@@ -48,7 +48,7 @@ def _battery(suffix: str) -> subprocess.CompletedProcess[str]:
         p = cand / (s + suffix)
         assert p.is_file() and os.access(p, os.X_OK), f"candidate missing or not executable: {p}"
     env = {**os.environ, "BD_FLOCK_SUFFIX": suffix}
-    return subprocess.run(["bash", str(runner), str(cand)], capture_output=True, text=True, env=env, timeout=600)
+    return subprocess.run(["bash", str(runner), str(cand)], capture_output=True, text=True, env=env, timeout=180)
 
 
 def test_candidate_green_one_prep_per_id_and_interleaved_mechanical_refused():
@@ -91,7 +91,7 @@ def test_negative_control_r3_prep_leaks_the_lock_fd_to_a_surviving_grandchild():
     assert r3.is_file() and os.access(r3, os.X_OK), f"R3 twin missing: {r3}"
     env = {**os.environ, "BD_FLOCK_PREP": str(r3)}
     env.pop("BD_FLOCK_SUFFIX", None)
-    res = subprocess.run(["bash", str(cand / "test_harness_prep_flock.sh"), str(cand)], capture_output=True, text=True, env=env, timeout=600)
+    res = subprocess.run(["bash", str(cand / "test_harness_prep_flock.sh"), str(cand)], capture_output=True, text=True, env=env, timeout=180)
     assert res.returncode == 1, f"rc={res.returncode}\n{res.stdout}\n{res.stderr}"
     fails = [l for l in res.stdout.splitlines() if l.startswith("FAIL ")]
     assert len(fails) == 4, fails
