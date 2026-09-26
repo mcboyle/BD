@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5146,
+  "edge_count": 5147,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4566,6 +4566,9 @@
       "bulk_downloader/template_assist.py",
       "bulk_downloader/template_selector_verifier.py",
       "tools/build_recorded_dom_fixture.py"
+    ],
+    "tests/test_row127_cut1_census_preflight.py": [
+      "bulk_downloader/pg_backend.py"
     ],
     "tests/test_row1459_the_verified_binary_is_the_executed_binary.py": [
       "bulk_downloader/ffmpeg_bin.py",
