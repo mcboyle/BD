@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1682 - train109: row1150 pg-backend DP hygiene, row1151 real-PG tests must not skip
+
+
 ## v3.66.1681 - train108: row127-shadow-dialect MOD3 shadow dialect (Stage 4 class 5)
 
 
