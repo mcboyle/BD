@@ -45,6 +45,7 @@ import logging
 import os
 import re
 import threading
+from contextlib import suppress
 
 log = logging.getLogger(__name__)
 
@@ -245,13 +246,13 @@ def _sqlite_col_to_pg(name, decl, notnull, dflt):
     fragment used by ALTER TABLE ... ADD COLUMN. NOT NULL is only carried
     with a default: adding a defaultless NOT NULL column to a populated PG
     table fails, and failing the whole sync over one constraint is worse."""
-    frag = f'"{name}" {_pg_type(decl)}'
+    frag = _pg_type(decl)
     default = _pg_default(dflt)
     if notnull and default is not None and default.upper() != "NULL":
         frag += " NOT NULL"
     if default is not None:
         frag += f" DEFAULT {default}"
-    return frag
+    return f'"{name}" {frag}'
 
 
 def _sqlite_columns(tables=None):
@@ -314,10 +315,8 @@ def schema_parity():
     except Exception as e:
         return {"error": f"parity check failed ({type(e).__name__})"}
     finally:
-        try:
+        with suppress(Exception):
             cx.close()
-        except Exception:
-            pass
 
 
 def _has_unique_key(cx, table, cols):
@@ -346,6 +345,7 @@ def ensure_schema():
     if cx is None:
         return False
     try:
+        from psycopg import sql
         for ddl in _PG_SCHEMA:
             cx.execute(ddl)
         cx.commit()
@@ -357,8 +357,10 @@ def ensure_schema():
             have = _pg_columns(cx, t)
             for name, decl, notnull, dflt, _pk in tcols:
                 if name not in have:
-                    cx.execute(f'ALTER TABLE {t} ADD COLUMN IF NOT EXISTS '
-                               f'{_sqlite_col_to_pg(name, decl, notnull, dflt)}')
+                    definition = _sqlite_col_to_pg(name, decl, notnull, dflt)
+                    cx.execute(sql.SQL('ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}').format(
+                        sql.Identifier(t), sql.Identifier(name),
+                        sql.SQL(definition[len(f'"{name}" '):])))
             pk = [c[0] for c in sorted(tcols, key=lambda c: c[4]) if c[4]]
             if pk and not _has_unique_key(cx, t, pk):
                 cx.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS mod3_pk_{t} "
@@ -1074,21 +1076,21 @@ def _sync_serials():
     if cx is None:
         return False
     try:
+        from psycopg import sql
         for t in sorted(_ROWID_TABLES):
-            seq = f"pg_get_serial_sequence('{t}', 'id')"
-            cx.execute(f"SELECT setval({seq}, GREATEST("
-                       f"(SELECT COALESCE(max(id), 1) FROM {t}), "
-                       f"COALESCE(pg_sequence_last_value({seq}::regclass), 1)))")
+            seq = sql.SQL("pg_get_serial_sequence({}, 'id')").format(sql.Literal(t))
+            cx.execute(sql.SQL("SELECT setval({}, GREATEST("
+                               "(SELECT COALESCE(max({}), 1) FROM {}), "
+                               "COALESCE(pg_sequence_last_value({}::regclass), 1)))").format(
+                seq, sql.Identifier('id'), sql.Identifier(t), seq))
         cx.commit()
         _serials_synced = True
         return True
     except Exception:
         return False
     finally:
-        try:
+        with suppress(Exception):
             cx.close()
-        except Exception:
-            pass
 
 
 def read_authoritative(sql, params=()):
@@ -1286,10 +1288,8 @@ def backfill(tables=None):
                     try:
                         res = _backfill_table(cx, raw, t, cols[t])
                     except Exception as e:
-                        try:
+                        with suppress(Exception):
                             cx.rollback()
-                        except Exception:
-                            pass
                         res = {"error": f"{t}: backfill failed "
                                         f"({type(e).__name__}: {e})"[:300]}
                 res["seconds"] = round(_time.time() - t0, 3)
@@ -1299,10 +1299,8 @@ def backfill(tables=None):
             out.setdefault(t, {"error": f"sqlite read failed "
                                         f"({type(e).__name__})", "seconds": 0.0})
     finally:
-        try:
+        with suppress(Exception):
             cx.close()
-        except Exception:
-            pass
     return out
 
 
