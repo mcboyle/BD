@@ -94,7 +94,7 @@ def clean_env(monkeypatch):
     denominator, and `setdefault` semantics mean an inherited value would make
     every assertion below pass for the wrong reason.
     """
-    keys = list(_ROGUE) + list(EF.EDITOR_KEY_NAMES) + ["BD_ENVFILE"]
+    keys = list(_ROGUE) + list(EF.EDITOR_KEY_NAMES) + list(getattr(EF, "MOD3_KEYS", ())) + ["BD_ENVFILE"]
     for k in keys:
         monkeypatch.delenv(k, raising=False)
     yield monkeypatch
@@ -199,10 +199,11 @@ def test_the_allow_list_is_exactly_the_editor_key_set():
     assert allowed is not None, (
         "no SEEDABLE_KEYS on _envfile -- the allow-list must be a named, "
         "inspectable object, not an expression buried in load_envfile")
-    assert set(allowed) == set(EF.EDITOR_KEY_NAMES), (
+    expected = set(EF.EDITOR_KEY_NAMES) | set(getattr(EF, "MOD3_KEYS", ()))
+    assert set(allowed) == expected, (
         f"the seed allow-list and the editor key set disagree: "
-        f"only-in-allow-list={sorted(set(allowed) - set(EF.EDITOR_KEY_NAMES))}, "
-        f"only-in-editor={sorted(set(EF.EDITOR_KEY_NAMES) - set(allowed))}")
+        f"only-in-allow-list={sorted(set(allowed) - expected)}, "
+        f"only-in-editor={sorted(expected - set(allowed))}")
 
 
 def test_the_allow_list_is_not_empty():

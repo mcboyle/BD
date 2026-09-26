@@ -118,7 +118,8 @@ jobs:
             tests/test_v3_66_800_mod3_dual_write.py \
             tests/test_v3_66_801_mod3_shadow_read.py \
             tests/test_v3_66_803_mod3_migration_rehearsal.py \
-            tests/test_v3_66_804_mod3_cutover.py
+            tests/test_v3_66_804_mod3_cutover.py \
+            tests/test_v3_66_1266_mod3_mirror_scope.py
 
   gates:
     runs-on: ubuntu-latest

@@ -97,6 +97,14 @@ _PG_SCHEMA = (
         host TEXT, ts TEXT, bytes BIGINT, seconds DOUBLE PRECISION)""",
 )
 
+# Mirrored tables derived from _PG_SCHEMA. DML targeting any table outside this
+# set is SQLite-only (skipped by the mirror, no PG round-trip attempted).
+_MIRRORED_TABLES = frozenset(
+    m.group(1).lower()
+    for ddl in _PG_SCHEMA
+    if (m := re.search(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z0-9_]+)", ddl, re.IGNORECASE))
+)
+
 
 def pg_dsn():
     """The configured DSN, or None when dual-write is off."""
@@ -170,10 +178,24 @@ def _verb(sql):
     return (m.group(2) or "").upper() if m else ""
 
 
+def _target_table(sql):
+    """Target table name for an INSERT / UPDATE / DELETE statement, lowercased,
+    or "" if unparseable."""
+    if not sql:
+        return ""
+    m = re.search(
+        r"\b(?:INSERT\s+(?:OR\s+[A-Za-z]+\s+)?(?:INTO\s+)?|UPDATE\s+(?:ONLY\s+)?|DELETE\s+(?:FROM\s+)?)"
+        r'["`\']?(?:[A-Za-z0-9_]+\.)?([A-Za-z0-9_]+)["`\']?',
+        sql,
+        re.IGNORECASE,
+    )
+    return (m.group(1) or "").lower() if m else ""
+
+
 def is_mirrored(sql):
     """Whether this statement is in scope for the mirror. Public so the gate
     can assert the scope boundary rather than infer it."""
-    return _verb(sql) in _MIRRORED_VERBS
+    return _verb(sql) in _MIRRORED_VERBS and _target_table(sql) in _MIRRORED_TABLES
 
 
 def translate(sql):

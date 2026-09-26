@@ -50,6 +50,8 @@ _HOST = ("BD_HOST",)
 _URL = ("BD_URL",)
 _BOOL = ("BD_DEV_MODE_DISABLE", "BD_DISABLE_KEEPALIVE")
 _VPN_DISABLE = ("BD_DISABLE_VPN_RUNTIME",)
+# MOD-3 history Postgres migration flags (seedable from .env, internal flags not GUI-editable)
+_MOD3 = ("MOD3_PG_DSN", "MOD3_SHADOW_READ", "MOD3_CUTOVER")
 
 # reader-class -> honest "when does this take effect" UX copy (deep plan §1.1).
 APPLIES = {
@@ -94,7 +96,9 @@ EDITOR_KEY_NAMES = [e["name"] for e in EDITOR_KEYS]
 # restated, because two lists of the same thing drift and the copy nobody
 # reads is the one that rots; test_v3_66_504_envfile_editor already
 # re-derives that set from source, so this inherits the guarantee.
-SEEDABLE_KEYS = frozenset(EDITOR_KEY_NAMES)
+# MOD3 keys are valid staged-migration flags seedable from .env.
+MOD3_KEYS = frozenset(_MOD3)
+SEEDABLE_KEYS = frozenset(EDITOR_KEY_NAMES) | MOD3_KEYS
 FOUNDATION_KEYS = frozenset(_FOUNDATION)
 PORT_KEYS = frozenset(_PORTS)
 BOOL_KEYS = frozenset(_BOOL + _VPN_DISABLE)
