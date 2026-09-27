@@ -1012,7 +1012,7 @@ def preflight_cutover(health=None):
 
     Returns {ok, reasons[], checks{}}. Never raises. Every refusal is NAMED,
     and the numbers judged on are returned so the verdict is auditable rather
-    than trusted."""
+    than trusted. O1428 excludes reported scope skips from the dialect ratio."""
     reasons = []
     remote = health is not None
     if isinstance(health, str):
@@ -1046,7 +1046,20 @@ def preflight_cutover(health=None):
         degraded = stats().get("degraded_reason")
     compared = st.get("compared", 0) if type(st.get("compared")) is int else 0
     skipped = st.get("skipped", 0) if type(st.get("skipped")) is int else 0
-    ratio = skipped / (compared + skipped) if compared + skipped else 0.0
+    skip_reasons = st.get("skip_reasons") if remote else shadow_skip_reasons()
+    valid_reasons = (
+        isinstance(skip_reasons, dict)
+        and all(type(count) is int and count >= 0
+                for count in skip_reasons.values())
+    )
+    scope_skipped = skip_reasons.get("scope", 0) if valid_reasons else 0
+    if not valid_reasons or scope_skipped > skipped:
+        source = "health" if remote else "local"
+        reasons.append(f"{source} shadow.skip_reasons missing/invalid")
+        scope_skipped = 0
+    dialect_skipped = skipped - scope_skipped
+    ratio = (dialect_skipped / (compared + dialect_skipped)
+             if compared + dialect_skipped else 0.0)
     checks = {
         "dual_write": dual_write,
         "shadow_read": shadow_read,
@@ -1054,6 +1067,8 @@ def preflight_cutover(health=None):
         "shadow_diverged": st.get("diverged", 0),
         "shadow_errors": st.get("errors", 0),
         "shadow_skipped": skipped,
+        "shadow_scope_skipped": scope_skipped,
+        "shadow_dialect_skipped": dialect_skipped,
         "shadow_skip_ratio": ratio,
         "degraded_reason": degraded,
     }
@@ -1079,7 +1094,9 @@ def preflight_cutover(health=None):
     if degraded:
         reasons.append("mirror degraded: %s" % degraded)
     if remote and ratio >= 0.5:
-        reasons.append("shadow skip ratio %.3f is at least 0.5" % ratio)
+        reasons.append(
+            f"shadow dialect skip ratio {ratio:.3f} is at least 0.5 "
+            f"(scope skips {scope_skipped} reported, not counted)")
     if not remote and not _connect_ok():
         reasons.append("postgres is not reachable")
     return {"ok": not reasons, "reasons": reasons, "checks": checks}

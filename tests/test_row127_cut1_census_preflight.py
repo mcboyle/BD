@@ -14,7 +14,8 @@ def health(*, compared=100, skipped=0, diverged=0, errors=0,
     return {"mod3": {"dual_write": dual, "shadow_read": shadow,
                      "stats": {"degraded_reason": degraded},
                      "shadow": {"compared": compared, "skipped": skipped,
-                                "diverged": diverged, "errors": errors}}}
+                                "diverged": diverged, "errors": errors,
+                                "skip_reasons": {"dialect": skipped}}}}
 
 
 def test_daemon_health_passes_at_100_and_below_half_skip_ratio(monkeypatch):
@@ -96,6 +97,7 @@ def in_process_ready(monkeypatch):
     monkeypatch.setattr(pg, "_connect_ok", lambda: True)
     for key in ("compared", "diverged", "errors", "skipped"):
         monkeypatch.setitem(pg._shadow, key, 0)
+    monkeypatch.setattr(pg, "_shadow_skip_reasons", {})
     monkeypatch.setitem(pg._shadow, "compared", 100)
     monkeypatch.setitem(pg._stats, "degraded_reason", None)
     return pg
