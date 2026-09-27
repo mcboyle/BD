@@ -707,6 +707,24 @@ def shadow_skip_reasons():
     with _lock:
         return dict(sorted(_shadow_skip_reasons.items(),
                            key=lambda item: (-item[1], item[0]))[:12])
+
+# O1435: why cutover-authoritative reads fell back to SQLite (reason -> count).
+# Kept beside _shadow_skip_reasons: shadow_stats()'s pinned key set is
+# unchanged, and the health payload exposes this under mod3.cutover.
+_cutover_fallback_reasons: dict = {"scope": 0, "untranslatable": 0,
+                                   "unreachable": 0, "error": 0}
+
+
+def _cutover_fallback(reason):
+    with _lock:
+        _cutover_fallback_reasons[reason] = \
+            _cutover_fallback_reasons.get(reason, 0) + 1
+
+
+def cutover_fallback_reasons():
+    """O1435: copy of the authoritative-read fallback counters (health)."""
+    with _lock:
+        return dict(sorted(_cutover_fallback_reasons.items()))
 _SHADOW_MAX_ROWS = 5000     # a comparison bigger than this is skipped, not faked
 
 
@@ -796,6 +814,16 @@ def _shadow_fetch(sql, params=()):
             pass
 
 
+def _in_read_scope(sql):
+    """O1435: True only when a SELECT reads solely _MIRRORED_TABLES. Shared by
+    shadow_compare's 'scope' skip and read_authoritative's pre-connect guard:
+    a statement on SQLite-only tables is served by SQLite, never sent to PG."""
+    if _verb(sql) != "SELECT":
+        return False
+    tables = _read_tables(sql)
+    return bool(tables) and tables <= _MIRRORED_TABLES
+
+
 def shadow_compare(sql, params, sqlite_rows):
     """Compare one SELECT's SQLite result against Postgres. Returns True on
     agreement, False on divergence, None when NOT COMPARABLE (untranslatable
@@ -805,8 +833,7 @@ def shadow_compare(sql, params, sqlite_rows):
         return None
     if _verb(sql) != "SELECT":
         return None
-    tables = _read_tables(sql)
-    if not tables or not tables <= _MIRRORED_TABLES:
+    if not _in_read_scope(sql):
         _shadow_skip("scope")
         return None
     if len(sqlite_rows or []) > _SHADOW_MAX_ROWS:
@@ -1160,16 +1187,23 @@ def read_authoritative(sql, params=()):
     """Rows from the CUTOVER-authoritative store (Postgres), or None when the
     read cannot be served there -- None means 'fall back to SQLite', never
     'empty result'. Conflating those would silently turn an outage into
-    apparent data loss."""
+    apparent data loss. O1435: out-of-scope SELECTs never reach Postgres."""
     if not cutover_engaged():
         return None
     if _verb(sql) != "SELECT":
         return None
+    if not _in_read_scope(sql):
+        # O1435: SQLite already serves these tables; a PG round-trip that
+        # 42Ps on a missing table would disengage cutover for no reason.
+        _cutover_fallback("scope")
+        return None
     pg_sql = translate(sql)
     if pg_sql is None:
+        _cutover_fallback("untranslatable")
         return None
     cx = _connect()
     if cx is None:
+        _cutover_fallback("unreachable")
         return None
     try:
         from psycopg.rows import dict_row
@@ -1181,6 +1215,7 @@ def read_authoritative(sql, params=()):
         # over at all.
         return [_PgRow(d) for d in cur.fetchall()]
     except Exception as e:
+        _cutover_fallback("error")
         _degrade(f"authoritative read failed ({type(e).__name__})")
         return None
     finally:

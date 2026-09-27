@@ -442,6 +442,7 @@ def _attach_mod3_health(payload: dict) -> None:
             "shadow_read": bool(_pg.shadow_read_enabled()),
             "cutover_requested": bool(_pg.cutover_requested()),
             "cutover_engaged": None,
+            "cutover": {"fallback_reasons": _pg.cutover_fallback_reasons()},
             "stats": dict(_pg.stats()),
             "shadow": {**_pg.shadow_stats(),
                        "skip_reasons": _pg.shadow_skip_reasons()},

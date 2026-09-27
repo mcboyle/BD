@@ -84,7 +84,7 @@ def test_mod3_payload_exact_keys_and_types(monkeypatch, path):
     mod3 = payload["mod3"]
     assert isinstance(mod3, dict)
 
-    # Exact-count 6 keys on mod3 object
+    # Exact-count 7 keys on mod3 object ("cutover" added by O1435 row127)
     expected_keys = {
         "dual_write",
         "shadow_read",
@@ -92,9 +92,20 @@ def test_mod3_payload_exact_keys_and_types(monkeypatch, path):
         "cutover_engaged",
         "stats",
         "shadow",
+        "cutover",
     }
     assert set(mod3.keys()) == expected_keys
-    assert len(mod3) == 6
+    assert len(mod3) == 7
+
+    cutover = mod3["cutover"]
+    assert isinstance(cutover, dict)
+    assert set(cutover.keys()) == {"fallback_reasons"}
+    fallback_reasons = cutover["fallback_reasons"]
+    assert isinstance(fallback_reasons, dict)
+    for reason, count in fallback_reasons.items():
+        assert isinstance(reason, str)
+        assert isinstance(count, int) and not isinstance(count, bool)
+        assert count >= 0
 
     assert isinstance(mod3["dual_write"], bool)
     assert isinstance(mod3["shadow_read"], bool)
