@@ -4,6 +4,9 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1684 - train112: row127
+
+
 ## v3.66.1683 - train111: row127-cut1 census preflight, row1152 harness prep flock
 
 
