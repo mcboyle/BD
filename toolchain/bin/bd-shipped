@@ -15,12 +15,12 @@ import ast
 import importlib.util
 import json
 import os
-from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any
-
 
 RELEASE_TRIO = frozenset(
     {
@@ -54,8 +54,11 @@ def _git(repo: Path, *args: str, allow_absent: bool = False) -> bytes | None:
 
 
 def _commit(repo: Path, value: str, label: str) -> str:
-    raw = _git(repo, "rev-parse", "--verify", f"{value}^{{commit}}")
-    assert raw is not None
+    raw = _git(repo, "rev-parse", "--verify", f"{value}^{{commit}}", allow_absent=True)
+    if raw is None:
+        raw = _git(repo, "rev-parse", "--verify", f"{value}^{{tree}}", allow_absent=True)
+    if raw is None:
+        raise Unknown(f"{label} commit cannot be resolved: {value}")
     resolved = raw.decode("ascii", "strict").strip()
     if _OID.fullmatch(resolved) is None:
         raise Unknown(f"{label} commit cannot be resolved: {value}")
@@ -73,6 +76,8 @@ def _literal_assignment(source: str, name: str) -> Any:
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+            if node.value is None:
+                raise Unknown(f"regeneration authority {name} has no value")
             try:
                 values.append(ast.literal_eval(node.value))
             except (TypeError, ValueError) as exc:
@@ -85,8 +90,9 @@ def _literal_assignment(source: str, name: str) -> Any:
 
 
 def _generated_paths(repo: Path, ref: str) -> frozenset[str]:
-    raw = _git(repo, "show", f"{ref}:toolchain/bin/bd-regen-order")
-    assert raw is not None
+    raw = _git(repo, "show", f"{ref}:toolchain/bin/bd-regen-order", allow_absent=True)
+    if raw is None:
+        return frozenset()
     try:
         source = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -134,6 +140,30 @@ def _changed_paths(repo: Path, base: str, candidate: str) -> list[str]:
     return sorted(paths)
 
 
+def _diff_name_status(repo: Path, base: str, candidate: str) -> list[tuple[str, str]]:
+    raw = _git(
+        repo,
+        "diff",
+        "--no-ext-diff",
+        "--no-renames",
+        "--name-status",
+        "-z",
+        base,
+        candidate,
+    )
+    assert raw is not None
+    items = [os.fsdecode(item) for item in raw.split(b"\0") if item]
+    result: list[tuple[str, str]] = []
+    i = 0
+    while i < len(items):
+        status = items[i]
+        path = items[i + 1] if i + 1 < len(items) else ""
+        if path:
+            result.append((status, path))
+        i += 2
+    return sorted(result, key=lambda item: item[1])
+
+
 def _blob(repo: Path, ref: str, path: str) -> str:
     raw = _git(repo, "rev-parse", "--verify", f"{ref}:{path}", allow_absent=True)
     if raw is None:
@@ -144,9 +174,81 @@ def _blob(repo: Path, ref: str, path: str) -> str:
     return value
 
 
+def _compare_blobs(
+    repo: Path, base: str, candidate: str, against: str, authored: bool
+) -> int:
+    name_statuses = _diff_name_status(repo, base, candidate)
+    if not name_statuses:
+        raise Unknown("candidate changed-path denominator is 0")
+    generated = _generated_paths(repo, candidate) if authored else frozenset()
+    substantive: list[tuple[str, str]] = []
+    for status, path in name_statuses:
+        if authored and path in RELEASE_TRIO:
+            print(f"EXCLUDED release-trio {path}")
+        elif authored and path in generated:
+            print(f"EXCLUDED generated {path}")
+        else:
+            substantive.append((status, path))
+    if not substantive:
+        raise Unknown("substantive candidate-path denominator is zero")
+    equal = 0
+    missed_paths: list[tuple[str, str]] = []
+    for status, path in substantive:
+        a = _blob(repo, candidate, path)
+        b = _blob(repo, against, path)
+        m = _blob(repo, base, path)
+        if status.startswith("D"):
+            same = (b == "ABSENT")
+            if not same:
+                if b == m:
+                    direction = "PATCH AHEAD (deletion absent from main)"
+                else:
+                    direction = "DIVERGED (main changed after base)"
+                missed_paths.append((path, direction))
+        else:
+            same = (a == b)
+            if not same:
+                if b == "ABSENT":
+                    direction = "PATCH AHEAD (missing on main)"
+                elif b == m:
+                    direction = "PATCH AHEAD (main remains at base)"
+                elif a == m:
+                    direction = "MAIN AHEAD (patch remains at base)"
+                else:
+                    direction = "DIVERGED (both differ from base)"
+                missed_paths.append((path, direction))
+        equal += int(same)
+        print(("SAME " if same else "DIFF ") + path)
+    if equal == len(substantive):
+        print(
+            f"SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal"
+        )
+        print(
+            f"RESULT     SHIPPED -- blob equality over all {len(substantive)} changed path(s), deletions included"
+        )
+        return 0
+    print(f"NOT SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal")
+    print(
+        f"RESULT     NOT SHIPPED -- {len(substantive) - equal} of {len(substantive)} changed path(s) differ"
+    )
+    for diff_path, direction in missed_paths:
+        print(f"  NOT SHIPPED [{direction}]: {diff_path}")
+    return 3
+
+
 def _candidate_mode(
     repo: Path, candidate_arg: str, base_arg: str | None, against_arg: str, authored: bool
 ) -> int:
+    cand_path = Path(candidate_arg)
+    if cand_path.is_dir():
+        raw_head = _git(cand_path, "rev-parse", "HEAD", allow_absent=True)
+        if raw_head is not None:
+            candidate_arg = raw_head.decode("ascii", "strict").strip()
+    elif candidate_arg in ("HEAD", "@") or candidate_arg.startswith(("HEAD~", "HEAD^", "@~", "@^")):
+        raw_cwd = _git(Path.cwd(), "rev-parse", "-q", "--verify", f"{candidate_arg}^{{commit}}", allow_absent=True)
+        if raw_cwd is not None:
+            candidate_arg = raw_cwd.decode("ascii", "strict").strip()
+
     try:
         candidate = _commit(repo, candidate_arg, "candidate")
     except Unknown as exc:
@@ -156,36 +258,107 @@ def _candidate_mode(
         raw = _git(repo, "merge-base", candidate, against)
         assert raw is not None
         base = raw.decode("ascii", "strict").strip()
-        if _OID.fullmatch(base) is None or base == candidate:
+        if _OID.fullmatch(base) is None:
             raise Unknown(
                 "candidate base is not measurable from merge-base; pass --base explicitly"
             )
+        if base == candidate:
+            merges = _git(repo, "rev-list", "--merges", "--ancestry-path", f"{candidate}..{against}", allow_absent=True)
+            recovered = None
+            if merges:
+                merge_lines = merges.decode("ascii", "strict").strip().splitlines()
+                if merge_lines:
+                    first_merge = merge_lines[-1]
+                    mp1 = _git(repo, "rev-parse", "-q", "--verify", f"{first_merge}^1", allow_absent=True)
+                    if mp1:
+                        mb2 = _git(repo, "merge-base", candidate, mp1.decode("ascii", "strict").strip(), allow_absent=True)
+                        if mb2 and mb2.decode("ascii", "strict").strip() != candidate:
+                            recovered = mb2.decode("ascii", "strict").strip()
+            if recovered:
+                base = recovered
+            else:
+                raise Unknown(
+                    "candidate base is not measurable from merge-base; pass --base explicitly"
+                )
     else:
         base = _commit(repo, base_arg, "base")
-    paths = _changed_paths(repo, base, candidate)
-    generated = _generated_paths(repo, candidate) if authored else frozenset()
-    substantive: list[str] = []
-    for path in paths:
-        if authored and path in RELEASE_TRIO:
-            print(f"EXCLUDED release-trio {path}")
-        elif authored and path in generated:
-            print(f"EXCLUDED generated {path}")
-        else:
-            substantive.append(path)
-    if not substantive:
-        raise Unknown("substantive candidate-path denominator is zero")
-    equal = 0
-    for path in substantive:
-        same = _blob(repo, candidate, path) == _blob(repo, against, path)
-        equal += int(same)
-        print(("SAME " if same else "DIFF ") + path)
-    if equal == len(substantive):
-        print(
-            f"SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal"
+
+    return _compare_blobs(repo, base, candidate, against, authored)
+
+
+def _patch_mode(
+    repo: Path, patch_dir: Path, base_arg: str | None, against_arg: str, authored: bool
+) -> int:
+    if not patch_dir.is_dir():
+        raise Unknown(f"--patch '{patch_dir}' is not a directory")
+    patch_diff = patch_dir / "patch.diff"
+    if not patch_diff.is_file() or patch_diff.stat().st_size == 0:
+        raise Unknown(f"--patch '{patch_dir}' has no nonempty patch.diff")
+    if not base_arg:
+        transcript_file = patch_dir / "transcript.txt"
+        if transcript_file.is_file():
+            m = re.search(r"BASE=([0-9a-f]{40})", transcript_file.read_text(encoding="utf-8", errors="replace"))
+            if m:
+                base_arg = m.group(1)
+    if not base_arg:
+        raise Unknown("--patch needs --base or transcript.txt containing BASE=<40-hex>")
+    base = _commit(repo, base_arg, "base")
+    against = _commit(repo, against_arg, "against")
+
+    with tempfile.NamedTemporaryFile(delete=True) as tmp:
+        patch_index = tmp.name
+    env = os.environ.copy()
+    env["GIT_INDEX_FILE"] = patch_index
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(repo), "read-tree", base],
+            env=env,
+            capture_output=True,
+            check=False,
         )
-        return 0
-    print(f"NOT SHIPPED: {equal} of {len(substantive)} substantive candidate blobs equal")
-    return 3
+        if res.returncode != 0:
+            raise Unknown("cannot seed temporary patch index from --base")
+        res = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "apply",
+                "--cached",
+                "--binary",
+                "--whitespace=nowarn",
+                str(patch_diff.resolve()),
+            ],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        if res.returncode != 0:
+            raw_short = _git(repo, "rev-parse", "--short", base, allow_absent=True)
+            short_mb = raw_short.decode("ascii").strip() if raw_short else base[:8]
+            raise Unknown(f"cannot materialise --patch '{patch_diff}' at --base {short_mb}")
+        res = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-u"],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        if res.stdout.strip():
+            raise Unknown("--patch materialised with unresolved conflicts")
+        res = subprocess.run(
+            ["git", "-C", str(repo), "write-tree"],
+            env=env,
+            capture_output=True,
+            check=False,
+        )
+        if res.returncode != 0:
+            raise Unknown("cannot write tree for --patch")
+        tree_sha = res.stdout.decode("ascii").strip()
+    finally:
+        if os.path.exists(patch_index):
+            os.remove(patch_index)
+
+    return _compare_blobs(repo, base, tree_sha, against, authored)
 
 
 def _read_ascii(path: Path, label: str) -> str:
@@ -195,12 +368,17 @@ def _read_ascii(path: Path, label: str) -> str:
         raise Unknown(f"{label} is unavailable: {exc}") from exc
 
 
-def _canonical_register_count(text: str) -> int:
-    authority = (
-        Path(__file__).resolve().parents[2]
-        / "project-knowledge"
-        / "build_current_overlay.py"
-    )
+def _canonical_register_count(text: str, repo: Path | None = None) -> int:
+    if repo is not None and (repo / "project-knowledge" / "build_current_overlay.py").is_file():
+        authority = repo / "project-knowledge" / "build_current_overlay.py"
+    else:
+        authority = (
+            Path(__file__).resolve().parents[2]
+            / "project-knowledge"
+            / "build_current_overlay.py"
+        )
+        if not authority.is_file():
+            authority = Path("/home/mboyle/BulkDownloader/project-knowledge/build_current_overlay.py")
     try:
         spec = importlib.util.spec_from_file_location("_bd_shipped_backlog", authority)
         if spec is None or spec.loader is None:
@@ -369,26 +547,42 @@ def _register_mode(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("candidate", nargs="?")
-    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path(os.environ.get("BD_SHIPPED_REPO", Path.cwd())),
+    )
     parser.add_argument("--base")
     parser.add_argument("--against", default="origin/main")
     parser.add_argument("--authored", action="store_true")
+    parser.add_argument("--patch", type=Path)
+    parser.add_argument("-q", "--quiet", action="store_true")
     parser.add_argument("--register", type=Path)
     parser.add_argument("--candidate-blobs", type=Path)
     args = parser.parse_args(argv)
+
     register_mode = args.register is not None or args.candidate_blobs is not None
-    if register_mode and (
-        args.register is None
-        or args.candidate_blobs is None
-        or args.candidate is not None
-        or args.base is not None
-        or args.authored
-    ):
-        parser.error(
-            "--register and --candidate-blobs are paired and exclude candidate, --base, and --authored"
-        )
-    if not register_mode and args.candidate is None:
-        parser.error("candidate is required outside register mode")
+    patch_mode = args.patch is not None
+
+    if register_mode:
+        if (
+            args.register is None
+            or args.candidate_blobs is None
+            or args.candidate is not None
+            or args.base is not None
+            or args.authored
+            or args.patch is not None
+        ):
+            parser.error(
+                "--register and --candidate-blobs are paired and exclude candidate, --base, --authored, and --patch"
+            )
+    elif patch_mode:
+        if args.candidate is not None:
+            parser.error("--patch and candidate argument are mutually exclusive")
+    else:
+        if args.candidate is None:
+            parser.error("candidate or --patch is required outside register mode")
+
     try:
         if register_mode:
             return _register_mode(
@@ -397,8 +591,21 @@ def main(argv: list[str] | None = None) -> int:
                 args.register.resolve(),
                 args.candidate_blobs.resolve(),
             )
+        if patch_mode:
+            return _patch_mode(
+                args.repo.resolve(),
+                args.patch.resolve(),
+                args.base,
+                args.against,
+                args.authored,
+            )
+        assert args.candidate is not None
         return _candidate_mode(
-            args.repo.resolve(), args.candidate, args.base, args.against, args.authored
+            args.repo.resolve(),
+            args.candidate,
+            args.base,
+            args.against,
+            args.authored,
         )
     except (OSError, UnicodeError, Unknown) as exc:
         print(f"UNKNOWN: {exc}", file=sys.stderr)
