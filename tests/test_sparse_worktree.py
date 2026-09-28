@@ -81,7 +81,9 @@ def test_custom_scope_keeps_the_default_excludes(tmp_path):
     assert (wt / "tests" / "fixtures").is_dir() and (wt / "tests" / "mutants").is_dir()
     assert lw.get_worktree_size_mb(wt) < lw.MAX_WORKTREE_MB
     # explicit exclude_dirs still wins (an empty list carves nothing out)
-    assert lw.sparse_patterns(["tests"], []) == lw.sparse_patterns(["tests"], [])
+    assert lw.sparse_patterns(["tests"], []) == ["/*", "!/*/", "/tests/"]
+    assert lw.sparse_patterns(["tests"], ["tests/corpus"]) == [
+        "/*", "!/*/", "/tests/", "!/tests/corpus/"]
 
 
 def test_scoped_checkout_is_under_50_mb(tmp_path):

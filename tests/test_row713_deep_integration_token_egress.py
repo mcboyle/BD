@@ -14,6 +14,7 @@ import socket
 import threading
 import urllib.error
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -265,7 +266,10 @@ def test_row713_unresolvable_host_is_refused_when_nothing_is_swapped():
     from bulk_downloader import deep_http
     from bulk_downloader.jellyfin_deep import JellyfinClient, JellyfinError
 
-    assert deep_http._OPENER is deep_http._OPENER  # seam not pre-swapped
+    # seam not pre-swapped: the module default is a real urllib opener built
+    # with the no-redirect handler, not a fake left behind by another test
+    assert isinstance(deep_http._OPENER, urllib.request.OpenerDirector)
+    assert any(isinstance(h, deep_http._NoRedirect) for h in deep_http._OPENER.handlers)
     with pytest.raises(JellyfinError) as excinfo:
         JellyfinClient("https://jf.demo", TOKEN)._request(
             "GET", "/System/Info", timeout=2.0)

@@ -193,6 +193,31 @@ class TestErrorHandlingAndProcessBoundaries:
             assert verdict.error == "timeout"
 
 
+def _capture_upscale_threads(monkeypatch):
+    """Wrap upscale_detector.detect_upscale_async so a call-site test can join the
+    exact thread it started instead of sleeping and hoping (BH-bd-agy-audit-2-007).
+    The call sites look the function up on the module at call time."""
+    from bulk_downloader import upscale_detector
+
+    real = upscale_detector.detect_upscale_async
+    threads = []
+
+    def _wrapped(*args, **kwargs):
+        th = real(*args, **kwargs)
+        threads.append(th)
+        return th
+
+    monkeypatch.setattr(upscale_detector, "detect_upscale_async", _wrapped)
+    return threads
+
+
+def _join_all(threads, timeout=10.0):
+    assert len(threads) == 1, f"call site started {len(threads)} upscale threads, wanted 1"
+    for th in threads:
+        th.join(timeout=timeout)
+        assert not th.is_alive(), "upscale thread still running after join timeout"
+
+
 class TestAsyncMetadataEnrichment:
     """Wiring verification: non-blocking async execution updates media_metadata."""
 
@@ -228,17 +253,18 @@ class TestAsyncMetadataEnrichment:
             assert verdict.ok is False
             assert "ffmpeg_exit_1" in str(verdict.error)
 
-    def test_enrichment_enrich_calls_upscale_detector(self, synthetic_corpus):
+    def test_enrichment_enrich_calls_upscale_detector(self, synthetic_corpus, monkeypatch):
         """Call site 1: bulk_downloader.enrichment.enrich wires detect_upscale_async."""
         from bulk_downloader.enrichment import enrich
+        threads = _capture_upscale_threads(monkeypatch)
         item = synthetic_corpus["testsrc2_up2x"]
         meta = {}
-        res = enrich(item["path"], do_quality=True, media_metadata=meta)
-        # Give daemon thread a brief moment to complete
-        time.sleep(1.0)
-        assert "media_metadata" in res or "upscale_detection" in meta
+        enrich(item["path"], do_quality=True, media_metadata=meta)
+        _join_all(threads)
+        assert meta["upscale_detection"]["ok"] is True
+        assert meta["is_upscale"] is True
 
-    def test_runner_integrity_calls_upscale_detector(self, synthetic_corpus):
+    def test_runner_integrity_calls_upscale_detector(self, synthetic_corpus, monkeypatch):
         """Call site 2: runner_integrity._embed_metadata_if_mp4 wires detect_upscale_async."""
         from bulk_downloader.runner_integrity import IntegrityMixin
         item = synthetic_corpus["testsrc2_up2x"]
@@ -250,9 +276,11 @@ class TestAsyncMetadataEnrichment:
             def log_event(self, *args, **kwargs):
                 pass
 
+        threads = _capture_upscale_threads(monkeypatch)
         runner = DummyRunner()
         runner._embed_metadata_if_mp4(item["path"], source_url="http://example.com/video", quality="1080p")
-        time.sleep(1.0)
+        _join_all(threads)
         meta = runner.jobs["http://example.com/video"]["media_metadata"]
-        assert "upscale_detection" in meta or meta.get("is_upscale") is not None
+        assert meta["upscale_detection"]["ok"] is True
+        assert meta["is_upscale"] is True
 

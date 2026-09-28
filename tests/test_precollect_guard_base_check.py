@@ -35,16 +35,22 @@ import pytest
 BD_GATE_SCOPE = "module"
 
 DEFAULT_CANDIDATE = "/home/mboyle/bd-persist/harness/bd-precollect-guard.sh"
-CANDIDATE = os.environ.get("BD_PRECOLLECT_GUARD_BASE_CHECK_CANDIDATE", DEFAULT_CANDIDATE)
-FIXTURE_HARNESS = (
-    "/home/mboyle/bd-persist/harness-work/FIX/precollect-guard-base-check/"
-    "test_precollect_guard_base_check.sh"
-)
+EXPLICIT_CANDIDATE = os.environ.get("BD_PRECOLLECT_GUARD_BASE_CHECK_CANDIDATE", "")
+CANDIDATE = EXPLICIT_CANDIDATE or DEFAULT_CANDIDATE
+# BH-bd-agy-audit-2-006: the fixture harness used to live in a scratch FIX/ dir that was later
+# swept, which skipped this module on every host. It is in-repo now, so its absence is a
+# failure. Only the guard itself is off-repo (a fleet harness script): a host without the
+# deployed guard skips, but an explicitly named candidate that is missing fails.
+FIXTURE_HARNESS = Path(__file__).parent / "fixtures" / "precollect_guard_base_check.sh"
 
 pytestmark = pytest.mark.skipif(
-    not Path(FIXTURE_HARNESS).is_file(),
-    reason=f"fixture harness not present on this host: {FIXTURE_HARNESS}",
+    not EXPLICIT_CANDIDATE and not Path(DEFAULT_CANDIDATE).is_file(),
+    reason=f"deployed guard not present on this host: {DEFAULT_CANDIDATE}",
 )
+
+
+def test_fixture_harness_is_in_repo():
+    assert FIXTURE_HARNESS.is_file(), f"in-repo fixture harness missing: {FIXTURE_HARNESS}"
 
 
 def test_candidate_guard_exists():
@@ -61,7 +67,7 @@ def test_candidate_guard_never_says_ok_or_unknown_on_a_measurable_stale_base():
     neither this repo nor BulkDownloader main.
     """
     result = subprocess.run(
-        ["bash", FIXTURE_HARNESS, CANDIDATE],
+        ["bash", str(FIXTURE_HARNESS), CANDIDATE],
         capture_output=True,
         text=True,
         timeout=120,
