@@ -524,18 +524,46 @@ def is_mirrored(sql):
     return _verb(sql) in _MIRRORED_VERBS and _target_table(sql) in _MIRRORED_TABLES
 
 
-def translate(sql):
+# Functions a SELECT may call and still be sent to Postgres verbatim: same
+# name, same result in SQLite and PG for this app's usage. Deliberately
+# narrower than _PG_SAME_FUNCS (no date/to_char/now: those only hold after
+# _shadow_dialect's rewrite). round is excluded: PG has no round(double, int).
+_FUNCTION_ALLOWLIST = frozenset({
+    "count", "sum", "min", "max", "avg", "coalesce", "nullif", "lower",
+    "upper", "length", "abs", "substr", "trim", "ltrim", "rtrim", "replace"})
+
+
+def _unlisted_call(sql):
+    """First called function outside _FUNCTION_ALLOWLIST (lowercased), or
+    None. Calls inside string literals and SQL words before "(" are not
+    calls."""
+    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                         _LITERAL.sub("''", sql)):
+        name = m.group(1).lower()
+        if name in _FUNCTION_ALLOWLIST or name in _PAREN_WORDS \
+                or name == "cast":
+            continue
+        return name
+    return None
+
+
+def translate(sql, *, calls_checked=False):
     """SQLite -> Postgres for the DML this app issues: qmark placeholders
     become %s. Returns None when the statement contains a construct the
     translator does not positively understand -- an untranslatable statement is
     SKIPPED, never guessed at, because a wrong mirror write is worse than a
-    missing one (cut 3 compares the two stores)."""
+    missing one (cut 3 compares the two stores).
+    O1440/O1441: a SELECT calling a function outside _FUNCTION_ALLOWLIST is
+    untranslatable (PG UndefinedFunction disengaged cutover); `calls_checked`
+    is for shadow_compare, whose _shadow_dialect already judged every call."""
     if not sql:
         return None
     # sqlite-only constructs we will not attempt to rewrite
     if re.search(r"\bINSERT\s+OR\s+(REPLACE|IGNORE)\b", sql, re.I):
         return None
     if re.search(r"\bstrftime\s*\(|\bAUTOINCREMENT\b|\bPRAGMA\b", sql, re.I):
+        return None
+    if not calls_checked and _verb(sql) == "SELECT" and _unlisted_call(sql):
         return None
     # qmark -> %s, but not inside string literals
     out, in_str, quote = [], False, ""
@@ -843,7 +871,7 @@ def shadow_compare(sql, params, sqlite_rows):
     if pg_sql is None:
         _shadow_skip(reason)
         return None
-    pg_sql = translate(pg_sql)
+    pg_sql = translate(pg_sql, calls_checked=True)
     if pg_sql is None:
         _shadow_skip("untranslatable")
         return None
