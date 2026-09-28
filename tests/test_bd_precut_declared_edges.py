@@ -374,3 +374,131 @@ def test_declared_edges_never_absorb_an_unknown_into_cut_ready(
         out,
         re.MULTILINE,
     ), out
+
+
+# ---- H149 fix-forward (VERDICT-shape-bd-review-shape-A1-A.md R1/R2 + m4/m5 gaps) ----------------------------------
+
+
+def _other_gate_case(name="test_other_gate_is_red"):
+    return (
+        f'<testcase classname="tests.test_other_gate" name="{name}" file="tests/test_other_gate.py">'
+        '<failure message="other gate failed">AssertionError: other gate failed</failure></testcase>'
+    )
+
+
+def _junit(edges_text, extra_cases=""):
+    """A JUnit record whose import-gate failure carries `edges_text`, plus optional other testcases."""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" errors="0" failures="1" tests="2">
+<testcase classname="tests.test_import_graph_no_new_edges" name="test_no_new_edges" file="tests/test_import_graph_no_new_edges.py">
+  <failure message="NEW import edge(s)">AssertionError: NEW import edge(s) not in the frozen baseline:
+{edges_text}</failure>
+</testcase>{extra_cases}
+</testsuite></testsuites>
+"""
+
+
+def _run_gate(
+    precut, monkeypatch, tmp_path, junit_xml, pytest_rc, declared=ROW392_EDGES
+):
+    class _Completed:
+        def __init__(self, returncode):
+            self.returncode = returncode
+
+    def fake_run(argv, **kwargs):
+        for a in argv:
+            if str(a).startswith("--junitxml="):
+                pathlib.Path(a.split("=", 1)[1]).write_text(junit_xml, encoding="utf-8")
+        inflight = (kwargs.get("env") or {}).get("BD_PRECUT_INFLIGHT_LOG")
+        if inflight:
+            pathlib.Path(inflight).write_text(
+                "START tests/a.py::test_one\nFINISH tests/a.py::test_one\n",
+                encoding="utf-8",
+            )
+        return _Completed(pytest_rc)
+
+    monkeypatch.setattr(precut.subprocess, "run", fake_run)
+    lines = ["# DONE", "", "## OWED TO THE INTEGRATOR -- NEW IMPORT EDGES", ""]
+    for e in declared:
+        lines += [e, "WHY: fixture"]
+    (tmp_path / "DONE.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return precut._run_underived_gates(
+        str(tmp_path),
+        [
+            ("tests/test_import_graph_no_new_edges.py", "imports"),
+            ("tests/test_other_gate.py", "other gate"),
+        ],
+        dict(os.environ),
+    )
+
+
+EDGES_TEXT = "\n".join("  " + e for e in ROW392_EDGES)
+
+
+def test_control_completed_run_with_only_declared_edges_is_cleared(
+    precut, monkeypatch, tmp_path
+):
+    rc, detail = _run_gate(precut, monkeypatch, tmp_path, _junit(EDGES_TEXT), 1)
+    assert (rc, detail) == (0, "declared-edges-cleared:10")
+
+
+@pytest.mark.parametrize("pytest_rc", [2, 3, 4, 5])
+def test_an_incomplete_run_is_never_cleared_by_declared_edges(
+    precut, monkeypatch, tmp_path, pytest_rc
+):
+    # R1: an interrupted run's JUnit names only the import failure; the gates after it never ran.
+    rc, detail = _run_gate(precut, monkeypatch, tmp_path, _junit(EDGES_TEXT), pytest_rc)
+    assert rc == pytest_rc, detail
+    assert "declared-edges-cleared" not in detail
+
+
+def test_declared_edges_clear_the_import_gate_and_nothing_else(
+    precut, monkeypatch, tmp_path
+):
+    # R2(a): the ruling's "and for nothing else" -- another gate's failure keeps the cut red and is named.
+    rc, detail = _run_gate(
+        precut, monkeypatch, tmp_path, _junit(EDGES_TEXT, _other_gate_case()), 1
+    )
+    assert rc == 1, detail
+    assert "test_other_gate_is_red" in detail
+    assert "declared-edges-cleared" not in detail
+
+
+def test_an_import_failure_with_no_extractable_edge_is_not_cleared(
+    precut, monkeypatch, tmp_path
+):
+    # R2(b): the gate's message shape drifted, so 0 edges are read -- that is not "all edges declared".
+    junit_xml = _junit(
+        "  (the frozen-baseline message changed shape: no a.py -> b.py lines)"
+    )
+    rc, detail = _run_gate(precut, monkeypatch, tmp_path, junit_xml, 1)
+    assert rc == 1, detail
+    assert "declared-edges-cleared" not in detail
+
+
+def _done_with(tmp_path, text):
+    (tmp_path / "DONE.md").write_text(text, encoding="utf-8")
+
+
+def test_an_edge_outside_the_owed_section_does_not_declare_it(precut, tmp_path):
+    # m4: the heading is present, but the edge appears only ABOVE it.
+    junit = tmp_path / "j.xml"
+    junit.write_text(_junit("  " + ROW392_EDGES[0]), encoding="utf-8")
+    _done_with(
+        tmp_path,
+        f"# DONE\nnote: {ROW392_EDGES[0]}\n\n## OWED TO THE INTEGRATOR -- NEW IMPORT EDGES\n\nnone\n",
+    )
+    cleared, msg, _ = precut._check_declared_import_edges(str(junit), str(tmp_path))
+    assert not cleared and ROW392_EDGES[0] in msg
+
+
+def test_an_edge_under_a_later_heading_does_not_declare_it(precut, tmp_path):
+    # m5: the owed section ends at the next heading.
+    junit = tmp_path / "j.xml"
+    junit.write_text(_junit("  " + ROW392_EDGES[0]), encoding="utf-8")
+    _done_with(
+        tmp_path,
+        f"# DONE\n## OWED TO THE INTEGRATOR -- NEW IMPORT EDGES\n\nnone\n\n## NOTES\n{ROW392_EDGES[0]}\n",
+    )
+    cleared, msg, _ = precut._check_declared_import_edges(str(junit), str(tmp_path))
+    assert not cleared and ROW392_EDGES[0] in msg

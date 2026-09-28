@@ -1010,7 +1010,11 @@ def _run_underived_gates(root, present, env):
         cases, reason = _junit_failures(junit, [rel for rel, _ in present])
         import_failing = (cases is not None and
                           any("test_import_graph_no_new_edges" in nodeid for _, nodeid, _ in cases))
-        if import_failing:
+        # H149 fix-forward (shape REFUTE R1): only a COMPLETED run (pytest rc 1: tests ran, some failed) can be cleared by
+        # declared edges. rc 2/3/4/5 (interrupted, internal error, usage, nothing collected) leaves a JUnit that names the
+        # import failure and omits the gates that never ran -- clearing it absorbed a check that did not run into
+        # cut-ready. Those fall through to _underived_detail, blocking, as before H149.
+        if import_failing and rc == 1:
             cleared, undecl_msg, declared_count = _check_declared_import_edges(junit, root)
             if cleared:
                 remaining_cases = [c for c in cases if not ("test_import_graph_no_new_edges" in c[1] and "test_no_new_edges" in c[1])]
