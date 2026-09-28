@@ -5,7 +5,8 @@ Both lenses REFUTED gen 1 as stale against live (harness-cuts/bh-k2-001-bd-kimi-
 001/005/007/009/012/014/015/016/017 are SUPERSEDED by landed BH-RB-2 a05b401, BH-RB-4 a6a8e8d, BH-RB-3 2dfb1c8 and
 O1457 b8a415a (bd-cas-pointer retired). 010 is left to BH-004 and 019 was FOUND NONE (gen 1 DONE).
 
-Candidates live outside the repo under harness-work/FIX/bh-k2-001-r1-bd-worker-A2-A/ (orig/ == live harness at re-cut).
+Candidates live outside the repo under harness-work/FIX/bh-k2-001-g4-bd-worker-A2-A/ (G3 landed e98864d; G4 judges the
+whole auto-away marker: NOTE-K2001-G3-MARKER-bd-cx-worker-1.md).
 Each class opts in with its own BD_BH_K2_001_<NAME>_CANDIDATE. Every stub (tmux, bd-say) is a PATH/env fixture:
 nothing leaves the host and no live harness path is touched.
 """
@@ -291,3 +292,53 @@ class TestAutoAway:
         assert (
             (tmp_path / "persist/OPERATOR-PRESENCE.md").read_text().startswith("AWAY")
         )
+
+    # G4 (NOTE-K2001-G3-MARKER, cx-worker-1): the marker is judged whole. G3 read 64 bytes and deleted every
+    # CR/LF, so a truncated suffix or an interior line break could still assemble a valid stale epoch.
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            "1\n{a}\n",
+            "{old}" + "\n" * 60 + "garbage\n",
+            "{old}\n\n",
+            "{old}\r\r\n",
+            "{h}\x00{t}\n",
+            "{old}\r",
+        ],
+        ids=[
+            "interior-lf",
+            "overflow-suffix",
+            "two-newlines",
+            "interior-cr",
+            "nul",
+            "bare-cr",
+        ],
+    )
+    def test_g4_malformed_whole_marker_could_not_look(
+        self, tmp_path: Path, marker: str
+    ) -> None:
+        old = str(int(time.time()) - 4000)
+        env = self._env(
+            tmp_path, marker.format(old=old, a=old[1:], h=old[:5], t=old[5:])
+        )
+        r = _run(["bash", AUTOAWAY_CAND], env)
+        assert r.returncode == 2 and "not an epoch" in r.stdout, (
+            "AUTO_AWAY_MALFORMED_MARKER_ACCEPTED",
+            r.stdout,
+            r.stderr,
+        )
+        assert (
+            (tmp_path / "persist/OPERATOR-PRESENCE.md")
+            .read_text()
+            .startswith("PRESENT")
+        )
+        assert not (tmp_path / "say.log").exists()
+
+    @pytest.mark.parametrize("ending", ["\n", "\r\n", ""], ids=["lf", "crlf", "none"])
+    def test_g4_valid_marker_line_endings_still_flip(
+        self, tmp_path: Path, ending: str
+    ) -> None:
+        # positive control: bd-touch-typed.sh writes `date -u +%s` + "\n"; one terminal ending is allowed
+        env = self._env(tmp_path, f"{int(time.time()) - 4000}{ending}")
+        r = _run(["bash", AUTOAWAY_CAND], env)
+        assert r.returncode == 0 and "AUTO-AWAY after" in r.stdout, (r.stdout, r.stderr)
