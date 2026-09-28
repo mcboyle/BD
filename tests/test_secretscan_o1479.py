@@ -62,7 +62,7 @@ def test_single_scan_definition():
 
 def _git(repo: Path, *args: str) -> str:
     env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
-               GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+               GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null", LC_ALL="C")
     return subprocess.run(["git", "-C", str(repo), *args], env=env, capture_output=True, text=True, check=True,
                           timeout=60).stdout.strip()
 
@@ -96,7 +96,7 @@ def scan(tmp_path):
 
     def run(event: str, **env_extra: str):
         env = {k: v for k, v in os.environ.items() if k != "GITEA_ACTIONS"}
-        env.update({"EVENT": event, "PR_BASE": "", "PUSH_BEFORE": "", **env_extra})
+        env.update({"EVENT": event, "PR_BASE": "", "PUSH_BEFORE": "", "LC_ALL": "C", **env_extra})
         return subprocess.run(["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True,
                               timeout=180, check=False)
 

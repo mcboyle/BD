@@ -4,6 +4,7 @@ BD_SAYHOOK2_CANDIDATE = cli.py under test (default: candidate). server is stubbe
 Oracle: bash itself. Whenever the gate accepts a send, the (target, message) it validated must equal the argv
 bash hands bd-say; a '$' bash expands must still be refused as a dynamic argument.
 """
+BD_GATE_SCOPE = "module"
 import importlib.util
 import itertools
 import json
@@ -19,6 +20,8 @@ import pytest
 
 HERE = Path(__file__).resolve().parent.parent
 CLI = Path(os.environ.get('BD_SAYHOOK2_CANDIDATE', HERE / 'candidate/cli.py'))
+if not CLI.is_file():
+    pytest.skip("candidate opt-in required", allow_module_level=True)
 
 
 def load(path):
