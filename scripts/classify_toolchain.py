@@ -18,7 +18,7 @@ from __future__ import annotations
 import json, os, re, subprocess, sys, glob
 
 BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "toolchain", "bin")
-TREE = os.path.dirname(BIN).replace("/toolchain", "")  # repo root
+TREE = os.path.dirname(os.path.dirname(BIN))  # repo root
 SANDBOX = re.compile(r'/home/claude|/tmp/prestaged|/mnt/project|/tmp/tools_bin|/tmp/media|/mnt/user-data|/mnt/skills|prestaged_site_packages|/home/claude/work')
 # tools that MUTATE the tree / infra or are heavy — never execute beyond --help.
 MUTATING = re.compile(r'-(boot|install|venv|mirror|deploy|provision|mkbdsuite|optpack|prestage|seed|stage|bump|cut|release|autofix|selfheal|mutation|sbcap|rev|apply|writeback|repair|regen|snapshot|freeze|record|reboot|kb-sync|pk-sync|pk-cleanup)\b')
