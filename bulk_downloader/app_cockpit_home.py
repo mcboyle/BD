@@ -16,7 +16,6 @@ Wiring (deferred):
 """
 from __future__ import annotations
 
-import html
 import sys
 from pathlib import Path
 
@@ -91,38 +90,10 @@ def api_cockpit_nav():
     return jsonify({"ok": True, "nav": NAV})
 
 
-def _item_html(it):
-    label = html.escape(it["label"])
-    path = html.escape(it["path"])
-    note = html.escape(it.get("note", ""))
-    if it["kind"] in ("page", "existing", "artifact") and it["path"].startswith("/"):
-        link = f"<a href='{path}' style='color:#6cf;text-decoration:none'>{label}</a>"
-    else:
-        link = f"<span>{label}</span>"
-    tag = {"page": "new", "existing": "existing", "cli": "CLI",
-           "artifact": "file"}.get(it["kind"], "")
-    tagcolor = {"new": "#1b7f3b", "existing": "#444", "CLI": "#395",
-                "file": "#557"}.get(tag, "#444")
-    return (f"<li style='margin:6px 0;font-size:13px'>{link} "
-            f"<span style='background:{tagcolor};color:#fff;border-radius:8px;"
-            f"padding:0 6px;font-size:10px'>{tag}</span>"
-            f"<div style='color:#888;font-size:11px'>{note} "
-            f"<code style='color:#667'>{path}</code></div></li>")
-
-
-def _group_html(g):
-    items = "".join(_item_html(it) for it in g["items"])
-    return (f"<div style='background:#141414;border:1px solid #262626;border-radius:8px;"
-            f"padding:12px 16px'><h2 style='font-size:14px;margin:0 0 6px;color:#cfe'>"
-            f"{html.escape(g['group'])}</h2><ul style='list-style:none;padding:0;margin:0'>"
-            f"{items}</ul></div>")
-
-
 # NOTE: the /cockpit/home server-rendered landing page was retired in v3.66.344
 # (Phase-4 retired cut) -- the consolidated cockpit console + the SPA replace it.
-# /api/cockpit/nav (above) remains the nav source of truth. The _item_html /
-# _group_html helpers above are intentionally left as dead code for a later
-# cleanup cut and are no longer wired to any route.
+# /api/cockpit/nav (above) remains the nav source of truth. Its HTML renderers
+# (_item_html / _group_html) were removed in the row-113 remainder cut.
 
 
 def register_routes(app) -> int:
