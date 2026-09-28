@@ -224,6 +224,13 @@ class PinnedTransport(httpx.HTTPTransport):
         return chosen
 
 
+# dl-f3: what a lost race looks like through the real backend.  SyncBackend maps
+# the socket OSError to httpcore.ConnectError/ConnectTimeout (not OSError
+# subclasses); without them here an unroutable IPv6 sibling ([Errno 101] on a
+# host with no IPv6 route) aborted the race and IPv4 was never tried.
+_LOST_RACE = (OSError, _CoreConnectError, _CoreConnectTimeout)
+
+
 class _HappyEyeballsBackend:
     """httpcore network backend for PinnedTransport (row 867): connects the
     pinned literal httpcore hands it, racing the vetted sibling of the other
@@ -240,7 +247,7 @@ class _HappyEyeballsBackend:
         if local_address is None and multi_homed_egress.get_multi_homed_router().is_configured():
             # Row 1065: multi-homed host -- connect from the active physical interface.
             connect = lambda ip, p, t: _egress_stream(ip, p, t, socket_options)  # noqa: E731
-        return race_connect(candidates, port, connect=connect, timeout=timeout)
+        return race_connect(candidates, port, connect=connect, timeout=timeout, lost=_LOST_RACE)
 
     def connect_unix_socket(self, path, timeout=None, socket_options=None):
         return self._base.connect_unix_socket(path, timeout, socket_options)
