@@ -102,7 +102,7 @@ def test_live_session_launches_and_kicks(tmp_path: Path) -> None:
     assert f"LAUNCHED {NAME} on kimi" in r.stdout
     assert len(_kicks(calls)) == 1, calls
     assert (stub / "claims").read_text().split() == ["claim", ROLE, NAME]
-    assert (tmp_path / "seats" / NAME / "SYSTEM.md").is_file()
+    assert (tmp_path / "seats" / NAME / "ROLE-AGENT.md").is_file()
 
 
 def test_session_dead_after_start_fails_loud(tmp_path: Path) -> None:
