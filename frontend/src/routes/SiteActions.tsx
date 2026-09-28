@@ -36,7 +36,7 @@ const GROUPS: { title: string; acts: Act[] }[] = [
   { title: "Lifecycle", acts: [
     { suffix: "start", label: "Start" },
     { suffix: "stop", label: "Stop" },
-    { suffix: "watch/scan_now", label: "Scan now" },
+    { suffix: "watch/scan_now", label: "Scan watch folder" },
   ] },
   { title: "Login flow", acts: [
     { suffix: "login", label: "Login" },
@@ -82,11 +82,14 @@ export function SiteActions() {
   const run = useMutation<OkResult, Error, string>({
     mutationFn: (suffix) => apiPost<OkResult>(`/api/sites/${encodeURIComponent(siteId)}/${suffix}`, {}),
     onSuccess: (res) => {
-      setOutput(res);
+      setOutput(res.ok === false ? res.error || "action failed" : res);
       if (res.ok === false) toast.error(res.error || "action failed");
       else toast.success("Done");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => {
+      setOutput(e.message);
+      toast.error(e.message);
+    },
   });
 
   // P4-A.0 Cut 2 (v3.66.330) -- the per-site integration connection tests,
@@ -290,9 +293,13 @@ export function SiteActions() {
       {output !== null && (
         <Card className="p-4">
           <h2 className="section-head">Result</h2>
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
-            {JSON.stringify(output, null, 2)}
-          </pre>
+          {typeof output === "string" ? (
+            <p role="alert" className="whitespace-pre-wrap text-sm">{output}</p>
+          ) : (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
+              {JSON.stringify(output, null, 2)}
+            </pre>
+          )}
         </Card>
       )}
 

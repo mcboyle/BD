@@ -104,7 +104,7 @@ def api_watch_scan_now(sid):
     cfg = s_cfg.get(sid, {})
     folder = (cfg.get("watch_folder") or "").strip()
     if not folder:
-        return jsonify({"ok": False, "error": "watch_folder not configured"})
+        return jsonify({"ok": False, "error": "watch_folder not configured"}), 400
     try:
         from bulk_downloader import watch_folder as _wf
         runner = runners[sid]
@@ -123,7 +123,7 @@ def api_watch_scan_now(sid):
         return jsonify({"ok": True, "scanned": len(files),
                          "results": results})
     except Exception as e:
-        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"})
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @sites_bp.route("/api/sites/<sid>/watch/status")
