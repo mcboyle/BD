@@ -106,8 +106,19 @@ def api_scrape_listing():
             except Exception: pass
         seen.add(absolute); found.append(absolute)
         if len(found) >= max_links: break
-    return jsonify({"ok": True, "url": url, "found": found,
-                    "count": len(found), "html_size": len(html)})
+    out = {"ok": True, "url": url, "found": found,
+           "count": len(found), "html_size": len(html)}
+    if not found:
+        # dl95-dailymotion-3: a JS-rendered listing (dailymotion: 58 KB, 0 <a href>)
+        # yields nothing here. Say what was measured and where the rendered crawl is,
+        # instead of an empty result the UI can only toast.
+        out["anchors"] = len(hrefs)
+        out["hint"] = (
+            f"No video links in this page's HTML ({len(hrefs)} links, "
+            f"{len(html) // 1024} KB). If the listing is built by JavaScript, crawl it "
+            "rendered: DOM analyzer > Discover scenes with this URL as the listing page, "
+            "or the browser extension's scrape action.")
+    return jsonify(out)
 
 
 def register_routes(app) -> int:
