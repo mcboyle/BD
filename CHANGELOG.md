@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1705 - train133: row
+
+T133 (PM standing: all BOARDed repo cuts; P3-LENS-QUEUE.tsv census on 2aba09cd + dispatch-B APPLY-BATCH-1904Z/1954Z/2014Z; bh1-13 held per 2014Z): bh1-19-bd-worker-A5-A 015e6142; bh2-20-bd-agy-worker-1 b0177df2; bh2-28-bd-agy-trainer-1 8689b238; H149-fwd-bd-worker-A3-A f7eef7b1; launch-frozen-prompt-race-bd-cx-worker-2 f1817fe2; bh2-18-bd-worker-B2-B 501d6bdf; bh1-26-bd-cx-worker-1 15a04888; bh1-43-bd-worker-B2-B 96a21898; bh2-03-fwd-bd-worker-B5-B 2389cc10; o1504-kimi-consumed-bd-worker-A2-A 9eafd3ee; bh1-21-bd-worker-A6-A b1f6dc82. LC_ALL pinned in place (O1481) in bh2-18, bh2-28, o1504-kimi. No deploy.
+
+
 ## v3.66.1704 - train132: row
 
 T132 (PM: all BOARDed repo cuts in queues/P3-LENS-QUEUE.tsv; 22 unique, census T132/census.tsv): bh2-16-bd-worker-B4-B 140c36c7; o1498-pm-gatekeeper 099d666e; bh2-01-bd-cx-worker-1 f86d094c; bh2-02-bd-cx-worker-2 9229d702; bh2-03-bd-agy-flash-1 e0617f2d; bh2-04-bd-agy-flash-2 314daa35; bh2-07-bd-agy-flash-3 ff5d1fd6; bh2-12-g3-bd-worker-B3-B 5a2e0c0e; bh2-13-bd-worker-A3-A 37eb5556; bh2-14-bd-worker-B3-B 160afdbd; bh2-17-bd-worker-A2-A 93dd7f59; bh2-19-bd-agy-flash-2 1003ef43; bh2-22-bd-worker-B2-B 292cab19; bh2-25-bd-agy-worker-1 1044d093; bh2-30-bd-cx-worker-2 1b18348c; bh2-31-bd-agy-worker-1 df0766c3; bh2-32-bd-agy-flash-3 c1d51594; bh2-39-bd-worker-B3-B 772735bb; bh2-43-bd-worker-A2-A 8f68d3d2; bh2-48-bd-agy-worker-1 48707aae; eff-e1-bd-fixer-A1-A 85f78f6d; eff-p2-bd-agy-worker-1 91f7c41a. Test-only repo halves; LC_ALL pinned in place (O1481) in bh2-17, bh2-22, bh2-43; BD_GATE_SCOPE declared in bh2-48; harness halves via apply lane. No deploy.
