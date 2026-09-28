@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1697 - train125: row
+
+- F050T (bd-kimi-worker-2, tree 047288e0): tests/test_bh_f050_gitea_ci_journal.py -- F050 repo half, fixture updated for post-BH-DA001 gitea validators.
+- BH-100 residual (bd-fixer-A1-A, tree 59a068be): tests/test_bh_100_index2_exit3.py -- index2.py exit 3 must not leave STORE.building (finding-011 class).
+
+
 ## v3.66.1696 - train124: row
 
 - BH-204 (bd-fixer-B1-B, tree 9a2878c7): test-only fixes for tautological/fragile assertions (findings BH-bd-agy-audit-2-004..007): sparse worktree literal patterns, precollect guard base-check fixture, row713/row849 assertions.
