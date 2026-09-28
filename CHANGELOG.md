@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1707 - train135: row
+
+T135: o1503-gpu-p2 57fb8ea0; o1505-intake-a 9b5e02d8; o1505-intake-b 8ed8186a. Register row 113 status-cell format fix (O1511): status CLOSED @1117, qualifier moved to description. Held: bh1-13, bh1-47 (stub fix), bh2-27 G2 (Claude leg). No deploy.
+
+
 ## v3.66.1706 - train134: row113
 
 T134 (PM standing: all BOARDed repo cuts; P3-LENS-QUEUE.tsv census on 1d9a5f81, T134/census.tsv; row113-r2 per PM inbox 20:36Z, row 113 already CLOSED @1117 so not re-closed): o1503-gpu-p0 e3115a6a; o1503-gpu-p1 ad4e88e5; o1505-distill dc79a1da; bh1-39-bd-worker-B3-B 18ac27b6; bh2-12-g4-bd-worker-B3-B 9e8da5a4; bh2-14-fwd-bd-worker-B3-B 1ee7c437; bh2-44-r1-bd-worker-A3-A 802d319d; row113-r2-bd-worker-B2-B 0ad3bce2. Register anchor row 113 re-pointed :121 -> :93 and bh1-39 subprocess budget 900 -> 180s in place (O1481). Held: bh1-13, bh1-47 (stub fix), bh2-27 G2 (Claude leg). No deploy.
