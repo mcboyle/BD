@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1694 - train123: row
+
+- BH-PM002a (bd-cx-worker-1, tree 64ada19e): scripts/deploy.sh refuses an unsupported/unknown Node (reads the intended commit's engines.node) before reset/install/service changes; regression test + gate-shard wiring.
+
+
 ## v3.66.1693 - train122: row
 
 - BH-SCRIPTS gen 2 (bd-worker-A2-A, tree 2b8d5ac5): deploy_fleet.sh unterminated last host, dev_capabilities unbound SUDO, capture_instance/opv/stash-report fixes + regression test (LC_ALL pinned; repo-wide claimant pinned in h622a).
