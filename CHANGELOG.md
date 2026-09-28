@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1701 - train129: row
+
+T129: repo test halves (dispatch-B APPLY notes, PM order).
+- bh-drain G4: tests/test_bh_drain_harness.py, tree 42794e4e, BOARD cx-1-G4 (0ad3f590)
+- p5-landedgate G3: tests/test_p5_landedgate.py, tree bbc2fcca, BOARD B3-B (c1c2cec7)
+- eff-e5 G5: tests/test_eff_e5_harness.py, tree dd25dbd0, BOARD fixer-B1-B-G5 (a1ccf934)
+Harness halves via APPLY lane. Non-product: no deploy (O1346).
+
+
 ## v3.66.1700 - train128: row127
 
 T128 (ORDER-OPEN27-bd-pm-B.md + dispatch-B P5): repo halves on BOARD not on main.
