@@ -142,6 +142,7 @@ class QueueMixin:
         sites where a specific Referer or one-shot cookie is required."""
         added=dupes=skipped_on_disk=0
         new_urls=[]
+        rearmed=[]  # dl95-africancasting-1: stopped jobs re-armed by this add
         # QueueMixin also has lightweight/direct hosts that predate website
         # title capture. Preserve their enqueue contract with an empty metadata
         # map while SiteRunner supplies the real shared dict.
@@ -272,7 +273,7 @@ class QueueMixin:
             # policy/file work; the status-writer transaction repeats the
             # duplicate check before publication.
             with self._lock:
-                if u in self.jobs:
+                if u in self.jobs and self.jobs[u].get("status") != "stopped":
                     dupes+=1
                     continue
             # v3.45.0 Phase 194: content-rights checks may touch persistence,
@@ -335,7 +336,19 @@ class QueueMixin:
             ord_start=len(self.urls)
             for u, hdrs, pre_done, status, msg in prepared:
                 if u in self.jobs:
-                    dupes+=1
+                    # dl95-africancasting-1: a STOPPED job (site Stop, Cancel,
+                    # Pause) never finished, so re-adding its URL re-arms it
+                    # (bulk_resume's transition) instead of counting a dupe
+                    # that nothing could ever retry. Other states stay dupes.
+                    if self.jobs[u].get("status") == "stopped" and not pre_done:
+                        self.jobs[u].update({"status": "pending", "message": "Re-added",
+                                             "ts": _ts(), "retries": 0, "retry_after": 0,
+                                             "_paused_by_user": False,
+                                             "last_progress_at": time.time()})
+                        if u not in self.urls: self.urls.append(u)
+                        rearmed.append(u); added+=1
+                    else:
+                        dupes+=1
                     continue
                 self.jobs[u]={"status":status,"message":msg,"ts":_ts() if pre_done else "",
                               # CUT #41: a pre_done job is already "done"; without
@@ -355,8 +368,14 @@ class QueueMixin:
                 self.urls.append(u); new_urls.append(u)
                 if pre_done: skipped_on_disk+=1
                 else: added+=1
-            if new_urls:
+            if new_urls or rearmed:
                 mark_status_changed()
+        if rearmed:
+            try:
+                queue_bulk_update(self.site_id, rearmed, status="pending",
+                                  message="Re-added", retries=0, retry_after=0)
+            except sqlite3.Error as e:
+                self.log.warning("queue_bulk_update (re-added) failed: %s", e)
         # Phase 4.2: bulk-insert into queue table outside the lock
         if new_urls:
             try:
