@@ -139,3 +139,14 @@ def test_roster_with_no_codex_pane_stays_unknown(tmp_path: Path) -> None:
     cols = row.split("\t")
     assert cols[1] == "UNKNOWN", row
     assert "1 answered with none, 1 unreachable" in cols[3], row
+
+
+def test_watch_stale_local_record_is_unknown_not_ok(tmp_path: Path) -> None:
+    """FIXED-BY-LENS shape-B2-B (O1481): the local-only fallback makes the number path fire when the
+    roster is unreadable, so the STALE gate is what keeps an old record from reading OK (rule 6)."""
+    stale = _exe(tmp_path / "usage-stale.sh", 'echo "18.0 999999 1791050422 10080"\n')
+    row = _watch(tmp_path, BD_CODEX_USAGE=str(stale), BD_LIMIT_HOSTS=str(tmp_path / "no-such-roster"))
+    cols = row.split("\t")
+    assert cols[1] == "UNKNOWN" and "STALE" in cols[3], row
+    fresh = _exe(tmp_path / "usage-fresh.sh", 'echo "18.0 5 1791050422 10080"\n')
+    assert _watch(tmp_path, BD_CODEX_USAGE=str(fresh), BD_LIMIT_HOSTS=str(tmp_path / "no-such-roster")).split("\t")[1] == "OK"
