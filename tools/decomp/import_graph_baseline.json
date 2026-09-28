@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5153,
+  "edge_count": 5154,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5674,6 +5674,9 @@
     "tests/test_secret_rotation_age.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_secret_scan_baseline_reasons.py": [
+      "tools/secret_scan_triage.py"
     ],
     "tests/test_secrets_audit.py": [
       "bulk_downloader/secrets_audit.py",

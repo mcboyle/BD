@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1691 - train119: row
+
+- SECRETSCAN-SCHEDULE gen 2 (bd-worker-B2-B, tree 9b04371b): full-history gitleaks baseline (49 entries, FIXTURE/NONSECRET, reviewed reasons) + tools/secret_scan_triage.py + reasons gate test; fixes the scheduled-CI secret-scan red.
+- BH-009 toolchain half (bd-agy-fixer-1, tree 4a93125d + toolchain-bd-shipped.patch d2393e4c): unified toolchain/bin/bd-shipped with --patch; regression test.
+
+
 ## v3.66.1690 - train118-bh: row
 
 - BH-007 gen b (bd-worker-B2-B, tree 9db91399): scripts/classify_toolchain.py fix (finding 007) + regression test; 009/010 MOOT-PREMISE, 008 refuted by design.
