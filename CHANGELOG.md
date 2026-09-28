@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1702 - train130: row
+
+T130: survivors-t18-o592 G2 (tests/test_import_graph_no_new_edges.py, toolchain/bin/bd-decomp), tree 000ed836, BOARD cx-1-G2 (dcd6b48a). Repo-wide import-graph gate run by integrator. No deploy (O1346).
+
+
 ## v3.66.1701 - train129: row
 
 T129: repo test halves (dispatch-B APPLY notes, PM order).
