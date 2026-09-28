@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1687 - train115-bh-wave1: row
+
+- bh-wave1 H-SSH-STDIN repo half (bd-fixer-B1-B, tree 85adef68): tests/test_bh_wave1_ssh_stdin.py regression test for harness ssh stdin fixes (findings BH-bd-grok-audit-1-004/005/006; harness a3458f7).
+- bh-wave1 H-ABSENCE repo half (bd-fixer-A1-A, tree e0b0a73c): tests/test_bh_wave1_absence.py regression test for bd-absence-proof.sh (findings BH-bd-grok-audit-1-001/002/003; harness ae89d14).
+
+
 ## v3.66.1686 - train114: row127
 
 - row127 function allowlist (bd-worker-B1-B, tree 35f95ecc): translate() returns None for an in-scope SELECT calling a function outside _FUNCTION_ALLOWLIST, so SQLite-only functions never reach Postgres (O1440 UndefinedFunction seam); shadow_compare keeps comparing rewritten datetime reads; regression test wired into the postgres-integration CI list.
