@@ -368,6 +368,11 @@ def _underived_detail(rc, junit, present, argv, timed_out_after=None):
                 "tests -- a collection abort, an internal error or an "
                 "interruption, NOT a per-gate assertion. Re-run by hand: %s"
                 % (rc, rerun))
+    return _format_underived_cases(cases, len(present), whys)
+
+
+def _format_underived_cases(cases, total_present, whys):
+    """Format failing cases into the underived summary line."""
     shown = cases[:6]
     parts = []
     for kind, nodeid, message in shown:
@@ -380,7 +385,98 @@ def _underived_detail(rc, junit, present, argv, timed_out_after=None):
             else "; +%d further failing test(s) not listed here, see the "
                  "pytest output above" % (len(cases) - len(shown)))
     return ("%d failing test(s) in %d of %d gate file(s) -- %s%s"
-            % (len(cases), len(files), len(present), "; ".join(parts), tail))
+            % (len(cases), len(files), total_present, "; ".join(parts), tail))
+
+
+# --- H149: DECLARED IMPORT EDGES RECONCILIATION ------------------------------
+# ADJUDICATOR RULING 2026-09-06T23:01:50Z / 23:26:58Z (COMMON.md, H149):
+# "A DECLARED IMPORT EDGE IS NEVER A BOUNCE FOR THE RED GATE -- and for nothing else."
+# bd-collect-gate.sh applies this comparison; bd-precut --gate must apply the
+# SAME verbatim comparison against DONE.md under 'OWED TO THE INTEGRATOR -- NEW IMPORT EDGES'.
+_OWED_IMPORT_HEADING = "OWED TO THE INTEGRATOR -- NEW IMPORT EDGES"
+
+
+def _extract_reported_import_edges(junit_path):
+    """Extract reported new import edges (src -> dst) from JUnit XML."""
+    if not os.path.isfile(junit_path):
+        return []
+    import xml.etree.ElementTree as ET
+    try:
+        tree = ET.parse(junit_path)
+    except Exception:
+        return []
+    edges = []
+    for case in tree.iter("testcase"):
+        cname = case.get("classname", "")
+        file_attr = case.get("file", "")
+        if "test_import_graph_no_new_edges" not in cname and "test_import_graph_no_new_edges" not in file_attr:
+            continue
+        for child in case:
+            if child.tag in ("failure", "error"):
+                full_text = (child.text or "") + "\n" + (child.get("message") or "")
+                found = re.findall(
+                    r"(?:^|\n)\s*(?:E\s+)?([A-Za-z0-9_./-]+\.py\s*->\s*[A-Za-z0-9_./-]+\.py)",
+                    full_text,
+                )
+                for f in found:
+                    parts = f.split("->")
+                    if len(parts) == 2:
+                        edges.append(f"{parts[0].strip()} -> {parts[1].strip()}")
+    return sorted(set(edges))
+
+
+def _check_declared_import_edges(junit_path, root):
+    """Compare gate-reported import edges against DONE.md (H149).
+
+    Returns (cleared, undeclared_msg, declared_count):
+      - cleared=True: every reported edge is quoted verbatim in DONE.md under
+        'OWED TO THE INTEGRATOR -- NEW IMPORT EDGES'.
+      - cleared=False: heading is missing or one or more edges are not verbatim.
+        undeclared_msg contains the COUPLING refusal.
+    """
+    edges = _extract_reported_import_edges(junit_path)
+    if not edges:
+        return False, None, 0
+
+    done_path = os.path.join(root, "DONE.md")
+    if not os.path.isfile(done_path):
+        undeclared = list(edges)
+    else:
+        try:
+            with open(done_path, "r", encoding="utf-8", errors="replace") as f:
+                done_content = f.read()
+        except OSError:
+            done_content = ""
+
+        m = re.search(r"(?i)^#*\s*OWED\s+TO\s+THE\s+INTEGRATOR\s+--\s+NEW\s+IMPORT\s+EDGES",
+                      done_content, re.MULTILINE)
+        if not m:
+            undeclared = list(edges)
+        else:
+            after_heading = done_content[m.end():]
+            next_heading = re.search(r"(?i)^#+\s+\S", after_heading, re.MULTILINE)
+            section_text = after_heading[:next_heading.start()] if next_heading else after_heading
+
+            # VERBATIM means the whole edge as a token, not a substring: "x/a.py -> b.py" must not
+            # be declared by a line naming "zx/a.py -> b.py" or "x/a.py -> b.py.bak".
+            undeclared = [e for e in edges
+                          if not re.search(r"(?m)(?:^|[\s`*(-])" + re.escape(e) + r"(?=$|[\s`:,;)])",
+                                           section_text)]
+
+    if not undeclared:
+        return True, None, len(edges)
+
+    undecl_lines = "\n".join("    " + e for e in undeclared)
+    msg = (
+        "UNDECLARED IMPORT COUPLING -- these edges are reported by the gate and "
+        f"do NOT appear verbatim in DONE.md:\n{undecl_lines}\n"
+        "  The ruling requires them copied VERBATIM under the heading\n"
+        f"  '{_OWED_IMPORT_HEADING}', one line of WHY per edge. Paraphrase does not\n"
+        "  declare: a later reader has to be able to match your line to the gate's line character for\n"
+        "  character. DO NOT re-freeze the baseline and DO NOT stage it -- that is the integrator's, once\n"
+        "  per train. This is a refusal on the COUPLING, not on the gate."
+    )
+    return False, msg, len(edges)
 
 
 # --- H389: NAME THE FAILING GATES, AND KEEP THE RECORD ------------------------
@@ -911,6 +1007,18 @@ def _run_underived_gates(root, present, env):
             return drc, ddetail
         if rc == 0:
             return 0, ""
+        cases, reason = _junit_failures(junit, [rel for rel, _ in present])
+        import_failing = (cases is not None and
+                          any("test_import_graph_no_new_edges" in nodeid for _, nodeid, _ in cases))
+        if import_failing:
+            cleared, undecl_msg, declared_count = _check_declared_import_edges(junit, root)
+            if cleared:
+                remaining_cases = [c for c in cases if not ("test_import_graph_no_new_edges" in c[1] and "test_no_new_edges" in c[1])]
+                if not remaining_cases:
+                    return 0, f"declared-edges-cleared:{declared_count}"
+                return rc, _format_underived_cases(remaining_cases, len(present), dict(present))
+            elif undecl_msg:
+                return rc, undecl_msg
         return rc, _underived_detail(rc, junit, present, argv)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -1468,12 +1576,15 @@ def main(argv=None):
                            "tracked tests/test*.py -- the population is absent, "
                            "which is UNKNOWN, not clean" % census["tracked"])
     gates = present + derived
+    declared_import_edges = 0
     if gates:
         env = dict(os.environ)
         env.pop("BD_INSTALL_DIR", None)          # A5: pop, do not merely omit
         env["BD_DISABLE_KEEPALIVE"] = "1"
         _heartbeat(9, started, "underived gates")
         rc, detail = _run_underived_gates(root, gates, env)
+        if rc == 0 and detail.startswith("declared-edges-cleared:"):
+            declared_import_edges = int(detail.split(":", 1)[1])
         if rc != 0:
             blocking.append(
                 "underived gate(s) FAILED -- these judge the whole tree, so "
@@ -1496,12 +1607,19 @@ def main(argv=None):
             ran_parts.append("metric ratchet regressed -- ADVISORY, see .review/RATCHET-ADVISORY.md")
         else:
             ran_parts.append("metric ratchets clean")
+    if declared_import_edges:
+        # H149: a declared edge clears the import gate, and nothing else -- it never
+        # absorbs an UNKNOWN below into "cut-ready".
+        ran_parts.append("%d declared import edge(s) owed to the integrator" % declared_import_edges)
     ran = ", ".join(ran_parts) if ran_parts else "nothing"
     if unknown:
         print(f"RESULT: cut-ready for what RAN ({ran}) -- "
               f"{len(unknown)} check(s) NOT RUN, so UNKNOWN, not OK:")
         for u in unknown:
             print(f"  - {u}")
+    elif declared_import_edges:
+        print("RESULT: cut-ready -- %d declared import edge(s) owed to the integrator"
+              % declared_import_edges)
     else:
         print("RESULT: cut-ready (blocking gates green; advisory precut_check "
               "is outside this verdict)")
