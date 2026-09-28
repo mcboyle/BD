@@ -512,7 +512,7 @@ def _seed_files(version=TREE_VERSION, deploy_source=None):
         "requirements.txt": "# runtime deps\nlxml>=5.0,<7.0\n",
         "requirements-test.txt": "# suite deps\npyflakes>=3.0,<4.0\n",
         "requirements-cloak.txt": "cloakbrowser[geoip]>=0.4.5\n",
-        "frontend/package.json": '{"name": "bd-frontend", "private": true}\n',
+        "frontend/package.json": '{"name": "bd-frontend", "private": true, "engines": {"node": ">=20"}}\n',
         "frontend/src/main.ts": "// spa entry\n",
         "tools/check_requirements.py": "# stub; the fake venv python dispatches on this path\n",
         "tools/gui_parity_inventory.py": "# stub\n",
@@ -547,6 +547,7 @@ def _setup(version=TREE_VERSION, deploy_source=None, **envextra):
     _write_exec(os.path.join(binroot, "systemctl"), _FAKE_SYSTEMCTL)
     _write_exec(os.path.join(binroot, "curl"), _FAKE_CURL)
     _write_exec(os.path.join(binroot, "npm"), _FAKE_NPM)
+    _write_exec(os.path.join(binroot, "node"), "#!/bin/sh\nprintf '%s\\n' 'v20.0.0'\n")
     fake_modules = os.path.join(work, "fake-modules")
     _write(os.path.join(fake_modules, "cloakbrowser", "__init__.py"), _FAKE_CLOAK)
     _write(os.path.join(fake_modules, "cloakbrowser", "__main__.py"), _FAKE_CLOAK_MAIN)

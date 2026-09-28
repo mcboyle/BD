@@ -218,6 +218,7 @@ BD_GATE_SCOPE = "repo-wide"
 _CONFIRMED_SAFETY_GATE_FLOOR = 7
 
 _NON_DERIVABLE_DECLARED = {
+    "tests/test_bh_pm002a_node_preflight.py",  # PM002a module acceptance
     # H622 / O1330: explicit restoration of eight landed acceptance modules
     # (nine named; withdrawn 2026-09-23 (PM ruling A, QUESTION-T91-SQLITE-RATIO-S2-B): tests/test_inmemory_sqlite_fixture.py is a wall-clock ratio benchmark (hosted 4-core runner 3.3-3.5x < 4x); it stays BD_GATE_SCOPE=module, as before H622).
     # Their subject remains module-scoped; CI scheduling is independently

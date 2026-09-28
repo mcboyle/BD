@@ -468,6 +468,42 @@ else
 fi
 note "intended commit is $NEW (source: $INTENDED_SOURCE)"
 
+# ── [1c] target frontend Node requirement, before reset/install ─────
+# Read the intended commit, never the old checkout: its weaker requirement
+# must not admit a host that cannot build the incoming frontend. This gate
+# understands the package's >=major contract; other ranges fail as unknown.
+STEP=1c
+if ! MIN_NODE_MAJOR="$(git show "$NEW:frontend/package.json" 2>/dev/null |
+  "$VENV_PY" -c '
+import json, re, sys
+try:
+    requirement = json.load(sys.stdin)["engines"]["node"]
+    match = re.fullmatch(r">=\s*([1-9][0-9]*)", requirement.strip())
+    if match is None:
+        raise ValueError("unsupported Node requirement")
+    print(match.group(1))
+except (ValueError, KeyError, TypeError, AttributeError):
+    sys.exit(1)
+' 2>/dev/null)"; then
+  refuse "NODE-REQUIREMENT-UNKNOWN: $NEW frontend/package.json engines.node
+  must specify >=<major>; missing, malformed or unsupported requirements
+  cannot establish whether this host can build the target frontend."
+fi
+NODE_VERSION="$(node --version 2>/dev/null)" \
+  || refuse "NODE-VERSION-UNKNOWN: node --version failed; install the target
+  frontend's required Node runtime before deploying."
+if [[ "$NODE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  NODE_MAJOR="${BASH_REMATCH[1]}"
+else
+  refuse "NODE-VERSION-UNKNOWN: node --version returned an unrecognised
+  version: ${NODE_VERSION:-<empty>}"
+fi
+[ "$NODE_MAJOR" -ge "$MIN_NODE_MAJOR" ] \
+  || refuse "NODE-VERSION-UNSUPPORTED: host $NODE_VERSION does not satisfy
+  target $NEW frontend/package.json engines.node >=$MIN_NODE_MAJOR.
+  Upgrade the host Node runtime before deploying; no tree or service changed."
+note "node preflight OK: $NODE_VERSION satisfies target >=$MIN_NODE_MAJOR"
+
 # ── [2] show what is about to land, BEFORE any mutation ─────────────
 STEP=2
 OLD="$(git rev-parse HEAD)"
