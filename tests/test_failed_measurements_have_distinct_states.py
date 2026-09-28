@@ -725,16 +725,11 @@ def _opv_fixture(root: Path, body: str) -> tuple[subprocess.CompletedProcess[str
         "print('OK fixture')\n", encoding="ascii"
     )
 
-    out = root / "opv-out"
-    jar = root / "opv.jar"
+    # The run's output dir is mktemp'd under TMPDIR; a private TMPDIR makes it
+    # the only bd_opv_run.* entry there.
+    tmpdir = root / "tmp"
+    tmpdir.mkdir()
     source = (_REPO / "scripts" / "bd-opv-run.sh").read_text(encoding="utf-8")
-    owned = "OUT=/tmp/bd_opv_run; JAR=/tmp/bd_opv_run.jar; LEDGER=\"$OUT/LEDGER.txt\""
-    replacement = (
-        f"OUT={shlex.quote(str(out))}; JAR={shlex.quote(str(jar))}; "
-        'LEDGER="$OUT/LEDGER.txt"'
-    )
-    assert source.count(owned) == 1
-    source = source.replace(owned, replacement)
     script = root / "scripts" / "bd-opv-run.sh"
     _write_executable(script, source)
 
@@ -769,6 +764,7 @@ def _opv_fixture(root: Path, body: str) -> tuple[subprocess.CompletedProcess[str
         "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
         "OPV_PY_LOG": str(py_log),
         "OPV_SITE_HEALTH_BODY": body,
+        "TMPDIR": str(tmpdir),
     })
     run = subprocess.run(
         ["/bin/bash", str(script), str(root), "http://fixture.invalid"],
@@ -778,7 +774,9 @@ def _opv_fixture(root: Path, body: str) -> tuple[subprocess.CompletedProcess[str
         text=True,
         timeout=30,
     )
-    return run, out / "LEDGER.txt", py_log
+    outs = list(tmpdir.glob("bd_opv_run.*"))
+    assert len(outs) == 1, (outs, run.stdout, run.stderr)
+    return run, outs[0] / "LEDGER.txt", py_log
 
 
 def _f2a_row(ledger: Path) -> list[str]:

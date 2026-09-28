@@ -13,18 +13,18 @@
 # USAGE:  bash scripts/bd-stash-report.sh [repo-dir] [base-url]
 #   repo-dir  default: $PWD    (must contain bulk_downloader/__init__.py)
 #   base-url  default: http://127.0.0.1:5555
-# OUTPUT:  /tmp/bd_stash_report/  and  /tmp/bd_stash_report.tar.gz  (upload the .tgz)
+# OUTPUT:  a fresh ${TMPDIR:-/tmp}/bd_stash_report.XXXXXX/ and its .tar.gz (upload the
+#          .tgz; both paths are printed at the end)
 
 set -uo pipefail
 R="${1:-$PWD}"
 BASE="${2:-http://127.0.0.1:5555}"
-OUT=/tmp/bd_stash_report
 PY="$R/venv/bin/python"; [ -x "$PY" ] || PY="python3"
-JAR=/tmp/bd_stash_report.jar
 
 [ -f "$R/bulk_downloader/__init__.py" ] || { echo "not a BD checkout: $R"; exit 2; }
 cd "$R"
-rm -rf "$OUT" "$JAR"; mkdir -p "$OUT"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/bd_stash_report.XXXXXX")" || { echo "cannot create output dir"; exit 2; }
+JAR="$OUT/.cookies"
 
 # ---- 0. identity --------------------------------------------------------------
 {
@@ -158,10 +158,10 @@ PYEOF
 
 # ---- bundle -------------------------------------------------------------------
 rm -f "$JAR" "$OUT/_csrf.json"
-tar czf /tmp/bd_stash_report.tar.gz -C /tmp bd_stash_report 2>/dev/null
+tar czf "$OUT.tar.gz" -C "${OUT%/*}" "${OUT##*/}" 2>/dev/null
 echo
 echo "================================================================"
-echo "  Done. Upload /tmp/bd_stash_report.tar.gz to Claude."
+echo "  Done. Upload $OUT.tar.gz to Claude."
 echo "  (derived facts + presence booleans only; no secret values emitted)"
 echo "================================================================"
-ls -la /tmp/bd_stash_report.tar.gz
+ls -la "$OUT.tar.gz"

@@ -60,7 +60,9 @@ fi
 
 # Parse first, act second: a malformed list must not deploy half a fleet.
 LABELS=(); ADDRS=()
-while read -r label addr _rest; do
+# `|| [ -n ... ]`: read returns non-zero on a final line with no trailing
+# newline, which would silently drop that host from the denominator.
+while read -r label addr _rest || [ -n "${label:-}" ]; do  # early-exit-ok: only --help exits 0 above
   case "${label:-}" in ''|\#*) continue;; esac
   [ -n "${addr:-}" ] || { printf 'deploy_fleet.sh: REFUSED: %s: line for "%s" has no address\n' "$HOSTS_FILE" "$label" >&2; exit 2; }
   LABELS+=("$label"); ADDRS+=("$addr")
