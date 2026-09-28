@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1709 - train137: row
+
+T137: o1510-affinity cd65a0f2; dl-f7-bd-worker-B8-B 54bf9839. dl-f7 is product (app_sites_id_core.py, run_history.py); 4 declared import edges; DEPENDENCY_GRAPH/FUNCTION_INDEX regenerated. Held: bh1-13, bh1-47, bh2-27 G2. No deploy.
+
+
+## v3.66.1708 - train136: row
+
+T136: o1510-litellm-137 86d97597; precut-static-gates-B8-B a3bd8d89. Held: bh1-13, bh1-47 (stub fix), bh2-27 G2 (Claude leg). No deploy.
+
+
 ## v3.66.1707 - train135: row
 
 T135: o1503-gpu-p2 57fb8ea0; o1505-intake-a 9b5e02d8; o1505-intake-b 8ed8186a. Register row 113 status-cell format fix (O1511): status CLOSED @1117, qualifier moved to description. Held: bh1-13, bh1-47 (stub fix), bh2-27 G2 (Claude leg). No deploy.
