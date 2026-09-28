@@ -97,6 +97,8 @@ PRE_EXISTING_REPO_WIDE = (
 # because it is repo-wide, tools/ci_shards.py must place it in a shard) rather
 # than being back-dated into PRE_EXISTING_REPO_WIDE.
 ADDED_SINCE_REPO_WIDE = (
+    # BH-201: toolchain exit-code gate (bd-vpn-proof / bd-sbcap / bd-reindex).
+    "tests/test_bh_201_toolchain_exit_codes.py",
     # O1264(d): the gate over tools/ci_shards.py itself (names == matrix, the
     # partition is exact, every declared gate is in exactly one shard).
     "tests/test_ci_shards.py",

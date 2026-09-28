@@ -63,7 +63,8 @@ DEPS="aiosmtpd pywebpush pyzbar freezegun locust memray qrcode pillow prometheus
 
 ok(){ printf "  \033[32mOK\033[0m  %s\n" "$1"; }
 add(){ printf "  \033[33m..\033[0m  %s\n" "$1"; }
-bad(){ printf "  \033[31mXX\033[0m  %s\n" "$1"; }
+BAD_COUNT=0  # early-exit-ok: only --selftest/--help exit 0 above
+bad(){ BAD_COUNT=$((BAD_COUNT + 1)); printf "  \033[31mXX\033[0m  %s\n" "$1"; }
 
 echo "== bd-sbcap: advanced sandbox capability layer =="
 
@@ -204,7 +205,12 @@ if [ -n "$_rev" ]; then
   else ok "headless shell resolvable (bare launch() works)"; fi
 else ok "headless shell: rev not resolvable (skipped)"; fi
 
-[ "$CHECK_ONLY" = 1 ] && { echo "== check done =="; exit 0; }
+# A check that printed XX must not exit 0: callers read the exit code, not the colour.
+if [ "$CHECK_ONLY" = 1 ]; then  # early-exit-ok: only --selftest/--help exit 0 above
+  echo "== check done: $BAD_COUNT problem(s) =="  # early-exit-ok: only --selftest/--help exit 0 above
+  [ "$BAD_COUNT" -eq 0 ] || exit 1  # early-exit-ok: only --selftest/--help exit 0 above
+  exit 0
+fi
 
 # ---- 5. bring up the display stack ----
 export DISPLAY=:99

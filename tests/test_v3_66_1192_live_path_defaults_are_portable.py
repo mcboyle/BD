@@ -450,7 +450,12 @@ def test_installed_public_sbcap_uses_physical_sibling_checkout_authority(tmp_pat
         [str(link_bin / "bd-sbcap"), "--check"], cwd=unrelated, env=run_env,
         text=True, capture_output=True, timeout=20,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    # --check exits 1 when it reports anything missing (BH-201), and this scratch
+    # venv's python exits 1 on every import. What this test owns is that the
+    # checkout authority resolved and the check ran to completion (not rc 2).
+    assert result.returncode in (0, 1), result.stdout + result.stderr
+    assert "== check done:" in result.stdout, result.stdout + result.stderr
+    assert "BD-SBCAP-UNRUNNABLE" not in result.stderr
     assert set(trace.read_text(encoding="utf-8").splitlines()) == {
         str(checkout / "venv" / "bin" / "python"),
         str(checkout / "venv" / "bin" / "python3"),
