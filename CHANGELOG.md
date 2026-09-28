@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1692 - train121: row
+
+- BH-201 gen 2 (bd-worker-A2-A, tree 4c3688a0): toolchain bd-vpn-proof/bd-sbcap/bd-reindex exit-code fixes + regression test (repo-wide claimant pinned in h622a ADDED_SINCE_REPO_WIDE).
+
+
 ## v3.66.1691 - train119: row
 
 - SECRETSCAN-SCHEDULE gen 2 (bd-worker-B2-B, tree 9b04371b): full-history gitleaks baseline (49 entries, FIXTURE/NONSECRET, reviewed reasons) + tools/secret_scan_triage.py + reasons gate test; fixes the scheduled-CI secret-scan red.
