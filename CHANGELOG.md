@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1698 - train126: row
+
+- BH-CXLENS (bd-cx-worker-1, tree c9c890a0): tests/test_bh_cxlens.py (harness half bd-codex-lens.sh via APPLY lane).
+- BH-CARRY (bd-worker-B2-B, tree bbcd6e1c): tests/test_bh_carry.py (opt-in candidate test).
+- BH-LAWSUM G4 (bd-worker-B1-B, tree 16d13d6c): tests/test_bh_lawsum.py (opt-in candidate test).
+- O1479-MAINGUARD (bd-agy-fixer-1, tree dfbbd2bd): tests/test_o1479_mainguard_harness.py -- main-guard never moves git worktrees or directories (opt-in).
+- EFF-E2 (bd-worker-A3-A, tree 8f9338fa): tests/test_eff_e2_attic_move.py (opt-in candidate test).
+
+
 ## v3.66.1697 - train125: row
 
 - F050T (bd-kimi-worker-2, tree 047288e0): tests/test_bh_f050_gitea_ci_journal.py -- F050 repo half, fixture updated for post-BH-DA001 gitea validators.
