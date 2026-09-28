@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1686 - train114: row127
+
+- row127 function allowlist (bd-worker-B1-B, tree 35f95ecc): translate() returns None for an in-scope SELECT calling a function outside _FUNCTION_ALLOWLIST, so SQLite-only functions never reach Postgres (O1440 UndefinedFunction seam); shadow_compare keeps comparing rewritten datetime reads; regression test wired into the postgres-integration CI list.
+
+
 ## v3.66.1685 - train113: row127
 
 

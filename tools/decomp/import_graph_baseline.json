@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5149,
+  "edge_count": 5150,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4568,6 +4568,9 @@
       "tools/build_recorded_dom_fixture.py"
     ],
     "tests/test_row127_cut1_census_preflight.py": [
+      "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_row127_cutover_function_allowlist.py": [
       "bulk_downloader/pg_backend.py"
     ],
     "tests/test_row127_cutover_scope_guard.py": [
