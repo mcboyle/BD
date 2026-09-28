@@ -62,12 +62,17 @@ def main():
     if a.selftest: return selftest()
     sec.require_source_tree(a.work)
     r=prove(a.work,a.site)
-    if sec.emit(r,as_json=a.json): return 0
-    if r.get("error") and r.get("vpn_required") is None:
-        print(R+"error"+RST+": "+r["error"]); return 0
+    # Suite exit contract: a leak is a finding (1); a resolver that could not be
+    # consulted is CANNOT-EVALUATE (2), never "no leak". Fail-closed is clean (0).
+    if r.get("vpn_required") is None: rc=sec.EXIT_CANNOT_EVALUATE
+    elif r.get("direct_leak"): rc=sec.EXIT_FINDINGS
+    else: rc=sec.EXIT_OK
+    if sec.emit(r,as_json=a.json): return rc
+    if rc==sec.EXIT_CANNOT_EVALUATE:
+        print(R+"error"+RST+": "+str(r.get("error"))); return rc
     leak=(R+"DIRECT LEAK"+RST) if r.get("direct_leak") else (G+"no direct leak"+RST)
     print("site "+r["site"]+": vpn_required="+str(r.get("vpn_required"))+" path="+str(r.get("path"))
           +" proxy="+str(r.get("proxy"))+"  "+leak)
     if r.get("error"): print("  "+DIM+r["error"]+RST)
-    return 0
+    return rc
 sys.exit(main())

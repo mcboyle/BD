@@ -72,9 +72,10 @@ if ! [ -x "$VENV_PY" ] || ! "$VENV_PY" -c "import pytest" >/dev/null 2>&1; then
 fi
 cd "$WORK" || { echo "no such dir: $WORK"; exit 1; }
 echo "bd-reindex: $VENV_PY  (PYTHONPATH=$WORK)"
+failed=""  # early-exit-ok: only --selftest/--help exit 0 above
 for t in build_pin_index.py build_route_index.py "gui_parity_inventory.py --root ." build_function_index.py dependency_graph.py; do
   env -u PYTHONPATH PYTHONPATH="$WORK"     "$VENV_PY" tools/$t >/tmp/bd-reindex.log 2>&1 \
-      && echo "  OK  tools/$t" || { echo "  ERR tools/$t"; tail -3 /tmp/bd-reindex.log; }
+      && echo "  OK  tools/$t" || { echo "  ERR tools/$t"; tail -3 /tmp/bd-reindex.log; failed="$failed ${t%% *}"; }  # early-exit-ok: only --selftest/--help exit 0 above
 done
 "$VENV_PY" - <<'PY'
 import json
@@ -86,3 +87,10 @@ try:
 except Exception as e:
     print("  sanity check failed:", e)
 PY
+# Every generator runs (one failure must not hide another), but a run that
+# printed ERR is not a successful reindex.
+if [ -n "$failed" ]; then  # early-exit-ok: only --selftest/--help exit 0 above
+  n=$(printf '%s\n' $failed | wc -l)  # early-exit-ok: only --selftest/--help exit 0 above
+  echo "bd-reindex: $n generator(s) failed:$failed" >&2  # early-exit-ok: only --selftest/--help exit 0 above
+  exit 1  # early-exit-ok: only --selftest/--help exit 0 above
+fi
