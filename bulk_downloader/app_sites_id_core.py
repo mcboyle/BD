@@ -613,6 +613,10 @@ def api_sites_v2_bulk():
                             "auth_health reap failed for site %s: %s",
                             sid, _reap_err)
                     except Exception: pass
+                # dl-f7: close the deleted site's open run rows (same as
+                # api_delete). Advisory: close_site_runs never raises.
+                from . import run_history as _rh
+                _rh.close_site_runs(sid)
             else:
                 method = getattr(runners[sid], action, None)
                 if method is None or not callable(method):
@@ -1189,6 +1193,11 @@ def _api_delete_transaction(sid):
                 "auth_health reap failed for site %s: %s", sid, _reap_err)
         except Exception:
             pass
+    # dl-f7: the runner that would finish this site's open runs is retired;
+    # close them so /api/runs stops listing a deleted site as running.
+    # Advisory: close_site_runs never raises.
+    from . import run_history as _rh
+    _rh.close_site_runs(sid)
     _save_sites_config()
     # v3.48 (#25): audit log — record even if the site was already absent
     # (idempotent delete) so the audit trail captures the intent
