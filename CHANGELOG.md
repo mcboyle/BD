@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1700 - train128: row127
+
+T128 (ORDER-OPEN27-bd-pm-B.md + dispatch-B P5): repo halves on BOARD not on main.
+- p5-failopen-opusb003 G3: tree 3fd7026a, BOARD A2-A (038eec27)
+- p5-ghostsweep: tree dcdcff10, BOARD review-shape-A1 (659f6064)
+- metering-m1 G3: tree 5ca716e9, BOARD A2-A-G3 (90c5bae7)
+- bh-sayhook2 test half: blob 235679f2 of boarded scratch tree 811caf84 (BOARD A2-A)
+- limitwatch-codex test: blob bb4158e6 of tree d7c7d79d (BOARD cx-1), supersedes T127 fb1a433d
+- row127-like-allowlist-B1-B: tree 6431bcf1, BOARD B3-B (cfd97741)
+- secretscan-o1479: FIXED object tree 8e93ab63 (bd-review-wt/secretscan-o1479-local), BOARD A2-A + codex-r127c (873e2131)
+- p5-failopen-cache009: lens-fixed object tree dddef378 (cx-1 fix), BOARD B4-B (d7db2be7)
+Excluded: survivors-t18-o592 (stale base 163c3f72, conflicts; re-diff), row963 (on main 114486df9), bh-pm001f (USOS repo, not BD), bh-drain (Claude correctness G3 REFUTE), secretscan-B2-B (security REFUTE adjudicator-A).
+Harness halves via APPLY lane. Non-product: no deploy (O1346).
+
+
 ## v3.66.1699 - train127: row
 
 T127 (ORDER-T127-bd-pm-B.md): repo test halves on BOARD not on main since T126.
