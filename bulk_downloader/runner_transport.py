@@ -2093,7 +2093,7 @@ class TransportMixin:
         except PWTimeout:
             return None
 
-    def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False):
+    def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
         save_as if HTTP isn't available or fails partway through.
@@ -2126,6 +2126,13 @@ class TransportMixin:
         )
         direct_url=None
         suggested=None
+        # dl-f6: the job URL itself started this Download on goto (runner.
+        # _accept_navigation_download). There is no candidate element to gate,
+        # read or click: the Download is the file, and the branches below that
+        # find one are all skipped by direct_url being set.
+        if nav_download is not None:
+            direct_url=nav_download.url or page_url
+            suggested=nav_download.suggested_filename or None
 
         # ── #3 runtime nav gate ───────────────────────────────────────────
         # Before extracting a direct URL or clicking, classify the winning
@@ -2133,7 +2140,7 @@ class TransportMixin:
         # link is never a download: refuse it here so it can never reach the
         # filename step / become download.bin. URL-less click-targets are not
         # gated (they fall through to expect_download below).
-        _gate_abs, _gate_reject = gate_candidate_url(
+        _gate_abs, _gate_reject = ("", None) if nav_download is not None else gate_candidate_url(
             best.get("locator"), getattr(page, "url", "") or page_url or "",
             url_attr=(url_attr if best.get("_via_learned") else None),
             learned_sel=best.get("_learned_sel") or "",
@@ -2351,7 +2358,7 @@ class TransportMixin:
         else:
             # Direct-URL path: no Playwright Download object. Use the stand-in
             # so the rest of the function doesn't have to special-case.
-            dl=_DirectURLDownload(direct_url,suggested)
+            dl=nav_download if nav_download is not None else _DirectURLDownload(direct_url,suggested)
 
         suggested=dl.suggested_filename or "download.bin"
         # Row 722 (G29): "mp4.mp4" / "360p.mp4" / "high.mp4" are route
@@ -2595,7 +2602,9 @@ class TransportMixin:
         try:
 
             # ── Download path selection ──────────────────────────────────────
-            use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE
+            # dl-f6: a navigation download is already moving through the browser
+            # and has no element to re-click if httpx failed, so it is saved as-is.
+            use_http=self.config.get("use_http_dl",True) and _HTTPX_AVAILABLE and nav_download is None
             # bytes_fetched initialised alongside downloaded_size so it is bound on
             # every path that reaches the db_log below, including the ones that
             # never call a download helper at all. 0 is the truthful default: no

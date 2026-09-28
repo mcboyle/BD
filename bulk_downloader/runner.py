@@ -37,7 +37,7 @@ import collections, contextlib, enum, functools, inspect, itertools, json, math,
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 
 try:
     import httpx
@@ -4739,6 +4739,83 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                f"nothing in scope; refused {len(excluded)}: {reasons}", ss)
         return True
 
+    def _accept_navigation_download(self,page,ctx,url,nav_downloads):
+        """dl-f6: the job URL itself started a browser download on goto.
+
+        Hand that Download to _do_download as the file (browser transfer); the
+        URL is never navigated again, so a single-use link is not spent twice."""
+        dl=nav_downloads[0] if nav_downloads else None
+        if dl is None:
+            try: dl=page.wait_for_event("download",timeout=10000)
+            except PWError: dl=None
+        if dl is None:
+            self._handle_failure(url,"Navigation started a download but no download event arrived"); return
+        best={"score":0,"size":0,"text":"direct download"}
+        self._update_job(url,"running","URL is a file download -- saving it...")
+        if bool(self.jobs.get(url,{}).get("probe")):
+            self._do_download(page,ctx,url,best,None,"direct",probe=True,nav_download=dl)
+            return
+        dl_dir=self._resolve_write_dir()
+        if not dl_dir:
+            try: dl.cancel()
+            except Exception: pass
+            self._handle_failure(url,"URL is a file download but no download directory resolves"); return
+        Path(dl_dir).mkdir(parents=True,exist_ok=True)
+        self._do_download(page,ctx,url,best,Path(dl_dir),"direct",nav_download=dl)
+
+    def _resolve_write_dir(self):
+        """The directory a job's file is written to, or "" when none resolves.
+
+        One decision for every arm that writes a file: the per-site download_dir,
+        else the deployment default, then auto-spillover. Shared by the clicked-
+        download arm and the navigation-download arm (dl-f6)."""
+        dl_dir=self.config.get("download_dir","").strip()
+        if not dl_dir:
+            # Fall back to the deployment default rather than discarding the
+            # file. A blank per-site download_dir means "the operator has not
+            # chosen one" -- it is load-bearing state that the GCW-4 promote
+            # gate reads -- so it is NOT filled in the config; it is resolved
+            # here, where the file is about to be written.
+            #
+            # Without this the no-dl-dir branch in _process_one marked the job
+            # `done` with a zero-byte history row. Measured on the box 2026-07-29: every
+            # seeded URL returned `"message": "Clicked (no dl dir)"`,
+            # `"filename": ""`, which left L12 (segmented download) and L14
+            # (dedup skip) unable to clear on a working pipeline.
+            #
+            # Lazy import for the same reason app_queue.py uses one: at
+            # module scope it would close an import cycle with app.
+            try:
+                import importlib
+                dl_dir = str(getattr(importlib.import_module(
+                    "bulk_downloader.app"),
+                    "_oi_default_download_dir")() or "").strip()
+            except Exception:
+                dl_dir = ""
+            if dl_dir:
+                sys.stderr.write(
+                    f"  download: site has no download_dir; using the "
+                    f"deployment default {dl_dir}\n")
+        if not dl_dir:
+            return ""
+        # Phase 20.6: auto-spillover. If `spillover_dirs` is configured,
+        # pick the first dir (primary OR spillover) with enough free
+        # space. Falls back to the primary if all are below threshold;
+        # the existing low_disk check will catch that case and pause
+        # the queue with a clear error.
+        try:
+            from .hooks import resolve_download_dir
+            chosen, reason = resolve_download_dir(
+                self.config,
+                free_threshold_pct=float(self.config.get("spillover_threshold_pct", 5.0) or 5.0),
+            )
+            if chosen and chosen != dl_dir:
+                sys.stderr.write(f"  spillover: using {chosen} ({reason})\n")
+                dl_dir = chosen
+        except Exception as e:
+            sys.stderr.write(f"  spillover: error ({e}); using primary\n")
+        return dl_dir
+
     def _process_one(self,browser,url,persistent_ctx=None):  # INV-002
         """Process a single URL.
 
@@ -4950,9 +5027,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try: self._warm_session(page)
             except Exception as e:
                 sys.stderr.write(f"  warmup error (non-fatal): {str(e)[:80]}\n")
+            # dl-f6: a URL the server answers with a file (Content-Disposition:
+            # attachment, or a type Chromium will not render such as AVI/MOV/WMV)
+            # makes goto raise "Download is starting". That download IS the file:
+            # hold the event and save it, never retry it as a worker error.
+            _nav_downloads=[]
+            # A lambda, not the bound .append: Playwright tags the handler with an
+            # attribute, which a builtin method refuses (AttributeError).
+            try: page.on("download",lambda d: _nav_downloads.append(d))
+            except Exception: pass
             try: page.goto(url,wait_until="domcontentloaded",timeout=30000)
             except PWTimeout:
                 self._handle_failure(url,"Page load timeout"); return
+            except PWError as e:
+                if "Download is starting" not in str(e): raise
+                self._accept_navigation_download(page,ctx,url,_nav_downloads); return
             # row914: an SPA mounts its view after the history API fires;
             # wait (bounded) for the DOM to settle before anything reads it
             try: self._settle_after_navigation(page)
@@ -5509,33 +5598,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if bool(self.jobs.get(url,{}).get("probe")):
                 self._do_download(page,ctx,url,best,None,lbl,probe=True)
                 return
-            dl_dir=self.config.get("download_dir","").strip()
-            if not dl_dir:
-                # Fall back to the deployment default rather than discarding the
-                # file. A blank per-site download_dir means "the operator has not
-                # chosen one" -- it is load-bearing state that the GCW-4 promote
-                # gate reads -- so it is NOT filled in the config; it is resolved
-                # here, where the file is about to be written.
-                #
-                # Without this the branch below marked the job `done` with a
-                # zero-byte history row. Measured on the box 2026-07-29: every
-                # seeded URL returned `"message": "Clicked (no dl dir)"`,
-                # `"filename": ""`, which left L12 (segmented download) and L14
-                # (dedup skip) unable to clear on a working pipeline.
-                #
-                # Lazy import for the same reason app_queue.py uses one: at
-                # module scope it would close an import cycle with app.
-                try:
-                    import importlib
-                    dl_dir = str(getattr(importlib.import_module(
-                        "bulk_downloader.app"),
-                        "_oi_default_download_dir")() or "").strip()
-                except Exception:
-                    dl_dir = ""
-                if dl_dir:
-                    sys.stderr.write(
-                        f"  download: site has no download_dir; using the "
-                        f"deployment default {dl_dir}\n")
+            dl_dir=self._resolve_write_dir()
             if not dl_dir:
                 # No dl dir configured and no default resolvable — click and
                 # assume the browser handles it. Reachable only when the default
@@ -5549,22 +5612,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                        bytes_fetched=0,
                        **self._history_title_fields(url))
                 return
-            # Phase 20.6: auto-spillover. If `spillover_dirs` is configured,
-            # pick the first dir (primary OR spillover) with enough free
-            # space. Falls back to the primary if all are below threshold;
-            # the existing low_disk check will catch that case and pause
-            # the queue with a clear error.
-            try:
-                from .hooks import resolve_download_dir
-                chosen, reason = resolve_download_dir(
-                    self.config,
-                    free_threshold_pct=float(self.config.get("spillover_threshold_pct", 5.0) or 5.0),
-                )
-                if chosen and chosen != dl_dir:
-                    sys.stderr.write(f"  spillover: using {chosen} ({reason})\n")
-                    dl_dir = chosen
-            except Exception as e:
-                sys.stderr.write(f"  spillover: error ({e}); using primary\n")
             Path(dl_dir).mkdir(parents=True,exist_ok=True)
             self._do_download(page,ctx,url,best,Path(dl_dir),lbl)
         finally:
