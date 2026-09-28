@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1696 - train124: row
+
+- BH-204 (bd-fixer-B1-B, tree 9a2878c7): test-only fixes for tautological/fragile assertions (findings BH-bd-agy-audit-2-004..007): sparse worktree literal patterns, precollect guard base-check fixture, row713/row849 assertions.
+
+
 ## v3.66.1695 - train120: row
 
 - PG-CUTOVER-SOAK-COMPLETION gen 3 (bd-worker-A1-A, tree 8ea3ad76): shadow phase for newly translatable SELECTs, coverage, Stage 6 metrics, Stage 7 receipt, health body hardening; ssrf exemption follows _fetch_health; proven-shapes mutant gate. Harness half FIX/pg-soak-line-stage6/bd-pg-soak-line.sh applied separately.
