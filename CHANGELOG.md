@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1693 - train122: row
+
+- BH-SCRIPTS gen 2 (bd-worker-A2-A, tree 2b8d5ac5): deploy_fleet.sh unterminated last host, dev_capabilities unbound SUDO, capture_instance/opv/stash-report fixes + regression test (LC_ALL pinned; repo-wide claimant pinned in h622a).
+
+
 ## v3.66.1692 - train121: row
 
 - BH-201 gen 2 (bd-worker-A2-A, tree 4c3688a0): toolchain bd-vpn-proof/bd-sbcap/bd-reindex exit-code fixes + regression test (repo-wide claimant pinned in h622a ADDED_SINCE_REPO_WIDE).
