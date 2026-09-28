@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5154,
+  "edge_count": 5163,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5765,6 +5765,10 @@
       "bulk_downloader/app.py",
       "bulk_downloader/constants.py"
     ],
+    "tests/test_soak_completion_scope.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py"
+    ],
     "tests/test_spa_root_routing_contract.py": [
       "bulk_downloader/app.py"
     ],
@@ -7078,6 +7082,15 @@
     ],
     "tests/test_v3_66_1681_mod3_shadow_dialect.py": [
       "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_v3_66_1682_mod3_pg_compat.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/bw_chart.py",
+      "bulk_downloader/cost_economics.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py",
+      "bulk_downloader/site_changelog.py",
+      "bulk_downloader/timeline.py"
     ],
     "tests/test_v3_66_16_phase4_p4_provider_resolve.py": [
       "bulk_downloader/provider_resolve.py"

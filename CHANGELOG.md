@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1695 - train120: row
+
+- PG-CUTOVER-SOAK-COMPLETION gen 3 (bd-worker-A1-A, tree 8ea3ad76): shadow phase for newly translatable SELECTs, coverage, Stage 6 metrics, Stage 7 receipt, health body hardening; ssrf exemption follows _fetch_health; proven-shapes mutant gate. Harness half FIX/pg-soak-line-stage6/bd-pg-soak-line.sh applied separately.
+
+
 ## v3.66.1694 - train123: row
 
 - BH-PM002a (bd-cx-worker-1, tree 64ada19e): scripts/deploy.sh refuses an unsupported/unknown Node (reads the intended commit's engines.node) before reset/install/service changes; regression test + gate-shard wiring.
