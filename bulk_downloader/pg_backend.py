@@ -584,6 +584,17 @@ _PAREN_WORDS = frozenset({
     "like", "between", "by", "filter", "all", "any", "distinct", "having",
     "union", "limit", "offset", "set", "into", "with"})
 _LITERAL = re.compile(r"'(?:[^']|'')*'")
+
+
+def _infix_like(text, start):
+    """True when the "like" at text[start] is the infix [NOT] LIKE operator
+    (an operand precedes it), False when it is SQLite's like(pattern, value)
+    function, which PG lacks: "SELECT like('%x%', url)" is a call."""
+    head = re.sub(r"\bnot$", "", text[:start].rstrip(), flags=re.IGNORECASE).rstrip()
+    if head[-1:] in ("'", '"', "`", "]", ")", "?"):
+        return bool(head)
+    word = re.search(r"[A-Za-z0-9_.]+$", head)
+    return word is not None and word.group().lower() not in _PAREN_WORDS
 # The modifiers the PG side implements (months/years are excluded: SQLite
 # normalises day overflow, '2026-01-31' +1 month, its own way).
 _OFFSET = re.compile(r"[+-]?\d+(?:\.\d+)?\s+(?:second|minute|hour|day)s?",
@@ -651,7 +662,9 @@ def _shadow_dialect(sql, params=()):
 
     for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", masked):
         name = m.group(1).lower()
-        if name in _PG_SAME_FUNCS or name in _PAREN_WORDS:
+        if name in _PG_SAME_FUNCS or (
+                name in _PAREN_WORDS
+                and (name != "like" or _infix_like(masked, m.start()))):
             continue
         if name in _SHADOW_SKIP_FUNCS:
             return None, "dialect:" + name
@@ -750,9 +763,11 @@ def _unlisted_call(sql):
     """First called function outside _FUNCTION_ALLOWLIST (lowercased), or
     None. Calls inside string literals and SQL words before "(" are not
     calls."""
-    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-                         _LITERAL.sub("''", sql)):
+    text = _LITERAL.sub("''", sql)
+    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", text):
         name = m.group(1).lower()
+        if name == "like" and not _infix_like(text, m.start()):
+            return name
         if name in _FUNCTION_ALLOWLIST or name in _PAREN_WORDS \
                 or name == "cast":
             continue
