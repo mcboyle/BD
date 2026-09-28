@@ -12,10 +12,6 @@ T127 (ORDER-T127-bd-pm-B.md): repo test halves on BOARD not on main since T126.
 - limitwatch-codex: tree fb1a433d, BOARD bd-worker-B1-B (PATCH-SHA 51f01fc3)
 row127 BOARDs cutover-scope-guard/preflight-ratio already on main (5f9704b0a, 6d6bd4a5f). Non-product: no deploy (O1346).
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-https://claude.ai/code/session_01Aj9RgcUkxzNwBeRzGAWBFH
-
 
 ## v3.66.1698 - train126: row
 
