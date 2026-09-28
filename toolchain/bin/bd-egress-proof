@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """bd-egress-proof -- prove the egress path for a site/request (direct/proxy/VPN, tunnel status, no direct-leak evidence). Same resolver as bd-vpn-proof, framed as a per-request egress attestation. Read-only. Usage: bd-egress-proof [--work DIR] [--site SITE] [--json] [--selftest]
-Exit 0 the egress path was resolved / 2 CANNOT-EVALUATE (--work is not a work
-tree, or vpn_runtime could not be imported so nothing could be resolved)."""
+Exit 0 the egress path was resolved with no direct leak (fail-closed VPNRequiredError is clean)
+/ 1 DIRECT LEAK / 2 CANNOT-EVALUATE (--work is not a work tree, or vpn_runtime could not be
+imported so nothing could be resolved)."""
 import argparse, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import bdtools_sec as sec
@@ -70,9 +71,12 @@ def main():
     # (vpn_runtime.py absent or un-importable). An egress proof that could not
     # look is UNKNOWN -- it used to print the error and exit 0, which reads to a
     # caller exactly like "no direct leak".
+    # BH1-19: a leak is a finding (1), as in bd-vpn-proof (BH-201); it used to exit 0 in text and --json.
     unresolved = r.get("vpn_required") is None
-    if sec.emit(r,as_json=a.json):
-        return sec.EXIT_CANNOT_EVALUATE if unresolved else sec.EXIT_OK
+    if unresolved: rc=sec.EXIT_CANNOT_EVALUATE
+    elif r.get("direct_leak"): rc=sec.EXIT_FINDINGS
+    else: rc=sec.EXIT_OK
+    if sec.emit(r,as_json=a.json): return rc
     if unresolved:
         sys.stderr.write("CANNOT-EVALUATE egress proof: reason=%s (%s)\n"
                          %(sec.REASON_ABSENT, r.get("error")))
@@ -82,5 +86,5 @@ def main():
     print("site "+r["site"]+": vpn_required="+str(r.get("vpn_required"))+" path="+str(r.get("path"))
           +" proxy="+str(r.get("proxy"))+"  "+leak)
     if r.get("error"): print("  "+DIM+r["error"]+RST)
-    return 0
+    return rc
 sys.exit(main())

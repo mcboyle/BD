@@ -3,6 +3,7 @@
 001 bd-vpn-proof printed "DIRECT LEAK" for a vpn_required site and exited 0
     (text and --json). Contract (bdtools_sec EXIT_*): leak -> 1, resolver could
     not be consulted -> 2, clean or fail-closed (VPNRequiredError) -> 0.
+    BH1-19: bd-egress-proof shares prove() and had the same exit-0 leak; both run here.
 002 bd-sbcap --check printed XX lines for missing capabilities and exited 0.
 003 bd-reindex printed "ERR tools/<gen>" for a failed generator and exited 0.
 
@@ -25,7 +26,9 @@ REPO = Path(__file__).resolve().parents[1]
 BIN = REPO / "toolchain" / "bin"
 
 
-# ---- 001 bd-vpn-proof --------------------------------------------------------------
+# ---- 001 bd-vpn-proof / BH1-19 bd-egress-proof ---------------------------------------
+
+_LEAK_TOOLS = ["bd-vpn-proof", "bd-egress-proof"]
 
 _VPN_RUNTIME = '''
 class VPNRequiredError(Exception):
@@ -47,7 +50,7 @@ def get_socks_url_for_site(site):
 '''
 
 
-def _vpn_proof(tmp_path: Path, mode: str | None, *extra: str) -> subprocess.CompletedProcess[str]:
+def _vpn_proof(tmp_path: Path, tool: str, mode: str | None, *extra: str) -> subprocess.CompletedProcess[str]:
     work = tmp_path / "work"
     pkg = work / "bulk_downloader"
     pkg.mkdir(parents=True)
@@ -55,11 +58,12 @@ def _vpn_proof(tmp_path: Path, mode: str | None, *extra: str) -> subprocess.Comp
     if mode is not None:
         (pkg / "vpn_runtime.py").write_text(_VPN_RUNTIME.format(mode=mode), encoding="utf-8")
     return subprocess.run(
-        [sys.executable, str(BIN / "bd-vpn-proof"), "--work", str(work), "--site", "s", *extra],
+        [sys.executable, str(BIN / tool), "--work", str(work), "--site", "s", *extra],
         capture_output=True, text=True, timeout=60, check=False, env=dict(os.environ, LC_ALL="C"),
     )
 
 
+@pytest.mark.parametrize("tool", _LEAK_TOOLS)
 @pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
 @pytest.mark.parametrize(("mode", "want_rc", "want_leak"), [
     ("direct", 1, True),          # vpn_required, no proxy: the leak
@@ -69,8 +73,8 @@ def _vpn_proof(tmp_path: Path, mode: str | None, *extra: str) -> subprocess.Comp
     ("not-required", 0, False),   # negative control: direct is allowed
 ])
 def test_vpn_proof_exit_code_follows_leak(tmp_path: Path, mode: str, want_rc: int,
-                                          want_leak: bool, as_json: bool) -> None:
-    proc = _vpn_proof(tmp_path, mode, *(["--json"] if as_json else []))
+                                          want_leak: bool, as_json: bool, tool: str) -> None:
+    proc = _vpn_proof(tmp_path, tool, mode, *(["--json"] if as_json else []))
     assert proc.returncode == want_rc, (mode, proc.stdout, proc.stderr)
     if as_json:
         assert json.loads(proc.stdout)["direct_leak"] is want_leak
@@ -78,9 +82,10 @@ def test_vpn_proof_exit_code_follows_leak(tmp_path: Path, mode: str, want_rc: in
         assert ("DIRECT LEAK" in proc.stdout) is want_leak, proc.stdout
 
 
+@pytest.mark.parametrize("tool", _LEAK_TOOLS)
 @pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
-def test_vpn_proof_unresolvable_is_cannot_evaluate(tmp_path: Path, as_json: bool) -> None:
-    proc = _vpn_proof(tmp_path, None, *(["--json"] if as_json else []))
+def test_vpn_proof_unresolvable_is_cannot_evaluate(tmp_path: Path, as_json: bool, tool: str) -> None:
+    proc = _vpn_proof(tmp_path, tool, None, *(["--json"] if as_json else []))
     assert proc.returncode == 2, (proc.stdout, proc.stderr)
 
 
