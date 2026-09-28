@@ -53,6 +53,8 @@ interface ScrapeResult extends OkResult {
   found?: string[];
   count?: number;
   html_size?: number;
+  anchors?: number;
+  hint?: string;
 }
 
 function summarize(added?: number, dupes?: number, skipped?: number): string {
@@ -75,6 +77,9 @@ export function AddUrlDialog({
   const [url, setUrl] = useState("");
   const [listText, setListText] = useState("");
   const [scrapeUrl, setScrapeUrl] = useState("");
+  // dl95-dailymotion-3: a 0-link scrape keeps its explanation on screen (a toast
+  // alone vanishes and never pointed at the rendered crawl).
+  const [scrapeEmpty, setScrapeEmpty] = useState<string | null>(null);
 
   // Reuse the same site list the Sites page renders; only load it while the
   // dialog is open so a closed dialog adds no polling.
@@ -101,6 +106,7 @@ export function AddUrlDialog({
     setUrl("");
     setListText("");
     setScrapeUrl("");
+    setScrapeEmpty(null);
   };
 
   const afterEnqueue = () => {
@@ -177,9 +183,14 @@ export function AddUrlDialog({
     onSuccess: (res) => {
       const found = res.found ?? [];
       if (found.length === 0) {
+        setScrapeEmpty(
+          res.hint ||
+            "No video links in this page's HTML. If the listing is built by JavaScript, crawl it rendered: DOM analyzer > Discover scenes.",
+        );
         toast.info("No video links found on that page");
         return;
       }
+      setScrapeEmpty(null);
       // merge with anything already staged, dedup, and hand off to list mode
       const existing = listText.split("\n").map((l) => l.trim()).filter(Boolean);
       const merged = Array.from(new Set([...existing, ...found]));
@@ -304,7 +315,10 @@ export function AddUrlDialog({
                 <span className="text-ink-2">Listing page URL</span>
                 <Input
                   value={scrapeUrl}
-                  onChange={(e) => setScrapeUrl(e.target.value)}
+                  onChange={(e) => {
+                    setScrapeUrl(e.target.value);
+                    setScrapeEmpty(null);
+                  }}
                   placeholder="https://example.com/videos"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") submit();
@@ -315,6 +329,17 @@ export function AddUrlDialog({
                   it finds. JS-rendered listings may return nothing &mdash; use
                   the browser extension&apos;s scrape action for those.
                 </span>
+                {scrapeEmpty && (
+                  <div
+                    role="status"
+                    className="rounded bg-amber-soft p-2 text-xs text-amber-dim"
+                  >
+                    {scrapeEmpty}{" "}
+                    <a href="/dom-analyzer" className="underline">
+                      Open DOM analyzer
+                    </a>
+                  </div>
+                )}
               </label>
             ) : mode === "single" ? (
               <label className="flex flex-col gap-1 text-sm">
