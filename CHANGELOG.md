@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1689 - train117-bh: row
+
+- BH-CONFIG gen 3 (bd-agy-worker-1, tree f75fd9db): embeddings + guardrails endpoints env-overridable (finding 004), ssrf egress exemptions, ci.yml installs requirements-test for process-tests (005); regression test.
+
+
 ## v3.66.1688 - train116-bh: row
 
 - BH-P005 repo half (bd-agy-worker-2, tree c42cb3b2): tests/test_bh_p005_fleet_mcp.py for bd-fleet-mcp server/cli fixes (grok-audit-2 001/002/005-010; harness USOS 4f2583e12).

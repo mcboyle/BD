@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5150,
+  "edge_count": 5153,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2601,6 +2601,11 @@
     "tests/test_best_must_not_pick_a_page_link_over_4k.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_bh_wave1_config.py": [
+      "bulk_downloader/embeddings_client.py",
+      "bulk_downloader/guardrails.py",
+      "bulk_downloader/ssrf_egress_exemptions.py"
     ],
     "tests/test_blob_resolver.py": [
       "bulk_downloader/blob_resolver.py"
