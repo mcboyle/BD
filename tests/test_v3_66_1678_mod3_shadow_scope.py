@@ -81,6 +81,11 @@ def shadow(monkeypatch):
         pg_backend._stats["degraded_reason"] = None
     monkeypatch.setattr(pg_backend, "_shadow_errors_seen", set(),
                         raising=False)
+    # the comparison's own round-trip is counted; proven-shape bookkeeping
+    # (its own connection, once per new shape) is tested in
+    # test_soak_completion_scope
+    monkeypatch.setattr(pg_backend, "_record_shape", lambda sql, same: None,
+                        raising=False)
     connects = []
     real_connect = pg_backend._connect
 

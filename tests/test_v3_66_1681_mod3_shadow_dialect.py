@@ -99,6 +99,9 @@ def shadow(monkeypatch):
     monkeypatch.setitem(pg_backend._stats, "degraded_reason", None)
     monkeypatch.setattr(pg_backend, "_shadow_errors_seen", set())
     monkeypatch.setattr(pg_backend, "_shadow_skip_reasons", {}, raising=False)
+    # compat functions live in the schema: install into this module's one
+    monkeypatch.setattr(pg_backend, "_compat", {"ok": False, "next_try": 0.0},
+                        raising=False)
     connects = []
     real_connect = pg_backend._connect
 
@@ -142,6 +145,11 @@ class TestRealPGShadowDialect:
          ("-1 day",)),
         ("SELECT site_id, IFNULL(status, 'none') FROM history", ()),
         ("SELECT DISTINCT date(ts) FROM history", ()),
+        # row 127 cut 2: SQLite functions installed in PG (_PG_COMPAT)
+        (("SELECT strftime('%Y-%m-%d %H:00', ts) AS h, COUNT(*) FROM history "
+          "WHERE ts >= datetime('now', ?) GROUP BY h"), ("-1 day",)),
+        ("SELECT group_concat(site_id) FROM history", ()),
+        ("SELECT datetime(ts, '+1 hour') FROM history", ()),
     ])
     def test_translated_idioms_compare_equal(self, shadow, lite, sql, params):
         assert _compare(lite, sql, params) is True
@@ -150,18 +158,16 @@ class TestRealPGShadowDialect:
             == (0, 1, 1), st
 
     @pytest.mark.parametrize("sql,params,reason", [
-        (("SELECT strftime('%Y-%m-%d %H:00', ts) AS h, COUNT(*) FROM history "
-          "WHERE ts >= datetime('now', ?) GROUP BY h"), ("-1 day",),
-         "strftime"),
+        ("SELECT printf('%s', site_id) FROM history", (), "printf"),
         ("SELECT julianday('now') - julianday(ts) FROM history", (),
-         "julianday"),
-        ("SELECT group_concat(site_id) FROM history", (),
-         "group_concat"),
-        ("SELECT datetime(ts, '+1 hour') FROM history", (), "datetime"),
+         "now-in-result"),
+        ("SELECT strftime('%W', ts) FROM history", (),
+         "strftime-format"),
+        ("SELECT datetime(ts) - 1 FROM history", (), "datetime-arith"),
         ("SELECT count(*) FROM history WHERE ts >= datetime('now', ?)",
          ("start of day",), "datetime"),
         (("SELECT count(*) FROM history WHERE ts >= datetime('now', "
-          "'localtime')"), (), "datetime"),
+          "'+1 month')"), (), "datetime"),
     ])
     def test_untranslatable_is_skipped_with_reason_not_error(
             self, shadow, lite, sql, params, reason):
@@ -175,11 +181,11 @@ class TestRealPGShadowDialect:
     def test_health_names_real_pg_skip_reason(self, shadow, lite, monkeypatch):
         from test_v3_66_1267_mod3_health_telemetry import _client
 
-        sql = "SELECT group_concat(site_id) FROM history"
+        sql = "SELECT printf('%s', site_id) FROM history"
         assert _compare(lite, sql) is None
         assert shadow == []
         payload = _client(monkeypatch).get("/api/health").get_json()
-        assert payload["mod3"]["shadow"]["skip_reasons"] == {"group_concat": 1}
+        assert payload["mod3"]["shadow"]["skip_reasons"] == {"printf": 1}
 
     def test_broken_statement_still_counts_as_error_negative_control(
             self, shadow):
@@ -222,7 +228,8 @@ def test_census_every_app_select_idiom_is_translated_or_skip_listed():
             sql, ("-1 hour",) * sql.count("?"))
         if pg_sql is not None:
             translated.append((path, line, sql))
-        elif reason.startswith("dialect:") or reason == "datetime":
+        elif reason.startswith("dialect:") or reason in (
+                *pg_backend._COMPAT_TIME_FUNCS, "now-in-result"):
             skipped.append((path, line, reason))
         else:
             bad.append((path, line, reason))
@@ -231,11 +238,14 @@ def test_census_every_app_select_idiom_is_translated_or_skip_listed():
     red = [t for t in translated if t[0].name == "alerts_engine.py"
            and "datetime('now', '-1 hour')" in t[2]]
     assert red, "census did not find alerts_engine's datetime('now') read"
-    assert len(translated) >= 10 and len(skipped) >= 5, (
-        len(translated), len(skipped))
+    # row 127 cut 2: compat functions leave one skip (alerts_engine's
+    # clock arithmetic, now-in-result)
+    assert len(translated) >= 150 and len(skipped) <= 1, (
+        len(translated), skipped)
 
 
 def test_skip_list_and_allowlist_are_disjoint():
     assert not (pg_backend._SHADOW_SKIP_FUNCS & pg_backend._PG_SAME_FUNCS)
-    assert {"strftime", "julianday", "group_concat"} \
-        <= pg_backend._SHADOW_SKIP_FUNCS
+    assert not (pg_backend._SHADOW_SKIP_FUNCS & pg_backend._COMPAT_FUNCS)
+    assert {"strftime", "julianday", "group_concat", "datetime", "date",
+            "ifnull"} == pg_backend._COMPAT_FUNCS

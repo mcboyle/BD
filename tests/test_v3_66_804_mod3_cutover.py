@@ -189,6 +189,9 @@ class TestRealCutover:
         with db.db_conn() as cx:          # a REAL comparison, so compared > 0
             cx.execute("SELECT site_id, url, status FROM history "
                        "WHERE site_id=?", ("co-1",)).fetchall()
+        # routing, not proof, is under test here: every shape counts as
+        # proven (the proven gate has its own tests, soak completion)
+        monkeypatch.setattr(pg, "_is_proven", lambda sql: True)
         return db, pg, dsn
 
     def test_preflight_passes_when_everything_is_verified(

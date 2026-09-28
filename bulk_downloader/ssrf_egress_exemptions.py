@@ -109,7 +109,7 @@ ACCOUNTED = {
         "exempt",
         "polls the operator's own BD instance at the api_base the operator "
         "passed to the dashboard CLI"),
-    "bulk_downloader/pg_backend.py::preflight_cutover": (
+    "bulk_downloader/pg_backend.py::_fetch_health": (
         "exempt",
         "reads the operator's own BD /api/health at the URL the operator "
         "passed to `pg_backend preflight --health`; no request reaches it"),

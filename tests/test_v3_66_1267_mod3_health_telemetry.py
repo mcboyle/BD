@@ -11,6 +11,7 @@ Guards the machine-readable surface for the 14-day PostgreSQL soak:
 from __future__ import annotations
 
 import sqlite3
+from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -36,6 +37,9 @@ def _isolated_mod3_counters(monkeypatch):
     for k in _SHADOW_KEYS - {"last_divergence"}:
         monkeypatch.setitem(pg_backend._shadow, k, 0)
     monkeypatch.setitem(pg_backend._shadow, "last_divergence", None)
+    monkeypatch.setattr(pg_backend, "_shapes", {})
+    monkeypatch.setattr(pg_backend, "_latency_ms", deque(maxlen=8))
+    monkeypatch.setattr(pg_backend, "_reads", {"attempts": 0, "errors": 0})
 
 
 @contextmanager
@@ -84,8 +88,11 @@ def test_mod3_payload_exact_keys_and_types(monkeypatch, path):
     mod3 = payload["mod3"]
     assert isinstance(mod3, dict)
 
-    # Exact-count 7 keys on mod3 object ("cutover" added by O1435 row127)
+    # Exact-count 9 keys on mod3 object ("cutover" added by O1435 row127;
+    # "proven" + "metrics" by row PG-CUTOVER-SOAK-COMPLETION)
     expected_keys = {
+        "proven",
+        "metrics",
         "dual_write",
         "shadow_read",
         "cutover_requested",
@@ -95,7 +102,23 @@ def test_mod3_payload_exact_keys_and_types(monkeypatch, path):
         "cutover",
     }
     assert set(mod3.keys()) == expected_keys
-    assert len(mod3) == 7
+    assert len(mod3) == 9
+
+    proven = mod3["proven"]
+    assert set(proven) == {"threshold", "proven", "unproven", "divergent"}
+    assert all(type(v) is int and v >= 0 for v in proven.values()), proven
+    assert proven["threshold"] == pg_backend._PROVEN_MIN == 20
+
+    metrics = mod3["metrics"]
+    assert set(metrics) == {"latency_ms", "reads", "writes",
+                            "fallback_incidents"}
+    assert set(metrics["latency_ms"]) == {"p50", "p95", "p99", "samples"}
+    assert type(metrics["latency_ms"]["samples"]) is int
+    for side in ("reads", "writes"):
+        assert set(metrics[side]) == {"attempts", "errors", "error_rate"}
+        assert type(metrics[side]["attempts"]) is int
+        assert type(metrics[side]["errors"]) is int
+    assert type(metrics["fallback_incidents"]) is int
 
     cutover = mod3["cutover"]
     assert isinstance(cutover, dict)
@@ -222,3 +245,33 @@ def test_counter_values_come_from_pg_backend(monkeypatch, path):
     mod3 = res.get_json()["mod3"]
     assert mod3["stats"] == stats
     assert mod3["shadow"] == {**shadow, "skip_reasons": {}}
+
+
+@pytest.mark.parametrize("path", ["/api/health", "/api/health/v2"])
+def test_proven_and_metrics_values_come_from_pg_backend(monkeypatch, path):
+    """Same contract for the soak-completion keys: distinct sentinels in
+    pg_backend's live state must surface verbatim (derived, not constant)."""
+    monkeypatch.setattr(pg_backend, "_shapes", {
+        "a": {"clean": 20, "proven": True, "divergent": False},
+        "b": {"clean": 21, "proven": True, "divergent": False},
+        "c": {"clean": 0, "proven": False, "divergent": True},
+        "d": {"clean": 3, "proven": False, "divergent": False},
+        "e": {"clean": 4, "proven": False, "divergent": False},
+    })
+    monkeypatch.setattr(pg_backend, "_latency_ms",
+                        deque([4.0, 1.0, 3.0, 2.0], maxlen=8))
+    monkeypatch.setattr(pg_backend, "_reads", {"attempts": 40, "errors": 2})
+    monkeypatch.setitem(pg_backend._stats, "mirrored", 9)
+    monkeypatch.setitem(pg_backend._stats, "failed", 1)
+    monkeypatch.setattr(pg_backend, "_cutover_fallback_reasons",
+                        {"scope": 5, "untranslatable": 6, "unproven": 7,
+                         "unreachable": 3, "error": 4})
+    mod3 = _client(monkeypatch).get(path).get_json()["mod3"]
+    assert mod3["proven"] == {"threshold": 20, "proven": 2, "unproven": 3,
+                              "divergent": 1}
+    assert mod3["metrics"] == {
+        "latency_ms": {"p50": 2.0, "p95": 4.0, "p99": 4.0, "samples": 4},
+        "reads": {"attempts": 40, "errors": 2, "error_rate": 0.05},
+        "writes": {"attempts": 10, "errors": 1, "error_rate": 0.1},
+        "fallback_incidents": 7,     # unreachable + error, not by-design
+    }

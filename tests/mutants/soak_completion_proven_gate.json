@@ -1,0 +1,74 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Regression mutants for the soak-completion proven gate, the authoritative rendering, Stage 6 incidents and the Stage 7 receipt; each catcher is the named test.",
+  "subject": "row PG-CUTOVER-SOAK-COMPLETION proven gate, rendering, metrics, receipt",
+  "band": [
+    "tests/test_soak_completion_scope.py"
+  ],
+  "mutants": [
+    {
+      "label": "gate removed: unproven shape served",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "    if not _is_proven(sql):\n        _cutover_fallback(\"unproven\")\n",
+      "new": "    if False:\n        _cutover_fallback(\"unproven\")\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_unproven_shape_is_shadow_compared_not_served_negative_control"
+    },
+    {
+      "label": "promotion off by one",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "changed = not e[\"proven\"] and e[\"clean\"] >= _PROVEN_MIN\n",
+      "new": "changed = not e[\"proven\"] and e[\"clean\"] > _PROVEN_MIN\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_shape_is_served_by_postgres_only_after_n_clean_comparisons"
+    },
+    {
+      "label": "divergence does not demote",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "            e[\"clean\"], e[\"proven\"], e[\"divergent\"] = 0, False, True\n",
+      "new": "            e[\"divergent\"] = True\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_divergence_demotes_and_marks_divergent_until_reproven"
+    },
+    {
+      "label": "first sighting clobbers proven row",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "        _persist_shape(shape, proven, divergent, diverged=not same,\n                       overwrite=changed)\n",
+      "new": "        _persist_shape(shape, proven, divergent, diverged=not same,\n                       overwrite=True)\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_proven_set_survives_a_restart_and_a_demotion_reaches_it"
+    },
+    {
+      "label": "serve translate() text, not the proven rendering",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "    pg_sql = translate(sql) and _shadow_dialect(sql, params)[0]\n",
+      "new": "    pg_sql = translate(sql)\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_authoritative_read_runs_the_proven_rendering"
+    },
+    {
+      "label": "receipt needs 6 days",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "_SOAK_GREEN_DAYS = 7\n",
+      "new": "_SOAK_GREEN_DAYS = 6\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_receipt_refuses[six-days]"
+    },
+    {
+      "label": "receipt ignores divergent shapes",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "    if proven[\"divergent\"]:\n        reasons.append",
+      "new": "    if False:\n        reasons.append",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_receipt_refuses[divergent]"
+    },
+    {
+      "label": "incidents count by-design fallbacks",
+      "file": "bulk_downloader/pg_backend.py",
+      "old": "        incidents = (_cutover_fallback_reasons.get(\"unreachable\", 0)\n",
+      "new": "        incidents = (_cutover_fallback_reasons.get(\"scope\", 0)\n                     + _cutover_fallback_reasons.get(\"unreachable\", 0)\n",
+      "direction": "regression",
+      "catcher": "tests/test_soak_completion_scope.py::test_fallback_incidents_count_pg_failures_not_design"
+    }
+  ]
+}

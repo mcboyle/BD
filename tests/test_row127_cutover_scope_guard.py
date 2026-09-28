@@ -57,8 +57,11 @@ def engaged(monkeypatch):
     monkeypatch.setattr(pg, "cutover_engaged", lambda: True)
     monkeypatch.setitem(pg._stats, "degraded_reason", None)
     monkeypatch.setattr(pg, "_cutover_fallback_reasons",
-                        {"scope": 0, "untranslatable": 0,
+                        {"scope": 0, "untranslatable": 0, "unproven": 0,
                          "unreachable": 0, "error": 0})
+    # every shape proven: the proven gate has its own tests (soak completion)
+    monkeypatch.setattr(pg, "_proven_sync", lambda force=False: None)
+    monkeypatch.setattr(pg, "_is_proven", lambda sql: True)
     return monkeypatch
 
 

@@ -176,10 +176,13 @@ def _evaluate_metric(name: str, *, s_cfg: Optional[dict] = None) -> Optional[flo
         if name == "bd_oldest_pending_hours":
             from . import db as _db
             with _db.db_conn() as cx:
+                # 'now' is read here, not in SQL: a clock read inside the
+                # statement can never be shadow-compared (row 127).
                 r = cx.execute("""SELECT
-                  (strftime('%s', 'now') - strftime('%s', MIN(ts))) / 3600.0
+                  CAST(strftime('%s', MIN(ts)) AS INTEGER)
                   FROM history WHERE status = 'pending'""").fetchone()
-            return float(r[0]) if r and r[0] is not None else 0.0
+            return ((time.time() - r[0]) / 3600.0
+                    if r and r[0] is not None else 0.0)
     except Exception as e:
         if type(e).__name__ == "OperationalError" and "no such table: history" in str(e).lower():
             return 0.0

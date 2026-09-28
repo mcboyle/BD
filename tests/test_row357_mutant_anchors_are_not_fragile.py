@@ -1186,6 +1186,56 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_66_1164_one_task_authority.py",
             r"(?m)^def test_the_backlog_publishes_and_matches_its_exact_denominator\(",
         ),
+    # Row PG-CUTOVER-SOAK-COMPLETION: fixed gate/receipt policy anchors, each
+    # audited by the catcher its mutant names (8/8 CAUGHT by bd-mutate).
+    "cdcc5bd7b418d2547f87b7607e99de484b84cb0b98f053ddb1935ab67fad80c1":
+        StableValueException(
+            "the unproven-shape fallback is fixed gate code, not a derived value; removing it serves an unproven read",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_unproven_shape_is_shadow_compared_not_served_negative_control\(",
+        ),
+    "a53623a361ebf88df35ca87adc2f8ca97531d0b8f2855df87acf63e3d951f506":
+        StableValueException(
+            "promotion at clean >= _PROVEN_MIN is the fixed threshold comparison the brief sets (N=20)",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_shape_is_served_by_postgres_only_after_n_clean_comparisons\(",
+        ),
+    "e095eaf06dfe3a85bdb5e5c49e29536bb7226855ac871f1f3ae98f68e24c5741":
+        StableValueException(
+            "a divergence resets clean/proven and marks divergent: fixed demotion policy",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_divergence_demotes_and_marks_divergent_until_reproven\(",
+        ),
+    "9c581adfd8d874f52f4af0429be8c297e0b489667f362ff9ee7a6bce0143bc7c":
+        StableValueException(
+            "only a state change overwrites the persisted row; a first sighting never clobbers it (fixed protocol)",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_proven_set_survives_a_restart_and_a_demotion_reaches_it\(",
+        ),
+    "45e8aeaaa324c0974f78c9c3b218cd8c7bb961d229deeea5498453f5fcef7126":
+        StableValueException(
+            "the authoritative read runs the _shadow_dialect rendering the shadow compared: fixed routing code",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_authoritative_read_runs_the_proven_rendering\(",
+        ),
+    "676872b1d39f5e4e9b4a2ae63467b0b6f9233954c676fd7143ef7699d0c1d04b":
+        StableValueException(
+            "7 consecutive daily GREEN lines is the fixed Stage 7 receipt policy from the brief",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_receipt_refuses\(",
+        ),
+    "939a214d22451552bfe658ba3e1f9c6dd1385fbb7d4c4565a9bcef3929bdc9e5":
+        StableValueException(
+            "zero unresolved divergences is a fixed Stage 7 receipt condition from the brief",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_receipt_refuses\(",
+        ),
+    "4ca9645047f95147d41df11a6a0e09f99d196e3ed193cddb90c506289719ca08":
+        StableValueException(
+            "fallback incidents = unreachable + error is the fixed Stage 6 definition (by-design fallbacks excluded)",
+            "tests/test_soak_completion_scope.py",
+            r"(?m)^def test_fallback_incidents_count_pg_failures_not_design\(",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1243,6 +1293,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 1
 
 # Row 1051: row229::M1 re-anchored onto the Tailwind 4 plugin line; one audited exception
 _STABLE_VALUE_EXCEPTION_MAX += 1
+
+# Row PG-CUTOVER-SOAK-COMPLETION: eight fixed gate/receipt policy anchors; audited exceptions
+_STABLE_VALUE_EXCEPTION_MAX += 8
 
 _FRAGILE_RULES = (
     *_family(

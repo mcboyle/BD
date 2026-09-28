@@ -446,6 +446,8 @@ def _attach_mod3_health(payload: dict) -> None:
             "stats": dict(_pg.stats()),
             "shadow": {**_pg.shadow_stats(),
                        "skip_reasons": _pg.shadow_skip_reasons()},
+            "proven": _pg.proven_counts(),
+            "metrics": _pg.soak_metrics(),
         }
     except Exception as e:
         err_msg = f"{type(e).__name__}: {e}" if str(e) else f"{type(e).__name__}"

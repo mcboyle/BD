@@ -45,6 +45,8 @@ import logging
 import os
 import re
 import threading
+import time
+from collections import deque
 from contextlib import suppress
 
 log = logging.getLogger(__name__)
@@ -366,6 +368,7 @@ def ensure_schema():
                 cx.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS mod3_pk_{t} "
                            f"ON {t}(" + ", ".join(f'"{c}"' for c in pk) + ")")
             cx.commit()
+        _compat_ready(force=True)   # shadow-read aid; never fails the schema
         return True
     except Exception as e:
         _degrade(f"schema bootstrap failed ({type(e).__name__})")
@@ -437,22 +440,143 @@ def _read_tables(sql):
 # ── MOD-3 row 127 class 5: SQLite dialect on the shadow READ path ─────────
 # The app's SELECTs are SQLite dialect. Forwarding one verbatim to Postgres is
 # a guaranteed error (UndefinedFunction), which buries real errors in noise.
-# _shadow_dialect() rewrites the idioms that have an exact PG equivalent and
-# names everything else as a skip reason; nothing unrecognised reaches PG.
-# Read side only: mirror()/translate() are unchanged.
+# Row 127 cut 2: Postgres gets functions with SQLite's semantics (_PG_COMPAT,
+# installed by _compat_ready()), so a SQLite date/time idiom runs there as
+# written. _shadow_dialect() passes a statement only when every function it
+# calls is PG-native-and-same or compat with a supported argument shape; the
+# rest are named as a skip reason, so nothing unrecognised reaches PG.
+# Read side only: mirror()/translate() are unchanged (translate() still
+# refuses strftime writes, and no mirrored write calls these functions).
+
+# SQLite text timestamp (+ modifiers) -> UTC timestamp, NULL where SQLite's
+# answer is NULL. Mirrors SQLite 3.45 date.c for the forms below: ISO date,
+# optional [ T]* time with optional .fraction (rounded to ms) and Z/+-HH:MM
+# zone, day overflow normalised ('2023-02-31' = '2023-03-03'); 'now' at ms
+# precision; '[+-]N[.N] second|minute|hour|day[s]' (ms, half away from zero)
+# and 'localtime[:<zone>]' (no zone = the session TimeZone).
+_PG_COMPAT = (
+    r"""CREATE OR REPLACE FUNCTION mod3_sqlite_ts(v text, mods text[])
+    RETURNS timestamp LANGUAGE plpgsql STABLE AS $f$
+    DECLARE p text[]; o text[]; m text; t timestamp; unit_ms numeric;
+    BEGIN
+      IF v IS NULL THEN RETURN NULL; END IF;
+      IF lower(v) = 'now' THEN
+        t := date_trunc('milliseconds', now() AT TIME ZONE 'UTC');
+      ELSE
+        p := regexp_match(v, '^(\d{4})-(\d\d)-(\d\d)[\sT]*(?:(\d\d):(\d\d)'
+             '(?::(\d\d)(\.\d+)?)?\s*(?:([Zz])|([+-])(\d\d):(\d\d))?\s*)?$');
+        IF p IS NULL OR p[1]::int < 1 OR p[2]::int NOT BETWEEN 1 AND 12
+           OR p[3]::int NOT BETWEEN 1 AND 31
+           OR coalesce(p[4]::int, 0) > 24 OR coalesce(p[5]::int, 0) > 59
+           OR coalesce(p[6]::int, 0) > 59 THEN
+          RETURN NULL;
+        END IF;
+        t := make_timestamp(p[1]::int, p[2]::int, 1, 0, 0, 0)
+             + make_interval(days => p[3]::int - 1,
+                             hours => coalesce(p[4]::int, 0),
+                             mins => coalesce(p[5]::int, 0))
+             + make_interval(secs => round(
+                 (coalesce(p[6], '0') || coalesce(p[7], ''))::numeric
+                 * 1000) / 1000);
+        IF p[9] IS NOT NULL THEN
+          t := t - make_interval(mins => (p[9] || '1')::int
+                                 * (p[10]::int * 60 + p[11]::int));
+        END IF;
+      END IF;
+      FOREACH m IN ARRAY coalesce(mods, '{}') LOOP
+        IF m IS NULL THEN RETURN NULL; END IF;
+        o := regexp_match(m, '^([+-]?\d+(?:\.\d+)?)\s+'
+             '(second|minute|hour|day)s?$', 'i');
+        IF o IS NOT NULL THEN
+          unit_ms := CASE lower(o[2]) WHEN 'second' THEN 1000
+                     WHEN 'minute' THEN 60000 WHEN 'hour' THEN 3600000
+                     ELSE 86400000 END;
+          t := t + make_interval(secs => round(o[1]::numeric * unit_ms)
+                                         / 1000);
+        ELSIF lower(m) = 'localtime' THEN
+          t := (t AT TIME ZONE 'UTC') AT TIME ZONE current_setting('TimeZone');
+        ELSIF lower(m) LIKE 'localtime:%' THEN
+          t := (t AT TIME ZONE 'UTC') AT TIME ZONE substr(m, 11);
+        ELSE
+          RETURN NULL;
+        END IF;
+      END LOOP;
+      RETURN t;
+    END $f$""",
+    """CREATE OR REPLACE FUNCTION datetime(v text,
+        VARIADIC mods text[] DEFAULT '{}') RETURNS text
+    LANGUAGE sql STABLE AS
+    $f$ SELECT to_char(mod3_sqlite_ts(v, mods), 'YYYY-MM-DD HH24:MI:SS') $f$""",
+    """CREATE OR REPLACE FUNCTION date(v text,
+        VARIADIC mods text[] DEFAULT '{}') RETURNS text
+    LANGUAGE sql STABLE AS
+    $f$ SELECT to_char(mod3_sqlite_ts(v, mods), 'YYYY-MM-DD') $f$""",
+    """CREATE OR REPLACE FUNCTION julianday(v text,
+        VARIADIC mods text[] DEFAULT '{}') RETURNS double precision
+    LANGUAGE sql STABLE AS
+    $f$ SELECT ((extract(epoch FROM mod3_sqlite_ts(v, mods)) * 1000)::bigint
+                + 210866760000000)::double precision / 86400000 $f$""",
+    """CREATE OR REPLACE FUNCTION strftime(fmt text, v text,
+        VARIADIC mods text[] DEFAULT '{}') RETURNS text
+    LANGUAGE plpgsql STABLE AS $f$
+    DECLARE t timestamp := mod3_sqlite_ts(v, mods); i int := 1;
+            c text; out text := '';
+    BEGIN
+      IF t IS NULL OR fmt IS NULL THEN RETURN NULL; END IF;
+      WHILE i <= length(fmt) LOOP
+        c := substr(fmt, i, 1);
+        IF c = '%' THEN
+          i := i + 1;
+          c := substr(fmt, i, 1);
+          out := out || CASE c
+            WHEN 'd' THEN to_char(t, 'DD') WHEN 'f' THEN to_char(t, 'SS.MS')
+            WHEN 'F' THEN to_char(t, 'YYYY-MM-DD') WHEN 'H' THEN to_char(t, 'HH24')
+            WHEN 'j' THEN to_char(t, 'DDD') WHEN 'm' THEN to_char(t, 'MM')
+            WHEN 'M' THEN to_char(t, 'MI') WHEN 'S' THEN to_char(t, 'SS')
+            WHEN 's' THEN floor(extract(epoch FROM t))::bigint::text
+            WHEN 'T' THEN to_char(t, 'HH24:MI:SS')
+            WHEN 'w' THEN extract(dow FROM t)::int::text
+            WHEN 'Y' THEN to_char(t, 'YYYY') WHEN '%' THEN '%' END;
+          IF out IS NULL THEN RETURN NULL; END IF;
+        ELSE
+          out := out || c;
+        END IF;
+        i := i + 1;
+      END LOOP;
+      RETURN out;
+    END $f$""",
+    """CREATE OR REPLACE FUNCTION ifnull(a anycompatible, b anycompatible)
+    RETURNS anycompatible LANGUAGE sql IMMUTABLE AS
+    $f$ SELECT COALESCE(a, b) $f$""",
+    """CREATE OR REPLACE FUNCTION mod3_group_concat_step(
+        acc text, x anyelement, sep text) RETURNS text
+    LANGUAGE sql IMMUTABLE AS
+    $f$ SELECT CASE WHEN x IS NULL THEN acc WHEN acc IS NULL THEN x::text
+                    ELSE acc || coalesce(sep, '') || x::text END $f$""",
+    """CREATE OR REPLACE FUNCTION mod3_group_concat_step(
+        acc text, x anyelement) RETURNS text
+    LANGUAGE sql IMMUTABLE AS
+    $f$ SELECT mod3_group_concat_step(acc, x, ',') $f$""",
+    """CREATE OR REPLACE AGGREGATE group_concat(anyelement, text) (
+        SFUNC = mod3_group_concat_step, STYPE = text)""",
+    """CREATE OR REPLACE AGGREGATE group_concat(anyelement) (
+        SFUNC = mod3_group_concat_step, STYPE = text)""",
+)
 
 # Called functions whose SQLite and PG meaning agree for this app's data.
-# date(x) on a non-'now' argument is PG's function-style cast to date, which
-# renders the same 'YYYY-MM-DD' as SQLite's date() for ISO timestamps.
 _PG_SAME_FUNCS = frozenset({
     "count", "sum", "min", "max", "avg", "abs", "coalesce", "nullif",
-    "lower", "upper", "length", "substr", "replace", "trim", "cast", "date",
-    # emitted by the rewrites below
-    "to_char", "now"})
-# SQLite functions with no exact PG rewrite: a read using one is skipped.
+    "lower", "upper", "length", "substr", "replace", "trim", "cast"})
+# SQLite functions _PG_COMPAT gives Postgres.
+_COMPAT_FUNCS = frozenset({
+    "datetime", "date", "julianday", "strftime", "ifnull", "group_concat"})
+# Of those, the ones taking (value, modifier...) after an optional format.
+_COMPAT_TIME_FUNCS = frozenset({"datetime", "date", "julianday", "strftime"})
+# strftime() conversions the PG strftime implements.
+_STRFTIME_SPECS = frozenset("dfFHjmMsSTwY%")
+# SQLite functions with no PG equivalent here: a read using one is skipped.
 _SHADOW_SKIP_FUNCS = frozenset({
-    "strftime", "julianday", "group_concat", "total", "printf", "instr",
-    "iif", "round", "unixepoch", "datetime"})
+    "total", "printf", "instr", "iif", "round", "unixepoch", "time"})
 # SQL words that may precede "(" without being a function call.
 _PAREN_WORDS = frozenset({
     "in", "exists", "values", "as", "on", "using", "over", "and", "or", "not",
@@ -460,62 +584,151 @@ _PAREN_WORDS = frozenset({
     "like", "between", "by", "filter", "all", "any", "distinct", "having",
     "union", "limit", "offset", "set", "into", "with"})
 _LITERAL = re.compile(r"'(?:[^']|'')*'")
-_NOW_CALL = re.compile(
-    r"\b(datetime|date)\s*\(\s*'now'\s*(?:,\s*('(?:[^']|'')*'|\?)\s*)?\)",
-    re.IGNORECASE)
-# SQLite offsets PG's interval parses identically. Months/years are excluded:
-# SQLite normalises day overflow ('2026-01-31' +1 month) differently.
-_OFFSET = re.compile(
-    r"\s*[+-]?\d+(?:\.\d+)?\s+(?:second|minute|hour|day)s?\s*",
-    re.IGNORECASE)
-_NOW_FMT = {"datetime": "YYYY-MM-DD HH24:MI:SS", "date": "YYYY-MM-DD"}
+# The modifiers the PG side implements (months/years are excluded: SQLite
+# normalises day overflow, '2026-01-31' +1 month, its own way).
+_OFFSET = re.compile(r"[+-]?\d+(?:\.\d+)?\s+(?:second|minute|hour|day)s?",
+                     re.IGNORECASE)
+_ZONE_NAME = re.compile(r"[A-Za-z0-9_+\-]+(?:/[A-Za-z0-9_+\-]+)*")
 
 
-def _outside_literals(sql, pos):
-    """Whether offset `pos` of `sql` lies outside every string literal."""
-    return not any(m.start() <= pos < m.end() for m in _LITERAL.finditer(sql))
+def _local_zone():
+    """IANA name of the zone SQLite's 'localtime' uses here (TZ, else the
+    /etc/localtime link), or None when it cannot be named exactly."""
+    name = os.environ.get("TZ", "").lstrip(":")
+    if not name:
+        link = os.path.realpath("/etc/localtime")
+        name = link.split("/zoneinfo/", 1)[1] if "/zoneinfo/" in link else ""
+    if not _ZONE_NAME.fullmatch(name):
+        return None
+    try:
+        import zoneinfo
+        zoneinfo.ZoneInfo(name)
+    except (ValueError, OSError, zoneinfo.ZoneInfoNotFoundError):
+        return None
+    return name
+
+
+def _call_args(masked, open_at):
+    """([(start, end)] argument spans, index of the closing paren) for the
+    call whose "(" is at masked[open_at]; literals are already masked."""
+    spans, depth, start = [], 0, open_at + 1
+    for i in range(open_at, len(masked)):
+        ch = masked[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                if masked[start:i].strip():
+                    spans.append((start, i))
+                return spans, i
+        elif ch == "," and depth == 1:
+            spans.append((start, i))
+            start = i + 1
+    return spans, len(masked)
 
 
 def _shadow_dialect(sql, params=()):
-    """(pg_sql, None) with SQLite-only idioms rewritten, or (None, reason).
-
-    Placeholders are never added, removed or reordered, so `params` is passed
-    through unchanged; it is read only to validate a `?` offset argument."""
+    """(pg_sql, None) ready for psycopg (qmark -> %s, % -> %%), or
+    (None, reason). Placeholders are never added, removed or reordered, so
+    `params` is passed through unchanged; it is read only to validate a `?`
+    format or modifier argument."""
     params = tuple(params or ())
-    out, last = [], 0
-    for m in _NOW_CALL.finditer(sql):
-        if not _outside_literals(sql, m.start()):
-            continue
-        fn, arg = m.group(1).lower(), m.group(2)
-        if arg is None:
-            offset, expr = None, None
-        elif arg == "?":
-            idx = _LITERAL.sub("", sql[:m.start()]).count("?")
-            offset = params[idx] if idx < len(params) else None
-            expr = "CAST(? AS interval)"
-        else:
-            offset = arg[1:-1].replace("''", "'")
-            expr = f"CAST({arg} AS interval)"
-        if arg is not None and not (isinstance(offset, str)
-                                    and _OFFSET.fullmatch(offset)):
-            return None, fn
-        now = "(now() AT TIME ZONE 'UTC')"
-        if expr:
-            now = f"({now} + {expr})"
-        out.append(sql[last:m.start()])
-        out.append(f"to_char({now}, '{_NOW_FMT[fn]}')")
-        last = m.end()
-    pg_sql = "".join(out) + sql[last:]
-    pg_sql = re.sub(r"\bIFNULL\s*\(", "COALESCE(", pg_sql, flags=re.IGNORECASE)
-    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-                         _LITERAL.sub("''", pg_sql)):
+    masked = _LITERAL.sub(lambda m: "'" + "x" * (len(m.group()) - 2) + "'",
+                          sql)
+    edits = []      # (start, end, text): sql[start:end] becomes text
+
+    def value(start, end):
+        """(known, text) of a literal or `?` argument."""
+        arg = sql[start:end].strip()
+        if arg == "?":
+            idx = masked[:start].count("?")
+            v = params[idx] if idx < len(params) else None
+            return isinstance(v, str), v
+        if _LITERAL.fullmatch(arg):
+            return True, arg[1:-1].replace("''", "'")
+        return False, None
+
+    for m in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", masked):
         name = m.group(1).lower()
         if name in _PG_SAME_FUNCS or name in _PAREN_WORDS:
             continue
         if name in _SHADOW_SKIP_FUNCS:
             return None, "dialect:" + name
-        return None, "dialect-unknown:" + name
-    return pg_sql, None
+        if name not in _COMPAT_FUNCS:
+            return None, "dialect-unknown:" + name
+        if name not in _COMPAT_TIME_FUNCS:
+            continue
+        spans, close = _call_args(masked, m.end() - 1)
+        if name == "strftime":
+            known, fmt = value(*spans[0]) if spans else (False, None)
+            specs = re.findall(r"%(.?)", fmt or "")
+            if not known or not set(specs) <= _STRFTIME_SPECS:
+                return None, "dialect:strftime-format"
+            spans = spans[1:]
+        if not spans:
+            return None, name
+        for start, end in spans[1:]:
+            known, mod = value(start, end)
+            if known and _OFFSET.fullmatch(mod):
+                continue
+            if not (known and mod.lower() == "localtime"
+                    and sql[start:end].strip() != "?"):
+                return None, name
+            zone = _local_zone()
+            if zone is None:
+                return None, name
+            s = start + len(sql[start:end]) - len(sql[start:end].lstrip())
+            edits.append((s, s + len(sql[start:end].strip()),
+                          f"'localtime:{zone}'"))
+        # A result computed from 'now' differs between two engines that read
+        # the clock at different instants: a divergence nobody could act on.
+        known, v = value(*spans[0])
+        if known and v.lower() == "now" and m.start() < _top_from(masked):
+            return None, "now-in-result"
+        # SQLite coerces text in arithmetic; Postgres has no text - text.
+        if name != "julianday" and (
+                re.match(r"\s*[-+*/]", masked[close + 1:])
+                or re.search(r"[-+*/]\s*$", masked[:m.start()])):
+            return None, f"dialect:{name}-arith"
+    # SQLite's REAL and INTEGER are 8-byte; PG's are float4 / int4, which
+    # would round an epoch (CAST(strftime('%s', ts) AS REAL)).
+    for m in re.finditer(r"\bAS\s+(REAL|INTEGER)(?=\s*\))", masked,
+                         re.IGNORECASE):
+        edits.append((m.start(1), m.end(1), "double precision"
+                      if m.group(1).upper() == "REAL" else "bigint"))
+    out, i = [], 0
+    for start, end, text in sorted(edits):
+        out.append(_pyformat(sql[i:start], masked[i:start]))
+        out.append(text.replace("%", "%%"))
+        i = end
+    out.append(_pyformat(sql[i:], masked[i:]))
+    return "".join(out), None
+
+
+def _top_from(masked):
+    """Offset of the statement's own FROM (paren depth 0), or len(masked)."""
+    depth = 0
+    for m in re.finditer(r"[()]|\bFROM\b", masked, re.IGNORECASE):
+        if m.group() in "()":
+            depth += 1 if m.group() == "(" else -1
+        elif depth == 0:
+            return m.start()
+    return len(masked)
+
+
+def _pyformat(sql, masked):
+    """qmark -> %s outside literals, and every literal % doubled, so psycopg
+    reads the text exactly as written."""
+    out = []
+    for i, ch in enumerate(sql):
+        if ch == "%":
+            out.append("%%")
+        elif ch == "?" and masked[i] == "?":
+            out.append("%s")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def is_mirrored(sql):
@@ -547,15 +760,15 @@ def _unlisted_call(sql):
     return None
 
 
-def translate(sql, *, calls_checked=False):
+def translate(sql):
     """SQLite -> Postgres for the DML this app issues: qmark placeholders
     become %s. Returns None when the statement contains a construct the
     translator does not positively understand -- an untranslatable statement is
     SKIPPED, never guessed at, because a wrong mirror write is worse than a
     missing one (cut 3 compares the two stores).
     O1440/O1441: a SELECT calling a function outside _FUNCTION_ALLOWLIST is
-    untranslatable (PG UndefinedFunction disengaged cutover); `calls_checked`
-    is for shadow_compare, whose _shadow_dialect already judged every call."""
+    untranslatable (PG UndefinedFunction disengaged cutover). Shadow reads
+    never come here: _shadow_dialect judges every call they make."""
     if not sql:
         return None
     # sqlite-only constructs we will not attempt to rewrite
@@ -563,7 +776,7 @@ def translate(sql, *, calls_checked=False):
         return None
     if re.search(r"\bstrftime\s*\(|\bAUTOINCREMENT\b|\bPRAGMA\b", sql, re.I):
         return None
-    if not calls_checked and _verb(sql) == "SELECT" and _unlisted_call(sql):
+    if _verb(sql) == "SELECT" and _unlisted_call(sql):
         return None
     # qmark -> %s, but not inside string literals
     out, in_str, quote = [], False, ""
@@ -673,6 +886,7 @@ def mirror(sql, params=(), rowid=None):
         with _lock:
             _stats["failed"] += 1
         return False
+    started = time.monotonic()
     try:
         if seq_table is not None:
             pg_sql = _upsert_on_id(cx, seq_table, pg_sql)
@@ -680,10 +894,12 @@ def mirror(sql, params=(), rowid=None):
         if seq_table is not None:
             _advance_serial(cx, seq_table, rowid)
         cx.commit()
+        _observe(started, read=False)
         with _lock:
             _stats["mirrored"] += 1
         return True
     except Exception as e:
+        _observe(started, read=False)
         with _lock:
             _stats["failed"] += 1
         _degrade(f"mirror write failed ({type(e).__name__})")
@@ -740,7 +956,8 @@ def shadow_skip_reasons():
 # Kept beside _shadow_skip_reasons: shadow_stats()'s pinned key set is
 # unchanged, and the health payload exposes this under mod3.cutover.
 _cutover_fallback_reasons: dict = {"scope": 0, "untranslatable": 0,
-                                   "unreachable": 0, "error": 0}
+                                   "unproven": 0, "unreachable": 0,
+                                   "error": 0}
 
 
 def _cutover_fallback(reason):
@@ -753,6 +970,247 @@ def cutover_fallback_reasons():
     """O1435: copy of the authoritative-read fallback counters (health)."""
     with _lock:
         return dict(sorted(_cutover_fallback_reasons.items()))
+
+
+_COMPAT_CALL = re.compile(
+    r"\b(?:" + "|".join(sorted(_COMPAT_FUNCS)) + r")\s*\(", re.IGNORECASE)
+_COMPAT_RETRY_S = 300.0
+_compat = {"ok": False, "next_try": 0.0}
+
+
+def _install_once(state, ddls, what, force=False):
+    """Run idempotent `ddls` once per process; a failure -- no CREATE
+    privilege, PG down -- is retried after _COMPAT_RETRY_S, and until then
+    the caller treats the objects as absent."""
+    with _lock:
+        if state["ok"]:
+            return True
+        if not force and time.monotonic() < state["next_try"]:
+            return False
+        state["next_try"] = time.monotonic() + _COMPAT_RETRY_S
+    cx = _connect()
+    if cx is None:
+        return False
+    try:
+        for ddl in ddls:
+            cx.execute(ddl)
+        cx.commit()
+    except Exception as e:
+        log.warning("MOD3 %s not installed (%s: %s)", what,
+                    type(e).__name__, str(e).splitlines()[0] if str(e) else "")
+        return False
+    finally:
+        with suppress(Exception):
+            cx.close()
+    with _lock:
+        state["ok"] = True
+    return True
+
+
+def _compat_ready(force=False):
+    """Whether _PG_COMPAT is installed in the shadow's schema (installed once
+    per process); until it is, a read needing a compat function is skipped,
+    never sent to fail."""
+    return _install_once(_compat, _PG_COMPAT, "compat functions", force)
+
+
+# ── row 127 SOAK-COMPLETION: Stage 6 metrics ─────────────────────────────
+#
+# PG latency over the last _LATENCY_WINDOW statements (reads and mirror
+# writes), read attempts/errors (shadow fetches + authoritative reads), and
+# fallback incidents: authoritative reads that fell back because PG failed
+# (unreachable/error), not by design (scope/untranslatable/unproven).
+_LATENCY_WINDOW = 2048
+_latency_ms: deque = deque(maxlen=_LATENCY_WINDOW)
+_reads = {"attempts": 0, "errors": 0}
+
+
+def _observe(started, read, error=False):
+    """Record one PG statement that began at time.monotonic() == started."""
+    with _lock:
+        _latency_ms.append((time.monotonic() - started) * 1000.0)
+        if read:
+            _reads["attempts"] += 1
+            _reads["errors"] += bool(error)
+
+
+def _percentile(ordered, q):
+    """Nearest-rank percentile of a sorted list; None when empty."""
+    if not ordered:
+        return None
+    rank = -(-q * len(ordered) // 100)          # ceil(q/100 * n), 1-based
+    return round(ordered[min(len(ordered), max(1, rank)) - 1], 3)
+
+
+def _rate(errors, attempts):
+    return round(errors / attempts, 6) if attempts else None
+
+
+def soak_metrics():
+    """Stage 6 counters for /api/health .mod3.metrics. In-process only."""
+    with _lock:
+        ordered = sorted(_latency_ms)
+        reads = dict(_reads)
+        writes = {"attempts": _stats["mirrored"] + _stats["failed"],
+                  "errors": _stats["failed"]}
+        incidents = (_cutover_fallback_reasons.get("unreachable", 0)
+                     + _cutover_fallback_reasons.get("error", 0))
+    return {
+        "latency_ms": {"p50": _percentile(ordered, 50),
+                       "p95": _percentile(ordered, 95),
+                       "p99": _percentile(ordered, 99),
+                       "samples": len(ordered)},
+        "reads": {**reads, "error_rate": _rate(reads["errors"],
+                                               reads["attempts"])},
+        "writes": {**writes, "error_rate": _rate(writes["errors"],
+                                                 writes["attempts"])},
+        "fallback_incidents": incidents,
+    }
+
+
+# ── row 127 SOAK-COMPLETION: the 'proven shapes' gate ────────────────────
+#
+# A statement shape (the SQL text, whitespace-normalized outside literals)
+# is served by Postgres under cutover only after _PROVEN_MIN consecutive clean
+# shadow comparisons; a divergence demotes it and marks it divergent until it
+# is re-proven. Until then read_authoritative() falls back ("unproven") and
+# the db.py seam shadow-compares it, so a newly translatable statement earns
+# authority instead of receiving it. Promotions, demotions and first
+# sightings persist in mod3_proven_shapes (PG, beside the data it certifies)
+# so a restart keeps the proven set; clean counts below the threshold are
+# per-process and restart from 0, the conservative direction.
+_PROVEN_MIN = 20
+_PROVEN_REFRESH_S = 60.0
+_SHAPES_MAX = 4096          # a shape past this is never recorded: unproven
+_PG_PROVEN = ((
+    "CREATE TABLE IF NOT EXISTS mod3_proven_shapes ("
+    "shape TEXT PRIMARY KEY, proven BOOLEAN NOT NULL DEFAULT FALSE, "
+    "divergent BOOLEAN NOT NULL DEFAULT FALSE, "
+    "divergences BIGINT NOT NULL DEFAULT 0, "
+    f"updated_at TEXT NOT NULL DEFAULT ({_PG_TS_DEFAULT}))"),
+)
+_proven_ddl = {"ok": False, "next_try": 0.0}
+_shapes: dict = {}          # shape -> {"clean", "proven", "divergent"}
+_shapes_loaded: dict = {"at": None}
+
+
+def _shape(sql):
+    """Normalized statement text: runs of whitespace outside string literals
+    collapse to one space, so formatting never splits a shape and literal
+    content always does."""
+    sql = sql or ""
+    out, i = [], 0
+    for m in _LITERAL.finditer(sql):
+        out.append(re.sub(r"\s+", " ", sql[i:m.start()]))
+        out.append(m.group())
+        i = m.end()
+    out.append(re.sub(r"\s+", " ", sql[i:]))
+    return "".join(out).strip()
+
+
+def _shape_entry(shape):
+    """The cache entry for `shape`, created if there is room; call locked."""
+    e = _shapes.get(shape)
+    if e is None and len(_shapes) < _SHAPES_MAX:
+        e = _shapes[shape] = {"clean": 0, "proven": False, "divergent": False}
+    return e
+
+
+def _proven_sync(force=False):
+    """Refresh proven/divergent from mod3_proven_shapes at most every
+    _PROVEN_REFRESH_S. PG wins over the cache, so another process's demotion
+    reaches this one. Unreachable -> the cache stands."""
+    with _lock:
+        at = _shapes_loaded["at"]
+        if not force and at is not None \
+                and time.monotonic() - at < _PROVEN_REFRESH_S:
+            return
+        _shapes_loaded["at"] = time.monotonic()
+    if not _install_once(_proven_ddl, _PG_PROVEN, "proven-shapes table"):
+        return
+    cx = _connect()
+    if cx is None:
+        return
+    try:
+        rows = cx.execute("SELECT shape, proven, divergent "
+                          "FROM mod3_proven_shapes").fetchall()
+    except Exception as e:
+        log.warning("MOD3 proven shapes not loaded (%s)", type(e).__name__)
+        return
+    finally:
+        with suppress(Exception):
+            cx.close()
+    with _lock:
+        for shape, proven, divergent in rows:
+            entry = _shape_entry(shape)
+            if entry is not None:
+                entry["proven"] = bool(proven)
+                entry["divergent"] = bool(divergent)
+
+
+def _persist_shape(shape, proven, divergent, diverged, overwrite):
+    """Write one shape's state; a first sighting (overwrite False) never
+    clobbers what another process already recorded."""
+    if not _install_once(_proven_ddl, _PG_PROVEN, "proven-shapes table"):
+        return
+    cx = _connect()
+    if cx is None:
+        return
+    tail = ("DO UPDATE SET proven = EXCLUDED.proven, "
+            "divergent = EXCLUDED.divergent, divergences = "
+            "mod3_proven_shapes.divergences + EXCLUDED.divergences, "
+            f"updated_at = {_PG_TS_DEFAULT}" if overwrite else "DO NOTHING")
+    try:
+        cx.execute("INSERT INTO mod3_proven_shapes "
+                   "(shape, proven, divergent, divergences) "
+                   f"VALUES (%s, %s, %s, %s) ON CONFLICT (shape) {tail}",
+                   (shape, proven, divergent, int(diverged)))
+        cx.commit()
+    except Exception as e:
+        log.warning("MOD3 proven shape not persisted (%s)", type(e).__name__)
+    finally:
+        with suppress(Exception):
+            cx.close()
+
+
+def _record_shape(sql, same):
+    """One shadow comparison of `sql`: clean counts toward promotion, a
+    divergence demotes. Persists only on a state change or first sighting."""
+    shape = _shape(sql)
+    with _lock:
+        new = shape not in _shapes
+        e = _shape_entry(shape)
+        if e is None:
+            return
+        if same:
+            e["clean"] += 1
+            changed = not e["proven"] and e["clean"] >= _PROVEN_MIN
+            if changed:
+                e["proven"], e["divergent"] = True, False
+        else:
+            changed = True
+            e["clean"], e["proven"], e["divergent"] = 0, False, True
+        proven, divergent = e["proven"], e["divergent"]
+    if changed or new:
+        _persist_shape(shape, proven, divergent, diverged=not same,
+                       overwrite=changed)
+
+
+def _is_proven(sql):
+    with _lock:
+        e = _shapes.get(_shape(sql))
+        return bool(e and e["proven"])
+
+
+def proven_counts():
+    """/api/health .mod3.proven: this process's view of the proven set."""
+    with _lock:
+        proven = sum(1 for e in _shapes.values() if e["proven"])
+        divergent = sum(1 for e in _shapes.values() if e["divergent"])
+        return {"threshold": _PROVEN_MIN, "proven": proven,
+                "unproven": len(_shapes) - proven, "divergent": divergent}
+
+
 _SHADOW_MAX_ROWS = 5000     # a comparison bigger than this is skipped, not faked
 
 
@@ -820,10 +1278,14 @@ def _shadow_fetch(sql, params=()):
     cx = _connect()
     if cx is None:
         return None, False
+    started = time.monotonic()
     try:
         cur = cx.execute(sql, tuple(params or ()))
-        return cur.fetchall(), False
+        rows = cur.fetchall()
+        _observe(started, read=True)
+        return rows, False
     except Exception as e:
+        _observe(started, read=True, error=True)
         msg = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
         with _lock:
             _shadow["errors"] += 1
@@ -871,9 +1333,8 @@ def shadow_compare(sql, params, sqlite_rows):
     if pg_sql is None:
         _shadow_skip(reason)
         return None
-    pg_sql = translate(pg_sql, calls_checked=True)
-    if pg_sql is None:
-        _shadow_skip("untranslatable")
+    if _COMPAT_CALL.search(_LITERAL.sub("''", pg_sql)) and not _compat_ready():
+        _shadow_skip("compat-missing")
         return None
     pg_rows, errored = _shadow_fetch(pg_sql, params)
     if pg_rows is None:
@@ -895,6 +1356,7 @@ def shadow_compare(sql, params, sqlite_rows):
     if not same:
         log.warning("MOD3 shadow-read DIVERGENCE: %s (sqlite=%d pg=%d)",
                     (sql or "")[:120], len(sqlite_rows or []), len(pg_rows))
+    _record_shape(sql, same)
     return same
 
 
@@ -1071,14 +1533,9 @@ def preflight_cutover(health=None):
     reasons = []
     remote = health is not None
     if isinstance(health, str):
-        import json
-        from urllib.request import urlopen
-        try:
-            with urlopen(health, timeout=5) as response:
-                health = json.load(response)
-        except (OSError, ValueError, TypeError) as e:
-            return {"ok": False, "reasons": [f"health unavailable: {e}"],
-                    "checks": {}}
+        health, err = _fetch_health(health)
+        if err:
+            return {"ok": False, "reasons": [err], "checks": {}}
     if remote:
         mod3 = health.get("mod3", health) if isinstance(health, dict) else {}
         if not isinstance(mod3, dict):
@@ -1157,6 +1614,130 @@ def preflight_cutover(health=None):
     return {"ok": not reasons, "reasons": reasons, "checks": checks}
 
 
+def _fetch_health(url):
+    """(payload, None) from a /api/health URL, or (None, reason)."""
+    import json
+    from urllib.request import urlopen
+    try:
+        with urlopen(url, timeout=5) as response:
+            return json.load(response), None
+    except (OSError, ValueError, TypeError) as e:
+        return None, f"health unavailable: {e}"
+
+
+# ── row 127 SOAK-COMPLETION: Stage 7 receipt ─────────────────────────────
+#
+# `soak-receipt --health URL --log PG-SOAK-LOG.tsv` writes
+# RECEIPT-ROW127-SOAK-COMPLETE.md only when the soak is proven: the last
+# _SOAK_GREEN_DAYS UTC days of bd-pg-soak-line.sh lines are consecutive and
+# all GREEN (the newest no older than yesterday), >= _SOAK_PROVEN_SHARE of the
+# known shapes are proven, and no shape is left divergent. Anything else --
+# including a health payload without .mod3.proven -- is a named refusal.
+_SOAK_GREEN_DAYS = 7
+_SOAK_PROVEN_SHARE = 0.95
+_SOAK_PROBE = "bd-pg-soak-line"
+RECEIPT_NAME = "RECEIPT-ROW127-SOAK-COMPLETE.md"
+
+
+def _soak_days(lines):
+    """{utc-date: all-GREEN?} over bd-pg-soak-line.sh lines only; the
+    hand-written receipt lines sharing the log are not probe evidence."""
+    days: dict = {}
+    for line in lines:
+        f = line.rstrip("\n").split("\t")
+        if len(f) < 8 or not f[7].startswith(_SOAK_PROBE) \
+                or not re.fullmatch(r"\d{4}-\d\d-\d\dT\S+", f[0]):
+            continue
+        green = (f[1].endswith(" soak") and f[2:7] ==
+                 ["True", "True", "0", "0", "0"])
+        days[f[0][:10]] = days.get(f[0][:10], True) and green
+    return days
+
+
+def _green_streak(days):
+    """(consecutive GREEN days ending at the newest probe day, newest day)."""
+    import datetime as dt
+    if not days:
+        return 0, None
+    newest = max(days)
+    day, streak = dt.date.fromisoformat(newest), 0
+    while days.get(day.isoformat()):
+        streak += 1
+        day -= dt.timedelta(days=1)
+    return streak, newest
+
+
+def soak_receipt(health, log_path, out_dir=".", today=None):
+    """{ok, reasons[], checks{}, receipt}: the Stage 7 verdict, and the
+    receipt path when ok. Never raises on bad input; refuses instead."""
+    import datetime as dt
+    import pathlib
+    reasons = []
+    if isinstance(health, str):
+        health, err = _fetch_health(health)
+        if err:
+            reasons.append(err)
+    mod3 = health.get("mod3") if isinstance(health, dict) else None
+    mod3 = mod3 if isinstance(mod3, dict) else {}
+    proven = mod3.get("proven")
+    if not (isinstance(proven, dict) and all(
+            type(proven.get(k)) is int and proven[k] >= 0
+            for k in ("proven", "unproven", "divergent"))):
+        reasons.append("health mod3.proven missing or invalid")
+        proven = {"proven": 0, "unproven": 0, "divergent": 0}
+    try:
+        lines = pathlib.Path(log_path).read_text(
+            encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        reasons.append(f"soak log unreadable: {e}")
+        lines = []
+    streak, newest = _green_streak(_soak_days(lines))
+    today = today or dt.datetime.now(dt.timezone.utc).date()
+    total = proven["proven"] + proven["unproven"]
+    share = proven["proven"] / total if total else 0.0
+    checks = {"green_streak_days": streak, "newest_probe_day": newest,
+              "proven": proven["proven"], "unproven": proven["unproven"],
+              "proven_share": round(share, 4),
+              "divergent": proven["divergent"],
+              "build": (health or {}).get("build", {}).get("sha")
+              if isinstance(health, dict) else None}
+    if streak < _SOAK_GREEN_DAYS:
+        reasons.append(f"{streak} consecutive daily GREEN soak line(s): "
+                       f"need {_SOAK_GREEN_DAYS}")
+    if newest is not None and \
+            dt.date.fromisoformat(newest) < today - dt.timedelta(days=1):
+        reasons.append(f"newest soak line is {newest}: the probe has "
+                       "stopped")
+    if share < _SOAK_PROVEN_SHARE:
+        reasons.append(f"proven {proven['proven']}/{total} shapes "
+                       f"({share:.3f}): need {_SOAK_PROVEN_SHARE}")
+    if proven["divergent"]:
+        reasons.append(f"{proven['divergent']} shape(s) left divergent")
+    res = {"ok": not reasons, "reasons": reasons, "checks": checks,
+           "receipt": None}
+    if reasons:
+        return res
+    receipt = pathlib.Path(out_dir) / RECEIPT_NAME
+    now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    receipt.write_text(
+        "RECEIPT: ROW127-SOAK-COMPLETE GREEN\n"
+        f"# {RECEIPT_NAME[:-3]} -- row PG-CUTOVER-SOAK-COMPLETION, Stage 7\n"
+        f"GENERATED: {now} by python -m bulk_downloader.pg_backend "
+        "soak-receipt\n"
+        f"BUILD: {checks['build']}\n"
+        f"SOAK LOG: {log_path}: {streak} consecutive daily GREEN lines "
+        f"ending {newest} (need {_SOAK_GREEN_DAYS})\n"
+        f"PROVEN: {checks['proven']}/{total} shapes "
+        f"({checks['proven_share']}, need {_SOAK_PROVEN_SHARE}); "
+        f"divergent 0\n"
+        "CLOSES: PG-CUTOVER-SOAK-COMPLETION and row 127 in the register "
+        "(PM records the closure).\n"
+        "ROLLBACK: MOD3_CUTOVER=0 and restart; SQLite stayed current "
+        "throughout (dual-write).\n", encoding="utf-8")
+    res["receipt"] = str(receipt)
+    return res
+
+
 def _connect_ok():
     cx = _connect()
     if cx is None:
@@ -1215,7 +1796,10 @@ def read_authoritative(sql, params=()):
     """Rows from the CUTOVER-authoritative store (Postgres), or None when the
     read cannot be served there -- None means 'fall back to SQLite', never
     'empty result'. Conflating those would silently turn an outage into
-    apparent data loss. O1435: out-of-scope SELECTs never reach Postgres."""
+    apparent data loss. O1435: out-of-scope SELECTs never reach Postgres.
+    SOAK-COMPLETION: PG runs the same _shadow_dialect() rendering the shadow
+    compared, and only for a proven shape; unproven -> None, and the db.py
+    seam shadow-compares it instead."""
     if not cutover_engaged():
         return None
     if _verb(sql) != "SELECT":
@@ -1225,14 +1809,20 @@ def read_authoritative(sql, params=()):
         # 42Ps on a missing table would disengage cutover for no reason.
         _cutover_fallback("scope")
         return None
-    pg_sql = translate(sql)
-    if pg_sql is None:
+    pg_sql = translate(sql) and _shadow_dialect(sql, params)[0]
+    if pg_sql is None or (_COMPAT_CALL.search(_LITERAL.sub("''", pg_sql))
+                          and not _compat_ready()):
         _cutover_fallback("untranslatable")
+        return None
+    _proven_sync()
+    if not _is_proven(sql):
+        _cutover_fallback("unproven")
         return None
     cx = _connect()
     if cx is None:
         _cutover_fallback("unreachable")
         return None
+    started = time.monotonic()
     try:
         from psycopg.rows import dict_row
         cur = cx.cursor(row_factory=dict_row)
@@ -1241,8 +1831,11 @@ def read_authoritative(sql, params=()):
         # bare tuples here would not fail loudly -- it would raise TypeError deep
         # inside unrelated call sites, which is a worse failure than not cutting
         # over at all.
-        return [_PgRow(d) for d in cur.fetchall()]
+        rows = [_PgRow(d) for d in cur.fetchall()]
+        _observe(started, read=True)
+        return rows
     except Exception as e:
+        _observe(started, read=True, error=True)
         _cutover_fallback("error")
         _degrade(f"authoritative read failed ({type(e).__name__})")
         return None
@@ -1448,6 +2041,17 @@ def main(argv=None):
         print(json.dumps(res, indent=2, sort_keys=True))
         return 1 if "error" in res or any(
             v["missing"] for v in res.values()) else 0
+    if cmd == "soak-receipt":
+        opts = dict(zip(args[::2], args[1::2]))
+        if len(args) % 2 or not {"--health", "--log"} <= set(opts) \
+                or not set(opts) <= {"--health", "--log", "--out"}:
+            print("usage: soak-receipt --health URL --log PG-SOAK-LOG.tsv "
+                  "[--out DIR]", file=sys.stderr)
+            return 2
+        res = soak_receipt(opts["--health"], opts["--log"],
+                           opts.get("--out", "."))
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 0 if res["ok"] else 1
     if cmd == "preflight":
         if args[:1] != ["--health"] or len(args) != 2:
             print("usage: preflight --health URL", file=sys.stderr)
@@ -1456,7 +2060,8 @@ def main(argv=None):
         print(json.dumps(res, indent=2, sort_keys=True))
         return 0 if res["ok"] else 1
     print("usage: python -m bulk_downloader.pg_backend {backfill [table ...]"
-          "|parity|preflight --health URL}", file=sys.stderr)
+          "|parity|preflight --health URL|soak-receipt --health URL --log "
+          "PG-SOAK-LOG.tsv [--out DIR]}", file=sys.stderr)
     return 2
 
 

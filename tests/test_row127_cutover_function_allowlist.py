@@ -62,8 +62,11 @@ def engaged(monkeypatch):
     monkeypatch.setattr(pg, "cutover_engaged", lambda: True)
     monkeypatch.setitem(pg._stats, "degraded_reason", None)
     monkeypatch.setattr(pg, "_cutover_fallback_reasons",
-                        {"scope": 0, "untranslatable": 0,
+                        {"scope": 0, "untranslatable": 0, "unproven": 0,
                          "unreachable": 0, "error": 0})
+    # every shape proven: the proven gate has its own tests (soak completion)
+    monkeypatch.setattr(pg, "_proven_sync", lambda force=False: None)
+    monkeypatch.setattr(pg, "_is_proven", lambda sql: True)
     fake = _FakePg(rows=[{"n": 1}])
     monkeypatch.setattr(pg, "_connect", fake)
     return fake
@@ -112,16 +115,20 @@ def test_writes_unaffected_by_allowlist():
     assert pg.translate(sql) == sql.replace("?", "%s")
 
 
-def test_shadow_keeps_comparing_rewritten_now_reads(monkeypatch):
-    # Negative control on calls_checked: shadow_compare's _shadow_dialect
-    # rewrites datetime('now') to to_char(now()); the allowlist must not turn
-    # that already-judged SQL into an 'untranslatable' skip.
+def test_shadow_keeps_comparing_compat_now_reads(monkeypatch):
+    # Negative control: the allowlist gates authoritative reads only. The
+    # shadow sends _shadow_dialect's rendering (datetime() resolves to the
+    # installed compat function), never an 'untranslatable' skip.
     sent = []
     monkeypatch.setattr(pg, "shadow_read_enabled", lambda: True)
+    monkeypatch.setattr(pg, "_compat_ready", lambda force=False: True)
+    monkeypatch.setattr(pg, "_record_shape", lambda sql, same: None)
     monkeypatch.setattr(pg, "_shadow_fetch",
                         lambda sql, params: (sent.append(sql) or [(1,)], False))
+    assert pg.translate(RED_SQL) is None
     assert pg.shadow_compare(RED_SQL, (), [(1,)]) is True
-    assert sent and "to_char(" in sent[0] and "datetime(" not in sent[0]
+    assert sent == [pg._shadow_dialect(RED_SQL)[0]]
+    assert "datetime(" in sent[0]
 
 
 _CALL = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
