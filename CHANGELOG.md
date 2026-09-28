@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1699 - train127: row
+
+T127 (ORDER-T127-bd-pm-B.md): repo test halves on BOARD not on main since T126.
+- bh-bandscaf LENSOBJ: tree a32c92df, BOARD bd-worker-B2-B (PATCH-SHA 6d4bd1d2)
+- bh-k2-001 G3: tree e88ef1ac, BOARD bd-worker-B2-B-G3 (PATCH-SHA 3202898c)
+- limitwatch-codex: tree fb1a433d, BOARD bd-worker-B1-B (PATCH-SHA 51f01fc3)
+row127 BOARDs cutover-scope-guard/preflight-ratio already on main (5f9704b0a, 6d6bd4a5f). Non-product: no deploy (O1346).
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+https://claude.ai/code/session_01Aj9RgcUkxzNwBeRzGAWBFH
+
+
 ## v3.66.1698 - train126: row
 
 - BH-CXLENS (bd-cx-worker-1, tree c9c890a0): tests/test_bh_cxlens.py (harness half bd-codex-lens.sh via APPLY lane).
