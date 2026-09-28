@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5165,
+  "edge_count": 5171,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -637,6 +637,7 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/log.py",
       "bulk_downloader/profile_sync.py",
+      "bulk_downloader/run_history.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/selector_drift.py",
       "bulk_downloader/session_keeper.py",
@@ -3170,6 +3171,13 @@
     ],
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dl_f7_site_delete_closes_orphan_runs.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py"
     ],
     "tests/test_dom_analyzer.py": [
       "bulk_downloader/capture_artifact_redact.py",
