@@ -75,6 +75,8 @@ class QueueMixin:
     def _restore_queue(self):
         """Load persisted queue rows and rebuild self.urls / self.jobs."""
         rows = queue_load(self.site_id)
+        from . import run_history
+        run_history.reconcile_restored_runs(self.site_id)
         if not rows: return
         # v3.49 (#127b): track which URLs were in "running" state at the
         # prior shutdown — those were mid-download when the process died.

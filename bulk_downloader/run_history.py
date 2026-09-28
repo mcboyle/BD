@@ -87,6 +87,35 @@ def record_run_start(site_id, url=""):
         return None
 
 
+def reconcile_restored_runs(site_id):
+    """Close abandoned attempts when a runner takes over its persisted queue.
+
+    Like queue recovery, this requires exclusive ownership of this site's
+    runner. Schema initialization alone must never close live attempts.
+    Queue status can describe a later retry, so do not infer older outcomes.
+    """
+    try:
+        with db.db_conn() as cx:
+            rows = cx.execute(
+                "SELECT id FROM job_runs WHERE site_id=? AND status='running'",
+                (str(site_id),)).fetchall()
+            for row in rows:
+                cur = cx.execute(
+                    "UPDATE job_runs SET status='cancelled', "
+                    "reason_code='service_restart', "
+                    "finished_at=strftime('%Y-%m-%dT%H:%M:%S','now') "
+                    "WHERE id=? AND status='running'",
+                    (row["id"],))
+                if cur.rowcount:
+                    cx.execute(
+                        "INSERT INTO run_events(run_id, event_type, detail) "
+                        "VALUES(?, 'finish', 'cancelled: service_restart')",
+                        (row["id"],))
+    except Exception as e:
+        log.warning("reconcile_restored_runs failed (advisory): %s: %s",
+                    type(e).__name__, e)
+
+
 def record_run_event(run_id, event_type, detail=""):
     """Append an event to a run's timeline. No-op on failure; never raises."""
     if not run_id:
