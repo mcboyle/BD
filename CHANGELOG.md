@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1704 - train132: row
+
+T132 (PM: all BOARDed repo cuts in queues/P3-LENS-QUEUE.tsv; 22 unique, census T132/census.tsv): bh2-16-bd-worker-B4-B 140c36c7; o1498-pm-gatekeeper 099d666e; bh2-01-bd-cx-worker-1 f86d094c; bh2-02-bd-cx-worker-2 9229d702; bh2-03-bd-agy-flash-1 e0617f2d; bh2-04-bd-agy-flash-2 314daa35; bh2-07-bd-agy-flash-3 ff5d1fd6; bh2-12-g3-bd-worker-B3-B 5a2e0c0e; bh2-13-bd-worker-A3-A 37eb5556; bh2-14-bd-worker-B3-B 160afdbd; bh2-17-bd-worker-A2-A 93dd7f59; bh2-19-bd-agy-flash-2 1003ef43; bh2-22-bd-worker-B2-B 292cab19; bh2-25-bd-agy-worker-1 1044d093; bh2-30-bd-cx-worker-2 1b18348c; bh2-31-bd-agy-worker-1 df0766c3; bh2-32-bd-agy-flash-3 c1d51594; bh2-39-bd-worker-B3-B 772735bb; bh2-43-bd-worker-A2-A 8f68d3d2; bh2-48-bd-agy-worker-1 48707aae; eff-e1-bd-fixer-A1-A 85f78f6d; eff-p2-bd-agy-worker-1 91f7c41a. Test-only repo halves; LC_ALL pinned in place (O1481) in bh2-17, bh2-22, bh2-43; BD_GATE_SCOPE declared in bh2-48; harness halves via apply lane. No deploy.
+
+
 ## v3.66.1703 - train131: row
 
 T131: H149-r1 (toolchain/bin/bd-precut, tests/test_bd_precut_declared_edges.py), tree 35efe243, BOARD A2-A; p5-notecap repo half (tests/test_p5_notecap.py + fixture), tree d5e2b565, BOARD B2-B-G2; bh-k2-001 G4 repo half (tests/test_bh_k2_001.py), tree d25323d0, BOARD fixer-A1-A-G4. Harness halves live. No deploy.
