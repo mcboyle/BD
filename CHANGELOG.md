@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1690 - train118-bh: row
+
+- BH-007 gen b (bd-worker-B2-B, tree 9db91399): scripts/classify_toolchain.py fix (finding 007) + regression test; 009/010 MOOT-PREMISE, 008 refuted by design.
+
+
 ## v3.66.1689 - train117-bh: row
 
 - BH-CONFIG gen 3 (bd-agy-worker-1, tree f75fd9db): embeddings + guardrails endpoints env-overridable (finding 004), ssrf egress exemptions, ci.yml installs requirements-test for process-tests (005); regression test.
