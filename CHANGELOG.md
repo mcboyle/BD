@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1703 - train131: row
+
+T131: H149-r1 (toolchain/bin/bd-precut, tests/test_bd_precut_declared_edges.py), tree 35efe243, BOARD A2-A; p5-notecap repo half (tests/test_p5_notecap.py + fixture), tree d5e2b565, BOARD B2-B-G2; bh-k2-001 G4 repo half (tests/test_bh_k2_001.py), tree d25323d0, BOARD fixer-A1-A-G4. Harness halves live. No deploy.
+
+
 ## v3.66.1702 - train130: row
 
 T130: survivors-t18-o592 G2 (tests/test_import_graph_no_new_edges.py, toolchain/bin/bd-decomp), tree 000ed836, BOARD cx-1-G2 (dcd6b48a). Repo-wide import-graph gate run by integrator. No deploy (O1346).
