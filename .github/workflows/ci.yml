@@ -589,8 +589,11 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-test.txt
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-test.txt
       - name: Run the declared PROCESS tests
         # Only tests/PROCESS_TESTS.txt entries (the files demoted from the hot
         # shards), and NO `-x`: the lane reports every red, not the first.

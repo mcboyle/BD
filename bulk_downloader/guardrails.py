@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from urllib.request import Request, urlopen
 
-
-DEFAULT_GUARDRAILS_ENDPOINT = "http://10.0.70.125:8005/api/chat"
+DEFAULT_GUARDRAILS_ENDPOINT = os.getenv(
+    "GUARDRAILS_ENDPOINT", "http://10.0.70.125:8005/api/chat"
+)
 _MAX_METADATA_CHARS = 4096
 
 RequestFn = Callable[[dict[str, Any], str], Mapping[str, Any] | Awaitable[Mapping[str, Any]]]
@@ -62,14 +64,17 @@ async def pre_download_safety_check(
         "stream": False,
     }
     try:
+        target_endpoint = DEFAULT_GUARDRAILS_ENDPOINT
+        raw_resp: Mapping[str, Any] | Awaitable[Mapping[str, Any]]
         if request is None:
-            response = await asyncio.to_thread(
-                _default_request, payload, DEFAULT_GUARDRAILS_ENDPOINT
+            raw_resp = await asyncio.to_thread(
+                _default_request, payload, target_endpoint
             )
         else:
-            response = request(payload, DEFAULT_GUARDRAILS_ENDPOINT)
-        if inspect.isawaitable(response):
-            response = await response
+            raw_resp = request(payload, target_endpoint)
+        response: Mapping[str, Any] = (
+            await raw_resp if inspect.isawaitable(raw_resp) else raw_resp  # type: ignore[assignment]
+        )
         return not _is_unsafe(response)
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return True

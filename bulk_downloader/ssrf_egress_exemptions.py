@@ -144,7 +144,8 @@ ACCOUNTED = {
         "module to learn the latest yt-dlp version at boot"),
     "bulk_downloader/guardrails.py::_default_request": (
         "exempt",
-        "the only caller passes the fixed local guardrails endpoint constant; "
+        "the destination is the operator-configured guardrails endpoint "
+        "(GUARDRAILS_ENDPOINT, default 10.0.70.125:8005); "
         "untrusted metadata is sent in the JSON body, never used as a destination"),
     "bulk_downloader/semantic_search.py::_rerank": (
         "exempt",
