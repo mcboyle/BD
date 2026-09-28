@@ -88,11 +88,13 @@ class Launch:
     def holders(self, *seats: str) -> None:
         (self.stub / "holders").write_text("".join(s + "\n" for s in seats))
 
-    def run(self, role: str, **extra: str) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, role: str, *args: str, **extra: str
+    ) -> subprocess.CompletedProcess[str]:
         env = dict(self.env)
         env.update(extra)
         return subprocess.run(
-            ["bash", str(self.cand), role, NAME, "flash"],
+            ["bash", str(self.cand), role, NAME, "flash", *args],
             env=env,
             capture_output=True,
             text=True,
@@ -193,3 +195,15 @@ def test_allow_dup_bypasses_loudly(launch: Launch) -> None:
     r = launch.run("audit", BD_LAUNCH_ALLOW_DUP="1")
     assert r.returncode == 5, r.stdout + r.stderr
     assert "ALLOW_DUP=1 -- guard bypassed for audit" in r.stderr
+
+
+def test_dry_run_neither_guards_nor_claims(launch: Launch) -> None:
+    """G4: BH2-13's --dry-run runs nothing outside the launcher; `who` reaps the registry (a write), so the guard is
+    skipped there. A held SINGLE role still prints the DRY plan, and the claim tool is never invoked."""
+    launch.holders(OTHER)
+    r = launch.run("audit", "--dry-run")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.startswith(f"DRY {NAME} role=audit"), r.stdout
+    assert launch.log("claim.log") == []
+    assert not launch.started()
+    assert not launch.workdir.exists()
