@@ -15,7 +15,7 @@ function jsonResponse(body: unknown): Response {
   } as unknown as Response;
 }
 
-function mockDashboardFetch() {
+function mockDashboardFetch(failed = 0, hasSiteAttention = true) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
 
@@ -25,13 +25,13 @@ function mockDashboardFetch() {
     if (url.includes("/api/dashboard/v2")) {
       return Promise.resolve(jsonResponse({
         ok: true,
-        attention: [{
+        attention: hasSiteAttention ? [{
           site_id: "site-1",
           name: "Example Site",
           kind: "captcha_pending",
           label: "Captcha pending",
           since_ts: 0,
-        }],
+        }] : [],
         by_site: [{
           site_id: "site-1",
           name: "Example Site",
@@ -40,7 +40,7 @@ function mockDashboardFetch() {
           running: 0,
           today_done: 1,
         }],
-        today: { done: 1, running: 0, failed: 0 },
+        today: { done: 1, running: 0, failed },
         active_workers: 0,
         workers_active: 0,
         workers_total: 1,
@@ -158,5 +158,31 @@ describe("Home dashboard widget coverage", () => {
     expect(
       screen.getByLabelText("Drag to reorder lib_top_studio tile"),
     ).toBeInTheDocument();
+  });
+});
+
+
+describe("Home attention summary", () => {
+  it("never declares all clear while failed runs need attention", async () => {
+    vi.stubGlobal("fetch", mockDashboardFetch(6, false));
+    mountHome();
+    expect(await screen.findByText("Failed runs", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("All clear")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nothing needs attention right now.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the all-clear state when both attention sources are empty", async () => {
+    vi.stubGlobal("fetch", mockDashboardFetch(0, false));
+    mountHome();
+    expect(await screen.findByText("All clear")).toBeInTheDocument();
+    expect(screen.queryByText("Failed runs", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("keeps site alerts visible alongside failed runs", async () => {
+    vi.stubGlobal("fetch", mockDashboardFetch(6, true));
+    mountHome();
+    expect(await screen.findByText("Captcha pending", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Failed runs", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText("All clear")).not.toBeInTheDocument();
   });
 });

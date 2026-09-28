@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { Check, CheckCircle2, GripVertical, ListPlus, Plus, RotateCcw, Settings2, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, GripVertical, ListPlus, Plus, RotateCcw, Settings2, Wand2 } from "lucide-react";
 import { Responsive, WidthProvider, type Layouts } from "react-grid-layout";
 
 import "react-grid-layout/css/styles.css";
@@ -423,6 +423,8 @@ function buildWidgets(
   const legacyRenderers: Record<WidgetId, React.ReactNode> = {
     attention: data.attention?.length ? (
       <AttentionBanner attention={data.attention} />
+    ) : (data.today?.failed ?? 0) > 0 ? (
+      <EmptyState compact icon={AlertTriangle} title="Review failed runs" hint="Open failed runs from the needs-attention summary above." />
     ) : (
       <EmptyState compact icon={CheckCircle2} title="All clear" hint="Nothing needs attention right now." />
     ),
