@@ -18,18 +18,23 @@ from typing import Callable, Optional, Sequence
 
 HEAD_START_SECONDS = 0.250
 
-# (ok, payload): payload is the stream on success, the OSError on failure
+# (ok, payload): payload is the stream on success, the exception on failure
 _Outcome = tuple[bool, object]
 
 
 def race_connect(candidates: Sequence[str], port: int, *,
                  connect: Callable[[str, int, Optional[float]], object],
                  timeout: Optional[float] = None,
-                 head_start: float = HEAD_START_SECONDS):
+                 head_start: float = HEAD_START_SECONDS,
+                 lost: tuple[type[BaseException], ...] = (OSError,)):
     """Return the first stream ``connect(ip, port, timeout)`` yields for one
-    of ``candidates`` (vetted literals, IPv6 first).  Raises the last OSError
-    when every attempt fails; a non-OSError from ``connect`` is its bug and
-    propagates as-is (never treated as a lost race)."""
+    of ``candidates`` (vetted literals, IPv6 first).  Raises the last failure
+    when every attempt fails.  ``lost`` names the exceptions that mean "this
+    candidate did not connect" (default OSError); anything else from
+    ``connect`` is its bug and propagates as-is (never treated as a lost race).
+    dl-f3: a backend that maps OSError to its own type (httpcore's SyncBackend
+    raises httpcore.ConnectError) must pass that type here, or an instant IPv6
+    failure aborts the race before IPv4 is tried."""
     if not candidates:
         raise OSError("no vetted address to connect to")
     if len(candidates) == 1:
@@ -80,7 +85,7 @@ def race_connect(candidates: Sequence[str], port: int, *,
             won.set()
             return payload
         last_error = payload  # type: ignore[assignment]
-        if not isinstance(payload, OSError):
+        if not isinstance(payload, lost):
             raise payload  # type: ignore[misc]
         if pending:
             start(pending.pop(0))
