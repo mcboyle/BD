@@ -31,6 +31,13 @@
 : "${MOD3_DSN:=postgresql://mod3_ci:mod3_ci_password@127.0.0.1:5432/mod3_ci}"
 export MOD3_DSN
 
+# SUDO is normally set by the caller (cloud-setup.sh, provision_test_host.sh);
+# a set -u caller that did not set it must not die on first use. An explicit
+# SUDO="" (root caller) is kept.
+if [ -z "${SUDO+set}" ]; then
+  SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+fi
+
 bd_mod3_env_persist(){
   # PERSIST THE DSN WHERE A NON-INTERACTIVE RUN CAN SEE IT (@1064).
   #

@@ -17,15 +17,18 @@
 #   --allow-risky   also run the gated live mutations (B2 real download, VPNKILL
 #                   trigger); each still envelopes + reverts. Omit to only stage
 #                   them and print the runbook.
-# OUTPUT:  /tmp/bd_opv_run/  (ledger + per-item logs)
+# OUTPUT:  a fresh ${TMPDIR:-/tmp}/bd_opv_run.XXXXXX/  (ledger + per-item logs; path printed)
 
 set -uo pipefail
 R="${1:-$PWD}"; BASE="${2:-http://127.0.0.1:5555}"; ALLOW_RISKY=0
 for a in "$@"; do [ "$a" = "--allow-risky" ] && ALLOW_RISKY=1; done
-OUT=/tmp/bd_opv_run; JAR=/tmp/bd_opv_run.jar; LEDGER="$OUT/LEDGER.txt"
 PY="$R/venv/bin/python"; [ -x "$PY" ] || PY="python3"
 [ -f "$R/bulk_downloader/__init__.py" ] || { echo "not a BD checkout: $R"; exit 2; }
-cd "$R" || { echo "cannot cd into $R"; exit 2; }; rm -rf "$OUT" "$JAR"; mkdir -p "$OUT"
+cd "$R" || { echo "cannot cd into $R"; exit 2; }
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/bd_opv_run.XXXXXX")" || { echo "cannot create output dir"; exit 2; }
+JAR="$OUT/.cookies"
+LEDGER="$OUT/LEDGER.txt"
+echo "OPV run output: $OUT/"
 led(){ printf '%-22s %-10s %s\n' "$1" "$2" "$3" | tee -a "$LEDGER"; }
 hdr(){ echo; echo "== $* =="; }
 

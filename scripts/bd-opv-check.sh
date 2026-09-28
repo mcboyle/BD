@@ -12,19 +12,19 @@
 #
 # USAGE:  bash scripts/bd-opv-check.sh [repo-dir] [base-url]
 #   repo-dir  default: $PWD    base-url  default: http://127.0.0.1:5555
-# OUTPUT:  /tmp/bd_opv_check/  and  /tmp/bd_opv_check.tar.gz  (upload the .tgz)
+# OUTPUT:  a fresh ${TMPDIR:-/tmp}/bd_opv_check.XXXXXX/ and its .tar.gz (upload the .tgz;
+#          both paths are printed at the end)
 
 set -uo pipefail
 R="${1:-$PWD}"
 BASE="${2:-http://127.0.0.1:5555}"
-OUT=/tmp/bd_opv_check
 PY="$R/venv/bin/python"; [ -x "$PY" ] || PY="python3"
-JAR=/tmp/bd_opv_check.jar
-SUM="$OUT/00_SUMMARY.txt"
 
 [ -f "$R/bulk_downloader/__init__.py" ] || { echo "not a BD checkout: $R"; exit 2; }
 cd "$R"
-rm -rf "$OUT" "$JAR"; mkdir -p "$OUT"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/bd_opv_check.XXXXXX")" || { echo "cannot create output dir"; exit 2; }
+JAR="$OUT/.cookies"
+SUM="$OUT/00_SUMMARY.txt"
 
 # ---- identity + csrf ----------------------------------------------------------
 {
@@ -168,7 +168,7 @@ PYEOF
 
 # ---- bundle -------------------------------------------------------------------
 say ""; say "========================================================================"
-say "Done. Upload /tmp/bd_opv_check.tar.gz"
+say "Done. Upload $OUT.tar.gz"
 rm -f "$JAR" "$OUT/_csrf.json" "$OUT/gc.json"
-tar czf /tmp/bd_opv_check.tar.gz -C /tmp bd_opv_check 2>/dev/null
-ls -la /tmp/bd_opv_check.tar.gz
+tar czf "$OUT.tar.gz" -C "${OUT%/*}" "${OUT##*/}" 2>/dev/null
+ls -la "$OUT.tar.gz"

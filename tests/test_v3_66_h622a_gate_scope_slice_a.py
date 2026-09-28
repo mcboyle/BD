@@ -102,6 +102,8 @@ ADDED_SINCE_REPO_WIDE = (
     # O1264(d): the gate over tools/ci_shards.py itself (names == matrix, the
     # partition is exact, every declared gate is in exactly one shard).
     "tests/test_ci_shards.py",
+    # BH-SCRIPTS: deploy_fleet / dev_capabilities / capture_instance / opv scripts gate.
+    "tests/test_bh_wave1_scripts.py",
 )
 
 

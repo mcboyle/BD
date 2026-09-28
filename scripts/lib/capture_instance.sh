@@ -29,9 +29,14 @@ bd_capture_validate_port() {
   [ "$port" -ge 1024 ] && [ "$port" -le 65535 ]
 }
 
+# Resolved at source time: the probe must not depend on the caller's cwd, or a
+# missing interpreter (exit 127) reads as "port taken" for every port.
+_BD_CAPTURE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 bd_capture_port_is_free() {
   local port="$1"
-  local python="${CAPTURE_PORT_PROBE_PYTHON:-venv/bin/python}"
+  local python="${CAPTURE_PORT_PROBE_PYTHON:-$_BD_CAPTURE_REPO/venv/bin/python}"
+  [ -n "${CAPTURE_PORT_PROBE_PYTHON:-}" ] || [ -x "$python" ] || python=python3
   "$python" -c 'import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
