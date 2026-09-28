@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1688 - train116-bh: row
+
+- BH-P005 repo half (bd-agy-worker-2, tree c42cb3b2): tests/test_bh_p005_fleet_mcp.py for bd-fleet-mcp server/cli fixes (grok-audit-2 001/002/005-010; harness USOS 4f2583e12).
+
+
 ## v3.66.1687 - train115-bh-wave1: row
 
 - bh-wave1 H-SSH-STDIN repo half (bd-fixer-B1-B, tree 85adef68): tests/test_bh_wave1_ssh_stdin.py regression test for harness ssh stdin fixes (findings BH-bd-grok-audit-1-004/005/006; harness a3458f7).
