@@ -124,6 +124,34 @@ def record_run_finish(run_id, status, reason_code=None):
                     type(e).__name__, e)
 
 
+def close_site_runs(site_id, status="cancelled", reason_code="site_deleted"):
+    """Close every still-'running' run of a deleted site. Returns the count closed.
+
+    dl-f7: a site DELETE retires the runner that would have called
+    record_run_finish, so its open rows stayed 'running' forever. Rows are
+    closed, never purged -- run history is a retained record. Advisory: 0 on
+    failure, never raises.
+    """
+    try:
+        with db.db_conn() as cx:
+            ids = [r[0] for r in cx.execute(
+                "SELECT id FROM job_runs WHERE site_id=? AND status='running'",
+                (str(site_id),)).fetchall()]
+            for rid in ids:
+                cx.execute(
+                    "UPDATE job_runs SET status=?, reason_code=?, "
+                    "finished_at=strftime('%Y-%m-%dT%H:%M:%S','now') WHERE id=?",
+                    (str(status), str(reason_code), rid))
+                cx.execute(
+                    "INSERT INTO run_events(run_id, event_type, detail) VALUES(?,?,?)",
+                    (rid, "finish", str(status)))
+            return len(ids)
+    except Exception as e:
+        log.warning("close_site_runs failed (advisory): %s: %s",
+                    type(e).__name__, e)
+        return 0
+
+
 # ── event-bus integration (advisory) ────────────────────────────────────
 
 def emit_lifecycle(runner, phase, run_id=None, url=None, message=""):
