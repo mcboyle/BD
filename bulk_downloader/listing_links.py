@@ -53,6 +53,11 @@ def is_video_link(absolute: str, *, filter_listings: bool = True) -> bool:
     return by_shape or not _is_facet(path)
 
 
+def anchor_count(html: str) -> int:
+    """How many <a href> the page's HTML has (the empty-result hint reports it)."""
+    return len(_HREF.findall(html))
+
+
 def extract_video_links(html: str, base_url: str, *, max_links: int,
                         filter_listings: bool = True) -> list[str]:
     """The distinct video-looking links of `html`, absolute against `base_url`, in page order."""

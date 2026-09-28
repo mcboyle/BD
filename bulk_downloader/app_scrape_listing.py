@@ -81,11 +81,23 @@ def api_scrape_listing():
         return jsonify({"ok": False, "error": "fetch blocked by SSRF policy"}), 502
     except httpx.HTTPError as e:
         return jsonify({"ok": False, "error": f"fetch failed: {type(e).__name__}: {e}"}), 502
-    from bulk_downloader.listing_links import extract_video_links
+    from bulk_downloader.listing_links import anchor_count, extract_video_links
     found = extract_video_links(html, url, max_links=max_links,
                                 filter_listings=bool(body.get("filter_listings", True)))
-    return jsonify({"ok": True, "url": url, "found": found,
-                    "count": len(found), "html_size": len(html)})
+    out = {"ok": True, "url": url, "found": found,
+           "count": len(found), "html_size": len(html)}
+    if not found:
+        # dl95-dailymotion-3: a JS-rendered listing (dailymotion: 58 KB, 0 <a href>)
+        # yields nothing here. Say what was measured and where the rendered crawl is,
+        # instead of an empty result the UI can only toast.
+        anchors = anchor_count(html)
+        out["anchors"] = anchors
+        out["hint"] = (
+            f"No video links in this page's HTML ({anchors} links, "
+            f"{len(html) // 1024} KB). If the listing is built by JavaScript, crawl it "
+            "rendered: DOM analyzer > Discover scenes with this URL as the listing page, "
+            "or the browser extension's scrape action.")
+    return jsonify(out)
 
 
 def register_routes(app) -> int:
