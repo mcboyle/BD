@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1688 - train116-bh: row
+
+- BH-201 (bd-worker-A2-A, tree 247744f3): toolchain bd-vpn-proof/bd-sbcap/bd-reindex exit-code fixes + regression test.
+- BH-SCRIPTS (bd-worker-A2-A, tree af7777d6): deploy_fleet.sh unterminated last host, dev_capabilities unbound SUDO, capture_instance/opv/stash-report fixes + regression test.
+- BH-P005 repo half (bd-agy-worker-2, tree c42cb3b2): tests/test_bh_p005_fleet_mcp.py for bd-fleet-mcp server/cli fixes (grok-audit-2 001/002/005-010).
+
+
 ## v3.66.1687 - train115-bh-wave1: row
 
 - bh-wave1 H-SSH-STDIN repo half (bd-fixer-B1-B, tree 85adef68): tests/test_bh_wave1_ssh_stdin.py regression test for harness ssh stdin fixes (findings BH-bd-grok-audit-1-004/005/006; harness a3458f7).
