@@ -20,6 +20,15 @@ permissions:
   contents: read
   pull-requests: read
 
+# CIPIP (FINDING-CI-PIP-INSTALL-FLAKES): pip's default 15 s read timeout turned PyPI blips into
+# "ReadTimeoutError ... read timeout=15" and then "No matching distribution found ... (from versions: none)"
+# (run 36409432728). pip reads PIP_<OPTION> from the environment, so this reaches every pip call in every
+# job, on GitHub and Gitea alike. Still bounded: a dead index fails after PIP_RETRIES+1 attempts of at most
+# PIP_TIMEOUT seconds each -- a retry must not turn an outage into a hang or a pass.
+env:
+  PIP_TIMEOUT: "60"
+  PIP_RETRIES: "8"
+
 jobs:
   ci_docs_only:
     name: docs-only CI selection
@@ -139,30 +148,33 @@ jobs:
           fetch-depth: 0
 
       - name: Secret scan (fails on anything not baselined)
-        # gitleaks-action needs a GitHub-issued token/licence; on the local Gitea
-        # runner (GITEA_ACTIONS=true) the same scan runs from the pinned binary
-        # below with the same config, baseline and exit semantics.
-        if: ${{ !env.GITEA_ACTIONS }}
-        uses: gitleaks/gitleaks-action@v2
+        # O1479: gitleaks-action@v2 never handed GITLEAKS_BASELINE_PATH to gitleaks (its own log shows the
+        # `gitleaks detect` argv without --baseline-path), so the full-history schedule scan failed on the 42
+        # baselined findings. GitHub and the local Gitea runner now run the SAME pinned binary with the same
+        # config, baseline and exit code. Both hosts scan full history on schedule, the PR commits on
+        # pull_request, and the pushed commits on push. Missing/unavailable base commits fall back to full
+        # history (new branch, force push, missing event metadata) -- scanning more, never less.
         env:
-          # gitleaks-action@v2 requires a token to scan PRs (breaking change,
-          # 2025); the auto-provided GITHUB_TOKEN is sufficient for a public/
-          # private repo scan -- no gitleaks license key needed for a user repo.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITLEAKS_BASELINE_PATH: .gitleaks-baseline.json
-
-      - name: Secret scan (local Gitea runner, pinned gitleaks binary)
-        if: ${{ env.GITEA_ACTIONS }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           V=8.24.3
           curl -fsSL -o /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz"
           tar -xzf /tmp/gl.tgz -C /tmp gitleaks
           /tmp/gitleaks version
-          # Same range the action scans on GitHub: the commits this PR/push adds.
-          git fetch -q origin main
-          /tmp/gitleaks git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --redact --exit-code 1 -v --log-opts="origin/main..HEAD" .
+          if [ "$EVENT" = schedule ]; then
+            RANGE=""
+          elif [ "$EVENT" = pull_request ] && [ -n "${PR_BASE:-}" ] && git cat-file -e "${PR_BASE}^{commit}" 2>/dev/null; then
+            RANGE="$PR_BASE..HEAD"
+          elif [ "$EVENT" = push ] && [ -n "${PUSH_BEFORE:-}" ] && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            RANGE="$PUSH_BEFORE..HEAD"
+          else
+            RANGE=""
+          fi
+          echo "gitleaks range: ${RANGE:-full history}"
+          /tmp/gitleaks git --config .gitleaks.toml --baseline-path .gitleaks-baseline.json --redact --exit-code 1 -v ${RANGE:+--log-opts="$RANGE"} .
 
       - uses: actions/setup-python@v5
         with:
