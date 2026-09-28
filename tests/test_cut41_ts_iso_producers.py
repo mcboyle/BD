@@ -237,15 +237,17 @@ def test_auto_teach_needs_review_writes_a_countable_stamp(runner_db):
     from bulk_downloader.runner import SiteRunner
     r = SiteRunner("cut41_teach", {"name": "cut41_teach",
                                    "auto_teach_first_run": True})
-    r.jobs[_URL] = {"status": "pending", "message": ""}
+    # dl-f2: a page URL -- a direct-media href (like _URL, .mp4) is exempt from auto-teach
+    url = "https://example.invalid/cut41-page"
+    r.jobs[url] = {"status": "pending", "message": ""}
 
-    handled = r._handle_auto_teach_check(_URL, r.jobs[_URL])
+    handled = r._handle_auto_teach_check(url, r.jobs[url])
     assert handled, (
         "_handle_auto_teach_check declined to handle the URL, so the "
         "needs_review branch never ran and this test measured nothing "
         "(UNKNOWN fails)")
 
-    job = r.jobs[_URL]
+    job = r.jobs[url]
     assert job["status"] == "needs_review", job
     _assert_countable(job, "auto_teach needs_review")
 
