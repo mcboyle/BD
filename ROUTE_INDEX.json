@@ -1531,7 +1531,7 @@
       "endpoint": "cockpit_home.api_cockpit_nav",
       "function": "api_cockpit_nav",
       "file": "bulk_downloader/app_cockpit_home.py",
-      "line": 89,
+      "line": 88,
       "csrf": false,
       "spa_wired": false,
       "operator_facing": true,

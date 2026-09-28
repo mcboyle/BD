@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1706 - train134: row113
+
+T134 (PM standing: all BOARDed repo cuts; P3-LENS-QUEUE.tsv census on 1d9a5f81, T134/census.tsv; row113-r2 per PM inbox 20:36Z, row 113 already CLOSED @1117 so not re-closed): o1503-gpu-p0 e3115a6a; o1503-gpu-p1 ad4e88e5; o1505-distill dc79a1da; bh1-39-bd-worker-B3-B 18ac27b6; bh2-12-g4-bd-worker-B3-B 9e8da5a4; bh2-14-fwd-bd-worker-B3-B 1ee7c437; bh2-44-r1-bd-worker-A3-A 802d319d; row113-r2-bd-worker-B2-B 0ad3bce2. Register anchor row 113 re-pointed :121 -> :93 and bh1-39 subprocess budget 900 -> 180s in place (O1481). Held: bh1-13, bh1-47 (stub fix), bh2-27 G2 (Claude leg). No deploy.
+
+
 ## v3.66.1705 - train133: row
 
 T133 (PM standing: all BOARDed repo cuts; P3-LENS-QUEUE.tsv census on 2aba09cd + dispatch-B APPLY-BATCH-1904Z/1954Z/2014Z; bh1-13 held per 2014Z): bh1-19-bd-worker-A5-A 015e6142; bh2-20-bd-agy-worker-1 b0177df2; bh2-28-bd-agy-trainer-1 8689b238; H149-fwd-bd-worker-A3-A f7eef7b1; launch-frozen-prompt-race-bd-cx-worker-2 f1817fe2; bh2-18-bd-worker-B2-B 501d6bdf; bh1-26-bd-cx-worker-1 15a04888; bh1-43-bd-worker-B2-B 96a21898; bh2-03-fwd-bd-worker-B5-B 2389cc10; o1504-kimi-consumed-bd-worker-A2-A 9eafd3ee; bh1-21-bd-worker-A6-A b1f6dc82. LC_ALL pinned in place (O1481) in bh2-18, bh2-28, o1504-kimi. No deploy.

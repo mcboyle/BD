@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5164,
+  "edge_count": 5165,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4560,6 +4560,9 @@
       "bulk_downloader/log.py",
       "bulk_downloader/netlog_classify.py",
       "bulk_downloader/network_log_reducer.py"
+    ],
+    "tests/test_row113_cockpit_home_dead_helpers.py": [
+      "bulk_downloader/app_cockpit_home.py"
     ],
     "tests/test_row122_challenge_resume_event.py": [
       "bulk_downloader/challenge_handling.py",
