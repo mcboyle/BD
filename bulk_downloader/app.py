@@ -5797,6 +5797,28 @@ def _store_site_password_in_vault(sid, password):
     """
     from . import secrets_store as ss
     backend = ss.get_backend()
+    # O1567 (wrk-191 clone site): a "@cred:" value is a reference, never a
+    # password. Storing it verbatim made every login type the reference text.
+    if isinstance(password, str) and password.startswith(ss.CRED_PREFIX):
+        from urllib.parse import urlparse
+        own_key = ss.site_password_key(sid)
+        key = password[len(ss.CRED_PREFIX):]
+        if key == own_key:
+            s_cfg[sid]["password"] = ss.make_password_reference(sid)
+            return True, None
+        src_sid = key[len("bulkdl-site-"):] if key.startswith("bulkdl-site-") else ""
+        src = s_cfg.get(src_sid) if src_sid else None
+        host = lambda c: (urlparse((c or {}).get("login_url") or "").hostname or "").lower()
+        if src is None or not host(src) or host(src) != host(s_cfg[sid]):
+            return False, ("cred-ref refused: a @cred: reference may only copy "
+                           "another site's password onto a site with the same "
+                           "login host")
+        try:
+            password = backend.get(key)
+        except Exception as e:  # noqa: BLE001
+            return False, f"cred-ref refused: {e}"
+        if not password or password.startswith(ss.CRED_PREFIX):
+            return False, "cred-ref refused: referenced vault entry is missing"
     try:
         backend.set(ss.site_password_key(sid), password)
         s_cfg[sid]["password"] = ss.make_password_reference(sid)
