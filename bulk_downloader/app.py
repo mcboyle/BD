@@ -1768,6 +1768,14 @@ def _load_sites_config():
         # is cross-restart persistence with explicit clear — honor it.
         if isinstance(cfg_in.get("draft_test_override"), dict):
             cfg["draft_test_override"] = cfg_in["draft_test_override"]
+        # tpl95-restart-1: the site's learned selectors -- what Teach, drift
+        # recovery and POST /api/sites/<sid>/templates/apply merge in -- are
+        # not a CFG_FIELDS entry either, so the rebuild above dropped them on
+        # every restart and the next save erased them from disk (test2: 1 of
+        # 62 sites still carried a learned block after the 02:31Z restart).
+        # Carried the same way; the url_attribute heal below reads them.
+        if isinstance(cfg_in.get("learned"), dict):
+            cfg["learned"] = cfg_in["learned"]
         # v3.43.16: auto-heal misaligned parallel-array url_attribute.
         # If a previous version's merge_learned added row_selectors at
         # the front without prepending matching url_attribute slots,
