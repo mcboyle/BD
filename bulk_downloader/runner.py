@@ -2132,6 +2132,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     return
             except (TypeError, ValueError):
                 pass  # bad quota config, ignore
+        self._repend_jobs_parked_by_stop()
         with self._lock:
             # v3.36.8: build position map once to avoid O(n²) self.urls.index()
             # calls inside the sort key. For Matt's 2,875-URL queue, the old
@@ -2561,6 +2562,39 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     get_task_drain_engine().resume_task(self.site_id)
                 except Exception:
                     pass
+
+    def _repend_jobs_parked_by_stop(self):
+        """dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
+        "running" -> "stopped", message "Stopped"), and start() admits only
+        "pending" -- so Stop then Start started nothing, left the site stopped
+        with 0 workers, and the API still answered ok. Start re-queues what Stop
+        parked; a user pause (bulk_pause: "Paused by user") stays paused. A
+        "running" job is re-queued only when no worker of this runner is alive:
+        a download-window re-entry ("window_paused") keeps its workers, and the
+        job one of them holds must not be claimed twice."""
+        workers_alive = any(t.is_alive() for t in tuple(getattr(self, "_worker_threads", ())))
+        repended = []
+        with job_status_writer(self) as mark_status_changed:
+            for u, j in self.jobs.items():
+                if not isinstance(j, dict):
+                    continue
+                if ((j.get("status") == "running" and not workers_alive)
+                        or (j.get("status") == "stopped"
+                            and j.get("message") == "Stopped")):
+                    j.update({"status": "pending", "message": "Re-queued on Start",
+                              "ts": _ts()})
+                    if u not in self.urls:
+                        self.urls.append(u)
+                    repended.append(u)
+            if repended:
+                mark_status_changed()
+        if repended:
+            try:
+                queue_bulk_update(self.site_id, repended, status="pending",
+                                  message="Re-queued on Start")
+            except Exception as e:
+                sys.stderr.write(f"[{self.site_id}] re-queue on start not persisted: {e}\n")
+        return len(repended)
 
     @_run_lifecycle_serialized
     def stop(self):
