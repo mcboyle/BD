@@ -668,6 +668,22 @@ def work_affinity(page_url, candidate_url):
 _DL_WORD_RE = re.compile(
     r"download|\bdl\b|save|get\s*it|grab|\.mp4|\.mkv|\.mov|\.webm|\.m4v|\.ts",
     re.I)
+# dl95-hustlerunlimited-1: a cookie-consent (CMP) control is never a download,
+# but "Save preferences" carries _DL_WORD_RE's "save" and was clicked as one
+# (Complianz banner: I Understand / Deny / View|Save preferences / Manage
+# consent). Judged on the WHOLE visible label, so "Save 1080p" still passes.
+_CONSENT_CONTROL_RE = re.compile(
+    r"(?:save|update|confirm|apply|view|manage|customi[sz]e|change|edit)\s+"
+    r"(?:my\s+|your\s+|cookie\s+|privacy\s+|consent\s+)?"
+    r"(?:preferences|settings|choices|consent|options|selection)"
+    r"|(?:accept|allow|reject|decline|deny|refuse)"
+    r"(?:\s+(?:all|selected|selection|necessary|optional))?(?:\s+cookies)?"
+    r"|(?:accept|agree)\s+(?:and|&)\s+(?:close|continue)"
+    r"|(?:only\s+)?(?:use\s+)?(?:necessary|essential|required)\s+cookies(?:\s+only)?"
+    r"|cookies?\s+(?:settings|preferences|policy|consent)"
+    r"|(?:do\s+not|don'?t)\s+sell(?:\s+or\s+share)?"
+    r"(?:\s+my\s+(?:personal\s+)?(?:info|information|data))?",
+    re.I)
 _EXPLICIT_VIDEO_HEIGHT_RE = re.compile(
     r"\d{3,4}\s*p\b|\d{3,4}\s*[x×]\s*\d{3,4}(?!\d)(?!\s*px)|"
     r"mp4_\d{3,4}", re.I)
@@ -2079,6 +2095,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     # Preserve established non-video categories before broader navigation policy.
     if NON_VIDEO_RE.search(visible) or _has_non_video_url_shape(el, page_url):
         return "non_video"
+    if _CONSENT_CONTROL_RE.fullmatch(" ".join(visible.split())):
+        return "consent_control"
     # Reject the same hard navigation URLs as transport before resolution
     # ranking can turn an ad's HD label into a needs-review recommendation.
     _url, rejection = gate_candidate_url(
