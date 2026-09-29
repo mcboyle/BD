@@ -1699,6 +1699,39 @@ def _is_wrapper_not_control(el):
         return False
 
 
+_MEDIA_ROW_TAGS = ("source", "video")
+
+
+def _learned_media_row(el, url_attr):
+    """``(url, label)`` when a taught row matches a player media element.
+
+    tpl95: a template row on ``<source>``/``<video>`` names a URL to FETCH --
+    ``_do_download``'s learned ``url_attribute`` fast path reads it off the
+    winner and never clicks. Such an element has no click target, and a
+    ``<source>`` has no layout box, so the click-oriented checks of the learned
+    loop (visibility, taught-control resolution) do not apply to it.
+
+    ``url`` is ``""`` when the element carries nothing to fetch under the
+    selector's resolved ``url_attribute``; ``label`` is the player's quality
+    label (video.js ``label=``). Returns None for any other element, and for
+    one whose tag cannot be read, so the click path decides as before.
+    """
+    try:
+        tag = el.evaluate("e => e.tagName.toLowerCase()")
+    except Exception:
+        return None
+    if tag not in _MEDIA_ROW_TAGS:
+        return None
+    url = label = ""
+    try:
+        if url_attr:
+            url = (el.get_attribute(url_attr) or "").strip()
+        label = (el.get_attribute("label") or "").strip()
+    except Exception:
+        pass
+    return url, label
+
+
 def _resolve_taught_control(el):
     """Resolve an operator-taught row to the control it is asking us to click.
 
@@ -2215,7 +2248,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # admitted candidates, so both halves of the page report one vocabulary.
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
                           "listing_filter": 0, "short_preview": 0,
-                          "navigation_url": 0}
+                          "navigation_url": 0, "media_without_url": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
@@ -2326,11 +2359,35 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             _VISIBLE_CAP = 30
             _RAW_SCAN_CAP = 200
             _seen_visible = 0
+            sel_url_attr = resolve_url_attribute(
+                learned.get("url_attribute"), row_sels, sel)
             for i in range(min(count, _RAW_SCAN_CAP)):
                 if _seen_visible >= _VISIBLE_CAP:
                     break
                 try:
                     el = loc_all.nth(i)
+                    media = _learned_media_row(el, sel_url_attr)
+                    if media is not None:
+                        media_url, media_label = media
+                        if not media_url:
+                            # Neither fetchable nor clickable: counted, so a
+                            # template naming the wrong attribute is visible.
+                            _note_admission_drop("media_without_url", sel)
+                            continue
+                        txt = f"{media_label} {media_url}".strip()
+                        if _candidate_admission(
+                                el, txt, _page_url, require_signal=False,
+                                label=media_label,
+                                full_length_requested=full_length_requested,
+                                runner=runner) is not None:
+                            continue
+                        _seen_visible += 1
+                        scored.append({
+                            "locator": el, "text": txt[:160],
+                            "score": max(0, res_score(txt)),
+                            "size": parse_size_bytes(txt),
+                            "work": _candidate_work_affinity(el, _page_url)})
+                        continue
                     # v3.66.247: a learned row that is not visible cannot be
                     # clicked. Returning it as a _via_learned hit produces a
                     # false drift "hit", wastes the full expect_download timeout

@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- tpl95-youjizz-1 fixture. Shape of a youjizz scene page as recorded by bd-worker-B4-B on test2
+     2026-09-29 (bd-persist harness-work/UIUX-20260928/B4-B/tpl95/youjizz-template-request.json and
+     youjizz.run.log): the player video#yj-fluid carries ONE <source type=application/x-mpegURL>
+     HLS master; the page also carries the site-nav link "HD" -> /highdefinition/1.html that the
+     wide sweep reported as the 720p tier ("saw: 720p(?):HD /highdefinition/1.html"). No DOM of the
+     scene was retained, so the manifest URL below is illustrative; element, attributes and nav
+     link are as recorded. -->
+<html><head><title>Youjizz scene</title></head><body>
+<nav><a href="/highdefinition/1.html">HD</a> <a href="/newest-clips/1.html">Newest</a></nav>
+<div class="video-wrapper">
+  <video id="yj-fluid" preload="none" style="width:640px;height:360px">
+    <source src="https://cdne-mobile.youjizz.com/videos/127905651/master.m3u8?validfrom=1790650000&amp;validto=1790660000&amp;hash=abc" type="application/x-mpegURL">
+  </video>
+</div>
+</body></html>

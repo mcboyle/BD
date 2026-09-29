@@ -2471,6 +2471,15 @@ class TransportMixin:
         # right here, so the decision happens here.
         is_stream = False
         click_only_grant = False
+        if direct_url:
+            # tpl95: a learned url_attribute can name a manifest -- a player's
+            # HLS <source> -- and the HTTP leg would save the playlist text.
+            _surl, _sname = TransportMixin._stream_route(direct_url, page.url)
+            if _surl:
+                direct_url, suggested, is_stream = _surl, _sname, True
+                sys.stderr.write(
+                    f"  download: learned streaming manifest -> segmented "
+                    f"downloader ({_surl[:90]})\n")
         # Row 722 (G9): a score-0 winner may be a dropdown toggle, or an item
         # inside a shut menu. Open it and re-pick BEFORE any click is spent on
         # an unclickable element; nothing found -> the existing hint below.
