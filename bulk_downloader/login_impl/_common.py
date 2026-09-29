@@ -184,7 +184,8 @@ def resolve_login_trigger(config=None, page=None):
                 if defaults.get("login_trigger"):
                     return str(defaults["login_trigger"]).strip()
     except Exception as tpl_exc:
-        sys.stderr.write(f"  login: template login_trigger default unreadable "
+        from ..log import site_tag  # local: _common stays import-light
+        sys.stderr.write(f"  {site_tag()}login: template login_trigger default unreadable "
                          f"({type(tpl_exc).__name__})\n")
     return ""
 

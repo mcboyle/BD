@@ -34,7 +34,7 @@
     {
       "label": "M3 rotating signed query values become different resources",
       "file": "bulk_downloader/staging_claim.py",
-      "old_regex": "parsed\\.path",
+      "old_regex": "parsed\\.path(?= or \"/\", \"\", \"\"\\))",
       "new": "parsed.path + parsed.query",
       "direction": "overcorrection",
       "control": "tests/test_part_staging_collision.py::test_resource_binding_ignores_rotating_signatures_but_not_a_new_path",

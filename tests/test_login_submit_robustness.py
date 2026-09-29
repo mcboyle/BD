@@ -176,7 +176,7 @@ def _run_delta_login(monkeypatch, tmp_path, before, after, branch, *, unreadable
     monkeypatch.setattr(interstitial, "dismiss_gates", lambda *a, **kw: [])
     monkeypatch.setattr(submit.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(submit, "replay_saved_login_flow", lambda *a: {"ran": False})
-    monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a: (False, False, ""))
+    monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a, **kw: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *a, **kw: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
 

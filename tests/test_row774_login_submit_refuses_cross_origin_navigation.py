@@ -286,7 +286,7 @@ def _drive(monkeypatch, tmp_path, *, final_url, success_url=None,
     monkeypatch.setattr(submit, "time", _Clock())
     monkeypatch.setattr(submit, "replay_saved_login_flow",
                         lambda *a: {"ran": flow_ran, "steps": 3, "ok": True})
-    monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a: (False, False, ""))
+    monkeypatch.setattr(submit, "_fire_login_trigger_if_needed", lambda *a, **kw: (False, False, ""))
     monkeypatch.setattr(submit, "_wait_captcha_tokens", lambda *a, **kw: (None, 0))
     monkeypatch.setattr(submit, "_try_check_remember_me", lambda page: None)
 

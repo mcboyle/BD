@@ -17,8 +17,8 @@
     {
       "label": "M2 ranking ignores resolution (list order wins)",
       "file": "bulk_downloader/spa_media_extract.py",
-      "old_regex": "return \\(-int\\(c\\.get\\(\"height\"\\) or 0\\), -int\\(c\\.get\\(\"size\"\\) or 0\\),",
-      "new": "return (0, -int(c.get(\"size\") or 0),",
+      "old_regex": "(?m)return \\(-int\\(c\\.get\\(\"height\"\\) or 0\\),(?=\\n                is_multi,)",
+      "new": "return (0,",
       "direction": "regression",
       "catcher": "tests/test_row722_spa_api_media_extraction.py::test_ranking_prefers_resolution_over_list_order_and_api_over_page_media"
     },

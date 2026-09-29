@@ -22,7 +22,10 @@
    "old_regex": "(?<=            and )(?=not any\\(_fetched_without_click)",
    "new": "True or ",
    "direction": "overcorrection",
-   "catcher": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestRow759StillHolds::test_a_visible_direct_file_keeps_hidden_files_zeroed"
+   "control": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestRow759StillHolds::test_a_visible_direct_file_keeps_hidden_files_zeroed",
+   "preserves": [
+    "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestHiddenDirectMediaKeepsItsTier::test_the_page_s_1080p_file_wins_over_visible_junk"
+   ]
   },
   {
    "label": "EP3-M3 the stream route is not asked -- a hidden manifest is zeroed",
@@ -38,7 +41,10 @@
    "old_regex": "(?<=if \\(held and )any(?=\\(c)",
    "new": "not any",
    "direction": "overcorrection",
-   "catcher": "tests/test_row722_reveal_href_less_quality_buttons.py::test_negative_b_an_anchor_is_preferred_over_a_button_when_both_appear"
+   "control": "tests/test_row722_reveal_href_less_quality_buttons.py::test_negative_b_an_anchor_is_preferred_over_a_button_when_both_appear",
+   "preserves": [
+    "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestRow759StillHolds::test_a_visible_direct_file_keeps_hidden_files_zeroed"
+   ]
   }
  ]
 }

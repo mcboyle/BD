@@ -1093,7 +1093,7 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
     # decision the row's fix introduced (control flow / vocabulary /
     # template identity), not a value any producer re-derives; each
     # named catcher is the behavioral test that audits that decision.
-    "55f6a07d9173beb2e87da8f67dfbd1b9bf3b0ca9f53c3cc1639972a80be4d8d1":
+    "4f25be93034ec91179baac4c8dddd492c7c1b1872a847b81d7cfd6686cacf738":
         StableValueException(
             "M2 (ranking ignores resolution (list order wins)): the anchor is the fixed decision text this mutant severs; audited by test_ranking_prefers_resolution_over_list_order_and_api_over_page_media",
             "tests/test_row722_spa_api_media_extraction.py",

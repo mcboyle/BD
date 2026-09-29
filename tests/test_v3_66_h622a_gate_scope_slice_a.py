@@ -104,6 +104,8 @@ ADDED_SINCE_REPO_WIDE = (
     "tests/test_ci_shards.py",
     # BH-SCRIPTS: deploy_fleet / dev_capabilities / capture_instance / opv scripts gate.
     "tests/test_bh_wave1_scripts.py",
+    # dl95-porndoe-1 (T154 lane): the test declares BD_GATE_SCOPE = "repo-wide" (NOTE-dl95-porndoe-1-scope.md).
+    "tests/test_dl95_porndoe_1_unstarted_player_feature_media.py",
 )
 
 
