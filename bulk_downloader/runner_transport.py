@@ -300,6 +300,49 @@ def _is_click_only_download_grant(href):
     return not isinstance(href, str) or not href.strip()
 
 
+_SIZED_HREF_MEDIA_EXTS = (".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi", ".wmv", ".flv", ".ts")
+
+
+def _sized_href_download(best, href, page_url):
+    """A ``_DirectURLDownload`` for a sized winner whose click fired nothing.
+
+    dl95-porndig-1 (test2 2026-09-28, porndig 242142): the ranker chose
+    ``<a class="post_download_link agepass_check" href="https://videos.porndig
+    .com/download/index/.../<slug>_UHD4K">UHD 4K : 911 MB</a>`` -- right tier,
+    right size -- but the page's age-pass script eats the click, so no download
+    event fired and the job ended "no dl event; scored ok but no download
+    fired". A plain GET of that href answers 302 -> 206 video/mp4. The href has
+    no media extension, so ``_direct_media_route`` could not claim it earlier.
+
+    Only when the candidate ADVERTISED A SIZE (it describes a file, not a page)
+    and its href resolves to an absolute http(s) URL. The nav gate has already
+    refused homepage/nav/unrelated-host hrefs before any click. A name without
+    an extension gets ``.mp4``; the integrity check still judges the bytes.
+    """
+    try:
+        if not best or int(best.get("size") or 0) <= 0:
+            return None
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(href, str) or not href.strip():
+        return None
+    raw = href.strip()
+    if raw.startswith(("#", "javascript:", "mailto:", "data:")):
+        return None
+    from urllib.parse import urljoin, urlparse, unquote
+    absolute = urljoin(page_url or "", raw)
+    parsed = urlparse(absolute)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    name = unquote(Path(parsed.path or "").name or "").strip()
+    if not name:
+        return None
+    # Not Path.suffix: "porndig.com_<slug>_UHD4K" has the suffix ".com_<slug>...".
+    if not name.lower().endswith(_SIZED_HREF_MEDIA_EXTS):
+        name += ".mp4"
+    return _DirectURLDownload(absolute, name)
+
+
 class _DirectURLDownload:
     """Stand-in for a Playwright ``Download`` when the URL is already known."""
 
@@ -2450,6 +2493,17 @@ class TransportMixin:
                     if dl is not None:
                         direct_url=dl.url
                         suggested=dl.suggested_filename or "download.bin"
+                    if dl is None:
+                        # dl95-porndig-1: the click fired nothing, but the winner
+                        # is a SIZED link whose own href is the file's address.
+                        dl = _sized_href_download(best, _href, page.url)
+                        if dl is not None:
+                            direct_url=dl.url
+                            suggested=dl.suggested_filename
+                            sys.stderr.write(
+                                f"  download: no event on click; sized href "
+                                f"fetched over HTTP -> {suggested} "
+                                f"({direct_url[:90]})\n")
             else:
                 _disarm_popup_grant()
             fallback_tried = []
@@ -2579,7 +2633,11 @@ class TransportMixin:
         # If the template didn't include {ext}, append it. Also, if it
         # somehow rendered to empty, fall back to the suggested filename.
         if not rendered: rendered=suggested
-        elif not Path(rendered).suffix: rendered+=ext
+        # dl95-porndig-1: Path.suffix reads "porndig.com_<slug>_1080p" as having
+        # the suffix ".com_<slug>_1080p", so a dotted site name lost its ".mp4".
+        # Only a real media/ext ending counts as "the template included {ext}".
+        elif not rendered.lower().endswith(_SIZED_HREF_MEDIA_EXTS + (ext.lower(),)):
+            rendered+=ext
         final_path=dl_dir/rendered
         final_path.parent.mkdir(parents=True,exist_ok=True)
 
