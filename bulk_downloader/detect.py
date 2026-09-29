@@ -765,6 +765,13 @@ _NON_VIDEO_URL_SHAPE_RE = (
     re.compile("|".join(_NON_VIDEO_SHAPE_ALTERNATIVES), NON_VIDEO_RE.flags)
     if _NON_VIDEO_SHAPE_ALTERNATIVES else NON_VIDEO_RE)
 _REFINEMENT_LISTING_PATH_RE = re.compile(r"(?:^|/)videos/?$", re.I)
+# dl95-pegasproductions-2: a file under a trailers/teasers DIRECTORY is the
+# public promo, never the scene. On test2 the logged-in scene page linked
+# /trailers/game-hockey-f-en-1080p.mp4; it won as a 1080p .mp4, was saved
+# under the scene's title and closed done, and dedupe then blocked the real
+# scene. A directory segment only: row 508 pins that a /preview/ path and a
+# URL merely containing the word stay admissible.
+_PROMO_DIRECTORY_RE = re.compile(r"(?:^|/)(?:trailers?|teasers?)/", re.I)
 
 
 def _has_non_video_url_shape(el, page_url=""):
@@ -781,7 +788,8 @@ def _has_non_video_url_shape(el, page_url=""):
         except (TypeError, ValueError):
             # An opaque or malformed auxiliary value must not hide a real URL.
             continue
-        if _NON_VIDEO_URL_SHAPE_RE.search(parsed.path):
+        if (_NON_VIDEO_URL_SHAPE_RE.search(parsed.path)
+                or _PROMO_DIRECTORY_RE.search(parsed.path)):
             return True
         # dl95-porn00-1: a link to a site's ROOT (the logo/home link, whose
         # title "Watch free 720p HD Porn Videos" scored 720p) names no file.
