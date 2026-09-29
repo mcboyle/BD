@@ -167,11 +167,31 @@ def _same_site(host: str, page_host: str) -> bool:
     return _registrable(host) == _registrable(page_host)
 
 
+# dl95-dorcelclub-1: a LOCALE ROOT is the homepage too. Measured on the
+# dorcelclub scene page (public HTML 2026-09-29, live run O1513): the brand
+# logo ``<a href="/en/" title="Dorcel Club : HD porn videos streaming and
+# download by Dorcel">`` scored 720p from the word "HD" in its title and won
+# over the real "Download the video" control -- "/en" was not "/", so the
+# homepage rejection never fired. Only a known language code (optionally with
+# a region) is stripped, so "/dl", "/hd" or "/end" are never read as locales.
+_LOCALE_ROOT_LANGS = frozenset((
+    "ar", "cs", "da", "de", "el", "en", "es", "fi", "fr", "he", "hu", "id",
+    "it", "ja", "ko", "nb", "nl", "no", "pl", "pt", "ro", "ru", "sv", "th",
+    "tr", "uk", "vi", "zh"))
+_LOCALE_SEGMENT_RE = re.compile(r"^([a-z]{2})(?:[-_][a-z]{2})?$", re.I)
+
+
 def _is_homepage(url: str) -> bool:
     if not url:
         return False
     s = urlsplit(url)
     path = (s.path or "").rstrip("/")
+    # GEN 3 (lens B16-B F2): only a QUERY-LESS locale root is the homepage;
+    # "/en/?action=getfile&id=123" or a scene served at "/en/?v=8812" is not.
+    head, _sep, rest = path.lstrip("/").partition("/")
+    m = _LOCALE_SEGMENT_RE.match(head)
+    if not s.query and m and m.group(1).lower() in _LOCALE_ROOT_LANGS:
+        path = ("/" + rest).rstrip("/") if rest else ""
     return path in ("", "/index", "/index.html", "/index.php", "/home", "/default")
 
 

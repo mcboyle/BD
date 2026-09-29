@@ -590,8 +590,36 @@ _NON_VIDEO_ITEM_RE = re.compile(
 # (`Full quality video / Save the video` -> /video/stream/<id>, `Photo
 # gallery (ZIP)`) are offsetParent-null until the click. The opener below
 # clicks it, waits for anchors that BECAME visible, and picks as G9 does.
+# dl95-dorcelclub-1: dorcelclub's trigger is `<a href="#download"
+# class="btn-dl" data-pop-in>Download the video</a>` -- an in-page FRAGMENT
+# anchor (it navigates nowhere; its click handler opens the quality pop-in
+# whose rows are href-less `div.filter[data-quality][data-slug]`).
 _REVEAL_TRIGGER_TEXTS = ("download", "download video", "downloads")
+# GEN 3 (lens B16-B F5): the dorcelclub label widens the FRAGMENT-anchor shape
+# only; a JS <button> labelled "Download the video" stays a download itself.
+_FRAGMENT_TRIGGER_TEXTS = _REVEAL_TRIGGER_TEXTS + ("download the video",)
+# dl95-dorcelclub-1 GEN 2: a fragment trigger must NAME its target
+# (`#download`); `#`, `#!`, `#0`, `#/` are JS-download placeholders.
+_NAMED_FRAGMENT_RE = re.compile(r"#[A-Za-z][A-Za-z0-9_:.-]*")
+# GEN 3 (lens B16-B F1/F4): the id of the element a fragment anchor REVEALS --
+# its href target or an aria-controls id that exists, is HIDDEN now, and does
+# not hold the anchor. A visible target is a jump link (b1/b7) or the wrapper
+# of a JS download (`<div id=download><a href=#download>`, b5); a visible
+# aria-controls status line is not a pop-in (b6). '' when there is none.
+_FRAGMENT_REVEAL_TARGET_JS = (
+    "el => { const h = (el.getAttribute('href') || '').trim(); const ids = [];"
+    " if (/^#[A-Za-z][A-Za-z0-9_:.-]*$/.test(h)) ids.push(h.slice(1));"
+    " (el.getAttribute('aria-controls') || '').split(/\\s+/)"
+    "   .forEach(c => { if (c) ids.push(c); });"
+    " for (const id of ids) { const t = document.getElementById(id);"
+    "   if (!t || t === el || t.contains(el)) continue;"
+    "   const cs = getComputedStyle(t);"
+    "   if (cs.display === 'none' || cs.visibility === 'hidden'"
+    "       || (t.offsetParent === null && cs.position !== 'fixed')) return id; }"
+    " return ''; }")
 _REVEAL_SETTLE_MS = 2000
+_FILE_RESPONSE_RE = re.compile(
+    r"^\s*(?:video/|audio/|application/(?:octet-stream|zip|x-zip|x-rar|x-7z))", re.I)
 _REVEAL_MEDIA_RE = re.compile(
     r"full\s*quality|\b(?:480|720|1080|1440|2160)p?\b|\b4k\b|\.mp4|/stream/"
     r"|download|\.zip", re.I)
@@ -601,7 +629,12 @@ _REVEAL_MEDIA_RE = re.compile(
 # option when it BECAME visible and its text names a tier or codec; it is
 # clicked by the click-only path (row 760 popup-grant capture). An upsell
 # control is never clicked.
-_HREF_LESS_OPTION_CSS = "button,[role='menuitem'],[role='option'],li"
+# GEN 3 (lens B16-B F3): a [data-quality] element is an option only as a
+# ROW that carries its file (dorcelclub `div.filter[data-quality][data-slug]`);
+# a quality badge/chip (`<i data-quality>` in an <li>, a player's "4K" chip)
+# is neither an option nor makes its <li>/<button> a wrapper.
+_HREF_LESS_OPTION_CSS = ("button,[role='menuitem'],[role='option'],li,"
+                         "[data-quality][data-slug],[data-quality][data-href]")
 _HREF_LESS_TIER_RE = re.compile(
     r"\b\d{3,4}p\b|\b[48]k\b|\bh\.?26[45]\b|\bhevc\b|\bmp4\b|\bdownload\b", re.I)
 _UPSELL_OPTION_RE = re.compile(
@@ -610,7 +643,15 @@ _UPSELL_OPTION_RE = re.compile(
 
 def _reveal_trigger_for(loc):
     """`loc` when it is a visible bare Download button/role=button with no
-    href and no dropdown marker, else None."""
+    href and no dropdown marker, or (dl95-dorcelclub-1) an anchor whose href
+    is only a NAMED in-page fragment (`#download`) that REVEALS a hidden
+    element (_FRAGMENT_REVEAL_TARGET_JS), else None.
+
+    A bare `href="#"` (or `#!`, `#0`), an anchor carrying its own JS
+    download (onclick/data-href/data-url), or a fragment whose target is
+    already visible is not a reveal: pre-clicking it would fire the download
+    outside the capture (the capture click fetches it a second time) or
+    scroll lazily loaded page content into the "became visible" set."""
     if not _dropdown_visible(loc):
         return None
     try:
@@ -619,19 +660,53 @@ def _reveal_trigger_for(loc):
             " tag: el.tagName.toLowerCase(),"
             " role: (el.getAttribute('role') || '').toLowerCase(),"
             " href: (el.getAttribute('href') || '').trim(),"
+            " target: (" + _FRAGMENT_REVEAL_TARGET_JS + ")(el),"
+            " js: el.hasAttribute('onclick') || el.hasAttribute('data-href')"
+            "   || el.hasAttribute('data-url'),"
             " marked: el.matches(css),"
             " text: (el.innerText || el.textContent || '').trim()})",
             _DROPDOWN_TOGGLE_CSS)
     except Exception:
         return None
-    if not isinstance(shape, dict) or shape.get("marked") or shape.get("href"):
+    if not isinstance(shape, dict) or shape.get("marked"):
         return None
-    if shape.get("tag") != "button" and shape.get("role") != "button":
+    href = shape.get("href") or ""
+    fragment = href.startswith("#")
+    if href and not fragment:
+        return None
+    if fragment and not (_NAMED_FRAGMENT_RE.fullmatch(href)
+                         and shape.get("target") and not shape.get("js")):
+        return None
+    if (shape.get("tag") != "button" and shape.get("role") != "button"
+            and not (shape.get("tag") == "a" and fragment)):
         return None
     text = " ".join((shape.get("text") or "").split()).lower()
-    if text not in _REVEAL_TRIGGER_TEXTS:
+    if text not in (_FRAGMENT_TRIGGER_TEXTS if fragment
+                    else _REVEAL_TRIGGER_TEXTS):
         return None
     return loc
+
+
+def _reveal_scope_id(trigger):
+    """GEN 3 (lens B16-B F4): the id of the hidden element a fragment
+    trigger reveals; only controls INSIDE it are the reveal's options. ''
+    for a bare button (row 722 G20: the modal is anywhere on the page)."""
+    try:
+        if not (trigger.get_attribute("href") or "").strip().startswith("#"):
+            return ""
+        return trigger.evaluate(_FRAGMENT_REVEAL_TARGET_JS) or ""
+    except Exception:
+        return ""
+
+
+def _inside_element_id(loc, element_id):
+    """Whether `loc` sits inside the element with id `element_id`."""
+    try:
+        return bool(loc.evaluate(
+            "(el, id) => { const t = document.getElementById(id);"
+            " return !!t && t.contains(el); }", element_id))
+    except Exception:
+        return False
 
 
 def _visible_anchor_keys(page, css="a[href]"):
@@ -866,9 +941,99 @@ def _open_reveal_download_options(page, trigger, best, quality_preference,
         toggle_label = "Download"
     _reveal_css = "a[href]," + _HREF_LESS_OPTION_CSS
     before = set(_visible_anchor_keys(page, _reveal_css))
+    scope_id = _reveal_scope_id(trigger)     # read while the target is hidden
+    # GEN 4/5 (lens B7-B F1-residual, F1-residual-2): a hidden element
+    # carrying the target id is common (a "your download is starting" modal,
+    # a help panel, a quota tooltip named by aria-controls) and an
+    # addEventListener JS download shows none of onclick/data-href/data-url,
+    # so the attributes cannot tell that shape from the dorcelclub pop-in.
+    # The click itself can: a reveal never navigates a frame, a JS download
+    # does -- the top frame (x1-x3), a hidden iframe (x4), a popup (x7) -- or
+    # it fetch()es the file and saves a blob (x6). The pre-click runs behind
+    # a route guard on the PAGE and on its CONTEXT (popups included) that
+    # ABORTS (net::ERR_ABORTED -- the page stays) every navigation away from
+    # this page in any frame or popup, so no such file GET leaves the browser
+    # and a one-time token is not spent; the trigger is then handed back as
+    # the winner for the capture click (base parity: one GET, under
+    # expect_download). A download event fired by the pre-click (a fetched
+    # blob, an a[download]) is ADOPTED as the result ("_adopted_download";
+    # the capture never re-clicks, so the spent token is the only GET); a
+    # file-typed response with no download event also names the trigger as
+    # the download. fetch/XHR and same-page fragment jumps pass through
+    # (route.fallback), so a pop-in that loads its rows is unaffected; a
+    # pop-in that loads an IFRAME is refused as a JS download and falls
+    # back to the capture click (base parity: no double fetch).
+    fired, downloads, popups, file_responses = [], [], [], []
+    page_url = (page.url or "").split("#", 1)[0]
+
+    def _guard(route, request):
+        try:
+            if (request.is_navigation_request()
+                    and request.url.split("#", 1)[0] != page_url):
+                fired.append(request.url)
+                route.abort("aborted")
+                return
+        except Exception as guard_exc:
+            sys.stderr.write(f"  download: reveal guard could not classify a request "
+                             f"({type(guard_exc).__name__}); passing it through\n")
+        try:
+            route.fallback()
+        except Exception:
+            try:
+                route.continue_()
+            except Exception as cont_exc:
+                sys.stderr.write(f"  download: reveal guard could not release a request "
+                                 f"({type(cont_exc).__name__})\n")
+
+    def _on_response(resp):
+        try:
+            h = {k.lower(): v for k, v in (resp.headers or {}).items()}
+            if _FILE_RESPONSE_RE.search(h.get("content-type", "")) \
+                    or "attachment" in h.get("content-disposition", "").lower():
+                file_responses.append(resp.url)
+        except Exception as resp_exc:
+            sys.stderr.write(f"  download: reveal guard could not read a response "
+                             f"({type(resp_exc).__name__})\n")
+
+    guards = []
+    for scope in (page, getattr(page, "context", None)):
+        try:
+            scope.route("**/*", _guard)
+            guards.append(scope)
+        except Exception as route_exc:
+            sys.stderr.write(f"  download: reveal guard not installed on "
+                             f"{type(scope).__name__} ({type(route_exc).__name__})\n")
+    def _on_download(dl):
+        downloads.append(dl)
+
+    def _on_popup(pop):
+        popups.append(pop)
+
+    listeners = (("download", _on_download), ("popup", _on_popup),
+                 ("response", _on_response))
+    for ev, fn in listeners:
+        try:
+            page.on(ev, fn)
+        except Exception as on_exc:
+            sys.stderr.write(f"  download: reveal guard has no '{ev}' listener "
+                             f"({type(on_exc).__name__})\n")
+
+    def _settle_and_verdict():
+        _unguard_reveal(page, _guard, guards, listeners, popups)
+        if downloads:
+            return _reveal_trigger_is_the_download(
+                trigger, toggle_label, ["download event"], downloads[0])
+        if fired or file_responses:
+            return _reveal_trigger_is_the_download(
+                trigger, toggle_label, fired or file_responses)
+        return None
+
     try:
         trigger.click(timeout=5000)
     except Exception as e:
+        verdict = _settle_and_verdict()
+        if verdict is not None:
+            return verdict
         return {"option": None, "toggle_label": toggle_label, "count": 0,
                 "reason": f"reveal trigger click failed: {e}"[:160]}
     items = []
@@ -890,15 +1055,23 @@ def _open_reveal_download_options(page, trigger, best, quality_preference,
                         continue
                     if key in before:
                         continue
+                    if scope_id and not _inside_element_id(a, scope_id):
+                        continue
                     items.append(a)
             except Exception:
                 items = []
-        if items or time.monotonic() >= deadline:
+        # A file-typed response alone keeps waiting: the blob it feeds
+        # (x6) fires the download event a beat later, and that event is
+        # what lets the capture skip its second click.
+        if items or fired or downloads or time.monotonic() >= deadline:
             break
         try:
             page.wait_for_timeout(_DROPDOWN_POLL_MS)
         except Exception:
             break
+    verdict = _settle_and_verdict()
+    if verdict is not None:
+        return verdict
     options = _collect_download_options(items)
     if not options:
         sys.stderr.write(
@@ -908,6 +1081,48 @@ def _open_reveal_download_options(page, trigger, best, quality_preference,
                 "reason": f"reveal '{toggle_label}' revealed no download option"}
     return _pick_download_option(options, toggle_label, best,
                                  quality_preference, min_resolution, "reveal")
+
+
+def _unguard_reveal(page, guard, guards, listeners, popups):
+    for scope in guards:
+        try:
+            scope.unroute("**/*", guard)
+        except Exception as unroute_exc:
+            sys.stderr.write(f"  download: reveal guard left on {type(scope).__name__} "
+                             f"({type(unroute_exc).__name__})\n")
+    for ev, fn in listeners:
+        try:
+            page.remove_listener(ev, fn)
+        except Exception as off_exc:
+            sys.stderr.write(f"  download: reveal guard '{ev}' listener left on the page "
+                             f"({type(off_exc).__name__})\n")
+    for pop in popups:
+        try:
+            pop.close()
+        except Exception as close_exc:
+            sys.stderr.write(f"  download: reveal guard could not close a popup "
+                             f"({type(close_exc).__name__})\n")
+
+
+def _reveal_trigger_is_the_download(trigger, toggle_label, fired,
+                                    adopted=None):
+    """GEN 4/5: the pre-click navigated a frame or popup (aborted, never
+    sent), answered with a file, or fired a download: the trigger is a JS
+    download, not a reveal. It is returned as the option so the capture
+    click under expect_download spends the file GET exactly once, whichever
+    candidate the trigger was found among; a download it already fired is
+    carried as "_adopted_download" and the capture takes it un-clicked."""
+    sys.stderr.write(
+        f"  download: reveal '{toggle_label}' is a JS download "
+        f"({str(fired[0])[:120]}{'; adopted' if adopted else '; aborted'})\n")
+    option = {"locator": trigger, "text": toggle_label[:160],
+              "label": toggle_label, "height": None, "size": None,
+              "video": True, "href_less": True}
+    if adopted is not None:
+        option["_adopted_download"] = adopted
+    return {"option": option, "toggle_label": toggle_label, "count": 1,
+            "reason": "reveal trigger is a JS download ("
+                      + ("download adopted" if adopted else "navigation aborted") + ")"}
 
 
 def _pick_download_option(options, toggle_label, best, quality_preference,
@@ -2550,8 +2765,15 @@ class TransportMixin:
         if not direct_url:
             _read_popup_grant,_disarm_popup_grant=_arm_popup_grant_capture(page)
             try:
-                with page.expect_download(timeout=self._FIRST_DOWNLOAD_TIMEOUT_MS) as dli: best["locator"].click()
-                dl=dli.value
+                if best.get("_adopted_download") is not None:
+                    # dl95-dorcelclub-1 GEN 5: the reveal pre-click already
+                    # fired this download (a fetched blob / a[download]); a
+                    # second click would spend a one-time token again.
+                    dl=best["_adopted_download"]
+                    sys.stderr.write("  download: taking the download the reveal probe fired\n")
+                else:
+                    with page.expect_download(timeout=self._FIRST_DOWNLOAD_TIMEOUT_MS) as dli: best["locator"].click()
+                    dl=dli.value
                 direct_url=dl.url
                 suggested=dl.suggested_filename or "download.bin"
             except PWTimeout:
