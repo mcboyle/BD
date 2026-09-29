@@ -704,8 +704,8 @@ else
 fi
 
 # D3 U1: Frontend SPA build. Non-fatal — install completes even if
-# Node is missing. /m2 returns 503 with a clear "Node missing" message
-# until this step succeeds. Old /m and / are unaffected either way.
+# Node is missing. The web UI at / (the SPA; /m and /m2 redirect to it)
+# returns 503 with a clear "not built" page until this step succeeds.
 #
 # D5 (v3.64.4): if frontend/dist/index.html already exists, skip the
 # build entirely. Pairs with `tools/build_release.py --prebuild-spa`
@@ -824,7 +824,7 @@ if [ -d "$INSTALL_DIR/frontend" ]; then
                     echo "  WARNING: Node $NODE_VER is older than the required"
                     echo "  ${_node_floor:-18}.x. Skipping frontend build -- /m2 will return"
                     echo "  503 until you upgrade Node and re-run this script."
-                    echo "  The existing UIs at / and /m are unaffected."
+                    echo "  The web UI at / (/m and /m2 redirect there) returns 503 until then."
                     SKIP_BUILD="yes"
                 fi
                 ;;
@@ -860,23 +860,23 @@ if [ -d "$INSTALL_DIR/frontend" ]; then
                 echo "  Frontend built: $INSTALL_DIR/frontend/dist/"
             elif [ "$FE_RC" -eq 2 ]; then
                 echo "  WARNING: Frontend dependency install failed."
-                echo "  /m2 will return 503 until 'cd frontend && npm ci'"
-                echo "  succeeds. The existing UIs at / and /m are unaffected."
+                echo "  The web UI at / (/m and /m2 redirect there) returns 503"
+                echo "  until 'cd frontend && npm ci' succeeds."
             elif [ "$FE_RC" -eq 3 ]; then
                 echo "  WARNING: Frontend build step (vite/tsc) failed."
-                echo "  /m2 will return 503 until 'cd frontend && npm run build'"
-                echo "  succeeds. The existing UIs at / and /m are unaffected."
+                echo "  The web UI at / (/m and /m2 redirect there) returns 503"
+                echo "  until 'cd frontend && npm run build' succeeds."
             else
                 echo "  WARNING: Frontend build failed (exit $FE_RC)."
-                echo "  /m2 will return 503 until the build succeeds. The"
-                echo "  existing UIs at / and /m are unaffected."
+                echo "  The web UI at / (/m and /m2 redirect there) returns 503"
+                echo "  until the build succeeds."
             fi
         fi
     else
         echo "  Node.js / npm not found — SKIPPING frontend build."
-        echo "  /m2 (the new D3 UI) will return 503 with instructions"
-        echo "  until you install Node 18+ and re-run this script. The"
-        echo "  existing UIs at / and /m are unaffected."
+        echo "  The web UI at / (/m and /m2 redirect there) returns 503 with"
+        echo "  instructions until you install the Node that frontend/package.json"
+        echo "  requires (engines) and re-run this script."
     fi
 fi
 

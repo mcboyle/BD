@@ -34,7 +34,7 @@
       "owner": "install_linux.sh",
       "target": "scripts/lib/system_deps.sh",
       "guard_regex": "(?m)^if \\[ \"\\$\\{BD_SKIP_SYSTEM_DEPS:-0\\}\" = \"1\" \\]; then\\n(?s:.*?)^fi$",
-      "guard_sha256": "8bd51886783cbfef48a35bdf6088afc71c4cb13aa2b1c4ee3d6c79330232cce5",
+      "guard_sha256": "0fe98e836af0401ce158c1533f03f660578c19c4445063b6aa3cfd818b924de2",
       "reason": "Absence prints skip and reaches the remaining install."
     },
     {
@@ -69,14 +69,14 @@
       "owner": "install_linux.sh",
       "target": "frontend/package.json",
       "guard_regex": "(?m)^if \\[ -d \"\\$INSTALL_DIR/frontend\" \\]; then\\n(?s:.*?)^fi$",
-      "guard_sha256": "ba5f2a1c009910f1377ee3fbfb34437f6428b8a6cd7bb3ad940640fce3f7b1ce",
+      "guard_sha256": "b41ff3094da12fb3c850531e5a1e36fd6bd974eb92d5c20826662057a64bc796",
       "reason": "Frontend is optional for this installer; absent directory skips build."
     },
     {
       "owner": "install_linux.sh",
       "target": "frontend/package-lock.json",
       "guard_regex": "(?m)^if \\[ -d \"\\$INSTALL_DIR/frontend\" \\]; then\\n(?s:.*?)^fi$",
-      "guard_sha256": "ba5f2a1c009910f1377ee3fbfb34437f6428b8a6cd7bb3ad940640fce3f7b1ce",
+      "guard_sha256": "b41ff3094da12fb3c850531e5a1e36fd6bd974eb92d5c20826662057a64bc796",
       "reason": "Absent lockfile uses npm install; directory itself is optional."
     },
     {
