@@ -1157,7 +1157,7 @@ class ExtractorsMixin:
             url=url,
         )
         return True
-    def _try_spa_api_media_extractor(self, url: str, page) -> bool:
+    def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Consulted by runner.py ONLY after ``find_best_download`` (and the
@@ -1208,6 +1208,13 @@ class ExtractorsMixin:
                 f"API record(s) and {len(page_media)} page media URL(s)\n")
             return False
         ranked = _spa.rank_candidates(cands)
+        if min_height > 0:
+            # dl95-africancasting-3: the min-resolution refusal arm asks only for an
+            # option at or above min_resolution; an unknown height does not qualify.
+            ranked = [c for c in ranked if int(c.get("height") or 0) >= min_height]
+            if not ranked:
+                sys.stderr.write(f"  spa-api: no option at or above {min_height}p\n")
+                return False
         headers_by_record = {r["url"]: r.get("headers") or {} for r in records}
         chosen = None
         for cand in ranked[:6]:
