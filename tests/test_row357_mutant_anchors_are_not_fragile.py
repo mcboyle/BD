@@ -1236,6 +1236,14 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_soak_completion_scope.py",
             r"(?m)^def test_fallback_incidents_count_pg_failures_not_design\(",
         ),
+    # Row 127 (O1507): row127_pg_shard_membership::M2 anchors the census predicate's own
+    # source text; its catcher proves a blinded denominator is a regression.
+    "5dd4386f7cbec400e73584dfc4414b3633cc79e7c2828e30c3f09bf4fcb13261":
+        StableValueException(
+            "M2: the pg-helper import predicate text is audited by the non-empty-denominator test",
+            "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py",
+            r"(?m)^def test_the_denominator_is_not_empty_and_sees_a_known_real_pg_file\(",
+        ),
 }
 _STABLE_VALUE_EXCEPTION_MAX = 54
 
@@ -1296,6 +1304,9 @@ _STABLE_VALUE_EXCEPTION_MAX += 1
 
 # Row PG-CUTOVER-SOAK-COMPLETION: eight fixed gate/receipt policy anchors; audited exceptions
 _STABLE_VALUE_EXCEPTION_MAX += 8
+
+# Row 127 (O1507): row127_pg_shard_membership::M2 predicate text; one audited exception
+_STABLE_VALUE_EXCEPTION_MAX += 1
 
 _FRAGILE_RULES = (
     *_family(

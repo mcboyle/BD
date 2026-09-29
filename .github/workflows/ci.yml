@@ -135,7 +135,8 @@ jobs:
             tests/test_v3_66_1681_mod3_shadow_dialect.py \
             tests/test_v3_66_1682_mod3_pg_compat.py \
             tests/test_soak_completion_scope.py \
-            tests/test_v3_66_1679_mod3_pg_parity_backfill.py
+            tests/test_v3_66_1679_mod3_pg_parity_backfill.py \
+            tests/test_v3_66_1011_mod3_pg_isolation.py
 
   gates:
     runs-on: ubuntu-latest

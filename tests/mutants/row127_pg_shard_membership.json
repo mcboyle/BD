@@ -1,0 +1,26 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 127 (O1507): every file importing tests/mod3_pg_isolation runs in ci.yml postgres-integration. M1 drops 1011 from the job; M2 blinds the AST denominator.",
+  "subject": ".github/workflows/ci.yml",
+  "band": [
+    "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 1011 pg-isolation file dropped from postgres-integration again",
+      "file": ".github/workflows/ci.yml",
+      "old_regex": " \\\\\\n            tests/test_v3_66_1011_mod3_pg_isolation\\.py\\n",
+      "new": "\n",
+      "direction": "regression",
+      "catcher": "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py::test_every_real_pg_file_runs_in_the_postgres_integration_job"
+    },
+    {
+      "label": "M2 the denominator never recognises a helper import",
+      "file": "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py",
+      "old_regex": "any\\(a\\.name == HELPER for a in node\\.names\\)",
+      "new": "False",
+      "direction": "regression",
+      "catcher": "tests/test_row127_every_real_pg_file_runs_in_the_pg_shard.py::test_the_denominator_is_not_empty_and_sees_a_known_real_pg_file"
+    }
+  ]
+}

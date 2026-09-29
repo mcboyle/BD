@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1712 - train140: row127, row127
+
+T140 (HIGH row127 shadow-read fix first, then dl95 product batch, row127 pg shard CI, launch dry-run test): row127-shadow-rewrite-A4-A 6ddc0f49 (HIGH, MOD3 shadow read re-ran writes); row127-pgshard-A4-A c947f987; dl95-blacked-1-bd-worker-A8-A 37ae394c; dl95-reptyle-2-bd-worker-B2-B 4f3f4644; dl95-teenmegaworld-1-bd-worker-A6-A 58d5205b; dl95-app-B6-1-bd-cx-worker-1 1a75361f; dl95-ok-1-bd-cx-worker-2 G2 1858e825 (PM ruling 00:15Z, row761 unchanged); launch-dryrun-writes-prompt-bd-worker-B2-B 3d6ec451. Row 127 is multi-step: no register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1711 - train139: row
 
 T139 (dl95/dl-f product batch): dl95-file-examples-3-bd-worker-B10-B 2adff7b5; dl95-xempire-1-bd-worker-B1-B c97bc008; dl95-dailymotion-6-bd-worker-A6-A 76069997; dl95-file-examples-1-bd-worker-B4-B 331b7025; dl-f2-bd-worker-B5-B 784c8a6d; dl95-file-examples-2-bd-worker-B9-B ca46bdce. DROPPED dl95-ok-1 (row761; G2 in T140) and dl95-africancasting-2 (ratchet defect_DP_total +1, DP-13 in scene_crawler.py). dailymotion-6 test gains a module-table restore fixture in place (O1481). Generated artifacts regenerated. No deploy.

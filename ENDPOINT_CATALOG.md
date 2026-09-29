@@ -480,7 +480,7 @@ POST    /api/push/test                                         CSRF: yes  — Se
 POST    /api/push/unsubscribe                                  CSRF: yes
 GET     /api/queue/dead_letter                                 CSRF: no   — Phase 2 Cut 2.1: list dead-lettered jobs (terminal, retry-exhausted or
 POST    /api/queue/dead_letter/requeue                         CSRF: yes  — Phase 2 Cut 2.1: requeue one dead-lettered job back to pending (retry
-GET     /api/queue/preflight                                   CSRF: no   — Read-only go/no-go strip for the queue (Cut 4). Aggregates existing
+GET     /api/queue/preflight                                   CSRF: no   — Return a recent snapshot; slow checks never occupy a request thread.
 GET     /api/queue/starvation                                  CSRF: no   — Row 990. Per-site starvation / priority-inversion report over the
 POST    /api/queue/tombstone                                   CSRF: yes  — Body: {site_id, url, reason?}. Mark a queue job permanently dead.
 POST    /api/queue/tombstone/untombstone                       CSRF: yes  — Body: {site_id, url}. Reverse a tombstone back to pending.

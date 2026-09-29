@@ -257,9 +257,10 @@ def test_every_do_login_caller_names_the_site_it_is_logging_in():
             callers[rel] = sites
 
     total = sum(len(v) for v in callers.values())
-    assert total == 2, (
-        f"expected exactly the two known do_login call sites (the site runner "
-        f"and the keeper relogin path); found {total}: {callers}")
+    assert total == 3, (
+        f"expected exactly the three known do_login call sites (the site runner, "
+        f"the keeper relogin path, and verify-login's fresh login, dl95-blacked-1); "
+        f"found {total}: {callers}")
     silent = {rel: [ln for ln, named in sites if not named]
               for rel, sites in callers.items()}
     silent = {rel: lines for rel, lines in silent.items() if lines}

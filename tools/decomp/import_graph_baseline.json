@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5186,
+  "edge_count": 5201,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1141,6 +1141,7 @@
       "bulk_downloader/dom_honeypot.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_util.py",
       "bulk_downloader/web_dialog.py"
     ],
     "bulk_downloader/dev_suite/_common.py": [
@@ -1574,6 +1575,7 @@
     "bulk_downloader/login_impl/replay.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
+      "bulk_downloader/cookies.py",
       "bulk_downloader/cross_site_selectors.py",
       "bulk_downloader/log.py",
       "bulk_downloader/login_flow_recorder.py",
@@ -3175,6 +3177,10 @@
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
     ],
+    "tests/test_dl95_blacked_1_verify_login_is_the_worker_login.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/login.py"
+    ],
     "tests/test_dl95_dailymotion_6_failed_dupe_requeue.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
@@ -3184,6 +3190,16 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_dl95_ok_1_admission_before_ranking.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_dl95_reptyle_2_start_names_unarmed_pool.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_dl95_teenmegaworld_1_tier_fallback.py": [
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_dl95_xempire_1_scene_cohort_nav_links.py": [
       "bulk_downloader/scene_crawler.py"
@@ -4201,6 +4217,12 @@
     "tests/test_queue_load_missing_table.py": [
       "bulk_downloader/db.py"
     ],
+    "tests/test_queue_preflight_snapshot.py": [
+      "bulk_downloader/app_queue.py",
+      "bulk_downloader/cookie_health.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/selector_drift.py"
+    ],
     "tests/test_queue_ts_since_cursor_pin.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py",
@@ -4622,6 +4644,11 @@
     ],
     "tests/test_row127_preflight_ratio_dialect_only.py": [
       "bulk_downloader/pg_backend.py"
+    ],
+    "tests/test_row127_shadow_read_never_reruns_a_write.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/pg_backend.py",
+      "bulk_downloader/run_history.py"
     ],
     "tests/test_row1459_the_verified_binary_is_the_executed_binary.py": [
       "bulk_downloader/ffmpeg_bin.py",
