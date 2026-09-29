@@ -2785,6 +2785,12 @@ _QUEUE_COLUMNS = frozenset({
     "listing_title", "lane", "depends_on",
 })
 
+# dl95-porndig-3: a stopped row (Cancel, site Stop) is re-armed only through
+# "pending"; a "running" write is an in-flight transfer's trailing progress,
+# and persisting it would make the next start re-run a cancelled job.
+_NOT_OVER_STOPPED = {"running": " AND status != 'stopped'"}
+
+
 def queue_upsert(site_id, url, **fields):
     """Insert or update a single queue row. Stamps ts_updated automatically.
     Common case is updating an existing row's status/message during a run.
@@ -2824,8 +2830,12 @@ def queue_upsert(site_id, url, **fields):
             cols = ", ".join(f"{k}=?" for k in update_fields)
             cols += ", ts_updated=strftime('%Y-%m-%dT%H:%M:%S','now')"
             params = list(update_fields.values()) + [site_id, url]
-            cur = cx.execute(f"UPDATE queue SET {cols} WHERE site_id=? AND url=?", params)
+            cur = cx.execute(f"UPDATE queue SET {cols} WHERE site_id=? AND url=?"
+                             + _NOT_OVER_STOPPED.get(fields.get("status"), ""), params)
             if cur.rowcount > 0: return
+            if fields.get("status") == "running" and cx.execute(
+                    "SELECT 1 FROM queue WHERE site_id=? AND url=?", (site_id, url)).fetchone():
+                return   # the row exists and is stopped: never replace it with "running"
         # Fall through to insert
         defaults = {"status":"pending","message":"","retries":0,"retry_after":0,
                     "screenshot":"","force_download":0,"priority":"","ord":0,
