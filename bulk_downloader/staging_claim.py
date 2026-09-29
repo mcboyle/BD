@@ -235,9 +235,9 @@ class StagingClaimedByAnotherJob(RuntimeError):
 class StagingResourceMismatch(RuntimeError):
     """This job owns the path, but its staged bytes name another resource.
 
-    This is determinate rather than UNKNOWN: both resource identities were
-    measured and differ. The transport refuses before issuing a Range request,
-    leaving the claim and its bytes untouched for an operator or later retry.
+    Since dl95-reptyle-4 (PM ruling A) ``claim`` no longer raises this: a
+    mismatch sets the staged bytes aside and restarts the job at byte 0. The
+    type stays importable for callers that still catch it.
     """
 
 
@@ -1009,10 +1009,16 @@ def _settle_claim_once(staging: Path, owner: Path, identity: str, *,
                     owner, identity, proven=True, resource=resource)
                 return staging
             if staged_size > 0:
-                raise StagingResourceMismatch(
-                    f"staging resource mismatch for {staging}: this job's "
-                    f"{staged_size} staged byte(s) belong to a different "
-                    "media URL; refusing before a Range request")
+                # dl95-reptyle-4 (PM ruling A, QUESTION-RP4-G2-POLICY): the
+                # bytes are THIS job's, but no validator the claim holds can
+                # prove they are the new URL's object -- an ETag is scoped to
+                # one URL, so equal tags on two URLs prove nothing (G1 REFUTE,
+                # cx-worker-2 F1).  Signed CDN URLs rotate host/path tokens on
+                # every session, so refusing here parked every restore in
+                # needs_review.  Never append and never park: set the bytes
+                # aside (kept as *.orphaned-*.part, listed by crash_recovery,
+                # reaped on operator command) and restart this job at byte 0.
+                _set_aside_unowned_bytes(staging)
             _rewrite_owner(owner, identity, proven=True, resource=resource)
             return staging
         if not exclusive and not minted:

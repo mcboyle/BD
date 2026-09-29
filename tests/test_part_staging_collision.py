@@ -652,6 +652,9 @@ def changed_resource_resume(origin, tmp_path_factory):
         out["staging_census_after_second"] = (
             _byte_census(staging.read_bytes()) if staging.exists() else None)
         out["owner_count_after_second"] = len(list(dl_dir.glob("*.owner")))
+        out["orphan_censuses_after_second"] = [
+            _byte_census(p.read_bytes())
+            for p in sorted(dl_dir.glob("*.orphaned-*.part"))]
     except BaseException as exc:                  # noqa: BLE001 - recorded
         out["unknown"] = f"{type(exc).__name__}: {exc}"
     return out
@@ -682,22 +685,24 @@ def test_changed_resource_resume_measured_its_preconditions(
 
 def test_changed_resource_is_never_appended_to_the_old_resources_bytes(
         changed_resource_resume):
+    # dl95-reptyle-4 (PM ruling A): a changed resource is never appended to
+    # and no longer parks the job -- the old bytes are set aside intact and
+    # the new resource downloads from byte 0.
     r = changed_resource_resume
     _assert_changed_resource_preconditions(r)
-    assert r["second_outcome"] == "refused", (
-        "the same page identity resumed a different media resource and "
-        f"promoted digest {r.get('final_digest')}; source digests are "
-        f"{sorted(r['source_digests'])}, Range requests were "
-        f"{r['second_resource_ranges']}")
-    assert r["second_error_type"] == "_StagingUnavailable"
-    assert "resource mismatch" in r["second_error"].lower()
+    assert r["second_outcome"] == "completed", (
+        f"the changed resource did not restart: {r.get('second_error')}")
     assert (r["owner_record_before_second"]["resource"] ==
             r["first_resource_identity"])
-    assert r["second_resource_ranges"] == []
-    assert r["final_exists"] is False
-    assert r["staging_exists_after_second"] is True
-    assert r["staging_census_after_second"] == {SCENE_A_BYTE: CHUNK}
-    assert r["owner_count_after_second"] == 1
+    assert r["second_resource_ranges"] == [], (
+        "a Range request resumed the new resource over the old bytes: "
+        f"{r['second_resource_ranges']}")
+    assert r["final_exists"] is True
+    assert r["final_size"] == LEN_B
+    assert r["final_digest"] == hashlib.sha256(BODY_B).hexdigest(), (
+        "the promoted file is not exactly the new resource")
+    assert r["orphan_censuses_after_second"] == [{SCENE_A_BYTE: CHUNK}], (
+        "the old resource's staged bytes were not set aside intact")
 
 
 def test_parallel_changed_resource_refuses_before_any_range(
@@ -753,16 +758,23 @@ def test_parallel_changed_resource_refuses_before_any_range(
     assert parallel_claims == [(final, identity, second_url)], (
         f"parallel claim seam fired {len(parallel_claims)} times: "
         f"{parallel_claims!r}")
-    assert outcome == "refused", (
-        "parallel transfer crossed a changed-resource claim; "
-        f"Range requests were {ranges}")
-    assert error_type == "_StagingUnavailable", error
-    assert "resource mismatch" in (error or "").lower()
-    assert ranges == []
-    assert final.exists() is False
-    assert staging.is_file()
-    assert _byte_census(staging.read_bytes()) == census_before
-    assert owner.read_bytes() == owner_before
+    # dl95-reptyle-4 (PM ruling A): the old bytes are set aside intact before
+    # any worker writes, and the new resource lands whole.
+    orphans = sorted(tmp_path.glob("*.orphaned-*.part"))
+    assert [_byte_census(p.read_bytes()) for p in orphans] == [census_before], (
+        f"old staged bytes not set aside intact before the parallel transfer "
+        f"({outcome}: {error_type} {error}); Range requests were {ranges}")
+    assert json.loads(owner.read_bytes())["resource"] == (
+        _resource_identity_for_test(second_url))
+    # This origin ignores a Range END (it serves body[start:]), so the segmented
+    # transfer over-reads and fails its own length check: completion is not
+    # measurable here. The contract is: old bytes aside BEFORE any worker ran,
+    # nothing of the old resource under the new claim, and no spliced file.
+    assert not final.exists() or final.read_bytes() == BODY_B, (
+        f"parallel transfer promoted a spliced file ({outcome})")
+    if staging.exists():
+        assert SCENE_A_BYTE not in _byte_census(staging.read_bytes()), (
+            "old-resource bytes remain under the new resource's claim")
 
 
 def test_resource_binding_ignores_rotating_signatures_but_not_a_new_path(
@@ -784,11 +796,14 @@ def test_resource_binding_ignores_rotating_signatures_but_not_a_new_path(
     assert matched.stat().st_size == CHUNK
     assert matched.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK
 
-    with pytest.raises(sc.StagingResourceMismatch, match="resource mismatch"):
-        sc.claim(final, identity,
-                 resource_url="https://cdn.example/higher-tier.mp4?token=rotated")
-    assert staging.read_bytes() == bytes([SCENE_A_BYTE]) * CHUNK, (
-        "a resource mismatch altered the staged bytes it refused")
+    # dl95-reptyle-4 (PM ruling A): a new path sets the staged bytes aside
+    # (intact) and restarts; it never appends and never refuses.
+    again = sc.claim(final, identity,
+                     resource_url="https://cdn.example/higher-tier.mp4?token=rotated")
+    assert again == staging and not staging.exists()
+    orphans = sorted(tmp_path.glob("*.orphaned-*.part"))
+    assert [p.read_bytes() for p in orphans] == [bytes([SCENE_A_BYTE]) * CHUNK], (
+        "a resource mismatch lost or altered the staged bytes it set aside")
 
 
 def test_a_proven_legacy_claim_binds_without_discarding_its_resume(tmp_path):
