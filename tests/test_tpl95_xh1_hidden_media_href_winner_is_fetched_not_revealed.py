@@ -133,6 +133,8 @@ def _route(monkeypatch, tmp_path, page, best):
     r.config = {"name": "fixture", "quality_preference": "best"}
     r.site_id = 1
     r.jobs = {}
+    # train150: the runner lock SiteRunner always has; main's click-miss paths take it.
+    r._lock = __import__("threading").RLock()
     r.messages = []
     r._FIRST_DOWNLOAD_TIMEOUT_MS = 3000
     r._update_job = lambda url, status, msg, **kw: r.messages.append((status, msg))
