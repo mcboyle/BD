@@ -423,7 +423,29 @@ def extract_media_definitions(html: str) -> Optional[dict]:
         except json.JSONDecodeError:
             continue
         if isinstance(arr, list) and any(isinstance(md, dict) for md in arr):
-            return {"mediaDefinitions": arr}
+            return _enclosing_config(html, m.start(), end) or {"mediaDefinitions": arr}
+    return None
+
+
+def _enclosing_config(html: str, key_idx: int, arr_end: int) -> Optional[dict]:
+    """O1567 fx-youporn-title: the JSON object literal holding a bare
+    `mediaDefinitions` key (youporn: video_title / video_duration / image_url
+    sit beside it), else None. Only the innermost `{` whose object spans the
+    key is tried; a JS (non-JSON) literal answers None."""
+    p = key_idx
+    while True:
+        p = html.rfind("{", 0, p)
+        if p == -1:
+            return None
+        end = _find_matching_brace(html, p)
+        if end >= arr_end:
+            break
+    try:
+        obj = json.loads(html[p:end])
+    except json.JSONDecodeError:
+        return None
+    if isinstance(obj, dict) and isinstance(obj.get("mediaDefinitions"), list):
+        return obj
     return None
 
 
