@@ -1400,8 +1400,9 @@ class TransportMixin:
             if transfer_cancelled(self, job_url):
                 try:
                     dl.cancel()
-                except Exception:  # noqa: BLE001, S110 -- already finished or gone; nothing left to stop
-                    pass
+                except Exception as cancel_exc:  # noqa: BLE001 -- already finished or gone; nothing left to stop
+                    sys.stderr.write(f"  download: cancel after the transfer was stopped was a no-op "
+                                     f"({type(cancel_exc).__name__})\n")
                 return True
             try:
                 page.wait_for_timeout(250)
@@ -2696,7 +2697,9 @@ class TransportMixin:
             return False
         avail=res_label(got)
         try: dl.cancel()
-        except Exception: pass
+        except Exception as cancel_exc:
+            sys.stderr.write(f"  download: cancel of the below-minimum download was a no-op "
+                             f"({type(cancel_exc).__name__})\n")
         # tpl95-xnxx-1: before holding, the page's own media may carry the scene at
         # min_resolution where the DOM scorer never looks (xnxx: >=480p is only in
         # its setVideoHLS master). The rescue takes only an option at or above it.
@@ -3169,7 +3172,9 @@ class TransportMixin:
                    "needs_review", final_path.name, 0, note,
                    bytes_fetched=0)
             try: dl.cancel()
-            except Exception: pass
+            except Exception as cancel_exc:
+                sys.stderr.write(f"  download: cancel of the refused download was a no-op "
+                                 f"({type(cancel_exc).__name__})\n")
             return
 
         # ── "Already have" pre-download check ────────────────────────────
@@ -3342,7 +3347,9 @@ class TransportMixin:
                    "needs_review", final_path.name, 0, note,
                    bytes_fetched=0)
             try: dl.cancel()
-            except Exception: pass
+            except Exception as cancel_exc:
+                sys.stderr.write(f"  download: cancel of the refused download was a no-op "
+                                 f"({type(cancel_exc).__name__})\n")
             return
 
         try:

@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:4225",  # T154: lane merge (dot95 repin 3910) + dl95-dorcelclub-1 GEN5 guard moved it; was :3910 on the lane / :3949 on T154 e7e07afe
-    "bulk_downloader/runner_transport.py:4637",  # T154: lane merge (dot95 repin 4322) + dl95-dorcelclub-1 GEN5 guard moved it; was :4322 on the lane / :4361 on T154 e7e07afe
-    "bulk_downloader/runner_transport.py:4869",  # T154: lane merge (dot95 repin 4554) + dl95-dorcelclub-1 GEN5 guard moved it; was :4554 on the lane / :4593 on T154 e7e07afe
+    "bulk_downloader/runner_transport.py:4232",  # T154: DP-13 stderr notes in runner_transport (+7) after the lane merge (dot95 repin 3910) + dl95-dorcelclub-1 GEN5 guard moved it; was :3910 on the lane / :3949 on T154 e7e07afe
+    "bulk_downloader/runner_transport.py:4644",  # T154: DP-13 stderr notes in runner_transport (+7) after the lane merge (dot95 repin 4322) + dl95-dorcelclub-1 GEN5 guard moved it; was :4322 on the lane / :4361 on T154 e7e07afe
+    "bulk_downloader/runner_transport.py:4876",  # T154: DP-13 stderr notes in runner_transport (+7) after the lane merge (dot95 repin 4554) + dl95-dorcelclub-1 GEN5 guard moved it; was :4554 on the lane / :4593 on T154 e7e07afe
 }
 
 
