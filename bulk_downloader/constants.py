@@ -93,6 +93,16 @@ RL_RE = re.compile(
     r"|\b403\b\s*[-:|]?\s*forbidden|forbidden\s*[-:|(]?\s*403\b|error\s*403\b",
     re.I)
 
+# dl95-blacked-3 (test2 2026-09-29): "ACCESS DENIED  You must be a member to
+# watch this video" is a logged-out members-only gate, not a block. When the
+# bare denial phrase is a page's ONLY rate-limit evidence and the page says the
+# content is for members, _check_redirect answers "auth" (login + requeue).
+RL_DENIAL_ONLY_RE = re.compile(r"access\s*(?:denied|forbidden)", re.IGNORECASE)
+MEMBERS_ONLY_RE = re.compile(
+    r"you\s+must\s+be\s+a\s+(?:member|subscriber)"
+    r"|\bfor\s+members\s+only\b|\bmembers?[\s-]+only\s+(?:content|video|area)\b"
+    r"|become\s+a\s+member\s+to\s+(?:watch|view|download|access)", re.IGNORECASE)
+
 # Retry backoff schedule in seconds. After each failed attempt, the next
 # retry waits the corresponding entry. We cap at the last value (1h).
 RETRY_DELAYS = [600, 3600]  # 10m, then 1h

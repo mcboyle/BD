@@ -15,7 +15,8 @@ from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
-from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE, LOGGED_OUT_SHAPE_JS
+from .constants import (RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE,
+                        LOGGED_OUT_SHAPE_JS, RL_DENIAL_ONLY_RE, MEMBERS_ONLY_RE)
 
 
 def _finite_config_float(raw, default):
@@ -1167,6 +1168,12 @@ class AuthMixin:
             try:
                 body=page.locator("body").inner_text(timeout=3000)
                 m=RL_RE.search(body[:3000])
+                # dl95-blacked-3: a bare "access denied" on a page that says
+                # the content is for members is a login wall, not a block.
+                if m and MEMBERS_ONLY_RE.search(body[:3000]) and all(
+                        RL_DENIAL_ONLY_RE.fullmatch(x.group(0))
+                        for x in RL_RE.finditer(body[:3000])):
+                    return "auth"
                 if m:
                     # Row 722s: keep the matched text so the cooldown names
                     # WHAT on the page looked like a rate limit.
