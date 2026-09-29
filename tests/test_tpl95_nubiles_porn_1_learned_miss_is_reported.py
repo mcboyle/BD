@@ -103,12 +103,16 @@ def _run(rows, opened=False):
     return best, config
 
 
-def test_precondition_the_site_selector_picks_the_hidden_dropdown_rows():
+def test_precondition_the_hidden_dropdown_rows_are_a_learned_hit_via_href():
+    """tpl95-justporn-1: a closed dropdown's row that the template fetches by
+    url_attribute (href) needs no click, so the learned row now wins directly
+    instead of the site's dl_selector."""
     with _scene() as page:
         assert page.locator("a.dropdown-downloads-link").count() == 6
         assert not page.locator("a.dropdown-downloads-link").first.is_visible()
     best, _ = _run(A8A_ROWS)
-    assert best and not best.get("_via_learned")
+    assert best and best.get("_via_learned"), best
+    assert best.get("_learned_sel") == "a[href*='.mp4?st=']", best.get("_learned_sel")
 
 
 def test_a_genuine_learned_miss_is_reported_with_the_template_and_what_won(capsys):
@@ -125,11 +129,11 @@ def test_a_genuine_learned_miss_is_reported_with_the_template_and_what_won(capsy
 
 
 def test_the_credited_hit_names_the_applied_template(capsys):
-    """tpl95-porndig-1's credit (same element as the non-learned pick) now also
-    says whose selector it is."""
+    """Every hit says whose selector it is. Since tpl95-justporn-1 the closed
+    dropdown's href row is a learned hit itself, not a credit to the site's pick."""
     _run(A8A_ROWS)
     err = capsys.readouterr().err
-    assert ("learned hit via [a[href*='.mp4?st=']] (same element as the non-learned pick) "
+    assert ("learned hit via [a[href*='.mp4?st=']] "
             f"(applied template {TEMPLATE_ID})") in err, err
     assert "learned rows missed:" not in err
 
