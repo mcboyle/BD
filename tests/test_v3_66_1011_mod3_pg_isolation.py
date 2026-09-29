@@ -385,9 +385,11 @@ def test_postgres_integration_shard_reports_zero_skips_for_real_pg_files():
     env = dict(os.environ, MOD3_PG_TEST_DSN=base_dsn)
     env.pop("MOD3_PG_DSN", None)
 
+    # Row 127: this module is itself in the shard; running it here would re-enter
+    # this census without end.
     cmd = [
         sys.executable, "-m", "pytest", "-q",
-        *shard_files
+        *[f for f in shard_files if pathlib.Path(f).name != pathlib.Path(__file__).name]
     ]
     res = subprocess.run(
         cmd,
