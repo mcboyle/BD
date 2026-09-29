@@ -1093,10 +1093,11 @@ def unpack_packed_scripts(html: str) -> List[str]:
 def packed_player_media_urls(html: str) -> List[str]:
     """http(s) media (.m3u8/.mp4/...) a packed player config names as a source."""
     urls: List[str] = []
-    for body in unpack_packed_scripts(html):
-        for u in _PLAYER_SOURCE_RE.findall(body):
-            if MEDIA_EXT_RE.search(u) and u not in urls:
-                urls.append(u)
+    # one flat pass over the (bounded) unpacked bodies -- the scan is bounded by unpack_packed_scripts (O805 DP-18)
+    named = (u for body in unpack_packed_scripts(html) for u in _PLAYER_SOURCE_RE.findall(body))
+    for u in named:
+        if MEDIA_EXT_RE.search(u) and u not in urls:
+            urls.append(u)
     return urls
 
 
