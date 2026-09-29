@@ -439,58 +439,6 @@ def _page_media_state(page, page_url):
         return "unknown"
 
 
-# dl95-cumlouder-2: Cloudflare's 5xx origin-error template (520-527: the edge is
-# up, the site's origin is not). The page has no download control because the
-# site is down, so it is an outage to retry, never a page_shape miss.
-CDN_ORIGIN_ERROR_MARKER = "CDN origin error"
-_CF_ORIGIN_CODE_RE = re.compile(r"error code\s*(52\d)", re.IGNORECASE)
-_CF_ORIGIN_TITLE_RE = re.compile(r"\b(52\d):\s*([^|]+?)\s*$")
-_CF_ORIGIN_ERROR_JS = """() => {
-  const code = document.querySelector('#cf-error-details .cf-error-code, .cf-error-code');
-  const kind = document.querySelector('#cf-error-details .cf-error-type, .cf-error-type');
-  return {title: document.title || '',
-          code: code ? (code.innerText || '') : '',
-          kind: kind ? (kind.innerText || '') : ''};
-}"""
-
-
-def _cdn_origin_error(page):
-    """Return "Cloudflare 522 (Connection timed out)" for a Cloudflare origin
-    error page, else "". Positive evidence only: Cloudflare's own error-details
-    markup carrying a 52x code. Prose that merely mentions an error code, on an
-    ordinary page, is not that markup."""
-    try:
-        seen = page.evaluate(_CF_ORIGIN_ERROR_JS) or {}
-    except Exception:
-        return ""
-    m = _CF_ORIGIN_CODE_RE.search(seen.get("code") or "")
-    if not m:
-        return ""
-    kind = (seen.get("kind") or "").strip()
-    if not kind:
-        t = _CF_ORIGIN_TITLE_RE.search(seen.get("title") or "")
-        kind = t.group(2).strip() if t else ""
-    return f"Cloudflare {m.group(1)}" + (f" ({kind[:60]})" if kind else "")
-
-
-def _handle_cdn_origin_error_page(runner, page, url, screenshot):
-    """Route a CDN origin-error page to the retried failure path.
-
-    Returns True only when it handled the job. It does not touch the
-    no-download-button streak: a site outage is not evidence that the page
-    shape changed, and must not auto-pause the site as paused_no_button.
-    """
-    what = _cdn_origin_error(page)
-    if not what:
-        return False
-    runner._handle_failure(
-        url,
-        f"Site origin unavailable: {what} -- {CDN_ORIGIN_ERROR_MARKER} page, "
-        "not a missing download button; retrying",
-        screenshot=screenshot)
-    return True
-
-
 def _handle_confirmed_no_video_page(runner, page, url, screenshot):
     """Publish the distinct photo-gallery outcome, if positively proven.
 
@@ -5591,8 +5539,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     return
                 ss=self._screenshot(page,url)
                 if _handle_confirmed_no_video_page(self, page, url, ss):
-                    return
-                if _handle_cdn_origin_error_page(self, page, url, ss):
                     return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
