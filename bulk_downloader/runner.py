@@ -5663,12 +5663,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # AttributeError: a page without .on() (row778's fakes) still reaches goto.
                 hook_err=str(e).splitlines()[0][:120] if str(e) else type(e).__name__
                 self.log_event("nav_download",f"download hook not installed: {hook_err}",url=url)
-            try: page.goto(url,wait_until="domcontentloaded",timeout=30000)
+            try: _nav_resp=page.goto(url,wait_until="domcontentloaded",timeout=30000)
             except PWTimeout:
                 self._handle_failure(url,"Page load timeout"); return
             except PWError as e:
                 if "Download is starting" not in str(e): raise
                 self._accept_navigation_download(page,ctx,url,_nav_downloads); return
+            # fx-pornone-gone-scene: a removed scene answers 404/410 with a "Video not found"
+            # page whose promo clip page-media saved as the scene (1.6 MB 240p, status done).
+            # The server said the scene is gone: fail permanent, download nothing.
+            _nav_status=getattr(_nav_resp,"status",None)
+            if _nav_status in (404,410):
+                self._handle_failure(url,f"Scene page answered HTTP {_nav_status} "
+                                     f"({'Gone' if _nav_status==410 else 'Not Found'}): "
+                                     "removed by the site, nothing downloaded"); return
             # row914: an SPA mounts its view after the history API fires;
             # wait (bounded) for the DOM to settle before anything reads it
             try: self._settle_after_navigation(page)
