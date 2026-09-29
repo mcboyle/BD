@@ -29,6 +29,20 @@ def _is_url_public(*_a, **_k):
     return getattr(importlib.import_module("bulk_downloader.app"), "_is_url_public")(*_a, **_k)
 
 
+_MAX_SAME_SITE_REDIRECTS = 5
+
+
+def _same_site_redirect(url, location):
+    """The absolute redirect target when it is an http(s) URL on the same site
+    (registrable domain) as `url` and resolves to a public host; else None."""
+    from urllib.parse import urljoin
+    from bulk_downloader.registrable_domain import same_site
+    target = urljoin(url, location.strip()) if location.strip() else ""
+    if not target.startswith(("http://", "https://")) or not same_site(url, target):
+        return None
+    return target if _is_url_public(target) else None
+
+
 @scrape_listing_bp.route("/api/scrape_listing", methods=["POST"])
 def api_scrape_listing():
     """Phase 71 (v3.43.16): server-side listing-page scrape. Paste a
@@ -64,14 +78,20 @@ def api_scrape_listing():
     }
     try:
         # AUDIT FIX: disable redirect-following so we don't get bounced
-        # at internal services via 302. If a user needs redirects they
-        # can pass the final URL.
+        # at internal services via 302. dl95-justporn-2: a same-site hop
+        # (justporn.com -> www.justporn.com) is followed by hand, each hop
+        # re-checked by _is_url_public; any other redirect is still refused.
         from bulk_downloader.ssrf_transport import guarded_transport, PUBLIC_ONLY
         with httpx.Client(timeout=30.0, follow_redirects=False, transport=guarded_transport(PUBLIC_ONLY)) as cl:
-            r = cl.get(url, headers=headers)
-            if r.status_code in (301, 302, 303, 307, 308):
-                return jsonify({"ok": False,
-                                "error": f"URL returned {r.status_code} redirect — pass the final URL directly"}), 400
+            for _hop in range(_MAX_SAME_SITE_REDIRECTS + 1):
+                r = cl.get(url, headers=headers)
+                if r.status_code not in (301, 302, 303, 307, 308):
+                    break
+                nxt = _same_site_redirect(url, r.headers.get("location") or "")
+                if nxt is None or _hop == _MAX_SAME_SITE_REDIRECTS:
+                    return jsonify({"ok": False,
+                                    "error": f"URL returned {r.status_code} redirect — pass the final URL directly"}), 400
+                url = nxt
             r.raise_for_status()
             # AUDIT FIX: cap response size to prevent OOM on a malicious large response.
             html = r.text
