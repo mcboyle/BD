@@ -6315,7 +6315,45 @@ def _do_action(sid, action):
             extra["blocked_by"] = "rate_limited"
         elif runner.state() == "low_disk":
             extra["blocked_by"] = "low_disk"
+        else:
+            extra.update(_start_not_armed(sid, runner))
     return jsonify({"ok": True, **extra})
+
+
+def _start_not_armed(sid, runner):
+    """dl95-reptyle-2: name a Start that armed no worker pool.
+
+    Measured on test2 2026-09-28: after a service restart restored two
+    mid-download jobs as pending, Start answered {"ok": true} three times while
+    the site stayed stopped, the jobs stayed pending and nothing was logged.
+    start() has several early returns that publish no state and no event, so
+    "ok" alone cannot tell the operator whether anything will run. When ready
+    pending work exists and the runner is not running after start(), say so in
+    the response AND the site's event log, with the state it was left in.
+    """
+    state = runner.state()
+    if state == "running":
+        return {}
+    now = time.time()
+    try:
+        with runner._lock:
+            ready = sum(1 for j in runner.jobs.values()
+                        if j.get("status") == "pending"
+                        and now >= (j.get("retry_after") or 0))
+    except Exception:
+        return {}
+    if not ready:
+        return {}
+    try:
+        runner.log_event(
+            "start_not_armed",
+            f"Start admitted no workers: state={state}, "
+            f"{ready} pending job(s) ready",
+            extra={"state": state, "pending_ready": ready})
+    except Exception as e:
+        sys.stderr.write(f"[{sid}] start_not_armed log failed: {e}\n")
+    return {"blocked_by": "not_started", "state": state,
+            "pending_ready": ready}
 
 # api_start -> app_sites.py (Phase 4 multi-block extraction)
 # api_pause -> app_sites.py (Phase 4 multi-block extraction)
