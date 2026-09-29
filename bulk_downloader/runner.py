@@ -5105,6 +5105,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         """
         if best is None or not best.get("_no_in_scope_candidates"):
             return False
+        # dl95-porn00-3-live-1: every refused candidate was a site link, but the
+        # scene's own player media (KVS flashvars 360p/720p) was never asked. It
+        # finishes the job, or writes the "Best is 720p (below 1080p) -- Approve
+        # to force" hold that Approve lifts; only a miss is "Nothing in scope".
+        # Scene-bound sources only: the generic page-media sweep also carries
+        # the related scenes this page was just refused for (lens cx-worker-1 R1).
+        if self._fallback_to_page_media(page, url, "nothing in scope on the DOM",
+                                        scene_own_only=True):
+            return True
         ss = self._screenshot(page, url)
         excluded = best.get("_excluded_candidates") or []
         reasons = ", ".join(sorted(

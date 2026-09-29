@@ -1299,7 +1299,8 @@ class ExtractorsMixin:
 
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
                                      proven_only: bool = False, hold_below: bool = False,
-                                     page_media=None, *, source_list_only=False) -> bool:
+                                     page_media=None, *, source_list_only=False,
+                                     scene_own_only=False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Normally consulted after ``find_best_download`` (and the
@@ -1324,6 +1325,12 @@ class ExtractorsMixin:
         an option of KNOWN height sits below it, take over with the same
         "Best is <h>p (below <min>p) -- Approve to force" hold the button path
         writes, instead of returning a miss the caller must word itself.
+
+        ``scene_own_only`` (dl95-porn00-3-live-1): the DOM refused every
+        candidate as not this scene's, so only sources bound to THIS scene may
+        answer -- the published source list, the proven scene player/streams,
+        or the page's own KVS player config (window.flashvars) -- never the
+        page-media/API sweep, which also carries related scenes' media.
         """
         self._spa_embed_hosts = []   # never a previous job's embed hosts
         try:
@@ -1376,7 +1383,7 @@ class ExtractorsMixin:
         else:
             try:
                 scene_candidates = _spa.scene_player_candidates(
-                    page_url, page.content(), job_url=url, strict=proven_only)
+                    page_url, page.content(), job_url=url, strict=proven_only or scene_own_only)
             except Exception:
                 scene_candidates = []
             # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
@@ -1394,17 +1401,25 @@ class ExtractorsMixin:
             # files join the page population, ranked with the page media by height
             # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
             # the 1080p embed).
-            cands = source_cands or scene_candidates or ([] if proven_only else (
-                _spa.api_candidates(page_url, records)
-                + _spa.page_media_candidates(page_url, page_media)
-                + _spa.embed_frame_candidates(page, page_url)))
+            # dl95-porn00-3-live-1: scene_own_only admits, of the unproven
+            # population, only the page's own KVS player config.
+            if scene_own_only:
+                unproven = [c for c in _spa.page_media_candidates(page_url, page_media)
+                            if c.get("source") == "kvs-flashvars"]
+            else:
+                unproven = [] if proven_only else (
+                    _spa.api_candidates(page_url, records)
+                    + _spa.page_media_candidates(page_url, page_media)
+                    + _spa.embed_frame_candidates(page, page_url))
+            cands = source_cands or scene_candidates or unproven
             # Named in the caller's "No download button found" when nothing is found.
             self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
         if not cands:
             # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
             # own media is here; a trailer verdict is a claim about the unproven
             # population, so it stays with the other callers (the click runs).
-            previews = [] if proven_only else _spa.preview_media_urls(page_url, page_media)
+            previews = ([] if proven_only or scene_own_only
+                        else _spa.preview_media_urls(page_url, page_media))
             if previews:  # dl95-kellymadisonmedia-2
                 return self._spa_trailer_only(url, page, previews)
             sys.stderr.write(

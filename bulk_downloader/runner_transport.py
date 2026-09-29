@@ -2318,7 +2318,7 @@ class TransportMixin:
     # dl95-pussyspace-1: how long the returned-to page may take to request its media.
     _PAGE_MEDIA_WAIT_S = 8.0
 
-    def _fallback_to_page_media(self, page, page_url, why):
+    def _fallback_to_page_media(self, page, page_url, why, scene_own_only=False):
         """dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
         link, or clicked with no download event (pussyspace: "/1080p/" and
         "cat/hd/" category links, a captcha-gated "/dl/<id>/" page) -- while
@@ -2333,7 +2333,10 @@ class TransportMixin:
         takes only an option at or above it, and an option of unknown height
         counts as below. A job forced by Approve takes any height. With only
         known-height options below it, the extractor writes the "Approve to
-        force" hold itself (dl95-porn00-3) and this returns True."""
+        force" hold itself (dl95-porn00-3) and this returns True.
+
+        scene_own_only (dl95-porn00-3-live-1): only this scene's own sources
+        answer (see ``_try_spa_api_media_extractor``)."""
         extractor = getattr(self, "_try_spa_api_media_extractor", None)
         if not callable(extractor):
             return False
@@ -2354,8 +2357,9 @@ class TransportMixin:
         sys.stderr.write(f"  download: {why}; trying the page's own media\n")
         try:
             # dl95-porn00-3: options only below the minimum -> the named hold.
+            scope = {"scene_own_only": True} if scene_own_only else {}
             return bool(extractor(page_url, page, min_height=0 if forced else min_res,
-                                  hold_below=True))
+                                  hold_below=True, **scope))
         except Exception as e:  # noqa: BLE001 -- as above
             sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
             return False
