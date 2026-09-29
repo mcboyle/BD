@@ -1954,6 +1954,40 @@ def _is_navigation_resolution_ghost(el, text, page_url=""):
     return True
 
 
+# tpl95-teenfidelity-1: a media PLAYER's own controls change playback, they
+# never download. video.js labels its quality menu button with the current
+# tier ("1080p" / "4k" + "Open quality selector menu"), so it scored as a
+# visible 1080p/2160p candidate and beat the real MP4 links, whose download
+# modal is hidden until opened (row 759 zeroes hidden scores) -- even with an
+# applied template naming those links.  Containers of the common players'
+# control bars and menus; a control carrying a download word keeps its place.
+_PLAYER_CHROME_SELECTOR = (
+    ".vjs-control-bar, .vjs-menu, .vjs-control, .jw-controlbar, .jw-controls,"
+    " .jw-settings-menu, .plyr__controls, .plyr__menu, .mejs__controls,"
+    " .mejs-controls, .fp-ui, .fp-controls, .shaka-controls-container,"
+    " .shaka-settings-menu, media-control-bar")
+
+
+def _is_player_control(el, label, text=""):
+    """Whether ``el`` is a resolution-labelled control of the page's media player.
+
+    ``label`` is the visible half (row 508), ``text`` the whole harvested
+    string incl. href: a player-menu item that LINKS a media file
+    (``<a href=".../scene_1080.mp4">1080p</a>``) is a download, not a playback
+    control, so any download word or media extension in either keeps it.
+    Cheap refusals first, like the chrome-ghost check: only a tier-only label
+    pays for the one ``closest()`` DOM round trip. Any failure keeps it.
+    """
+    t = label or ""
+    if (res_score(t) < 0 or parse_size_bytes(t) > 0
+            or _DL_WORD_RE.search(f"{t} {text or ''}")):
+        return False
+    try:
+        return bool(el.evaluate("(e, s) => !!e.closest(s)", _PLAYER_CHROME_SELECTOR))
+    except Exception:
+        return False
+
+
 # Row 759d: a listing FILTER href. Algolia-style sites render the refinement
 # sidebar on the scene page itself; its links read ``4K (2160p) (1234)`` and
 # point at ``/en/videos/?refinementList[...]``, so res_score admits them as
@@ -2220,6 +2254,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         return "collection_action"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
+    if _is_player_control(el, visible, t):
+        return "player_control"
     if _is_listing_filter_href(el, t, page_url):
         return "listing_filter"
     if full_length_requested is None:
@@ -2294,7 +2330,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
                           "listing_filter": 0, "short_preview": 0,
                           "navigation_url": 0, "media_without_url": 0,
-                          "collection_action": 0}
+                          "collection_action": 0, "player_control": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
