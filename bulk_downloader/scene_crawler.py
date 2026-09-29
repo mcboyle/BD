@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 
 from . import db
 from .constants import AUTH_BODY_RE, AUTH_HINTS
-from .playlist_extractor import _looks_like_scene_url
+from .playlist_extractor import _LISTING_ROUTE_WORDS, _looks_like_scene_url
 
 
 STATE_IDLE = "IDLE"
@@ -265,6 +265,15 @@ def _shape_label(
     return "/" + "/".join(rendered)
 
 
+def _listing_route(url: str) -> bool:
+    """The product rule's listing ROUTE test (playlist_extractor): the second
+    path segment, after a locale prefix, is a listing action such as gallery."""
+    segments = [part.lower() for part in _path_parts(url)]
+    if segments and len(segments[0]) == 2 and segments[0].isalpha():
+        segments = segments[1:]
+    return len(segments) >= 2 and segments[1] in _LISTING_ROUTE_WORDS
+
+
 def _scene_cohort(
     anchors: Iterable[dict[str, Any]],
     listing_url: str,
@@ -329,6 +338,14 @@ def _scene_cohort(
         candidates.append((image_count, len(rows), signature, rows))
     if not candidates:
         return [], []
+    # tpl95-nubiles-porn-2: a cohort under a listing ROUTE word (/video/gallery/
+    # website/<n> -- the site-filter logos on the nubiles-porn gallery) is the
+    # listing filtered, not scenes; it out-imaged the /video/watch/<id>/<slug>
+    # cards. It loses to any other image cohort, and stands only when alone.
+    scene_like = [item for item in candidates
+                  if not all(_listing_route(row["url"]) for row in item[3])]
+    if scene_like:
+        candidates = scene_like
     candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     best_images, best_size = candidates[0][0], candidates[0][1]
     winning = [
