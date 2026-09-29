@@ -493,6 +493,14 @@ if [ "$SERVICE_STATE" = "active" ]; then
                 SERVING="vault_locked"
                 break
             fi
+            # A fresh install's vault has no master password yet: health is
+            # 503 by design (row 413) until the operator sets one, once.
+            if [ "$PROBE_HTTP_CODE" = "503" ] && \
+               grep -Eq '"degraded"[[:space:]]*:[[:space:]]*"credential_vault_uninitialized"' \
+                    "$PROBE_BODY_FILE"; then
+                SERVING="vault_uninitialized"
+                break
+            fi
             case "$PROBE_HTTP_CODE" in
                 [1-5][0-9][0-9]) SERVING="unhealthy"; break ;;
             esac
@@ -513,6 +521,13 @@ elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "vault_locked" ]; then
     echo "  The app is serving, but stored credentials cannot run. This"
     echo "  deployment requires a human unlock after every service restart:"
     echo "    open BulkDownloader -> Settings -> Secrets -> Unlock"
+elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "vault_uninitialized" ]; then
+    echo "  ${SERVICE_NAME} is serving on 127.0.0.1:${PROBE_PORT} and needs first-run setup:"
+    echo "  the credential vault has no master password yet, so /api/health"
+    echo "  answers 503 credential_vault_uninitialized until you choose one."
+    echo "  Do it once: open BulkDownloader -> Settings -> Secrets -> Unlock"
+    echo "  (the first password entered becomes the master password), or POST"
+    echo "  {\"password\": ...} to http://127.0.0.1:${PROBE_PORT}/api/secrets/unlock"
 elif [ "$SERVICE_STATE" = "active" ] && [ "$SERVING" = "unhealthy" ]; then
     echo "  WARNING: ${SERVICE_NAME} is SERVING, but its health check failed"
     echo "  with HTTP ${PROBE_HTTP_CODE}. Inspect the distinct health state:"
