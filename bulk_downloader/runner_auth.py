@@ -15,7 +15,7 @@ from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
-from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE
+from .constants import RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE, LOGGED_OUT_SHAPE_JS
 
 
 def _finite_config_float(raw, default):
@@ -1137,10 +1137,29 @@ class AuthMixin:
         return True,"Cancelled"
     def is_awaiting_manual_login(self):
         return getattr(self,"_manual_login_handle",None) is not None
-    def _check_redirect(self,page,url):
+    def _page_shows_logged_out(self,page):
+        """dl95-kink-1: the scene page offers a login and no logout.
+
+        Measured on kink (test2 2026-09-29): the logged-out scene page and the
+        MEMBER page both carry the login modal's password input and the words
+        "log in" -- past AUTH_BODY_RE's 20 KB window, and useless to tell them
+        apart. Only the member page has a logout control (a[href="/logout"]).
+        Asked only for a site that logs in (a login_url), so a public site
+        with a header "Log in" link is never sent to re-login. Any error: False."""
+        if not str(self.config.get("login_url") or "").startswith("http"):
+            return False
+        try:
+            return bool(page.evaluate(LOGGED_OUT_SHAPE_JS))
+        except Exception:  # noqa: BLE001 -- unreadable page: no verdict, never a re-login
+            return False
+    def _check_redirect(self,page,url,no_candidate=False):
         """Inspect the current page; return 'rl' if rate-limited, 'auth' if
         bounced to login, or None if the page looks normal. Caller decides
-        what to do — auth issues should NOT trigger a 24-hour cooldown."""
+        what to do — auth issues should NOT trigger a 24-hour cooldown.
+
+        ``no_candidate``: the page yielded no download control. Only then is
+        the logged-out SHAPE consulted (dl95-kink-1), so a page that works is
+        never re-judged."""
         try:
             cur=page.url.lower()
             if any(h in cur for h in BLOCK_HINTS): return "rl"
@@ -1154,6 +1173,11 @@ class AuthMixin:
                     self._rl_match=body[max(0,m.start()-40):m.end()+40].replace("\n"," ")
                     return "rl"
             except Exception: pass
+            if no_candidate and self._page_shows_logged_out(page):
+                sys.stderr.write(
+                    f"  {site_tag(self.site_id)}auth: page offers a login and "
+                    f"no logout -- the worker session is logged out ({url[:90]})\n")
+                return "auth"
             # In-place login wall (no redirect): check the page HTML for a
             # login-form signal. Catches a session that expired mid-process
             # where the URL didn't change. Detect-side: we recover, never

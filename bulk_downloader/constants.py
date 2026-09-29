@@ -117,6 +117,22 @@ AUTH_BODY_RE = re.compile(
     r"|sign\s*in\s+to\s+your\s+account"
     r"|<input[^>]+type=[\"']password[\"']", re.I)
 
+# dl95-kink-1: the logged-out SHAPE of a page, for a page that yielded no
+# download control. A login is offered (a password input, or the words
+# log in / sign in anywhere in the document) and NO logout control exists
+# (a logout/sign-out link or form, or those words). A member page carries
+# its login modal too; its logout control is what tells the two apart.
+LOGGED_OUT_SHAPE_JS = r"""() => {
+  const text = (document.body ? document.body.textContent : '') || '';
+  const logout = document.querySelector(
+    'a[href*="logout" i],a[href*="log-out" i],a[href*="signout" i],' +
+    'a[href*="sign-out" i],form[action*="logout" i]') ||
+    /\b(?:log|sign)[\s-]?out\b/i.test(text);
+  if (logout) return false;
+  return !!document.querySelector('input[type=password]') ||
+    /\b(?:log|sign)[\s_-]?in\b/i.test(text);
+}"""
+
 
 class _HTTPDownloadFailed(Exception):
     """Raised by SiteRunner._http_download when httpx can't complete the
