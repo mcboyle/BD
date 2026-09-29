@@ -9,7 +9,7 @@
     {
       "label": "M1 download path no longer checks the login wall",
       "file": "bulk_downloader/runner_transport.py",
-      "old_regex": "            if self\\._login_wall_rejects\\(page_url, final_path\\):\\n                return\\n",
+      "old_regex": "            if callable\\(login_wall_rejects\\) and login_wall_rejects\\(page_url, final_path\\):\\n                return\\n",
       "new": "            pass\n",
       "direction": "regression",
       "catcher": "tests/test_dl95_eporner_login_wall_download.py::test_the_download_path_checks_the_login_wall_before_size_sanity"
