@@ -343,6 +343,7 @@ class IntegrityMixin:
         previous inline block, including the Phase 72 retry-on-corruption
         path."""
         ok, reason = verify_media_integrity(final_path)
+        truncated = False
         if ok and _is_stream_container(final_path):
             # Row 952: a container that opens can still be a cut-short or gappy stream. Run the
             # packet continuity / tail-completeness verifier before the job is marked complete;
@@ -355,6 +356,7 @@ class IntegrityMixin:
                 timeout=int(self.config.get("stream_verify_timeout", stream_verifier.DEFAULT_TIMEOUT) or stream_verifier.DEFAULT_TIMEOUT),
             )
             if sv.checked and not sv.valid:
+                truncated = sv.truncated
                 ok, reason = False, (sv.errors[0] if sv.errors
                                      else f"packet continuity failed ({len(sv.discontinuities)} discontinuities, ~{sv.dropped_packets} dropped)")
             elif not sv.checked:
@@ -403,11 +405,13 @@ class IntegrityMixin:
             self.log_event("corruption_retry",
                 f"Retrying after integrity failure: {reason}", url=page_url)
             return False, True, reason
-        # Row 868: automated container recovery before marking jobs failed
+        # Row 868: automated container recovery before marking jobs failed. A stream cut short
+        # of its own declared duration is missing bytes, not a damaged container: a remux of it
+        # declares the shorter span and would pass, so a truncated file is never "recovered".
         try:
             from . import container_repair as _cr
-            _repaired = _cr.repair(final_path)
-            if _repaired.recovered and _repaired.output_path and _repaired.output_path.is_file():
+            _repaired = None if truncated else _cr.repair(final_path)
+            if _repaired is not None and _repaired.recovered and _repaired.output_path and _repaired.output_path.is_file():
                 # Verify the remux IN PLACE; the original is replaced only by a
                 # file that passed. A remux that fails is removed so the
                 # quarantine below receives the ORIGINAL bytes (acceptance 3:

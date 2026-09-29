@@ -415,32 +415,41 @@ def test_update_job_uses_throttle_key():
     assert "throttle_key" in body
 
 
-def test_log_event_publishes_event_log():
+def _site_runner(site_id="site42"):
+    """stalegate-source-text-log-event: the production path -- SiteRunner.log_event, the
+    row1021 override in runner.py that must delegate to TelemetryMixin.log_event."""
+    from bulk_downloader.runner import SiteRunner
+
+    return SiteRunner(site_id, {"name": "fixture"})
+
+
+def test_log_event_publishes_event_log(monkeypatch):
     """Per-entry event log pushes — no throttle since every entry
     is meaningful (these are user-visible diagnostic lines)."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def log_event")
-    assert pos > 0
-    # Search the full method body
-    end = src.find("\n    def ", pos + 50)
-    body = src[pos:end if end > 0 else pos + 3000]
-    assert "sse_broker" in body
-    assert '"event_log"' in body
+    from bulk_downloader import sse_broker
+
+    sent = []
+    monkeypatch.setattr(sse_broker, "publish", lambda topic, payload: sent.append((topic, payload)))
+    _site_runner().log_event("download", "fixture line", url="https://x.test/scene/1")
+    assert [t for t, _ in sent] == ["event_log"], sent
+    payload = sent[0][1]
+    assert payload["site_id"] == "site42" and payload["kind"] == "download", payload
+    assert payload["message"] == "fixture line" and payload["url"] == "https://x.test/scene/1", payload
 
 
-def test_log_event_publish_does_not_block():
+def test_log_event_publish_does_not_block(monkeypatch):
     """The publisher call must be wrapped in try/except so a broker
     bug never crashes the log_event mainline."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def log_event")
-    end = src.find("\n    def ", pos + 50)
-    body = src[pos:end if end > 0 else pos + 3000]
-    # Find the publish call site
-    pub_pos = body.find('"event_log"')
-    assert pub_pos > 0
-    # Within a few lines of the publish, there must be except
-    nearby = body[pub_pos:pub_pos + 500]
-    assert "except" in nearby
+    from bulk_downloader import sse_broker
+
+    def boom(topic, payload):
+        raise RuntimeError("fixture broker failure")
+
+    monkeypatch.setattr(sse_broker, "publish", boom)
+    r = _site_runner()
+    ev = r.log_event("download", "still logged")
+    assert ev["message"] == "still logged"
+    assert list(r._event_log)[-1]["message"] == "still logged"
 
 
 # ── Frontend ──────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5234,
+  "edge_count": 5239,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5899,6 +5899,11 @@
     "tests/test_stalegate_pg_backend_cli_streams.py": [
       "bulk_downloader/pg_backend.py"
     ],
+    "tests/test_stalegate_truncated_stream_is_not_repaired.py": [
+      "bulk_downloader/container_repair.py",
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/stream_verifier.py"
+    ],
     "tests/test_storage_capture.py": [
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/dom_capture.py",
@@ -6294,6 +6299,7 @@
     ],
     "tests/test_v3_43_24_reliability.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
       "bulk_downloader/selftest.py"
     ],
     "tests/test_v3_43_25_backup.py": [
@@ -6335,6 +6341,7 @@
       "bulk_downloader/aiassist.py"
     ],
     "tests/test_v3_43_34_sse_broker.py": [
+      "bulk_downloader/runner.py",
       "bulk_downloader/sse_broker.py"
     ],
     "tests/test_v3_43_35_account_pool.py": [

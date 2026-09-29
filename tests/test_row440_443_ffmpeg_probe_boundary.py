@@ -32,6 +32,16 @@ from bulk_downloader import (
 BD_GATE_SCOPE = "module"
 
 
+def _jpeg_bytes() -> bytes:
+    """A real 4x4 JPEG: thumbnail_sheets hardens ffmpeg's output (row 1070)
+    and refuses bytes without an image signature."""
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
 def _stub_binary(path: Path) -> None:
     path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     path.chmod(0o755)
@@ -72,7 +82,7 @@ class _Boundary:
 
     def check_call(self, argv, **_kwargs):
         call = self._record("check_call", argv)
-        Path(call[-1]).write_bytes(b"generated-image")
+        Path(call[-1]).write_bytes(_jpeg_bytes())
         return 0
 
     def run(self, argv, **_kwargs):

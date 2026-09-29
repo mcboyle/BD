@@ -406,9 +406,9 @@ Schema version: 2
   - L0270 `IntegrityMixin._job_expected_duration` `[private]` — The job's known media length in seconds (extractor/playlist metadata), or None.
   - L0284 `IntegrityMixin._verify_hash_or_quarantine` `[private]` — Verify the downloaded file's hash matches `expected_algo:expected_hash`.
   - L0333 `IntegrityMixin._verify_integrity_or_quarantine` `[private]` — Verify the downloaded media file passes ffprobe.
-  - L0443 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
-  - L0461 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
-  - L0581 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
+  - L0447 `IntegrityMixin._verify_payload` `[private]` — Row 1046: the file's measured media duration vs the job's expected duration.
+  - L0465 `IntegrityMixin._embed_metadata_if_mp4` `[private]` — v3.43.64: post-download hook. If the file at `path` is an MP4
+  - L0585 `IntegrityMixin._size_on_disk_after_tagging` `[private]` — The file's CURRENT size on disk, for history.file_size.
 ```
 
 
@@ -972,13 +972,13 @@ Schema version: 2
 - L0495 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
 - L0579 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
 - L0595 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0693 `_submit_login` `[private]` — Try nine independent ways to submit the login form. Each method
-- L1009 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1080 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1182 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1202 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1249 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1288 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0762 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1107 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1178 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1280 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1300 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1347 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1386 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 

@@ -197,7 +197,8 @@ def test_thumbnail_sheets_are_wired_with_cpu_retry_at_the_check_call_boundary(mo
         return 0
 
     (tmp_path / "in.mp4").write_bytes(b"\x00" * 16)
-    (tmp_path / "p.jpg").write_bytes(b"jpg")
+    # A real JPEG: single_thumb hardens ffmpeg's output (row 1070).
+    (tmp_path / "p.jpg").write_bytes(_jpeg_bytes())
     monkeypatch.setattr(ffmpeg_bin, "ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(ffmpeg_bin, "is_cuda_available", lambda: True)
     monkeypatch.setattr(thumbnail_sheets, "_probe_duration", lambda *a, **k: 100.0)
@@ -212,3 +213,27 @@ def test_thumbnail_sheets_are_wired_with_cpu_retry_at_the_check_call_boundary(mo
                         lambda cmd, **k: calls.append(list(cmd)) or (_ for _ in ()).throw(subprocess.CalledProcessError(1, cmd)))
     res = thumbnail_sheets.single_thumb(str(tmp_path / "in.mp4"), out_path=str(tmp_path / "p.jpg"))
     assert res["ok"] is False and res["error"] == "ffmpeg exit 1" and len(calls) == 2
+
+
+def _jpeg_bytes():
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def test_thumbnail_sheets_still_refuse_output_without_an_image_signature(monkeypatch, tmp_path):
+    """Negative control for the fixture fix above: the row-1070 guard still
+    refuses a 'successful' ffmpeg run whose output is not an image."""
+    from bulk_downloader import thumbnail_sheets
+
+    (tmp_path / "in.mp4").write_bytes(b"\x00" * 16)
+    (tmp_path / "p.jpg").write_bytes(b"jpg")
+    monkeypatch.setattr(ffmpeg_bin, "ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(ffmpeg_bin, "is_cuda_available", lambda: False)
+    monkeypatch.setattr(thumbnail_sheets, "_probe_duration", lambda *a, **k: 100.0)
+    monkeypatch.setattr(subprocess, "check_call", lambda cmd, **k: 0)
+    res = thumbnail_sheets.single_thumb(str(tmp_path / "in.mp4"), out_path=str(tmp_path / "p.jpg"))
+    assert res == {"ok": False,
+                   "error": "Disallowed or invalid image format signature"}, res

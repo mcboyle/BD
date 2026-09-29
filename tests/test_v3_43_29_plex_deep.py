@@ -247,7 +247,11 @@ def test_plex_enrichment_fires_after_completed():
     src = _RUNNER_PY.read_text(encoding="utf-8")
     fe_pos = src.find('fire_event("completed"')
     assert fe_pos > 0
-    nearby = src[fe_pos:fe_pos + 3000]
+    # stalegate-source-text-log-event: the rest of the METHOD that fires the
+    # completed event, not a fixed 3000-char window (hooks added between the
+    # fire and the spawn pushed it past the window; the order was kept).
+    end = src.find("\n    def ", fe_pos)
+    nearby = src[fe_pos:end if end > 0 else len(src)]
     assert "_plex_enrich_after_scan" in nearby, (
         "Plex enrichment must trigger from completed event"
     )

@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import socket
+import threading
 import time
 from typing import Any
 
@@ -26,6 +28,60 @@ except ImportError:
     event_gateway = None
 
 BD_GATE_SCOPE = "module"
+
+
+def _redis_up(host: str = "127.0.0.1", port: int = 6379, timeout: float = 1.0) -> bool:
+    """True only when a RESP-speaking server answers PING at host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.sendall(b"PING\r\n")
+            return sock.recv(7).startswith(b"+PONG")
+    except OSError:
+        return False
+
+
+# Live-redis tests only: the O1016 band hosts have no redis at 127.0.0.1:6379
+# (STALEGATE-TRIAGE-41a70358, ENV class). On a host without redis these SKIP;
+# with redis present the PING/PONG probe says yes and they run for real.
+_REQUIRES_REDIS = pytest.mark.skipif(
+    not _redis_up(),
+    reason="no redis at 127.0.0.1:6379 (O1016 band hosts; ENV-class skip)",
+)
+
+
+def test_redis_skip_probe_negative_control(monkeypatch: pytest.MonkeyPatch):
+    """The skip marker is probe-driven, not a blanket skip: with nothing
+    answering at the endpoint the probe must say NO (and the live tests then
+    SKIP); with redis answering PING it says YES (and they RUN)."""
+    def _refuse(*args: Any, **kwargs: Any) -> None:
+        raise ConnectionRefusedError("simulated: no redis here")
+
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+    assert _redis_up() is False
+    assert _redis_up("127.0.0.1", 6390) is False
+
+
+def test_redis_skip_probe_requires_pong():
+    """A TCP port that does not answer +PONG is NOT redis: the probe must say
+    NO, so an unrelated service on 6379 cannot satisfy the skip marker."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def _answer_once() -> None:
+        conn, _ = srv.accept()
+        try:
+            conn.recv(64)
+            conn.sendall(b"-ERR unknown command\r\n")
+        finally:
+            conn.close()
+
+    threading.Thread(target=_answer_once, daemon=True).start()
+    try:
+        assert _redis_up("127.0.0.1", port, timeout=5.0) is False
+    finally:
+        srv.close()
 
 
 def _run(coro: Any, timeout: float = 10.0) -> Any:
@@ -52,6 +108,7 @@ def test_event_gateway_module_implemented():
         )
 
 
+@_REQUIRES_REDIS
 def test_queue_state_events_published_to_redis():
     """Verify queue state events are published to Redis channel with valid schema (Acceptance 1)."""
     assert event_gateway is not None, "event_gateway not implemented"
@@ -137,6 +194,7 @@ def test_connected_clients_receive_updates_within_10ms():
     _run(_test())
 
 
+@_REQUIRES_REDIS
 def test_automatic_reconnection_on_network_drop():
     """Verify automatic reconnection on network drop (Acceptance 3)."""
     assert event_gateway is not None, "event_gateway not implemented"

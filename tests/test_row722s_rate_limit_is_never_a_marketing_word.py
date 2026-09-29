@@ -73,7 +73,10 @@ def test_check_redirect_ignores_marketing_copy_but_names_a_real_block():
 
 
 def _stub_for_cooldown():
-    class _Stub:
+    # stalegate-super-typeerror: SiteRunner.trigger_rate_limit is the Row 1021
+    # TransportSubsystem shim that hands off with super(); super() needs a real
+    # SiteRunner instance, so the stub subclasses it (its __init__ never runs).
+    class _Stub(SiteRunner):
         def __init__(self):
             self.site_id = "sid"; self._rl_until = 0.0; self._lock = threading.RLock()
             self.jobs = {}; self._stop = threading.Event(); self._pause = threading.Event()
