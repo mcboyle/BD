@@ -62,18 +62,112 @@ def _first_positive_size_match(page, selector, skip=None):
     return None
 
 
+# dl95-scrolller-2: the ONE visible control whose whole label is a login verb,
+# returned as its index in querySelectorAll order, or -1.  Nested matches
+# (an <a> wrapping a <button>) count once, as the outermost.
+_AUTO_TRIGGER_JS = """() => {
+    const SEL = "button, a, [role='button']";
+    const LABEL = /^(log|sign)[\\s-]?in$/i;
+    const all = Array.from(document.querySelectorAll(SEL));
+    const hits = [];
+    all.forEach((el, i) => {
+        if (el.parentElement && el.parentElement.closest(SEL)) return;
+        const r = el.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) return;
+        // Rendered to the operator: opacity:0 on the control or any
+        // ancestor hides it as surely as display:none (cx1 R1).
+        for (let n = el; n; n = n.parentElement) {
+            const cs = getComputedStyle(n);
+            if (cs.display === "none" || parseFloat(cs.opacity) === 0) return;
+        }
+        if (getComputedStyle(el).visibility !== "visible") return;
+        const label = ((el.innerText || "").trim()
+            || (el.getAttribute("aria-label") || "").trim());
+        if (LABEL.test(label.replace(/\\s+/g, " "))) hits.push(i);
+    });
+    return hits.length === 1 ? hits[0] : -1;
+}"""
+
+
+_SEARCH_INPUT_JS = """el => {
+    if ((el.type || "").toLowerCase() === "search") return true;
+    if (el.closest("[role='search']")) return true;
+    const words = [el.name, el.id, el.placeholder,
+                   el.getAttribute("aria-label")].join(" ").toLowerCase();
+    return words.includes("search");
+}"""
+
+
+def _visible_login_field(page, selectors):
+    """True when a selector has a visible, positive-size match that is not
+    a search box.  Generic fallbacks such as ``form input[type='text']``
+    match scrolller's header search, which is no login field."""
+    for raw_selector in selectors:
+        selector = _selector_text(raw_selector)
+        if not selector:
+            continue
+        try:
+            matches = page.locator(selector)
+            count = matches.count()
+        except Exception:
+            continue
+        for index in range(count):
+            try:
+                match = matches.nth(index)
+                if not match.is_visible():
+                    continue
+                box = match.bounding_box()
+                if not (box and box.get("width", 0) > 0
+                        and box.get("height", 0) > 0):
+                    continue
+                if not match.evaluate(_SEARCH_INPUT_JS):
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def _fire_auto_login_trigger(page):
+    """Open an SPA login modal that is not mounted until clicked.
+
+    dl95-scrolller-2: scrolller's header ``<button>Login</button>`` mounts
+    the form on click, so before the click the page has no password field
+    and its only text input is the search box.  Fires only when NO password
+    input exists in the DOM (a mounted-but-hidden form is row 373's
+    configured-trigger domain, and stays zero clicks) and exactly one
+    visible control is labelled Log in / Login / Sign in.
+    """
+    try:
+        if page.locator("input[type='password']").count() > 0:
+            return False, False, ""
+        index = page.evaluate(_AUTO_TRIGGER_JS)
+    except Exception:
+        return False, False, ""
+    if not isinstance(index, int) or index < 0:
+        return False, False, ""
+    try:
+        page.locator("button, a, [role='button']").nth(index).click(
+            timeout=2500)
+        return True, True, "clicked the page's sole Login control (auto)"
+    except Exception as exc:
+        return True, False, (
+            f"could not click the page's Login control (auto): "
+            f"{str(exc)[:120]}"
+        )
+
+
 def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
     """Reveal a configured modal login form when no username field is usable.
 
-    Returns ``(needed, fired, detail)``.  Empty/missing/non-string trigger
-    values return immediately without touching the page, preserving the
-    historical path for sites that do not opt in.
+    Returns ``(needed, fired, detail)``.  With no configured trigger the
+    only page action is ``_fire_auto_login_trigger`` (an unmounted SPA
+    modal); a mounted form keeps the historical zero-click path.
     """
-    if not isinstance(login_trigger, str):
-        return False, False, ""
-    trigger = login_trigger.strip()
+    trigger = login_trigger.strip() if isinstance(login_trigger, str) else ""
     if not trigger:
-        return False, False, ""
+        if _visible_login_field(page, username_selectors):
+            return False, False, ""
+        return _fire_auto_login_trigger(page)
 
     for raw_selector in username_selectors:
         selector = _selector_text(raw_selector)
