@@ -112,9 +112,9 @@ _REGISTRY: dict[str, tuple[str, re.Pattern, str]] = {
     "pornhub": ("phub",
                 re.compile(r"(?:www\.|m\.)?(?:[a-z]{2}\.)?pornhub(?:premium)?\.com", re.I),
                 "_phub_adapter"),
-    "redtube": ("eaf_base_api",  # NOTE: redtube extraction provided by eaf_base_api family
-                re.compile(r"(?:www\.|m\.)?redtube\.com", re.I),
-                "_redtube_adapter"),
+    # IA-10: no "redtube" entry. It imported "eaf_base_api", a module no dist ships
+    # (eaf-base-api installs base_api), and redtube_api 1.1 is async-only; redtube
+    # is served by extractors_aylo (AYLO_FREE_TUBES, tpl95-redtube-1).
     "youporn": ("youporn_api",
                 re.compile(r"(?:www\.|m\.)?youporn(?:gay)?\.com", re.I),
                 "_youporn_adapter"),
@@ -566,7 +566,6 @@ def _generic_eaf_adapter(libname: str, url: str,
 
 
 # Generated thin wrappers for the EAF family.
-def _redtube_adapter(url, qp, cookies):  return _generic_eaf_adapter("eaf_base_api", url, qp, cookies)
 def _youporn_adapter(url, qp, cookies):  return _generic_eaf_adapter("youporn_api",  url, qp, cookies)
 def _xnxx_adapter(url, qp, cookies):     return _generic_eaf_adapter("xnxx_api",     url, qp, cookies)
 def _xvideos_adapter(url, qp, cookies):  return _generic_eaf_adapter("xvideos_api",  url, qp, cookies)

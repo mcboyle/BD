@@ -40,8 +40,9 @@ class TestExtractorsRegistry:
     """The registry maps BD site_ids to (lib_module, host_regex, adapter)."""
 
     def test_registry_nonempty(self):
-        assert len(extractors._REGISTRY) >= 14, \
-            "v3.43.63 should register at least 14 sites"
+        # IA-10 dropped the dead redtube entry (its module never existed): 14 -> 13.
+        assert len(extractors._REGISTRY) >= 13, \
+            "v3.43.63 should register at least 13 sites"
 
     def test_registry_entries_well_formed(self):
         for sid, entry in extractors._REGISTRY.items():
