@@ -63,3 +63,19 @@ describe("watch-folder scan action", () => {
     expect(screen.queryByText(/"scanned": 2/)).not.toBeInTheDocument();
   });
 });
+
+it("preserves message-only failures from manual login actions", async () => {
+  vi.mocked(apiPost).mockResolvedValue({ ok: false, message: "No pending manual login" });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Manual login done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  expect(await screen.findByText(/No pending manual login/)).toBeInTheDocument();
+});
+
+it("preserves failure details when no error or message string is supplied", async () => {
+  vi.mocked(apiPost).mockResolvedValue({ ok: false, reason: "fixture manual login unavailable" });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Manual login done" }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  expect(await screen.findByText(/fixture manual login unavailable/)).toBeInTheDocument();
+});

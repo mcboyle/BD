@@ -82,8 +82,9 @@ export function SiteActions() {
   const run = useMutation<OkResult, Error, string>({
     mutationFn: (suffix) => apiPost<OkResult>(`/api/sites/${encodeURIComponent(siteId)}/${suffix}`, {}),
     onSuccess: (res) => {
-      setOutput(res.ok === false ? res.error || "action failed" : res);
-      if (res.ok === false) toast.error(res.error || "action failed");
+      const reason = res.error || (typeof res.message === "string" ? res.message : "");
+      setOutput(res.ok === false && reason ? reason : res);
+      if (res.ok === false) toast.error(reason || "action failed");
       else toast.success("Done");
     },
     onError: (e) => {
