@@ -245,10 +245,47 @@ def api_account_pool_reset(sid, account_idx):
 def api_login(sid):
     runners = _app_runners()
     if sid not in runners: return jsonify({"error":"Not found"}),404
-    refusal = runners[sid].login_async()
+    runner = runners[sid]
+    body = request.get_json(silent=True) or {}
+    seq_before = getattr(runner, "_login_attempt_seq", 0)
+    refusal = runner.login_async()
     if refusal:
         return _login_refused(refusal)
-    return jsonify({"ok":True})
+    if body.get("async"):
+        return jsonify({"ok": True, "state": "started"})
+    # dl95-vip4k-2: report THIS attempt's settled outcome, not "it started".
+    # login_async stamps every attempt it runs: _login_attempt_seq, then
+    # _login_outcome = (seq, ok) when it settles (the record
+    # _await_in_flight_login already trusts). No new attempt and no thread
+    # (first-run manual browser, manual login pending) keeps the old answer.
+    seq = getattr(runner, "_login_attempt_seq", 0)
+    thread = getattr(runner, "_login_thread", None)
+    in_flight = thread is not None and thread.is_alive()
+    if seq == seq_before and not in_flight:
+        return jsonify({"ok": True})
+    deadline = time.time() + _LOGIN_WAIT_S
+    while True:
+        # liveness BEFORE the record: a thread seen dead has already settled
+        # (or never will), so a missing record then is a real "no result".
+        alive = thread is not None and thread.is_alive()
+        rec = getattr(runner, "_login_outcome", None)
+        if isinstance(rec, tuple) and len(rec) >= 2 and rec[0] == seq:
+            status = str(getattr(runner, "_login_status", "") or "")
+            if rec[1] is True:
+                return jsonify({"ok": True, "state": "logged_in", "status": status})
+            return jsonify({"ok": False, "state": "failed", "error": status or "login failed"})
+        if thread is not None and not alive:
+            return jsonify({"ok": False, "state": "failed",
+                            "error": "login ended without a result"})
+        if time.time() >= deadline:
+            return jsonify({"ok": False, "state": "pending",
+                            "error": f"login still running after {int(_LOGIN_WAIT_S)}s -- use Verify login",
+                            "status": str(getattr(runner, "_login_status", "") or "")}), 202
+        time.sleep(0.2)
+
+
+# Bounded wait for POST /login: a real login measured 61 s on test2 (txxx).
+_LOGIN_WAIT_S = 120.0
 
 
 def _login_refused(reason):

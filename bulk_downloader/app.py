@@ -4525,6 +4525,25 @@ def _m2_site_drain_eta(pending_total, per_min):
     return int((pt / rate) * 60)
 
 
+def _m2_latest_login_failed(runner) -> bool:
+    """dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
+    not been replaced since. Cookie expiry alone read "ok" on test2 for an
+    anonymous jar right after a failed login (txxx, vip4k), so the attempt's
+    own verdict outranks it until a newer jar (manual login done, import,
+    a later successful login) arrives. Typed reads only: a runner without
+    these attributes keeps the expiry-only answer."""
+    rec = getattr(runner, "_login_outcome", None)
+    at = getattr(runner, "_login_outcome_at", None)
+    jar_at = getattr(runner, "_cookies_updated_at", 0) or 0
+    if not (isinstance(rec, tuple) and len(rec) >= 2 and rec[1] is False):
+        return False
+    if rec[0] != getattr(runner, "_login_attempt_seq", rec[0]):
+        return False  # a newer attempt is in flight; its verdict is not in yet
+    if not isinstance(at, (int, float)) or not isinstance(jar_at, (int, float)):
+        return False
+    return at >= jar_at
+
+
 def _m2_auth_state(runner, cfg) -> str:
     """Bucket the runner's auth state into ok/expired/unknown.
     Reads cookie expiry info; doesn't probe (probing is the v1
@@ -4569,6 +4588,8 @@ def _m2_auth_state(runner, cfg) -> str:
         ei = cookies_expiry_info(jar)
         earliest = ei.get("earliest") or 0
         import time as _t
+        if _m2_latest_login_failed(runner):
+            return "expired"
         if earliest > 0 and earliest >= _t.time():
             return "ok"
         if int(ei.get("session") or 0) > 0:
