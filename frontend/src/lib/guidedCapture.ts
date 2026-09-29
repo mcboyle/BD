@@ -13,6 +13,7 @@ import { apiGet, apiPost } from "@/lib/api-client";
 export type SceneCrawlState =
   | "IDLE"
   | "RUNNING"
+  | "STOPPED"
   | "COMPLETED"
   | "NOT_LOGGED_IN"
   | "FAILED"
@@ -25,6 +26,13 @@ export interface SceneCrawlDefaults {
   max_scrolls?: number;
   delay_s?: number;
   title_fetch_limit?: number;
+}
+
+/** Where a RUNNING discovery is now, and how long since it last moved. */
+export interface SceneCrawlProgress {
+  phase: string;
+  current_url: string;
+  idle_s: number;
 }
 
 export interface SceneCrawlStatus {
@@ -40,6 +48,7 @@ export interface SceneCrawlStatus {
   zero_reason?: string;
   zero_page?: { url?: string; status?: number | null; challenge?: string; title?: string };
   error?: string;
+  progress?: SceneCrawlProgress;
   defaults?: SceneCrawlDefaults;
 }
 
@@ -88,7 +97,16 @@ export function sceneCrawlView(status: SceneCrawlStatus): SceneCrawlView {
     };
   }
   if (status.state === "RUNNING") {
-    return { tone: "info", label: "Discovering scenes… scrolling and walking pages." };
+    const progress = status.progress;
+    return {
+      tone: "info",
+      label: progress
+        ? `Discovering scenes… ${progress.phase}${progress.current_url ? ` ${progress.current_url}` : ""} (${Math.round(progress.idle_s)}s)`
+        : "Discovering scenes… scrolling and walking pages.",
+    };
+  }
+  if (status.state === "STOPPED") {
+    return { tone: "neutral", label: "Discovery stopped." };
   }
   if (status.state === "COMPLETED") {
     if (status.zero_scenes_found) {
@@ -134,6 +152,10 @@ export async function startSceneCrawl(
   request: StartSceneCrawlRequest,
 ): Promise<SceneCrawlStartResponse> {
   return apiPost<SceneCrawlStartResponse>("/api/discovery/scenes/start", request);
+}
+
+export async function stopSceneCrawl(siteId: string): Promise<SceneCrawlStatus> {
+  return apiPost<SceneCrawlStatus>("/api/discovery/scenes/stop", { site_id: siteId });
 }
 
 export async function fetchSceneCrawlStatus(
