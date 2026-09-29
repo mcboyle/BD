@@ -277,6 +277,26 @@ def _build_gallerydl_cmd(*, gallerydl, dl_dir, url, proxy_url=None,
     return cmd
 
 
+def _spa_job_is_the_file(job_url, file_url):
+    """True when the queued URL is itself the media file (scheme/host/path equal,
+    query ignored): nothing was chosen, so min_resolution has nothing to hold."""
+    from urllib.parse import urlparse
+
+    def key(u):
+        p = urlparse(u or "")
+        return (p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"))
+    return bool(job_url and file_url) and key(job_url) == key(file_url)
+
+
+def _landed_video_height(path):
+    """The landed file's first video stream height via the pinned ffprobe, or 0."""
+    try:
+        from .upscale_detector import probe_video_metadata
+        return int(probe_video_metadata(path, timeout=10.0)[1] or 0)
+    except (OSError, ValueError):   # no ffprobe / unreadable file: height stays unknown
+        return 0
+
+
 class ExtractorsMixin:
     def _try_ytdlp_fallback(self, url, fail_reason=""):
         """Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
@@ -1252,6 +1272,29 @@ class ExtractorsMixin:
         self.log_event("spa_api_candidate",
                        f"chose {height}p from {chosen.get('source')}; saw: {summary}",
                        url=url)
+        # dl95-cumlouder-3: this path applied no min_resolution at all. A KNOWN
+        # height below the minimum is held as the button path holds it (runner.py
+        # "Min-resolution gate"); an UNKNOWN height passes there too, so it is
+        # measured once it lands (below). A job whose URL IS the media file chose
+        # nothing, so there is nothing to hold.
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        from contextlib import nullcontext
+        # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
+        jobs = getattr(self, "jobs", None)
+        with getattr(self, "_lock", None) or nullcontext():
+            job = jobs.get(url) if isinstance(jobs, dict) else None
+            forced = bool((job or {}).get("force_download"))
+        gated = min_res > 0 and not forced and not _spa_job_is_the_file(url, file_url)
+        if gated and 0 < height < min_res:
+            screenshot_fn = getattr(self, "_screenshot", None)
+            ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+            msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
+            sys.stderr.write(f"  spa-api: skipped {url[-40:]} — best is {height}p "
+                             f"(below min_res={min_res}p)\n")
+            self._update_job(url, "needs_review", msg, screenshot=ss)
+            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                   f"below {min_res}p; got {height}p; saw: {summary}", ss)
+            return True
 
         dl_dir_str = (self.config.get("download_dir") or "").strip()
         if not dl_dir_str:
@@ -1351,9 +1394,16 @@ class ExtractorsMixin:
             except OSError:
                 downloaded_size = 0
 
+        below = ""
+        if not height:
+            height = _landed_video_height(output_path)
+            if gated and 0 < height < min_res:
+                below = f" — below the {min_res}p minimum (height unknown before download)"
+                self.log_event("spa_api_below_minimum",
+                               f"landed {height}p; minimum {min_res}p", url=url)
         file_size_on_disk = self._size_on_disk_after_tagging(output_path, downloaded_size)
         self._update_job(url, "done",
-                         f"API/media {height}p ({fmt_bytes(downloaded_size)})",
+                         f"API/media {height}p ({fmt_bytes(downloaded_size)}){below}",
                          filename=output_filename, file_size=file_size_on_disk)
         # Row 722 (tiny4k live: HISTORY-TITLE-EMPTY): this path never passes
         # the transport boundary that harvests the page title, so harvest it
@@ -1367,7 +1417,7 @@ class ExtractorsMixin:
         db_log(self.site_id, self.config.get("name", "?"), url, "done",
                output_filename, file_size_on_disk,
                f"spa-api source={chosen.get('source')} tier={height} "
-               f"avail={[c.get('height') for c in ranked[:6]]}",
+               f"avail={[c.get('height') for c in ranked[:6]]}{below}",
                bytes_fetched=downloaded_size, transfer_mode=transfer_mode,
                file_path=output_path, **history_title_kwargs(self, url))
         self.log_event("spa_api_done",
