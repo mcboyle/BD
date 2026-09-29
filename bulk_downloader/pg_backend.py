@@ -750,6 +750,13 @@ def is_mirrored(sql):
     return _verb(sql) in _MIRRORED_VERBS and _target_table(sql) in _MIRRORED_TABLES
 
 
+def is_shadowable(sql):
+    """Whether shadow-read may compare this statement: a SELECT. The dual-write
+    seam RE-EXECUTES what it shadows, so anything else must never reach it
+    (row 127: a re-run INSERT wrote every job_runs row twice on test2)."""
+    return _verb(sql) == "SELECT"
+
+
 # Functions a SELECT may call and still be sent to Postgres verbatim: same
 # name, same result in SQLite and PG for this app's usage. Deliberately
 # narrower than _PG_SAME_FUNCS (no date/to_char/now: those only hold after
@@ -1336,7 +1343,7 @@ def shadow_compare(sql, params, sqlite_rows):
     reports agreement it did not observe."""
     if not shadow_read_enabled():
         return None
-    if _verb(sql) != "SELECT":
+    if not is_shadowable(sql):
         return None
     if not _in_read_scope(sql):
         _shadow_skip("scope")

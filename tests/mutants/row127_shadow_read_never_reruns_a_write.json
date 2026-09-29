@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "Row 127 HIGH: shadow-read re-executed non-SELECT statements (doubled job_runs on test2). M1/M2 drop the guard per path, M3 opens the predicate, M4 closes it (reads must still be compared).",
+  "subject": "bulk_downloader/db.py",
+  "band": [
+    "tests/test_row127_shadow_read_never_reruns_a_write.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 connection shadow re-runs writes again",
+      "file": "bulk_downloader/db.py",
+      "old_regex": "if not \\(pg_backend\\.shadow_read_enabled\\(\\) and pg_backend\\.is_shadowable\\(sql\\)\\):",
+      "new": "if not pg_backend.shadow_read_enabled():",
+      "direction": "regression",
+      "catcher": "tests/test_row127_shadow_read_never_reruns_a_write.py::test_the_row_one_run_start_writes_one_run_and_one_start_event"
+    },
+    {
+      "label": "M2 cursor shadow re-runs writes again",
+      "file": "bulk_downloader/db.py",
+      "old_regex": "elif pg_backend\\.shadow_read_enabled\\(\\) and pg_backend\\.is_shadowable\\(sql\\):",
+      "new": "elif pg_backend.shadow_read_enabled():",
+      "direction": "regression",
+      "catcher": "tests/test_row127_shadow_read_never_reruns_a_write.py::test_a_write_through_a_cursor_is_not_rerun_either"
+    },
+    {
+      "label": "M3 predicate admits every statement",
+      "file": "bulk_downloader/pg_backend.py",
+      "old_regex": "def is_shadowable\\(sql\\):\\n",
+      "new": "def is_shadowable(sql):\n    return True\n",
+      "direction": "regression",
+      "catcher": "tests/test_row127_shadow_read_never_reruns_a_write.py::test_the_row_one_run_start_writes_one_run_and_one_start_event"
+    },
+    {
+      "label": "M4 predicate admits nothing: shadow blinded for reads",
+      "file": "bulk_downloader/pg_backend.py",
+      "old_regex": "def is_shadowable\\(sql\\):\\n",
+      "new": "def is_shadowable(sql):\n    return False\n",
+      "direction": "regression",
+      "catcher": "tests/test_row127_shadow_read_never_reruns_a_write.py::test_a_select_is_still_shadow_compared"
+    }
+  ]
+}
