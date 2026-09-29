@@ -302,6 +302,7 @@ def _build_ffmpeg_cmd(
     threads: int = 1,
     extra_args: Optional[list[str]] = None,
     proxy_url: Optional[str] = None,
+    input_format: Optional[str] = None,
 ) -> list[str]:
     """Construct an ffmpeg argv that downloads `input_url` (HLS or DASH)
     into `output_path`. Designed to be robust on flaky CDNs:
@@ -352,6 +353,12 @@ def _build_ffmpeg_cmd(
         # ffmpeg wants headers as a single \r\n-joined blob via -headers
         hdr_blob = "\r\n".join(f"{k}: {v}" for k, v in extra_headers.items()) + "\r\n"
         cmd += ["-headers", hdr_blob]
+    if input_format:
+        # dl95-ok-3: a playlist served at a non-.m3u8 path with a non-mpegurl
+        # type is not probed as HLS by ffmpeg >= 6.1 ("Not detecting m3u8/hls
+        # with non standard extension"); the caller that sniffed the body
+        # names the demuxer instead.
+        cmd += ["-f", input_format]
     cmd += ["-i", input_url]
     # Output options (after -i)
     cmd += [
@@ -384,6 +391,7 @@ def download(
     extra_ffmpeg_args: Optional[list[str]] = None,
     proxy_url: Optional[str] = None,
     env: Optional[dict] = None,
+    input_format: Optional[str] = None,
 ) -> DownloadResult:
     """Download an HLS/DASH stream at `manifest_url` to `output_path`.
 
@@ -408,6 +416,9 @@ def download(
     a scrubbed copy of ``os.environ`` is built with every ambient proxy
     variable removed, so an ``http_proxy`` in the service environment can no
     longer silently reroute segment fetches.
+
+    `input_format` (dl95-ok-3) forces the demuxer (``-f hls``) for a manifest
+    the caller identified by its body rather than by its URL or content type.
 
     Returns a DownloadResult. Never raises.
     """
@@ -454,6 +465,7 @@ def download(
         user_agent=user_agent, referer=referer,
         extra_headers=extra_headers, threads=threads,
         extra_args=extra_ffmpeg_args, proxy_url=proxy_url,
+        input_format=input_format,
     )
 
     # Launch in its own process group so we can kill the whole tree on

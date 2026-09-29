@@ -297,6 +297,30 @@ def _landed_video_height(path):
         return 0
 
 
+def _landed_body_kind(path):
+    """dl95-ok-3: what a page-media direct transfer actually saved.
+
+    "manifest" -- an HLS playlist (#EXTM3U) served at a media-looking path
+    (ok.xxx: /…/720p.mp4 answered with a master playlist, saved as a 1002 B
+    ".mp4" and recorded done); it is an index of segments, not the video.
+    "page" -- an HTML/XML/JSON body (an error or login page), no media at all.
+    "media" -- anything else. Only the two positive shapes are refused: an
+    unfamiliar container (MPEG-TS, FLV, ...) is not evidence of a bad file.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512)
+    except OSError:
+        return "media"      # unreadable here: the existing size/height checks decide
+    body = head.lstrip(b"\xef\xbb\xbf \t\r\n")
+    if body[:7] == b"#EXTM3U":
+        return "manifest"
+    low = body[:16].lower()
+    if low.startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<?xml", b"{", b"[")):
+        return "page"
+    return "media"
+
+
 class ExtractorsMixin:
     def _try_ytdlp_fallback(self, url, fail_reason=""):
         """Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
@@ -1353,6 +1377,36 @@ class ExtractorsMixin:
                          f"API/media: downloading {height}p ({chosen.get('source')})...")
         _download_started = time.monotonic()
         transfer_mode = None
+        hls_format = None
+        if not is_hls:
+            transfer_mode = "http"
+            ok = self._do_direct_http_download(
+                page_url=url, file_url=file_url, output_path=output_path, referer=url)
+            if not ok:
+                self.log_event("spa_api_mp4_failed", "direct http failed", url=url)
+                return False
+            # dl95-ok-3: the URL said .mp4; the body decides what landed.
+            body_kind = _landed_body_kind(output_path)
+            if body_kind != "media":
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+            if body_kind == "page":
+                self.log_event("spa_api_not_media",
+                               f"{height}p option answered with a page, not media: {file_url[:120]}",
+                               url=url)
+                return False
+            if body_kind == "manifest":
+                self.log_event("spa_api_manifest_body",
+                               f"{height}p option is an HLS playlist; re-fetching segmented: {file_url[:120]}",
+                               url=url)
+                is_hls, hls_format = True, "hls"
+            else:
+                try:
+                    downloaded_size = os.path.getsize(output_path)
+                except OSError:
+                    downloaded_size = 0
         if is_hls:
             transfer_mode = "segmented"
             try:
@@ -1366,11 +1420,12 @@ class ExtractorsMixin:
             ua = self.config.get("user_agent", "") or (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            hls_kw = {"input_format": hls_format} if hls_format else {}
             dl_result = self._hls_download_guarded(
                 _hls, file_url, output_path, user_agent=ua, referer=url,
                 progress_callback=lambda p: self._update_job(
                     url, "running", f"API/media HLS • {fmt_bytes(p.get('bytes', 0))}"),
-                cancel_check=lambda: self._stop.is_set())
+                cancel_check=lambda: self._stop.is_set(), **hls_kw)
             if not dl_result.ok:
                 self.log_event("spa_api_hls_failed", f"hls failed: {dl_result.error}", url=url)
                 try:
@@ -1380,17 +1435,6 @@ class ExtractorsMixin:
                     pass
                 return False
             downloaded_size = dl_result.bytes_written
-        else:
-            transfer_mode = "http"
-            ok = self._do_direct_http_download(
-                page_url=url, file_url=file_url, output_path=output_path, referer=url)
-            if not ok:
-                self.log_event("spa_api_mp4_failed", "direct http failed", url=url)
-                return False
-            try:
-                downloaded_size = os.path.getsize(output_path)
-            except OSError:
-                downloaded_size = 0
 
         below = ""
         if not height:
