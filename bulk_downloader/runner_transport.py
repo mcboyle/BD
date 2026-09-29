@@ -469,6 +469,79 @@ def _is_player_source_element(locator):
     return str(tag or "").upper() in ("VIDEO", "SOURCE")
 
 
+_HOSTER_FETCH_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
+def _refetch_player_config(found, user_agent, proxy_url, http_get=None):
+    """fx-pornhoarder-hoster-embed: the configuring frame's page fetched again by
+    the APP's own guarded HTTP client, unpacked, with the UA that client sent.
+
+    Measured on bd1 (luluvdo.com, 2026-09-29): a token the BROWSER was issued
+    answers 403 to ffmpeg even with the browser's exact UA and referer (h3 or
+    h2 alike), while a token issued to a plain HTTP client plays for ffmpeg
+    with that client's UA. ``[]`` on any failure."""
+    from . import spa_media_extract as _spa
+    frame_url = found.get("frame_url") or ""
+    if not frame_url.startswith(("http://", "https://")):
+        return []
+    headers = {"User-Agent": user_agent}
+    if found.get("referer"):
+        headers["Referer"] = found["referer"]
+    try:
+        if http_get is None:
+            import httpx
+            from bulk_downloader.ssrf_transport import guarded_transport, PINNED
+            with httpx.Client(transport=guarded_transport(PINNED, proxy=proxy_url)) as client:
+                resp = client.get(frame_url, headers=headers, follow_redirects=True,
+                                  timeout=httpx.Timeout(20.0, connect=10.0))
+                status, text = resp.status_code, resp.text
+        else:
+            status, text = http_get(frame_url, headers)
+    except Exception:  # noqa: BLE001 -- an unreachable hoster keeps the browser's config
+        return []
+    if not 200 <= int(status or 0) < 300:
+        return []
+    return _spa.packed_player_media_urls(text or "")
+
+
+def _frame_player_config_override(page, best, direct_url, *, user_agent=_HOSTER_FETCH_UA,
+                                  proxy_url=None, http_get=None):
+    """fx-pornhoarder-hoster-embed: ``(url, user_agent)`` when a learned
+    <video>/<source> inside a child frame plays something OTHER than what a
+    packed player config on the page names; ``None`` otherwise.
+
+    pornhoarder's learned ``video[src]`` matched a banner ad's <video> in an ad
+    frame (rtbbtr.com -> neonvanta.com, 23-30 s clips) and saved it as the
+    28:30 scene. The hoster frame's packed player setup (LuluStream,
+    luluvdo.com/e/<id>) names the scene's master.m3u8: a player's own config
+    outranks whatever a frame's <video> plays at this instant. The config is
+    re-fetched by the app's HTTP client so the stream token belongs to the UA
+    the segmented transfer sends (``_refetch_player_config``); only when that
+    fails does the browser's own config and navigator UA stand. A learned LINK,
+    a main-document element, or a page whose frames configure no packed media
+    keeps the learned URL exactly as before.
+    """
+    frame_url = best.get("_frame_url") or ""
+    if not frame_url or not direct_url:
+        return None
+    try:
+        tag = best["locator"].evaluate("e => e.tagName")
+    except Exception:  # noqa: BLE001 -- a detached/odd element keeps BASE behaviour
+        return None
+    if str(tag or "").upper() not in ("VIDEO", "SOURCE"):
+        return None
+    from . import spa_media_extract as _spa
+    found = _spa.frame_player_configured_media(page, frame_url)
+    urls = found.get("urls") or []
+    if not urls or direct_url in urls:
+        return None
+    fresh = _refetch_player_config(found, user_agent, proxy_url, http_get=http_get)
+    if fresh:
+        return fresh[0], user_agent
+    return urls[0], found.get("user_agent") or ""
+
+
 def _is_login_wall_href(href):
     """True when a download candidate's href is the site's login page
     (``/login-required/``, ``/login``, ``/sign-in``...). The session keeper's
@@ -2782,6 +2855,7 @@ class TransportMixin:
         )
         direct_url=None
         suggested=None
+        stream_user_agent=""  # fx-pornhoarder-hoster-embed: a UA-bound hoster token
         # dl-f6: the job URL itself started this Download on goto (runner.
         # _accept_navigation_download). There is no candidate element to gate,
         # read or click: the Download is the file, and the branches below that
@@ -2876,6 +2950,23 @@ class TransportMixin:
                             f"learned media {suggested} has no measurable tier",
                             scene_own_only=True)):
                     return
+                if nav_download is None:
+                    try:
+                        _cfg_proxy = self._download_proxy_url()
+                    except Exception:  # noqa: BLE001 -- VPN required and down: no override fetch
+                        _cfg_proxy = False
+                    _override = None if _cfg_proxy is False else _frame_player_config_override(
+                        page, best, direct_url,
+                        user_agent=((self.config.get("fingerprint") or {}).get("user_agent")
+                                    or _HOSTER_FETCH_UA),
+                        proxy_url=_cfg_proxy)
+                    if _override:
+                        _played = suggested
+                        direct_url, stream_user_agent = _override
+                        suggested = Path(urlsplit(direct_url).path).name or suggested
+                        sys.stderr.write(
+                            f"  download: learned <video> in frame plays {_played}; the frame "
+                            f"player's configured source wins ({direct_url[:90]})\n")
 
         # ── v3.66.819: a STREAM is decided before the click, not after 60s ──
         #
@@ -3424,9 +3515,10 @@ class TransportMixin:
                            bytes_fetched=0)
                     staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
                     return
+                _ua_kw = {"user_agent": stream_user_agent} if stream_user_agent else {}
                 res = self._hls_download_guarded(
                     _hls, direct_url, str(final_path), referer=page_url,
-                    cancel_check=lambda: transfer_cancelled(self, page_url))
+                    cancel_check=lambda: transfer_cancelled(self, page_url), **_ua_kw)
                 if not res.ok:
                     # ffmpeg_not_installed is a DISTINCT code and gets a distinct
                     # verdict: a missing dependency is not a broken stream, and an

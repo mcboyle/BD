@@ -1010,6 +1010,104 @@ def third_party_frame_hosts(page) -> List[str]:
     return hosts
 
 
+# fx-pornhoarder-hoster-embed (bd1 2026-09-29): pornhoarder's hoster player
+# (LuluStream, luluvdo.com/e/<id>) ships its JW setup Dean-Edwards-packed --
+# eval(function(p,a,c,k,e,d){...}('<payload>',<radix>,<count>,'<w1|w2|..>'.split('|'))
+# -- so the real ``sources:[{file:"...master.m3u8"}]`` is in no DOM attribute;
+# during the preroll the player's <video src> is the VAST ad clip instead.
+_PACKER_RE = re.compile(
+    r"eval\(function\(p,a,c,k,e,[dr]\)\{.*?\}\("
+    r"'((?:[^'\\]|\\.)*)',\s*(\d+),\s*(\d+),\s*'((?:[^'\\]|\\.)*)'\.split\('\|'\)",
+    re.S)
+_PACKER_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_PLAYER_SOURCE_RE = re.compile(
+    r"""(?:file|src)\s*:\s*["'](https?://[^"'\s]+)["']""", re.I)
+
+
+def _packer_word(n: int, radix: int) -> str:
+    head = _packer_word(n // radix, radix) if n >= radix else ""
+    return head + _PACKER_DIGITS[n % radix]
+
+
+def unpack_packed_scripts(html: str) -> List[str]:
+    """The unpacked bodies of every p,a,c,k,e,d script in ``html`` (radix <= 62)."""
+    out: List[str] = []
+    for m in _PACKER_RE.finditer(html or ""):
+        payload = m.group(1).replace("\\'", "'").replace("\\\\", "\\")
+        radix, count = int(m.group(2)), int(m.group(3))
+        words = m.group(4).split("|")
+        if not 2 <= radix <= len(_PACKER_DIGITS):
+            continue
+        table = {}
+        for i in range(min(count, len(words))):
+            key = _packer_word(i, radix)
+            table[key] = words[i] or key
+        out.append(re.sub(r"\b\w+\b", lambda w: table.get(w.group(0), w.group(0)), payload))
+    return out
+
+
+def packed_player_media_urls(html: str) -> List[str]:
+    """http(s) media (.m3u8/.mp4/...) a packed player config names as a source."""
+    urls: List[str] = []
+    for body in unpack_packed_scripts(html):
+        for u in _PLAYER_SOURCE_RE.findall(body):
+            if MEDIA_EXT_RE.search(u) and u not in urls:
+                urls.append(u)
+    return urls
+
+
+def _frame_configured_media(frame) -> Dict[str, Any]:
+    try:
+        urls = packed_player_media_urls(frame.content())
+        if not urls:
+            return {}
+        ua = frame.evaluate("() => navigator.userAgent")
+        parent = getattr(frame, "parent_frame", None)
+        return {"urls": urls, "user_agent": ua if isinstance(ua, str) else "",
+                "frame_url": frame.url, "referer": getattr(parent, "url", "") or ""}
+    except Exception:  # noqa: BLE001 -- a detached/unreadable frame configures nothing
+        return {}
+
+
+def frame_player_configured_media(page, frame_url: str) -> Dict[str, Any]:
+    """The player configuration that governs a media element found in the
+    child frame ``frame_url``: that frame's own packed setup, else the first
+    VISIBLE player frame's (``_child_frames``). ``{}`` when none configures
+    media or it is unreadable; else ``{"urls", "user_agent", "frame_url",
+    "referer"}`` -- the configuring frame, its navigator UA and its parent's
+    url (the embed's referer).
+
+    The second leg is the measured pornhoarder shape: the learned <video> was
+    a banner ad's (rtbbtr.com -> neonvanta.com / kinklux.com, 23-30 s clips),
+    while the hoster frame (luluvdo.com/e/<id>) configures the scene."""
+    try:
+        own = next((f for f in page.frames if f.url == frame_url), None)
+    except Exception:  # noqa: BLE001
+        return {}
+    if own is not None:
+        found = _frame_configured_media(own)
+        if found:
+            return found
+    for frame in _child_frames(page):
+        if frame is own:
+            continue
+        found = _frame_configured_media(frame)
+        if found:
+            return found
+    return {}
+    if own is not None:
+        urls, ua = _frame_configured_media(own)
+        if urls:
+            return urls, ua
+    for frame in _child_frames(page):
+        if frame is own:
+            continue
+        urls, ua = _frame_configured_media(frame)
+        if urls:
+            return urls, ua
+    return [], ""
+
+
 # dl95-porndoe-1 (test2 2026-09-29, re-measured live on the hub): a tube scene
 # page renders NO <video> until its poster play control is clicked, so every
 # DOM candidate is chrome ("Mobile menu", a playlist "Save") and the click
