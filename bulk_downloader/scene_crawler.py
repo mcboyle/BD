@@ -313,6 +313,15 @@ def _is_page_number_link(anchor: dict[str, Any], parts: tuple[str, ...]) -> bool
     return bool(parts) and text.isdigit() and text == parts[-1]
 
 
+def _listing_route(url: str) -> bool:
+    """The product rule's listing ROUTE test (playlist_extractor): the second
+    path segment, after a locale prefix, is a listing action such as gallery."""
+    segments = [part.lower() for part in _path_parts(url)]
+    if segments and len(segments[0]) == 2 and segments[0].isalpha():
+        segments = segments[1:]
+    return len(segments) >= 2 and segments[1] in _LISTING_ROUTE_WORDS
+
+
 def _scene_cohort(
     anchors: Iterable[dict[str, Any]],
     listing_url: str,
