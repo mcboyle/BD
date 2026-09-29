@@ -9,8 +9,11 @@ Cancel only marks the JOB "stopped" (app_queue: runner._update_job(url, "stopped
 transfer only looks at the SITE stop event, the progress ticks write "running" over "stopped" (memory and the queue
 row), and a stopped transfer's error sends _do_download into its browser re-click fallback.
 
-Contract after the fix: once a job is stopped, its in-flight HTTP transfer (single-stream and parallel) stops within
-a chunk and the job and its queue row stay "stopped". Nothing re-marks it "running", so a restart does not re-run it,
+GEN 2 (B6-B UPDATE 03:40Z): Cancel was ignored on 4 paths / 2 hosts -- porndig HTTP, cumlouder learned-src (.95),
+cumlouder Direct (.183), beeg HLS (.95). Every byte loop and every cancel_check read only the SITE stop.
+
+Contract after the fix: once a job is stopped, every transfer path moving its bytes (single-stream, parallel,
+_do_direct_http_download, the HLS cancel_check) stops, and the job and its queue row stay "stopped". Nothing re-marks it "running", so a restart does not re-run it,
 and a stopped transfer is not retried through the browser. Re-arming through "pending" still works (control).
 """
 
@@ -176,6 +179,16 @@ def test_without_cancel_the_same_transfer_completes(runner, origin, clean_workdi
     assert r.jobs[JOB]["status"] == "running" and _row_status() == "running"
 
 
+@pytest.mark.parametrize("late", [("running", "Downloading 37%"), ("failed", "HTTP failed"),
+                                  ("needs_review", "Best is 480p"), ("done", "Saved")])
+def test_a_cancelled_runs_trailing_writes_never_replace_stopped(runner, late):
+    r = runner()
+    r._update_job(JOB, "stopped", "Cancelled by user")
+    assert r._update_job(JOB, *late, file_size=1) is False
+    assert (r.jobs[JOB]["status"], r.jobs[JOB]["message"]) == ("stopped", "Cancelled by user")
+    assert _row_status() == "stopped", f"DL95_CANCEL_REVIVED: {late}"
+
+
 def test_running_never_overwrites_stopped_but_pending_rearms(runner):
     r = runner()
     r._update_job(JOB, "stopped", "Cancelled by user")
@@ -195,6 +208,54 @@ def test_the_queue_row_keeps_stopped_against_a_direct_running_upsert(runner):
     fresh = JOB + "?new"
     queue_upsert("dl95pd3", fresh, status="running", message="x")   # control: a new row still inserts
     assert _row_status(fresh) == "running"
+
+
+def test_cancel_stops_the_direct_http_path(runner, origin, clean_workdir):
+    """cumlouder Direct / learned-src: _do_direct_http_download (spa-api, library and direct-media routes)."""
+    r = runner()
+    dest = clean_workdir / "dl" / "direct.mp4"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    file_url, sent = origin
+    out = {}
+    t = threading.Thread(target=lambda: out.update(
+        ok=r._do_direct_http_download(JOB, file_url, str(dest), referer=JOB)), daemon=True)
+    t.start()
+    deadline = time.monotonic() + 20
+    while sent[0] < 4 * 1024 * 1024 and t.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert t.is_alive(), f"precondition: the transfer outlives the cancel point, got {out}"
+    r._update_job(JOB, "stopped", "Cancelled by user")
+    t.join(timeout=30)
+    time.sleep(0.5)
+    assert out.get("ok") is False and sent[0] < TOTAL // 2, (
+        f"DL95_CANCEL_TRANSFER_KEPT_RUNNING: direct_http {out} served {sent[0]}/{TOTAL}")
+    assert r.jobs[JOB]["status"] == "stopped"
+
+
+def test_the_hls_cancel_check_sees_the_jobs_cancel(runner, clean_workdir, monkeypatch):
+    """beeg HLS: the spa-api arm hands ffmpeg a cancel_check; it must turn True on this job's Cancel."""
+    from bulk_downloader import hls_downloader
+
+    r = runner(min_resolution=0)
+    seen = []
+
+    def fake_hls(_hls, _url, output_path, **kw):
+        check = kw["cancel_check"]
+        seen.append(check())                                    # live job: keep going
+        r._update_job(JOB, "stopped", "Cancelled by user")      # app_queue api_queue_v2_cancel
+        seen.append(check())                                    # must stop now
+        return type("_R", (), {"ok": False, "error": "cancelled", "bytes_written": 0})()
+
+    class _Page:
+        url = JOB
+
+        def evaluate(self, _js):
+            return ["https://cdn.beeg.invalid/scene/1080/index.m3u8"]
+
+    monkeypatch.setattr(hls_downloader, "is_available", lambda: True)
+    monkeypatch.setattr(type(r), "_hls_download_guarded", lambda self, *a, **k: fake_hls(*a, **k))
+    r._try_spa_api_media_extractor(JOB, _Page())
+    assert seen == [False, True], f"DL95_HLS_CANCEL_IGNORED: cancel_check before/after Cancel = {seen}"
 
 
 # -- _do_download: a stopped HTTP leg is not retried through the browser ---------------------------------------

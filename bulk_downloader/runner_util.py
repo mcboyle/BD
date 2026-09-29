@@ -54,6 +54,24 @@ _BD_TO_APPRISE_EVENT: dict = {
 }
 
 
+def transfer_cancelled(host, job_url):
+    """dl95-porndig-3: a transfer stops on the site Stop OR on its own job's
+    Cancel. Cancel (app_queue) marks only the JOB "stopped", so every byte loop
+    and every cancel_check reads it here. A host without a job table (the
+    test mixins) reads the site stop alone."""
+    stop = getattr(host, "_stop", None)
+    if stop is not None and stop.is_set():
+        return True
+    jobs = getattr(host, "jobs", None)
+    if not job_url or not isinstance(jobs, dict):
+        return False
+    lock = getattr(host, "_lock", None)
+    if lock is None:
+        return (jobs.get(job_url) or {}).get("status") == "stopped"
+    with lock:
+        return (jobs.get(job_url) or {}).get("status") == "stopped"
+
+
 def _ts(): return datetime.now().strftime("%H:%M:%S")
 
 

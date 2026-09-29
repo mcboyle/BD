@@ -39,7 +39,7 @@ def _dest_in_dir(dl_dir, rendered):
 # value can never smuggle a flag or metacharacter into yt-dlp's option surface.
 _RATE_RE = re.compile(r"^\d+(\.\d+)?[KMGkmg]?$")
 
-from .runner_util import DEFAULT_MIN_RESOLUTION
+from .runner_util import DEFAULT_MIN_RESOLUTION, transfer_cancelled
 from .db import db_log
 from .detect import find_best_download, fmt_bytes, no_selection, safe_dest
 from .fname import resolve_filename_template, format_duration_for_filename
@@ -1185,7 +1185,7 @@ class ExtractorsMixin:
                 _hls, src.url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
-                cancel_check=lambda: self._stop.is_set(),
+                cancel_check=lambda: transfer_cancelled(self, url),
             )
             if not dl_result.ok:
                 self.log_event(
@@ -1501,7 +1501,7 @@ class ExtractorsMixin:
                 _hls, file_url, output_path, user_agent=ua, referer=url,
                 progress_callback=lambda p: self._update_job(
                     url, "running", f"API/media HLS • {fmt_bytes(p.get('bytes', 0))}"),
-                cancel_check=lambda: self._stop.is_set(), **hls_kw)
+                cancel_check=lambda: transfer_cancelled(self, url), **hls_kw)
             if not dl_result.ok:
                 self.log_event("spa_api_hls_failed", f"hls failed: {dl_result.error}", url=url)
                 try:
@@ -1817,7 +1817,7 @@ class ExtractorsMixin:
                 _hls, upgraded_url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
-                cancel_check=lambda: self._stop.is_set(),
+                cancel_check=lambda: transfer_cancelled(self, url),
             )
             if not dl_result.ok:
                 self.log_event(
@@ -2320,7 +2320,7 @@ class ExtractorsMixin:
                 _hls, variant.url, output_path,
                 user_agent=user_agent, referer=referer,
                 progress_callback=_progress,
-                cancel_check=lambda: self._stop.is_set(),
+                cancel_check=lambda: transfer_cancelled(self, url),
             )
             if not dl_result.ok:
                 self.log_event(
@@ -2633,7 +2633,7 @@ class ExtractorsMixin:
             try:
                 dl_result = self._hls_download_guarded(
                     _hls, video_url, output_path, referer=url,
-                    cancel_check=lambda: self._stop.is_set())
+                    cancel_check=lambda: transfer_cancelled(self, url))
             except Exception as e:
                 sys.stderr.write(f"  plugin_extractor: hls path raised {e}\n")
                 return False
@@ -2857,7 +2857,7 @@ class ExtractorsMixin:
                 user_agent=user_agent,
                 referer=referer,
                 progress_callback=_progress,
-                cancel_check=lambda: self._stop.is_set(),
+                cancel_check=lambda: transfer_cancelled(self, url),
             )
             if not dl_result.ok:
                 self.log_event(
