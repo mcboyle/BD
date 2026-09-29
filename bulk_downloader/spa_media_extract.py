@@ -229,6 +229,31 @@ def _option_candidates(record_url: str, key: str, value: Any,
             yield cand
 
 
+# dl95-kellymadisonmedia-2: a trailer / teaser / preview / sample FILE is never the
+# scene. Tokens are delimited by / _ . - (a word-boundary \b does not split on "_",
+# so "1138_maddie_wren_trailer_1080p_pf.mp4" slipped through as the member scene).
+PREVIEW_MEDIA_RE = re.compile(
+    r"(?:^|[/_.-])(?:trailers?|teasers?|previews?|samples?)(?:[/_.-]|$)", re.I)
+
+
+def is_preview_media(url: str) -> bool:
+    try:
+        return bool(PREVIEW_MEDIA_RE.search(urlparse(url).path or ""))
+    except Exception:
+        return False
+
+
+def preview_media_urls(page_url: str, urls: Iterable[str]) -> List[str]:
+    """The trailer/preview media files among what the page fetched (see above)."""
+    out: List[str] = []
+    for u in urls or []:
+        if isinstance(u, str) and u.strip():
+            u = urljoin(page_url, u.strip())
+            if MEDIA_EXT_RE.search(u) and is_preview_media(u) and u not in out:
+                out.append(u)
+    return out
+
+
 def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Walk every remembered API record for download-like options."""
     out: List[Dict[str, Any]] = []
@@ -365,6 +390,8 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
                 MEDIA_EXT_RE.search(u) or MEDIA_EXT_RE.search(urlparse(u).path.rstrip("/"))):
             continue
         if u in seen:
+            continue
+        if is_preview_media(u):  # dl95-kellymadisonmedia-2
             continue
         seen.add(u)
         out.append({"url": u, "label": "", "height": _height_of(u), "size": 0,

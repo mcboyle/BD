@@ -1276,6 +1276,9 @@ class ExtractorsMixin:
             _spa.api_candidates(page_url, records)
             + _spa.page_media_candidates(page_url, page_media)))
         if not cands:
+            previews = _spa.preview_media_urls(page_url, page_media)
+            if previews:  # dl95-kellymadisonmedia-2
+                return self._spa_trailer_only(url, page, previews)
             sys.stderr.write(
                 f"  spa-api: no download-like options in {len(records)} captured "
                 f"API record(s) and {len(page_media)} page media URL(s)\n")
@@ -1574,6 +1577,25 @@ class ExtractorsMixin:
             f"Direct media URL answered {got}, {ctype or 'unknown type'}; "
             f"no media fetched and the page is not scored for download candidates",
             screenshot=ss)
+        return True
+
+    def _spa_trailer_only(self, url, page, previews):
+        """dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+        (logged out on a member site). That file is never taken as the scene: the
+        job goes to needs_review naming it, never to a silent done. True = handled."""
+        name = previews[0].split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+        msg = (f"Only a trailer/preview is on this page ({name}) -- the member file "
+               f"needs a login; log in (or check the site's login_url) and retry")
+        sys.stderr.write(f"  spa-api: trailer/preview only on the page: {name}\n")
+        try:
+            ss = self._screenshot(page, url)
+        except Exception:
+            ss = ""
+        self._update_job(url, "needs_review", msg, screenshot=ss)
+        try:
+            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0, msg, ss)
+        except Exception:
+            pass
         return True
 
     def _try_vixen_extractor(self, url: str, page) -> bool:
