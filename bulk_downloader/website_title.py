@@ -1,6 +1,7 @@
 """Harvest the name shown by a scene page without inventing one from disk."""
 from __future__ import annotations
 
+import html as _html
 import re
 from collections.abc import Iterable, Mapping
 
@@ -22,10 +23,15 @@ _PAGE_TITLE_JS = """() => {
 
 
 def _clean_title(value) -> str:
-    """Collapse page whitespace and bound the value stored in SQLite."""
+    """Decode HTML entities, collapse page whitespace, bound the value.
+
+    Sites that entity-escape their <title>/og:title source (e.g. beeg:
+    "&amp;lbrack;AI-generated&amp;rsqb;") surface the raw "&lbrack;" text
+    in the DOM. Decoding here keeps entities out of the saved filename
+    without touching titles that carry no entities."""
     if not isinstance(value, str):
         return ""
-    return " ".join(value.split())[:_TITLE_LIMIT]
+    return " ".join(_html.unescape(value).split())[:_TITLE_LIMIT]
 
 
 def harvest_page_title(page, *, listing_title: str = "") -> tuple[str, str]:
