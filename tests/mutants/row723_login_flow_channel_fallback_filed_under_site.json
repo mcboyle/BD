@@ -65,7 +65,7 @@
     {
       "label": "M7 login_async does not declare itself the owner of its login flow",
       "file": "bulk_downloader/runner_auth.py",
-      "old_regex": "(?m)(?<=^                with _cloak\\.owning_site\\()(?=self\\.site_id\\):$)",
+      "old_regex": "(?m)(?<=^                with _cloak\\.owning_site\\()(?=self\\.site_id\\), \\\\$)",
       "new": "\"\" and ",
       "direction": "regression",
       "catcher": "tests/test_row723_login_flow_channel_fallback_is_filed_under_its_site.py::test_row723_the_runner_owns_its_login_flow_and_surfaces_the_note"
