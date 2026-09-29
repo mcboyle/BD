@@ -23,8 +23,8 @@ from urllib.parse import urlsplit
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from .runner_util import (
-    _bump_learned_stat, gate_candidate_url, record_bandwidth,
-    resolve_url_attribute,
+    DEFAULT_MIN_RESOLUTION, _bump_learned_stat, gate_candidate_url,
+    record_bandwidth, resolve_url_attribute,
 )
 from .db import db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
@@ -2042,6 +2042,58 @@ class TransportMixin:
     # regenerated on every site deploy.
     _FIRST_DOWNLOAD_TIMEOUT_MS = 60000   # the wait the modal click already spent
     _REVEALED_MODAL_TIMEOUT_MS = 30000
+    _TIER_FALLBACK_MAX = 2               # lower tiers clicked after a silent winner
+
+    def _download_from_next_tier(self, page, page_url, best):
+        """dl95-teenmegaworld-1: the winning tier was clicked and fired no
+        download event (measured: teenmegaworld's 6K/7K link, while the 4K link
+        on the sibling scene downloaded 2.65 GB). Click the next in-scope
+        candidates in the scorer's own order -- at most _TIER_FALLBACK_MAX, never
+        one below min_resolution unless the job is forced -- before the job is
+        filed needs_review. Returns (download, chosen_candidate, tried_labels);
+        download is None when no tier fired."""
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            forced = bool((self.jobs.get(page_url) or {}).get("force_download"))
+        winner = best.get("locator")
+        tried = []
+        for cand in best.get("_all_candidates") or []:
+            if len(tried) >= self._TIER_FALLBACK_MAX:
+                break
+            loc = cand.get("locator")
+            score = int(cand.get("score") or 0)
+            if loc is None or loc is winner or score <= 0:
+                continue
+            if min_res > 0 and score < min_res and not forced:
+                continue
+            # Same #3 runtime nav gate the winner passed before its click: a
+            # tier linking to login/logout/search/nav is never clicked.
+            _gate_abs, _gate_reject = gate_candidate_url(
+                loc, page_url, learned_sel=cand.get("_learned_sel") or "",
+                text=cand.get("text", ""))
+            if _gate_reject:
+                sys.stderr.write(f"  download: tier fallback skipped [{_gate_abs[:80]}] "
+                                 f"— {_gate_reject}\n")
+                continue
+            label = res_label(score)
+            tried.append(label)
+            self._update_job(page_url, "running",
+                             f"No download from [{res_label(best.get('score', 0))}] "
+                             f"-- trying [{label}]...")
+            try:
+                if page.url != page_url:     # the silent click navigated away
+                    page.goto(page_url, wait_until="domcontentloaded")
+                with page.expect_download(timeout=self._FIRST_DOWNLOAD_TIMEOUT_MS) as dli:
+                    loc.click()
+                chosen = dict(cand)
+                for k, v in best.items():
+                    chosen.setdefault(k, v)
+                sys.stderr.write(f"  download: tier fallback [{label}] fired a download\n")
+                return dli.value, chosen, tried
+            except Exception as e:
+                sys.stderr.write(f"  download: tier fallback [{label}] fired nothing: "
+                                 f"{type(e).__name__}\n")
+        return None, None, tried
 
     def _download_from_revealed_modal(self, page, trigger):
         """Re-scrape after a score-0 click and take the quality label it revealed.
@@ -2300,6 +2352,14 @@ class TransportMixin:
                         suggested=dl.suggested_filename or "download.bin"
             else:
                 _disarm_popup_grant()
+            fallback_tried = []
+            if best.get("score", 0) > 0 and dl is None and not best.get("_dropdown_note"):
+                dl, _chosen, fallback_tried = self._download_from_next_tier(page, page_url, best)
+                if dl is not None:
+                    best = _chosen
+                    res_lbl = res_label(best["score"])
+                    direct_url=dl.url
+                    suggested=dl.suggested_filename or "download.bin"
             if dl is None:
                 # No actual download event fired.
                 ss=self._screenshot(page,page_url)
@@ -2342,6 +2402,8 @@ class TransportMixin:
                     hint="looks like a modal-trigger button — set Trigger Selector"
                 else:
                     hint="scored ok but no download fired"
+                if fallback_tried:
+                    hint+=f" (also tried {', '.join(fallback_tried)}: no download)"
                 self._update_job(page_url,"needs_review",
                                  f"Clicked but no download started — {hint}. Saw: {seen}",
                                  screenshot=ss)
