@@ -602,6 +602,12 @@ PAGE_MEDIA_JS = """() => {
   return out.slice(0, 60);
 }"""
 
+# dl95-txxx-5: what the page's own <video> elements decoded -- the stream's real
+# height once its metadata loaded (a blob:/MSE source never matches a URL).
+PLAYER_HEIGHTS_JS = """() => Array.from(document.querySelectorAll('video'))
+  .filter(v => v.videoHeight > 0 && (v.currentSrc || v.src))
+  .map(v => [v.currentSrc || v.src, v.videoHeight]).slice(0, 12)"""
+
 KVS_FLASHVARS_JS = """() => {
   const fv = window.flashvars;
   if (!fv || typeof fv !== 'object') return [];

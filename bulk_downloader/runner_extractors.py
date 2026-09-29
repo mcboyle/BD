@@ -1257,6 +1257,28 @@ class ExtractorsMixin:
             url=url,
         )
         return True
+    def _spa_player_heights(self, page, url, cands, _spa):
+        """dl95-txxx-5: a candidate of unknown height that the page's own
+        <video> is playing takes the height the player decoded, so the
+        min_resolution gate judges the stream, not its silent URL (txxx:
+        "chose 0p from scene-stream" -> every job held "unknown quality")."""
+        unknown = [c for c in cands if not int(c.get("height") or 0)]
+        if not unknown:
+            return
+        try:
+            decoded = page.evaluate(_spa.PLAYER_HEIGHTS_JS) or []
+        except Exception:  # noqa: BLE001 -- a page/driver failure leaves the height unknown
+            return
+        heights = {src: int(h) for src, h in (p for p in decoded
+                                              if isinstance(p, list) and len(p) == 2)
+                   if isinstance(src, str) and isinstance(h, (int, float)) and h > 0}
+        for cand in unknown:
+            h = heights.get(cand.get("url") or "")
+            if h:
+                cand["height"], cand["label"] = h, f"{h}p"
+                self.log_event("spa_api_player_height",
+                               f"player decoded {h}p: {cand['url'][:120]}", url=url)
+
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
                                      proven_only: bool = False, hold_below: bool = False,
                                      *, source_list_only=False) -> bool:
@@ -1334,6 +1356,7 @@ class ExtractorsMixin:
         detected = [e.get("url") for e in list(getattr(self, "manifest_urls", None) or [])
                     if isinstance(e, dict)]
         scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
+        self._spa_player_heights(page, url, scene_candidates, _spa)  # dl95-txxx-5
         # Proven current-scene child sources outrank incidental page ads and
         # previews as a cohort; don't mix those populations by resolution.
         # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
