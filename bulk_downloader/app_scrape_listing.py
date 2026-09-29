@@ -81,31 +81,9 @@ def api_scrape_listing():
         return jsonify({"ok": False, "error": "fetch blocked by SSRF policy"}), 502
     except httpx.HTTPError as e:
         return jsonify({"ok": False, "error": f"fetch failed: {type(e).__name__}: {e}"}), 502
-    # Extract <a href="..."> values
-    import re as _re
-    from urllib.parse import urljoin, urlparse
-    hrefs = _re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, _re.I)
-    seen, found = set(), []
-    VIDEO_EXT = _re.compile(r"\.(mp4|mkv|webm|avi|mov|m3u8|mpd|ts|flv)(\?|#|$)", _re.I)
-    VIDEO_PATTERNS = _re.compile(r"/(video|watch|v|play|movie|episode|stream)/", _re.I)
-    LISTING_PATTERNS = _re.compile(r"/(category|categories|tag|tags|page|search|browse|list|channel|playlist|feed|sitemap)/", _re.I)
-    filter_listings = bool(body.get("filter_listings", True))
-    for href in hrefs:
-        if not href or href.startswith("#") or href.startswith("javascript:"):
-            continue
-        absolute = urljoin(url, href)
-        if not absolute.startswith("http"): continue
-        if absolute in seen: continue
-        is_video = bool(VIDEO_EXT.search(absolute) or VIDEO_PATTERNS.search(absolute))
-        if not is_video: continue
-        if filter_listings and LISTING_PATTERNS.search(absolute):
-            try:
-                last = urlparse(absolute).path.rstrip("/").rsplit("/", 1)[-1]
-                if not last.isdigit():
-                    continue  # listing page, not a video page
-            except Exception: pass
-        seen.add(absolute); found.append(absolute)
-        if len(found) >= max_links: break
+    from bulk_downloader.listing_links import extract_video_links
+    found = extract_video_links(html, url, max_links=max_links,
+                                filter_listings=bool(body.get("filter_listings", True)))
     return jsonify({"ok": True, "url": url, "found": found,
                     "count": len(found), "html_size": len(html)})
 
