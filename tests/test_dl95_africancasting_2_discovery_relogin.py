@@ -152,3 +152,49 @@ def test_jar_fingerprint_ignores_order_and_sees_a_changed_value():
     b = {"name": "b", "value": "2", "domain": "d", "path": "/"}
     assert jar_fingerprint([a, b]) == jar_fingerprint([b, a])
     assert jar_fingerprint([a, b]) != jar_fingerprint([a, dict(b, value="3")])
+
+
+# -- dl95-africancasting-2-dp13 (integrator REDIFF, DP-13 ratchet) ------------------------------------------
+
+
+class _SlotRunner:
+    """A runner that cannot carry the login-wall mark (no __dict__)."""
+    __slots__ = ("events",)
+
+    def __init__(self):
+        self.events = []
+
+    def log_event(self, kind, message, url=None, extra=None):
+        self.events.append((kind, message))
+
+
+def test_an_unrecordable_login_wall_mark_is_logged_not_swallowed():
+    runner = _SlotRunner()
+    crawler._mark_login_wall(runner, STALE, walled=True)
+    assert [k for k, _m in runner.events] == ["auth"], f"AC2_DP13_MARK_SILENT: {runner.events}"
+    assert "login-wall mark not recorded: AttributeError" in runner.events[0][1], runner.events
+
+
+def test_mark_login_wall_adds_no_swallowed_exception(tmp_path):
+    """No pass/log-only handler in _mark_login_wall. Positive control: the probe sees a pass-only one."""
+    import ast
+    import json
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    scan = root / "toolchain" / "bin" / "bd-defect-scan"
+
+    def dp13(path):
+        out = subprocess.run([sys.executable, str(scan), "--file", str(path), "--json"],
+                             capture_output=True, text=True, check=True, cwd=root).stdout
+        return {f["line"] for f in json.loads(out) if f["dp"] == "DP-13"}
+
+    control = tmp_path / "control.py"
+    control.write_text("def f(r):\n    try:\n        r.x = 1\n    except Exception:\n        pass\n")
+    assert dp13(control) == {4}, "probe cannot see a pass-only handler"
+
+    src_path = root / "bulk_downloader" / "scene_crawler.py"
+    fn = next(n for n in ast.walk(ast.parse(src_path.read_text(encoding="utf-8")))
+              if isinstance(n, ast.FunctionDef) and n.name == "_mark_login_wall")
+    inside = {ln for ln in dp13(src_path) if fn.lineno <= ln <= fn.end_lineno}
+    assert not inside, f"AC2_DP13_SWALLOWED_IN_MARK: lines {sorted(inside)}"

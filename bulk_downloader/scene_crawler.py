@@ -1527,8 +1527,13 @@ def _mark_login_wall(runner: Any, jar: list[dict[str, Any]], *, walled: bool) ->
             runner._login_wall_jar = fp
         elif getattr(runner, "_login_wall_jar", None) == fp:
             runner._login_wall_jar = None
-    except Exception:
-        pass
+    except AttributeError as exc:
+        # dl95-africancasting-2-dp13: a runner that cannot carry the mark (a stub, a
+        # __slots__ class) leaves auth_state as it was -- say so instead of dropping it.
+        note = f"login-wall mark not recorded: {type(exc).__name__}: {str(exc)[:120]}"
+        log = getattr(runner, "log_event", None)
+        if callable(log):
+            log("auth", note)
 
 
 def start_background_crawl(

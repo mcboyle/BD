@@ -1694,8 +1694,10 @@ class ExtractorsMixin:
             if chosen_for_us and 0 < secs < SPA_PREVIEW_MAX_SECONDS:
                 try:
                     os.remove(output_path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # dl95-cumlouder-3-gen2delta-dp13: the rejected file stays on disk; name it.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_cleanup", f"rejected file not removed, left at {output_path}: {left}", url=url)
                 screenshot_fn = getattr(self, "_screenshot", None)
                 ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
                 self.log_event("spa_api_preview_rejected",

@@ -179,3 +179,55 @@ def test_a_short_clip_with_a_known_height_is_not_second_guessed(make, tmp_path):
     r = make(landed=_mp4(tmp_path / "720.mp4", 1280, 720, seconds=6), min_resolution=0)
     assert r._try_spa_api_media_extractor(SCENE, _Page([named])) is True
     assert r.updates[-1][0] == "done" and r.updates[-1][1].startswith("API/media 720p"), r.updates
+
+
+def _dp13_lines(path):
+    import json
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[1]
+    out = subprocess.run([_sys.executable, str(root / "toolchain" / "bin" / "bd-defect-scan"), "--file", str(path),
+                          "--json"], capture_output=True, text=True, check=True, cwd=root).stdout
+    return {f["line"] for f in json.loads(out) if f["dp"] == "DP-13"}
+
+
+def _dp13_probe_can_say_yes(tmp_path):
+    control = tmp_path / "control.py"
+    control.write_text("def f(p):\n    try:\n        p.x()\n    except Exception:\n        pass\n")
+    assert _dp13_lines(control) == {4}, "probe cannot see a pass-only handler"
+
+
+def test_a_rejected_clip_that_cannot_be_removed_is_said(make, tmp_path, monkeypatch):
+    """dl95-cumlouder-3-gen2delta-dp13: the preview clip's removal failing is an event naming the file."""
+    from bulk_downloader import runner_extractors as rx
+
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=1080)
+
+    def refuse(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(rx.os, "remove", refuse)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    assert r.updates[-1][0] == "needs_review", r.updates
+    cleanup = [m for k, m in r.events if k == "spa_api_cleanup"]
+    assert cleanup and "rejected file not removed" in cleanup[-1] and "PermissionError" in cleanup[-1], (
+        f"CL3_DP13_SILENT: {r.events}")
+
+
+def test_spa_preview_cleanup_adds_no_swallowed_exception(tmp_path):
+    """dl95-cumlouder-3-gen2delta-dp13 (DP-13 ratchet): the try that removes the rejected file is not pass-only. Positive control first."""
+    import ast
+    from pathlib import Path as _P
+
+    _dp13_probe_can_say_yes(tmp_path)
+    src_path = _P(__file__).resolve().parents[1] / "bulk_downloader" / "runner_extractors.py"
+    src = src_path.read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_try_spa_api_media_extractor")
+    handlers = {h.lineno for n in ast.walk(fn) if isinstance(n, ast.Try) and len(n.body) == 1
+                and ast.get_source_segment(src, n.body[0]) == "os.remove(output_path)" for h in n.handlers}
+    assert handlers, "the os.remove(output_path) try moved"
+    swallowed = handlers & _dp13_lines(src_path)
+    assert not swallowed, f"CL3_DP13_SWALLOWED: lines {sorted(swallowed)}"

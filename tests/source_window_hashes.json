@@ -155,9 +155,9 @@
       "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
     },
     {
-      "bytes": 8016,
+      "bytes": 8014,
       "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "f4ff4079ea0d915111bca22f33695790735296404ec933f116d629d8999342f2"
+      "sha256": "ec0cdee58e1ab4905d1ffb802bec050504e1951485c779567c0f92f706bd9973"
     },
     {
       "bytes": 888,

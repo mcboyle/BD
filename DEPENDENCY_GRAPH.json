@@ -2418,7 +2418,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1814,
+    "edge_count": 1816,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3096,6 +3096,7 @@
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_teach.py",
         "bulk_downloader/runner_transport.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/site_changelog.py"
       ],
@@ -4490,7 +4491,8 @@
       ],
       "bulk_downloader/spa_media_extract.py": [
         "bulk_downloader/runner_extractors.py",
-        "bulk_downloader/runner_telemetry.py"
+        "bulk_downloader/runner_telemetry.py",
+        "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/sqlite_cdc.py": [
         "bulk_downloader/doctor.py"
@@ -7358,6 +7360,7 @@
         "bulk_downloader/rate_limit.py",
         "bulk_downloader/resume.py",
         "bulk_downloader/runner_util.py",
+        "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/staging_claim.py",
@@ -7382,6 +7385,7 @@
       "bulk_downloader/scene_crawler.py": [
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/constants.py",
+        "bulk_downloader/cookies.py",
         "bulk_downloader/db.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/playlist_extractor.py",

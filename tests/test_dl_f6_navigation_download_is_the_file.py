@@ -211,3 +211,98 @@ def test_control_other_navigation_errors_still_propagate(tmp_path, monkeypatch):
     assert not list(tmp_path.glob("*.avi")), (
         f"DL_F6_SAVED_ON_ERROR: {list(tmp_path.iterdir())}"
     )
+
+
+# -- dl-f6-dp13 (integrator REDIFF, DP-13 ratchet): the two dl-f6 handlers are narrowed and logged --------------
+
+
+def _events(runner, kind):
+    return [e for e in runner._event_log if e.get("kind") == kind]
+
+
+def test_a_noop_cancel_of_the_unwanted_download_is_logged(tmp_path, monkeypatch):
+    download = _Download()
+
+    def cancel():
+        raise PWError("Target page, context or browser has been closed")
+
+    download.cancel = cancel
+    runner = _runner(tmp_path)
+    runner._resolve_write_dir = lambda: ""
+    _run(tmp_path, monkeypatch, _Page("Page.goto: Download is starting", download), runner)
+    assert runner.failures == [
+        (_URL, "URL is a file download but no download directory resolves")
+    ]
+    events = _events(runner, "download_cancel")
+    assert events and "Target page, context or browser has been closed" in events[-1]["message"], (
+        f"DL_F6_DP13_CANCEL_SILENT: {list(runner._event_log)[-3:]}")
+
+
+def test_a_failed_download_hook_is_logged_and_the_event_is_still_taken(tmp_path, monkeypatch):
+    download = _Download()
+    page = _Page("Page.goto: Download is starting", None)
+
+    def on(_event, _handler):
+        raise PWError("Target page, context or browser has been closed")
+
+    page.on = on
+    page.wait_for_event = lambda *_a, **_k: download
+    runner, _logged = _run(tmp_path, monkeypatch, page)
+    assert runner.jobs[_URL].get("status") == "done", runner.jobs[_URL]
+    events = _events(runner, "nav_download")
+    assert events and "download hook not installed" in events[-1]["message"], (
+        f"DL_F6_DP13_HOOK_SILENT: {list(runner._event_log)[-3:]}")
+
+
+def test_a_page_without_on_still_reaches_goto(tmp_path, monkeypatch):
+    """Lens B15-B R1: the lane's handler absorbed AttributeError (a duck-typed page with no .on(),
+    as in test_row778's fakes). Narrowing keeps that page on its way to goto and logs the missing hook."""
+    download = _Download()
+    inner = _Page("Page.goto: Download is starting", None)
+    inner.wait_for_event = lambda *_a, **_k: download
+
+    class _NoOnPage:
+        def __getattr__(self, name):
+            if name == "on":
+                raise AttributeError("'_NoOnPage' object has no attribute 'on'")
+            return getattr(inner, name)
+
+    runner, _logged = _run(tmp_path, monkeypatch, _NoOnPage())
+    assert inner.gotos == 1, "DL_F6_DP13_NO_ON_NEVER_NAVIGATED"
+    assert runner.jobs[_URL].get("status") == "done", runner.jobs[_URL]
+    events = _events(runner, "nav_download")
+    assert events and "has no attribute 'on'" in events[-1]["message"], (
+        f"DL_F6_DP13_HOOK_SILENT: {list(runner._event_log)[-3:]}")
+
+
+def test_the_dl_f6_handlers_add_no_swallowed_exception(tmp_path):
+    """No pass/log-only handler on the try that cancels the unwanted download or installs the hook.
+    Positive control: the same probe sees a pass-only handler."""
+    import ast
+    import json
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    scan = root / "toolchain" / "bin" / "bd-defect-scan"
+
+    def dp13(path):
+        out = subprocess.run([sys.executable, str(scan), "--file", str(path), "--json"],
+                             capture_output=True, text=True, check=True, cwd=root).stdout
+        return {f["line"] for f in json.loads(out) if f["dp"] == "DP-13"}
+
+    control = tmp_path / "control.py"
+    control.write_text("def f(d):\n    try: d.cancel()\n    except Exception: pass\n")
+    assert dp13(control) == {3}, "probe cannot see a pass-only handler"
+
+    src_path = root / "bulk_downloader" / "runner.py"
+    src = src_path.read_text(encoding="utf-8")
+    handlers = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Try):
+            body = "".join(ast.get_source_segment(src, s) or "" for s in node.body)
+            if body in ('dl.cancel()', 'page.on("download",lambda d: _nav_downloads.append(d))'):
+                handlers |= {h.lineno for h in node.handlers}
+    assert len(handlers) == 2, f"the two dl-f6 try blocks moved: {sorted(handlers)}"
+    swallowed = handlers & dp13(src_path)
+    assert not swallowed, f"DL_F6_DP13_SWALLOWED: lines {sorted(swallowed)}"

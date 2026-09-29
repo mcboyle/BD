@@ -5153,7 +5153,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         dl_dir=self._resolve_write_dir()
         if not dl_dir:
             try: dl.cancel()
-            except Exception: pass
+            except PWError as e:
+                # dl-f6-dp13: the download already ended or its page is gone; the job still fails below.
+                cancel_err=str(e).splitlines()[0][:120] if str(e) else type(e).__name__
+                self.log_event("download_cancel",f"cancel of the unwanted download was a no-op: {cancel_err}",url=url)
             self._handle_failure(url,"URL is a file download but no download directory resolves"); return
         Path(dl_dir).mkdir(parents=True,exist_ok=True)
         self._do_download(page,ctx,url,best,Path(dl_dir),"direct",nav_download=dl)
@@ -5430,7 +5433,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # A lambda, not the bound .append: Playwright tags the handler with an
             # attribute, which a builtin method refuses (AttributeError).
             try: page.on("download",lambda d: _nav_downloads.append(d))
-            except Exception: pass
+            except (PWError, AttributeError) as e:
+                # dl-f6-dp13: without the hook a navigation download is still taken by
+                # _accept_navigation_download's wait_for_event; say the early hold is missing.
+                # AttributeError: a page without .on() (row778's fakes) still reaches goto.
+                hook_err=str(e).splitlines()[0][:120] if str(e) else type(e).__name__
+                self.log_event("nav_download",f"download hook not installed: {hook_err}",url=url)
             try: page.goto(url,wait_until="domcontentloaded",timeout=30000)
             except PWTimeout:
                 self._handle_failure(url,"Page load timeout"); return
