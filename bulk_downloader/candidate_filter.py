@@ -21,6 +21,7 @@ positive signal:
   * search / settings / login / logout link
   * share / favorite / comment / vote / like button
   * unrelated external-service link (analytics / social / auth, not a media CDN)
+  * thumbnail / image transform (``/rs:fit:W:H`` resize of a video)
 
 URL-less buttons whose text/classes name a quality/download/format menu are kept
 as *triggers* (they reveal the real download controls) — they are not rejected
@@ -73,6 +74,21 @@ _EXTERNAL_SERVICE_HOSTS = re.compile(
     r"facebook\.|fbcdn|twitter\.|t\.co|instagram\.|accounts\.google|"
     r"gravatar|disqus|paypal|patreon|discord|linkedin\.|tiktok\.|"
     r"snapchat\.|pinterest\.)", re.I)
+# dl95-youporn-2: an imgproxy-style resize option segment in the URL PATH
+# (".../original_N.mp4/plain/rs:fit:320:180/vts:675") marks an image transform
+# of a video -- a thumbnail, never the media, whatever extension or
+# resolution-shaped size ("640:360") it carries.
+_IMAGE_TRANSFORM_RE = re.compile(
+    r"/(?:rs|resize):(?:fit|fill|fill-down|force|auto):\d+:\d+(?:/|:|$)", re.I)
+
+
+def _is_image_transform(url: str) -> bool:
+    try:
+        return bool(url) and bool(_IMAGE_TRANSFORM_RE.search(urlsplit(url).path))
+    except ValueError:
+        return False
+
+
 _HASH_OR_JS_RE = re.compile(r"^\s*(?:#|javascript:|mailto:|tel:|about:)", re.I)
 # Known navigation / listing / account URL *paths* that are never a download.
 # Plural listings + search/account/commerce paths (per the nav-rejection spec):
@@ -157,7 +173,7 @@ def _is_homepage(url: str) -> bool:
 
 def positive_signals(url: str = "", text: str = "", classes: str = "") -> List[str]:
     """The site-provided media/download signals present on a candidate."""
-    u = url or ""
+    u = "" if _is_image_transform(url) else (url or "")
     txt = f"{text or ''} {classes or ''}"
     sigs: List[str] = []
     if MEDIA_EXT_RE.search(u):
@@ -197,6 +213,9 @@ def classify(*, url: Optional[str] = None, text: str = "", classes: str = "",
         rej.append("search/filter")
     if _SOCIAL_RE.search(text_blob):
         rej.append("share/favorite/comment/vote")
+    thumbnail = has_url and _is_image_transform(url)
+    if thumbnail:
+        rej.append("thumbnail/image transform")
     if has_url:
         host = urlsplit(url).netloc
         # v3.66.555 (F-CORE_BD15-01): a download candidate whose host is a non-public IP
@@ -216,7 +235,8 @@ def classify(*, url: Optional[str] = None, text: str = "", classes: str = "",
             _ip_ok, _ = _classify_ip(_addr, _iphost)
             if not _ip_ok:
                 rej.append("internal/non-public host")
-        if host and page_host and not _same_site(host, page_host):
+        # A thumbnail is the site's own image CDN, not an unrelated link.
+        if host and page_host and not thumbnail and not _same_site(host, page_host):
             if _EXTERNAL_SERVICE_HOSTS.search(host) or not pos:
                 rej.append("external/unrelated link")
     if sel and GENERIC_SELECTOR_RE.match(sel) and not pos:
