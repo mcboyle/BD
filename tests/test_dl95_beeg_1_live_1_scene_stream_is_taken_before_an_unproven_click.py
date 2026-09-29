@@ -54,6 +54,8 @@ NEXT_720 = NEXT_CDN + "720p/722051844550416.mp4.m3u8"
 # A clip with no identity, requested early enough to sit in the timing buffer:
 # the unproven page-media population takes it, the proven one must not.
 TEASER = "https://beeg.com/static/teaser_1080p.mp4"
+# The same, but not a trailer by name (dl95-kellymadisonmedia-2's rule).
+CLIP = "https://beeg.com/static/clip_1080p.mp4"
 
 FEED = (Path(__file__).parent / "fixtures" / "dl95_beeg_scene_feed.xhtml").read_text(
     encoding="utf-8")
@@ -192,14 +194,25 @@ def test_the_min_resolution_arm_sees_the_scene_stream_too(tmp_path, monkeypatch)
 
 def test_only_the_next_scenes_streams_leave_the_click_alone(tmp_path, monkeypatch):
     """Negative control: nothing names this scene -> no takeover, no bytes, while
-    the unproven population on the same page does take the teaser (positive control)."""
-    with _scene([NEXT_MASTER, NEXT_720], tmp_path, monkeypatch, early=[TEASER]) as (
+    the unproven population on the same page does take the clip (positive control)."""
+    with _scene([NEXT_MASTER, NEXT_720], tmp_path, monkeypatch, early=[CLIP]) as (
             runner, page):
         took = runner._try_spa_api_media_extractor(SCENE, page, proven_only=True)
         assert took is False and runner.streams == [], (
             f"DL95_BEEG_1_LIVE_1_FOREIGN_STREAM_TAKEN streams={runner.streams}")
         unproven = runner._try_spa_api_media_extractor(SCENE, page)
-    assert unproven is True and runner.streams == [TEASER], runner.streams
+    assert unproven is True and runner.streams == [CLIP], runner.streams
+
+
+def test_a_trailer_verdict_is_not_the_proven_arms_to_give(tmp_path, monkeypatch):
+    """r3: with only a trailer on the page, proven_only answers "none" (the click runs);
+    the unproven call still gives dl95-kellymadisonmedia-2's trailer verdict (control)."""
+    with _scene([NEXT_MASTER], tmp_path, monkeypatch, early=[TEASER]) as (runner, page):
+        took = runner._try_spa_api_media_extractor(SCENE, page, proven_only=True)
+        assert took is False and runner.updates == [], (
+            f"DL95_BEEG_1_LIVE_1_PROVEN_ARM_GAVE_A_VERDICT updates={runner.updates}")
+        unproven = runner._try_spa_api_media_extractor(SCENE, page)
+    assert unproven is True and runner.streams == [] and runner.updates, runner.updates
 
 
 def test_an_own_stream_below_minimum_is_held_not_downloaded(tmp_path, monkeypatch):

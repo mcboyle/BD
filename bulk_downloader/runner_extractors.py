@@ -1323,7 +1323,10 @@ class ExtractorsMixin:
             _spa.api_candidates(page_url, records)
             + _spa.page_media_candidates(page_url, page_media)))
         if not cands:
-            previews = _spa.preview_media_urls(page_url, page_media)
+            # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
+            # own media is here; a trailer verdict is a claim about the unproven
+            # population, so it stays with the other callers (the click runs).
+            previews = [] if proven_only else _spa.preview_media_urls(page_url, page_media)
             if previews:  # dl95-kellymadisonmedia-2
                 return self._spa_trailer_only(url, page, previews)
             sys.stderr.write(
