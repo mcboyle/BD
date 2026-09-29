@@ -15,7 +15,7 @@ MRO dispatch and is impossible in the staticmethod contexts anyway).
 The 4 adapter soft-import blocks are DUPLICATED here (the core dispatch in
 runner.py still references the same flags); flat-sibling imports are idempotent.
 """
-import contextlib, json, math, os, re, shutil, sqlite3, sys, threading, time
+import contextlib, functools, json, math, os, re, shutil, sqlite3, sys, threading, time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -898,6 +898,42 @@ def _pick_download_option(options, toggle_label, best, quality_preference,
             "reason": ""}
 
 
+def _staged_direct_download(transfer):
+    """dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
+
+    ``_do_direct_http_download`` streamed straight into ``output_path``, so a
+    service restart mid-transfer left a truncated file under its FINAL name
+    (no ``.part``, no history row). The transfer now writes into this job's
+    staging claim and the bytes reach ``output_path`` only by an atomic
+    ``os.replace`` after it succeeded. Any failure drops the ``.part`` and the
+    claim; a killed process leaves a ``.part`` for crash recovery, never a
+    short final file. A decorator, so the transfer body keeps its name."""
+    @functools.wraps(transfer)
+    def staged(self, page_url, file_url, output_path, referer=""):
+        identity = staging_claim.job_identity(page_url)
+        try:
+            stage = staging_claim.claim(
+                output_path, identity, resource_url=file_url)
+        except (staging_claim.StagingClaimedByAnotherJob,
+                staging_claim.StagingResourceMismatch,
+                staging_claim.StagingUnavailable) as e:
+            sys.stderr.write(f"  direct_http: staging refused: {e}\n")
+            return False
+        promoted = False
+        try:
+            if not transfer(self, page_url, file_url, str(stage), referer=referer):
+                return False
+            os.replace(str(stage), str(output_path))
+            promoted = True
+            return True
+        finally:
+            if not promoted:
+                try: Path(stage).unlink(missing_ok=True)
+                except OSError: pass
+            staging_claim.release(stage, identity)
+    return staged
+
+
 class TransportMixin:
     def _regional_gateway_router(self):
         """Return this runner's regional policy router, if configured.
@@ -1179,6 +1215,7 @@ class TransportMixin:
         finally:
             prepared.close()
 
+    @_staged_direct_download
     def _do_direct_http_download(
         self, page_url: str, file_url: str, output_path: str, referer: str = "",
     ) -> bool:
