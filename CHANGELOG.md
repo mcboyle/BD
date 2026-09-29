@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1724 - train152: row
+
+T152 = LANE-4 (DOT95 lane to main per PM ruling 07:1xZ: next 18 boarded lane commits in lane order from lane head 379f5f70 after dl95-porndig-3): dl95-porndig-3-gen2delta (merged in place: transfer_cancelled cancel check without ok-3's hls_kw), dl95-nookies-2, tpl95-spankbang-1, tpl95-reptyle-1, tpl95-evilangel-1, tpl95-wowgirls-1, dl95-scrolller-2, dl95-vip4k-4, tpl95-restart-2, dl95-txxx-2, tpl95-nubiles-porn-1, tpl95-nubiles-porn-2, dl95-xhamster-2-g3, dl95-fullporner-1 (merged in place: embed-frame candidates join main's SPA pool), tpl95-porntrex-2, dl95-naughtyamerica-2, dl95-reddit-2-live-2, tpl95-justporn-1. Excluded (re-diff, listed in the record): the refuted beeg-1-live-1 lineage and the picks written in its context (beeg-1-live-1 r3b, beeg-2 audiofix, beeg-2-live-1, porn00-3, porn00-3-live-1, txxx-5, porndoe-1, tpl95-xnxx-1, tpl95-xnxx-2 -- the last two need beeg-2's MANIFEST_TEXT_JS HLS measure), eporner-3 g4 (delta on a refuted base), tpl95-newsensations-1/-2 (DP-13), tpl95-cumlouder-2 (built on excluded cumlouder-1); dl95-xhamster-1-r2 is already on main. test_row703 STAR_KWARGS re-pin (-2); test_row775 do_login fixture form GET -> POST (txxx-2 never lets a password ride a GET). Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1723 - train151: row
 
 T151 = backlog-3 (PM ruling 07:1xZ backlog batch; RULING-REDIFF 1b/1c fix-forward cuts + the pussyspace-1 re-diff, all main-based BOARDs): dl95-africancasting-2-dp13 abf2de67; dl-f6-dp13 083a64f5 (merged in place: nav_download def line + pornhoarder-1's frame-aware gate); dl95-pussyspace-1-rediff 7a343c6c (merged in place: its single trailer-safe page-media fallback replaces brazzers-1's inline block, placed above main's new methods); dl95-cumlouder-3-gen2delta-dp13 2a50bb71. These replace the lane originals excluded from LANE-1/2/3 for DP-13 or the brazzers collision. Held for re-diff: dl95-porndig-3b-dp13 (a later porndig-3 generation colliding with T150's lane porndig-3). test_row703 STAR_KWARGS re-pin (+43). Generated artifacts regenerated. No deploy.
