@@ -40,6 +40,9 @@ echo " ================================================================"
 # honors - so a missing package degrades to a copy-pasteable hint and the
 # install continues. Opt out with BD_SKIP_SYSTEM_DEPS=1.
 _sys_pkgs=""
+# IA-09: which privilege tier this step could use ("root", "sudo" or empty).
+# The Playwright host-library step below runs in the SAME tier.
+_sys_tier=""
 if [ "${BD_SKIP_SYSTEM_DEPS:-0}" = "1" ]; then
     echo "  (system packages skipped: BD_SKIP_SYSTEM_DEPS=1)"
 elif [ ! -r "$INSTALL_DIR/scripts/lib/system_deps.sh" ]; then
@@ -92,6 +95,7 @@ else
             echo "  run apt with an empty list. Skipping the system package"
             echo "  step - the rest of the install continues."
         elif [ "$(id -u)" = "0" ]; then
+            _sys_tier="root"
             echo "  Installing system packages (root) ..."
             apt-get update -qq \
                 || echo "  (apt-get update failed - using the cached lists)"
@@ -101,6 +105,7 @@ else
             _bd_apt_install_all \
                 || echo "  (system package install failed - continuing)"
         elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            _sys_tier="sudo"
             echo "  Installing system packages (sudo) ..."
             sudo -n apt-get update -qq \
                 || echo "  (apt-get update failed - using the cached lists)"
@@ -448,9 +453,10 @@ fi
 # exactly that path, which is why L4 is not a substitute for this step and why
 # this step does not reuse its predicate.
 #
-# WHY NOT LAUNCH. This script PRINTS the `playwright install-deps` hint (just
-# below) but does not run it, and scripts/provision_test_host.sh runs it in a
-# LATER step. So on the fresh headless Ubuntu this is written for, a launch here
+# WHY NOT LAUNCH. `playwright install-deps` runs only AFTER this check (just
+# below, and only with root/sudo -- an unprivileged install gets a hint), and
+# scripts/provision_test_host.sh runs it in a LATER step. So on the fresh
+# headless Ubuntu this is written for, a launch here
 # would routinely fail for a missing libnss3: a real problem, a DIFFERENT one,
 # owned by a later step. Grading that as "the engines are in the wrong cache"
 # would be the gate crying wolf, and a gate that cries wolf gets switched off.
@@ -507,15 +513,41 @@ raise SystemExit(1 if missing else 0)' "$_pw_dry")" && _pw_rc=0 || _pw_rc=$?
     rm -f "$_pw_dry"
 fi
 
-# Always print the install-deps hint — on a headless Ubuntu Server,
-# the download above succeeds but the browser fails to launch later with
-# obscure libnss3/libxkbcommon errors. Better to surface it now. The hint
-# covers EVERY engine that was installed, not just chromium: firefox and webkit
-# need OS libraries chromium's dependency set does not contain (webkit alone
-# pulls the gstreamer stack), so `install-deps chromium` would leave a
+# The engines' OS libraries. On a headless Ubuntu Server the downloads above
+# succeed but the browsers fail to launch later with obscure libnss3/libxkbcommon
+# errors. It covers EVERY engine that was installed, not just chromium: firefox
+# and webkit need OS libraries chromium's dependency set does not contain (webkit
+# alone pulls the gstreamer stack), so `install-deps chromium` would leave a
 # downloaded webkit that cannot start.
-echo "  On a headless server you may also need (one-time, as root):"
-echo "    sudo $VPYTHON -m playwright install-deps \$(. scripts/lib/system_deps.sh; bd_playwright_engines all)"
+# IA-09 (spare8 fresh install): printing this as a hint left webkit unlaunchable
+# (libgtk-4, libgraphene, gstreamer*, libavif, libmanette, libenchant, libhyphen
+# missing) while the install reported success. So it now RUNS in the tier the
+# system-package step used ($_sys_tier: root, or non-interactive sudo), and stays
+# a printed hint only when that step had no privilege (the no-sudo contract).
+_pw_all=""
+if [ -n "$_pw_core" ]; then
+    _pw_all="$(bd_playwright_engines all)" || _pw_all=""
+fi
+if [ -n "$_pw_all" ] && [ "${_sys_tier:-}" = "root" ]; then
+    echo "  Installing Playwright host libraries ($_pw_all, root) ..."
+    # shellcheck disable=SC2086
+    if "$VPYTHON" -m playwright install-deps $_pw_all; then
+        echo "  Installed host libraries for: $_pw_all"
+    else
+        echo "  WARNING: playwright install-deps $_pw_all failed; these engines may not launch."
+    fi
+elif [ -n "$_pw_all" ] && [ "${_sys_tier:-}" = "sudo" ]; then
+    echo "  Installing Playwright host libraries ($_pw_all, sudo) ..."
+    # shellcheck disable=SC2086
+    if sudo -n "$VPYTHON" -m playwright install-deps $_pw_all; then
+        echo "  Installed host libraries for: $_pw_all"
+    else
+        echo "  WARNING: playwright install-deps $_pw_all failed; these engines may not launch."
+    fi
+else
+    echo "  On a headless server you may also need (one-time, as root):"
+    echo "    sudo $VPYTHON -m playwright install-deps \$(. scripts/lib/system_deps.sh; bd_playwright_engines all)"
+fi
 
 # ── CloakBrowser stealth backend (optional; posture-sensitive) ───────────────
 # Finding C (v3.66.162 live census): a from-scratch / rebuilt stash venv had

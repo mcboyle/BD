@@ -34,7 +34,7 @@
       "owner": "install_linux.sh",
       "target": "scripts/lib/system_deps.sh",
       "guard_regex": "(?m)^if \\[ \"\\$\\{BD_SKIP_SYSTEM_DEPS:-0\\}\" = \"1\" \\]; then\\n(?s:.*?)^fi$",
-      "guard_sha256": "0fe98e836af0401ce158c1533f03f660578c19c4445063b6aa3cfd818b924de2",
+      "guard_sha256": "b2e597aeeae5f3f6c8f52796d84ab7b1e9d858abc904fd4887c247e2acf178ab",
       "reason": "Absence prints skip and reaches the remaining install."
     },
     {

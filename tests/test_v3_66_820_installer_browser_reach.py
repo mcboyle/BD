@@ -109,6 +109,11 @@ exec "$@"
 # the env(1) command line instead of inheriting it.
 _FAKE_SUDO = """#!/usr/bin/env bash
 printf 'SUDO %s\\n' "$*" >> "$BD_PROBE_LOG"
+if [ "${1:-}" = "-n" ]; then
+    # IA-09: the system tier's non-interactive `sudo -n <cmd>` (runs as root).
+    shift
+    exec "$@"
+fi
 if [ -n "${FAKE_DEESCALATION_FAILS:-}" ]; then
     echo "sudo: unknown user ${2:-?}" >&2
     exit 1
@@ -139,6 +144,11 @@ printf '%s|HOME=%s|XDG=%s|USER=%s|PBP=%s\\n' \\
 
 if [ "${BD_PROBE_MODE:-}" = "silent" ]; then
     exit 0
+fi
+
+# IA-09: a failing `playwright install-deps` (apt refused, no network).
+if [ "${BD_PROBE_MODE:-}" = "depsfail" ] && [ "${3:-}" = "install-deps" ]; then
+    exit 1
 fi
 
 _dry=""
@@ -266,6 +276,7 @@ def _run_browser_section(
     de_escalation_fails: bool = False,
     tmpdir_missing: bool = False,
     mode: str = "",
+    sys_tier: str | None = None,
     present_dirs: tuple[str, ...] = (
         "chromium-1228",
         "ffmpeg-1011",
@@ -306,6 +317,7 @@ def _run_browser_section(
         "set -o pipefail\n"
         f'INSTALL_DIR="{work}"\n'
         f'VPYTHON="{vpython}"\n'
+        + (f'_sys_tier="{sys_tier}"\n' if sys_tier is not None else "")
         + _ENGINE_FRAGMENT
         + body,
         encoding="utf-8",
@@ -847,3 +859,53 @@ def test_the_probe_slice_anchors_are_unique() -> None:
             "non-unique anchor makes all of them evidence about a location "
             "nobody chose."
         )
+
+
+# --------------------------------------------------------------------------
+# IA-09: the engines' OS libraries are installed in the system-package tier.
+# spare8 (fresh install): chromium, firefox and webkit downloaded, the install
+# reported success, and Playwright's validation listed libgtk-4, libgraphene,
+# gstreamer*, libavif, libmanette, libenchant, libhyphen missing -- WebKit could
+# not launch. The installer only PRINTED the install-deps hint. `_sys_tier` is
+# what the system-package step above the slice records ("root" / "sudo" / "").
+# --------------------------------------------------------------------------
+_DEPS = "-m playwright install-deps chromium firefox webkit"
+
+
+def test_ia09_root_tier_installs_every_engines_host_libraries(tmp_path: Path) -> None:
+    run = _run_browser_section(tmp_path, sys_tier="root")
+    entry = run.entry(_DEPS)
+    assert "HOME=/root" in entry, (
+        "install-deps must run as root, not de-escalated: " + entry + run.context()
+    )
+
+
+def test_ia09_sudo_tier_installs_them_through_non_interactive_sudo(tmp_path: Path) -> None:
+    run = _run_browser_section(
+        tmp_path, fake_uid="1000", sudo_user=None, whoami="matt",
+        caller_home="/home/matt", tool="sudo", sys_tier="sudo",
+    )
+    sudo_lines = [line for line in run.log if line.startswith("SUDO -n ")]
+    assert len(sudo_lines) == 1 and sudo_lines[0].endswith(_DEPS), (
+        f"expected exactly one `sudo -n <vpython> {_DEPS}`, got {sudo_lines}" + run.context()
+    )
+    run.entry(_DEPS)
+
+
+def test_ia09_a_failed_install_deps_is_reported_not_swallowed(tmp_path: Path) -> None:
+    run = _run_browser_section(tmp_path, sys_tier="root", mode="depsfail")
+    run.entry(_DEPS)
+    assert "WARNING: playwright install-deps" in run.stdout, (
+        "a failed host-library install still read as success" + run.context()
+    )
+
+
+def test_ia09_negative_control_no_system_tier_only_prints_the_hint(tmp_path: Path) -> None:
+    run = _run_browser_section(
+        tmp_path, fake_uid="1000", sudo_user=None, whoami="matt",
+        caller_home="/home/matt", sys_tier="",
+    )
+    assert not [line for line in run.log if "install-deps" in line], (
+        "an unprivileged install with no system tier ran install-deps" + run.context()
+    )
+    assert "playwright install-deps" in run.stdout, "the operator hint disappeared" + run.context()
