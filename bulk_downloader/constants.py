@@ -97,6 +97,11 @@ RL_RE = re.compile(
 # watch this video" is a logged-out members-only gate, not a block. When the
 # bare denial phrase is a page's ONLY rate-limit evidence and the page says the
 # content is for members, _check_redirect answers "auth" (login + requeue).
+# O1567: an RL_RE hit made only of 403/forbidden/denied words (no throttle
+# wording): fullmatch it against each hit. Token form, so the RL_RE arms keep
+# a single source (row722s mutant anchors resolve exactly once).
+BARE_403_ONLY_RE = re.compile(
+    r"(?:access|denied|forbidden|error|403|[\s\-:|(])+", re.IGNORECASE)
 RL_DENIAL_ONLY_RE = re.compile(r"access\s*(?:denied|forbidden)", re.IGNORECASE)
 # fx-dorcelclub-member-denial-auth: dorcel says "You need to be member to
 # download this" (no article) -- "need to" and the missing "a" are admitted.

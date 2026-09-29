@@ -17,7 +17,7 @@ from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
 from .constants import (RL_RE, BLOCK_HINTS, AUTH_HINTS, AUTH_BODY_RE,
-                        LOGGED_OUT_SHAPE_JS, RL_DENIAL_ONLY_RE, MEMBERS_ONLY_RE)
+                        LOGGED_OUT_SHAPE_JS, RL_DENIAL_ONLY_RE, MEMBERS_ONLY_RE, BARE_403_ONLY_RE)
 
 
 def _finite_config_float(raw, default):
@@ -1200,6 +1200,17 @@ class AuthMixin:
             return bool(page.evaluate(LOGGED_OUT_SHAPE_JS))
         except Exception:  # noqa: BLE001 -- unreadable page: no verdict, never a re-login
             return False
+    def _bare_403_login_wall(self, text):
+        """True when the whole visible page is a bare 403/denied error (every
+        RL_RE hit is a 403/forbidden/denied phrase, no throttle wording, short
+        body) on a site that has a login_url. Any doubt: False (stays "rl")."""
+        cfg = getattr(self, "config", None) or {}
+        if not str(cfg.get("login_url") or "").startswith("http"):
+            return False
+        if len(text.strip()) > 120:
+            return False
+        hits = list(RL_RE.finditer(text))
+        return bool(hits) and all(BARE_403_ONLY_RE.fullmatch(x.group(0)) for x in hits)
     def _check_redirect(self,page,url,no_candidate=False):
         """Inspect the current page; return 'rl' if rate-limited, 'auth' if
         bounced to login, or None if the page looks normal. Caller decides
@@ -1220,6 +1231,12 @@ class AuthMixin:
                 if m and MEMBERS_ONLY_RE.search(body[:3000]) and all(
                         RL_DENIAL_ONLY_RE.fullmatch(x.group(0))
                         for x in RL_RE.finditer(body[:3000])):
+                    return "auth"
+                # O1567: a page that is ONLY a bare 403/denied error, on a site that
+                # has a login_url, is the logged-out wall of a member site (test4
+                # site-ma-brazzers/-bangbros: "403 Forbidden Request is denied"),
+                # not a throttle: login + requeue, never a 24-hour cooldown.
+                if m and self._bare_403_login_wall(body[:3000]):
                     return "auth"
                 if m:
                     # Row 722s: keep the matched text so the cooldown names
