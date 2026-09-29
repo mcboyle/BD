@@ -65,8 +65,36 @@ _DATE_LINE_RE = re.compile(
 )
 _TITLE_DELIMITERS = (" / ", " | ", " - ")
 
+# A router link the SPA never resolved into an <a> -- tiny4k's Vue listing
+# renders each scene title as a literal <nuxtlink to="/members/video/<slug>">
+# and no scene <a href> at all (tpl95-tiny4k-1).  Its URL is the ``to`` path.
+_ROUTER_LINK = "nuxtlink[to], nuxt-link[to], router-link[to], routerlink[to]"
+_LINK_SELECTOR = "a[href], " + _ROUTER_LINK
+
 _ANCHOR_JS = r"""
 (anchors) => anchors.map((a) => {
+  const resolve = (el) => {
+    const raw = el.getAttribute(el.hasAttribute("href") ? "href" : "to") || "";
+    try { return new URL(raw, document.baseURI).href; } catch (e) { return ""; }
+  };
+  const kindOf = (u) => u.replace(/[?#].*$/, "").replace(/\/[^/]*\/?$/, "");
+  const routed = !a.hasAttribute("href");
+  let url = a.href || "";
+  let cardImg = false;
+  if (routed) {
+    url = resolve(a);
+    // Such a link wraps only its title; the thumbnail is a sibling.  The card
+    // is the smallest ancestor holding no rival: another link, of either
+    // representation, to a different URL of the same kind (same parent path).
+    const kind = kindOf(url);
+    const isRival = (other) => !other.isSameNode(a) && resolve(other) !== url
+      && kindOf(resolve(other)) === kind;
+    for (let p = a.parentElement; p; p = p.parentElement) {
+      const rivals = Array.from(p.querySelectorAll("__LINK_SELECTOR__")).filter(isRival);
+      if (rivals.length) break;
+      if (p.querySelector("img")) { cardImg = true; break; }
+    }
+  }
   const card = a.closest(
     "article, li, figure, [class*='card'], [class*='Card'], " +
     "[class*='item'], [class*='Item'], [data-card]"
@@ -79,18 +107,18 @@ _ANCHOR_JS = r"""
     : "";
   const img = a.querySelector("img");
   return {
-    url: a.href || "",
+    url: url,
     text: a.innerText || "",
     title: a.getAttribute("title") || "",
     aria: a.getAttribute("aria-label") || "",
     img_alt: img ? (img.getAttribute("alt") || "") : "",
     nearest: titledValue,
-    has_img: Boolean(img),
+    has_img: Boolean(img) || cardImg,
     class_name: typeof a.className === "string" ? a.className : "",
     rel: a.getAttribute("rel") || "",
   };
 })
-"""
+""".replace("__LINK_SELECTOR__", _LINK_SELECTOR)
 
 
 class CrawlAlreadyRunning(RuntimeError):
@@ -393,7 +421,7 @@ def _scene_cohort(
 
 
 def _collect_anchors(page: Any) -> list[dict[str, Any]]:
-    rows = page.locator("a[href]").evaluate_all(_ANCHOR_JS)
+    rows = page.locator(_LINK_SELECTOR).evaluate_all(_ANCHOR_JS)
     return [dict(row) for row in (rows or []) if isinstance(row, dict)]
 
 
