@@ -19,22 +19,26 @@ import pytest
 
 BD_GATE_SCOPE = "module"
 
-_CANDIDATE_FILE = Path(
-    os.environ.get(
-        "BD_ASSIGN_LENS_CANDIDATE",
-        "/home/mboyle/bd-persist/harness-work/FIX/assign-lens-codex-remote-root/bd-assign-lens.sh",
-    )
+_LIVE_HARNESS = Path("/home/mboyle/bd-persist/harness/bd-assign-lens.sh")
+_LIVE_STATE = (
+    Path("/home/mboyle/bd-persist/state/lens-batches.json"),
+    Path("/home/mboyle/bd-persist/logs/assign-lens.cron.log"),
+    Path("/home/mboyle/bd-persist/review-claims.tsv"),
 )
 
 
 def _get_script_content() -> str:
-    if _CANDIDATE_FILE.is_file():
-        return _CANDIDATE_FILE.read_text(encoding="utf-8")
-    # Fallback to current harness if candidate work dir not mounted
-    live_harness = Path("/home/mboyle/bd-persist/harness/bd-assign-lens.sh")
-    if live_harness.is_file():
-        return live_harness.read_text(encoding="utf-8")
-    raise FileNotFoundError("Could not find bd-assign-lens.sh")
+    # stalegate-assign-lens-codex-remote-root: the old default candidate,
+    # harness-work/FIX/assign-lens-codex-remote-root/, survives on band hosts
+    # as a 2026-09-20 copy that predates the deployed script, so a host that
+    # still had it judged a script nobody runs.  A candidate is named
+    # explicitly; otherwise the deployed script is the subject.
+    candidate = os.environ.get("BD_ASSIGN_LENS_CANDIDATE")
+    if candidate:
+        return Path(candidate).read_text(encoding="utf-8")
+    if _LIVE_HARNESS.is_file():
+        return _LIVE_HARNESS.read_text(encoding="utf-8")
+    pytest.skip(f"COULD NOT LOOK: {_LIVE_HARNESS} is not deployed on this host")
 
 
 def test_roots_default_includes_codex_remote():
@@ -144,6 +148,40 @@ def test_e2e_assignment_and_negative_controls(tmp_path: Path):
     (rev_dir_ref / "BRIEF.md").write_text("brief\n", encoding="utf-8")
     (rev_dir_ref / "TIER.md").write_text("TIER: T2\n", encoding="utf-8")
 
+    # Negative control 3: a row the register reads CLOSED.  With the register
+    # open this cut sorts ahead of row999 and takes the only lens (measured),
+    # so its absence below is the register filter's doing.
+    cut_dir_closed = root / "row996-local"
+    cut_dir_closed.mkdir(parents=True)
+    (cut_dir_closed / "DONE.md").write_text("VERDICT: PATCH\n", encoding="utf-8")
+    rev_dir_closed = review_root / "row996-local" / ".review"
+    rev_dir_closed.mkdir(parents=True)
+    (rev_dir_closed / "BRIEF.md").write_text("brief\n", encoding="utf-8")
+    (rev_dir_closed / "TIER.md").write_text("TIER: T2\n", encoding="utf-8")
+
+    # The register is a fixture repo, never origin/main's: an empty
+    # BD_ASSIGN_LENS_REGISTER falls back to the real register, where row 999
+    # was CLOSED at @1660 and this test went red on a row it never meant.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "register.md").write_text(
+        "| 996 | CLOSED @1 | fixture row |\n", encoding="utf-8")
+    for args in (["init", "-q"], ["add", "register.md"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t",
+                  "commit", "-qm", "register fixture"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True,
+                       capture_output=True)
+
+    # The deployed script's object gates, answered "current": the fixture
+    # cuts are plain dirs, which the real checker/object-map cannot judge.
+    mock_object_check = tmp_path / "object_check.py"
+    mock_object_check.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    mock_object_map = tmp_path / "object_map.sh"
+    mock_object_map.write_text(
+        "#!/usr/bin/env bash\necho 'OBJECT-MAP: SAME fixture'\n",
+        encoding="utf-8")
+    mock_object_map.chmod(0o755)
+
     # Mock claim script
     mock_claim = tmp_path / "claim.sh"
     mock_claim.write_text(
@@ -181,8 +219,23 @@ exit 0
     env["BD_ASSIGN_LENS_SAY"] = str(mock_say)
     env["BD_ASSIGN_LENS_TRAINS"] = str(tmp_path / "trains")
     env["BD_ASSIGN_LENS_REVIEW_LOG"] = str(tmp_path / "review.log")
-    env["BD_ASSIGN_LENS_REGISTER_REF"] = ""
-    env["BD_ASSIGN_LENS_REGISTER"] = ""
+    env["BD_ASSIGN_LENS_REPO"] = str(repo)
+    env["BD_ASSIGN_LENS_REGISTER_REF"] = "HEAD"
+    env["BD_ASSIGN_LENS_REGISTER"] = "register.md"
+    env["BD_REVIEW_OBJECT_CHECK"] = str(mock_object_check)
+    env["BD_ASSIGN_LENS_OBJECT_MAP"] = str(mock_object_map)
+    # Every fleet ledger the deployed script writes is a fixture (lens B13-B
+    # REFUTE: a successful assignment reserved "bd-lens-mock" in the LIVE
+    # state/lens-batches.json, six runs exhausted its cap and the test went
+    # red on NO-IDLE-LENS).
+    state = tmp_path / "state"
+    state.mkdir()
+    env["BD_ASSIGN_LENS_BATCH_STATE"] = str(state / "lens-batches.json")
+    env["BD_ASSIGN_LENS_LOG"] = str(state / "assign-lens.cron.log")
+    env["BD_ASSIGN_LENS_RETIRED"] = str(state / "retired-seats.tsv")
+    env["BD_REVIEW_CLAIMS"] = str(state / "review-claims.tsv")
+    env["BD_ASSIGN_LENS_REFRESH_INBOX"] = str(state / "inbox")
+
 
     res = subprocess.run(
         ["bash", str(run_script)],
@@ -199,3 +252,12 @@ exit 0
     # Negative controls: row998 (superseded) and row997 (non-PATCH) are NOT assigned
     assert "row998" not in out
     assert "row997" not in out
+    assert "row996" not in out
+
+    # The reservation landed in the fixture ledger, and no live ledger names
+    # this run.  (Content, not mtime: the real cron writes these every minute.)
+    assert "bd-lens-mock" in (state / "lens-batches.json").read_text(encoding="utf-8")
+    for p in _LIVE_STATE:
+        if p.is_file():
+            assert str(tmp_path) not in p.read_text(encoding="utf-8", errors="replace"), (
+                f"ASSIGN_LENS_TEST_WROTE_LIVE_STATE: {p}")
