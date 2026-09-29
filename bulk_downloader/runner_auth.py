@@ -310,12 +310,11 @@ class AuthMixin:
                     return msg
                 return
         self._set_login_status("Logging in...")
-        # v3.66.834: stamp this attempt so a second caller's watcher can read
-        # THIS login's real result instead of inferring it from a shared
-        # timestamp any other code path can bump (an expired-jar set_cookies
-        # racing a failed login would otherwise read as success).
-        self._login_attempt_seq = getattr(self, "_login_attempt_seq", 0) + 1
-        _attempt = self._login_attempt_seq
+        # v3.66.834: the attempt stamp (_attempt, set at publish below) lets a
+        # second caller's watcher read THIS login's real result instead of
+        # inferring it from a shared timestamp any other code path can bump (an
+        # expired-jar set_cookies racing a failed login would otherwise read as
+        # success).
         def _run():
             _settled = threading.Event()
             def _settle(ok):
@@ -516,13 +515,32 @@ class AuthMixin:
         login_thread = threading.Thread(
             target=_run, daemon=True, name=f"login-{self.site_id}")
         publish = getattr(self, "_start_owned_auxiliary_thread", None)
-        if callable(publish):
-            if not publish("_login_thread", login_thread):
-                _fire(False)
-                return
-        else:
-            self._login_thread = login_thread
-            login_thread.start()
+        # O1567 fx-login-async-double-start: re-check the in-flight login, stamp
+        # the attempt and publish the thread as ONE step. Two workers hitting
+        # auth together both passed the check at the top and ran two live
+        # logins for one account (test4 site-ma-brazzers, 1 ms apart); the
+        # caller that loses the race awaits the in-flight attempt instead.
+        lock = (getattr(self, "_run_lifecycle_lock", None)
+                or self.__dict__.setdefault("_login_start_lock", threading.RLock()))
+        started = True
+        with lock:
+            in_flight = self._login_thread
+            if not (in_flight is not None and in_flight.is_alive()):
+                in_flight = None
+                self._login_attempt_seq = getattr(self, "_login_attempt_seq", 0) + 1
+                _attempt = self._login_attempt_seq
+                if callable(publish):
+                    started = publish("_login_thread", login_thread)
+                else:
+                    self._login_thread = login_thread
+                    login_thread.start()
+        if in_flight is not None:
+            if on_done:
+                self._await_in_flight_login(in_flight, _fire)
+            return
+        if not started:
+            _fire(False)
+            return
     def _await_in_flight_login(self, thread, fire, timeout=115.0):
         """v3.66.834: resolve a second caller's on_done against the login
         thread that is ALREADY running (the in-flight guard path in
