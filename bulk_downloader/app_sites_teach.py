@@ -276,6 +276,24 @@ def _capture_marker_stale(cap: dict) -> bool:
     return (time.time() - started) > _CAPTURE_AGE_LIMIT_SECONDS
 
 
+def _applied_template_status(cfg):
+    """The template recorded by /templates/apply (cfg["applied_template"]) and which of its
+    learned download roles are merged into the site config -- role NAMES only, like
+    template_summary. None when nothing was applied. tpl95-bang-2: template_status used to
+    report reviewed templates only, so an applied user template read "No reviewed template"."""
+    tid = (cfg.get("applied_template") or "").strip()
+    if not tid:
+        return None
+    from . import templates as _tpls
+    tpl = _tpls.get(tid) or {}
+    builtin = any(t.get("id") == tid for t in _tpls.TEMPLATES)
+    merged = (cfg.get("learned") or {}).get("download") or {}
+    roles = ((tpl.get("learned") or {}).get("download") or {}).keys()
+    return {"id": tid, "name": tpl.get("name") or tid,
+            "source": "builtin" if builtin else ("user" if tpl else "unknown"),
+            "roles": sorted(r for r in roles if merged.get(r))}
+
+
 @sites_bp.route("/api/sites/<sid>/template_status")
 def api_template_status(sid):
     """Read-only reviewed-template status for the site's page.
@@ -316,8 +334,11 @@ def api_template_status(sid):
                 download_template = job_sum
         lint_issues = lint_template(tmpl_obj or {})
         onboarding = cfg.get("template_onboarding")
+        applied = _applied_template_status(cfg)
         if summary.get("enabled"):
             label = f"Reviewed Template: {summary.get('host')} enabled"
+        elif applied and applied["roles"]:
+            label = f"{'User' if applied['source'] == 'user' else 'Built-in'} template applied: {applied['name']}"
         elif onboarding == "capture_required":
             label = "Capture required — no reviewed template yet"
         else:
@@ -362,6 +383,9 @@ def api_template_status(sid):
             # when it differs from the primary (login-host) resolution; null
             # otherwise. Read-only summary (host/selectors), no secrets.
             "download_template": download_template,
+            # tpl95-bang-2: the applied template and its roles merged into this site's
+            # learned block ({id, name, source: builtin|user|unknown, roles}); null if none.
+            "applied_template": applied,
             # CAP-CANCEL: a truthy template_capture marker means an onboarding
             # capture subprocess is in flight; the SPA shows Finish & Cancel
             # controls. Boolean only — never the wacz/profile paths (F2 posture).

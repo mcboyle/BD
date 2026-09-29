@@ -592,6 +592,13 @@ export interface TemplateSummary {
   patterns: string[];
 }
 
+export interface AppliedTemplate {
+  id: string;
+  name: string;
+  source: "builtin" | "user" | "unknown";
+  roles: string[];
+}
+
 // 3e/C1: POST /api/sites/<sid>/session/reuse_onboarding response — value-free
 // (profile names + item names + counts + source host; never paths/values).
 export interface SessionReuseResult {
@@ -616,6 +623,9 @@ export interface TemplateStatus {
   // 3c: the enabled host-level template that applies at download time when it
   // differs from the primary (login-host) resolution; null/absent otherwise.
   download_template?: TemplateSummary | null;
+  // tpl95-bang-2: the template recorded by /templates/apply and the learned
+  // download roles it merged into this site (role names only); null if none.
+  applied_template?: AppliedTemplate | null;
   lint?: TemplateLintIssue[];
   has_blocking_lint?: boolean;
 }
