@@ -2418,7 +2418,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1816,
+    "edge_count": 1821,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2949,7 +2949,8 @@
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/challenge_classify.py": [
-        "bulk_downloader/challenge_handling.py"
+        "bulk_downloader/challenge_handling.py",
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/challenge_detector.py": [
         "bulk_downloader/runner_browser.py",
@@ -4202,7 +4203,8 @@
       ],
       "bulk_downloader/resume.py": [
         "bulk_downloader/app_sites_queue.py",
-        "bulk_downloader/runner_transport.py"
+        "bulk_downloader/runner_transport.py",
+        "bulk_downloader/staging_claim.py"
       ],
       "bulk_downloader/retention.py": [
         "bulk_downloader/app_retention.py",
@@ -4291,7 +4293,8 @@
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/runner_transport.py": [
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_extractors.py"
       ],
       "bulk_downloader/runner_util.py": [
         "bulk_downloader/detect.py",
@@ -4430,6 +4433,7 @@
         "bulk_downloader/app_sites_lifecycle.py",
         "bulk_downloader/dev_suite/introspection.py",
         "bulk_downloader/dev_suite/jobs_runner.py",
+        "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/profile_sync.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py",
@@ -4696,6 +4700,7 @@
         "bulk_downloader/app_sites_collection.py",
         "bulk_downloader/app_sites_teach.py",
         "bulk_downloader/app_templates.py",
+        "bulk_downloader/template_assist.py",
         "tools/decomp/templates_snapshot.py"
       ],
       "bulk_downloader/temporal_benchmark.py": [
@@ -6881,6 +6886,7 @@
         "bulk_downloader/log.py",
         "bulk_downloader/registrable_domain.py",
         "bulk_downloader/secrets_store.py",
+        "bulk_downloader/session_keeper.py",
         "bulk_downloader/stealth.py",
         "bulk_downloader/vault_sync.py"
       ],
@@ -7095,6 +7101,7 @@
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/cgroups_backpressure.py",
+        "bulk_downloader/challenge_classify.py",
         "bulk_downloader/circuit_breaker.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/cluster_rate.py",
@@ -7248,6 +7255,7 @@
         "bulk_downloader/netns_isolation.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/provider_resolve.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/ssrf_transport.py",
@@ -7495,6 +7503,9 @@
         "bulk_downloader/happy_eyeballs.py",
         "bulk_downloader/multi_homed_egress.py"
       ],
+      "bulk_downloader/staging_claim.py": [
+        "bulk_downloader/resume.py"
+      ],
       "bulk_downloader/staging_ingest.py": [
         "bulk_downloader/db.py"
       ],
@@ -7534,7 +7545,8 @@
       ],
       "bulk_downloader/template_assist.py": [
         "bulk_downloader/selector_library.py",
-        "bulk_downloader/template_registry.py"
+        "bulk_downloader/template_registry.py",
+        "bulk_downloader/templates.py"
       ],
       "bulk_downloader/template_canary.py": [
         "bulk_downloader/global_config.py",

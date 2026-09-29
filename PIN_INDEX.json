@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 161,
+    "total": 162,
     "version": 1,
-    "count_dict": 160,
-    "test_files_scanned": 2287,
+    "count_dict": 161,
+    "test_files_scanned": 2303,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -59,7 +59,7 @@
       "tests/test_template_drift_matrix.py": 1,
       "tests/test_test2d_1_persistent_profile_cookie_jar.py": 5,
       "tests/test_toolchain_534.py": 1,
-      "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py": 3,
+      "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py": 4,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_42_storage_tier.py": 2,
       "tests/test_v3_43_62_live_recorder.py": 5,
@@ -683,7 +683,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1723",
+      "value": "3.66.1724",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -837,7 +837,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
-      "line": 79,
+      "line": 83,
       "value": {
         "hits": 1,
         "misses": 0
@@ -847,7 +847,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
-      "line": 91,
+      "line": 95,
       "value": {
         "hits": 1,
         "misses": 0
@@ -857,7 +857,17 @@
     {
       "form": "count_dict",
       "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
-      "line": 111,
+      "line": 105,
+      "value": {
+        "hits": 1,
+        "misses": 0
+      },
+      "gates_what": "test_a_hidden_taught_row_fetched_by_href_is_a_learned_hit — tpl95-justporn-1: with url_attribute href the shut menu's taught row is fetched directly."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
+      "line": 125,
       "value": {
         "hits": 0,
         "misses": 1

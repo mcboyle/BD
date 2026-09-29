@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5366,
+  "edge_count": 5405,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1603,6 +1603,7 @@
       "bulk_downloader/log.py",
       "bulk_downloader/registrable_domain.py",
       "bulk_downloader/secrets_store.py",
+      "bulk_downloader/session_keeper.py",
       "bulk_downloader/stealth.py",
       "bulk_downloader/vault_sync.py"
     ],
@@ -1817,6 +1818,7 @@
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/cgroups_backpressure.py",
+      "bulk_downloader/challenge_classify.py",
       "bulk_downloader/circuit_breaker.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/cluster_rate.py",
@@ -1970,6 +1972,7 @@
       "bulk_downloader/netns_isolation.py",
       "bulk_downloader/plugins.py",
       "bulk_downloader/provider_resolve.py",
+      "bulk_downloader/runner_transport.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/ssrf_transport.py",
@@ -2217,6 +2220,9 @@
       "bulk_downloader/happy_eyeballs.py",
       "bulk_downloader/multi_homed_egress.py"
     ],
+    "bulk_downloader/staging_claim.py": [
+      "bulk_downloader/resume.py"
+    ],
     "bulk_downloader/staging_ingest.py": [
       "bulk_downloader/db.py"
     ],
@@ -2256,7 +2262,8 @@
     ],
     "bulk_downloader/template_assist.py": [
       "bulk_downloader/selector_library.py",
-      "bulk_downloader/template_registry.py"
+      "bulk_downloader/template_registry.py",
+      "bulk_downloader/templates.py"
     ],
     "bulk_downloader/template_canary.py": [
       "bulk_downloader/global_config.py",
@@ -3273,6 +3280,10 @@
       "bulk_downloader/runner_browser.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_dl95_fullporner_embed_frame_sources.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
     "tests/test_dl95_hoopla_age_gate_whole_label.py": [
       "bulk_downloader/interstitial.py"
     ],
@@ -3322,8 +3333,19 @@
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_dl95_naughtyamerica_2_relogin_timeout.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py"
+    ],
     "tests/test_dl95_newsensations_1_dead_content_page_is_not_page_shape.py": [
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_dl95_nookies_2_browser_fallback_leaves_no_part.py": [
+      "bulk_downloader/resume.py",
+      "bulk_downloader/runner_browser.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/staging_claim.py"
     ],
     "tests/test_dl95_nubilefilms_1_running_row_progress.py": [
       "bulk_downloader/app.py",
@@ -3359,6 +3381,7 @@
     ],
     "tests/test_dl95_porndig_3_cancel_stops_the_transfer.py": [
       "bulk_downloader/db.py",
+      "bulk_downloader/hls_downloader.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
     ],
@@ -3377,6 +3400,11 @@
       "bulk_downloader/listing_links.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_dl95_reddit_2_bot_wall_is_not_page_shape.py": [
+      "bulk_downloader/challenge_classify.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_dl95_reptyle_2_start_names_unarmed_pool.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/runner.py"
@@ -3393,6 +3421,9 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_scrape_listing.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_dl95_scrolller_2_spa_login_modal.py": [
+      "bulk_downloader/cloak.py"
     ],
     "tests/test_dl95_site_ma_bangbros_1_newest_n_caps_enqueue.py": [
       "bulk_downloader/cloak.py",
@@ -3420,6 +3451,10 @@
     "tests/test_dl95_vip4k_3_member_nav_is_not_a_scene.py": [
       "bulk_downloader/scene_crawler.py"
     ],
+    "tests/test_dl95_vip4k_4_not_found_page_never_downloads.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_dl95_xempire_1_scene_cohort_nav_links.py": [
       "bulk_downloader/scene_crawler.py"
     ],
@@ -3427,6 +3462,12 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_dl95_xhamster_2_quality_codec_leaf_uses_title.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/website_title.py"
     ],
     "tests/test_dl95_xnxx_1_revealed_quality_below_min_res.py": [
       "bulk_downloader/runner_integrity.py",
@@ -6347,8 +6388,19 @@
       "bulk_downloader/app.py",
       "bulk_downloader/user_templates.py"
     ],
+    "tests/test_tpl95_evilangel_1_login_lockout_stops_relogin.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_tpl95_justporn_hidden_dropdown_learned_row.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_tpl95_nookies_numeric_leaf_is_bare.py": [
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_tpl95_nubiles_porn_1_learned_miss_is_reported.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_util.py"
     ],
     "tests/test_tpl95_nubiles_porn_2_filter_cohort_is_not_scenes.py": [
       "bulk_downloader/scene_crawler.py"
@@ -6363,8 +6415,21 @@
       "bulk_downloader/migrations.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_tpl95_porntrex_2_comment_form_captcha_is_not_a_challenge.py": [
+      "bulk_downloader/captcha_resolver.py",
+      "bulk_downloader/runner_challenge.py"
+    ],
+    "tests/test_tpl95_reptyle_1_applied_template_rows_lead.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/template_assist.py"
+    ],
     "tests/test_tpl95_restart_1_learned_survives_restart.py": [
       "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_tpl95_restart_2_applied_template_survives_restart.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_teach.py",
       "bulk_downloader/db.py"
     ],
     "tests/test_tpl95_site_ma_brazzers_1_click_miss_falls_back_to_page_media.py": [
@@ -6373,11 +6438,17 @@
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_tpl95_spankbang_1_related_card_is_another_work.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_tpl95_teenfidelity_1_player_menu_is_not_a_download.py": [
       "bulk_downloader/detect.py"
     ],
     "tests/test_tpl95_tiny4k_router_link_scene_cards.py": [
       "bulk_downloader/cloak.py",
+      "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_tpl95_wowgirls_1_scope.py": [
       "bulk_downloader/scene_crawler.py"
     ],
     "tests/test_tpl95_xh1_hidden_media_href_winner_is_fetched_not_revealed.py": [

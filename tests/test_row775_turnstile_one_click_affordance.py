@@ -133,7 +133,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 _LOGIN_HTML = b"""<!doctype html><html><body>
-<form id="f" method="get" action="/members">
+<form id="f" method="post" action="/members">
   <input id="username" name="username" type="text">
   <input id="password" name="password" type="password">
   <div class="cf-turnstile">
@@ -153,6 +153,18 @@ def _turnstile_handler():
             type(self).requests.append(self.path)
             body = (b"<html><body><h1>members</h1></body></html>"
                     if self.path.startswith("/members") else _LOGIN_HTML)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            # T152: the login form POSTs (dl95-txxx-2 never lets a password
+            # ride a GET); record the body as the query so the token reads alike.
+            n = int(self.headers.get("Content-Length") or 0)
+            type(self).requests.append(self.path + "?" + self.rfile.read(n).decode())
+            body = b"<html><body><h1>members</h1></body></html>"
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
