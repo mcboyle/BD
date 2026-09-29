@@ -1762,6 +1762,20 @@ def _load_sites_config():
         # Apply defaults only where genuinely unset (preserves explicit 0/False)
         for k, d in DEFAULTS.items():
             if cfg.get(k) in ("", None): cfg[k] = d
+        # dl95-eporner-4-live-1: gap-fill login_trigger from matching template defaults
+        # for existing sites where login_trigger is empty (O1528 / B6-B live note)
+        if not (cfg.get("login_trigger") and str(cfg["login_trigger"]).strip()):
+            try:
+                from .site_templates import suggest_for_url, get as get_tpl
+                login_u = (cfg.get("login_url") or cfg.get("start_url") or "").strip()
+                tids = suggest_for_url(login_u) if login_u else []
+                if tids:
+                    tpl = get_tpl(tids[0])
+                    defaults = (tpl or {}).get("config_defaults") or {}
+                    if defaults.get("login_trigger"):
+                        cfg["login_trigger"] = defaults["login_trigger"]
+            except Exception:
+                pass
         # B2 (GUI cut): carry the per-site draft-test override across a restart.
         # It is transient runtime state set by POST /api/template/test_extract,
         # NOT an operator-edited config field, so it is deliberately absent from

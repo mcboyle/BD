@@ -156,7 +156,10 @@ def test_positive_control_a_real_login_form_beside_the_search_box_is_filled():
 def test_a_configured_trigger_fires_when_only_the_search_box_is_visible():
     """Pre-fix the search box counted as 'username field is already visible',
     so a login_trigger on a site like eporner could never open the modal."""
-    from bulk_downloader.login_impl._common import _fire_login_trigger_if_needed, _try_fill
+    from bulk_downloader.login_impl._common import (
+        _fire_login_trigger_if_needed,
+        _try_fill,
+    )
     with _page("/modal") as page:
         needed, fired, detail = _fire_login_trigger_if_needed(
             page, "a#open-login", _fallbacks())
@@ -173,6 +176,69 @@ def test_a_visible_login_field_still_skips_the_trigger():
     with _page("/with-form") as page:
         assert _fire_login_trigger_if_needed(page, "a#nowhere", _fallbacks()) == (
             False, False, "username field is already visible")
+
+
+def test_eporner_fixture_full_fill_path_without_trigger_refuses_search_and_cannot_find_username():
+    """RED without the fix: on the real eporner header+modal fixture, when
+    login_trigger is not configured (or empty), the trigger never fires,
+    the modal remains hidden, and username fill fails without typing into
+    the search box."""
+    from bulk_downloader.login_impl._common import (
+        _fire_login_trigger_if_needed,
+        _try_fill,
+    )
+
+    with _page("/home") as page:
+        needed, fired, _detail = _fire_login_trigger_if_needed(page, "", _fallbacks())
+        assert (needed, fired) == (False, False)
+        # Modal is still hidden
+        assert not page.locator("#modal_user").is_visible()
+        # Filling username fails cleanly
+        ok, _info = _try_fill(page, _fallbacks(), ACCOUNT, "username")
+        assert ok is False
+        assert _search_value(page) == ""
+
+
+def test_eporner_fixture_full_fill_path_with_template_default_trigger_succeeds():
+    """GREEN with the fix: eporner's template default login_trigger
+    (a[data-nav-header='login_open'], a[href='/login/']) fires against the
+    eporner header, opens the modal, and the full username and password
+    fill path completes into the real login form while leaving the search
+    box completely empty."""
+    import bulk_downloader.site_templates as st
+    from bulk_downloader.login_impl._common import (
+        _fire_login_trigger_if_needed,
+        _try_fill,
+    )
+    from bulk_downloader.login_impl.submit import PASS_FIELD_FALLBACKS
+
+    tpl = st.get("eporner")
+    assert tpl is not None
+    trigger = (tpl.get("config_defaults") or {}).get("login_trigger")
+    assert trigger, "eporner site template must specify login_trigger"
+
+    with _page("/home") as page:
+        assert not page.locator("#modal_user").is_visible()
+        assert _search_value(page) == ""
+
+        # Step 1: fire trigger
+        needed, fired, detail = _fire_login_trigger_if_needed(page, trigger, _fallbacks())
+        assert (needed, fired) == (True, True), detail
+        assert page.locator("#modal_user").is_visible()
+
+        # Step 2: fill username
+        ok, used = _try_fill(page, _fallbacks(), ACCOUNT, "username")
+        assert ok is True, f"Username fill failed: {used}"
+        assert page.locator("#modal_user").input_value() == ACCOUNT
+
+        # Step 3: fill password
+        ok, used = _try_fill(page, list(PASS_FIELD_FALLBACKS), "secretpass123", "password")
+        assert ok is True, f"Password fill failed: {used}"
+        assert page.locator("#modal_pass").input_value() == "secretpass123"
+
+        # Search box was NEVER touched
+        assert _search_value(page) == "", "account name was typed into search box"
+
 
 
 @pytest.mark.parametrize("html,reason", [
@@ -215,3 +281,80 @@ def test_a_locator_that_cannot_evaluate_fails_open():
 
     assert _is_search_field(_NoEval()) == (False, "")
     assert _is_search_field(_NotAString()) == (False, "")
+
+
+def test_existing_site_with_empty_login_trigger_gap_fills_at_runtime_and_opens_modal():
+    """B6-B live note: an existing site whose login_trigger is '' and applied_template
+    is None must gap-fill the trigger from template defaults at runtime so the modal
+    opens and login succeeds."""
+    from bulk_downloader.login_impl._common import (
+        _fire_login_trigger_if_needed,
+        _try_fill,
+    )
+    from bulk_downloader.login_impl.submit import PASS_FIELD_FALLBACKS
+
+    # Existing site config as on live host .183
+    cfg = {
+        "login_url": "https://www.eporner.com/",
+        "login_trigger": "",
+        "applied_template": None,
+    }
+
+    with _page("/home") as page:
+        assert not page.locator("#modal_user").is_visible()
+        assert _search_value(page) == ""
+
+        # Runtime gap-fill in _fire_login_trigger_if_needed:
+        # trigger is empty string in cfg, but resolves to template default via config["login_url"]
+        needed, fired, detail = _fire_login_trigger_if_needed(page, cfg["login_trigger"], _fallbacks(), config=cfg)
+        assert (needed, fired) == (True, True), detail
+        assert page.locator("#modal_user").is_visible()
+
+        # Modal is open: user and pass fill succeeds, search untouched
+        ok, used = _try_fill(page, _fallbacks(), ACCOUNT, "username")
+        assert ok is True, f"Username fill failed: {used}"
+        assert page.locator("#modal_user").input_value() == ACCOUNT
+
+        ok, used = _try_fill(page, list(PASS_FIELD_FALLBACKS), "secretpass123", "password")
+        assert ok is True, f"Password fill failed: {used}"
+        assert page.locator("#modal_pass").input_value() == "secretpass123"
+        assert _search_value(page) == ""
+
+
+def test_load_sites_config_gap_fills_empty_login_trigger_for_existing_site(tmp_path, monkeypatch):
+    """B6-B live note: _load_sites_config on startup gap-fills login_trigger from
+    matching template defaults for an existing site whose login_trigger is empty."""
+    import json
+
+    import bulk_downloader.app as app_mod
+
+    sites_file = tmp_path / "sites_config.json"
+    existing_sites = {
+        "0c546602": {
+            "name": "eporner",
+            "login_url": "https://www.eporner.com/",
+            "login_trigger": "",
+            "applied_template": None,
+        },
+        "custom_site": {
+            "name": "eporner_custom",
+            "login_url": "https://www.eporner.com/",
+            "login_trigger": "button.custom-login",
+            "applied_template": None,
+        },
+    }
+    sites_file.write_text(json.dumps(existing_sites), encoding="utf-8")
+
+    monkeypatch.setattr(app_mod, "SITES_FILE", sites_file)
+    monkeypatch.setattr(app_mod, "_SITES_FILE_RUNTIME_PUBLISHED_OBJECT", sites_file)
+    monkeypatch.setattr(app_mod, "_SITES_FILE_EXISTED_AT_PUBLICATION", True)
+
+    app_mod.s_cfg.clear()
+    app_mod.runners.clear()
+    app_mod._load_sites_config()
+
+    # Empty trigger is gap-filled from eporner template defaults
+    assert app_mod.s_cfg["0c546602"]["login_trigger"] == "a[data-nav-header='login_open'], a[href='/login/']"
+    # Explicit custom trigger is preserved untouched
+    assert app_mod.s_cfg["custom_site"]["login_trigger"] == "button.custom-login"
+

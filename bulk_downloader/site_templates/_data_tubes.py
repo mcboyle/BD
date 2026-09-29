@@ -291,6 +291,8 @@ ITEMS = [
             "use_curl_cffi": True,
             # v3.43.63: enable library-extractor fast path
             "use_library_extractor": True,
+            "login_url": "https://www.eporner.com/",
+            "login_trigger": "a[data-nav-header='login_open'], a[href='/login/']",
        },
     },
 {

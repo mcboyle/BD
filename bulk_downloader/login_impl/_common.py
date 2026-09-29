@@ -156,7 +156,38 @@ def _fire_auto_login_trigger(page):
         )
 
 
-def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
+def resolve_login_trigger(config=None, page=None):
+    """dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
+    when an existing site config has login_trigger='' (O1528 / B6-B live note)."""
+    trigger = ""
+    if isinstance(config, dict):
+        trigger = str(config.get("login_trigger") or "").strip()
+    if trigger:
+        return trigger
+    try:
+        from ..site_templates import suggest_for_url, get as get_tpl
+        candidates = []
+        if isinstance(config, dict):
+            for k in ("login_url", "url", "start_url"):
+                u = (config.get(k) or "").strip()
+                if u and u not in candidates:
+                    candidates.append(u)
+        page_u = (getattr(page, "url", "") or "").strip() if page else ""
+        if page_u and page_u not in candidates:
+            candidates.append(page_u)
+        for u in candidates:
+            tids = suggest_for_url(u)
+            if tids:
+                tpl = get_tpl(tids[0])
+                defaults = (tpl or {}).get("config_defaults") or {}
+                if defaults.get("login_trigger"):
+                    return str(defaults["login_trigger"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _fire_login_trigger_if_needed(page, login_trigger, username_selectors, *, config=None):
     """Reveal a configured modal login form when no username field is usable.
 
     Returns ``(needed, fired, detail)``.  With no configured trigger the
@@ -164,6 +195,8 @@ def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
     modal); a mounted form keeps the historical zero-click path.
     """
     trigger = login_trigger.strip() if isinstance(login_trigger, str) else ""
+    if not trigger:
+        trigger = resolve_login_trigger(config=config, page=page)
     if not trigger:
         if _visible_login_field(page, username_selectors):
             return False, False, ""

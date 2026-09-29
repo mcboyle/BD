@@ -70,3 +70,24 @@
 <button type="submit" id="search-submit" aria-label="Search"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></svg></button>
 </form></div>
 <a href="/login/" id="loginslide" data-nav-header="login_open" onclick="return EP.account.login.checkSilent(undefined, this);"></a>
+<div id="headmenu">
+<a data-nav-header="login_open" href="/login/" onclick="return EP.account.login.openModal('login', 'header');">Sign in</a>
+</div>
+<div id="modal_login" style="display:none">
+<form id="loginform" method="post" action="/xhr/login/">
+  <input type="text" name="login" id="modal_user" placeholder="Username">
+  <input type="password" name="pass" id="modal_pass" placeholder="Password">
+  <button type="submit" id="modal_sub">Sign in</button>
+</form>
+</div>
+<script>
+var EP = EP || {};
+EP.account = EP.account || {};
+EP.account.login = EP.account.login || {};
+EP.account.login.checkSilent = function() { return false; };
+EP.account.login.openModal = function(tab, source) {
+  var m = document.getElementById('modal_login');
+  if (m) m.style.display = 'block';
+  return false;
+};
+</script>

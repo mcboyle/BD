@@ -17,6 +17,7 @@ from ._common import (
     _try_click,
     _try_fill,
     log_url,
+    resolve_login_trigger,
 )
 from .manual import _MANUAL_LOGIN_BANNER_JS
 from .replay import (
@@ -1964,11 +1965,16 @@ def do_login(config, allow_manual_takeover=False):
                 sys.stderr.write(f"  {site_tag()}login: AI assist failed: {e} "
                                   f"(falling back to enumeration)\n")
 
+        login_trigger = resolve_login_trigger(config=config, page=page)
+        if login_trigger and not config.get("login_trigger"):
+            config["login_trigger"] = login_trigger
+
         trigger_needed, trigger_fired, trigger_detail = (
             _fire_login_trigger_if_needed(
                 page,
-                config.get("login_trigger"),
+                login_trigger,
                 trigger_uf_candidates or uf_candidates,
+                config=config,
             )
         )
         if trigger_needed:
