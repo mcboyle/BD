@@ -18,7 +18,9 @@ from urllib.parse import urljoin, urlparse
 
 _HREF = re.compile(r'<a[^>]+href=["\']([^"\']+)["\']', re.I)
 VIDEO_EXT = re.compile(r"\.(mp4|mkv|webm|avi|mov|m3u8|mpd|ts|flv)(\?|#|$)", re.I)
-VIDEO_PATTERNS = re.compile(r"/(video|watch|v|play|movie|episode|stream)/", re.I)
+_VIDEO_SEGMENT = re.compile(r"/(video|watch|v|play|movie|episode|stream)/", re.I)
+# dl95-porndig-2: plural /videos/<id>/<slug> scenes
+VIDEO_PATTERNS = re.compile(_VIDEO_SEGMENT.pattern + r"|/videos/\d+/[^/?#]", re.I)
 LISTING_PATTERNS = re.compile(
     r"/(category|categories|tag|tags|page|search|browse|list|channel|playlist|feed|sitemap)/", re.I)
 # a scene page whose own path segment carries the id: /vid-6167743-some-title
@@ -32,7 +34,7 @@ FACET_SEGMENT = re.compile(
 def _is_facet(path: str) -> bool:
     """/video/, /video/random/, /video/1-10min/: the site's own video index or a facet of it."""
     last = None
-    for last in VIDEO_PATTERNS.finditer(path):
+    for last in _VIDEO_SEGMENT.finditer(path):
         pass
     if last is None:
         return False
