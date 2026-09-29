@@ -439,6 +439,78 @@ def _page_media_state(page, page_url):
         return "unknown"
 
 
+# dl95-cumlouder-2: Cloudflare's 5xx origin-error template (520-527: the edge is
+# up, the site's origin is not). The page has no download control because the
+# site is down, so it is an outage to retry, never a page_shape miss.
+CDN_ORIGIN_ERROR_MARKER = "CDN origin error"
+_CF_ORIGIN_CODE_RE = re.compile(r"error code\s*:?\s*(52\d)\b", re.IGNORECASE)
+_CF_ORIGIN_TITLE_RE = re.compile(r"\|\s*(52\d):\s*([^|]+?)\s*$")
+# The whole body of Cloudflare's text/plain variant: "error code: 522".
+_CF_ORIGIN_PLAIN_RE = re.compile(r"^error code:\s*(52\d)$", re.IGNORECASE)
+_CF_ORIGIN_ERROR_JS = """() => {
+  const box = document.querySelector('#cf-error-details') || document.querySelector('#cf-wrapper');
+  const h1 = box ? box.querySelector('h1') : null;
+  const body = document.body ? (document.body.innerText || '') : '';
+  return {title: document.title || '',
+          box: box ? (box.innerText || '').slice(0, 600) : '',
+          h1: h1 ? (h1.innerText || '') : '',
+          ray: /cloudflare ray id/i.test(body),
+          plain: body.length <= 64 ? body.trim() : ''};
+}"""
+
+
+def _cdn_origin_error(page):
+    """Return "Cloudflare 522 (Connection timed out)" for a Cloudflare origin
+    error page, else "".
+
+    Positive evidence only, from what the template renders rather than one
+    class name (the live 522 page carried its code in a badge, not in
+    .cf-error-code -- dl95-cumlouder-2 LIVE FAIL): a 52x code (the
+    "<host> | 522: <kind>" title, or "Error code 522" inside Cloudflare's
+    error box) AND a Cloudflare page marker (the #cf-error-details /
+    #cf-wrapper box, or the "Cloudflare Ray ID" footer). An ordinary page
+    whose prose merely mentions an error code has neither marker. The
+    text/plain variant is a page whose ENTIRE body is "error code: 522"."""
+    try:
+        seen = page.evaluate(_CF_ORIGIN_ERROR_JS) or {}
+    except Exception:
+        return ""
+    plain = _CF_ORIGIN_PLAIN_RE.match(seen.get("plain") or "")
+    if plain:
+        return f"Cloudflare {plain.group(1)}"
+    box = seen.get("box") or ""
+    if not (box or seen.get("ray")):
+        return ""
+    title = _CF_ORIGIN_TITLE_RE.search(seen.get("title") or "")
+    code = _CF_ORIGIN_CODE_RE.search(box)
+    num = title.group(1) if title else (code.group(1) if code else "")
+    if not num:
+        return ""
+    kind = title.group(2).strip() if title else ""
+    if not kind:
+        kind = _CF_ORIGIN_CODE_RE.sub("", seen.get("h1") or "").strip()
+    kind = " ".join(kind.split())[:60]
+    return f"Cloudflare {num}" + (f" ({kind})" if kind else "")
+
+
+def _handle_cdn_origin_error_page(runner, page, url, screenshot):
+    """Route a CDN origin-error page to the retried failure path.
+
+    Returns True only when it handled the job. It does not touch the
+    no-download-button streak: a site outage is not evidence that the page
+    shape changed, and must not auto-pause the site as paused_no_button.
+    """
+    what = _cdn_origin_error(page)
+    if not what:
+        return False
+    runner._handle_failure(
+        url,
+        f"Site origin unavailable: {what} -- {CDN_ORIGIN_ERROR_MARKER} page, "
+        "not a missing download button; retrying",
+        screenshot=screenshot)
+    return True
+
+
 def _handle_confirmed_no_video_page(runner, page, url, screenshot):
     """Publish the distinct photo-gallery outcome, if positively proven.
 
@@ -5526,6 +5598,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     return
                 ss=self._screenshot(page,url)
                 if _handle_confirmed_no_video_page(self, page, url, ss):
+                    return
+                if _handle_cdn_origin_error_page(self, page, url, ss):
                     return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
