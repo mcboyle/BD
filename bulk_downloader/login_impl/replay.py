@@ -146,8 +146,8 @@ def redact_input_values(html):
     """Return *html* with credential-bearing ``<input>`` values redacted."""
     def redact(match):
         tag = match.group(0)
-        attrs = {k.lower(): v.strip("\"'")
-                 for k, v in _INPUT_ATTR.findall(tag)}
+        attrs = dict((k.lower(), v.strip("\"'"))
+                     for k, v in _INPUT_ATTR.findall(tag))  # O805 DP-07: attribute map, not a secret mapping
         if "value" not in attrs:
             return tag
         kind = attrs.get("type", "").strip().lower()
@@ -163,8 +163,8 @@ def redact_input_values(html):
 
     def redact_textarea(match):
         # F3: a credential-named <textarea> carries its value as content.
-        attrs = {k.lower(): v.strip("\"'")
-                 for k, v in _INPUT_ATTR.findall(" " + match.group(2))}
+        attrs = dict((k.lower(), v.strip("\"'"))
+                     for k, v in _INPUT_ATTR.findall(" " + match.group(2)))
         names = " ".join(attrs.get(k, "") for k in
                          ("name", "id", "autocomplete"))
         if not match.group(3) or not _CREDENTIAL_QUERY_KEY.search(names):

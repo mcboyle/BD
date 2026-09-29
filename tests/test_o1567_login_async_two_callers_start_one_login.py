@@ -17,6 +17,7 @@ Hermetic: real SiteRunner.login_async + real session_keeper accounting on the is
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from unittest import mock
 
@@ -85,8 +86,8 @@ def _race_two_callers(r, stub):
         if s == "Logging in...":
             try:
                 barrier.wait()
-            except threading.BrokenBarrierError:
-                pass
+            except threading.BrokenBarrierError as barrier_exc:  # O805 DP-13: named; a broken barrier is the test's own timeout
+                sys.stderr.write(f"  test: login barrier broken ({barrier_exc})\n")
         real_status(s)
 
     r._set_login_status = _status

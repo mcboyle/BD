@@ -27,6 +27,7 @@ password field.  The markup is the REAL sidebar capture
 from __future__ import annotations
 
 import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -50,8 +51,8 @@ def _launch(p):
         try:
             return p.chromium.launch(headless=True, timeout=20000, args=args,
                                      executable_path=CHROME)
-        except Exception:
-            pass
+        except Exception as launch_exc:  # O805 DP-13: named, then the default launch below
+            sys.stderr.write(f"  test: pinned chrome launch failed ({type(launch_exc).__name__})\n")
     try:
         return p.chromium.launch(headless=True, timeout=20000, args=args)
     except Exception as e:

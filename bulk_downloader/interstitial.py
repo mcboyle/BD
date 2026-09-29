@@ -526,8 +526,9 @@ def _clear_frame_gate(page: Any, frame: Any, host: Any, expected_origin: str,
                     page.go_back(wait_until="domcontentloaded",
                                  timeout=ORIGIN_RECOVERY_TIMEOUT_MS)
                     sleep(ORIGIN_RECOVERY_SETTLE_S)
-                except Exception:
-                    pass
+                except Exception as back_exc:  # O805 DP-13: named, then the destination re-goto below decides
+                    note("%s: go_back after leaving the origin failed (%s)" % (
+                        tier, type(back_exc).__name__))
                 if (url and _clear_gates_origin(getattr(page, "url", ""))
                         != expected_origin):
                     page.goto(url, wait_until="domcontentloaded",

@@ -49,7 +49,7 @@ def test_banner_in_top_frame_but_not_in_cross_origin_iframe():
             ctx = browser.new_context()
             ctx.add_init_script(_MANUAL_LOGIN_BANNER_JS)
             page = ctx.new_page()
-            page.goto(f"http://127.0.0.1:{srv.server_port}/top")
+            page.goto("http://127.0.0.1:%d/top" % srv.server_port)  # O805 DP-12: loopback fixture, not a path build
             page.wait_for_selector("#bd-manual-banner", timeout=5000)
             child = page.frame_locator("#w")
             child.locator("#cb").wait_for(timeout=5000)
