@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5233,
+  "edge_count": 5234,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5895,6 +5895,9 @@
     ],
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"
+    ],
+    "tests/test_stalegate_pg_backend_cli_streams.py": [
+      "bulk_downloader/pg_backend.py"
     ],
     "tests/test_storage_capture.py": [
       "bulk_downloader/capture_redact.py",
