@@ -89,6 +89,46 @@ _TYPE_SIGNATURES = [
     ]),
 ]
 
+# tpl95-porntrex-2: a captcha that guards posting a comment does not gate the page. porntrex renders a reCAPTCHA v2
+# checkbox in every logged-in scene's comment form, and treating it as a challenge held every scene needs_review.
+# Only the widget's OWN form is weighed: the form carries a message textarea (the g-/h-captcha-response textareas are
+# the widgets' token fields, not a message box), or an element from the widget up to that form is a comment block.
+# A widget outside any form, or on a page whose body/layout merely mentions comments, still counts as a gate.
+_GUARDS_A_COMMENT_JS = """el => {
+  const w = el.closest('.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]') || el;
+  const f = w.closest('form');
+  if (!f) return false;
+  if (f.querySelector('textarea:not([name$="-response"])')) return true;
+  for (let n = w; n; n = n.parentElement) {
+    if (/comment/i.test(String(n.className || '') + ' ' + (n.id || ''))) return true;
+    if (n === f) break;
+  }
+  return false;
+}"""
+_MAX_MATCHES = 8
+
+
+def guards_a_comment(loc) -> bool:
+    """True when this captcha node guards a comment/message form rather than the page. Any error -> False (a gate)."""
+    try:
+        return bool(loc.evaluate(_GUARDS_A_COMMENT_JS))
+    except Exception:
+        return False
+
+
+def page_captcha_matches(page, selector):
+    """The nodes matching `selector` that could gate the page (comment-form widgets dropped), first _MAX_MATCHES.
+    Never laxer than weighing the first match unfiltered: a match set that cannot be walked yields `.first`."""
+    loc_all = page.locator(selector)
+    try:
+        nodes = [loc_all.nth(i) for i in range(min(loc_all.count(), _MAX_MATCHES))]
+    except Exception:
+        yield loc_all.first
+        return
+    for loc in nodes:
+        if not guards_a_comment(loc):
+            yield loc
+
 
 def detect_captcha_type(page) -> Optional[str]:
     """Identify which captcha (if any) is visible. Returns:
@@ -100,21 +140,19 @@ def detect_captcha_type(page) -> Optional[str]:
     for cap_type, selectors in _TYPE_SIGNATURES:
         for sel in selectors:
             try:
-                loc = page.locator(sel).first
-                if loc.count() == 0:
-                    continue
-                # For invisible widgets (recaptcha3) being in the DOM
-                # is enough; for visible ones we want is_visible().
-                if cap_type == "recaptcha3":
-                    return cap_type
-                try:
-                    if loc.is_visible(timeout=300):
+                for loc in page_captcha_matches(page, sel):
+                    # For invisible widgets (recaptcha3) being in the DOM
+                    # is enough; for visible ones we want is_visible().
+                    if cap_type == "recaptcha3":
                         return cap_type
-                except Exception:
-                    # Some selectors match nodes that don't support
-                    # is_visible (script tags); count > 0 is enough
-                    # to flag them
-                    return cap_type
+                    try:
+                        if loc.is_visible(timeout=300):
+                            return cap_type
+                    except Exception:
+                        # Some selectors match nodes that don't support
+                        # is_visible (script tags); count > 0 is enough
+                        # to flag them
+                        return cap_type
             except Exception:
                 continue
     return None
