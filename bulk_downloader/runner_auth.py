@@ -378,6 +378,8 @@ class AuthMixin:
                     getattr(self, "_active_account_idx", None))
                 if not _reservation["granted"]:
                     _refusal = (
+                        _reservation["reason"]
+                        if _reservation["status"] == "LOCKOUT" else
                         "daily login attempt cap unavailable: "
                         f"{_reservation['reason']}"
                         if _reservation["status"] != "OK" else
@@ -454,8 +456,11 @@ class AuthMixin:
                 # dl95-kellymadisonmedia-1: a login page that never loaded is a
                 # dead host -- a manual window at it cannot log in either, and
                 # the takeover status would hide "unreachable" from auth_state.
+                # tpl95-evilangel-1: a lockout page is not a stale template;
+                # reopening the site would only deepen the lockout.
                 if (not ok and allow_manual and had_template
                         and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
+                        and not isinstance(msg, _sk.LoginLockout)
                         and not getattr(self, "_manual_login_handle", None)
                         and self.config.get("login_url","").startswith("http")):
                     sys.stderr.write(

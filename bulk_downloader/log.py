@@ -255,6 +255,11 @@ def login_site(site_id: str):
         _LOGIN_SITE_ID.reset(token)
 
 
+def login_site_id() -> str:
+    """The site id the enclosing ``login_site`` scope names; "" outside one."""
+    return _LOGIN_SITE_ID.get()
+
+
 def site_tag(site_id: str = "") -> str:
     """`"[<sid>] "` for a known site, `""` for none.
 

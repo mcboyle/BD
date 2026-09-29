@@ -7,9 +7,9 @@ import time
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
-from ..log import login_site, site_tag
+from ..log import login_site, login_site_id, site_tag
 from ..cookies import pw_to_json
-from ..interstitial import _origin
+from ..interstitial import LOGIN_LOCKOUT_LANGUAGE, _origin
 from ._common import (
     _css_escape_for_id,
     _fire_login_trigger_if_needed,
@@ -1344,6 +1344,43 @@ def _uncheck_upsell_boxes(page):
     return acted
 
 
+def _login_lockout_phrase(page):
+    """tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+
+    evilangel answered with /login-abused, "Your IP was blocked! Please try
+    later ...", and the walker reported it as an age gate plus "Couldn't find
+    username field". Read by content (LOGIN_LOCKOUT_LANGUAGE); an unreadable
+    body is None, which leaves the existing hand-off unchanged.
+    """
+    try:
+        text = page.inner_text("body", timeout=3000)
+    except Exception:
+        return None
+    found = LOGIN_LOCKOUT_LANGUAGE.search(text if isinstance(text, str) else "")
+    return " ".join(found.group(0).split()) if found else None
+
+
+def _login_lockout_result(page, config, phrase, hard_close):
+    """File the lockout (opens the automatic-login hold) and stop this login."""
+    from .. import session_keeper as _sk
+    try: _cur = page.url
+    except Exception: _cur = ""
+    reason = (f"Login lockout: the site served its lockout page "
+              f"({phrase!r} at {redact_url_credentials(_cur)}); automatic "
+              "re-login stopped -- another attempt would deepen it")
+    sys.stderr.write(f"  {site_tag()}login: {reason}\n")
+    _ev = write_login_evidence(page, config, _cur, "login lockout")
+    if _ev: sys.stderr.write(f"  {site_tag()}login: evidence kept at {_ev}\n")
+    sid = login_site_id()
+    if sid:
+        try:
+            _sk.record_login_lockout(sid, f"{phrase!r} at {redact_url_credentials(_cur)}")
+        except Exception as _e:
+            reason += f"; lockout hold NOT recorded ({type(_e).__name__}: {_e})"
+    hard_close()
+    return False, _sk.LoginLockout(reason), []
+
+
 def _scoped_to_the_site_being_logged_into(fn):
     """Give `do_login` its `site_id` parameter and the log scope that uses it.
 
@@ -1868,6 +1905,9 @@ def do_login(config, allow_manual_takeover=False):
         # the user can drive it manually if they want.
         ok,info=_try_fill(page,uf_candidates,username,"username")
         if not ok:
+            _lockout = _login_lockout_phrase(page)
+            if _lockout:
+                return _login_lockout_result(page, config, _lockout, _hard_close)
             if trigger_needed:
                 info=("login form is hidden behind a trigger: "
                       f"{trigger_detail}; {info}")

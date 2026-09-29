@@ -1959,6 +1959,9 @@ def _start_session_keepers(site_id=None):
             # tolerance too, and a refusal writes nothing.
             reservation = _sk.reserve_login_attempt(
                 site_id, "app._do_login_for_keeper", daily_cap, account_idx)
+            if reservation["status"] == "LOCKOUT":
+                return False, _sk.SelfRefusal(
+                    _sk.RELOGIN_REFUSED_EVENT, reservation["reason"])
             if reservation["status"] != "OK":
                 return False, _sk.SelfRefusal(
                     _sk.RELOGIN_CAP_UNAVAILABLE_EVENT,
