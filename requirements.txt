@@ -394,6 +394,17 @@ faststream>=0.5.0,<1.0.0
 # ffmpeg, but numpy itself is a hard runtime dependency once that path runs.
 numpy>=2.0,<3.0
 
+# o1567 dep-pyautogui-opencv: desktop automation on the VM's Xvfb :99 display.
+# The fleet ran these hand-installed (pyautogui 0.9.54, opencv-python 5.0.0.93
+# against numpy 2.x and the Pillow above); declared here so a fresh install has
+# them. pyautogui also needs the python3-tk system package (bd_system_pkgs gtk)
+# and an existing ~/.Xauthority: it pulls python3-xlib 0.15, which shares the
+# `Xlib` package dir with pystray's python-xlib 0.33, and when 0.15's files win
+# (pyautogui installed into an existing venv) its import raises XauthError on a
+# missing file. install_linux.sh creates an empty one (Xvfb -ac needs no cookie).
+pyautogui>=0.9.54,<1.0
+opencv-python>=5.0,<6.0
+
 # Row 1018: the SQLAlchemy 2.0 async seam (bulk_downloader/orm_engine.py).
 # Declared in requirements.txt and not an optional manifest because deploy
 # converges only the manifests it names (the row-827 note above), and a seam

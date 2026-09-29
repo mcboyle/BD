@@ -116,6 +116,9 @@ EXPECTED_GROUPS: dict[str, tuple[str, ...]] = {
         "libcairo2",
         "libgirepository-1.0-1",
         "x11-utils",
+        # o1567 dep-pyautogui-opencv: pyautogui's tkinter + build headers.
+        "python3-tk",
+        "python3-dev",
     ),
     # `shellcheck` is in its own group because it is neither runtime nor
     # display: it is what the suite's own parse gates need in order to RUN.
@@ -169,6 +172,8 @@ DISCRIMINATING_PACKAGES = (
     "python3-pip",
     "nodejs",
     "x11-utils",
+    "python3-tk",
+    "python3-dev",
     "fonts-liberation",
     "fonts-noto-color-emoji",
     "fonts-wqy-zenhei",

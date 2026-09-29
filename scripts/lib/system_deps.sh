@@ -247,6 +247,10 @@ bd_system_pkgs() {
         libcairo2
         libgirepository-1.0-1
         x11-utils
+        # o1567: pyautogui's MouseInfo imports tkinter; python3-dev gives the
+        # headers an sdist in the pyautogui stack builds against.
+        python3-tk
+        python3-dev
     )
     # Neither runtime nor display: this is what the test suite's own shellcheck
     # parse gates need in order to RUN. Without it they SKIP with
@@ -598,6 +602,25 @@ bd_start_display() {
 
     rm -f "$errlog" "$pidfile"
     return 1
+}
+
+# bd_ensure_xauthority [<home>] -- create an EMPTY <home>/.Xauthority (mode 600)
+# when none exists. o1567: pyautogui (python-xlib) raises
+# "Xlib.error.XauthError: ~/.Xauthority: [Errno 2] No such file or directory"
+# on import when the file is absent, even against `Xvfb -ac`, which needs no
+# cookie, whenever python3-xlib 0.15 (pyautogui's pin) owns the Xlib dir it
+# shares with pystray's python-xlib 0.33; an empty file imports cleanly
+# (measured on VM bd, Xvfb :99 -ac, app venv).
+# Never truncates or re-modes an existing file: a real cookie file belongs to
+# whoever wrote it. Returns non-zero when <home> is not an existing directory.
+bd_ensure_xauthority() {
+    local home="${1:-${HOME:-}}"
+    if [ -z "$home" ] || [ ! -d "$home" ]; then
+        printf 'bd_ensure_xauthority: no home directory %s\n' "${home:-<unset>}" >&2
+        return 1
+    fi
+    [ -e "$home/.Xauthority" ] && return 0
+    (umask 077 && : > "$home/.Xauthority")
 }
 
 # Sourcing must succeed. Consumers write `. scripts/lib/system_deps.sh || <warn>`,

@@ -330,6 +330,28 @@ bd_as_run_user() {
     fi
 }
 
+# o1567 dep-pyautogui-opencv: `import pyautogui` raises XauthError when
+# ~/.Xauthority is absent, even against `Xvfb -ac` (bd_ensure_xauthority in
+# scripts/lib/system_deps.sh has the measurement). Create it in the RUN USER's
+# home, as the run user, so the service user owns it. An existing file is left
+# exactly as it is.
+if declare -F bd_ensure_xauthority >/dev/null 2>&1; then
+    _bd_run_home="$(getent passwd "$_bd_run_user" 2>/dev/null | cut -d: -f6)"
+    if [ -z "$_bd_run_home" ] && [ "$(id -u)" != "0" ]; then
+        _bd_run_home="$HOME"
+    fi
+    # $1 expands in the child bash, not here.
+    # shellcheck disable=SC2016
+    if [ -n "$_bd_run_home" ] \
+       && bd_as_run_user bash -c "$(declare -f bd_ensure_xauthority)"'; bd_ensure_xauthority "$1"' _ "$_bd_run_home"; then
+        echo "  $_bd_run_home/.Xauthority present (pyautogui needs it to import)."
+    else
+        echo "  WARNING: could not create ${_bd_run_home:-<run user home>}/.Xauthority;"
+        echo "  'import pyautogui' fails with XauthError until it exists"
+        echo "  (as $_bd_run_user: touch ~/.Xauthority)."
+    fi
+fi
+
 _pw_core=""
 _pw_extra=""
 if declare -F bd_playwright_engines >/dev/null 2>&1; then
