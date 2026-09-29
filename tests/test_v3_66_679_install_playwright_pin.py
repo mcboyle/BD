@@ -12,7 +12,8 @@ import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_PIN_SITES = ["requirements.txt", "install_linux.sh", "install_windows.bat"]
+# install_windows.bat was retired with the root .bat files by 421f8bebe.
+_PIN_SITES = ["requirements.txt", "install_linux.sh"]
 # match e.g. playwright>=1.61,<2.0  (in requirements or a quoted pip arg)
 _FLOOR_RE = re.compile(r"playwright[\"']?\s*>=\s*(\d+)\.(\d+)")
 
@@ -29,5 +30,5 @@ def test_all_playwright_pins_floor_at_1_61():
             assert (major, minor) >= (1, 61), (
                 f"{rel}: playwright floor >=1.61 required (unified); "
                 f"found >={m.group(1)}.{m.group(2)}")
-    assert checked >= 3, (
+    assert checked >= len(_PIN_SITES), (
         f"expected a playwright pin in each of {_PIN_SITES}; only saw {checked}")

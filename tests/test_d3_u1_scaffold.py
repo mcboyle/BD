@@ -9,8 +9,9 @@ Pins the structural shape of the v3.64.0-prep React SPA scaffold:
      frontend/dist/ is absent (the "Node missing" surface).
   4. The /m2 handler is pure module-level (no module-level work
      that would run during every test import).
-  5. install_linux.sh and install_windows.bat have non-fatal Node
-     detection blocks; install completes if Node is missing.
+  5. install_linux.sh has a non-fatal Node detection block; install
+     completes if Node is missing.  (install_windows.bat and its two
+     tests were retired with the root .bat files by 421f8bebe.)
 
 These tests pin behaviour, not implementation. If a future refactor
 keeps the contracts but moves files, fine. If a refactor drops the
@@ -234,42 +235,3 @@ def test_d3_u1_install_linux_has_node_detection():
     # this from a hard-fail implementation.
     assert "SKIPPING frontend build" in sh, \
         "install_linux.sh: missing SKIPPING-with-warning branch (must be non-fatal)"
-
-
-def test_d3_u1_install_windows_has_node_detection():
-    """install_windows.bat has the [8/8] frontend build step, non-fatal.
-
-    Also pins: step counters are /8 (not /7), and the new block uses
-    `where node` not a hardcoded path. Bat-lint cleanliness is
-    enforced by the existing _bat_lint tests; this test just confirms
-    the block exists.
-    """
-    bat = (_REPO / "install_windows.bat").read_text(encoding="utf-8", errors="replace")
-    assert "[8/8] Building D3 frontend" in bat, \
-        "install_windows.bat: step [8/8] missing"
-    # Every earlier step must be /8 now (not /7).
-    for n in range(1, 8):
-        assert f"[{n}/8]" in bat, \
-            f"install_windows.bat: step [{n}/8] header missing (still /7?)"
-        assert f"[{n}/7]" not in bat, \
-            f"install_windows.bat: stale [{n}/7] header left behind"
-    # Detection uses `where node`, not a hardcoded path.
-    assert "where node" in bat
-    # Non-fatal: a `goto :after_frontend` skip-target must exist.
-    assert ":after_frontend" in bat
-
-
-def test_d3_u1_install_windows_bat_crlf_ascii():
-    """The new step must keep CRLF and ASCII (NEVER list constraint)."""
-    raw = (_REPO / "install_windows.bat").read_bytes()
-    # CRLF: every \n must be preceded by \r.
-    bare_lfs = [
-        i for i in range(len(raw))
-        if raw[i:i+1] == b"\n" and (i == 0 or raw[i-1:i] != b"\r")
-    ]
-    assert not bare_lfs, \
-        f"install_windows.bat: {len(bare_lfs)} bare-LF line(s) found"
-    # ASCII: no byte > 0x7F.
-    non_ascii = [i for i, b in enumerate(raw) if b > 0x7F]
-    assert not non_ascii, \
-        f"install_windows.bat: {len(non_ascii)} non-ASCII byte(s) at offsets {non_ascii[:5]}"
