@@ -991,6 +991,59 @@ def _candidate_names_another_work(page_url, value):
     return bool(_candidate_route_identity(value))
 
 
+# dl95-youporn-1: a watch page whose route is `/<route>/<numeric id>/` names
+# its work by the ID, not by a slug, so `page_work_tokens` reads only the
+# route word ('watch') and every related tile (`/watch/17134715/`) derives no
+# identity -- UNKNOWN, admitted by the marked fallback, and a tile titled
+# "... 4K ..." won the page at score 2160 (test2 2026-09-28, youporn
+# 189547511: "no dl event; saw: 4K(?):FUCK A FAN 4K ...").  Five digits keeps a
+# year or a page number from reading as a work id.
+_WORK_MIN_ID_DIGITS = 5
+
+
+def _route_numeric_id(path):
+    """(route prefix, id) for the LAST all-digit path segment of at least
+    `_WORK_MIN_ID_DIGITS` digits that follows a non-numeric segment, or None."""
+    segments = [seg for seg in (path or "").split("/") if seg]
+    for i in range(len(segments) - 1, 0, -1):
+        seg = segments[i]
+        if seg.isdigit() and len(seg) >= _WORK_MIN_ID_DIGITS:
+            prefix = tuple(x.lower() for x in segments[:i])
+            if any(not x.isdigit() for x in prefix):
+                return prefix, seg.lstrip("0") or "0"
+            return None
+    return None
+
+
+def _candidate_names_another_numeric_work(page_url, value):
+    """True only when *value* routes, on this page's host, to the same route
+    as this page with a DIFFERENT numeric work id.
+
+    A FOREIGN finding only: a matching id is left to the slug rules (UNKNOWN
+    at worst), so a same-id control can never newly exclude the page's other
+    controls.  Media URLs are excluded for the reason row 388 gives -- a CDN
+    path's numbers are not a work id on this page's route.
+    """
+    try:
+        page = urlparse(page_url)
+        if page.scheme.lower() not in ("http", "https"):
+            return False
+        cand = urlparse(urljoin(page_url, value))
+        if cand.scheme.lower() not in ("http", "https"):
+            return False
+        if cand.netloc.lower() != page.netloc.lower():
+            return False
+        if _MEDIA_EXT_ANYWHERE_RE.search(cand.path or ""):
+            return False
+        mine = _route_numeric_id(page.path)
+        theirs = _route_numeric_id(cand.path)
+    except Exception:
+        return False
+    if not mine or not theirs or mine[0] != theirs[0]:
+        return False
+    return mine[1] != theirs[1]
+
+
 def _candidate_work_affinity(el, page_url):
     """Return `_WORK_IN_SCOPE` (1), `_WORK_FOREIGN` (-1) or `_WORK_UNKNOWN` (0).
 
@@ -1017,8 +1070,23 @@ def _candidate_work_affinity(el, page_url):
                 return _WORK_IN_SCOPE
             if value and _candidate_names_another_work(page_url, value):
                 foreign = True
+            if value and _candidate_names_another_numeric_work(page_url, value):
+                foreign = True
         except Exception:
             continue
+    if not foreign:
+        # dl95-youporn-1: a tile's thumbnail <img> carries no route of its own;
+        # the link it sits inside does.  Only the numeric-id rule reads it.
+        try:
+            enclosing = el.evaluate(
+                "e => { const a = e.parentElement && "
+                "e.parentElement.closest('a[href]'); "
+                "return a ? a.getAttribute('href') : null; }")
+        except Exception:
+            enclosing = None
+        if isinstance(enclosing, str) and enclosing and \
+                _candidate_names_another_numeric_work(page_url, enclosing):
+            foreign = True
     return _WORK_FOREIGN if foreign else _WORK_UNKNOWN
 
 
