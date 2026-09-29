@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1722 - train150: row
+
+T150 = LANE-3 (DOT95 lane to main per PM ruling 07:1xZ: next 19 boarded lane commits with content, in lane order from lane head d197fa82 starting at dl95-hustlerunlimited-1; empties = content already on main): dl95-hustlerunlimited-1, tpl95-xhamster-1, dl95-kvs-flashvars-1 (union), dl95-hqporner-1 (union), dl95-xempire-2 and tpl95-teenfidelity-1 (merged in place: admission counter keys), and the other clean picks listed in the record. Excluded: tpl95-whoreshub-1 (search-field detector collides with main's eporner-4; re-diff), dl95-africancasting-4 (breaks africancasting-3's measured precondition; re-diff), dl95-beeg-1-live-1-r2delta (delta on a refuted generation not on main), and +1 DP-13 each: tpl95-cumlouder-1, dl95-kellymadisonmedia-2, dl95-cumlouder-3-gen2delta, dl95-ok-3 (fix forward). Fixed in place (tests only): tpl95-tiny4k-1 fixture AWS-key-shaped X-Amz-Credential redacted inside the pick (not baselined); tpl95-xh1 test double gets the runner lock; test_row703 STAR_KWARGS re-pin. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1721 - train149: row
 
 T149 = backlog-2 (PM ruling 07:1xZ: main-based BOARD backlog, oldest first, re-measured on main; main-only cuts with no lane commit): bh-rb-1 6f25157a; bh1-47 cb7e4e5a; bh2-27 cdb1c180; tpl95-pornhoarder-1 0c59932b; dl95-xhamster-1 23368dbb (merged in place: third kwarg source_list_only on _try_spa_api_media_extractor, composed with min_height and click_miss_floor); tpl95-nubiles-porn-2-g2 9e10d2a5. Dropped for re-diff: dl95-ok-2 (+DP-13, stop() collision), dl95-xvideos-2 and dl95-xhamster-2 (behaviour collisions with lane picks on main); dl95-youjizz-1 deferred to its own merge. test_row703 STAR_KWARGS re-pin (+4); test_bh_rb_1 subprocess envs pin LC_ALL=C (row 178 gate). Generated artifacts regenerated. No deploy.

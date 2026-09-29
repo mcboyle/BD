@@ -2418,7 +2418,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1814,
+    "edge_count": 1815,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3096,6 +3096,7 @@
         "bulk_downloader/runner_manual.py",
         "bulk_downloader/runner_teach.py",
         "bulk_downloader/runner_transport.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/site_changelog.py"
       ],
@@ -7382,6 +7383,7 @@
       "bulk_downloader/scene_crawler.py": [
         "bulk_downloader/captcha_relay.py",
         "bulk_downloader/constants.py",
+        "bulk_downloader/cookies.py",
         "bulk_downloader/db.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/playlist_extractor.py",
