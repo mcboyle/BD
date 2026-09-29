@@ -219,14 +219,15 @@ def _regional_connection_errors():
 # the first one saved.
 _BARE_MEDIA_LEAF_RE = re.compile(
     r"^(?:mp4|m4v|webm|mov|high|low|medium|hd|sd|full|stream|download|video"
-    r"|file|index|\d{3,4}p|4k|8k"
+    r"|file|index|(?:\d{3,4}p|4k|8k)(?:\.h26[45])?"
     # tpl95-nookies-1: a numeric-only leaf (/membersarea/video/stream/3504 ->
     # "3504.mp4") is a route id, not a name.
     r"|\d+"
     # brazzers/bangbros live (17:1xZ): CDN object names are bare hex hashes
     # (936997063d2c...mp4, 2da1abca...mp4) or uuids -- not a name either.
     r"|[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
-_LEAF_TIER_RE = re.compile(r"^(?:\d{3,4}p|4k|8k)$", re.I)
+# dl95-xhamster-2: quality/codec leaves describe the rendition, not the scene.
+_LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:\.h26[45])?$", re.I)
 _FORMAT_TOKEN_RE = re.compile(r"^(?:mp4|m4v|webm|mov)$", re.I)
 # The transport's own placeholder for "nothing was suggested at all"; it is
 # not a site leaf and the existing paths (and their tests) rely on it.
@@ -283,8 +284,8 @@ def resolve_media_leaf_name(suggested, *, disposition_name="",
             and not _is_bare_media_leaf(disposition_name):
         return disposition_name.strip()
     tier = (tier or "").strip()
-    if not tier and _LEAF_TIER_RE.match(stem):
-        tier = stem.lower().replace("k", "K")
+    if not tier and (leaf_tier := _LEAF_TIER_RE.match(stem)):
+        tier = leaf_tier.group(1).lower().replace("k", "K")
     title = " ".join(website_title.split()) if isinstance(website_title, str) else ""
     if title:
         name = title

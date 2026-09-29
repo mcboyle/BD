@@ -1379,6 +1379,12 @@ class ExtractorsMixin:
                 fname = (_up(file_url).path.rsplit("/", 1)[-1] or "")
             except Exception:
                 fname = ""
+        # API/media transfers bypass the DOM transport destination resolver.
+        from .runner_transport import resolve_media_leaf_name
+        fname = resolve_media_leaf_name(
+            fname, website_title=history_title_kwargs(self, url).get("title", ""),
+            tier=f"{height}p" if height else "", scene_url=url,
+        )
         stem = os.path.splitext(fname)[0] if fname else ""
         title_root = stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
         ext = _spa.spa_file_ext(fname)
