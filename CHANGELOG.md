@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1717 - train145: row
+
+T145 (7 stale-gate repairs + dl95 scrolller-3, 8 BOARDed cuts): stalegate-install-windows-bat bc5e1249; stalegate-redis-event-gateway 53d38ff0; stalegate-row722-transport-lock 203b04b6; stalegate-source-text-log-event f4bb204e; stalegate-stream-verifier-lowfps c15f5fa7; stalegate-super-typeerror 8be03e9b; stalegate-thumbnail-image-signature 3c3b596d; dl95-scrolller-3-bd-worker-B15-B 887d88bb. No register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1716 - train144: row
 
 T144 (stale-gate repair, 1 BOARDed cut): stalegate-assign-lens-codex-remote-root-bd-worker-B17-B 8d45d0cd (B13-B BOARD). No register close. Generated artifacts regenerated. No deploy.
