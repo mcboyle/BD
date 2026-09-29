@@ -39,7 +39,10 @@ export function SiteRow({
   // hold reason, never as plain "Idle".
   const holdReason = site.hold_reason || "";
   const hasIssue =
-    site.captcha_pending || site.auth_state === "expired" || !!holdReason;
+    site.captcha_pending ||
+    site.auth_state === "expired" ||
+    site.auth_state === "unreachable" ||
+    !!holdReason;
   const selectionMode = !!onToggleSelect;
 
   return (
@@ -127,6 +130,12 @@ export function SiteRow({
           <Badge variant="warning" className="gap-1">
             <KeyRound className="h-3 w-3" aria-hidden />
             Login expired
+          </Badge>
+        )}
+        {site.auth_state === "unreachable" && !site.captcha_pending && (
+          <Badge variant="warning" className="gap-1">
+            <KeyRound className="h-3 w-3" aria-hidden />
+            Login host unreachable
           </Badge>
         )}
         {!selectionMode && (

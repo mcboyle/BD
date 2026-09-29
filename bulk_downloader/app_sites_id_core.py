@@ -421,7 +421,7 @@ def api_sites_v2():
         # alphabetical. Matches mockup's Sites tab ordering.
         def _sort_key(e):
             issue = 0 if e["captcha_pending"] else \
-                    1 if e["auth_state"] == "expired" else \
+                    1 if e["auth_state"] in ("expired", "unreachable") else \
                     2 if e["state"] == "running" else 3
             return (issue, (e["name"] or "").lower())
         out.sort(key=_sort_key)

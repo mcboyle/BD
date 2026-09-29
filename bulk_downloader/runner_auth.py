@@ -10,6 +10,7 @@ import functools, math, sys, threading, time
 from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials
+from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
@@ -409,7 +410,11 @@ class AuthMixin:
                 learned_login = (self.config.get("learned") or {}).get("login") or {}
                 had_template = any(learned_login.get(k) for k in
                                    ("user_field","pass_field","submit_btn"))
+                # dl95-kellymadisonmedia-1: a login page that never loaded is a
+                # dead host -- a manual window at it cannot log in either, and
+                # the takeover status would hide "unreachable" from auth_state.
                 if (not ok and allow_manual and had_template
+                        and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
                         and not getattr(self, "_manual_login_handle", None)
                         and self.config.get("login_url","").startswith("http")):
                     sys.stderr.write(

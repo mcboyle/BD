@@ -265,7 +265,9 @@ export function CommandPalette() {
                     {(site.name || "?").charAt(0).toUpperCase()}
                   </span>
                   {site.name}
-                  {(site.captcha_pending || site.auth_state === "expired") && (
+                  {(site.captcha_pending ||
+                    site.auth_state === "expired" ||
+                    site.auth_state === "unreachable") && (
                     <span className="ml-auto rounded-sm bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-dim">
                       Issue
                     </span>

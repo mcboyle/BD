@@ -4512,11 +4512,18 @@ def _m2_auth_state(runner, cfg) -> str:
                asserted as healthy: L8 verifies an on-disk cookie file
                for every auth_state=ok site, so "ok" has to mean a
                cookie exists, not that we could not tell.
+      unreachable  no jar, and the last login attempt could not load the
+               login page at all (dl95-kellymadisonmedia-1): the
+               configured host is dead or wrong, which "unknown" hid.
     """
     try:
         from .cookies import cookies_expiry_info
         jar = runner.cookies or []
         if not jar:
+            from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
+            status = str(getattr(runner, "_login_status", "") or "")
+            if status.startswith("✗ " + LOGIN_UNREACHABLE_PREFIX):
+                return "unreachable"
             return "unknown"
         ei = cookies_expiry_info(jar)
         earliest = ei.get("earliest") or 0
