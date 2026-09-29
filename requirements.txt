@@ -285,7 +285,10 @@ playwright-stealth>=1.0,<3.0
 # here AND verify the package still exists on PyPI first — the pins
 # were removed because the failures were noisy on every fresh
 # install, not because the underlying adapter logic was broken.
-eaf_base_api>=2.5
+# IA-01: capped below 3.3.3 -- 3.3.3+ dropped base_api.base.setup_logger, which
+# every extractor below imports (0/11 import; pip check stays clean). 3.2..3.3.2
+# import 11/11. tests/test_ia01_eaf_base_api_pin_keeps_the_extractors_importable.py
+eaf_base_api>=3.2,<3.3.3
 phub>=4.0
 xvideos_api>=1.7
 xhamster_api>=1.6
