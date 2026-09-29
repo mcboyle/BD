@@ -1095,6 +1095,34 @@ class TransportMixin:
         finally:
             self._unregister_daily_byte_accumulator(accumulator)
 
+    def _browser_download_stopped(self, dl, job_url):
+        """dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
+        until the browser holds the WHOLE file, so a Stop/Cancel that landed
+        mid-transfer was only seen afterwards. Wait for the download here,
+        pumping the page's event loop, and Download.cancel() it the moment the
+        job or the site is stopped. True when stopped (the job already says
+        so). A download without Playwright's loop (test fakes) is not watched.
+        """
+        impl = getattr(dl, "_impl_obj", None)
+        loop = getattr(dl, "_loop", None)
+        page = getattr(dl, "page", None) if impl is not None else None
+        if impl is None or loop is None or page is None:
+            return transfer_cancelled(self, job_url)
+        finished = loop.create_task(impl.failure())   # resolves when the download ends
+        finished.add_done_callback(lambda t: t.cancelled() or t.exception())
+        while not finished.done():
+            if transfer_cancelled(self, job_url):
+                try:
+                    dl.cancel()
+                except Exception:  # noqa: BLE001, S110 -- already finished or gone; nothing left to stop
+                    pass
+                return True
+            try:
+                page.wait_for_timeout(250)
+            except Exception:  # noqa: BLE001 -- page closed: save_as reports the real outcome
+                break
+        return False
+
     def _transfer_gate_open(self, accumulator, local_stop=None):
         """Wait through pause and flush either side of an interrupt race."""
         stopped = self._stop.is_set() or (
@@ -1346,6 +1374,8 @@ class TransportMixin:
                     headers=headers, proxy_url=proxy_url,
                 ):
                     return True
+                if transfer_cancelled(self, page_url):
+                    return False     # a cancelled leg is not "not viable": no second leg
                 # fall through to single-conn
                 sys.stderr.write(
                     "  multi_conn: not viable / failed; "
@@ -3090,6 +3120,9 @@ class TransportMixin:
                     # a row that names a transfer which did not happen is the same
                     # failure as the message prose this column replaces.
                     transfer_mode="browser"
+                    if self._browser_download_stopped(dl, page_url):
+                        staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+                        return
                     downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                     # part-staging-collision: the browser wrote straight to
                     # the reserved final name, so the reservation has done
@@ -3097,6 +3130,9 @@ class TransportMixin:
                     staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
             else:
                 transfer_mode="browser"
+                if self._browser_download_stopped(dl, page_url):
+                    staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+                    return
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
 

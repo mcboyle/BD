@@ -12,8 +12,11 @@ row), and a stopped transfer's error sends _do_download into its browser re-clic
 GEN 2 (B6-B UPDATE 03:40Z): Cancel was ignored on 4 paths / 2 hosts -- porndig HTTP, cumlouder learned-src (.95),
 cumlouder Direct (.183), beeg HLS (.95). Every byte loop and every cancel_check read only the SITE stop.
 
+PM 04:2xZ (bd-review-scratch/fk1-cx2/BLOCKED.md): the BROWSER download path is this row's too -- save_as blocked until the
+browser held the whole file; Stop/Cancel must Download.cancel() the bytes in flight.
+
 Contract after the fix: once a job is stopped, every transfer path moving its bytes (single-stream, parallel,
-_do_direct_http_download, the HLS cancel_check) stops, and the job and its queue row stay "stopped". Nothing re-marks it "running", so a restart does not re-run it,
+_do_direct_http_download, the HLS cancel_check, the browser download) stops, and the job and its queue row stay "stopped". Nothing re-marks it "running", so a restart does not re-run it,
 and a stopped transfer is not retried through the browser. Re-arming through "pending" still works (control).
 """
 
@@ -54,6 +57,7 @@ class _SlowOrigin(BaseHTTPRequestHandler):
     def _head(self, status, a, b):
         self.send_response(status)
         self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Disposition", 'attachment; filename="scene.mp4"')
         self.send_header("Accept-Ranges", "bytes")
         if status == 206:
             self.send_header("Content-Range", f"bytes {a}-{b}/{TOTAL}")
@@ -232,6 +236,27 @@ def test_cancel_stops_the_direct_http_path(runner, origin, clean_workdir):
     assert r.jobs[JOB]["status"] == "stopped"
 
 
+def test_a_cancelled_multi_conn_leg_opens_no_second_leg(runner, origin, clean_workdir, monkeypatch):
+    """A7-A residual: multi_conn returns False because the job was cancelled -- that is not "not viable"."""
+    from bulk_downloader import runner_transport as transport
+
+    r = runner(use_multi_conn=True)
+    file_url, sent = origin
+
+    def cancelled_leg(self, page_url, *_a, **_k):
+        self._update_job(page_url, "stopped", "Cancelled by user")
+        return False
+
+    monkeypatch.setattr(transport, "_MULTI_CONN_AVAILABLE", True)
+    monkeypatch.setattr(transport, "_mconn", object())
+    monkeypatch.setattr(type(r), "_try_multi_conn_download", cancelled_leg)
+    dest = clean_workdir / "dl" / "mc.mp4"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    assert r._do_direct_http_download(JOB, file_url, str(dest), referer=JOB) is False
+    time.sleep(0.3)
+    assert sent[0] == 0, f"DL95_CANCEL_SECOND_LEG_OPENED: single-stream fallback served {sent[0]} bytes"
+
+
 def test_the_hls_cancel_check_sees_the_jobs_cancel(runner, clean_workdir, monkeypatch):
     """beeg HLS: the spa-api arm hands ffmpeg a cancel_check; it must turn True on this job's Cancel."""
     from bulk_downloader import hls_downloader
@@ -256,6 +281,53 @@ def test_the_hls_cancel_check_sees_the_jobs_cancel(runner, clean_workdir, monkey
     monkeypatch.setattr(type(r), "_hls_download_guarded", lambda self, *a, **k: fake_hls(*a, **k))
     r._try_spa_api_media_extractor(JOB, _Page())
     assert seen == [False, True], f"DL95_HLS_CANCEL_IGNORED: cancel_check before/after Cancel = {seen}"
+
+
+@contextmanager
+def _browser_download(file_url):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    with sync_playwright() as p:
+        br = p.chromium.launch()
+        try:
+            page = br.new_context(accept_downloads=True).new_page()
+            page.set_content(f'<a id="dl" href="{file_url}">Download 1080p</a>')
+            with page.expect_download(timeout=15000) as info:
+                page.click("#dl")
+            yield info.value
+        finally:
+            br.close()
+
+
+def test_cancel_stops_the_browser_download_in_flight(runner, origin, clean_workdir):
+    """The browser path: a Cancel mid-transfer cancels the Chromium download; the origin stops serving."""
+    r = runner()
+    file_url, sent = origin
+    with _browser_download(file_url) as dl:
+        def cancel_when_moving():
+            deadline = time.monotonic() + 20
+            while sent[0] < 4 * 1024 * 1024 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            r._update_job(JOB, "stopped", "Cancelled by user")          # app_queue api_queue_v2_cancel
+        t = threading.Thread(target=cancel_when_moving, daemon=True)
+        t.start()
+        stopped = r._browser_download_stopped(dl, JOB)
+        t.join(timeout=30)
+        failure = dl.failure()
+    time.sleep(0.5)
+    assert stopped is True and failure, f"DL95_BROWSER_DOWNLOAD_NOT_CANCELLED: stopped={stopped} failure={failure!r}"
+    assert sent[0] < TOTAL // 2, f"DL95_CANCEL_TRANSFER_KEPT_RUNNING: browser served {sent[0]}/{TOTAL}"
+    assert r.jobs[JOB]["status"] == "stopped"
+
+
+def test_without_cancel_the_browser_download_completes(runner, origin, clean_workdir):
+    """Control: the watcher waits for a live job's download and _pw_save then lands the whole file."""
+    r = runner()
+    dest = clean_workdir / "dl" / "browser.mp4"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with _browser_download(origin[0]) as dl:
+        assert r._browser_download_stopped(dl, JOB) is False
+        size, _ = r._pw_save(dl, dest)
+    assert size == TOTAL
 
 
 # -- _do_download: a stopped HTTP leg is not retried through the browser ---------------------------------------
@@ -294,14 +366,16 @@ class _Locator:
         type(self).clicks += 1
 
 
-def test_a_stopped_http_leg_is_not_retried_through_the_browser(tmp_path, monkeypatch):
+@pytest.mark.parametrize("use_http_dl", [True, False], ids=["http-leg", "browser-arm"])
+def test_a_stopped_http_leg_is_not_retried_through_the_browser(tmp_path, monkeypatch, use_http_dl):
     """The winner's href is the media file, so the HTTP leg runs with no click (porndig's sized-href shape)."""
     from bulk_downloader import runner_transport as transport
 
     class _R(transport.TransportMixin):
         def __init__(self):
             self.site_id = "dl95pd3"
-            self.config = {"name": "dl95pd3", "use_http_dl": True, "verify_hash": False, "verify_integrity": False}
+            self.config = {"name": "dl95pd3", "use_http_dl": use_http_dl, "verify_hash": False,
+                           "verify_integrity": False}
             self._lock = threading.RLock()
             self._stop = threading.Event()
             self.jobs = {JOB: {"status": "stopped", "message": "Cancelled by user"}}
