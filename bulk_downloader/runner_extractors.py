@@ -1220,11 +1220,12 @@ class ExtractorsMixin:
         )
         return True
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
-                                     click_miss_floor=None) -> bool:
+                                     click_miss_floor=None, *, source_list_only=False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
-        Consulted by runner.py ONLY after ``find_best_download`` (and the
-        deep-detect rescue) returned nothing.  Reads what the page itself
+        Normally consulted after ``find_best_download`` (and the
+        deep-detect rescue) returned nothing. source_list_only also checks a
+        scene-bound published menu before the DOM scorer. Reads what the page itself
         already fetched -- the same-site ``/api/`` JSON remembered by
         ``ApiCapture`` (installed with the page's event listeners) and the
         media the page requested / bound to ``<video>``/``<source>`` --
@@ -1239,6 +1240,9 @@ class ExtractorsMixin:
             from . import spa_media_extract as _spa
         except Exception as e:
             sys.stderr.write(f"  spa-api: import failed ({type(e).__name__}); skipped\n")
+            return False
+        source_cands = _spa.xhamster_source_candidates(url, page)
+        if source_list_only and not source_cands:
             return False
         capture = getattr(self, "_spa_api_capture", None)
         records = []
@@ -1256,8 +1260,9 @@ class ExtractorsMixin:
             page_url = page.url or url
         except Exception:
             page_url = url
-        cands = _spa.api_candidates(page_url, records)
-        cands += _spa.page_media_candidates(page_url, page_media)
+        # The scene-bound download menu outranks a low player rendition or ad.
+        cands = source_cands or (_spa.api_candidates(page_url, records)
+                                 + _spa.page_media_candidates(page_url, page_media))
         if click_miss_floor is not None:
             # tpl95-site-ma-brazzers-1: called after a scored click missed, so
             # only options that can stand in for the scored tier qualify.
@@ -1291,6 +1296,18 @@ class ExtractorsMixin:
             return False
         file_url = chosen["url"]
         height = int(chosen.get("height") or 0)
+        if source_cands:
+            with self._lock:
+                forced = bool(self.jobs.get(url, {}).get("force_download"))
+            minimum = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+            if height < minimum and not forced:
+                message = (f"Best is {height}p (below {minimum}p) -- the scene's "
+                           "published source list has no higher file. Approve to force.")
+                screenshot = self._screenshot(page, url)
+                self._update_job(url, "needs_review", message, screenshot=screenshot)
+                db_log(self.site_id, self.config.get("name", "?"), url,
+                       "needs_review", "", 0, message, screenshot)
+                return True
         summary = " | ".join(
             f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
             for c in ranked[:6])

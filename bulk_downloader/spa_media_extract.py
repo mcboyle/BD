@@ -255,6 +255,65 @@ def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[st
     return out
 
 
+def xhamster_source_candidates(page_url: str, page) -> list[dict[str, Any]]:
+    """Read only the current scene's published MP4 download menu."""
+    try:
+        target = urlparse(page_url)
+    except ValueError:
+        return []
+    if (target.scheme not in ("http", "https")
+            or not (target.hostname == "xhamster.com"
+                    or (target.hostname or "").endswith(".xhamster.com"))
+            or not target.path.startswith("/videos/")):
+        return []
+    try:
+        current = urlparse(page.url)
+        if (current.hostname, current.path.rstrip("/")) != (target.hostname, target.path.rstrip("/")):
+            return []
+        data = page.evaluate("""() => {
+          const s = window.initials;
+          if (!s || !s.videoModel || !s.downloadDropdownComponent) return null;
+          return {model: {id: s.videoModel.id, pageURL: s.videoModel.pageURL},
+                  menu: {videoId: s.downloadDropdownComponent.videoId,
+                         mp4: s.downloadDropdownComponent.sources?.mp4}};
+        }""")
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    model, menu = data.get("model"), data.get("menu")
+    if not isinstance(model, dict) or not isinstance(menu, dict):
+        return []
+    if not model.get("id") or str(model["id"]) != str(menu.get("videoId")):
+        return []
+    try:
+        scene = urlparse(str(model.get("pageURL") or ""))
+    except ValueError:
+        return []
+    if (scene.hostname, scene.path.rstrip("/")) != (target.hostname, target.path.rstrip("/")):
+        return []
+    sources = menu.get("mp4")
+    if not isinstance(sources, dict):
+        return []
+    out = []
+    for label, value in list(sources.items())[:32]:
+        quality = re.fullmatch(r"(\d{3,4})p", str(label), re.IGNORECASE)
+        if not quality or not isinstance(value, str):
+            continue
+        try:
+            media = urlparse(value)
+        except ValueError:
+            continue
+        host = media.hostname or ""
+        if (media.scheme not in ("http", "https") or media.username or media.password
+                or not (host == "xhcdn.com" or host.endswith(".xhcdn.com"))
+                or not media.path.lower().endswith(".mp4")):
+            continue
+        out.append({"url": value, "label": str(label), "height": int(quality[1]),
+                    "size": 0, "source": "xhamster-menu", "filename": ""})
+    return out
+
+
 def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
     """Media files the page actually requested / bound to <video>/<source>."""
     out: List[Dict[str, Any]] = []
