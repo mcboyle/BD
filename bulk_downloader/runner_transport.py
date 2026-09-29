@@ -3155,6 +3155,14 @@ class TransportMixin:
                 # means the check failed open (e.g. "ffprobe not installed"), so
                 # say that instead of claiming a verification that never happened.
                 verify_msg=" ✓" if not reason else f" (unverified: {reason})"
+            # dl95-nookies-2: the browser's file passed every acceptance check
+            # above, so a .part this job staged for the same name (an HTTP
+            # attempt that failed mid-stream, now or on an earlier run) is
+            # superseded. release() keeps a claim over bytes (row 489), so
+            # they are discarded here. A rejected file returned above, and its
+            # resumable bytes are kept.
+            if transfer_mode == "browser":
+                staging_claim.discard(final_path, staging_claim.job_identity(page_url))
             # Clear the force_download flag on success so a future retry
             # doesn't keep bypassing the threshold silently.
             with self._lock:
