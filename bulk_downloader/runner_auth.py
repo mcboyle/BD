@@ -408,6 +408,15 @@ class AuthMixin:
                     result=do_login(self.config,allow_manual_takeover=allow_manual,
                                     site_id=self.site_id)
                 _surface_login_channel_fallbacks(self)
+                # dl95-cancel-relogin-cap-1: a login withdrawn before submit
+                # sent no credentials -- give its day slot back.
+                if (result and result[0] is False
+                        and str(result[1]).startswith(LOGIN_CANCELLED_PREFIX)
+                        and not _sk.withdraw_login_attempt(
+                            _reservation.get("row_id"), result[1])):
+                    sys.stderr.write(
+                        f"[{self.site_id}] login_async: withdrawn login's "
+                        "attempt could not be released; it stays counted\n")
                 # Manual takeover branch: store handle, set state, return
                 if result and result[0]=="MANUAL_PENDING":
                     _,reason,handle=result

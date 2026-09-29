@@ -3174,6 +3174,10 @@ def session_event_record(site_id, account_idx, event_type, detail=""):
                                 every login caller BEFORE it contacts the
                                 site; the denominator the daily cap
                                 (`login_attempt_cap_per_day`) bounds
+        'login_attempt_withdrawn'
+                             - a 'login_attempt' re-filed because its
+                                login was cancelled before submit; outside
+                                the daily cap (dl95-cancel-relogin-cap-1)
         'needs_takeover'     - relogin needs a human (captcha, 2FA)
     """
     import time

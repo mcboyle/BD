@@ -117,6 +117,9 @@ from . import db
 # A failed login spends the site's tolerance too, so outcome events remain
 # separate and never define this denominator.
 _LOGIN_ATTEMPT_EVENT = "login_attempt"
+# dl95-cancel-relogin-cap-1: a reservation whose login was withdrawn before
+# submit is re-filed under this type -- on record, outside the denominator.
+_LOGIN_ATTEMPT_WITHDRAWN_EVENT = "login_attempt_withdrawn"
 
 # The site config key that lifts the cap, and the value that ships. The runner
 # reads THESE; the keeper's own literals are pinned to the same two values by
@@ -253,7 +256,8 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
     burst would lock every account on the site out for the day with rows that
     never touched it: the defect wearing the other face (A7).
 
-    Returns ``{"granted", "status", "count", "cap", "reason"}``.  ``status`` is
+    Returns ``{"granted", "status", "count", "cap", "reason", "row_id"}``;
+    ``row_id`` names the granted row (else None) for ``withdraw_login_attempt``.  ``status`` is
     ``UNKNOWN`` when the denominator could not be measured at all, which is
     distinct from a measured zero and is never permission to proceed.
     ``LOCKOUT`` is a refusal of an automatic source inside a lockout hold
@@ -304,14 +308,16 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
                         "cap": cap,
                         "reason": _lockout_hold_reason(held[0], held[1]),
                     }
-            inserted = cx.execute(
+            _cur = cx.execute(
                 "INSERT INTO session_history"
                 "(ts, site_id, account_idx, event_type, detail) "
                 "SELECT :ts, :site_id, :account_idx, :event_type, :detail "
                 "WHERE (SELECT COUNT(*) FROM session_history "
                 + window + ") < :cap_bound",
                 params,
-            ).rowcount
+            )
+            inserted = _cur.rowcount
+            row_id = _cur.lastrowid if inserted == 1 else None
             total = cx.execute(
                 "SELECT COUNT(*) FROM session_history " + window,
                 params,
@@ -322,6 +328,7 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
             "count": int(total),
             "cap": cap,
             "reason": None,
+            "row_id": row_id,
         }
     except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
         return {
@@ -331,6 +338,32 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
             "cap": cap,
             "reason": f"login attempt reservation unavailable: {exc}",
         }
+
+
+def withdraw_login_attempt(row_id, reason: str) -> bool:
+    """Take back ONE granted reservation whose login never reached submit.
+
+    dl95-cancel-relogin-cap-1: a login withdrawn before submit sent no
+    credentials, so it must not spend the site's day. The row is re-filed as
+    ``login_attempt_withdrawn`` (kept for audit, outside the cap window) only
+    if it is still a ``login_attempt``; returns True when that one row moved.
+    Any failure leaves the attempt counted -- the fail-closed side.
+    """
+    if row_id is None:
+        return False
+    try:
+        with db.db_conn() as cx:
+            moved = cx.execute(
+                "UPDATE session_history SET event_type=?, "
+                "detail=json_set(CASE WHEN json_valid(detail) THEN detail "
+                "ELSE '{}' END, '$.withdrawn', ?) "
+                "WHERE id=? AND event_type=?",
+                (_LOGIN_ATTEMPT_WITHDRAWN_EVENT, str(reason)[:300],
+                 int(row_id), _LOGIN_ATTEMPT_EVENT),
+            ).rowcount
+        return moved == 1
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        return False
 
 
 def _dt_date_today():
