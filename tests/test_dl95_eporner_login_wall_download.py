@@ -94,6 +94,6 @@ def test_a_real_media_file_is_left_alone(tmp_path):
 
 def test_the_download_path_checks_the_login_wall_before_size_sanity():
     src = inspect.getsource(rt)
-    wall = src.find("self._login_wall_rejects(page_url, final_path)")
+    wall = src.find("login_wall_rejects(page_url, final_path)")
     sanity = src.find("Phase 17.20: Size sanity check")
     assert 0 <= wall < sanity, "login-wall check is not wired ahead of size sanity"

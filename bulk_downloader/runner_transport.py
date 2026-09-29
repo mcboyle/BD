@@ -3101,7 +3101,10 @@ class TransportMixin:
 
             # dl95-eporner-1: the site's login page instead of the media is an
             # auth failure, not a bad file (runner_auth._login_wall_rejects).
-            if self._login_wall_rejects(page_url, final_path):
+            # Resolved like _capture_website_title: a TransportMixin-only
+            # runner has no auth half, so it has no login to route to.
+            login_wall_rejects = getattr(self, "_login_wall_rejects", None)
+            if callable(login_wall_rejects) and login_wall_rejects(page_url, final_path):
                 return
 
             # ── Phase 17.20: Size sanity check ───────────────────────────────
