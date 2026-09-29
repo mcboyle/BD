@@ -119,6 +119,9 @@ export function SiteTemplateCard({ siteId }: { siteId: string }) {
     const res = data.template.resolutions.slice(0, 4).join("/");
     const teach = autoTeach ? "on" : "off";
     detail = `${res ? `Resolutions ${res} · ` : ""}${data.template.selectors.length} selector groups · auto-teach ${teach}`;
+  } else if (data?.applied_template?.roles.length) {
+    const applied = data.applied_template;
+    detail = `${applied.roles.length} learned roles from the ${applied.source === "user" ? "user" : "built-in"} template (${applied.roles.join(", ")}) · auto-teach ${autoTeach ? "on" : "off"}`;
   } else if (onboarding === "capture_required") {
     detail = `Capture required — run onboarding to build a reviewed draft. Auto-teach ${autoTeach ? "on" : "off"}.`;
   } else {
