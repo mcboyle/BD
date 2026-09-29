@@ -87,7 +87,7 @@ def api_scrape_listing():
     hrefs = _re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, _re.I)
     seen, found = set(), []
     VIDEO_EXT = _re.compile(r"\.(mp4|mkv|webm|avi|mov|m3u8|mpd|ts|flv)(\?|#|$)", _re.I)
-    VIDEO_PATTERNS = _re.compile(r"/(video|watch|v|play|movie|episode|stream)/", _re.I)
+    VIDEO_PATTERNS = _re.compile(r"/(video|watch|v|play|movie|episode|stream)/|/videos/\d+/[^/?#]", _re.I)  # dl95-porndig-2: plural /videos/<id>/<slug> scenes
     LISTING_PATTERNS = _re.compile(r"/(category|categories|tag|tags|page|search|browse|list|channel|playlist|feed|sitemap)/", _re.I)
     filter_listings = bool(body.get("filter_listings", True))
     for href in hrefs:
