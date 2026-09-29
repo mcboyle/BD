@@ -33,6 +33,11 @@ def _m2_attention_for_site(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_m2_attention_for_site")(*_a, **_k)
 
+def _m2_hold_reason(*_a, **_k):
+    """Delegate to app._m2_hold_reason at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_m2_hold_reason")(*_a, **_k)
+
 def _m2_avatar_color(*_a, **_k):
     """Delegate to app._m2_avatar_color at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -239,7 +244,7 @@ def api_dashboard_v2():
         # rate_limited last; within a class, by name. Predictable order
         # matters because the SPA renders the banner without flicker.
         _kind_order = {"captcha_pending": 0, "login_expired": 1,
-                       "rate_limited": 2}
+                       "paused_no_button": 2, "rate_limited": 3}
         attention.sort(key=lambda e: (_kind_order.get(e["kind"], 9),
                                        (e.get("name") or "").lower()))
         # by_site sorted by queue depth desc, then name — busiest first.
@@ -319,7 +324,8 @@ def api_dashboard_v2_resolve():
     kind = (body.get("kind") or "").strip()
     if not sid or sid not in runners:
         return jsonify({"ok": False, "error": "unknown site_id"}), 400
-    valid_kinds = {"captcha_pending", "login_expired", "rate_limited"}
+    valid_kinds = {"captcha_pending", "login_expired", "paused_no_button",
+                   "rate_limited"}
     if kind not in valid_kinds:
         return jsonify({"ok": False,
                         "error": f"invalid kind: {kind!r} "
@@ -367,6 +373,19 @@ def api_dashboard_v2_resolve():
                     "detail": f"POST /api/sites/{sid}/login",
                     "url": f"/api/sites/{sid}/login",
                 })
+        elif kind == "paused_no_button":
+            # dl95-file-examples-2: the no-download-button auto-pause clears
+            # only through resume() (which also resets the streak). resume()
+            # may refuse under a download hold, so report the state it left.
+            runner.resume()
+            state = runner.state()
+            resumed = state == "running"
+            return jsonify({
+                "ok": resumed,
+                "action": "resumed" if resumed else "resume_refused",
+                "detail": ("Site resumed." if resumed
+                           else f"Resume refused (state: {state})."),
+            })
         else:  # rate_limited
             # Visibility only — no action available server-side. The
             # cool-down is set by the runner when it sees HTTP 429 etc.

@@ -107,6 +107,11 @@ def _m2_avatar_color(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_m2_avatar_color")(*_a, **_k)
 
+def _m2_hold_reason(*_a, **_k):
+    """Delegate to app._m2_hold_reason at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_m2_hold_reason")(*_a, **_k)
+
 def _m2_honeypot_suggestion(*_a, **_k):
     """Delegate to app._m2_honeypot_suggestion at call time (lazy; avoids an import cycle)."""
     import importlib

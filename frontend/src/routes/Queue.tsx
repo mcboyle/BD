@@ -237,7 +237,7 @@ export function Queue() {
   });
   const pausedSites = new Set(
     (data?.per_site ?? [])
-      .filter((p) => (p as { state?: string }).state === "paused")
+      .filter((p) => p.state === "paused" || p.state === "paused_no_button")
       .map((p) => p.site_id),
   );
 
@@ -701,7 +701,7 @@ export function Queue() {
                     <span
                       key={p.site_id}
                       className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2 py-0.5 text-[11px] text-ink-2 ring-1 ring-border"
-                      title={`${p.site_name}: ${p.waiting_count} waiting${p.running_count ? `, ${p.running_count} running` : ""}`}
+                      title={`${p.site_name}: ${p.waiting_count} waiting${p.running_count ? `, ${p.running_count} running` : ""}${p.hold_reason ? ` — ${p.hold_reason}` : ""}`}
                     >
                       <span
                         aria-hidden
@@ -710,9 +710,13 @@ export function Queue() {
                       />
                       <span className="font-medium text-ink">{p.site_name}</span>
                       <span className="tabular-nums">{p.waiting_count} waiting</span>
-                      <span className="text-ink-3">
-                        · drain {formatEta(p.drain_eta_seconds)}
-                      </span>
+                      {p.hold_reason ? (
+                        <span className="text-amber-dim">· {p.hold_reason}</span>
+                      ) : (
+                        <span className="text-ink-3">
+                          · drain {formatEta(p.drain_eta_seconds)}
+                        </span>
+                      )}
                     </span>
                   ))}
               </div>

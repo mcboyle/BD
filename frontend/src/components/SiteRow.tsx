@@ -35,7 +35,11 @@ export function SiteRow({
   onToggleSelect,
 }: SiteRowProps) {
   const isActive = site.state === "running";
-  const hasIssue = site.captcha_pending || site.auth_state === "expired";
+  // dl95-file-examples-2: a self-held site (paused_no_button) reads as its
+  // hold reason, never as plain "Idle".
+  const holdReason = site.hold_reason || "";
+  const hasIssue =
+    site.captcha_pending || site.auth_state === "expired" || !!holdReason;
   const selectionMode = !!onToggleSelect;
 
   return (
@@ -93,7 +97,7 @@ export function SiteRow({
             )}
           />
           <span className="truncate">
-            {isActive ? "Active" : "Idle"}
+            {isActive ? "Active" : holdReason || "Idle"}
             {site.downloaded_total > 0 && (
               <>
                 {" · "}

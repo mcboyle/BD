@@ -2,7 +2,11 @@
 // truth for the SPA — if backend U2 changes a shape, this file is the
 // one place to update.
 
-export type AttentionKind = "captcha_pending" | "login_expired" | "rate_limited";
+export type AttentionKind =
+  | "captcha_pending"
+  | "login_expired"
+  | "paused_no_button"
+  | "rate_limited";
 
 export interface AttentionEntry {
   site_id: string;
@@ -96,6 +100,8 @@ export interface SiteEntryV2 {
   name: string;
   avatar_color: string;
   state: string;
+  // dl95-file-examples-2: why a self-held site is idle ("" when not held).
+  hold_reason?: string;
   auth_state: AuthState;
   captcha_pending: boolean;
   downloaded_total: number;
@@ -258,6 +264,8 @@ export interface QueueSiteDrain {
   waiting_count: number;
   running_count: number;
   drain_eta_seconds: number | null;
+  state?: string;
+  hold_reason?: string;
 }
 
 export interface QueueV2Full {
