@@ -1092,6 +1092,18 @@ def get_active_runner(site_id: str) -> _Optional["SiteRunner"]:
     return _ACTIVE_RUNNERS.get(site_id)
 
 
+def live_sample_bps(sample, now):
+    """One job's byte rate from its progress sample, or 0.0 when the sample
+    is missing or stale. Progress emitters tick about once per second, so a
+    sample older than five seconds is no longer evidence of a live transfer."""
+    sample_at = (sample or {}).get("at")
+    sample_bps = float((sample or {}).get("bps", 0.0) or 0.0)
+    if sample_at is None or sample_bps <= 0:
+        return 0.0
+    age = float(now) - float(sample_at)
+    return sample_bps if 0.0 <= age <= 5.0 else 0.0
+
+
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
     _WORKER_CLAIM_STALE = "stale"
     _WORKER_CLAIM_INELIGIBLE = "ineligible"
@@ -2867,13 +2879,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 job = self.jobs.get(url) or {}
                 if job.get("status") != "running":
                     continue
-                sample_at = sample.get("at")
-                sample_bps = float(sample.get("bps", 0.0) or 0.0)
-                if sample_at is None or sample_bps <= 0:
-                    continue
-                age = current - float(sample_at)
-                if 0.0 <= age <= 5.0:
-                    total += sample_bps
+                total += live_sample_bps(sample, current)
         return total
 
     def get_status(self,light=False):

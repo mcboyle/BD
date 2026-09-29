@@ -142,10 +142,11 @@ def test_running_and_pending_shapes_are_unchanged(monkeypatch):
     pending_url = _url("pending")
     done_url = _url("done-control")
     jobs = {
+        # dl95-nubilefilms-1: what a transfer tick really records -- bytes so
+        # far (file_size) and the total; the rate is the runner's sample below.
         running_url: {
             "status": "running", "filename": "running.mp4",
-            "progress": 25, "bytes_done": 10, "bytes_total": 40,
-            "eta_seconds": 3, "rate_human": "10 B/s",
+            "file_size": 10, "bytes_total": 40,
         },
         pending_url: {
             "status": "pending", "filename": "pending.mp4",
@@ -157,6 +158,8 @@ def test_running_and_pending_shapes_are_unchanged(monkeypatch):
         },
     }
     client, runner = _queue_client(monkeypatch, jobs)
+    runner._job_progress_samples = {
+        running_url: {"bytes": 10, "at": time.time(), "bps": 10.0}}
     assert {url: job["status"] for url, job in runner.jobs.items()} == {
         running_url: "running", pending_url: "pending", done_url: "done",
     }
