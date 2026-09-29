@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1811**
+- internal import edges: **1814**
 - tools: 235 · with internal edge: 134 · with tool→package edge: 74
 - blueprints: 163 · config stores: 5
 
@@ -26,13 +26,13 @@ Graph version: 1
 - `bulk_downloader/secrets_store.py`: 19
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
+- `bulk_downloader/runner.py`: 17
 - `bulk_downloader/aiassist.py`: 16
 - `bulk_downloader/capture_artifact_redact.py`: 16
-- `bulk_downloader/runner.py`: 16
 - `bulk_downloader/capture_redact.py`: 15
 - `bulk_downloader/ffmpeg_bin.py`: 15
+- `bulk_downloader/registrable_domain.py`: 15
 - `bulk_downloader/site_editor.py`: 15
-- `bulk_downloader/registrable_domain.py`: 14
 - `bulk_downloader/log.py`: 13
 - `tools/report_core.py`: 13
 - `bulk_downloader/detect.py`: 12
@@ -131,7 +131,7 @@ Graph version: 1
 - **plugins** (`app_plugins.py`) — routes 7, providers 1
 - **provenance** (`app_provenance.py`) — routes 5, providers 2
 - **push** (`app_push.py`) — routes 5, providers 1
-- **queue** (`app_queue.py`) — routes 10, providers 6
+- **queue** (`app_queue.py`) — routes 10, providers 8
 - **queue_templates** (`app_queue_templates.py`) — routes 3, providers 2
 - **quick_add** (`app_quick_add.py`) — routes 1, providers 0
 - **ramdisk** (`app_ramdisk.py`) — routes 1, providers 1
@@ -152,7 +152,7 @@ Graph version: 1
 - **scene_score** (`app_scene_score.py`) — routes 3, providers 1
 - **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 1
 - **schedules** (`app_schedules.py`) — routes 4, providers 1
-- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 2
+- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 3
 - **scrapling** (`app_scrapling.py`) — routes 4, providers 0
 - **search** (`app_search.py`) — routes 5, providers 1
 - **secrets** (`app_secrets.py`) — routes 17, providers 5

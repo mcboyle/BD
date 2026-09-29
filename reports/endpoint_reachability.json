@@ -233,7 +233,6 @@
     "/api/sites/<sid>/teach_save_template",
     "/api/sites/<sid>/teach_test_download",
     "/api/sites/<sid>/teach_verify",
-    "/api/sites/<sid>/watch/scan_now",
     "/api/sites/preview_filename",
     "/api/subtitles/index/<int:hid>",
     "/api/thumbnail_sheets/single/<int:hid>",
@@ -248,5 +247,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 103
+  "dark_count": 102
 }

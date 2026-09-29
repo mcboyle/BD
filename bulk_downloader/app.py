@@ -2414,7 +2414,7 @@ def _resume_sites_running_at_shutdown():
         return any(isinstance(j, dict) and j.get("status") == "pending"
                    for j in list((getattr(runner, "jobs", None) or {}).values()))
 
-    targets = [(sid, r) for sid, r in list(runners.items())
+    targets = [(sid, r) for sid, r in runners_generation(runners)
                if run_intent_is_running(sid) and _pending(r)]
     if not targets:
         return
