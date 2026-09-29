@@ -121,6 +121,17 @@ if [ ! -d "$APP_DIR/live_tests" ]; then
     die "$APP_DIR/live_tests/ not found -- wrong app dir?"
 fi
 
+# IA-13: on a remote-teach host the app's display comes from its drop-in
+# (install_remote_teach.sh -> 10-display.conf, Environment=DISPLAY=:99). Carry
+# that one line into the livecheck unit, or L2 reports "no display" while Xvfb
+# runs. No drop-in -> no DISPLAY: never invent one on a headless host.
+# early-exit-ok: this is install-path logic; --help and --remove exit above it by design.
+DISPLAY_DROPIN="${BD_DISPLAY_DROPIN:-/etc/systemd/system/bulkdownloader.service.d/10-display.conf}"  # early-exit-ok
+DISPLAY_ENV_LINE=""  # early-exit-ok
+if [ -f "$DISPLAY_DROPIN" ]; then  # early-exit-ok
+    DISPLAY_ENV_LINE="$(grep -E '^[[:space:]]*Environment="?DISPLAY=' "$DISPLAY_DROPIN" | tail -n 1 | sed -E 's/^[[:space:]]+//')"  # early-exit-ok
+fi
+
 echo " ================================================================"
 echo "  BulkDownloader - livecheck timer install"
 echo " ================================================================"
@@ -155,6 +166,12 @@ ExecStart=${PYEXE} -m live_tests.run --url ${URL} --bd-home ${APP_DIR} --per-che
 # generous ceiling.
 TimeoutStartSec=30min
 UNIT
+# IA-13: the display line is appended AFTER the heredoc (not inside it) so no
+# lint marker ends up in the unit. [Service] is the unit's LAST section, so an
+# appended line lands in it.
+if [ -n "$DISPLAY_ENV_LINE" ]; then  # early-exit-ok
+    printf '%s\n' "$DISPLAY_ENV_LINE" | sudo tee -a "$SERVICE_UNIT" >/dev/null  # early-exit-ok
+fi
 
 # --- write the timer unit -----------------------------------------
 echo "  Writing $TIMER_UNIT (needs sudo)..."
