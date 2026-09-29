@@ -170,11 +170,17 @@ def api_load_urls(sid):
     folder_scan=(request.args.get("folder_scan")=="1"
                  or (request.form.get("folder_scan") if request.form else "")=="1")
     result=runners[sid].load_urls(urls,folder_scan=folder_scan)
+    # dl95-dailymotion-6: a dupe that is a failed job is not "already handled" --
+    # name those URLs so the Add URLs dialog can say so and offer bulk_retry.
+    # Job keys are the URL before any Phase-68 tab-separated headers.
+    retryable=(runners[sid].retryable_urls([u.split("\t",1)[0].strip() for u in urls])
+               if result[1] else [])
     if len(result)==3:
         added,dupes,skipped=result
-        return jsonify({"ok":True,"added":added,"dupes_skipped":dupes,"already_on_disk":skipped})
+        return jsonify({"ok":True,"added":added,"dupes_skipped":dupes,"already_on_disk":skipped,
+                        "retryable_dupes":retryable})
     added,dupes=result
-    return jsonify({"ok":True,"added":added,"dupes_skipped":dupes})
+    return jsonify({"ok":True,"added":added,"dupes_skipped":dupes,"retryable_dupes":retryable})
 
 
 @sites_bp.route("/api/sites/<sid>/queue_url", methods=["POST"])

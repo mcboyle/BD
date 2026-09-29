@@ -36,6 +36,10 @@ except Exception as _e:
 
 _JOB_STATUS_BOOTSTRAP_LOCK = threading.Lock()
 
+# The statuses bulk_retry re-queues. retryable_urls reports exactly these, so an
+# "offer a requeue" caller never offers a retry bulk_retry would then skip.
+BULK_RETRY_STATUSES = ("failed", "needs_review")
+
 
 @contextlib.contextmanager
 def job_status_writer(runner):
@@ -574,6 +578,14 @@ class QueueMixin:
                               message="Resumed", retries=0, retry_after=0)
         except Exception: pass
         return n
+    def retryable_urls(self, urls):
+        """The given URLs whose existing job bulk_retry would re-queue (in
+        input order, once each). load_urls counts such a URL as a dupe and
+        leaves the failed job alone; callers use this to say so and offer
+        the retry."""
+        with self._lock:
+            return [u for u in dict.fromkeys(urls)
+                    if (self.jobs.get(u) or {}).get("status") in BULK_RETRY_STATUSES]
     def bulk_retry(self, urls):
         """v3.49: retry failed jobs in bulk. Resets retries counter so the
         full retry budget is available again. Skips jobs not in failed
@@ -584,7 +596,7 @@ class QueueMixin:
             for u in urls:
                 j = self.jobs.get(u)
                 if not j: continue
-                if j.get("status") not in ("failed", "needs_review"): continue
+                if j.get("status") not in BULK_RETRY_STATUSES: continue
                 j.update({"status": "pending", "message": "Retry requested",
                           "ts": _ts(), "retries": 0, "retry_after": 0})
                 if u not in self.urls: self.urls.append(u)
