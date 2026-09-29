@@ -26,6 +26,11 @@ class StreamVariant:
     audio_group: str = ""
     subtitle_group: str = ""
     stream_id: str = ""
+    # HLS master: this variant's position among the master's EXT-X-STREAM-INF
+    # entries (ffmpeg's program id), kept because ``variants`` is re-sorted by
+    # bandwidth and a URI is not unique -- two entries may share one video
+    # playlist with different AUDIO groups (dl95-beeg-2-g2-audiofix).
+    master_index: int = -1
     segments: List[MediaSegment] = field(default_factory=list)
     initialization_uri: Optional[str] = None
     initialization_byte_range: Optional[str] = None
@@ -382,6 +387,7 @@ class StreamingManifestParser:
                         frame_rate=fr,
                         audio_group=attrs.get("AUDIO", ""),
                         subtitle_group=attrs.get("SUBTITLES", ""),
+                        master_index=len(variants),
                     )
                 )
 
