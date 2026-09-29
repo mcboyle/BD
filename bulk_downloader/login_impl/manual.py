@@ -12,6 +12,9 @@ from ..learn import RECORDER_JS
 
 _MANUAL_LOGIN_BANNER_JS = r"""
 (() => {
+  // O1567: init scripts run in every frame; a banner inside the Cloudflare
+  // Turnstile iframe covered the checkbox the human is asked to solve.
+  if (window.top !== window.self) return;
   if (window.__bd_manual_banner) return;
   window.__bd_manual_banner = true;
   let dismissedAt = 0;  // unix ms; user-dismissed banner stays gone for 60s
