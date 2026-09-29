@@ -155,7 +155,7 @@ from .db import (
     db_log, db_normalize_history_title,
     queue_load, queue_upsert, queue_bulk_upsert, queue_delete,
     queue_delete_status, queue_bulk_delete, queue_bulk_update,
-    queue_reorder, queue_set_priority,
+    queue_reorder, queue_set_priority, run_intent_is_running, run_intent_set,
 )
 
 # v3.43.60: VPN runtime integration. Keep runner.py importable for diagnostics
@@ -930,6 +930,24 @@ _RUN_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
 _START_RECHECK_TEARDOWN = object()
 
 
+def _record_run_intent(runner, running):
+    """dl95-evilangel-1: persist whether this site should be running, so a
+    service restart resumes it (app._resume_sites_running_at_shutdown).
+    Every start()/resume() records True; every stop()/pause() records False --
+    including a pause() on a runner that is not running, since the call itself
+    says "do not run". Lifecycle verbs keep their unbound-method adapter
+    surface (stubs without a site_id are skipped), and a failed write is
+    logged, never raised."""
+    site_id = getattr(runner, "site_id", None)
+    if not site_id or run_intent_set(site_id, running):
+        return
+    log = getattr(runner, "log", None)
+    if log is not None:
+        log.warning("run intent not persisted for %s: %s", site_id,
+                    "a restart will not resume it" if running else
+                    "a restart may resume it despite this stop/pause")
+
+
 class StartOutcome(str, enum.Enum):
     """Exceptional public outcomes from ``start()``.
 
@@ -1668,12 +1686,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if not self._run_retired:
                 self._auxiliary_start_threads.pop(thread, None)
 
-    def start(self):
+    def start(self, _restart_resume=False):
         # A delete transaction permanently retires this object before waiting
         # for its workers.  This fast path handles stale action callbacks; the
         # serialized recheck below closes the race with retirement itself.
         if getattr(self, "_run_retired", False):
             return StartOutcome.TEARDOWN_PENDING
+        # dl95-evilangel-1: a boot resume acts on the intent recorded before
+        # the restart; it must not record a new one (the serialized recheck in
+        # _start_serialized is what lets a later Stop win).
+        if not _restart_resume:
+            _record_run_intent(self, True)
         # A stopped generation may still be unwinding a browser owned by one
         # of its worker threads. Wait outside the lifecycle lock: a worker
         # that reached a status writer just before stop must be able to enter
@@ -1719,10 +1742,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     return StartOutcome.TEARDOWN_PENDING
 
             outcome = self._start_serialized(
-                _teardown_generation=teardown_generation)
+                _teardown_generation=teardown_generation,
+                _restart_resume=_restart_resume)
             if outcome is _START_RECHECK_TEARDOWN:
                 continue
             return outcome
+
+    def _restart_resume_withdrawn(self):
+        """True (and logged) when an operator Stop/Pause cleared the run
+        intent after boot scheduled this restart resume."""
+        if run_intent_is_running(self.site_id):
+            return False
+        self.log_event("restart_resume",
+                       "Restart resume skipped: the site was stopped or "
+                       "paused after boot")
+        return True
 
     def _refuse_for_download_hold(
             self, hold_state, verb, *, resumable_state=None):
@@ -1746,9 +1780,19 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                        "hold_detail": hold_state.get("detail")})
 
     @_run_lifecycle_serialized
-    def _start_serialized(self, _teardown_generation=None):
+    def _start_serialized(self, _teardown_generation=None, _restart_resume=False):
         if getattr(self, "_run_retired", False):
             return StartOutcome.TEARDOWN_PENDING
+        # dl95-evilangel-1: stop() is serialized on this same lifecycle lock
+        # and clears the intent inside it, so re-reading the intent here means
+        # an operator Stop issued after boot scheduled this resume wins.
+        # pause() is not on this lock; it is fenced at the arming transition.
+        if _restart_resume and self._restart_resume_withdrawn():
+            return None
+        if _restart_resume:
+            self.log_event("restart_resume",
+                           "Site was running at the last shutdown -- "
+                           "resuming its restored jobs")
         # A scheduler/API start can race with the operator's retry of a
         # paused pool.  When resume() published the hold token, this is still
         # that resumable lifecycle: run the same barriered transition before
@@ -1759,7 +1803,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         if (self._state in _DOWNLOAD_HOLD_STATE_TOKENS
                 and refused_resume_state in
                 ("paused", "low_disk", "paused_no_button")):
-            self.resume()
+            self.resume(_restart_resume=_restart_resume)
             return
         # A start is a new lifecycle attempt, even when an admission check or
         # an empty pending set makes it return early.  It must not inherit a
@@ -2083,6 +2127,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if not _arm_allowed:
                 self._refuse_for_download_hold(_arm_hold_state, "start")
                 return
+            # dl95-evilangel-1: pause() clears the intent under this same
+            # barrier, so a Pause that landed after the lifecycle-lock recheck
+            # either precedes this read (the resume is withdrawn) or follows
+            # the transition (and pauses a running pool).
+            if _restart_resume and self._restart_resume_withdrawn():
+                return
             with self._worker_heartbeats_lock:
                 if run_generation != self._worker_run_generation:
                     return
@@ -2285,24 +2335,32 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         a "running" runner in "running" state. Split into pause()/resume()
         so each verb means exactly one thing, matching the separate UI
         buttons that call them."""
-        if self._state == "running":
+        # dl95-evilangel-1: the intent write and the transition share the hold
+        # barrier that start() holds across its arming transition, so a boot
+        # resume cannot arm a pool after this Pause (lock order: barrier
+        # outside the leaf state locks; the hold POST already calls pause()
+        # inside it).
+        with _download_hold.barrier():
+            _record_run_intent(self, False)
+            if self._state != "running":
+                return
             self._hold_refused_resume_state = None
             if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
                 self.lifecycle_subsystem.pause()
             else:
                 self._pause.clear()
                 self._state = "paused"
-            _flush_pending = getattr(
-                self, "_flush_daily_byte_accumulators", None)
-            if _flush_pending:
-                _flush_pending()
-            try:
-                from .task_drain_engine import get_task_drain_engine
-                get_task_drain_engine().pause_task(self.site_id, checkpoint_data={"state": "paused"})
-            except Exception:
-                pass
+        _flush_pending = getattr(
+            self, "_flush_daily_byte_accumulators", None)
+        if _flush_pending:
+            _flush_pending()
+        try:
+            from .task_drain_engine import get_task_drain_engine
+            get_task_drain_engine().pause_task(self.site_id, checkpoint_data={"state": "paused"})
+        except Exception:
+            pass
 
-    def resume(self):
+    def resume(self, _restart_resume=False):
         """Resume from paused / paused_no_button / low_disk states.
         Idempotent — no-op if already running. Added in v3.43.19 to match
         the UI's separate Resume button (the /api/sites/<sid>/resume
@@ -2337,12 +2395,17 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         _hold_state, "resume",
                         resumable_state=resumable_state)
                     return
+                # dl95-evilangel-1: a boot resume routed here must not
+                # override a Pause/Stop that cleared the intent.
+                if _restart_resume and self._restart_resume_withdrawn():
+                    return
                 self._hold_refused_resume_state = None
                 if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
                     self.lifecycle_subsystem.resume()
                 else:
                     self._state = "running"
                     self._pause.set()
+                _record_run_intent(self, True)
                 if reset_no_button_streak:
                     self._consec_no_btn = 0
                 try:
@@ -2354,6 +2417,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     @_run_lifecycle_serialized
     def stop(self):
         self._rl_autostart = False  # P3-A: operator stop cancels a pending rate-limit resume
+        _record_run_intent(self, False)
         self._hold_refused_resume_state = None
         if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
             self.lifecycle_subsystem.stop()

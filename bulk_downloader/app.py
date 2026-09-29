@@ -2389,7 +2389,46 @@ def _activate_configured_runtime_once(requested_path=None):
             "configured-site activation rollback is pending; "
             "background generation did not stop") from activation_error
     _SITE_RUNTIME_READY = True
+    _resume_sites_running_at_shutdown()
     return True
+
+
+# dl95-evilangel-1: the thread of the last boot resume; tests join it.
+_restart_resume_thread = None
+
+
+def _resume_sites_running_at_shutdown():
+    """Start again every site that was running when the service went down.
+
+    Restored jobs come back "pending" (runner_queue._restore_queue) but nothing
+    started their site, so every restart parked them until a manual Start. The
+    durable run intent (db.run_intent_*) says which sites were asked to run and
+    not stopped/paused since; only those with pending work are started, through
+    start(_restart_resume=True): every ordinary gate (window, hold, disk, auth)
+    plus an intent re-read under the lifecycle lock, so a Stop issued after
+    this snapshot still wins. Runs on a daemon thread so boot never waits."""
+    global _restart_resume_thread
+    from .db import run_intent_is_running
+
+    def _pending(runner):
+        return any(isinstance(j, dict) and j.get("status") == "pending"
+                   for j in list((getattr(runner, "jobs", None) or {}).values()))
+
+    targets = [(sid, r) for sid, r in list(runners.items())
+               if run_intent_is_running(sid) and _pending(r)]
+    if not targets:
+        return
+
+    def _resume_all():
+        for sid, runner in targets:
+            try:
+                runner.start(_restart_resume=True)
+            except Exception as e:
+                sys.stderr.write(f"  restart resume: start({sid}) failed: {e}\n")
+
+    _restart_resume_thread = _threading.Thread(
+        target=_resume_all, name="restart-resume", daemon=True)
+    _restart_resume_thread.start()
 
 
 # ── v3.43.41: download-window scheduler ───────────────────────────────
