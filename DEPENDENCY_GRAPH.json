@@ -2415,7 +2415,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1810,
+    "edge_count": 1811,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4543,6 +4543,9 @@
       "bulk_downloader/staging_ingest.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/stale_dns_cache.py": [
+        "bulk_downloader/dns_resolver.py"
+      ],
       "bulk_downloader/stash_deep.py": [
         "bulk_downloader/app_sites_integrations.py",
         "bulk_downloader/runner_integrations.py",
@@ -6541,6 +6544,9 @@
       "bulk_downloader/discovery.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/http_client.py"
+      ],
+      "bulk_downloader/dns_resolver.py": [
+        "bulk_downloader/stale_dns_cache.py"
       ],
       "bulk_downloader/doc_drift.py": [
         "bulk_downloader/llm_exec.py"
