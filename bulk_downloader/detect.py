@@ -1,6 +1,6 @@
 """Resolution scoring, download-link detection, file utilities."""
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
-import math, os, re, shutil, sys, uuid
+import math, os, re, shutil, sys, time, uuid
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 from .constants import NON_VIDEO_RE, QUALITY_LADDER, SIZE_RE
@@ -1376,6 +1376,47 @@ def _no_in_scope_result(excluded):
         locator=None)
 
 
+# dl95-tube8-1: "Finding download button..." had no bound -- tube8/pornhub
+# jobs sat at 0% for 9-19 min on a hub shared by 16-20 jobs.  The sweep reads
+# the clock between elements (a Playwright call is never interrupted from
+# another thread) and, once the phase deadline passes, stops and returns the
+# falsy result below instead of scoring a half-read page.  Monotonic via
+# ``_phase_clock`` so a stepped host clock cannot move the bound.
+FIND_BUTTON_BUDGET_S = 300.0
+_phase_clock = time.monotonic
+
+
+def phase_deadline(budget_s=None):
+    """The absolute ``_phase_clock`` deadline ``budget_s`` from now (default
+    FIND_BUTTON_BUDGET_S), or None when the budget is 0/unset (unbounded)."""
+    budget = FIND_BUTTON_BUDGET_S if budget_s is None else budget_s
+    try:
+        budget = float(budget)
+    except (TypeError, ValueError):
+        return None
+    return _phase_clock() + budget if budget > 0 else None
+
+
+class _FindButtonBudgetSpent(dict):
+    """Falsy like _NoInScopeCandidates, so every caller reads it as "no
+    selection"; runner.py consumes the ``_find_button_budget_spent`` key first
+    and fails the job with ``reason``."""
+    def __bool__(self):
+        return False
+
+
+def _budget_spent_result(budget_s, elapsed_s, stage, n_candidates):
+    """The spent-budget outcome.  The reason carries no raw counts: the
+    runner's retry classifier matches digit runs such as 404/410/429."""
+    reason = (f"Finding download button spent its {budget_s:.0f} s budget "
+              f"(stopped in {stage} after {elapsed_s / 60.0:.1f} min) -- "
+              "no candidate was chosen from a partly read page")
+    return _FindButtonBudgetSpent(
+        _find_button_budget_spent=True, reason=reason,
+        _candidates_read=int(n_candidates), _all_candidates=[],
+        _excluded_candidates=[], score=0, size=0, text="", locator=None)
+
+
 def no_selection(best):
     """True when `best` is NOT a found candidate: None, an empty result, or
     the nothing-in-scope sentinel.
@@ -1392,7 +1433,8 @@ def no_selection(best):
     get = getattr(best, "get", None)
     if get is None:
         return False
-    return bool(get("_no_in_scope_candidates"))
+    return bool(get("_no_in_scope_candidates")
+                or get("_find_button_budget_spent"))
 
 
 def _split_selector_list(selector):
@@ -2400,7 +2442,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     return None
 
 
-def find_best_download(page,custom="",learned=None,full_length_requested=None,runner=None):
+def find_best_download(page,custom="",learned=None,full_length_requested=None,runner=None,
+                       deadline=None):
     """Locate the best download candidate on the page — defensively.
 
     Phase 5.5: if `learned` is a dict with row_selectors, try those first.
@@ -2426,7 +2469,12 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     (auto_detect.py) and preserves fail-open semantics if log_event raises.
 
     Original selection rules unchanged (custom > direct media > general
-    sweep > ancestor walk > resolution scoring + size tiebreaker)."""
+    sweep > ancestor walk > resolution scoring + size tiebreaker).
+
+    dl95-tube8-1: ``deadline`` is an absolute ``_phase_clock`` time (see
+    :func:`phase_deadline`); None anchors FIND_BUTTON_BUDGET_S at this call.
+    Past it the sweep stops and returns the falsy
+    ``_find_button_budget_spent`` result."""
     # Phase 5.5: learned-pattern fast path. If we have row_selectors,
     # locate any matching elements and pick the strongest same-work row, then
     # resolution/size. Skip the full sweep when we hit.
@@ -2502,11 +2550,15 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # exits today and the whole defect being fixed is a drop nobody reported,
     # so a later exit that forgets to emit would reproduce it exactly (A7).
     learned_trace = []
+    if deadline is None:
+        deadline = phase_deadline()
     try:
         result = _find_best_download(
             page, custom, learned, runner, _page_url, _note_admission_drop,
             full_length_requested=full_length_requested,
-            learned_trace=learned_trace)
+            learned_trace=learned_trace, deadline=deadline)
+        if isinstance(result, _FindButtonBudgetSpent):
+            sys.stderr.write(f"  download: {result['reason']}\n")
         # tpl95-nubiles-porn-1: what each learned row selector found, so a
         # learned miss can say why (record_learned_download_outcome).
         if learned_trace and isinstance(result, dict) and result:
@@ -2613,7 +2665,7 @@ def _rank_custom_matches(loc_all, count, custom):
 
 def _find_best_download(page, custom, learned, runner, _page_url,
                         _note_admission_drop, full_length_requested=None,
-                        learned_trace=None):
+                        learned_trace=None, deadline=None):
     """Body of :func:`find_best_download`; see that function for the contract.
 
     Split out only so every exit reports its counted admission drops through
@@ -2622,6 +2674,25 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     """
     if learned_trace is None:
         learned_trace = []
+    # dl95-tube8-1: the phase bound.  ``_over`` only reads the clock and
+    # latches the stage, so it is safe inside the sweep's broad
+    # ``except Exception`` blocks; every loop breaks on it and the spent
+    # result is returned outside them.
+    _bound = {"stage": None}
+
+    def _over(stage):
+        if _bound["stage"] is not None:
+            return True
+        if deadline is not None and _phase_clock() >= deadline:
+            _bound["stage"] = stage
+            return True
+        return False
+
+    def _spent(n_candidates):
+        return _budget_spent_result(
+            FIND_BUTTON_BUDGET_S,
+            _phase_clock() - (deadline - FIND_BUTTON_BUDGET_S),
+            _bound["stage"], n_candidates)
     if full_length_requested is None:
         full_length_requested = _full_length_mode(runner)
 
@@ -2632,12 +2703,16 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     learned_roots = (_learned_row_roots(page)
                      if learned and isinstance(learned, dict) else ())
     for root in learned_roots:
+        if _over("learned rows"):
+            break
         row_sels = learned.get("row_selectors") or []
         learned_excluded = []
         scored_groups = []
         hidden_groups = []
         winning_group = None
         for sel in row_sels:
+            if _over("learned rows"):
+                break
             try:
                 loc_all = root.locator(sel)
                 count = loc_all.count()
@@ -2665,6 +2740,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 learned.get("url_attribute"), row_sels, sel)
             for i in range(min(count, _RAW_SCAN_CAP)):
                 if _seen_visible >= _VISIBLE_CAP:
+                    break
+                if _over("learned rows"):
                     break
                 try:
                     el = loc_all.nth(i)
@@ -2778,6 +2855,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                         c["work"], c["score"], c["size"]),
                               reverse=True)
                     groups.append((sel, rows))
+        if _bound["stage"] is not None:
+            break  # never score a partly read learned population
         # Row 701, seam 1.  "Does anything prove affinity" is a question about
         # the PAGE.  Asked per group it is a different, weaker question: the
         # UNKNOWN fallback fired inside a group holding no proven candidate
@@ -2829,6 +2908,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 # nav gate judges hosts against it, not the embedding page.
                 best_match["_frame_url"] = getattr(root, "url", "") or ""
             return best_match
+    if _bound["stage"] is not None:
+        return _spent(0)
 
     if custom:
         loc_all=page.locator(custom)
@@ -3025,8 +3106,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 "a[href*='download']","a[href*='/dl/']",
                 "[data-href*='.mp4']","[data-href*='.mkv']",
                 "[data-url*='.mp4']","[data-src*='.mp4']"]:
+        if _over(f"direct links [{sel}]"): break
         try:
             for el in page.locator(sel).all():
+                if _over(f"direct links [{sel}]"): break
                 try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
@@ -3048,11 +3131,13 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         "[tabindex='0']",
     ]
     for sel in general_selectors:
+        if _over(f"general sweep [{sel}]"): break
         try:
             loc=page.locator(sel)
             els=loc.all()
             cheap=harvest_texts(loc, len(els))
             for i, el in enumerate(els):
+                if _over(f"general sweep [{sel}]"): break
                 try:
                     if cheap is not None and not (
                             dl_re.search(cheap[i]) or res_re.search(cheap[i])):
@@ -3065,8 +3150,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
 
     # ── 3. Data-attribute markers (resolution declared explicitly) ────────
     for attr in ["[data-quality]","[data-res]","[data-resolution]","[data-format]"]:
+        if _over(f"data attributes [{attr}]"): break
         try:
             for el in page.locator(attr).all():
+                if _over(f"data attributes [{attr}]"): break
                 try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
@@ -3077,13 +3164,16 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     # a clickable element, treat that ancestor as the candidate. This catches
     # the styled-components case where text lives in <span>s nested inside
     # a clickable <div> with a hash classname we can't predict.
+    text_holders=[]
     try:
-        text_holders=page.locator(
-            ":text-matches('\\\\b(?:[1-9]\\\\d{2,3}\\\\s*p|[1-9]\\\\d{3}\\\\s*[x×]\\\\s*\\\\d{3,4}|"
-            "[24568]K|HD|FHD|UHD|QHD)\\\\b','i')"
-        ).all()
+        if not _over("ancestor walk"):
+            text_holders=page.locator(
+                ":text-matches('\\\\b(?:[1-9]\\\\d{2,3}\\\\s*p|[1-9]\\\\d{3}\\\\s*[x×]\\\\s*\\\\d{3,4}|"
+                "[24568]K|HD|FHD|UHD|QHD)\\\\b','i')"
+            ).all()
     except Exception: text_holders=[]
     for el in text_holders:
+        if _over("ancestor walk"): break
         try:
             ancestor=el.locator(
                 "xpath=ancestor-or-self::*[self::a or self::button "
@@ -3128,6 +3218,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 pass
         sys.stderr.write(f"  {msg}\n")
 
+    if _bound["stage"] is not None:
+        return _spent(len(candidates))
     if not candidates:
         # P5-3: surface the filter-summary even when every
         # candidate was dropped — operator wants to know the

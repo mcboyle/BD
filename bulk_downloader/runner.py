@@ -134,7 +134,7 @@ from .cookies import (
 )
 from .detect import (
     find_best_download, res_label, fmt_bytes,
-    disk_free_gb, safe_dest, child_frames,
+    disk_free_gb, safe_dest, child_frames, phase_deadline,
 )
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import (
@@ -5177,6 +5177,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         return (" — no identity proof: no candidate on this page could be "
                 "attributed to the scene")
 
+    def _handle_find_button_budget_spent(self, page, url, best):
+        """dl95-tube8-1: fail the job when find_best_download stopped at the
+        "Finding download button..." budget.  True when handled.  Consulted
+        BEFORE the `if not best:` guards: the result is falsy, and those
+        guards would run deep-detect and report "No download button found"
+        for a page that was never fully read."""
+        get = getattr(best, "get", None)
+        if get is None or not get("_find_button_budget_spent"):
+            return False
+        ss = self._screenshot(page, url)
+        self._handle_failure(
+            url, get("reason") or "Finding download button spent its budget",
+            screenshot=ss)
+        return True
+
     def _handle_nothing_in_scope(self, page, url, best):
         """Row 701's distinct outcome: a download control WAS found on this
         page and every candidate was refused as belonging to another scene.
@@ -5188,7 +5203,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         The refusal names the outcome and the reason each candidate was
         refused, so it can never be read as "best is 240p" nor as "no download
         button found".
+
+        dl95-tube8-1: the other falsy, keyed outcome -- a spent "Finding
+        download button..." budget -- is handled first, at this same seam, so
+        it is neither a learned miss nor "no download button found".
+        Class-qualified so a runner-shaped host needs no extra method.
         """
+        if SiteRunner._handle_find_button_budget_spent(self, page, url, best):
+            return True
         if best is None or not best.get("_no_in_scope_candidates"):
             return False
         # dl95-porn00-3-live-1: every refused candidate was a site link, but the
@@ -5878,6 +5900,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if chk=="auth":
                 self._handle_auth_required(url); return
             self._update_job(url,"running","Finding download button...")
+            # dl95-tube8-1: the phase budget is anchored HERE, so the
+            # pre-scrape action and extractors below count against it.
+            _find_deadline=phase_deadline()
             # v3.43.65: optional pre-scrape action — click the quality
             # menu to "highest" before find_best_download scrapes the
             # <video src>. Opt-in per site via pre_scrape_action config.
@@ -5958,7 +5983,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if self._try_spa_api_media_extractor(url, page, source_list_only=True):
                 return
             best=find_best_download(page,self.config.get("dl_selector","").strip(),
-                                    learned=learned_dl,runner=self)
+                                    learned=learned_dl,runner=self,
+                                    deadline=_find_deadline)
             # F9/F10 detect-side: by now the page's fingerprinting (if any)
             # has executed; read back and report what was observed.
             self._flush_fingerprint_observation(page, url)
