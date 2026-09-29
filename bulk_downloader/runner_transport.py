@@ -225,7 +225,9 @@ _BARE_MEDIA_LEAF_RE = re.compile(
     r"|\d+"
     # brazzers/bangbros live (17:1xZ): CDN object names are bare hex hashes
     # (936997063d2c...mp4, 2da1abca...mp4) or uuids -- not a name either.
-    r"|[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
+    r"|[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    # O1567 hustlerunlimited: dacast manifests end ".../<uuid>.ism/.m3u8".
+    r"|m3u8|mpd)$", re.I)
 # dl95-xhamster-2: quality/codec leaves describe the rendition, not the scene.
 _LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:\.h26[45])?$", re.I)
 _FORMAT_TOKEN_RE = re.compile(r"^(?:mp4|m4v|webm|mov)$", re.I)
@@ -238,7 +240,9 @@ def _is_bare_media_leaf(name):
     """True when ``name`` (with or without an extension) is only a token."""
     if not isinstance(name, str) or not name.strip():
         return False
-    stem = Path(name.strip()).stem.strip()
+    stem = Path(name.strip()).stem.strip().lstrip(".")
+    if not stem:
+        return True
     return bool(_BARE_MEDIA_LEAF_RE.match(stem))
 
 
