@@ -291,7 +291,11 @@ def _calls(fn, name):
 def test_worker_loop_and_get_status_carry_the_seam():
     assert _calls(runner_mod.SiteRunner._worker_loop, "_record_worker_thread_telemetry") == 1, \
         "ROW995-WORKER-LOOP-UNWIRED"
-    assert _calls(runner_mod.SiteRunner.get_status, "_worker_threads_status") == 1, "ROW995-STATUS-UNWIRED"
+    # dl95-app-1 wrapped get_status around _get_status_impl (records status errors);
+    # the payload is built in the impl, so the seam is pinned there and the wrapper
+    # is pinned to reach it.
+    assert _calls(runner_mod.SiteRunner.get_status, "_get_status_impl") == 1, "ROW995-STATUS-UNWIRED"
+    assert _calls(runner_mod.SiteRunner._get_status_impl, "_worker_threads_status") == 1, "ROW995-STATUS-UNWIRED"
 
 
 def test_ast_pin_can_say_no():

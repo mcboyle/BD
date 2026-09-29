@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:3910",  # dot95-row703-repin-lane: DOT95 lane d197fa82 lane-side rows moved it (+390); was :3520 after T147 dl95-filthykings-1 (+20) + tpl95-site-ma-brazzers-1 (+15) moved it (+35); was :3485 after LANE-1 dl95-justporn-1 moved it (+6); was :3479 after dl95-cumlouder-1 moved it (+37); was :3442 after dl95-teenmegaworld-1 moved it (+62); was :3380 after T102 rows 1113/1119 moved it (+8); was :3372 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340 after row 1077
-    "bulk_downloader/runner_transport.py:4322",  # dot95-row703-repin-lane: DOT95 lane d197fa82 lane-side rows moved it (+391); was :3931 after T147 dl95-filthykings-1 (+20) + tpl95-site-ma-brazzers-1 (+15) moved it (+35); was :3896 after LANE-1 dl95-justporn-1 moved it (+6); was :3890 after dl95-cumlouder-1 moved it (+37); was :3853 after dl95-teenmegaworld-1 moved it (+62); was :3791 after T102 rows 1113/1119 moved it (+21); was :3770 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728 after row 1077
-    "bulk_downloader/runner_transport.py:4554",  # dot95-row703-repin-lane: DOT95 lane d197fa82 lane-side rows moved it (+391); was :4163 after T147 dl95-filthykings-1 (+20) + tpl95-site-ma-brazzers-1 (+15) moved it (+35); was :4128 after LANE-1 dl95-justporn-1 moved it (+6); was :4122 after dl95-cumlouder-1 moved it (+37); was :4085 after dl95-teenmegaworld-1 moved it (+62); was :4023 after T102 rows 1113/1119 moved it (+21); was :4002 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960 after row 1077
+    "bulk_downloader/runner_transport.py:4225",  # T154: lane merge (dot95 repin 3910) + dl95-dorcelclub-1 GEN5 guard moved it; was :3910 on the lane / :3949 on T154 e7e07afe
+    "bulk_downloader/runner_transport.py:4637",  # T154: lane merge (dot95 repin 4322) + dl95-dorcelclub-1 GEN5 guard moved it; was :4322 on the lane / :4361 on T154 e7e07afe
+    "bulk_downloader/runner_transport.py:4869",  # T154: lane merge (dot95 repin 4554) + dl95-dorcelclub-1 GEN5 guard moved it; was :4554 on the lane / :4593 on T154 e7e07afe
 }
 
 
