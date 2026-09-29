@@ -96,4 +96,4 @@ def test_retryable_urls_matches_bulk_retry_statuses():
     from bulk_downloader.runner_queue import BULK_RETRY_STATUSES
     _, _, runner = _setup()
     assert runner.retryable_urls([PENDING, REVIEW, FAILED, REVIEW, DONE]) == [REVIEW, FAILED]
-    assert set(BULK_RETRY_STATUSES) == {"failed", "needs_review"}
+    assert set(BULK_RETRY_STATUSES) == {"failed", "needs_review", "dead_letter"}  # dl95-dfxtra-1 adds dead_letter
