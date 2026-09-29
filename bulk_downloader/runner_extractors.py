@@ -1314,7 +1314,6 @@ class ExtractorsMixin:
             return False
 
         is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
-        ext = ".mp4"
         fname = chosen.get("filename") or ""
         if not fname:
             try:
@@ -1324,8 +1323,7 @@ class ExtractorsMixin:
                 fname = ""
         stem = os.path.splitext(fname)[0] if fname else ""
         title_root = stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
-        if fname and os.path.splitext(fname)[1].lower() in (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".wmv"):
-            ext = os.path.splitext(fname)[1].lower()
+        ext = _spa.spa_file_ext(fname)
         now = datetime.now()
         ctx_vars = {
             "site": self.config.get("name", "site"),

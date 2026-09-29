@@ -25,6 +25,7 @@ The fallback is consulted ONLY when the DOM yielded no candidate (runner.py).
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import quote, urljoin, urlparse
@@ -37,7 +38,19 @@ OPTION_KEY_RE = re.compile(
     r"qualities|streams|renditions|formats|videos|media)$", re.I)
 URL_KEY_RE = re.compile(r"^(url|src|href|file|link|download_url|downloadurl)$", re.I)
 LABEL_KEY_RE = re.compile(r"^(quality|label|resolution|height|name|res)$", re.I)
-MEDIA_EXT_RE = re.compile(r"\.(mp4|m4v|mov|webm|mkv|m3u8|mpd)(\?|$)", re.I)
+# dl95-file-examples-5: ogg/ogv play inline in Chromium like mp4/webm, so a
+# direct Ogg URL reaches this fallback with no download event -- admit it.
+MEDIA_EXT_RE = re.compile(r"\.(mp4|m4v|mov|webm|mkv|ogv|ogg|m3u8|mpd)(\?|$)", re.I)
+# Extensions a chosen file keeps on disk; anything else is saved as .mp4.
+KEEP_FILE_EXTS = (".mp4", ".m4v", ".mov", ".webm", ".mkv", ".wmv", ".ogv", ".ogg")
+
+
+def spa_file_ext(fname: str) -> str:
+    """The extension to save a chosen spa-api file under (".mp4" by default)."""
+    ext = os.path.splitext(fname or "")[1].lower()
+    return ext if ext in KEEP_FILE_EXTS else ".mp4"
+
+
 HEIGHT_RE = re.compile(r"(?<!\d)(240|360|480|540|720|1080|1440|2160|4320)(?:p|P)?(?!\d)")
 # Request headers worth replaying on a same-site re-fetch: the SPA's own
 # custom headers and content negotiation.  Never cookie / authorization --
@@ -314,12 +327,15 @@ def rank_candidates(cands: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 PAGE_MEDIA_JS = """() => {
   const out = [];
-  for (const e of document.querySelectorAll('video,source')) {
+  // Video only: an <audio><source> (a page's sound effect or player) is never
+  // the scene (dl95-file-examples-5 lens R1).
+  for (const e of document.querySelectorAll('video, video > source')) {
     const s = e.currentSrc || e.src || e.getAttribute('src') || '';
     if (s) out.push(s);
   }
   try {
     for (const r of performance.getEntriesByType('resource')) {
+      if (r.initiatorType === 'audio') continue;
       if (/\\.(mp4|m4v|mov|webm|mkv|m3u8|mpd)(\\?|$)/i.test(r.name)) out.push(r.name);
     }
   } catch (e) {}
