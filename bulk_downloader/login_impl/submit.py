@@ -4,7 +4,7 @@ import re
 import inspect
 import sys
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..log import login_site, login_site_id, site_tag
@@ -757,6 +757,62 @@ _SWEEP_DECLARED_ORIGINS=set()
 # went into the URL (history, server logs, our own diagnostics). A form that
 # holds a password field is never submitted by GET.
 GET_FORM_REFUSED="form method is GET -- refused: submitting would put the credentials in the URL"
+# dl95-txxx-2: the page script took the submit (native GET blocked) but the
+# page never navigated; do_login's cookie check decides.
+GET_FORM_SCRIPT_NO_NAV=("form method is GET -- submitted through the page script "
+                        "(native GET blocked); the page did not navigate")
+
+
+_PASSWORD_FORM_JS="""(pf_sels) => {
+    const f = ("""+_LOGIN_FORM_JS+""")(pf_sels);
+    const pw = f ? f.querySelector("input[type='password']") : null;
+    if (!pw) return null;
+    return {method: (f.getAttribute('method') || 'get').toLowerCase(), name: pw.name || ''};
+}"""
+
+
+def _guard_credential_get(page,pf_candidates):
+    """dl95-txxx-2: a login form without method=POST puts its password field
+    into the URL of any native submission -- a click, Enter, the page's own
+    form.submit(). Page script can reorder or bypass every DOM-level guard
+    (lens cx-worker-2: a handler that calls form.submit(); an earlier capture
+    listener that stops propagation; a target=_blank popup), so the boundary
+    is the network of the whole browser context: for the rest of its life any
+    GET, from any of its pages, whose query carries the password field's
+    name is answered in the browser (204, the page stays) before it is sent,
+    so it never reaches the server, the history or page.url. Unnamed password fields are never
+    serialized. Returns True when the guard was installed."""
+    try:
+        info=page.evaluate(_PASSWORD_FORM_JS,pf_candidates)
+    except Exception:
+        return False
+    if not isinstance(info,dict) or info.get("method")=="post" or not info.get("name"):
+        return False
+    key=info["name"]
+    def _abort_credential_get(route,request):
+        try:
+            leaks=request.method=="GET" and key in parse_qs(urlsplit(request.url).query,keep_blank_values=True)
+        except Exception:
+            leaks=True
+        if leaks:
+            sys.stderr.write(f"  {site_tag()}login submit: stopped a GET carrying the password "
+                             f"field ({key!r}) -- the credentials never enter a URL\n")
+            # 204 No Content: the browser keeps the current page (an abort
+            # would navigate to chrome-error://), and nothing is sent.
+            return route.fulfill(status=204,body="")
+        return route.fallback()
+    # The CONTEXT, not the page (lens cx-worker-2 REFUTE r2b): a form with
+    # target=_blank submits into a popup, whose first request never passes
+    # through the login page's own routes. A context route covers every page
+    # the context opens, popups included.
+    try:
+        page.context.route("**/*",_abort_credential_get)
+    except Exception:
+        try:
+            page.route("**/*",_abort_credential_get)
+        except Exception:
+            return False
+    return True
 
 
 def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
@@ -798,6 +854,7 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         # never happened so caller can fall back to cookie inspection.
         return "PAGE_CLOSED", f"page already closed: {str(e)[:60]}"
     initial_origin=_origin(initial_url)
+    _guard_credential_get(page,pf_candidates)
     def _moved():
         # None: still on initial_url. True: navigated within the login
         # page's origin. str: the foreign origin the page is now on (or a
@@ -853,6 +910,7 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
 
     _pw_at_start=_password_visible()
     methods=[]
+    script_submitted=[]   # dl95-txxx-2: m2 handed a GET-attributed form to its page script
 
     # Method 1: configured/text-matched submit button click
     def m1():
@@ -887,8 +945,20 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
                 const hasPassword = Boolean(f.querySelector("input[type='password']"));
                 const method = f.getAttribute('method') || 'get';
                 if (hasPassword && method.toLowerCase() !== 'post') {
-                    return {submitted: false, method, hasPassword,
-                            reason: 'refused password form without POST'};
+                    // dl95-txxx-2: a GET-attributed login form whose page
+                    // script posts it (txxx: <form class="form">, a Vue
+                    // submit handler). Dispatch a SYNTHETIC submit event: the
+                    // page's handlers run, but an untrusted event never starts
+                    // the browser's own form submission. Submitted only if a
+                    // handler claimed it (preventDefault). Whatever the page
+                    // script does next, _guard_credential_get has already
+                    // installed the network boundary that aborts a GET
+                    // carrying the password field.
+                    const Ev = (typeof SubmitEvent === 'function') ? SubmitEvent : Event;
+                    const ev = new Ev('submit', {bubbles: true, cancelable: true});
+                    const claimed = !f.dispatchEvent(ev);
+                    return {submitted: claimed, guarded: true, method, hasPassword,
+                            reason: 'no page script claimed the submit'};
                 }
                 if (typeof f.requestSubmit === 'function') {
                     f.requestSubmit();
@@ -899,6 +969,11 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
             }""", pf_candidates)
             if not isinstance(result, dict):
                 return False, "requestSubmit produced no form result"
+            if result.get("guarded"):
+                if result.get("submitted"):
+                    script_submitted.append(True)
+                    return True, "form.requestSubmit() via the page script (native GET blocked)"
+                return False, GET_FORM_REFUSED
             if not _form_submit_is_safe(result.get("method"), result.get("hasPassword")):
                 return False, GET_FORM_REFUSED
             if result.get("submitted"):
@@ -1075,6 +1150,8 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
                 sys.stderr.write(f"  {site_tag()}login submit: GET form -- stopping the "
                                  "method sweep (a synthetic submit would leak "
                                  "the credentials into the URL)\n")
+                if script_submitted:
+                    return False, GET_FORM_SCRIPT_NO_NAV
                 return False, GET_FORM_REFUSED
             continue
         sys.stderr.write(f"  {site_tag()}login submit: {label} → {info}; waiting...\n")

@@ -173,7 +173,8 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             r"(?m)^def test_request_without_ack_keeps_its_body_and_persists_ordinary_update\(",
         ),
     # Row 722s (2026-09-15): fixed contracts measured live on test2; each audited by its catching test.
-    "4760794a0c2cdb0d6957ce84c1bddd1cec6efbd46c5503134b68695b32076556":
+    # dl95-txxx-2: M1 re-anchored onto the guarded GET branch (was 4760794a...); same contract, same catcher.
+    "c5c40006d50a9e873699f3ec5ee4321dafcbeed3ec2a61ac70c580ded3ebd92e":
         StableValueException(
             "the password-form POST guard in the requestSubmit fallback is a fixed control-flow contract (row 722s live: credentials reached the URL)",
             "tests/test_row722s_login_form_is_never_submitted_by_get.py",
