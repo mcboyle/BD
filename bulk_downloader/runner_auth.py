@@ -510,7 +510,7 @@ class AuthMixin:
         else:
             self._login_thread = login_thread
             login_thread.start()
-    def _await_in_flight_login(self, thread, fire, timeout=55.0):
+    def _await_in_flight_login(self, thread, fire, timeout=115.0):
         """v3.66.834: resolve a second caller's on_done against the login
         thread that is ALREADY running (the in-flight guard path in
         login_async).
@@ -526,7 +526,7 @@ class AuthMixin:
         thread exits captures an already-moved baseline and reads a real
         success as failure. The attempt stamp has neither failure mode.
 
-        timeout stays strictly under the sole consumer's 60 s wait in
+        timeout stays strictly under the sole consumer's 120 s wait in
         _check_cookies_or_relogin, so the callback lands before that wait
         expires. The two are coupled by contract, not by construction --
         tests/test_v3_66_834_login_on_done_always_fires.py pins it."""
@@ -1428,7 +1428,7 @@ class AuthMixin:
 
     def _check_cookies_or_relogin(self, url):
         """If all stored cookies are expired and there are no session cookies,
-        kick off an automated re-login. Blocks up to 60 s waiting for the
+        kick off an automated re-login. Blocks up to 120 s waiting for the
         async login to complete.
 
         Returns True to continue processing the URL, False if the URL was
@@ -1444,8 +1444,24 @@ class AuthMixin:
             self._update_job(url, "running", "Cookies expired — re-logging in...")
             ev = threading.Event(); result = [False]
             def _od(ok): result[0] = ok; ev.set()
-            self.login_async(on_done=_od); ev.wait(timeout=60)
+            login_thread = getattr(self, "_login_thread", None)
+            is_joining = login_thread is not None and login_thread.is_alive()
+            attempt_before = (getattr(self, "_login_attempt_seq", 0) - 1) if is_joining else getattr(self, "_login_attempt_seq", 0)
+            self.login_async(on_done=_od); ev.wait(timeout=120)
             if not result[0]:
+                # dl95-naughtyamerica-2: auto re-login that takes >60 s
+                # (Turnstile + submit: ~82 s) must not report a failed login
+                # that succeeded. If the login thread is still in flight,
+                # wait bounded by thread liveness before declaring failure.
+                login_thread = getattr(self, "_login_thread", None)
+                if login_thread is not None and login_thread.is_alive():
+                    login_thread.join(timeout=30)
+                # Re-check outcome of THIS attempt, never a stale prior attempt
+                rec = getattr(self, "_login_outcome", None)
+                if rec and rec[0] > attempt_before and rec[1] is True:
+                    ei = cookies_expiry_info(self.cookies)
+                    if ei["session"] != 0 or (ei["expired"] == 0 and len(self.cookies) > 0):
+                        return True
                 self._handle_failure(url, "Auto re-login failed"); return False
             return True
         self._handle_failure(url, "Cookies expired — re-login needed")
