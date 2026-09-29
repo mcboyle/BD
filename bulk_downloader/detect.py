@@ -658,7 +658,61 @@ def work_affinity(page_url, candidate_url):
     if not cand: return 0
     n, c = _longest_common_run(page[:_WORK_MAX_PAGE_TOKENS],
                                cand[:_WORK_MAX_CAND_TOKENS])
-    return 1 if (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS) else 0
+    if not (n >= _WORK_MIN_TOKENS and c >= _WORK_MIN_CHARS):
+        return 0
+    return 0 if _sibling_route_names_another_id(page_url, candidate_url) else 1
+
+# tpl95-spankbang-1: a token run is not an identity when the candidate is the
+# SAME ROUTE carrying ANOTHER id and ANOTHER slug.  Measured on test2
+# (2026-09-29): page `/a594c/video/innocent+petite+swedish+18+teen+...` and its
+# related card `/a57yw/video/dark+haired+18+teen+...` share the run
+# ('18','teen') -- 2 tokens, 6 chars, exactly the bar -- so the card was
+# stamped IN_SCOPE, drove "below 1080p; got 240p" and named itself in `Saw:`.
+# Same host, same segment count, every non-slug segment equal except id
+# segments (ones carrying a digit), and a different slug: that is a sibling
+# scene, never this one.  Anything short of that shape keeps the run verdict.
+_ROUTE_ID_SEG_RE = re.compile(r"^(?=[^/]*\d)[A-Za-z0-9_-]{1,40}$")
+
+def _sibling_route_names_another_id(page_url, candidate_url):
+    """True when *candidate_url* is *page_url*'s route with another id+slug."""
+    if not isinstance(candidate_url, str) or not candidate_url:
+        return False
+    try:
+        from urllib.parse import unquote
+        page = urlparse(page_url)
+        cand = urlparse(urljoin(page_url, candidate_url))
+        if (cand.scheme not in ("http", "https")
+                or (cand.hostname or "").lower()
+                != (page.hostname or "").lower()):
+            return False
+        p_segs = [s for s in unquote(page.path or "").split("/") if s]
+        c_segs = [s for s in unquote(cand.path or "").split("/") if s]
+    except Exception:
+        return False
+    if len(p_segs) < 2 or len(p_segs) != len(c_segs):
+        return False
+    slug_at = None
+    for i in range(len(p_segs) - 1, -1, -1):
+        if any(not t.isdigit()
+               for t in work_tokens(_PAGE_EXT_RE.sub("", p_segs[i]))):
+            slug_at = i
+            break
+    if slug_at is None:
+        return False
+    if (work_tokens(_PAGE_EXT_RE.sub("", c_segs[slug_at]))
+            == work_tokens(_PAGE_EXT_RE.sub("", p_segs[slug_at]))):
+        return False
+    shared = differing = 0
+    for i, (a, b) in enumerate(zip(p_segs, c_segs)):
+        if i == slug_at:
+            continue
+        if a == b:
+            shared += 1
+        elif _ROUTE_ID_SEG_RE.match(a) and _ROUTE_ID_SEG_RE.match(b):
+            differing += 1
+        else:
+            return False
+    return bool(shared and differing)
 
 # ─── DOWNLOAD HELPERS ─────────────────────────────────────────────────────────
 # Shared candidate admission. Learned selectors used to return before the wide
