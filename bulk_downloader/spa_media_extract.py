@@ -297,6 +297,12 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     out: List[Dict[str, Any]] = []
     seen = set()
     for u in urls or []:
+        if isinstance(u, dict) and u.get("source") == "kvs-flashvars":
+            # dl95-kvs-flashvars-1: already a candidate (label, height, bound applied)
+            if u.get("url") and u["url"] not in seen:
+                seen.add(u["url"])
+                out.append(u)
+            continue
         if not isinstance(u, str) or not u.strip():
             continue
         u = urljoin(page_url, u.strip())
@@ -307,6 +313,30 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
         seen.add(u)
         out.append({"url": u, "label": "", "height": _height_of(u), "size": 0,
                     "source": "page-media", "filename": ""})
+    return out
+
+
+def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """dl95-kvs-flashvars-1: the files a KVS player declares in its page-global
+    ``flashvars`` (video_url, video_alt_url, video_alt_url2 ... each with a
+    ``*_text`` label such as "720p"). The player fetches nothing until play, so
+    neither page media nor API JSON sees them (porn00: /get_file/.../42561_720p.mp4/).
+    A license-obfuscated ``function/0/...`` value is not decodable here and is skipped."""
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        raw = str(it.get("url") or "").strip()
+        if not raw or raw.startswith("function/"):
+            continue
+        u = urljoin(page_url, raw)
+        if not u.startswith(("http://", "https://")) or u in seen:
+            continue
+        seen.add(u)
+        label = str(it.get("text") or "")
+        out.append({"url": u, "label": label, "height": _height_of(label, u), "size": 0,
+                    "source": "kvs-flashvars", "filename": ""})
     return out
 
 
@@ -340,6 +370,18 @@ PAGE_MEDIA_JS = """() => {
     }
   } catch (e) {}
   return out.slice(0, 60);
+}"""
+
+KVS_FLASHVARS_JS = """() => {
+  const fv = window.flashvars;
+  if (!fv || typeof fv !== 'object') return [];
+  const out = [];
+  for (const k of Object.keys(fv)) {
+    if (!/^video_(alt_)?url\\d*$/.test(k)) continue;
+    const v = fv[k];
+    if (typeof v === 'string' && v) out.push({url: v, text: String(fv[k + '_text'] || '')});
+  }
+  return out.slice(0, 12);
 }"""
 
 RESOLVE_JS = """async ([url, headers]) => {

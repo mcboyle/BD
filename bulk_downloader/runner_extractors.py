@@ -1233,6 +1233,7 @@ class ExtractorsMixin:
             page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
         except Exception:
             page_media = []
+        page_media += self._kvs_flashvars_media(page, _spa)  # dl95-kvs-flashvars-1
         try:
             page_url = page.url or url
         except Exception:
@@ -1999,6 +2000,23 @@ class ExtractorsMixin:
             url=url,
         )
         return True
+    def _kvs_flashvars_media(self, page, _spa):
+        """dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
+        video_url / video_alt_url[N] + *_text), bounded by min_resolution --
+        an option below it, or of unknown height, is never offered."""
+        try:
+            items = page.evaluate(_spa.KVS_FLASHVARS_JS) or []
+            page_url = page.url or ""
+        except Exception:
+            return []
+        kvs = _spa.kvs_flashvars_candidates(page_url, items)
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        kept = [c for c in kvs if min_res <= 0 or int(c.get("height") or 0) >= min_res]
+        if len(kept) < len(kvs):
+            below = ", ".join(f"{c.get('height') or '?'}p" for c in kvs if c not in kept)
+            sys.stderr.write(f"  spa-api: KVS flashvars option(s) below {min_res}p not offered: {below}\n")
+        return kept
+
     def _try_aylo_extractor(self, url: str, page) -> bool:
         """v3.43.66: extract via Aylo flashvars and download.
 
