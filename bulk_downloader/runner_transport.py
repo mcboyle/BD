@@ -2966,6 +2966,11 @@ class TransportMixin:
                 final_path.unlink(missing_ok=True)
                 return
 
+            # dl95-eporner-1: the site's login page instead of the media is an
+            # auth failure, not a bad file (runner_auth._login_wall_rejects).
+            if self._login_wall_rejects(page_url, final_path):
+                return
+
             # ── Phase 17.20: Size sanity check ───────────────────────────────
             # If the page advertised a file size and we got back something
             # wildly smaller (under min_size_pct % of expected, default 5%),

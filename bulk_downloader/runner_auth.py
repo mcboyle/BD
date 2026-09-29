@@ -5,7 +5,8 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (matched the seams doc exactly -- no
 conditional soft-import blocks in this unit). Cycle rule: nothing from .runner.
 """
-import functools, math, sys, threading, time
+import functools, math, re, shutil, sys, threading, time
+from pathlib import Path
 
 from .db import db_log, session_event_record
 from .login import do_login
@@ -38,6 +39,39 @@ def _finite_config_float(raw, default):
 
 
 _TAKEOVER_MODES = ("visible", "remote", "remote_vnc")
+
+_LOGIN_WALL_PEEK = 65536
+_HTML_START_RE = re.compile(rb"^\s*(?:<!--.*?-->\s*)*<(?:!doctype\s+html|html|head)\b", re.I | re.S)
+# The URL an HTML page declares for itself: canonical link, og:url, meta refresh.
+_SELF_URL_RE = re.compile(
+    r"<link[^>]+rel=[\"']canonical[\"'][^>]*href=[\"']([^\"']+)"
+    r"|<meta[^>]+property=[\"']og:url[\"'][^>]*content=[\"']([^\"']+)"
+    r"|<meta[^>]+http-equiv=[\"']refresh[\"'][^>]*content=[\"'][^\"']*url=([^\"'>\s]+)", re.I)
+
+
+def login_wall_in_body(path):
+    """dl95-eporner-1: why a downloaded body is a login page instead of the
+    media, or None. Only an HTML document qualifies; it is a login wall when it
+    carries AUTH_BODY_RE's login-form signal, or when the URL it declares for
+    itself is a login URL by the same AUTH_HINTS rule _check_redirect applies
+    to page.url (eporner answers /dload/ with a JS-rendered form whose
+    canonical is /login/<return-path>). Unreadable -> None: the size and
+    integrity checks still judge the file."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_LOGIN_WALL_PEEK)
+    except OSError:
+        return None
+    if not _HTML_START_RE.match(head):
+        return None
+    text = head.decode("utf-8", "replace")
+    if AUTH_BODY_RE.search(text):
+        return "login form in the response body"
+    for m in _SELF_URL_RE.finditer(text):
+        url = next(g for g in m.groups() if g)
+        if any(h in url.lower() for h in AUTH_HINTS):
+            return f"response is the login page {redact_url_credentials(url)}"
+    return None
 
 
 def _auth_start_guard(retired_result, *, on_retired=None):
@@ -1130,7 +1164,26 @@ class AuthMixin:
             except Exception: pass
         except Exception: pass
         return None
-    def _handle_auth_required(self,url):
+    def _login_wall_rejects(self, url, path):
+        """dl95-eporner-1: True when the downloaded file is the site's login
+        page (login_wall_in_body). The body is quarantined to _failed/ and
+        the job takes the auth-required path -- log in with the held
+        credentials and requeue -- instead of failing on size sanity."""
+        path = Path(path)
+        wall = (None if path.suffix.lower() in (".html", ".htm")
+                else login_wall_in_body(path))
+        if not wall:
+            return False
+        quarantine = path.parent / "_failed"
+        try:
+            quarantine.mkdir(exist_ok=True)
+            shutil.move(str(path), str(quarantine / path.name))
+        except OSError:
+            pass
+        self._handle_auth_required(url, why=f"Download requires login ({wall})")
+        return True
+
+    def _handle_auth_required(self,url,why="Session expired"):
         """Cookies/session rejected by the server.
 
         Phase 18.fix: this used to be fire-and-forget — it called
@@ -1159,7 +1212,7 @@ class AuthMixin:
             # Phase 2 Cut 2.1: retry budget exhausted -> terminal dead-letter (not
             # plain 'failed', which housekeeping could re-pick). Surfaced via
             # /api/queue/dead_letter; the operator requeues explicitly.
-            self._update_job(url,"dead_letter","Session expired -- re-login retries exhausted")
+            self._update_job(url,"dead_letter",f"{why} -- re-login retries exhausted")
             try:
                 from .db import db_queue_dead_letter as _dql
                 _dql(self.site_id, url, "auth-required, retries exhausted")
@@ -1168,14 +1221,14 @@ class AuthMixin:
             db_log(self.site_id,self.config.get("name","?"),url,"failed","",0,"auth-required, retries exhausted")
             return
         if not (self.config.get("username") and self.config.get("password")):
-            self._update_job(url,"failed","Session expired — no credentials configured for re-login")
+            self._update_job(url,"failed",f"{why} — no credentials configured for re-login")
             db_log(self.site_id,self.config.get("name","?"),url,"failed","",0,"auth-required, no creds")
             return
 
         # Block other workers from pulling new URLs while we recover the session
         self._session_ok.clear()
         self._update_job(url,"pending",
-                         f"Session expired — re-logging in (try {retries+1}/{max_ret})",
+                         f"{why} — re-logging in (try {retries+1}/{max_ret})",
                          retries=retries+1, retry_after=0)
         try:
             # Trigger login if not already in flight (idempotent), then wait.
