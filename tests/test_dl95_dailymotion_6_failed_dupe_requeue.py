@@ -21,6 +21,20 @@ DONE = "https://example.com/video/done-1"
 PENDING = "https://example.com/video/pending-1"
 
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_bd_modules_after_file():
+    """Put the bulk_downloader module table back when this file finishes (1034 leaker census)."""
+    saved_modules = {m: mod for m, mod in sys.modules.items()
+                     if m == "bulk_downloader" or m.startswith("bulk_downloader.")}
+    try:
+        yield
+    finally:
+        for m in [m for m in sys.modules if m == "bulk_downloader" or m.startswith("bulk_downloader.")]:
+            del sys.modules[m]
+        sys.modules.update(saved_modules)
+
+
 def _setup():
     for mod in list(sys.modules):
         if mod.startswith("bulk_downloader"):
