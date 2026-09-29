@@ -428,6 +428,11 @@ class TelemetryMixin:
         if any(k in m for k in ("404","403","not found","forbidden","auth required",
                                  "invalid url","expired","410"," gone")):
             return "permanent"
+        if "cdn origin error" in m:
+            # dl95-cumlouder-2: the site's origin is down behind its CDN
+            # (Cloudflare 52x). Its text says "timed out", but an origin
+            # outage needs the longer transient ladder, not quick retries.
+            return "transient"
         if any(k in m for k in ("no download button found",)):
             return "page_shape"
         if any(k in m for k in ("429","rate limit","too many request","try again later")):
