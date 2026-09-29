@@ -405,3 +405,52 @@ def _maybe_demote_selectors(config, kind, role):
     new_sels = keep + demote
     if new_sels != sels:
         block[role] = new_sels
+
+
+def _learned_row_naming(best, row_selectors):
+    """The learned row selector that names the element ``best`` was picked
+    from, or "" (tpl95-porndig-1).
+
+    The learned pass skips a taught row it cannot click yet (hidden, v3.66.247);
+    the site's dl_selector or the page scan can still pick that very element.
+    The taught selector did not miss it -- it names the winner. Selectors the
+    DOM cannot evaluate (Playwright-only syntax) name nothing."""
+    loc = (best or {}).get("locator")
+    if loc is None:
+        return ""
+    for sel in row_selectors or []:
+        try:
+            if loc.evaluate("(e, s) => e.matches(s)", sel):
+                return sel
+        except Exception:
+            continue
+    return ""
+
+
+def record_learned_download_outcome(config, learned_dl, best):
+    """Phase 5.8/7.3 learned download hit/miss accounting for one scored page.
+
+    A learned pick is a hit for its selector. A non-learned pick is a hit for
+    the learned row selector that names the same element; only a pick no
+    learned row names is a miss for every row selector (then demotion runs)."""
+    if not best:
+        return
+    row_sels = (learned_dl or {}).get("row_selectors") or []
+    won_sel = best.get("_learned_sel", "") if best.get("_via_learned") else ""
+    how = ""
+    if not best.get("_via_learned"):
+        won_sel = _learned_row_naming(best, row_sels)
+        how = " (same element as the non-learned pick)"
+    if best.get("_via_learned") or won_sel:
+        sys.stderr.write(f"  download: learned hit via [{won_sel}]{how}\n")
+        _bump_learned_stat(config, "download_hits")
+        # Phase 7.3: per-selector hit. Bump THIS selector's hit count. Move it
+        # to the front of row_selectors next time so the most-reliable pattern
+        # is tried first.
+        _bump_per_selector(config, "download", "row_selectors", won_sel, "hits")
+    elif row_sels:
+        # No learned row names the pick: every learned selector missed.
+        _bump_learned_stat(config, "download_misses")
+        for stale_sel in row_sels:
+            _bump_per_selector(config, "download", "row_selectors", stale_sel, "misses")
+        _maybe_demote_selectors(config, "download", "row_selectors")

@@ -413,8 +413,10 @@ def test_row446_an_unobserved_settle_returns_before_any_learning_is_touched():
         f"the refusal compares against {ast.dump(comparator)}, not "
         "TRIGGER_SETTLE_UNOBSERVED")
 
-    for name in ("find_best_download", "_bump_learned_stat",
-                 "_maybe_demote_selectors"):
+    # tpl95-porndig-1: the hit/miss bumps and demotion moved into
+    # runner_util.record_learned_download_outcome; _process_one's one call to
+    # it is where learning is touched.
+    for name in ("find_best_download", "record_learned_download_outcome"):
         lines = _calls_named(fn, name)
         assert lines, f"{name} is not called in _process_one at all"
         assert all(line > refusal_line for line in lines), (
