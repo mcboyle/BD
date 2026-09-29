@@ -586,6 +586,44 @@ def _members_evidence(
     return "/members/" in path or path.startswith("/members/")
 
 
+def _site_is_public(site_config: dict[str, Any]) -> bool:
+    """dl95-xvideos-1: a site that declares no login at all is a public site.
+
+    An explicit ``auth_required`` bool wins. Otherwise any http ``login_url``,
+    username, password or cookie file -- on the site or on one of its
+    accounts -- declares a members area, and discovery stays fail-closed."""
+    declared = site_config.get("auth_required")
+    if isinstance(declared, bool):
+        return not declared
+    if str(site_config.get("login_url") or "").strip().lower().startswith("http"):
+        return False
+    holders = [site_config] + [
+        a for a in (site_config.get("accounts") or []) if isinstance(a, dict)]
+    return not any(
+        str(h.get(k) or "").strip()
+        for h in holders for k in ("username", "password", "cookie_file"))
+
+
+def _public_listing_evidence(
+    page: Any,
+    site_config: dict[str, Any],
+    response_status: int | None,
+    scenes: list[dict[str, Any]],
+) -> bool:
+    """dl95-xvideos-1: public tube listings (xvideos, spankbang, ...) carry no
+    logout link and no members path, and often ship a hidden login modal with a
+    password field, so _members_evidence can never pass on them. A public site
+    proves itself by the page itself: a thumbnail scene cohort, served without
+    401/403 and not on a login URL. A tour page with no scenes stays
+    NOT_LOGGED_IN."""
+    if not scenes or not _site_is_public(site_config):
+        return False
+    if response_status in (401, 403):
+        return False
+    current = str(getattr(page, "url", "") or "").lower()
+    return not any(hint in current for hint in AUTH_HINTS)
+
+
 def _existing(site_id: str, db_path: str | None) -> dict[str, dict[str, Any]]:
     with db.db_conn(db_path) as cx:
         rows = cx.execute(
@@ -987,7 +1025,8 @@ def crawl_with_page(
         if not scenes and not zero_page:
             zero_page = _zero_page_evidence(page, current, status, anchors)
 
-        if not _members_evidence(page, site_config, status):
+        if not (_members_evidence(page, site_config, status)
+                or _public_listing_evidence(page, site_config, status, scenes)):
             _save_frontier(
                 site_id, listing_url, [], completed=True, db_path=db_path
             )
