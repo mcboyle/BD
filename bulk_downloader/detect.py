@@ -2455,19 +2455,48 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         Row 508: the visible half is what the word predicate may judge. The
         full string still drives scoring, size and the URL-shape predicate.
         """
-        parts=[]; label=[]
-        try:
-            _inner=el.inner_text() or ""
-            parts.append(_inner); label.append(_inner)
-        except Exception: pass
+        try: _inner=el.inner_text() or ""
+        except Exception: _inner=None
+        values=[]
         for a in _WIDE_SCAN_ATTRS:
-            try:
-                v=el.get_attribute(a)
-                if v:
-                    parts.append(v)
-                    if a not in _WIDE_SCAN_URL_ATTRS: label.append(v)
-            except Exception: pass
+            try: values.append(el.get_attribute(a))
+            except Exception: values.append(None)
+        return _compose_text(_inner, values)
+
+    def _compose_text(inner, values):
+        """gather_text's join, shared with the one-round-trip harvest below.
+        ``inner`` None = unreadable (skipped); ``values`` align with
+        _WIDE_SCAN_ATTRS, falsy = absent."""
+        parts=[]; label=[]
+        if inner is not None:
+            parts.append(inner); label.append(inner)
+        for a, v in zip(_WIDE_SCAN_ATTRS, values):
+            if v:
+                parts.append(v)
+                if a not in _WIDE_SCAN_URL_ATTRS: label.append(v)
         return " ".join(parts), " ".join(label)
+
+    # dl95-eporner-2: stage 2 below reads EVERY a/button/[onclick]/... on the
+    # page, and gather_text costs 25 Playwright round trips per element --
+    # 10 315 on a captured eporner scene (226 anchors), 8 min on a loaded
+    # test2, nearly all spent on links the regex then discards.  One
+    # evaluate_all reads the same innerText + attributes for every match;
+    # only elements that pass the filter are re-read through gather_text, so
+    # add() sees exactly the text it always did.  None = fall back to the
+    # per-element path (count moved between reads, or evaluate failed).
+    def harvest_texts(loc, n):
+        try:
+            rows=loc.evaluate_all(
+                "(els, attrs) => els.map(el => ["
+                "el.namespaceURI === 'http://www.w3.org/1999/xhtml'"
+                " ? (el.innerText || '') : null,"
+                " attrs.map(a => el.getAttribute(a))])",
+                list(_WIDE_SCAN_ATTRS))
+        except Exception:
+            return None
+        if not isinstance(rows, list) or len(rows)!=n:
+            return None
+        return [_compose_text(inner, values)[0] for inner, values in rows]
 
     # v3.66.1340: a LAYOUT WRAPPER is not a download control.
     # gather_text reads inner_text, so an ancestor inherits every
@@ -2566,8 +2595,14 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     ]
     for sel in general_selectors:
         try:
-            for el in page.locator(sel).all():
+            loc=page.locator(sel)
+            els=loc.all()
+            cheap=harvest_texts(loc, len(els))
+            for i, el in enumerate(els):
                 try:
+                    if cheap is not None and not (
+                            dl_re.search(cheap[i]) or res_re.search(cheap[i])):
+                        continue
                     t,lab=gather_text(el)
                     if dl_re.search(t) or res_re.search(t):
                         add(el,t,lab)
