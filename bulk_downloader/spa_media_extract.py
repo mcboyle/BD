@@ -339,6 +339,7 @@ _OPAQUE_SCENE_SEGMENT_RE = re.compile(r"[-_]?0*(\d{8,})")
 _ID_NAMED_SEGMENT_RE = re.compile(r"0*(\d{8,})(?:\.[A-Za-z0-9]+)*")
 _RENDITION_SEGMENT_RE = re.compile(r"(?:[A-Za-z0-9]+_)?(\d{3,4})p", re.I)
 _VARIANT_DIMENSIONS_RE = re.compile(r"(?<!\d)\d{3,4}x(\d{3,4})(?!\d)")
+_ALNUM_VIDEO_ROUTE_RE = re.compile(r"/video/(x[a-z0-9]{5,})/?")
 
 
 def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
@@ -352,6 +353,12 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
     """
     ids = [m.group(1) for seg in urlparse(page_url).path.split("/")
            if (m := _OPAQUE_SCENE_SEGMENT_RE.fullmatch(seg))]
+    alnum = None
+    if not ids:
+        # fx-dailymotion-player (O1567): dailymotion's scene id is alphanumeric
+        # (/video/xbe8y8e); its player fetches /cdn/manifest/video/xbe8y8e.m3u8.
+        alnum = _ALNUM_VIDEO_ROUTE_RE.fullmatch(urlparse(page_url).path)
+        ids = [alnum.group(1)] if alnum else []
     if len(ids) != 1:
         return []
     out: List[Dict[str, Any]] = []
@@ -364,8 +371,11 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
         if parsed.scheme not in ("http", "https") or not MEDIA_EXT_RE.search(parsed.path):
             continue
         segments = [s for s in parsed.path.split("/") if s]
-        named = [s for s in segments
-                 if (m := _ID_NAMED_SEGMENT_RE.fullmatch(s)) and m.group(1) == ids[0]]
+        if alnum:
+            named = [s for s in segments if s.split(".", 1)[0] == ids[0]]
+        else:
+            named = [s for s in segments
+                     if (m := _ID_NAMED_SEGMENT_RE.fullmatch(s)) and m.group(1) == ids[0]]
         if not named or u in seen:
             continue
         seen.add(u)
