@@ -767,6 +767,10 @@ def _has_non_video_url_shape(el, page_url=""):
             continue
         if _NON_VIDEO_URL_SHAPE_RE.search(parsed.path):
             return True
+        # dl95-porn00-1: a link to a site's ROOT (the logo/home link, whose
+        # title "Watch free 720p HD Porn Videos" scored 720p) names no file.
+        if attr == "href" and parsed.path in ("", "/") and not parsed.query:
+            return True
         if _REFINEMENT_LISTING_PATH_RE.search(parsed.path):
             for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
                 if key.lower().startswith("refinementlist["):
@@ -1960,8 +1964,11 @@ def _is_listing_filter_href(el, text, page_url=""):
 # /model(s)/ names a listing, not a file: it is refused before scoring, UNLESS
 # the same path also carries a media extension, a /stream/ or a /download
 # segment (a model's video under /models/<name>/x.mp4 is still a file).
+# dl95-tube8-2 / dl95-porn00-1 (live 2026-09-28/29): tube8 spells the category
+# segment /cat/ ("HD /cat/hd/" scored 720p) and KVS sites /category-name/<x>/ and
+# /categories-list/ (porn00 "4K /category-name/4k/" scored 2160p).
 _LISTING_PATH_RE = re.compile(
-    r"(?:^|/)(?:tags?|category|categories|search|models?)(?:/|$|\?)", re.I)
+    r"(?:^|/)(?:tags?|categor(?:y|ies)(?:-[a-z]+)?|cat|search|models?)(?:/|$|\?)", re.I)
 _LISTING_FILE_PATH_RE = re.compile(
     r"\.(?:mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|m3u8|mpd|zip|rar|7z)(?:$|[?#])"
     r"|/(?:stream|download|dl)(?:/|$)", re.I)
