@@ -3377,6 +3377,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         byte_advanced = False
         with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
+            # dl95-porndig-3: a stopped job (Cancel, site Stop) is re-armed only
+            # through "pending"; "running" over it is the in-flight transfer's
+            # trailing progress and must not revive the job.
+            if status == "running" and prev_status == "stopped" and not _memory_already_updated:
+                return False
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
             if url not in self.jobs:

@@ -1094,6 +1094,17 @@ class TransportMixin:
         finally:
             self._unregister_daily_byte_accumulator(accumulator)
 
+    def _job_stop_requested(self, job_url):
+        """dl95-porndig-3: Cancel (app_queue) marks the JOB "stopped" and
+        nothing else, so the transfer moving that job's bytes reads it here,
+        beside the site-wide gate below. A host without a job table (the
+        test mixins) has nothing to read."""
+        jobs = getattr(self, "jobs", None)
+        if not job_url or not isinstance(jobs, dict):
+            return False
+        with getattr(self, "_lock", None) or contextlib.nullcontext():
+            return (jobs.get(job_url) or {}).get("status") == "stopped"
+
     def _transfer_gate_open(self, accumulator, local_stop=None):
         """Wait through pause and flush either side of an interrupt race."""
         stopped = self._stop.is_set() or (
@@ -3059,6 +3070,10 @@ class TransportMixin:
                            0, note, bytes_fetched=e.record.bytes_sampled)
                     return
                 except _HTTPDownloadFailed as e:
+                    if "stopped" in str(e).lower():
+                        # dl95-porndig-3: Stop/Cancel ended the transfer and the
+                        # job already says so -- no browser retry, no failure.
+                        return
                     if click_only_grant:
                         self._handle_failure(
                             page_url,
@@ -3911,7 +3926,8 @@ class TransportMixin:
                         except Exception:
                             _bucket = None
                     for buf in iterator:
-                        if not self._transfer_gate_open(_daily_bytes):
+                        if (self._job_stop_requested(page_url)
+                                or not self._transfer_gate_open(_daily_bytes)):
                             raise _HTTPDownloadFailed("stopped")
                         if _bucket is not None:
                             # Acquire from token bucket — bounded wait
@@ -4364,8 +4380,9 @@ class TransportMixin:
                         chunk_iter = (resp.iter_content(chunk_size=1024*1024) if _cffi
                                       else resp.iter_bytes(chunk_size=1024*1024))
                         for buf in chunk_iter:
-                            if not self._transfer_gate_open(
-                                    _daily_bytes.accumulator, local_stop):
+                            if (self._job_stop_requested(page_url)
+                                    or not self._transfer_gate_open(
+                                        _daily_bytes.accumulator, local_stop)):
                                 worker_errors[idx] = "stopped"
                                 return
                             f.write(buf)
