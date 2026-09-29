@@ -3,7 +3,9 @@
 import re
 import inspect
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
@@ -130,6 +132,33 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
 
 # dl95-kellymadisonmedia-1: do_login's verdict when the login page never loads.
 LOGIN_UNREACHABLE_PREFIX="Login page unreachable: "
+LOGIN_CANCELLED_PREFIX="Login cancelled before submit: "
+
+# dl95-cancel-relogin-1: whoever started a login can withdraw it (a re-login
+# for a job the operator then cancelled). The predicate returns a reason once
+# the login is no longer wanted; do_login asks it before any site contact and
+# again before each submit path, so a withdrawn login never submits.
+_ABORT=threading.local()
+
+
+@contextmanager
+def login_abort_check(predicate):
+    prev=getattr(_ABORT,"check",None)
+    _ABORT.check=predicate
+    try:
+        yield
+    finally:
+        _ABORT.check=prev
+
+
+def _login_abort_reason():
+    check=getattr(_ABORT,"check",None)
+    if check is None:
+        return ""
+    try:
+        return str(check() or "")
+    except Exception:
+        return ""
 TURNSTILE_IFRAME_SEL="iframe[src*='challenges.cloudflare.com']"
 
 
@@ -1612,6 +1641,10 @@ def do_login(config, allow_manual_takeover=False):
         if not trigger_uf_candidates:
             trigger_uf_candidates=list(_aug["user_field"])
 
+    _abort=_login_abort_reason()
+    if _abort:
+        sys.stderr.write(f"  {site_tag()}login: {LOGIN_CANCELLED_PREFIX}{_abort}\n")
+        return False, f"{LOGIN_CANCELLED_PREFIX}{_abort}", []
     pw=None; browser=None; ctx=None
     def _hard_close():
         try:
@@ -1850,6 +1883,10 @@ def do_login(config, allow_manual_takeover=False):
         # sweep below. No-op when no flow is saved (the common case) — the sweep
         # then runs unchanged, so this is zero-regression for every existing
         # single-form site. LIVE drive; verified on stash.
+        _abort=_login_abort_reason()
+        if _abort:
+            sys.stderr.write(f"  {site_tag()}login: {LOGIN_CANCELLED_PREFIX}{_abort}\n")
+            _hard_close(); return False, f"{LOGIN_CANCELLED_PREFIX}{_abort}", []
         _flow_ran = False
         try:
             _flow_res = replay_saved_login_flow(page, config)
@@ -2105,6 +2142,10 @@ def do_login(config, allow_manual_takeover=False):
         except Exception as e:
             sys.stderr.write(f"  {site_tag()}login: upsell checkbox uncheck skipped: {e}\n")
 
+        _abort=_login_abort_reason()
+        if _abort:
+            sys.stderr.write(f"  {site_tag()}login: {LOGIN_CANCELLED_PREFIX}{_abort}\n")
+            _hard_close(); return False, f"{LOGIN_CANCELLED_PREFIX}{_abort}", []
         # Freeze the jar before submit can mutate it. An unreadable baseline
         # is UNKNOWN, not an empty jar that makes every later cookie new.
         try:
