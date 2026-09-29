@@ -418,6 +418,29 @@ def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
     return False
 
 
+# dl95-teenfidelity-2: the mount a failed submit ran into, named for the
+# manual-takeover message. reCAPTCHA and hCaptcha are probed BEFORE Turnstile:
+# an invisible div.g-recaptcha carries data-sitekey too (teenfidelity).
+_CAPTCHA_MOUNT_PROBES=(
+    ("invisible reCAPTCHA",(".g-recaptcha[data-size='invisible']",)),
+    ("reCAPTCHA",(".g-recaptcha","iframe[src*='recaptcha']","script[src*='recaptcha/api']")),
+    ("hCaptcha",(".h-captcha","iframe[src*='hcaptcha']","script[src*='hcaptcha.com']")),
+    ("Cloudflare Turnstile",(".cf-turnstile","iframe[src*='challenges.cloudflare.com']")),
+)
+
+
+def _captcha_mount_name(page):
+    """The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises."""
+    for name,sels in _CAPTCHA_MOUNT_PROBES:
+        for sel in sels:
+            try:
+                if page.locator(sel).count()>0:
+                    return name
+            except Exception:
+                continue
+    return ""
+
+
 def _wait_captcha_tokens(page,deadline=30,turnstile_click_after=4.0):
     """Detect and wait for any of the three major invisible captchas to
     populate their hidden token field.  Returns (token_name, seconds_waited)
@@ -1938,7 +1961,11 @@ def do_login(config, allow_manual_takeover=False):
             sys.stderr.write(f"  {site_tag()}login: no nav signal and cookies "
                              f"unconvincing ({why})\n")
             if allow_manual_takeover:
-                return _hand_off(f"Couldn't submit form: {method}")
+                # dl95-teenfidelity-2: name the captcha the submit ran into.
+                _cap=_captcha_mount_name(page)
+                return _hand_off(f"Couldn't submit form: {method}"
+                                 + (f" -- {_cap} on the login page; a human (or a "
+                                    f"captcha relay) must solve it" if _cap else ""))
             _hard_close(); return False,f"Submit failed: {method}",[]
         sys.stderr.write(f"  {site_tag()}login: submitted via {method}\n")
 
