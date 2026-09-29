@@ -927,6 +927,42 @@ def _candidate_route_identity(value):
     return ()
 
 
+# dl95-beeg-1: a route whose one varying segment is an opaque numeric id
+# (beeg's /-0920833012505915) carries no title slug, so the token rule below
+# can never identify its work and every related-scene card stayed UNKNOWN.
+_OPAQUE_ID_SEGMENT_RE = re.compile(r"^[-_]?\d{8,}$")
+
+
+def _host_key(netloc):
+    return (netloc or "").lower().split(":", 1)[0].removeprefix("www.")
+
+
+def _names_another_opaque_id_route(page_url, value):
+    """True when *value* is a same-host link of THIS page's route shape whose
+    one opaque-id segment carries a DIFFERENT id.
+
+    Positive evidence only: the page's own path must contain an opaque-id
+    segment, and the link must match the page segment-for-segment except that
+    id. The page itself (same id), another route shape, another host, or a
+    route with no id is not a claim either way."""
+    try:
+        page = urlparse(page_url)
+        cand = urlparse(urljoin(page_url, value))
+    except ValueError:
+        return False
+    if cand.scheme not in ("http", "https") or _host_key(cand.netloc) != _host_key(page.netloc):
+        return False
+    page_segs = [s for s in (page.path or "").split("/") if s]
+    cand_segs = [s for s in (cand.path or "").split("/") if s]
+    if not page_segs or len(page_segs) != len(cand_segs):
+        return False
+    differing = [(a, b) for a, b in zip(page_segs, cand_segs) if a != b]
+    if len(differing) != 1:
+        return False
+    mine, theirs = differing[0]
+    return bool(_OPAQUE_ID_SEGMENT_RE.match(mine) and _OPAQUE_ID_SEGMENT_RE.match(theirs))
+
+
 def _candidate_names_another_work(page_url, value):
     """True only when *value* RESOLVES TO A WORK and it is not this page's.
 
@@ -942,7 +978,12 @@ def _candidate_names_another_work(page_url, value):
     the honest answer is UNKNOWN, which the marked fallback already carries.
     Without this the row 484 and row 399 gates lost their single taught
     candidate to a FOREIGN stamp that no page had the standing to make.
+
+    dl95-beeg-1: an id-routed page DOES have that standing for a link of its
+    own route shape carrying another id (`_names_another_opaque_id_route`).
     """
+    if _names_another_opaque_id_route(page_url, value):
+        return True
     if not page_work_tokens(page_url):
         return False
     try:
