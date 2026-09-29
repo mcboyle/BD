@@ -470,3 +470,128 @@ def resolve_candidate_url(page, cand: Dict[str, Any], headers: Dict[str, str]) -
     if url:
         cand["url"] = urljoin(ru, url)
     return cand.get("url") or ""
+
+
+# ── dl95-fullporner-1: third-party embed players ─────────────────────────────
+# A scene whose player is a cross-origin <iframe> (fullporner -> xiaoshenke.net)
+# has no media in the top frame. The embed's <video> lists its renditions as
+# typed <source> children with extension-less URLs (/vid/<n>/1080,
+# type=video/mp4), while the <video>'s own currentSrc is a pre-roll AD -- so
+# only <video> > <source> is read, never the <video> element itself.
+FRAME_SOURCES_JS = """() => [...document.querySelectorAll('video > source')]
+  .map(s => [s.src || s.getAttribute('src') || '', s.type || ''])"""
+
+
+def frame_source_candidates(frame_url: str, pairs: Iterable[Any],
+                            page_url: str = "") -> List[Dict[str, Any]]:
+    """Candidates from one frame's [src, type] <source> pairs. A typed video/*
+    source needs no extension; an untyped one needs a media extension; any
+    other type (audio/*) is refused. Files are named after the scene page."""
+    slug = (urlparse(page_url or "").path or "").rstrip("/").rsplit("/", 1)[-1]
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for pair in pairs or []:
+        try:
+            src, typ = str(pair[0] or "").strip(), str(pair[1] or "").strip().lower()
+        except (TypeError, IndexError):
+            continue
+        if not src:
+            continue
+        u = urljoin(frame_url, src)
+        if not u.startswith(("http://", "https://")) or u in seen:
+            continue
+        if typ and not typ.startswith("video/"):
+            continue
+        if not typ and not MEDIA_EXT_RE.search(u):
+            continue
+        seen.add(u)
+        last = (urlparse(u).path or "").rstrip("/").rsplit("/", 1)[-1]
+        out.append({"url": u, "label": "", "height": _height_of(last, u), "size": 0,
+                    "source": "embed-frame", "filename": f"{slug}.mp4" if slug else ""})
+    return out
+
+
+# A player is on screen and player-sized; a hidden (display:none) or pixel
+# iframe -- an ad slot, a tracker -- is never the scene's player (lens R1).
+_MIN_PLAYER_W, _MIN_PLAYER_H = 200, 150
+
+
+# The iframe and every ancestor must actually render: a visibility:hidden or
+# transparent iframe keeps its box (lens R1 gen2), so the box alone is not proof.
+_FRAME_SHOWN_JS = """e => {
+  for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
+    const s = getComputedStyle(n);
+    if (s.display === 'none' || s.visibility === 'hidden' || s.visibility === 'collapse'
+        || parseFloat(s.opacity) < 0.05) return false;
+  }
+  return true;
+}"""
+
+
+def _frame_element_shown(frame):
+    """The <iframe> element embedding ``frame`` in its parent document: its box
+    when it renders (itself and its ancestors in THAT document), else None."""
+    el = frame.frame_element()
+    if el is None or not el.is_visible() or not el.evaluate(_FRAME_SHOWN_JS):
+        return None
+    box = el.bounding_box()
+    if not box or box.get("x", 0) + box.get("width", 0) <= 0 \
+            or box.get("y", 0) + box.get("height", 0) <= 0:
+        return None
+    return box
+
+
+def _is_visible_player_frame(frame) -> bool:
+    """Player-sized, and visible through EVERY embedding document up to the top
+    page: a hidden outer iframe hides the player nested in it (lens R1 gen3)."""
+    try:
+        box = _frame_element_shown(frame)
+        if not box or box.get("width", 0) < _MIN_PLAYER_W \
+                or box.get("height", 0) < _MIN_PLAYER_H:
+            return False
+        outer = frame.parent_frame
+        while outer is not None and outer.parent_frame is not None:
+            if not _frame_element_shown(outer):
+                return False
+            outer = outer.parent_frame
+    except Exception:
+        return False
+    return True
+
+
+def _child_frames(page) -> list:
+    try:
+        main = page.main_frame
+        return [f for f in page.frames if f is not main
+                and (f.url or "").startswith(("http://", "https://"))
+                and _is_visible_player_frame(f)]
+    except Exception:
+        return []
+
+
+def embed_frame_candidates(page, page_url: str = "") -> List[Dict[str, Any]]:
+    """<video> > <source> options inside the page's visible player frames.
+    Ranked with the page's own media by height (PM ruling 0245Z 2(a)); hidden
+    frames never contribute (lens R1), so an ad slot cannot enter the ranking."""
+    cands: List[Dict[str, Any]] = []
+    for fr in _child_frames(page):
+        try:
+            pairs = fr.evaluate(FRAME_SOURCES_JS) or []
+        except Exception:
+            continue
+        cands += frame_source_candidates(fr.url, pairs, page_url or getattr(page, "url", ""))
+    return cands
+
+
+def third_party_frame_hosts(page) -> List[str]:
+    """Hosts of child frames on a different host than the page (embed players)."""
+    try:
+        top = urlparse(page.url or "").hostname or ""
+    except Exception:
+        top = ""
+    hosts: List[str] = []
+    for fr in _child_frames(page):
+        h = urlparse(fr.url).hostname or ""
+        if h and h != top and h not in hosts:
+            hosts.append(h)
+    return hosts
