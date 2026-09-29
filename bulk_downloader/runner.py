@@ -5352,6 +5352,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         f"  dl8: extractor raised {type(e).__name__}: "
                         f"{str(e)[:100]}\n"
                     )
+            # dl95-file-examples-1: a direct media job URL never reaches the
+            # page scorer (ads on a 404/interstitial page were admitted as
+            # 240p candidates); it finishes via the page's media or fails.
+            if self._direct_media_url_handled(url, page):
+                return
             # Phase 5.5: pass learned block so find_best can try learned
             # row_selectors before the full 14-element-type sweep.
             best=find_best_download(page,self.config.get("dl_selector","").strip(),

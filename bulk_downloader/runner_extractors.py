@@ -1361,6 +1361,54 @@ class ExtractorsMixin:
             sys.stderr.write(f"  kafka event hook failed: {e}\n")
         return True
 
+    # dl95-file-examples-1: the navigation's own status and MIME type, for the failure message.
+    _NAV_STATE_JS = """() => {
+  let status = 0;
+  try { const n = performance.getEntriesByType('navigation')[0]; status = (n && n.responseStatus) || 0; } catch (e) {}
+  return [status, document.contentType || ''];
+}"""
+
+    def _direct_media_url_handled(self, url: str, page) -> bool:
+        """dl95-file-examples-1: a job URL that is itself a direct media href
+        (candidate_filter.MEDIA_EXT_RE on its path) is never handed to the page scorer.
+
+        Whatever the browser rendered for it -- a 404 or interstitial HTML page
+        with ads, or Chromium's own media viewer -- is not a page of download
+        buttons: on test2 the scorer admitted "Advertisement" elements and sent
+        1920x1080 files to needs_review as "Best is 240p".  The page's own media
+        (the spa-api path) may still finish the job; otherwise it fails with the
+        navigation's real status and type, so a 404 is permanent and nothing
+        counts toward the no-button auto-pause.
+
+        Returns True when the job was handled (finished or failed): the caller
+        must return.  False for any other URL: the scorer path runs as before.
+        """
+        from urllib.parse import urlsplit as _urlsplit
+
+        from . import candidate_filter as _candidate_filter
+        # The PATH carries the extension (as detect.py's row759d check): a
+        # query value such as ``/player?src=clip.mp4`` is a page, not media.
+        try:
+            path = _urlsplit(url).path
+        except ValueError:
+            return False
+        if not _candidate_filter.MEDIA_EXT_RE.search(path):
+            return False
+        if self._try_spa_api_media_extractor(url, page):
+            return True
+        try:
+            status, ctype = page.evaluate(self._NAV_STATE_JS)
+        except Exception:  # noqa: BLE001 -- a closed/crashed page must still fail the job
+            status, ctype = 0, ""
+        ss = self._screenshot(page, url)
+        got = f"HTTP {status}" if status else "no HTTP status"
+        self._handle_failure(
+            url,
+            f"Direct media URL answered {got}, {ctype or 'unknown type'}; "
+            f"no media fetched and the page is not scored for download candidates",
+            screenshot=ss)
+        return True
+
     def _try_vixen_extractor(self, url: str, page) -> bool:
         """v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
         download.
