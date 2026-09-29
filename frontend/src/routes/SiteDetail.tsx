@@ -118,7 +118,7 @@ export function SiteDetail() {
   );
   const [editMode, setEditMode] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { data: kpiData } = useWidgetData(siteId);
+  const { data: kpiData, hasData: kpiReady } = useWidgetData(siteId);
 
   // Delete: actual mutation lives here, but the e2e only asserts the
   // affordance is present and enabled. We don't auto-confirm on click
@@ -210,7 +210,7 @@ export function SiteDetail() {
   // Build the union of tiles: legacy 5 + selected KPI widgets. Legacy
   // tiles render compact placeholders here (the per-site dashboard's
   // value-add is the KPI catalog, not the global legacy widgets).
-  const widgets = buildWidgets(editMode, widgetSelection.ids, kpiData);
+  const widgets = buildWidgets(editMode, widgetSelection.ids, kpiData, kpiReady);
 
   return (
     <AppShell
@@ -427,6 +427,7 @@ function buildWidgets(
   editMode: boolean,
   extraIds: string[],
   kpiData: import("@/lib/widgetCatalog").WidgetData,
+  kpiReady: boolean,
 ) {
   // Legacy placeholders. On a per-site dashboard we don't try to
   // recompute attention/today/throughput/now-running/by-site scoped
@@ -453,7 +454,7 @@ function buildWidgets(
         <div key={layoutId} className="dashboard-tile-wrap h-full">
           <DashboardTile id={layoutId} editMode={editMode}>
             <div className="hairline h-full overflow-hidden rounded-md border bg-surface">
-              <KPICard spec={spec} />
+              <KPICard spec={spec} pending={!kpiReady} />
             </div>
           </DashboardTile>
         </div>

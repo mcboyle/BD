@@ -34,6 +34,10 @@ const SLOW_INTERVAL = 30_000;
 
 export function useWidgetData(siteId?: string): {
   data: WidgetData;
+  /** False until the first snapshot lands. Before then `data` is an
+   *  empty placeholder, not a measurement: tiles must render as loading
+   *  rather than "—" or a `?? 0` default (dl95-app-B6-2-live-1). */
+  hasData: boolean;
   isLoading: boolean;
   isError: boolean;
 } {
@@ -61,6 +65,7 @@ export function useWidgetData(siteId?: string): {
 
   return {
     data: q.data?.data ?? {},
+    hasData: q.data !== undefined,
     isLoading: q.isLoading,
     isError: q.isError,
   };
