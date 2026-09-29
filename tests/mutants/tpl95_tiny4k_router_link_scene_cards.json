@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "tpl95-tiny4k-1: SPA listings whose scene cards are unresolved router links (<nuxtlink to>) with a sibling thumbnail are discovered.",
+  "subject": "bulk_downloader/scene_crawler.py",
+  "band": [
+    "tests/test_tpl95_tiny4k_router_link_scene_cards.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 a router link's to path is never resolved",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "  if \\(routed\\) \\{\\n",
+      "new": "  if (routed && !routed) {\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_tiny4k_router_link_scene_cards.py::test_the_row_listing_discovers_its_twelve_router_link_scenes"
+    },
+    {
+      "label": "M2 a router link's sibling thumbnail is not card evidence",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "    has_img: Boolean\\(img\\) \\|\\| cardImg,\\n",
+      "new": "    has_img: Boolean(img),\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_tiny4k_router_link_scene_cards.py::test_the_row_listing_discovers_its_twelve_router_link_scenes"
+    },
+    {
+      "label": "M3 the card boundary is dropped: any ancestor image counts",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "      if \\(rivals\\.length\\) break;\\n",
+      "new": "      if (!p) break;\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_tiny4k_router_link_scene_cards.py::test_a_router_link_without_a_card_image_of_its_own_is_not_a_scene[shared]"
+    },
+    {
+      "label": "M4 an a[href] sibling is not a rival card (router links only)",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "!other\\.isSameNode\\(a\\) &&",
+      "new": "!other.isSameNode(a) && !other.href &&",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_tiny4k_router_link_scene_cards.py::test_a_router_link_without_a_card_image_of_its_own_is_not_a_scene[mixed]"
+    }
+  ]
+}

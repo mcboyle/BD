@@ -610,7 +610,7 @@ class _ScriptedLazyLoadPage:
         return [720 + 200 * count, count]
 
     def locator(self, selector):
-        assert selector == "a[href]", selector
+        assert selector == _crawler()._LINK_SELECTOR, selector
         page = self
 
         class _Locator:
