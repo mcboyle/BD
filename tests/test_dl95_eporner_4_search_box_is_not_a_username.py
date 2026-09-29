@@ -358,3 +358,56 @@ def test_load_sites_config_gap_fills_empty_login_trigger_for_existing_site(tmp_p
     # Explicit custom trigger is preserved untouched
     assert app_mod.s_cfg["custom_site"]["login_trigger"] == "button.custom-login"
 
+
+
+# tpl95-whoreshub-1-detector-merge (lane delta): main's dl95-eporner-4 cases,
+# read through main's ``_search_field_reason`` and main's wording, kept beside
+# the lane's ``_is_search_field`` cases above -- ONE detector answers both.
+def test_the_failure_names_the_search_field_it_refused_in_mains_words():
+    from bulk_downloader.login_impl._common import _try_fill
+    with _page("/home") as page:
+        ok, info = _try_fill(page, _fallbacks(), ACCOUNT, "username")
+        assert ok is False
+        assert "search field" in info and "type=search" in info, info
+
+
+@pytest.mark.parametrize("html,reason", [
+    ('<form action="/search/"><input type="text" name="term" id="f"></form>', "form action"),
+    ('<form action="/search.php"><input type="text" name="term" id="f"></form>', "form action"),
+    ('<form action="/find"><input type="text" name="searchterm" id="f"></form>', "name=searchterm"),
+    ('<form action="/find"><input type="text" name="q" id="f"></form>', "name=q"),
+    ('<div role="search"><form action="/x"><input type="text" name="k" id="f"></form></div>', "role=search"),
+    ('<form action="/x"><input type="text" role="searchbox" name="k" id="f"></form>', "role=searchbox"),
+    ('<form action="/x"><input type="search" name="k" id="f"></form>', "type=search"),
+])
+def test_each_search_spelling_is_refused_by_search_field_reason(html, reason):
+    from bulk_downloader.login_impl._common import _search_field_reason
+    with _page("/x", html=f"<!doctype html><html><body>{html}</body></html>") as page:
+        assert reason in _search_field_reason(page.locator("#f"))
+
+
+@pytest.mark.parametrize("html", [
+    '<form action="/login/"><input type="text" name="login" id="f"></form>',
+    '<form action="/members/login?next=/search/"><input type="email" name="email" id="f"></form>',
+    '<form action="/signin"><input type="text" name="user" id="f" placeholder="Username or email"></form>',
+    '<input type="text" name="username" id="f">',
+])
+def test_login_fields_are_not_mistaken_for_search_by_search_field_reason(html):
+    from bulk_downloader.login_impl._common import _search_field_reason
+    with _page("/x", html=f"<!doctype html><html><body>{html}</body></html>") as page:
+        assert _search_field_reason(page.locator("#f")) == ""
+
+
+def test_search_field_reason_fails_open():
+    from bulk_downloader.login_impl._common import _search_field_reason
+
+    class _NoEval:
+        def evaluate(self, _js):
+            raise RuntimeError("no browser")
+
+    class _NotAString:
+        def evaluate(self, _js):
+            return object()
+
+    assert _search_field_reason(_NoEval()) == ""
+    assert _search_field_reason(_NotAString()) == ""

@@ -391,15 +391,18 @@ _SEARCH_FIELD_JS = r"""el => {
   if ((el.getAttribute('role') || '').toLowerCase() === 'searchbox') return 'role=searchbox';
   if (el.closest('[role=search], search')) return 'inside role=search';
   const n = (el.getAttribute('name') || '').toLowerCase();
-  if (['q', 'query', 'search', 'search_query', 'keyword', 'keywords'].includes(n)) return 'name=' + n;
+  if (['q', 'query', 'search', 'search_query', 'searchterm', 'keyword', 'keywords'].includes(n)) return 'name=' + n;
   const f = el.form;
   if (f) {
     // dl95-eporner-4: the action's PATH only -- a login form posting to
     // /login?next=/search/ is not a search form.
     let act = '';
     try { act = new URL(f.getAttribute('action') || '', document.baseURI).pathname.toLowerCase(); } catch (e) {}
+    // tpl95-whoreshub-1-detector-merge: main's path rule too (/search.php);
+    // the reason names both "search form" (lane) and "form action" (main).
+    if (/(^|\/)search(\/|\.|\?|$)/.test(act)) return 'search form action ' + act;
     const idc = ((f.getAttribute('id') || '') + ' ' + (f.getAttribute('class') || '')).toLowerCase();
-    if (/\/search(\/|\?|$)/.test(act) || /search/.test(idc)) return 'search form';
+    if (/search/.test(idc)) return 'search form';
   }
   const hint = ((el.getAttribute('placeholder') || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
   if (/\bsearch\b/.test(hint)) return 'search placeholder';
@@ -423,6 +426,14 @@ def _is_search_field(loc):
     # dl95-eporner-4: only a non-empty reason string marks a search box; a
     # test double answering an object is not one (fail-open, as above).
     return (True, why) if isinstance(why, str) and why else (False, "")
+
+
+def _search_field_reason(loc):
+    """dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
+    ``""``.  tpl95-whoreshub-1-detector-merge: the SAME detector as
+    ``_is_search_field`` -- one ``_SEARCH_FIELD_JS``, two spellings of the
+    answer -- so main's callers and tests read the lane's rules."""
+    return _is_search_field(loc)[1]
 
 
 def _try_fill(page,selectors,value,what):
@@ -505,7 +516,9 @@ def _try_fill(page,selectors,value,what):
     # situations -- the first wants a better selector list, the second says
     # the filter is doing its job (or is over-firing) -- and the pre-fix
     # message collapsed them into one string. Name the decoys and why.
-    also=(f"; skipped {len(searches)} search box(es), not a login field: "
+    # tpl95-whoreshub-1-detector-merge: name both "search field" (main's
+    # eporner-4 wording) and "search box" (the lane's / whoreshub's).
+    also=(f"; skipped {len(searches)} search field(s), a search box is not a login field: "
           f"{', '.join(searches[:3])}" if searches else "")
     if skipped:
         return False,(f"could not fill {what}; tried {len(tried)} selectors, "
