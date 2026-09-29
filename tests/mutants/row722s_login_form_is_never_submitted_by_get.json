@@ -9,8 +9,8 @@
     {
       "label": "M1 requestSubmit fallback submits a GET password form (JS guard disabled)",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "if \\(hasPassword && method\\.toLowerCase\\(\\) !== 'post'\\) \\{\\n                    return \\{submitted: false, method, hasPassword,\\n                            reason: 'refused password form without POST'\\};\\n                \\}\\n                if \\(typeof f\\.requestSubmit",
-      "new": "if (false) {\n                    return {submitted: false, method, hasPassword,\n                            reason: 'refused password form without POST'};\n                }\n                if (typeof f.requestSubmit",
+      "old_regex": "if \\(hasPassword && method\\.toLowerCase\\(\\) !== 'post'\\) \\{\\n                    // dl95-txxx-2: a GET-attributed login form",
+      "new": "if (false) {\n                    // dl95-txxx-2: a GET-attributed login form",
       "direction": "regression",
       "catcher": "tests/test_row722s_login_form_is_never_submitted_by_get.py::test_the_js_fallbacks_refuse_a_get_form_so_the_password_never_enters_the_url"
     },
