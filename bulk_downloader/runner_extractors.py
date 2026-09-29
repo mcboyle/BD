@@ -1871,8 +1871,9 @@ class ExtractorsMixin:
         self._update_job(url, "needs_review", msg, screenshot=ss)
         try:
             db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0, msg, ss)
-        except Exception:
-            pass
+        except Exception as db_exc:
+            sys.stderr.write(f"  spa-api: needs_review not written to the run log "
+                             f"({type(db_exc).__name__})\n")
         return True
 
     def _try_vixen_extractor(self, url: str, page) -> bool:

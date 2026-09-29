@@ -1,5 +1,6 @@
 """login_impl._common -- verbatim cluster from login.py @v447 (DECOMP-LEAF cut 3)."""
 
+import sys
 import time
 
 
@@ -182,8 +183,9 @@ def resolve_login_trigger(config=None, page=None):
                 defaults = (tpl or {}).get("config_defaults") or {}
                 if defaults.get("login_trigger"):
                     return str(defaults["login_trigger"]).strip()
-    except Exception:
-        pass
+    except Exception as tpl_exc:
+        sys.stderr.write(f"  login: template login_trigger default unreadable "
+                         f"({type(tpl_exc).__name__})\n")
     return ""
 
 

@@ -385,6 +385,8 @@ class QueueMixin:
                                   message="Re-added", retries=0, retry_after=0)
             except sqlite3.Error as e:
                 self.log.warning("queue_bulk_update (re-added) failed: %s", e)
+                sys.stderr.write(f"  queue: {len(rearmed)} re-added job(s) are pending in "
+                                 f"memory only until the next queue write\n")
         # Phase 4.2: bulk-insert into queue table outside the lock
         if new_urls:
             try:
@@ -497,7 +499,9 @@ class QueueMixin:
             release()
         try:
             queue_bulk_delete(self.site_id, list(urls))
-        except Exception: pass
+        except Exception as del_exc:
+            sys.stderr.write(f"  queue: {len(urls)} removed job(s) not deleted from the "
+                             f"queue table ({type(del_exc).__name__})\n")
         if skipped_review:
             try:
                 from . import plugins as _pl

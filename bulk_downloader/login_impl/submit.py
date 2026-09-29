@@ -528,13 +528,16 @@ def _late_rejected_landing(page, polls):
         try:
             if "wrong username or password provided" in (page.content() or "").lower():
                 return cur or "(login page)"
-        except Exception:
-            pass    # mid-navigation read; the next poll reads the settled page
+        except Exception as read_exc:
+            # mid-navigation read; the next poll reads the settled page
+            sys.stderr.write(f"  login: page unreadable mid-navigation on poll {_i} "
+                             f"({type(read_exc).__name__})\n")
         if _i < polls:
             try:
                 page.wait_for_load_state("load", timeout=500)
-            except Exception:
-                pass
+            except Exception as load_exc:
+                sys.stderr.write(f"  login: load-state wait on poll {_i} did not settle "
+                                 f"({type(load_exc).__name__})\n")
             time.sleep(0.5)
     return ""
 

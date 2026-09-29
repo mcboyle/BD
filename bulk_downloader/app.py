@@ -1774,8 +1774,9 @@ def _load_sites_config():
                     defaults = (tpl or {}).get("config_defaults") or {}
                     if defaults.get("login_trigger"):
                         cfg["login_trigger"] = defaults["login_trigger"]
-            except Exception:
-                pass
+            except Exception as tpl_exc:
+                sys.stderr.write(f"  sites: template login_trigger default not applied "
+                                 f"({type(tpl_exc).__name__})\n")
         # B2 (GUI cut): carry the per-site draft-test override across a restart.
         # It is transient runtime state set by POST /api/template/test_extract,
         # NOT an operator-edited config field, so it is deliberately absent from

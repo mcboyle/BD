@@ -7,6 +7,7 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 Shared state (runners, s_cfg) is owned by app.py and reached
 via _app_<name>() accessors (getattr, fresh per call -- same object by reference).
 """
+import sys
 from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
@@ -233,8 +234,8 @@ def api_discovery_scenes_stop():
             actor=(request.cookies.get("bd_session", "")[:8]
                    or request.remote_addr or "operator"),
         )
-    except Exception:
-        pass
+    except Exception as audit_exc:
+        sys.stderr.write(f"  discovery: audit entry not written ({type(audit_exc).__name__})\n")
     return jsonify(result)
 
 

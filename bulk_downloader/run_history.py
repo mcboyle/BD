@@ -111,9 +111,11 @@ def reconcile_restored_runs(site_id):
                         "INSERT INTO run_events(run_id, event_type, detail) "
                         "VALUES(?, 'finish', 'cancelled: service_restart')",
                         (row["id"],))
+            return len(rows)
     except Exception as e:
         log.warning("reconcile_restored_runs failed (advisory): %s: %s",
                     type(e).__name__, e)
+        return 0
 
 
 def record_run_event(run_id, event_type, detail=""):

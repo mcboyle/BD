@@ -1940,8 +1940,9 @@ def _learned_media_row(el, url_attr):
             res_val = (el.get_attribute("res") or "").strip()
             if res_val:
                 label = f"{res_val}p" if res_val.isdigit() else res_val
-    except Exception:
-        pass
+    except Exception as src_exc:
+        sys.stderr.write(f"  detect: <source> attributes unreadable ({type(src_exc).__name__}); "
+                         f"keeping {label!r}\n")
     return url, label
 
 
