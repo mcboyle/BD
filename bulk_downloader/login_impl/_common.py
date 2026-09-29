@@ -30,7 +30,42 @@ def _selector_text(raw):
     return ""
 
 
-def _first_positive_size_match(page, selector):
+# dl95-eporner-4: the in-browser test behind _search_field_reason. Only the
+# form action's PATH is read, so a login form posting to /login?next=/search/
+# is not a search form.
+_SEARCH_FIELD_JS = r"""el => {
+  const low = s => String(s || '').toLowerCase();
+  if (low(el.getAttribute('type')) === 'search') return 'type=search';
+  if (low(el.getAttribute('role')) === 'searchbox') return 'role=searchbox';
+  if (el.closest('[role=search], search')) return 'inside role=search';
+  const name = low(el.getAttribute('name'));
+  if (['q', 'search', 'search_query', 'searchterm', 'query'].includes(name)) return 'name=' + name;
+  const form = el.form;
+  if (form) {
+    let path = '';
+    try { path = new URL(form.getAttribute('action') || '', document.baseURI).pathname; } catch (e) {}
+    if (/(^|\/)search(\/|\.|$)/i.test(path)) return 'form action ' + path;
+  }
+  return '';
+}"""
+
+
+def _search_field_reason(loc):
+    """dl95-eporner-4: why ``loc`` is a site SEARCH input, or ``""``.
+
+    A search box is never a login field.  On eporner the last-ditch username
+    fallback (``form input:not(...)``) matched the header search input, the
+    account name was typed into it and submitted, and the login ended on the
+    search results page.  Fail-open: a locator that cannot be inspected (or a
+    test double answering something other than a string) is not refused."""
+    try:
+        why = loc.evaluate(_SEARCH_FIELD_JS)
+    except Exception:
+        return ""
+    return why if isinstance(why, str) else ""
+
+
+def _first_positive_size_match(page, selector, skip=None):
     """Return the first visible, positive-size match for ``selector``.
 
     Login pages often keep desktop and mobile controls in the DOM together.
@@ -38,6 +73,8 @@ def _first_positive_size_match(page, selector):
     though a later desktop match is clickable.  Presence alone is also not a
     useful signal for modal login fields: a complete ``display:none`` form is
     present but has no usable box.
+
+    ``skip(match)`` returning a truthy value passes over that match.
     """
     try:
         matches = page.locator(selector)
@@ -48,6 +85,8 @@ def _first_positive_size_match(page, selector):
         try:
             match = matches.nth(index)
             if not match.is_visible():
+                continue
+            if skip is not None and skip(match):
                 continue
             box = match.bounding_box()
             if (box and box.get("width", 0) > 0
@@ -73,7 +112,9 @@ def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
 
     for raw_selector in username_selectors:
         selector = _selector_text(raw_selector)
-        if selector and _first_positive_size_match(page, selector) is not None:
+        # dl95-eporner-4: a visible search box is not a visible username field.
+        if selector and _first_positive_size_match(
+                page, selector, skip=_search_field_reason) is not None:
             return False, False, "username field is already visible"
 
     visible_trigger = _first_positive_size_match(page, trigger)
@@ -270,6 +311,7 @@ def _try_fill(page,selectors,value,what):
     (_type_field_value)."""
     tried=[]
     skipped=[]
+    searches=[]
     for sel in selectors:
         if not sel: continue
         tried.append(sel)
@@ -291,6 +333,11 @@ def _try_fill(page,selectors,value,what):
                 decoy,why=_is_honeypot_field(loc)
                 if decoy:
                     skipped.append(f"{sel}[{idx}]:{why}")
+                    continue
+                # dl95-eporner-4: never type credentials into a site search box.
+                search=_search_field_reason(loc)
+                if search:
+                    searches.append(f"{sel}[{idx}]:{search}")
                     continue
                 _wait_visible(loc)
                 # Clear any existing value, then click to focus, then type.
@@ -325,11 +372,14 @@ def _try_fill(page,selectors,value,what):
     # situations -- the first wants a better selector list, the second says
     # the filter is doing its job (or is over-firing) -- and the pre-fix
     # message collapsed them into one string. Name the decoys and why.
+    # dl95-eporner-4: a page whose only match is a search box says so.
+    refused=(f"; skipped {len(searches)} search field(s): "
+             f"{', '.join(searches[:3])}") if searches else ""
     if skipped:
         return False,(f"could not fill {what}; tried {len(tried)} selectors, "
                       f"skipped {len(skipped)} honeypot field(s): "
-                      f"{', '.join(skipped[:5])}")
-    return False,f"could not fill {what}; tried {len(tried)} selectors"
+                      f"{', '.join(skipped[:5])}{refused}")
+    return False,f"could not fill {what}; tried {len(tried)} selectors{refused}"
 
 
 def get_input_scheduler():
