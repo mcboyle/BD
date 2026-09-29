@@ -1196,6 +1196,40 @@ def release(staging_path, identity: str | None = None, *, force: bool = False) -
     return True
 
 
+def discard(final_path, identity: str) -> bool:
+    """Delete THIS job's staged bytes for ``final_path``, then drop its claim.
+
+    dl95-nookies-2 (test2, 2026-09-29). An HTTP transfer raised mid-stream
+    (curl 92, HTTP/2 stream reset), which keeps the ``.part``, its ``.meta``
+    and the claim for a resume, as it should. The browser fallback then saved
+    the whole file straight to the final name, and ``release`` (rightly,
+    row 489) kept a claim over bytes that were still on disk. The result was a
+    1 GB ``.part`` plus sidecars, owned by a finished job, beside the finished
+    file. Only the caller knows that the final file supersedes the staged
+    bytes, so this is the call it makes instead of ``release``.
+
+    Identity-gated like ``release``. When the claim records another job, is
+    unreadable, or is missing, the bytes are left untouched: those bytes are
+    not provably this job's. Returns True when neither the bytes nor this job's
+    claim remain. Never raises for an I/O failure.
+    """
+    from . import resume as _resume
+    staging = staging_path_for(final_path)
+    owner = owner_path_for(staging)
+    try:
+        if not owner.exists() or _read_owner_identity(owner) != identity:
+            return release(staging, identity)
+    except (OSError, StagingUnavailable):
+        return False
+    for path in (staging.with_suffix(staging.suffix + ".meta"),
+                 _resume.sidecar_path(final_path), staging):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            return False
+    return release(staging, identity)
+
+
 def reserve(final_path, identity: str):
     """Reserve a free ``(final_path, staging_path)`` pair for ``identity``.
 
