@@ -4479,9 +4479,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 from_local_queue = True
                 try: url=self._url_queue.get(timeout=1)
                 except queue.Empty:
-                    # dl-f4: catch-all for a teach target that left
-                    # needs_review by a path with no explicit release.
-                    self._release_teach_waiters_if_unblocked()
                     stolen = self._try_steal_job()
                     if stolen is not None:
                         url = stolen

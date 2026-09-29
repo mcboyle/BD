@@ -651,8 +651,6 @@ class ManualMixin:
                              filename="(manual)")
         except Exception: pass
 
-        # dl-f4: the teach flow has ended either way; requeue parked URLs.
-        self._release_teach_waiters()
         # Phase 41.2: clear the auto_teach state and re-enqueue any URLs
         # that were waiting for selectors
         if learned_count:
@@ -702,7 +700,6 @@ class ManualMixin:
                         except Exception: pass
                         mark_status_changed()
             self._auto_teach_logged = False
-            self._release_teach_waiters()
         except Exception: pass
         self._login_status="✗ Manual download cancelled"
         return True,"Cancelled"
