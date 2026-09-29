@@ -32,7 +32,9 @@ from typing import Sequence
 # with MAX_WORKTREE_SHARE below, which pins the property the row actually wanted --
 # a scoped worktree is a FRACTION of a full checkout -- and which cannot go stale
 # as the repository grows, because both sides grow together.
-MAX_WORKTREE_MB = 64.0
+# 64 -> 66 (PM ruling, row963): T154 lane growth alone scopes to 63.59 MB and the
+# merged lane 64.05 MB; a harness budget, not a product regression (O795/O805).
+MAX_WORKTREE_MB = 66.0
 
 # sg10: the scoped worktree must be at most this share of a FULL checkout of the
 # same commit (measured from git ls-tree, so no second checkout is needed). At
