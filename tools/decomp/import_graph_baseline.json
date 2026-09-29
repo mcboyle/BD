@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5201,
+  "edge_count": 5230,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -545,6 +545,7 @@
       "bulk_downloader/capture_schedules.py"
     ],
     "bulk_downloader/app_scrape_listing.py": [
+      "bulk_downloader/listing_links.py",
       "bulk_downloader/ssrf_transport.py"
     ],
     "bulk_downloader/app_search.py": [
@@ -1843,6 +1844,7 @@
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/lazy_player_wait.py",
       "bulk_downloader/library_final.py",
+      "bulk_downloader/listing_links.py",
       "bulk_downloader/log.py",
       "bulk_downloader/login.py",
       "bulk_downloader/macro_recorder.py",
@@ -3177,31 +3179,74 @@
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
     ],
+    "tests/test_dl95_beeg_1_related_scene_cards_are_foreign.py": [
+      "bulk_downloader/detect.py"
+    ],
     "tests/test_dl95_blacked_1_verify_login_is_the_worker_login.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/login.py"
+    ],
+    "tests/test_dl95_cumlouder_1_direct_http_stages_part.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/staging_claim.py"
+    ],
+    "tests/test_dl95_dailymotion_1_untaught_ytdlp_route.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_telemetry.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/ytdlp_updater.py"
     ],
     "tests/test_dl95_dailymotion_6_failed_dupe_requeue.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
       "bulk_downloader/runner_queue.py"
     ],
+    "tests/test_dl95_dfxtra_1_dead_letter_dupe_requeue.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_dl95_fe1_direct_media_url_skips_page_scorer.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_telemetry.py"
     ],
+    "tests/test_dl95_kellymadisonmedia_login_host_unreachable.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/stealth.py"
+    ],
     "tests/test_dl95_ok_1_admission_before_ranking.py": [
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_dl95_pussyspace_2_listing_link_classifier.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/listing_links.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_dl95_reptyle_2_start_names_unarmed_pool.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_dl95_teenmegaworld_1_tier_fallback.py": [
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_dl95_vip4k_3_member_nav_is_not_a_scene.py": [
+      "bulk_downloader/scene_crawler.py"
+    ],
     "tests/test_dl95_xempire_1_scene_cohort_nav_links.py": [
+      "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_dl95_xvideos_1_public_site_discovery.py": [
+      "bulk_downloader/cloak.py",
       "bulk_downloader/scene_crawler.py"
     ],
     "tests/test_dl_f2_auto_teach_direct_media.py": [
@@ -6080,6 +6125,10 @@
     ],
     "tests/test_toolso04_opaque_verify.py": [
       "tools/capture_scrub.py"
+    ],
+    "tests/test_tpl95_bang_2_template_status_applied_template.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/user_templates.py"
     ],
     "tests/test_track_k_vpn_bind.py": [
       "bulk_downloader/download_egress.py",

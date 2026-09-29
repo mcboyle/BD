@@ -1543,6 +1543,7 @@
     "scrape_listing": {
       "module": "app_scrape_listing.py",
       "providers": [
+        "bulk_downloader/listing_links.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "route_count": 1,
@@ -2414,7 +2415,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1806,
+    "edge_count": 1808,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3786,6 +3787,10 @@
       "bulk_downloader/lifecycle_drift.py": [
         "bulk_downloader/bg_scheduler.py",
         "bulk_downloader/template_manager.py"
+      ],
+      "bulk_downloader/listing_links.py": [
+        "bulk_downloader/app_scrape_listing.py",
+        "bulk_downloader/runner.py"
       ],
       "bulk_downloader/live_recorder.py": [
         "bulk_downloader/app.py",
@@ -5805,6 +5810,7 @@
         "bulk_downloader/capture_schedules.py"
       ],
       "bulk_downloader/app_scrape_listing.py": [
+        "bulk_downloader/listing_links.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/app_search.py": [
@@ -7103,6 +7109,7 @@
         "bulk_downloader/jd_bridge.py",
         "bulk_downloader/lazy_player_wait.py",
         "bulk_downloader/library_final.py",
+        "bulk_downloader/listing_links.py",
         "bulk_downloader/log.py",
         "bulk_downloader/login.py",
         "bulk_downloader/macro_recorder.py",
