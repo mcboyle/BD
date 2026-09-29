@@ -2450,10 +2450,17 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # try/finally rather than one emit per ``return``: this function has four
     # exits today and the whole defect being fixed is a drop nobody reported,
     # so a later exit that forgets to emit would reproduce it exactly (A7).
+    learned_trace = []
     try:
-        return _find_best_download(
+        result = _find_best_download(
             page, custom, learned, runner, _page_url, _note_admission_drop,
-            full_length_requested=full_length_requested)
+            full_length_requested=full_length_requested,
+            learned_trace=learned_trace)
+        # tpl95-nubiles-porn-1: what each learned row selector found, so a
+        # learned miss can say why (record_learned_download_outcome).
+        if learned_trace and isinstance(result, dict) and result:
+            result["_learned_trace"] = learned_trace
+        return result
     finally:
         _emit_admission_summary()
 
@@ -2554,12 +2561,16 @@ def _rank_custom_matches(loc_all, count, custom):
 
 
 def _find_best_download(page, custom, learned, runner, _page_url,
-                        _note_admission_drop, full_length_requested=None):
+                        _note_admission_drop, full_length_requested=None,
+                        learned_trace=None):
     """Body of :func:`find_best_download`; see that function for the contract.
 
     Split out only so every exit reports its counted admission drops through
-    one ``finally``.
+    one ``finally``.  ``learned_trace`` (a list) receives one
+    ``{selector, matched, visible, admitted}`` entry per learned row selector.
     """
+    if learned_trace is None:
+        learned_trace = []
     if full_length_requested is None:
         full_length_requested = _full_length_mode(runner)
 
@@ -2578,8 +2589,12 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             try:
                 loc_all = root.locator(sel)
                 count = loc_all.count()
-            except Exception: continue
-            if count == 0: continue
+            except Exception:
+                count = 0
+            if count == 0:
+                learned_trace.append({"selector": sel, "matched": 0,
+                                      "visible": 0, "admitted": 0})
+                continue
             # Score every match. v3.66.276: the cap is now on VISIBLE rows
             # scored, not raw iterations. Responsive lg+md+mob duplication can
             # put the hidden block FIRST in DOM order; a raw min(count,30) would
@@ -2691,6 +2706,9 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                         entry["expected_hash_value"] = hash_info[1]
                     scored.append(entry)
                 except Exception: continue
+            learned_trace.append({"selector": sel, "matched": count,
+                                  "visible": _seen_visible,
+                                  "admitted": len(scored)})
             if scored:
                 scored.sort(key=lambda c: (
                     c["work"], c["score"], c["size"]),
