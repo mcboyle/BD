@@ -39,9 +39,10 @@ _REPO = Path(__file__).resolve().parent.parent
 class _StubRunner:
     """Minimal SiteRunner stand-in.
 
-    The endpoint only touches `load_urls(urls)`, which should return
-    `(added, dupes, skipped)` per the real signature. Other methods
-    aren't exercised by this endpoint.
+    The endpoint touches `load_urls(urls)`, which should return
+    `(added, dupes, skipped)` per the real signature, and on a dupe
+    `retryable_urls(urls)` (dl95-dailymotion-6: which dupes are failed
+    jobs bulk_retry would re-queue). Other methods aren't exercised.
     """
     def __init__(self, ret=(1, 0, 0), raises=None):
         self._ret = ret
@@ -53,6 +54,9 @@ class _StubRunner:
         if self._raises is not None:
             raise self._raises
         return self._ret
+
+    def retryable_urls(self, urls):
+        return []
 
 
 def _install_stub(site_id="sid_a", **kwargs):
@@ -160,6 +164,7 @@ def test_happy_path_calls_load_urls():
         "added": 1,
         "dupes": 0,
         "skipped": 0,
+        "retryable_dupes": [],
     }
     assert stub.calls == [["https://example.com/v/1"]]
 

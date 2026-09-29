@@ -28,7 +28,10 @@
    "submit_btn",
    "quality_preference",
    "min_resolution",
-   "log_network"
+   "log_network",
+   "login_trigger",
+   "crawler_listing_url",
+   "crawler_newest_n"
   ],
   "path": "/api/sites",
   "sample": {
@@ -38,6 +41,7 @@
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
+   "login_trigger": "x",
    "login_url": "x",
    "min_resolution": 1,
    "name": "x",
@@ -80,7 +84,10 @@
    "submit_btn",
    "quality_preference",
    "min_resolution",
-   "log_network"
+   "log_network",
+   "login_trigger",
+   "crawler_listing_url",
+   "crawler_newest_n"
   ],
   "path": "/api/sites/validate",
   "sample": {
@@ -90,6 +97,7 @@
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
+   "login_trigger": "x",
    "login_url": "x",
    "min_resolution": 1,
    "name": "x",
@@ -138,6 +146,20 @@
   "path": "/api/scrape_listing",
   "sample": {
    "url": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/components/AddUrlDialog.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "urls"
+  ],
+  "path": "/api/sites/${}/bulk_retry",
+  "sample": {
+   "urls": [
+    "x"
+   ]
   },
   "unknownType": false
  },
@@ -316,6 +338,18 @@
   "path": "/api/sites/${}/profile/seed",
   "sample": null,
   "unknownType": true
+ },
+ {
+  "file": "src/components/ProvenanceLedgerPanel.tsx",
+  "fn": "apiPost",
+  "keys": [
+   "digest"
+  ],
+  "path": "/api/provenance/reconcile",
+  "sample": {
+   "digest": "x"
+  },
+  "unknownType": false
  },
  {
   "file": "src/components/QueueOpsDialog.tsx",

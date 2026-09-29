@@ -187,6 +187,7 @@ def _prepare_real_boot(monkeypatch, app_mod):
     db_mod = importlib.import_module("bulk_downloader.db")
     migrations = importlib.import_module("bulk_downloader.migrations")
     run_history = importlib.import_module("bulk_downloader.run_history")
+    deployment_timeline = importlib.import_module("bulk_downloader.deployment_timeline")
 
     _empty_site_registries(monkeypatch, app_mod)
     monkeypatch.setattr(app_mod, "_BOOTED_PATHS", set())
@@ -202,6 +203,10 @@ def _prepare_real_boot(monkeypatch, app_mod):
     monkeypatch.setattr(db_mod, "run_integrity_check", lambda: None)
     monkeypatch.setattr(migrations, "apply_pending", lambda: {"applied": 0, "errors": 0})
     monkeypatch.setattr(run_history, "init", lambda: None)
+    # row1057's boot hook writes the deploy timeline into the db that the
+    # stubbed db_init never created; its best-effort stderr line is not the
+    # sites_config diagnostic these tests count.
+    monkeypatch.setattr(deployment_timeline, "record_running_revision", lambda _d: None)
     monkeypatch.setattr(app_mod, "_init_vpn_runtime", lambda: {"ok": True})
     monkeypatch.setattr(app_mod, "_start_session_keepers", lambda: None)
     monkeypatch.setattr(app_mod, "_start_watch_folder_threads", lambda: None)

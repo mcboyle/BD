@@ -2049,41 +2049,49 @@ def main(argv=None):
     """`python -m bulk_downloader.pg_backend backfill [table ...]` -- the
     one-shot baseline copy the operator runs before shadow-read -- or
     `... parity` for the read-only column report. Prints JSON; exit 1 when
-    any table reports an error or any column is missing."""
+    any table reports an error or any column is missing.
+
+    Stale-gate triage (main 41a70358): library modules may not call print()
+    (test_v3_43_78 F1). The JSON result stays on STDOUT -- it is this CLI's
+    output, read by the row127/soak tests and by operators piping it -- so it
+    goes through _emit (sys.stdout.write); usage lines go to sys.stderr.write."""
     import json
     import sys
+
+    def _emit(res):
+        sys.stdout.write(json.dumps(res, indent=2, sort_keys=True) + "\n")
     args = list(sys.argv[1:] if argv is None else argv)
     cmd = args.pop(0) if args else ""
     if cmd == "backfill":
         res = backfill(args or None)
-        print(json.dumps(res, indent=2, sort_keys=True))
+        _emit(res)
         return 1 if any("error" in v for v in res.values()) else 0
     if cmd == "parity":
         res = schema_parity()
-        print(json.dumps(res, indent=2, sort_keys=True))
+        _emit(res)
         return 1 if "error" in res or any(
             v["missing"] for v in res.values()) else 0
     if cmd == "soak-receipt":
         opts = dict(zip(args[::2], args[1::2]))
         if len(args) % 2 or not {"--health", "--log"} <= set(opts) \
                 or not set(opts) <= {"--health", "--log", "--out"}:
-            print("usage: soak-receipt --health URL --log PG-SOAK-LOG.tsv "
-                  "[--out DIR]", file=sys.stderr)
+            sys.stderr.write("usage: soak-receipt --health URL --log "
+                             "PG-SOAK-LOG.tsv [--out DIR]\n")
             return 2
         res = soak_receipt(opts["--health"], opts["--log"],
                            opts.get("--out", "."))
-        print(json.dumps(res, indent=2, sort_keys=True))
+        _emit(res)
         return 0 if res["ok"] else 1
     if cmd == "preflight":
         if args[:1] != ["--health"] or len(args) != 2:
-            print("usage: preflight --health URL", file=sys.stderr)
+            sys.stderr.write("usage: preflight --health URL\n")
             return 2
         res = preflight_cutover(args[1])
-        print(json.dumps(res, indent=2, sort_keys=True))
+        _emit(res)
         return 0 if res["ok"] else 1
-    print("usage: python -m bulk_downloader.pg_backend {backfill [table ...]"
-          "|parity|preflight --health URL|soak-receipt --health URL --log "
-          "PG-SOAK-LOG.tsv [--out DIR]}", file=sys.stderr)
+    sys.stderr.write("usage: python -m bulk_downloader.pg_backend {backfill "
+                     "[table ...]|parity|preflight --health URL|soak-receipt "
+                     "--health URL --log PG-SOAK-LOG.tsv [--out DIR]}\n")
     return 2
 
 

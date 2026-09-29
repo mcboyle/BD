@@ -185,7 +185,9 @@ _EXEC_PRIMITIVE = re.compile(
     r"|check_call|check_output|SourceFileLoader|__import__|importlib")
 
 
-@functools.lru_cache(maxsize=4096)
+# maxsize=None: one entry per distinct tracked executable-context file. A bound below that count makes
+# _prose_only's cyclic per-tool walk miss on every call (T142: 4099 keys > 4096 -> 40s became >22 min).
+@functools.lru_cache(maxsize=None)
 def _code_only(body, is_py):
     """`body` with COMMENTS and DOCSTRINGS removed; other string literals kept.
 

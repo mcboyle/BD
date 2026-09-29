@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1715 - train143: row
+
+T143 (stale-gate repairs from RULING-STALEGATE-e2c67c92 + VM-gate all-shards test, 6 BOARDed cuts): stalegate-add-url-endpoint d42551df; stalegate-body-contract-regen ca89cbf8; stalegate-integrity-check-fake-threading f884b75f; stalegate-print-in-pg-backend d20232c5; stalegate-sites-config-health-warning e0389274; vmgate-all-shards-bd-worker-B2-B b7ce1cad. No register close. Generated artifacts regenerated. No deploy.
+
+
+## v3.66.1714 - train142: row
+
+T142 (dl95/tpl95 product batch, 4 BOARDed cuts): tpl95-porndig-1-bd-worker-A6-A 132d5490; dl95-txxx-3-bd-worker-A6-A 3de0952e; dl95-file-examples-6-g2-bd-worker-A6-A 72305c48; dl95-eporner-4-bd-worker-A5-A 8c9183bf. No register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1713 - train141: row
 
 T141 (dl95/tpl95 product batch, 11 BOARDed cuts): dl95-cumlouder-1 36512d71; dl95-dailymotion-1-bd-worker-A3-A-G2 72e8a4a8; dl95-xvideos-1 123c11db; tpl95-bang-2-bd-worker-A6-A 6606dfc0; dl95-pussyspace-2-bd-worker-A6-A 3cd0ac8d; dl95-vip4k-3-bd-worker-A3-A e6ad552d; dl95-site-ma-brazzers-2-bd-worker-A6-A 05e0b52d; dl95-dfxtra-1-bd-worker-A6-A 6871f2ed; dl95-kellymadisonmedia-1-g4-bd-worker-B10-B 52b04307; dl95-beeg-1-bd-worker-B9-B bcb19820; dl95-teenfidelity-2-bd-worker-B5-B 7ed3ca61. No register close. Generated artifacts regenerated. No deploy.

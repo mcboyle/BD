@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5230,
+  "edge_count": 5234,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3239,6 +3239,9 @@
     "tests/test_dl95_teenmegaworld_1_tier_fallback.py": [
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_dl95_txxx_3_readiness_reflects_expired_login.py": [
+      "bulk_downloader/app.py"
+    ],
     "tests/test_dl95_vip4k_3_member_nav_is_not_a_scene.py": [
       "bulk_downloader/scene_crawler.py"
     ],
@@ -5893,6 +5896,9 @@
     "tests/test_stale_locks_check_is_gone.py": [
       "bulk_downloader/selftest.py"
     ],
+    "tests/test_stalegate_pg_backend_cli_streams.py": [
+      "bulk_downloader/pg_backend.py"
+    ],
     "tests/test_storage_capture.py": [
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/dom_capture.py",
@@ -6129,6 +6135,10 @@
     "tests/test_tpl95_bang_2_template_status_applied_template.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/user_templates.py"
+    ],
+    "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_util.py"
     ],
     "tests/test_track_k_vpn_bind.py": [
       "bulk_downloader/download_egress.py",

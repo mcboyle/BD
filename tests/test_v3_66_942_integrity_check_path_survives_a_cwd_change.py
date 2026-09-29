@@ -340,8 +340,19 @@ def test_the_sync_path_is_unaffected(db_mod, monkeypatch):
 
 
 class _FakeThreading:
-    """Stands in for the `_threading` module inside db.py."""
+    """Stands in for the `_threading` module inside db.py.
+
+    Only ``Thread`` is this file's subject.  Everything else is the real
+    module: db.py's connection path calls ``_threading.get_ident()`` (and
+    keeps ``local``/``Lock`` module globals), so a fake that answered only
+    ``Thread`` failed all 7 tests with AttributeError before reaching the
+    boundary they judge (stalegate-integrity-check-fake-threading).
+    """
     Thread = _CapturedThread
+
+    def __getattr__(self, name):
+        import threading
+        return getattr(threading, name)
 
 
 def test_a_symlinked_db_path_is_not_rewritten_to_its_target(db_mod, monkeypatch,

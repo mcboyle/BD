@@ -136,7 +136,15 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # exactly this endpoint. Raising it by 1 with that attribution is the sanctioned
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
-UNKNOWN_BASELINE = 136  # v3.66.757: +1 for /cockpit/api/takeover/<sid>/input
+UNKNOWN_BASELINE = 137  # stalegate-body-contract-regen: +1, NAMED below
+# stalegate-body-contract-regen (O1529.1, main 41a70358): +1, NAMED -- /api/provenance/reconcile
+# (ProvenanceLedgerPanel.tsx apiPost {digest}), one of the two call sites the stale
+# BODY_CONTRACT_CALLS.json was missing. The probe fills digest with None and the route
+# answers 400 "bad digest" -- a placeholder complaint (the body is a structured peer
+# digest), so UNKNOWN is the honest verdict. The other missing site, AddUrlDialog.tsx
+# bulk_retry {urls}, replays OK. Identified from the tool's own verdicts, keyed by
+# (file, fn, path), not from the refusal text.
+# v3.66.757: +1 for /cockpit/api/takeover/<sid>/input
 # v3.66.1330: +2, NAMED -- /api/captures/live_learning and
 # /api/captures/stage_learning, both new apiPost call sites in
 # CaptureWorkflow.tsx introduced by the affordance-learning feature. The two
