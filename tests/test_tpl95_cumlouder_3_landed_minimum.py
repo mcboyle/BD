@@ -18,15 +18,21 @@ def video(tmp_path):
     assert transport.TransportMixin._probe_video_height(out) == 360
     return out
 
-@pytest.mark.parametrize("leaf,minimum,forced,flag", [
-    ("video.mp4", 1080, False, True),
-    ("scene-download.mp4", 1080, False, True),
-    ("video.mp4", 360, False, False),
-    ("video.mp4", 0, False, False),
-    ("video.mp4", 1080, True, False),
+@pytest.mark.parametrize("leaf,minimum,forced,flag,score", [
+    ("video.mp4", 1080, False, True, 0),
+    ("scene-download.mp4", 1080, False, True, 0),
+    ("video.mp4", 360, False, False, 0),
+    ("video.mp4", 0, False, False, 0),
+    ("video.mp4", 1080, True, False, 0),
+    # tpl95-cumlouder-3-live-1 (DOT95-LANE/live-tpl95-cumlouder-3, .183 9298b1c7): the live learned <source>
+    # carried a score -- its bare hash leaf was first named "[1080p]" -- and landed 360p unflagged.
+    ("ec525c7ebe8b2a26d784e7ac5b0e0b81.mp4", 1080, False, True, 1080),
+    ("video.mp4", 1080, False, True, 1080),
+    ("ec525c7ebe8b2a26d784e7ac5b0e0b81.mp4", 360, False, False, 1080),
+    ("ec525c7ebe8b2a26d784e7ac5b0e0b81.mp4", 1080, True, False, 1080),
 ])
 def test_learned_unknown_landing_reports_measured_minimum(tmp_path, monkeypatch, video,
-                                                        leaf, minimum, forced, flag):
+                                                        leaf, minimum, forced, flag, score):
     dest = tmp_path / "downloads"
     dest.mkdir()
     runner = _TestRunner(dest)
@@ -49,7 +55,7 @@ def test_learned_unknown_landing_reports_measured_minimum(tmp_path, monkeypatch,
     runner._run_http_attempts_with_resume = transfer
     locator = MagicMock()
     locator.get_attribute.side_effect = lambda attr: f"https://media.fixture.test/{leaf}" if attr == "src" else None
-    best = {"locator": locator, "score": 0, "text": "", "_via_learned": True,
+    best = {"locator": locator, "score": score, "text": "", "_via_learned": True,
             "_learned_sel": "video source[src*='.mp4']"}
     page = MagicMock()
     page.url = url

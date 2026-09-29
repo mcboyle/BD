@@ -3299,7 +3299,13 @@ class TransportMixin:
                         except OSError as e:
                             sys.stderr.write(
                                 f"  download: rename to probed tier failed: {e}\n")
-            if learned_unknown_height and not _forced:
+            # tpl95-cumlouder-3-live-1: live, the learned <source> carried a
+            # score (the file was first named "[1080p]") while its bare leaf
+            # held no tier, so the gate keyed on "no score" never fired and a
+            # probed 360p closed done unflagged. A bare leaf IS "height unknown
+            # before download" whatever the score said.
+            if (learned_unknown_height
+                    or (best.get("_via_learned") and original_bare_leaf)) and not _forced:
                 min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
                 if 0 < probed_h < min_res:
                     below = f" — below the {min_res}p minimum (height unknown before download)"
