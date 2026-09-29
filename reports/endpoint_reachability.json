@@ -181,7 +181,6 @@
     "/api/dev/vision_test",
     "/api/dev/wal_checkpoint",
     "/api/dev/window_simulate",
-    "/api/discovery/run",
     "/api/doctor/diagnose",
     "/api/download_hold",
     "/api/download_hold/lift",
@@ -247,5 +246,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 102
+  "dark_count": 101
 }
