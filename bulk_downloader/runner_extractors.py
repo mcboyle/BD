@@ -1380,6 +1380,16 @@ class ExtractorsMixin:
                 page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
             except Exception:
                 page_media = []
+            # O1567 (hustlerunlimited/dacast): an MSE player binds its blob: src
+            # before it requests the manifest; wait briefly for the real URL.
+            for _ in range(24):
+                if not (page_media and all(str(m).startswith("blob:") for m in page_media)):
+                    break
+                try:
+                    page.wait_for_timeout(500)
+                    page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
+                except Exception:
+                    break
         from contextlib import nullcontext
         # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
         jobs = getattr(self, "jobs", None)
