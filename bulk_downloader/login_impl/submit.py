@@ -5,7 +5,7 @@ import inspect
 import sys
 import time
 from urllib.parse import urlsplit
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..log import login_site, site_tag
 from ..cookies import pw_to_json
@@ -128,6 +128,8 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
     return _try_fill(page, pf_candidates, password, "password (after continue)")
 
 
+# dl95-kellymadisonmedia-1: do_login's verdict when the login page never loads.
+LOGIN_UNREACHABLE_PREFIX="Login page unreachable: "
 TURNSTILE_IFRAME_SEL="iframe[src*='challenges.cloudflare.com']"
 
 
@@ -1514,9 +1516,20 @@ def do_login(config, allow_manual_takeover=False):
             install_recorder(page)
         except Exception as e:
             sys.stderr.write(f"  {site_tag()}login: recorder install failed: {e}\n")
+        # dl95-kellymadisonmedia-1: a login page that never loads is a dead or
+        # wrong HOST, not a login failure -- name it. app._m2_auth_state reads
+        # this prefix off the login status to publish auth_state "unreachable".
         try: page.goto(url,wait_until="domcontentloaded",timeout=25000)
         except PWTimeout:
-            _hard_close(); return False,"Login page timed out loading",[]
+            _hard_close()
+            return False,(f"{LOGIN_UNREACHABLE_PREFIX}{urlsplit(url).hostname or url}"
+                          " (no response in 25 s)"),[]
+        except PWError as e:
+            if "net::ERR_" not in str(e):
+                raise
+            _err = re.search(r"net::ERR_[A-Z_]+", str(e)).group(0)
+            _hard_close()
+            return False,f"{LOGIN_UNREACHABLE_PREFIX}{urlsplit(url).hostname or url} ({_err})",[]
         time.sleep(1.5)
         # Re-install on the loaded page (in case the init script didn't apply)
         try:

@@ -53,7 +53,11 @@ function filterMatches(filter: Filter, site: SiteEntryV2): boolean {
 }
 
 function siteHasIssue(site: SiteEntryV2): boolean {
-  return site.captcha_pending || site.auth_state === "expired";
+  return (
+    site.captcha_pending ||
+    site.auth_state === "expired" ||
+    site.auth_state === "unreachable"
+  );
 }
 
 export function Sites() {

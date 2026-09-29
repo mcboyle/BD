@@ -93,7 +93,9 @@ export interface QueueV2 {
   ts: number;
 }
 
-export type AuthState = "ok" | "expired" | "unknown";
+// "unreachable" (dl95-kellymadisonmedia-1): the last login could not load the
+// login page -- the configured host is dead or wrong.
+export type AuthState = "ok" | "expired" | "unknown" | "unreachable";
 
 export interface SiteEntryV2 {
   site_id: string;
