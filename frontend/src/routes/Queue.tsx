@@ -40,10 +40,12 @@ import { useUrlState } from "@/hooks/useUrlState";
 import { apiGet, apiPost } from "@/lib/api-client";
 import { formatEta } from "@/lib/format";
 import { adaptiveInterval } from "@/lib/polling";
+import { reasonMeta } from "@/lib/failure-reason-meta";
 import type {
   QueueRunningEntry,
   QueueV2Full,
   QueueWaitingEntry,
+  RunsResponse,
 } from "@/lib/api-types";
 
 // Queue tab. Top-down composition:
@@ -204,9 +206,18 @@ export function Queue() {
   // Cut 6.4/6.6 — URL-encoded status filter (shareable, zero persistence) +
   // removable filter chips. "all" shows both sections; "running"/"waiting"
   // narrow to one. The active filter renders as a removable chip.
+  // dl95-file-examples-3: "failed" (Home's "Failed runs" link) lists the failed
+  // runs and hides both queue sections -- it used to fall through to "all".
   const [statusFilter, setStatusFilter] = useUrlState("status", "all");
-  const showRunning = statusFilter !== "waiting";
-  const showWaiting = statusFilter !== "running";
+  const showFailed = statusFilter === "failed";
+  const showRunning = statusFilter !== "waiting" && !showFailed;
+  const showWaiting = statusFilter !== "running" && !showFailed;
+  const failedRuns = useQuery<RunsResponse>({
+    queryKey: ["failed-runs"],
+    queryFn: ({ signal }) =>
+      apiGet<RunsResponse>("/api/runs?status=failed", signal),
+    enabled: showFailed,
+  });
   const filterChips =
     statusFilter === "all"
       ? []
@@ -583,6 +594,49 @@ export function Queue() {
           <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
             Couldn't load queue.
           </Card>
+        )}
+
+        {/* Failed runs (status=failed). Tap -> error modal (reason + retry). */}
+        {showFailed && (
+        <div>
+          <div className="mb-2 px-1 eyebrow">
+            Failed runs
+          </div>
+          {failedRuns.isLoading && <SkeletonRows count={3} rowClassName="h-12" />}
+          {failedRuns.isError && (
+            <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+              Couldn't load failed runs.
+            </Card>
+          )}
+          {failedRuns.data && failedRuns.data.runs.length === 0 && (
+            <EmptyState bare title="No failed runs" />
+          )}
+          {failedRuns.data && failedRuns.data.runs.length > 0 && (
+            <ul className={isCompact ? "space-y-0.5" : "space-y-1.5"}>
+              {failedRuns.data.runs.map((run) => (
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setModalTarget({
+                        site_id: run.site_id,
+                        site_name: run.site_id,
+                        url: run.url,
+                        filename: "",
+                      })
+                    }
+                    className="flex w-full items-baseline justify-between gap-3 rounded-md bg-surface px-3 py-2 text-left hairline hover:bg-surface-2"
+                  >
+                    <span className="truncate text-sm text-ink">{run.url}</span>
+                    <span className="shrink-0 text-xs text-ink-3">
+                      {reasonMeta(run.reason_code).title}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         )}
 
         {/* Now running. */}
