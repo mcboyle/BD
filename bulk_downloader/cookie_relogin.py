@@ -112,7 +112,10 @@ def check_and_schedule(s_cfg: Optional[dict] = None,
     try:
         from . import cookie_quality as _cq
         for sid, cfg in s_cfg.items():
-            if not cfg or not cfg.get("auth_required", True):
+            # dl95-xvideos-3: auth_required is a persisted tri-state; only an
+            # explicit False (a public site) opts out. The loader now stores
+            # "" for "unset", which must keep the old default (relogin on).
+            if not cfg or cfg.get("auth_required", True) is False:
                 continue
             # v3.47.7: opt-out switch
             if not cfg.get("auto_relogin_enabled", True):
