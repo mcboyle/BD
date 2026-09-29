@@ -24,7 +24,10 @@ from bulk_downloader import plugins as _pl
 
 
 def _fresh_stub(rotate=False):
-    class _Stub:
+    # stalegate-super-typeerror: SiteRunner.trigger_rate_limit is the Row 1021
+    # TransportSubsystem shim that hands off with super(); super() needs a real
+    # SiteRunner instance, so the stub subclasses it (its __init__ never runs).
+    class _Stub(SiteRunner):
         def __init__(self):
             self.site_id = "sid_cool"
             self._rl_until = 0.0
@@ -37,6 +40,7 @@ def _fresh_stub(rotate=False):
             self._rotate_ret = rotate
             self.saved = 0
             self.cleared = 0
+            self.events = []
 
         def _rotate_account_if_available(self, reason):
             return self._rotate_ret
@@ -47,6 +51,10 @@ def _fresh_stub(rotate=False):
         def _clear_rl(self):
             self._rl_until = 0.0
             self.cleared += 1
+
+        def log_event(self, kind, message, url=None, extra=None):
+            # A SiteRunner subclass would otherwise reach the real journal.
+            self.events.append((kind, message, url))
 
         def _wait_rl_autostart(self):
             # trigger_rate_limit spawns this on a daemon thread; no-op keeps
