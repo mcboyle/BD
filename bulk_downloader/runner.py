@@ -5841,6 +5841,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                        f"below {min_res}p; got {avail}; saw: {seen}",ss)
                 return
 
+            # dl95-beeg-1-live-1: a winner admitted WITHOUT identity proof is a
+            # guess; a stream the page requested that names this scene is not.
+            # Only that proven population is consulted -- else the click runs.
+            if (best.get("_no_identity_proof")
+                    and self._try_spa_api_media_extractor(url, page, proven_only=True)):
+                return
+
             lbl=res_label(best["score"])
             if best.get("size"): lbl+=f" • {fmt_bytes(best['size'])}"
             # Row 701: an admission made WITHOUT identity proof is recorded on

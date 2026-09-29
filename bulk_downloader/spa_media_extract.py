@@ -292,6 +292,59 @@ def scene_player_candidates(page_url: str, html: str) -> List[Dict[str, Any]]:
     return out
 
 
+# dl95-beeg-1-live-1: beeg's scene route is one opaque id (/-0920833012505915),
+# its player is a blob:, and its feed prefetches the NEXT scenes' streams too.
+# The scene's own stream is the one whose path carries that id
+# (.../av1_720p/920833012505915.mp4.m3u8).  Height: a rendition segment
+# ("av1_720p"), else the tallest WxH a master's variant list declares
+# ("multi=426x240:240p:...,1920x1080:1080p:..."), which ffmpeg's default
+# stream selection takes.
+_OPAQUE_SCENE_SEGMENT_RE = re.compile(r"[-_]?0*(\d{8,})")
+_ID_NAMED_SEGMENT_RE = re.compile(r"0*(\d{8,})(?:\.[A-Za-z0-9]+)*")
+_RENDITION_SEGMENT_RE = re.compile(r"(?:[A-Za-z0-9]+_)?(\d{3,4})p", re.I)
+_VARIANT_DIMENSIONS_RE = re.compile(r"(?<!\d)\d{3,4}x(\d{3,4})(?!\d)")
+
+
+def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
+    """Streams the page requested whose path names the scene *page_url* asks for.
+
+    Pass the JOB's URL: beeg's feed rewrites the address bar to the next
+    scene as it plays on.  Identity is positive evidence only: the route must
+    carry exactly one opaque id segment, and a stream qualifies only when one
+    of its path segments IS that id (leading zeros aside) or an id-named file.
+    A signed token, another scene's id or an id-less playlist never qualifies.
+    """
+    ids = [m.group(1) for seg in urlparse(page_url).path.split("/")
+           if (m := _OPAQUE_SCENE_SEGMENT_RE.fullmatch(seg))]
+    if len(ids) != 1:
+        return []
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for u in urls or []:
+        if not isinstance(u, str) or not u.strip():
+            continue
+        u = urljoin(page_url, u.strip())
+        parsed = urlparse(u)
+        if parsed.scheme not in ("http", "https") or not MEDIA_EXT_RE.search(parsed.path):
+            continue
+        segments = [s for s in parsed.path.split("/") if s]
+        named = [s for s in segments
+                 if (m := _ID_NAMED_SEGMENT_RE.fullmatch(s)) and m.group(1) == ids[0]]
+        if not named or u in seen:
+            continue
+        seen.add(u)
+        heights = [int(m.group(1)) for s in segments
+                   if (m := _RENDITION_SEGMENT_RE.fullmatch(s))]
+        if not heights:
+            heights = [max(int(h) for h in _VARIANT_DIMENSIONS_RE.findall(s))
+                       for s in segments if _VARIANT_DIMENSIONS_RE.search(s)]
+        height = heights[-1] if heights else 0
+        out.append({"url": u, "label": f"{height}p" if height else "unknown",
+                    "height": height, "size": 0, "source": "scene-stream",
+                    "filename": re.sub(r"\.(m3u8|mpd)$", "", named[-1], flags=re.I)})
+    return out
+
+
 def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
     """Media files the page actually requested / bound to <video>/<source>."""
     out: List[Dict[str, Any]] = []

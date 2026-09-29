@@ -1215,7 +1215,8 @@ class ExtractorsMixin:
             url=url,
         )
         return True
-    def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0) -> bool:
+    def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
+                                     proven_only: bool = False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Consulted by runner.py ONLY after ``find_best_download`` (and the
@@ -1229,6 +1230,11 @@ class ExtractorsMixin:
 
         Returns True when it took over and finished the transfer; False on
         any miss so the caller's "No download button found" handling runs.
+
+        ``proven_only`` (dl95-beeg-1-live-1): consult only the sources that
+        prove they are THIS scene's -- the scene player's children and the
+        streams whose path carries the page's opaque id -- never the API or
+        page-media populations, which carry no identity.
         """
         try:
             from . import spa_media_extract as _spa
@@ -1256,11 +1262,19 @@ class ExtractorsMixin:
             scene_candidates = _spa.scene_player_candidates(page_url, page.content())
         except Exception:
             scene_candidates = []
+        # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
+        # wire (row 899) join the page's own resource list -- beeg fills the
+        # 250-entry resource-timing buffer with thumbnails first.  Read, not
+        # drained: the queue is shared by the site's workers, and identity is
+        # asked of the JOB url (the feed moves page.url on to the next scene).
+        detected = [e.get("url") for e in list(getattr(self, "manifest_urls", None) or [])
+                    if isinstance(e, dict)]
+        scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
         # Proven current-scene child sources outrank incidental page ads and
         # previews as a cohort; don't mix those populations by resolution.
-        cands = scene_candidates or (
+        cands = scene_candidates or ([] if proven_only else (
             _spa.api_candidates(page_url, records)
-            + _spa.page_media_candidates(page_url, page_media))
+            + _spa.page_media_candidates(page_url, page_media)))
         if not cands:
             sys.stderr.write(
                 f"  spa-api: no download-like options in {len(records)} captured "
