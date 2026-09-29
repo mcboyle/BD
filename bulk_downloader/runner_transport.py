@@ -1689,6 +1689,28 @@ class TransportMixin:
         return h[:7] == b"#EXTM3U"
 
     @staticmethod
+    def _winner_href_routes(best, page_url):
+        """True when the winner's own URL is a media file or a manifest.
+
+        tpl95-xhamster-1: the score-0 dropdown/reveal probe consults this so a
+        winner carrying its own file is never replaced by what a click on the
+        page's Download button reveals. Same reads as the routing block in
+        _do_download; any failure is False (the probe runs, as before)."""
+        try:
+            attrs = best["locator"].evaluate(
+                "el => Array.from(el.attributes).map(a => [a.name, a.value])")
+            href = TransportMixin._winner_url_value(attrs, page_url)
+        except Exception:
+            href = ""
+        if not href:
+            try:
+                href = best["locator"].get_attribute("href") or ""
+            except Exception:
+                return False
+        return bool(TransportMixin._stream_route(href, page_url)[0]
+                    or TransportMixin._direct_media_route(href, page_url)[0])
+
+    @staticmethod
     @staticmethod
     def _winner_url_value(attrs, page_url):
         """The winner's URL-bearing attribute VALUE, or "".
@@ -2436,11 +2458,18 @@ class TransportMixin:
         # Row 722 (G9): a score-0 winner may be a dropdown toggle, or an item
         # inside a shut menu. Open it and re-pick BEFORE any click is spent on
         # an unclickable element; nothing found -> the existing hint below.
+        # tpl95-xhamster-1: NOT when the winner's own href already routes (a
+        # media file or a manifest -- xhamster's hidden no-JS player fallback
+        # scores 0 as hidden). The probe would click the page's "Download"
+        # button and swap the winner for whatever became visible (live: a
+        # related-video tile "4K 29:17"); the href is read below instead.
         if not direct_url and best.get("score", 0) == 0:
             try:
-                _dd = _open_dropdown_download_options(
-                    page, best, (self.config.get("quality_preference") or "").strip(),
-                    self.config.get("min_resolution", 0) or 0)
+                _dd = (None if TransportMixin._winner_href_routes(best, page.url)
+                       else _open_dropdown_download_options(
+                           page, best,
+                           (self.config.get("quality_preference") or "").strip(),
+                           self.config.get("min_resolution", 0) or 0))
             except Exception as e:
                 _dd = None
                 sys.stderr.write(f"  download: dropdown probe failed: {e}\n")
