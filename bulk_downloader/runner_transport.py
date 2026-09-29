@@ -2415,6 +2415,7 @@ class TransportMixin:
         entirely — saves 5-10 seconds per URL and dodges signed-URL race
         conditions on sites with short-lived URLs."""
         _download_started = time.monotonic()
+        learned_unknown_height = bool(best.get("_via_learned")) and not best.get("score")
         # Normally captured in _process_one before page-specific extractors.
         # Keep this idempotent call at the transport boundary for direct
         # callers and for any future path that enters with an already-open page.
@@ -3238,8 +3239,11 @@ class TransportMixin:
             # If the landed file was named from a bare leaf and ffprobe measures
             # a real video height, reconcile the filename and score with the
             # probed height through the configured filename template contract.
-            if original_bare_leaf and final_path.exists():
+            probed_h = 0
+            below = ""
+            if (original_bare_leaf or learned_unknown_height) and final_path.exists():
                 probed_h = self._probe_video_height(final_path)
+            if original_bare_leaf:
                 if probed_h > 0:
                     probed_tier = res_label(probed_h)
                     probed_named = resolve_media_leaf_name(
@@ -3273,6 +3277,12 @@ class TransportMixin:
                         except OSError as e:
                             sys.stderr.write(
                                 f"  download: rename to probed tier failed: {e}\n")
+            if learned_unknown_height and not _forced:
+                min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+                if 0 < probed_h < min_res:
+                    below = f" — below the {min_res}p minimum (height unknown before download)"
+                    self.log_event("learned_media_below_minimum",
+                                   f"landed {probed_h}p; minimum {min_res}p", url=page_url)
             # Clear the force_download flag on success so a future retry
             # doesn't keep bypassing the threshold silently.
             with self._lock:
@@ -3303,7 +3313,7 @@ class TransportMixin:
                 sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
             file_size_on_disk = self._size_on_disk_after_tagging(
                 str(final_path), downloaded_size)
-            self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
+            self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}{below}",
                              filename=filename,file_size=file_size_on_disk)
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
                    honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
@@ -3396,7 +3406,7 @@ class TransportMixin:
                     "file_size": downloaded_size,
                     "resolution": (best.get("text", "") or "")[:40],
                     "hash": expected_hash or "",
-                    "message": f"Saved: {filename}{verify_msg}",
+                    "message": f"Saved: {filename}{verify_msg}{below}",
                 })
             except Exception as e:
                 sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
