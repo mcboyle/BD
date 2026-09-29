@@ -951,28 +951,28 @@ Schema version: 2
 - L0034 `_first_positive_size_match` `[private]` — Return the first visible, positive-size match for ``selector``.
 - L0102 `_visible_login_field` `[private]` — True when a selector has a visible, positive-size match that is not
 - L0131 `_fire_auto_login_trigger` `[private]` — Open an SPA login modal that is not mounted until clicked.
-- L0174 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
-- L0207 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
-- L0243 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
-- L0262 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
-- L0268 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
-- L0274 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
-- L0281 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
-- L0288 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
-- L0300 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
-- L0307 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
-- L0314 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
-- L0339 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
-- L0430 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
-- L0448 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
-- L0456 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
-- L0547 `get_input_scheduler` — Access the synthetic user input scheduler.
-- L0553 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
-- L0576 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
-- L0587 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
-- L0638 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
-- L0705 `_css_escape_for_id` `[private]`
-- L0714 `_ms_since` `[private]`
+- L0177 `resolve_login_trigger` — dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
+- L0210 `_fire_login_trigger_if_needed` `[private]` — Reveal a configured modal login form when no username field is usable.
+- L0246 `_all_visible` `[private]` — Return the first visible match from the candidate list. Tries each
+- L0265 `_wait_attached` `[private]` — Wait for ATTACHMENT. The only thing attached may be the decoy, and
+- L0271 `_wait_visible` `[private]` — Wait for VISIBILITY, which is what a field must be before we fill
+- L0277 `_signal_tabindex` `[private]` — For a form input ``tabindex="-1"`` is a STANDALONE trap signal.
+- L0284 `_signal_aria_hidden` `[private]` — A field announced as hidden to assistive tech is not for a human.
+- L0291 `_signal_css_hidden` `[private]` — The SHIPPED style vocabulary, consulted rather than restated.
+- L0303 `_signal_hidden_attr` `[private]` — The ``hidden`` attribute: no shipped equivalent, browser-only fact.
+- L0310 `_signal_type_hidden` `[private]` — ``type=hidden``: likewise browser-only.
+- L0317 `_signal_offscreen_box` `[private]` — A negative bounding box -- the ``left:-9999px`` decoy whose inline
+- L0342 `_is_honeypot_field` `[private]` — Return ``(is_decoy, reason)`` for a Playwright input locator.
+- L0433 `_is_search_field` `[private]` — Return ``(is_search, reason)`` for a Playwright input locator.
+- L0451 `_search_field_reason` `[private]` — dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
+- L0459 `_try_fill` `[private]` — Walk the candidate list; fill the first visible, non-honeypot
+- L0550 `get_input_scheduler` — Access the synthetic user input scheduler.
+- L0556 `_type_field_value` `[private]` — Row 1049: type ``value`` into the focused field through the scheduler's
+- L0579 `_inter_field_pause` `[private]` — Row 1049: the pause between two form fields comes from the scheduler
+- L0590 `_try_click` `[private]` — Same pattern as _try_fill but for clicks. Force=True is used as a
+- L0641 `_human_move_to` `[private]` — Phase 15.6: move the mouse to the locator's center along a curved
+- L0708 `_css_escape_for_id` `[private]`
+- L0717 `_ms_since` `[private]`
 ```
 
 

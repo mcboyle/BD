@@ -164,8 +164,11 @@ def _fire_auto_login_trigger(page):
             return True, True, (
                 "followed the page's sole Login link (auto) after its click "
                 "was not actionable")
-    except Exception:
-        pass
+    except Exception as follow_exc:
+        # O805 DP-13: the fallback's own failure is named, then the click error is returned
+        from ..log import site_tag
+        sys.stderr.write(f"  {site_tag()}login: sole Login link follow (auto) failed "
+                         f"({type(follow_exc).__name__})\n")
     return True, False, (
         f"could not click the page's Login control (auto): {click_error}"
     )

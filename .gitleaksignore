@@ -1,3 +1,6 @@
 # O1559 expired third-party values in page fixture (T154, tpl95-tiny4k / dl95-dailymotion lane captures)
 5d5440b679d1ecf05185076252f0128d294faced:tests/fixtures/tpl95_tiny4k/members_movies.html:aws-access-token:3
 bd21154d3e0abd3f985ef828dd2a138eac0de48a:tests/fixtures/dl95_dailymotion_us_listing.html:gcp-api-key:38
+# T155 (O1568): public pornhub viewkey URL in a test docstring/constant -- generic-api-key false positive, not a credential
+8cd0b1e35b685ae728c55739070c1f84ae10239e:tests/test_o1567_pornhub_is_an_aylo_free_tube_with_a_1080_scene_file.py:generic-api-key:13
+8cd0b1e35b685ae728c55739070c1f84ae10239e:tests/test_o1567_pornhub_is_an_aylo_free_tube_with_a_1080_scene_file.py:generic-api-key:30
