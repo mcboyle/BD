@@ -1271,8 +1271,10 @@
       "providers": [
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
+        "bulk_downloader/dashboard_widgets.py",
         "bulk_downloader/db.py",
         "bulk_downloader/queue_starvation.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
@@ -1544,6 +1546,7 @@
       "module": "app_scrape_listing.py",
       "providers": [
         "bulk_downloader/listing_links.py",
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "route_count": 1,
@@ -2415,7 +2418,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1811,
+    "edge_count": 1814,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3126,6 +3129,7 @@
       "bulk_downloader/dashboard_widgets.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/app_dashboard.py",
+        "bulk_downloader/app_queue.py",
         "bulk_downloader/app_widgets_api.py",
         "bulk_downloader/runner.py"
       ],
@@ -4171,6 +4175,7 @@
         "tools/redaction_dial_report.py"
       ],
       "bulk_downloader/registrable_domain.py": [
+        "bulk_downloader/app_scrape_listing.py",
         "bulk_downloader/candidate_filter.py",
         "bulk_downloader/extension_vault.py",
         "bulk_downloader/extractors_aylo.py",
@@ -4226,6 +4231,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_config.py",
         "bulk_downloader/app_global_config.py",
+        "bulk_downloader/app_queue.py",
         "bulk_downloader/app_sites.py",
         "bulk_downloader/app_sites_auth.py",
         "bulk_downloader/app_sites_collection.py",
@@ -5763,8 +5769,10 @@
       "bulk_downloader/app_queue.py": [
         "bulk_downloader/cookie_health.py",
         "bulk_downloader/daily_budget.py",
+        "bulk_downloader/dashboard_widgets.py",
         "bulk_downloader/db.py",
         "bulk_downloader/queue_starvation.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/selector_drift.py",
         "bulk_downloader/tombstone.py"
       ],
@@ -5816,6 +5824,7 @@
       ],
       "bulk_downloader/app_scrape_listing.py": [
         "bulk_downloader/listing_links.py",
+        "bulk_downloader/registrable_domain.py",
         "bulk_downloader/ssrf_transport.py"
       ],
       "bulk_downloader/app_search.py": [

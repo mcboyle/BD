@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1720 - train148: row
+
+T148 = LANE-2 (DOT95 lane to main per PM ruling 07:1xZ: next 19 boarded lane commits with content, in lane order from lane head 9298b1c7 after de83fe38f; empties = content already on main): dl95-dailymotion-5 r3 (with its repaired generation 2f7c6a902, merged in place), dl95-reptyle-3, dl95-teenfidelity-1, dl95-porndig-1, dl95-app-B6-3, dl95-eporner-1 (+ its lane repair dl95-eporner-1-gen2delta), dl95-porn00-1, dl95-justporn-2, dl95-cumlouder-2, dl95-evilangel-1, dl95-xvideos-3, dl95-reptyle-4, dl95-eporner-2, dl95-xnxx-1 (merged in place), dl95-app-B6-4, dl95-nubilefilms-1, dl95-app-B6-2-live-1, dl95-file-examples-5, dl95-file-examples-7. Excluded: dl95-pussyspace-1 (click-miss page-media fallback collides with tpl95-site-ma-brazzers-1's; re-diff), dl95-porndig-3-gen3delta (waits on the B17-B DP-13 fix), tpl95-bang-1 (+1 DP-13 in tools/capture_session.py; fix forward). test_row703 STAR_KWARGS re-pin (+113); evilangel-1 resume walk uses runners_generation (row634, app.py count 4 -> 5); reachability re-pinned (--declare-reach). Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1719 - train147: row1008
 
 T147 = backlog-1 (PM ruling 07:1xZ: old main-based BOARD backlog, oldest first, re-measured on main; 6 cuts): row1008-stale-dns-cache 87d3d136; opusb-003-B1-B ef7c04d3 (G2 BOARD); dl95-dailymotion-4-bd-worker-B1-B c2852ca6; dl95-vip4k-2c-bd-worker-A2-A 250cb6b4; dl95-filthykings-1 3d8d1838; tpl95-site-ma-brazzers-1-bd-worker-B18-B e3b3ff4e. Generated artifacts regenerated. No deploy.

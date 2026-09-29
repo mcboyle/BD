@@ -88,7 +88,8 @@ _OTHER_FLOOR = 14
 # dict is what the population floors below are for; inside it, a change of any
 # count is a change to this row's subject and must be read.
 _ROW634_CONVERTED_SITES = {
-    "bulk_downloader/app.py": 4,
+    # train148 (LANE-2): 4 -> 5, dl95-evilangel-1 restart-resume walks runners_generation(runners).
+    "bulk_downloader/app.py": 5,
     "bulk_downloader/app_dashboard.py": 3,
     "bulk_downloader/app_dev_maint.py": 1,
     "bulk_downloader/app_events_all.py": 1,
@@ -291,8 +292,9 @@ def test_the_twelve_converted_modules_carry_their_exact_site_counts(
     module that quietly loses a converted walk, is named rather than absorbed.
     """
     # row 990: 20 -> 21 (app_queue 3 -> 4, api_queue_starvation).
-    assert sum(_ROW634_CONVERTED_SITES.values()) == 21, (
-        "the pinned population is not this row's 21 converted sites: %r"
+    # train148 (LANE-2): 21 -> 22 (app.py 4 -> 5, dl95-evilangel-1 restart-resume).
+    assert sum(_ROW634_CONVERTED_SITES.values()) == 22, (
+        "the pinned population is not this row's 22 converted sites: %r"
         % (sum(_ROW634_CONVERTED_SITES.values()),))
     assert len(_ROW634_CONVERTED_SITES) == 12, len(_ROW634_CONVERTED_SITES)
     mismatches = exact_count_mismatches(package_census["snapshotted"])
