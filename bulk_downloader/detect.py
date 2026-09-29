@@ -749,6 +749,47 @@ _COLLECTION_ACTION_MARK_RE = re.compile(
     r"playlist|favou?rite|bookmark|wish-?list|watch-?later|icon-heart", re.I)
 _EXPLICIT_DOWNLOAD_RE = re.compile(
     r"download|\bdl\b|\.(?:mp4|mkv|mov|webm|m4v)\b", re.I)
+# dl95-txxx-6: a vote control is never a download, and clicking one casts a
+# vote on the operator's account. txxx renders <button title="Dislike"
+# class="dislike"> 6K </button> -- a 6-thousand vote COUNT -- whose harvested
+# label "6K Dislike" matched the 6K tier (3160); it outranked the scene's
+# Download link, was clicked, and the job ended "scored ok but no download
+# fired" (test2 job 448, 2026-09-29, the site then showed the dislike cast).
+# Judged on the WHOLE visible label: a count, a vote word, a count.
+_VOTE_COUNT = r"[\d.,]+\s*[kmb]?"
+_RATING_CONTROL_RE = re.compile(
+    r"(?:" + _VOTE_COUNT + r"\s+)?"
+    r"(?:(?:dis)?likes?|thumbs?[\s_-]*(?:up|down)|(?:up|down)[\s_-]*votes?|votes?"
+    r"|rat(?:e|ing)(?:\s+this(?:\s+video)?)?)"
+    r"(?:\s+" + _VOTE_COUNT + r")?", re.I)
+_VOTE_COUNT_ONLY_RE = re.compile(_VOTE_COUNT, re.I)
+# A bare count ("6K") whose own markup names the vote (title/aria-label/class).
+_RATING_MARK_JS = (
+    "e => { const re = /(^|[^a-z])(dis)?likes?([^a-z]|$)|thumbs?[-_ ]?(up|down)"
+    "|(up|down)[-_ ]?votes?|(^|[^a-z])(votes?|rating)([^a-z]|$)/i;"
+    " for (let n = e, i = 0; n && i < 3; n = n.parentElement, i++) {"
+    " const t = [n.getAttribute('title'), n.getAttribute('aria-label'),"
+    " n.getAttribute('class')].filter(Boolean).join(' ');"
+    " if (re.test(t)) return true; } return false; }")
+
+
+def _is_rating_control(el, label):
+    """A like/dislike/vote control (dl95-txxx-6): refused, never scored.
+
+    The visible label alone decides "6K Dislike" / "Like 11K" / "Thumbs up".
+    A label that is ONLY a count pays for one DOM round trip: the control or
+    its two nearest ancestors must name the vote. Any failure keeps it."""
+    t = " ".join((label or "").split())
+    if not t:
+        return False
+    if _RATING_CONTROL_RE.fullmatch(t):
+        return True
+    if not _VOTE_COUNT_ONLY_RE.fullmatch(t):
+        return False
+    try:
+        return bool(el.evaluate(_RATING_MARK_JS))
+    except Exception:
+        return False
 
 
 def _is_collection_action(el, label):
@@ -2241,6 +2282,10 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     if require_signal and (
             not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
         return "no_signal"
+    # After no_signal: only a vote label that would otherwise SCORE ("6K
+    # Dislike") is refused and counted; a plain "Like" stays uncounted.
+    if _is_rating_control(el, visible):
+        return "rating_control"
     if _is_collection_action(el, visible):
         return "collection_action"
     if _is_navigation_resolution_ghost(el, t, page_url):
@@ -2321,7 +2366,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
                           "listing_filter": 0, "short_preview": 0,
                           "navigation_url": 0, "collection_action": 0,
-                          "player_control": 0}
+                          "player_control": 0, "rating_control": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
