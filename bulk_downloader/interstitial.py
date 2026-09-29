@@ -181,6 +181,17 @@ BLOCK_LANGUAGE = re.compile(
     r"\baccount (?:has been )?(?:locked|suspended)\b|"
     r"\btemporarily blocked\b)", re.I)
 
+# tpl95-evilangel-1 (evilangel, 2026-09-29): the site's login-abuse lockout
+# ("Your IP was blocked! Please try later ...") served where the login form
+# should be. The subset of BLOCK_LANGUAGE that names a lockout of THIS client
+# -- never the bare "access denied", which is also a members wall
+# (dl95-vixen-1). Read by content, like every other gate here.
+LOGIN_LOCKOUT_LANGUAGE = re.compile(
+    r"(?:\byour ip (?:address )?(?:was|has been|is) blocked\b|"
+    r"\btoo many (?:failed )?(?:login )?attempts\b|"
+    r"\baccount (?:has been )?(?:locked|suspended)\b|"
+    r"\btemporarily blocked\b)", re.I)
+
 BODY_TEXT_SELECTOR = "body"
 
 # Row 762. The Aylo /store post-login upsell: a PRECHECKED consent box beside
@@ -1624,7 +1635,7 @@ __all__ = [
     "SAFETY_UNKNOWN_OUTCOMES", "DENIED_CONTROL_TERMS",
     "GENERIC_CONTROL_SELECTOR", "DEFAULT_TIMEOUT_MS",
     "AGE_GATE_LANGUAGE", "ENTER_AFFORDANCE", "AGREE_AFFORDANCE",
-    "ACCESS_AFFORDANCE", "BLOCK_LANGUAGE",
+    "ACCESS_AFFORDANCE", "BLOCK_LANGUAGE", "LOGIN_LOCKOUT_LANGUAGE",
     "RECURRING_CHARGE_LANGUAGE", "CHECKED_CONSENT_SELECTOR",
     "BLOCKED_AFTER_GATE_OUTCOMES", "first_blocked_after_gate",
     "blocked_after_gate_diagnostic",

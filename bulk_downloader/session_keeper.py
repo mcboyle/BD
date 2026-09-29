@@ -203,6 +203,40 @@ def _require_login_identity(site_id, source):
     return site_id, source
 
 
+# tpl95-evilangel-1 (evilangel, 2026-09-29): a login that landed on the
+# site's own lockout page ("Your IP was blocked!") is filed as this event.
+# Every automatic credential login after it deepens the lockout, so the
+# reservation below refuses them for LOGIN_LOCKOUT_HOLD_S. The operator's own
+# manual login is not held: it is how a lockout is resolved.
+LOGIN_LOCKOUT_EVENT = "login_lockout"
+LOGIN_LOCKOUT_HOLD_S = 24 * 3600
+_LOCKOUT_EXEMPT_SOURCES = frozenset({"runner_auth.start_manual_login"})
+
+
+class LoginLockout(str):
+    """A login failure detail that IS the site's lockout page (typed, row 741)."""
+
+
+def record_login_lockout(site_id: str, detail: str) -> None:
+    """Durably file one lockout landing for ``site_id``; opens the hold."""
+    site_id, _source = _require_login_identity(site_id, LOGIN_LOCKOUT_EVENT)
+    with db.db_conn() as cx:
+        cx.execute(
+            "INSERT INTO session_history"
+            "(ts, site_id, account_idx, event_type, detail) "
+            "VALUES (?, ?, NULL, ?, ?)",
+            (time.time(), site_id, LOGIN_LOCKOUT_EVENT, str(detail)[:500]))
+
+
+def _lockout_hold_reason(ts, detail) -> str:
+    def _utc(t):
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+    return (f"login lockout hold: the site served its lockout page at "
+            f"{_utc(ts)} ({detail}); automatic logins stopped until "
+            f"{_utc(ts + LOGIN_LOCKOUT_HOLD_S)} -- log in manually once the "
+            "site lifts it")
+
+
 def reserve_login_attempt(site_id: str, source: str, cap: int,
                           account_idx: int | None = None) -> dict:
     """Atomically decide AND record one login attempt against the site/day cap.
@@ -222,6 +256,8 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
     Returns ``{"granted", "status", "count", "cap", "reason"}``.  ``status`` is
     ``UNKNOWN`` when the denominator could not be measured at all, which is
     distinct from a measured zero and is never permission to proceed.
+    ``LOCKOUT`` is a refusal of an automatic source inside a lockout hold
+    (``record_login_lockout``); it writes nothing either.
     """
     import time as _time
 
@@ -252,6 +288,22 @@ def reserve_login_attempt(site_id: str, source: str, cap: int,
         window = ("WHERE site_id=:site_id AND event_type=:event_type "
                   "AND ts>=:start AND ts<:finish")
         with db.db_conn() as cx:
+            if source not in _LOCKOUT_EXEMPT_SOURCES:
+                held = cx.execute(
+                    "SELECT ts, detail FROM session_history "
+                    "WHERE site_id=? AND event_type=? AND ts>=? "
+                    "ORDER BY ts DESC LIMIT 1",
+                    (site_id, LOGIN_LOCKOUT_EVENT,
+                     params["ts"] - LOGIN_LOCKOUT_HOLD_S),
+                ).fetchone()
+                if held is not None:
+                    return {
+                        "granted": False,
+                        "status": "LOCKOUT",
+                        "count": None,
+                        "cap": cap,
+                        "reason": _lockout_hold_reason(held[0], held[1]),
+                    }
             inserted = cx.execute(
                 "INSERT INTO session_history"
                 "(ts, site_id, account_idx, event_type, detail) "
@@ -302,7 +354,7 @@ def record_login_attempt(site_id: str, source: str,
     """
     outcome = reserve_login_attempt(
         site_id, source, DEFAULT_LOGIN_ATTEMPT_CAP_PER_DAY, account_idx)
-    if outcome["status"] == "UNKNOWN":
+    if outcome["status"] != "OK":
         raise RuntimeError(outcome["reason"])
     if not outcome["granted"]:
         raise RuntimeError(
