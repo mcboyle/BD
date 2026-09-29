@@ -2655,6 +2655,15 @@ class TransportMixin:
                     res_lbl = res_label(best["score"])
                     direct_url=dl.url
                     suggested=dl.suggested_filename or "download.bin"
+            if (dl is None and not probe and best.get("score", 0) == 0
+                    and not best.get("_dropdown_note")):
+                # dl95-porndoe-1: a zero-score control that fired nothing on
+                # a page whose player has not started (porndoe: "Mobile menu",
+                # a playlist "Save").  Start the player and take its feature
+                # media before recording the modal-trigger needs_review.
+                take_player = getattr(self, "_try_player_media_extractor", None)
+                if callable(take_player) and take_player(page_url, page):
+                    return
             if dl is None:
                 # No actual download event fired.
                 if not probe and self._fallback_to_page_media(page, page_url, "clicked candidate fired no download"):

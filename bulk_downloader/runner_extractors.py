@@ -1279,9 +1279,27 @@ class ExtractorsMixin:
                 self.log_event("spa_api_player_height",
                                f"player decoded {h}p: {cand['url'][:120]}", url=url)
 
+    def _try_player_media_extractor(self, url: str, page) -> bool:
+        """dl95-porndoe-1: start the page's player and take its FEATURE media.
+
+        Consulted only after a click fired nothing on a zero-score control
+        (the modal-trigger failure).  Hands the feature media, and only it,
+        to the SPA path's transfer; False when no feature-length media loads.
+        """
+        try:
+            from . import spa_media_extract as _spa
+        except Exception as e:
+            sys.stderr.write(f"  player-media: import failed ({type(e).__name__}); skipped\n")
+            return False
+        media = _spa.start_player_for_feature_media(page)
+        if not media:
+            sys.stderr.write("  player-media: no feature-length media after player start\n")
+            return False
+        return self._try_spa_api_media_extractor(url, page, page_media=media)
+
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
                                      proven_only: bool = False, hold_below: bool = False,
-                                     *, source_list_only=False) -> bool:
+                                     page_media=None, *, source_list_only=False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Normally consulted after ``find_best_download`` (and the
@@ -1323,52 +1341,65 @@ class ExtractorsMixin:
                 records = capture.records()
             except Exception as e:
                 sys.stderr.write(f"  spa-api: reading captured API records raised {type(e).__name__}\n")
-        page_media = []
-        try:
-            page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
-        except Exception:
+        # dl95-porndoe-1: an explicit page_media is the WHOLE population (the
+        # player's feature media); captured API options, scene/stream sweeps
+        # and KVS flashvars are not merged in, or a 2160p preview record
+        # outranks the 720p scene.
+        feature_only = page_media is not None
+        if not feature_only:
             page_media = []
+            try:
+                page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
+            except Exception:
+                page_media = []
         from contextlib import nullcontext
         # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
         jobs = getattr(self, "jobs", None)
         with getattr(self, "_lock", None) or nullcontext():
             job = jobs.get(url) if isinstance(jobs, dict) else None
             forced = bool((job or {}).get("force_download"))
-        page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
-        try:
-            page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
-        except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
-            sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
+        if not feature_only:
+            page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
+            try:
+                page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
+            except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
+                sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
         try:
             page_url = page.url or url
         except Exception:
             page_url = url
-        try:
-            scene_candidates = _spa.scene_player_candidates(
-                page_url, page.content(), job_url=url, strict=proven_only)
-        except Exception:
-            scene_candidates = []
-        # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
-        # wire (row 899) join the page's own resource list -- beeg fills the
-        # 250-entry resource-timing buffer with thumbnails first.  Read, not
-        # drained: the queue is shared by the site's workers, and identity is
-        # asked of the JOB url (the feed moves page.url on to the next scene).
-        detected = [e.get("url") for e in list(getattr(self, "manifest_urls", None) or [])
-                    if isinstance(e, dict)]
-        scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
-        self._spa_player_heights(page, url, scene_candidates, _spa)  # dl95-txxx-5
-        # Proven current-scene child sources outrank incidental page ads and
-        # previews as a cohort; don't mix those populations by resolution.
-        # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
-        # files join the page population, ranked with the page media by height
-        # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
-        # the 1080p embed).
-        cands = source_cands or scene_candidates or ([] if proven_only else (
-            _spa.api_candidates(page_url, records)
-            + _spa.page_media_candidates(page_url, page_media)
-            + _spa.embed_frame_candidates(page, page_url)))
-        # Named in the caller's "No download button found" when nothing is found.
-        self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
+        if feature_only:
+            # Neither the scene-player gate nor the xhamster source-list gate
+            # below is this cohort's.
+            scene_candidates = source_cands = []
+            cands = _spa.page_media_candidates(page_url, page_media)
+        else:
+            try:
+                scene_candidates = _spa.scene_player_candidates(
+                    page_url, page.content(), job_url=url, strict=proven_only)
+            except Exception:
+                scene_candidates = []
+            # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
+            # wire (row 899) join the page's own resource list -- beeg fills the
+            # 250-entry resource-timing buffer with thumbnails first.  Read, not
+            # drained: the queue is shared by the site's workers, and identity is
+            # asked of the JOB url (the feed moves page.url on to the next scene).
+            detected = [e.get("url") for e in list(getattr(self, "manifest_urls", None) or [])
+                        if isinstance(e, dict)]
+            scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
+            self._spa_player_heights(page, url, scene_candidates, _spa)  # dl95-txxx-5
+            # Proven current-scene child sources outrank incidental page ads and
+            # previews as a cohort; don't mix those populations by resolution.
+            # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
+            # files join the page population, ranked with the page media by height
+            # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
+            # the 1080p embed).
+            cands = source_cands or scene_candidates or ([] if proven_only else (
+                _spa.api_candidates(page_url, records)
+                + _spa.page_media_candidates(page_url, page_media)
+                + _spa.embed_frame_candidates(page, page_url)))
+            # Named in the caller's "No download button found" when nothing is found.
+            self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
         if not cands:
             # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
             # own media is here; a trailer verdict is a claim about the unproven

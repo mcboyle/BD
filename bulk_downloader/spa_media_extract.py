@@ -25,6 +25,7 @@ The fallback is consulted ONLY when the DOM yielded no candidate (runner.py).
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import Any, Dict, Iterable, List, Optional
@@ -780,3 +781,82 @@ def third_party_frame_hosts(page) -> List[str]:
         if h and h != top and h not in hosts:
             hosts.append(h)
     return hosts
+
+
+# dl95-porndoe-1 (test2 2026-09-29, re-measured live on the hub): a tube scene
+# page renders NO <video> until its poster play control is clicked, so every
+# DOM candidate is chrome ("Mobile menu", a playlist "Save") and the click
+# fires nothing.  After the play click the page holds four <video> elements:
+# the scene (HLS, 709.8 s), a hover preview (8.9 s) and two ad creatives
+# (29.8 s, unloaded).  The scene is the LONGEST finite media, and a feature
+# floor keeps a preview or a pre-roll from ever standing in for it.
+FEATURE_MEDIA_MIN_S = 60.0
+FEATURE_MEDIA_JS = """() => [...document.querySelectorAll('video')].map(v => ({
+  src: v.currentSrc || v.src || '', duration: v.duration}))"""
+# Player-start controls only: buttons and overlay icons, never an anchor (a
+# related card reads "Play ..." and navigates to another scene).
+PLAYER_START_SELECTORS = (
+    "button[class*='poster-play' i]",
+    "[class*='poster' i] button[class*='play' i]",
+    "button.vjs-big-play-button",
+    ".jw-display-icon-display",
+    "button.plyr__control--overlaid",
+    "button[class*='big-play' i]",
+)
+
+
+def feature_media_urls(items: Any, min_s: float = FEATURE_MEDIA_MIN_S) -> List[str]:
+    """http(s) sources of the longest finite-duration <video> >= *min_s*."""
+    best = 0.0
+    out: List[str] = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        src, dur = it.get("src"), it.get("duration")
+        if not isinstance(src, str) or not src.startswith(("http://", "https://")):
+            continue
+        if isinstance(dur, bool) or not isinstance(dur, (int, float)):
+            continue
+        dur = float(dur)
+        if not math.isfinite(dur) or dur < min_s:
+            continue
+        if dur > best:
+            best, out = dur, [src]
+        elif dur == best and src not in out:
+            out.append(src)
+    return out
+
+
+def start_player_for_feature_media(page, *, wait_s: float = 10.0,
+                                   poll_s: float = 0.5, sleep=None) -> List[str]:
+    """Feature media of the page's player, starting it with ONE click when it
+    has not started.  ``[]`` when nothing feature-length ever loads."""
+    import time as _time
+    sleep = sleep or _time.sleep
+
+    def measure() -> List[str]:
+        try:
+            return feature_media_urls(page.evaluate(FEATURE_MEDIA_JS))
+        except Exception:
+            return []
+
+    media = measure()
+    if media:
+        return media
+    for sel in PLAYER_START_SELECTORS:
+        try:
+            loc = page.locator(sel).first
+            if not loc.count() or not loc.is_visible():
+                continue
+            loc.click(timeout=3000)
+        except Exception:
+            continue
+        waited = 0.0
+        while waited < wait_s:
+            sleep(poll_s)
+            waited += poll_s
+            media = measure()
+            if media:
+                return media
+        return []
+    return []
