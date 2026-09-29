@@ -691,6 +691,36 @@ _CANDIDATE_URL_ATTRS = (
     "href", "data-href", "data-url", "data-src", "data-download",
     "data-signed-url-key")
 
+# dl95-africancasting-4: rendition metadata that a quality option carries and a
+# scene title does not.
+_RENDITION_WORD_RE = re.compile(
+    r"\b(?:mp4|mkv|mov|wmv|webm|avi|m4v|flv|h\.?26[45]|hevc|avc|[xh]26[45]"
+    r"|\d+(?:\.\d+)?\s*[km]bps)\b", re.I)
+
+
+def _title_shaped_label_only(text):
+    """dl95-africancasting-4: free link text is a title, not a quality option.
+
+    res_score falls back to named tier WORDS ("tiny"/"mobile" = 240, "low" =
+    360, "hd" = 720) when no height is written. On a related-scene card,
+    "Spicy Doll seeks makeup sex wi..." therefore scored 240p. The min-res gate
+    then refused the scene as "got 240p" (test2, history 266). A quality
+    option is a badge (few words), names a height, or carries rendition
+    metadata -- a file size or a container/codec word ("Full HD MP4 (2.1 GB)").
+    Long text with none of these is a title, and a tier word inside it is not
+    evidence. (Text that says download is admitted on that word by
+    _candidate_admission regardless.)"""
+    t = (text or "").strip()
+    return (len(t.split()) > 4
+            and not _EXPLICIT_VIDEO_HEIGHT_RE.search(t)
+            and not _RENDITION_WORD_RE.search(t)
+            and parse_size_bytes(t) <= 0)
+
+
+def _quality_signal(text):
+    """res_score for admission, with no signal from a title's tier word."""
+    return -1 if _title_shaped_label_only(text) else res_score(text)
+
 
 def _split_regex_alternatives(pattern):
     """Top-level ``|`` alternatives of a regex source, or None if unreadable."""
@@ -2108,7 +2138,7 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         _note_listing_link(t, _listing)
         return "listing_link"
     if require_signal and (
-            not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
+            not t or (_quality_signal(t) < 0 and not _DL_WORD_RE.search(t))):
         return "no_signal"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
