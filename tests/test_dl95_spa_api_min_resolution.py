@@ -10,6 +10,10 @@ Contract after the fix (design note harness-work/FIX/dl95-cumlouder-3-bd-worker-
   * an UNKNOWN height passes (as on the button path) and the landed file is measured: its real height is recorded
     and a below-minimum result is flagged in the done message, the history message and a spa_api_below_minimum event;
   * force_download and a job whose URL IS the media file are not held.
+GEN 2 (dl95-hqporner-2, PM ruling NOTE-PM-ASKS-0245Z.md #2): hqporner on test2 v1710 "chose 0p from page-media" and
+saved a 5.9 s 854x480 clip as DONE (download-95/A8-A/p1/hqporner/bytes-landed.txt): a hover preview / ad, not the scene.
+A pick with no known height that lands shorter than SPA_PREVIEW_MAX_SECONDS is removed and held needs_review;
+forced jobs, direct-media jobs and picks with a known height are untouched.
 
 The landed files are REAL MP4s made by ffmpeg at test time and measured by the real ffprobe.
 """
@@ -28,13 +32,13 @@ SCENE = "https://www.cumlouder.com/porn-video/masturbation-expert-gives-a-lesson
 SOURCE = "https://m4cdnst.cumlouder.com/07a97691a99801434b7f82702b14cbc6/07a97691a99801434b7f82702b14cbc6.mp4?secure=REDACTED"
 
 
-def _mp4(path, w, h):
+def _mp4(path, w, h, seconds=12):
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         pytest.fail("ffmpeg is required to build the landed-file fixture")
     subprocess.run(
-        [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={w}x{h}:rate=5",
-         "-t", "1", "-pix_fmt", "yuv420p", str(path)],
+        [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={w}x{h}:rate=1",
+         "-t", str(seconds), "-pix_fmt", "yuv420p", str(path)],
         check=True, timeout=60)
     return path
 
@@ -142,3 +146,36 @@ def test_zero_minimum_holds_nothing(make, tmp_path):
     r = make(landed=_mp4(tmp_path / "360.mp4", 640, 360), min_resolution=0)
     assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
     assert r.updates[-1] == ("done", r.updates[-1][1]) and "below" not in r.updates[-1][1]
+
+
+@pytest.mark.parametrize("min_res", [1080, 0])
+def test_a_seconds_long_clip_with_no_known_height_is_not_the_scene(make, tmp_path, min_res):
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=min_res)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    status, msg = r.updates[-1]
+    assert status == "needs_review" and msg.startswith("Landed a 6.0 s clip"), f"DL95_SPA_PREVIEW_SAVED_AS_SCENE: {msg!r}"
+    assert [e[0] for e in r.events if e[0] == "spa_api_preview_rejected"], r.events
+    assert r.logged[-1][3] == "needs_review", r.logged[-1]
+    assert not list((tmp_path / "dl").rglob("*.mp4")), "the preview must not stay in the library"
+
+
+def test_a_forced_short_clip_lands(make, tmp_path):
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=1080)
+    r.jobs[SCENE] = {"force_download": True}
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    assert r.updates[-1][0] == "done", r.updates
+
+
+def test_a_short_direct_media_job_lands(make, tmp_path):
+    media = "https://cdn.example.invalid/clips/short.mp4"
+    r = make(landed=_mp4(tmp_path / "short.mp4", 854, 480, seconds=6), min_resolution=0)
+    assert r._try_spa_api_media_extractor(media, _Page([media], url=media)) is True
+    assert r.updates[-1][0] == "done", r.updates
+
+
+def test_a_short_clip_with_a_known_height_is_not_second_guessed(make, tmp_path):
+    """Control: a pick the page attributed (a named 720p rendition) is not measured for duration."""
+    named = "https://m4cdnst.cumlouder.com/abc/abc_720.mp4"
+    r = make(landed=_mp4(tmp_path / "720.mp4", 1280, 720, seconds=6), min_resolution=0)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([named])) is True
+    assert r.updates[-1][0] == "done" and r.updates[-1][1].startswith("API/media 720p"), r.updates

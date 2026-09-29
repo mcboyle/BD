@@ -277,6 +277,20 @@ def _build_gallerydl_cmd(*, gallerydl, dl_dir, url, proxy_url=None,
     return cmd
 
 
+# dl95-hqporner-2: a landed clip this short, picked with no known height, is a
+# hover preview or an ad (measured 5.9 s / 7 s), not the scene.
+SPA_PREVIEW_MAX_SECONDS = 10.0
+
+
+def _landed_video_seconds(path):
+    """The landed file's duration in seconds via the pinned ffprobe, or 0.0."""
+    try:
+        from .upscale_detector import probe_video_metadata
+        return float(probe_video_metadata(path, timeout=10.0)[2] or 0.0)
+    except (OSError, ValueError):   # no ffprobe / unreadable file: stays unknown
+        return 0.0
+
+
 def _spa_job_is_the_file(job_url, file_url):
     """True when the queued URL is itself the media file (scheme/host/path equal,
     query ignored): nothing was chosen, so min_resolution has nothing to hold."""
@@ -1309,7 +1323,8 @@ class ExtractorsMixin:
         with getattr(self, "_lock", None) or nullcontext():
             job = jobs.get(url) if isinstance(jobs, dict) else None
             forced = bool((job or {}).get("force_download"))
-        gated = min_res > 0 and not forced and not _spa_job_is_the_file(url, file_url)
+        chosen_for_us = not forced and not _spa_job_is_the_file(url, file_url)
+        gated = min_res > 0 and chosen_for_us
         if gated and 0 < height < min_res:
             screenshot_fn = getattr(self, "_screenshot", None)
             ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
@@ -1440,6 +1455,22 @@ class ExtractorsMixin:
         below = ""
         if not height:
             height = _landed_video_height(output_path)
+            secs = _landed_video_seconds(output_path)
+            if chosen_for_us and 0 < secs < SPA_PREVIEW_MAX_SECONDS:
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                self.log_event("spa_api_preview_rejected",
+                               f"landed a {secs:.1f} s clip ({height}p) from {chosen.get('source')}", url=url)
+                self._update_job(url, "needs_review",
+                                 f"Landed a {secs:.1f} s clip — a preview or ad, not the scene "
+                                 f"— Approve to force. Saw: {summary}", screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       f"spa-api clip {secs:.1f}s < {SPA_PREVIEW_MAX_SECONDS:g}s; saw: {summary}", ss)
+                return True
             if gated and 0 < height < min_res:
                 below = f" — below the {min_res}p minimum (height unknown before download)"
                 self.log_event("spa_api_below_minimum",
