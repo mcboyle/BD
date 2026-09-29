@@ -242,3 +242,63 @@ def test_runner_consults_the_proven_streams_before_the_unproven_click():
     trigger = src.rfind('if (best.get("_no_identity_proof")', gate, arm)
     click = src.find('self._update_job(url,"running",f"Clicking [{lbl}]...{note}")', gate)
     assert gate < trigger < arm < click, (gate, trigger, arm, click)
+
+
+OTHER_PLAYER = "https://cdn.example/get_file/1/key/1/22222222/22222222_2160p.mp4"
+
+
+def _proven_only_on_a_moved_page(job, tmp_path, monkeypatch, watched=()):
+    """The page has moved on to /video/22222222, whose video-js player offers 2160p."""
+    from playwright.sync_api import sync_playwright
+
+    runner = _load(tmp_path, monkeypatch)
+    runner.manifest_urls = [{"url": u} for u in watched]
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("**/*", lambda route: route.fulfill(status=200, body="<html></html>"))
+            page.goto(job)
+            page.evaluate("u => history.replaceState(null, '', u)",
+                          "https://fixture.example/video/22222222")
+            page.set_content(
+                f'<video class="video-js"><source src="{OTHER_PLAYER}" type="video/mp4"></video>')
+            took = runner._try_spa_api_media_extractor(job, page, proven_only=True)
+        finally:
+            browser.close()
+    return runner, took
+
+
+def test_every_proven_population_answers_to_the_job(tmp_path, monkeypatch):
+    """cx-2 F1: the proven population is judged against the JOB, so its own stream wins."""
+    own = "https://cdn.example/hls/1080p/11111111.mp4.m3u8"
+    runner, took = _proven_only_on_a_moved_page(
+        "https://fixture.example/video/11111111", tmp_path, monkeypatch, watched=[own])
+    assert took and runner.streams == [own], (
+        f"DL95_BEEG_1_LIVE_1_NEXT_SCENE_PLAYER_TAKEN streams={runner.streams}")
+
+
+def test_a_job_that_names_no_scene_proves_nothing(tmp_path, monkeypatch):
+    """proven_only with a slug job: the page's player is not the job's by proof -> the click runs."""
+    runner, took = _proven_only_on_a_moved_page(
+        "https://fixture.example/watch/a-slug", tmp_path, monkeypatch)
+    assert took is False and runner.streams == [], (
+        f"DL95_BEEG_1_LIVE_1_UNPROVEN_PLAYER_TAKEN streams={runner.streams}")
+
+
+@pytest.mark.parametrize("job,strict,kept", [
+    ("", False, True),                                             # legacy callers: page decides
+    ("https://site.example/video/22222222/", False, True),         # the job IS the page's scene
+    ("https://site.example/video/11111111", False, False),         # the page moved on
+    ("https://site.example/watch/a-slug", False, True),            # job names no id: unchanged
+    ("https://site.example/watch/a-slug", True, False),            # ...but proves nothing strict
+], ids=["no-job", "same-scene", "moved-on", "slug-job", "slug-job-strict"])
+def test_scene_player_identity_is_the_jobs(job, strict, kept):
+    from bulk_downloader import spa_media_extract as spa
+
+    page_url = "https://site.example/video/22222222/"
+    src = "https://site.example/get_file/1/k/22000/22222222/22222222_1080p.mp4/"
+    html = f'<video class="video-js"><source src="{src}" type="video/mp4"></video>'
+    assert spa.scene_player_candidates(page_url, html) != [], "precondition: the player is parsed"
+    got = spa.scene_player_candidates(page_url, html, job_url=job, strict=strict)
+    assert bool(got) is kept, got

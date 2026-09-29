@@ -280,15 +280,25 @@ def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[st
     return out
 
 
-def scene_player_candidates(page_url: str, html: str) -> List[Dict[str, Any]]:
+def scene_player_candidates(page_url: str, html: str, job_url: str = "",
+                            strict: bool = False) -> List[Dict[str, Any]]:
     """Recover child sources whose route identifies this numeric scene.
 
     Keep the parser's complete URL: the trailing slash and signed query are
     transport data. Only the path is inspected for identity and resolution.
     A bare rendition has unknown quality, never an inferred top tier.
+
+    dl95-beeg-1-live-1 (cx-2 F1): the page may have moved on from the job
+    (a feed rewrites the address bar), so the page's scene counts only while
+    it is the JOB's: a *job_url* naming another scene id proves nothing, and
+    under *strict* a job_url naming no scene id proves nothing either.
     """
     scene = re.fullmatch(r"/video/(\d+)/?", urlparse(page_url).path)
     if not scene:
+        return []
+    job_scene = re.fullmatch(r"/video/(\d+)/?", urlparse(job_url or "").path)
+    if (job_scene.group(1) if job_scene else None) != scene.group(1) and (
+            strict or job_scene):
         return []
     from .deep_detect.providers import extract_player_configs
 

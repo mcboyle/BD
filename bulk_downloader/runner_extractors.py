@@ -1301,7 +1301,8 @@ class ExtractorsMixin:
         except Exception:
             page_url = url
         try:
-            scene_candidates = _spa.scene_player_candidates(page_url, page.content())
+            scene_candidates = _spa.scene_player_candidates(
+                page_url, page.content(), job_url=url, strict=proven_only)
         except Exception:
             scene_candidates = []
         # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
