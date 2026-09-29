@@ -242,6 +242,43 @@ def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[st
     return out
 
 
+def scene_player_candidates(page_url: str, html: str) -> List[Dict[str, Any]]:
+    """Recover child sources whose route identifies this numeric scene.
+
+    Keep the parser's complete URL: the trailing slash and signed query are
+    transport data. Only the path is inspected for identity and resolution.
+    A bare rendition has unknown quality, never an inferred top tier.
+    """
+    scene = re.fullmatch(r"/video/(\d+)/?", urlparse(page_url).path)
+    if not scene:
+        return []
+    from .deep_detect.providers import extract_player_configs
+
+    scene_id = re.escape(scene.group(1))
+    route = re.compile(
+        rf"/get_file/[^/]+/[^/]+/\d+/{scene_id}/{scene_id}"
+        r"(?:_(\d{3,4})p)?\.mp4/?")
+    out = []
+    seen = set()
+    for source in extract_player_configs(html, base_url=page_url):
+        if (source.get("source_type") != "videojs_source"
+                or source.get("found_in") != "<video class=video-js><source>"):
+            continue
+        url = source.get("url") or ""
+        parsed = urlparse(url)
+        match = route.fullmatch(parsed.path)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc or not match:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        height = int(match.group(1) or 0)
+        out.append({"url": url, "label": f"{height}p" if height else "unknown",
+                    "height": height, "size": 0, "source": "scene-player",
+                    "filename": parsed.path.rstrip("/").rsplit("/", 1)[-1]})
+    return out
+
+
 def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
     """Media files the page actually requested / bound to <video>/<source>."""
     out: List[Dict[str, Any]] = []

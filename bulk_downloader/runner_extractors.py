@@ -1193,8 +1193,15 @@ class ExtractorsMixin:
             page_url = page.url or url
         except Exception:
             page_url = url
-        cands = _spa.api_candidates(page_url, records)
-        cands += _spa.page_media_candidates(page_url, page_media)
+        try:
+            scene_candidates = _spa.scene_player_candidates(page_url, page.content())
+        except Exception:
+            scene_candidates = []
+        # Proven current-scene child sources outrank incidental page ads and
+        # previews as a cohort; don't mix those populations by resolution.
+        cands = scene_candidates or (
+            _spa.api_candidates(page_url, records)
+            + _spa.page_media_candidates(page_url, page_media))
         if not cands:
             sys.stderr.write(
                 f"  spa-api: no download-like options in {len(records)} captured "
@@ -1217,6 +1224,21 @@ class ExtractorsMixin:
             return False
         file_url = chosen["url"]
         height = int(chosen.get("height") or 0)
+        if scene_candidates:
+            from contextlib import nullcontext
+            with getattr(self, "_lock", None) or nullcontext():
+                forced = bool(self.jobs.get(url, {}).get("force_download"))
+            minimum = int(float(self.config.get(
+                "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+            if minimum > 0 and height < minimum and not forced:
+                quality = f"{height}p" if height else "unknown quality"
+                message = (f"Scene player best is {quality} (minimum {minimum}p)"
+                           " — Approve to force.")
+                screenshot = self._screenshot(page, url)
+                self._update_job(url, "needs_review", message, screenshot=screenshot)
+                db_log(self.site_id, self.config.get("name", "?"), url,
+                       "needs_review", "", 0, message, screenshot)
+                return True
         summary = " | ".join(
             f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
             for c in ranked[:6])
