@@ -19,8 +19,9 @@ function mockPreflight(body: unknown) {
   );
 }
 
-function mount() {
+function mount(initialData?: unknown) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  if (initialData !== undefined) qc.setQueryData(["queue-preflight"], initialData);
   return render(
     <QueryClientProvider client={qc}>
       <QueuePreflightStrip refetchMs={0} />
@@ -57,4 +58,13 @@ describe("QueuePreflightStrip", () => {
     mount();
     expect(await screen.findByText(/ready to run/i)).toBeTruthy();
   });
+});
+
+it("keeps pending checks distinct from a ready or failed result", async () => {
+  const pending = { ok: true, ready: false, pending: true, checks: [] };
+  mockPreflight(pending);
+  mount(pending);
+  expect(screen.getByText(/running preflight/i)).toBeTruthy();
+  expect(screen.queryByText(/ready to run/i)).toBeNull();
+  expect(screen.queryByText(/not ready/i)).toBeNull();
 });
