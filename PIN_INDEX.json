@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 157,
+    "total": 160,
     "version": 1,
-    "count_dict": 156,
-    "test_files_scanned": 2216,
+    "count_dict": 159,
+    "test_files_scanned": 2219,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -58,6 +58,7 @@
       "tests/test_template_drift_matrix.py": 1,
       "tests/test_test2d_1_persistent_profile_cookie_jar.py": 5,
       "tests/test_toolchain_534.py": 1,
+      "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py": 3,
       "tests/test_u49_workers_total_honest.py": 1,
       "tests/test_v3_43_42_storage_tier.py": 2,
       "tests/test_v3_43_62_live_recorder.py": 5,
@@ -672,7 +673,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1713",
+      "value": "3.66.1714",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -811,7 +812,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_toolchain_534.py",
-      "line": 1790,
+      "line": 1792,
       "value": {
         "files": 2,
         "passed": 1,
@@ -822,6 +823,36 @@
         "timeouts": 1
       },
       "gates_what": "test_fullsuite_confirmation_preserves_the_callers_per_file_timeout — A serial confirmation is another file run under the caller's bound."
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
+      "line": 79,
+      "value": {
+        "hits": 1,
+        "misses": 0
+      },
+      "gates_what": "test_the_taught_row_that_names_the_pick_is_credited_not_missed"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
+      "line": 91,
+      "value": {
+        "hits": 1,
+        "misses": 0
+      },
+      "gates_what": "test_a_learned_pick_is_still_a_plain_hit"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_tpl95_porndig_1_learned_rows_credited_for_their_element.py",
+      "line": 111,
+      "value": {
+        "hits": 0,
+        "misses": 1
+      },
+      "gates_what": "test_a_selector_the_dom_cannot_evaluate_names_nothing — Playwright-only syntax (:has-text) cannot be matched in the DOM: counted as before, never raised."
     },
     {
       "form": "count_dict",
