@@ -81,40 +81,19 @@ def api_scrape_listing():
         return jsonify({"ok": False, "error": "fetch blocked by SSRF policy"}), 502
     except httpx.HTTPError as e:
         return jsonify({"ok": False, "error": f"fetch failed: {type(e).__name__}: {e}"}), 502
-    # Extract <a href="..."> values
-    import re as _re
-    from urllib.parse import urljoin, urlparse
-    hrefs = _re.findall(r'<a[^>]+href=["\']([^"\']+)["\']', html, _re.I)
-    seen, found = set(), []
-    VIDEO_EXT = _re.compile(r"\.(mp4|mkv|webm|avi|mov|m3u8|mpd|ts|flv)(\?|#|$)", _re.I)
-    VIDEO_PATTERNS = _re.compile(r"/(video|watch|v|play|movie|episode|stream)/|/videos/\d+/[^/?#]", _re.I)  # dl95-porndig-2: plural /videos/<id>/<slug> scenes
-    LISTING_PATTERNS = _re.compile(r"/(category|categories|tag|tags|page|search|browse|list|channel|playlist|feed|sitemap)/", _re.I)
-    filter_listings = bool(body.get("filter_listings", True))
-    for href in hrefs:
-        if not href or href.startswith("#") or href.startswith("javascript:"):
-            continue
-        absolute = urljoin(url, href)
-        if not absolute.startswith("http"): continue
-        if absolute in seen: continue
-        is_video = bool(VIDEO_EXT.search(absolute) or VIDEO_PATTERNS.search(absolute))
-        if not is_video: continue
-        if filter_listings and LISTING_PATTERNS.search(absolute):
-            try:
-                last = urlparse(absolute).path.rstrip("/").rsplit("/", 1)[-1]
-                if not last.isdigit():
-                    continue  # listing page, not a video page
-            except Exception: pass
-        seen.add(absolute); found.append(absolute)
-        if len(found) >= max_links: break
+    from bulk_downloader.listing_links import anchor_count, extract_video_links
+    found = extract_video_links(html, url, max_links=max_links,
+                                filter_listings=bool(body.get("filter_listings", True)))
     out = {"ok": True, "url": url, "found": found,
            "count": len(found), "html_size": len(html)}
     if not found:
         # dl95-dailymotion-3: a JS-rendered listing (dailymotion: 58 KB, 0 <a href>)
         # yields nothing here. Say what was measured and where the rendered crawl is,
         # instead of an empty result the UI can only toast.
-        out["anchors"] = len(hrefs)
+        anchors = anchor_count(html)
+        out["anchors"] = anchors
         out["hint"] = (
-            f"No video links in this page's HTML ({len(hrefs)} links, "
+            f"No video links in this page's HTML ({anchors} links, "
             f"{len(html) // 1024} KB). If the listing is built by JavaScript, crawl it "
             "rendered: DOM analyzer > Discover scenes with this URL as the listing page, "
             "or the browser extension's scrape action.")
