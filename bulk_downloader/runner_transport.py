@@ -26,7 +26,7 @@ from .runner_util import (
     DEFAULT_MIN_RESOLUTION, _bump_learned_stat, gate_candidate_url,
     record_bandwidth, resolve_url_attribute, transfer_cancelled,
 )
-from .db import db_log, db_skip_attribution_state, db_skip_identity
+from .db import db_conn, db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, _sanitize_filename_var
 from .website_title import history_title_kwargs
@@ -490,6 +490,77 @@ def _identity_requires_refusal(identity, final_path, attribution_state):
         )
     )
     return unmeasurable
+
+
+_MEDIA_OWNERS_INIT_LOCK = threading.Lock()
+
+
+def _media_owned_by_another_job(runner, dl, direct_url, page_url):
+    """dl95-wowgirls-1: the page URL of ANOTHER job of this run that already
+    resolved the media this page resolved, else None.
+
+    The registry lives on the runner, so it spans every worker thread of the
+    site and every job of the run. A media URL with no identifiable host/path
+    (``blob:``, ``data:``, none at all) cannot be compared and is not refused
+    here; the staging claim's own resource check still governs its bytes.
+    """
+    media_url = getattr(dl, "url", None) or direct_url
+    # GEN 2: the queue decides which page a media url NAMES (per-page
+    # resolution), independent of which worker got there first.
+    try:
+        with runner._lock:
+            queued = [u for u in getattr(runner, "jobs", {}) or {}
+                      if isinstance(u, str) and u.startswith(("http://", "https://"))]
+    except Exception:
+        queued = []
+    # GEN 3 (A10-A R1): a page that finished and left the queue (cleared,
+    # replaced, restart) still owns the media that names it -- ask history.
+    known = queued + [u for u in _history_pages_naming(runner, media_url, page_url)
+                      if u not in queued]
+    with _MEDIA_OWNERS_INIT_LOCK:
+        owners = runner.__dict__.get("_media_resource_owners")
+        if owners is None:
+            owners = staging_claim.MediaResourceOwners()
+            runner.__dict__["_media_resource_owners"] = owners
+    try:
+        return owners.bind(media_url, page_url, known)
+    except staging_claim.StagingUnavailable:
+        return None
+
+
+def _history_pages_naming(runner, media_url, page_url):
+    """Page urls of this site's download history that carry an id token the
+    media url names (not ``page_url``'s own). Unreadable history -> [] (the
+    queue and the run registry still decide)."""
+    try:
+        tokens = staging_claim.media_id_candidates(media_url, page_url)
+    except Exception:
+        return []
+    if not tokens:
+        return []
+    pages = []
+    try:
+        with db_conn() as cx:
+            for tok in tokens:
+                for (u,) in cx.execute(
+                        "SELECT DISTINCT url FROM history WHERE site_id=? "
+                        "AND lower(url) LIKE ? LIMIT 20",
+                        (str(getattr(runner, "site_id", "")), f"%{tok}%")):
+                    if (isinstance(u, str) and u != page_url and u not in pages
+                            and tok in staging_claim.page_id_tokens(u)):
+                        pages.append(u)
+    except Exception:
+        return []
+    return pages
+
+
+def _media_for_log(url):
+    """Scheme, host and path only: a signed query is a credential."""
+    try:
+        parts = urlsplit(url or "")
+        return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    except Exception:
+        return "<unparseable media url>"
 
 
 # RFC 9110 14.4: a 416 answer carries the UNSATISFIED-RANGE form of
@@ -2856,6 +2927,28 @@ class TransportMixin:
             rendered+=ext
         final_path=dl_dir/rendered
         final_path.parent.mkdir(parents=True,exist_ok=True)
+
+        # dl95-wowgirls-1: a NAME being free is not the same as the MEDIA
+        # being this page's. A second film page that resolved the first film's
+        # media was handed `X_1` by reserve() and saved another scene's bytes.
+        # One resolved resource belongs to one job of this run. GEN 2: checked
+        # BEFORE the "Already have" arm, so a skipped job still binds its
+        # media and a job resolving another page's media is refused even
+        # when that other page is only on disk from an earlier run.
+        _other_owner = _media_owned_by_another_job(self, dl, direct_url, page_url)
+        if _other_owner is not None:
+            note = (f"media resource already owned by another job: this page "
+                    f"resolved {_media_for_log(getattr(dl, 'url', None) or direct_url)}, "
+                    f"which belongs to job {_other_owner}; "
+                    f"refusing to save another scene's media under this job")
+            self._update_job(page_url, "needs_review", note,
+                             filename=final_path.name, file_size=0)
+            db_log(self.site_id, self.config.get("name","?"), page_url,
+                   "needs_review", final_path.name, 0, note,
+                   bytes_fetched=0)
+            try: dl.cancel()
+            except Exception: pass
+            return
 
         # ── "Already have" pre-download check ────────────────────────────
         # EXISTENCE IS NOT IDENTITY. This branch used to skip on
