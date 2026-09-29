@@ -4573,7 +4573,11 @@ def _m2_auth_state(runner, cfg) -> str:
                session cookie this way -- `ei["session"] != 0` means do
                NOT re-login -- and the two must not disagree.
       expired  the jar is non-empty and NOTHING in it is usable: every
-               cookie is dated and past.
+               cookie is dated and past. Also: a scene crawl walked into
+               a login wall with THIS exact jar (scene_crawler records its
+               fingerprint as runner._login_wall_jar) -- a session cookie
+               the server already dropped is not a login. Any re-login
+               replaces the jar and clears this.
       unknown  no jar at all, or the info could not be read. Never
                asserted as healthy: L8 verifies an on-disk cookie file
                for every auth_state=ok site, so "ok" has to mean a
@@ -4583,7 +4587,7 @@ def _m2_auth_state(runner, cfg) -> str:
                configured host is dead or wrong, which "unknown" hid.
     """
     try:
-        from .cookies import cookies_expiry_info
+        from .cookies import cookies_expiry_info, jar_fingerprint
         jar = runner.cookies or []
         if not jar:
             from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
@@ -4591,6 +4595,9 @@ def _m2_auth_state(runner, cfg) -> str:
             if status.startswith("✗ " + LOGIN_UNREACHABLE_PREFIX):
                 return "unreachable"
             return "unknown"
+        walled = getattr(runner, "_login_wall_jar", None)
+        if walled and walled == jar_fingerprint(jar):
+            return "expired"
         ei = cookies_expiry_info(jar)
         earliest = ei.get("earliest") or 0
         import time as _t
