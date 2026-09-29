@@ -684,6 +684,41 @@ _CONSENT_CONTROL_RE = re.compile(
     r"|(?:do\s+not|don'?t)\s+sell(?:\s+or\s+share)?"
     r"(?:\s+my\s+(?:personal\s+)?(?:info|information|data))?",
     re.I)
+# dl95-xempire-2: "save" is a download word ("Save video", "Save as MP4"), but
+# the same word labels collection actions. xempire's scene header is
+# Favorites / Save (a playlist button, span.Icon-Playlist) / Download, all
+# score 0, and DOM order put Save first: it was clicked and nothing downloaded.
+_COLLECTION_ACTION_TEXT_RE = re.compile(
+    r"^(?:save|saved|add)\s+(?:it\s+)?to\s+(?:my\s+)?(?:playlists?|favou?rites?"
+    r"|watch\s*later|lists?|library|collections?|wish\s*list)\b", re.I)
+_COLLECTION_ACTION_MARK_RE = re.compile(
+    r"playlist|favou?rite|bookmark|wish-?list|watch-?later|icon-heart", re.I)
+_EXPLICIT_DOWNLOAD_RE = re.compile(
+    r"download|\bdl\b|\.(?:mp4|mkv|mov|webm|m4v)\b", re.I)
+
+
+def _is_collection_action(el, label):
+    """A control that files the scene into a collection, not a download.
+
+    Named by its words ("Save to playlist"), or a bare "Save" whose own markup
+    (class / aria-label / title / data-testid of it and its first descendants)
+    names a playlist, favourite, bookmark or watch-later list."""
+    t = " ".join((label or "").split())
+    if _COLLECTION_ACTION_TEXT_RE.search(t):
+        return True
+    if t.lower() not in ("save", "saved"):
+        return False
+    try:
+        marks = el.evaluate(
+            "el => [el, ...el.querySelectorAll('*')].slice(0, 40).map(n => ["
+            "n.getAttribute('class'), n.getAttribute('aria-label'),"
+            " n.getAttribute('title'), n.getAttribute('data-testid')"
+            "].filter(Boolean).join(' ')).join(' ')")
+    except Exception:
+        return False
+    return bool(_COLLECTION_ACTION_MARK_RE.search(str(marks or "")))
+
+
 _EXPLICIT_VIDEO_HEIGHT_RE = re.compile(
     r"\d{3,4}\s*p\b|\d{3,4}\s*[x×]\s*\d{3,4}(?!\d)(?!\s*px)|"
     r"mp4_\d{3,4}", re.I)
@@ -2118,6 +2153,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     if require_signal and (
             not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
         return "no_signal"
+    if _is_collection_action(el, visible):
+        return "collection_action"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
     if _is_listing_filter_href(el, t, page_url):
@@ -2193,7 +2230,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # admitted candidates, so both halves of the page report one vocabulary.
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
                           "listing_filter": 0, "short_preview": 0,
-                          "navigation_url": 0}
+                          "navigation_url": 0, "collection_action": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
@@ -2804,7 +2841,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     # a candidate that provably belongs to this page now outranks one that
     # cannot be shown to. Nothing is dropped, and on a page where no identity
     # is derivable every work is 0 and this is the old (score,size) sort.
-    candidates.sort(key=lambda c:(c.get("work",0),c["score"],c["size"]),
+    # dl95-xempire-2: an exact tie then goes to the control that SAYS download
+    # (sort is stable, so this reorders nothing else).
+    candidates.sort(key=lambda c:(c.get("work",0),c["score"],c["size"],
+                                  bool(_EXPLICIT_DOWNLOAD_RE.search(c["text"]))),
                     reverse=True)
     scoped, excluded = _scoped_candidates(candidates)
     if not scoped:
