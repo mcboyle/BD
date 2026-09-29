@@ -597,7 +597,7 @@ class _DualWriteConn:
         re-executed on the same connection for the comparison, so
         caller-isolation is structural rather than argued, at the cost of one
         extra SQLite read while the (opt-in) mode is on."""
-        if not pg_backend.shadow_read_enabled():
+        if not (pg_backend.shadow_read_enabled() and pg_backend.is_shadowable(sql)):
             return
         try:
             rows = self._cx.execute(sql, params).fetchall()
@@ -641,7 +641,7 @@ class _DualWriteCursor:
         r = self._cur.execute(sql, params)
         if pg_backend.is_mirrored(sql):
             pg_backend.mirror(sql, params, pg_backend.inserted_rowid(self._cur))
-        elif pg_backend.shadow_read_enabled():
+        elif pg_backend.shadow_read_enabled() and pg_backend.is_shadowable(sql):
             try:
                 conn = self._cur.connection
                 rows = conn.execute(sql, params).fetchall()
