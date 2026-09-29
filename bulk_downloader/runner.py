@@ -5889,6 +5889,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         url)
                 except Exception:
                     pass
+                _embed_hosts = getattr(self, "_spa_embed_hosts", None) or []
+                if _embed_hosts:
+                    # dl95-fullporner-1: say WHY -- the player is someone else's.
+                    self._handle_failure(url,"No download button found -- video is in a third-party embed ("
+                                         + ", ".join(_embed_hosts[:3])
+                                         + ") whose player listed no files",screenshot=ss); return
                 if site_untaught(self.config):
                     # dl95-dailymotion-1: say what the operator must do, not just
                     # that the scrape missed. Still page_shape (row 777 census).

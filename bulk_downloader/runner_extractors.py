@@ -1279,6 +1279,7 @@ class ExtractorsMixin:
         streams whose path carries the page's opaque id -- never the API or
         page-media populations, which carry no identity.
         """
+        self._spa_embed_hosts = []   # never a previous job's embed hosts
         try:
             from . import spa_media_extract as _spa
         except Exception as e:
@@ -1319,9 +1320,16 @@ class ExtractorsMixin:
         scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
         # Proven current-scene child sources outrank incidental page ads and
         # previews as a cohort; don't mix those populations by resolution.
+        # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
+        # files join the page population, ranked with the page media by height
+        # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
+        # the 1080p embed).
         cands = source_cands or scene_candidates or ([] if proven_only else (
             _spa.api_candidates(page_url, records)
-            + _spa.page_media_candidates(page_url, page_media)))
+            + _spa.page_media_candidates(page_url, page_media)
+            + _spa.embed_frame_candidates(page, page_url)))
+        # Named in the caller's "No download button found" when nothing is found.
+        self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
         if not cands:
             # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
             # own media is here; a trailer verdict is a claim about the unproven
