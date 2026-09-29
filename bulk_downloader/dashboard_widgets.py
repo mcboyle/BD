@@ -79,6 +79,11 @@ MIN_RATE_FOR_ETA_BPS = 1024.0  # 1 KiB/s
 # computation is too sensitive to current rate at that scale.
 MAX_ETA_S = 30 * 24 * 3600  # 30 days
 
+# Throughput history for the Home "Throughput · last hour" sparkline:
+# one-minute buckets of bytes written, one hour of them.
+HISTORY_BUCKET_S = 60
+HISTORY_BUCKETS = 60
+
 
 class _RateWindow:
     """Bounded rolling-window byte counter. Thread-safe via a single
@@ -131,6 +136,8 @@ class _Widgets:
         self._rate_window = _RateWindow()
         # Recent finish buffer — each entry: {site_id, url, success}
         self._recent_finishes: deque = deque(maxlen=RECENT_FINISHES_MAX)
+        # [bucket_start, bytes] per minute that saw progress, oldest first.
+        self._history: deque = deque(maxlen=HISTORY_BUCKETS)
         self._lock = threading.Lock()
 
     # ── Publisher hooks (called from runner) ──────────────────────
@@ -140,6 +147,12 @@ class _Widgets:
         if not isinstance(bytes_delta, (int, float)) or bytes_delta <= 0:
             return
         self._rate_window.add(int(bytes_delta))
+        start = int(time.time() // HISTORY_BUCKET_S) * HISTORY_BUCKET_S
+        with self._lock:
+            if self._history and self._history[-1][0] == start:
+                self._history[-1][1] += int(bytes_delta)
+            else:
+                self._history.append([start, int(bytes_delta)])
 
     def note_finish(self, site_id: str, url: str, success: bool):
         """A worker reports a job reached terminal state. success=True
@@ -248,6 +261,27 @@ class _Widgets:
             "remaining_bytes": remaining_bytes,
             "eta_seconds": eta_seconds,
         }
+
+    def get_history(self, metric: str) -> list[dict]:
+        """The last hour of `metric` as one {ts, value} point per minute,
+        oldest first; minutes without progress are 0. Only
+        "bytes_per_sec" is recorded. An hour with no progress returns []
+        (the sparkline's "No activity yet")."""
+        if metric != "bytes_per_sec":
+            return []
+        now = time.time()
+        current = int(now // HISTORY_BUCKET_S) * HISTORY_BUCKET_S
+        first = current - (HISTORY_BUCKETS - 1) * HISTORY_BUCKET_S
+        with self._lock:
+            written = {ts: b for ts, b in self._history if ts >= first}
+        if not written:
+            return []
+        points = []
+        for ts in range(first, current + 1, HISTORY_BUCKET_S):
+            # The current minute has only run for part of its length.
+            span = max(1.0, now - ts) if ts == current else HISTORY_BUCKET_S
+            points.append({"ts": ts, "value": int(written.get(ts, 0) / span)})
+        return points
 
     # ── Diagnostics ────────────────────────────────────────────
 
