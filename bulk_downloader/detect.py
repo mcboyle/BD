@@ -2630,7 +2630,46 @@ def _learned_row_roots(page):
     yield from child_frames(page)
 
 
-def _rank_custom_matches(loc_all, count, custom):
+# O1567 fx-nubiles-wrong-media: nubiles-porn scene pages matched 13, 17, 43,
+# 57, 71, 72 and 171 options (test3big 2026-09-29); five of eight rows saved
+# another scene's file.  The old 40 cap could not even see a page's own
+# options when they sat later in the document.
+_CUSTOM_MATCH_CAP = 500
+
+
+def _custom_work_run(el, page_url):
+    """Tokens in the longest run *el*'s URL attributes share with the page
+    slug -- how STRONGLY an in-scope candidate names this page's work.
+
+    O1567 fx-nubiles-wrong-media, live 256651 `my-stepsis-is-a-hot-mess`: a
+    related scene's folder `stepsis_is_so_tiny` shares ('stepsis','is'), over
+    the two-token bar, so it was in scope beside the page's own
+    `my_stepsis_is_a_hot_mess` (six tokens) and won on size.
+    """
+    page = page_work_tokens(page_url)
+    best = 0
+    for attr in _CANDIDATE_URL_ATTRS:
+        try:
+            value = el.get_attribute(attr)
+        except Exception:
+            continue
+        if value:
+            best = max(best, _longest_common_run(
+                page[:_WORK_MAX_PAGE_TOKENS],
+                work_tokens(value)[:_WORK_MAX_CAND_TOKENS])[0])
+    return best
+
+
+def _strongest_custom_matches(in_scope):
+    """Split proven candidates into (strongest slug match, weaker ones)."""
+    top = max((c.get("work_run", 0) for c in in_scope), default=0)
+    if top <= 0:
+        return in_scope, []
+    return ([c for c in in_scope if c.get("work_run", 0) == top],
+            [c for c in in_scope if c.get("work_run", 0) != top])
+
+
+def _rank_custom_matches(loc_all, count, custom, page_url=""):
     """Score every element a multi-match dl_selector names (row 722, G30).
 
     Harvests the same text the wide sweep reads (inner text + the label and
@@ -2638,9 +2677,13 @@ def _rank_custom_matches(loc_all, count, custom):
     returns candidates sorted best-first. Returns [] when NO match carries a
     tier at all -- then there is nothing to rank on and the caller keeps the
     ``.first`` behaviour a single-match selector has always had.
+
+    Each candidate is stamped with its work affinity to *page_url* so the
+    caller can scope the population exactly as the learned path and the wide
+    sweep do (O1567 fx-nubiles-wrong-media).
     """
     scored=[]
-    for i in range(min(count, 40)):
+    for i in range(min(count, _CUSTOM_MATCH_CAP)):
         try:
             el=loc_all.nth(i)
             parts=[]
@@ -2653,9 +2696,12 @@ def _rank_custom_matches(loc_all, count, custom):
                 except Exception: pass
             txt=" ".join(" ".join(parts).split())
             score=res_score(txt)
+            work=_candidate_work_affinity(el, page_url)
             scored.append({"locator":el,"text":(txt or custom)[:160],
                            "score":max(0,score),"size":parse_size_bytes(txt),
-                           "work":0})
+                           "work":work,
+                           "work_run":(_custom_work_run(el, page_url)
+                                       if work>_WORK_UNKNOWN else 0)})
         except Exception:
             continue
     if not any(c["score"]>0 for c in scored):
@@ -2925,11 +2971,26 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             # that names several candidates is ranked exactly as the wide
             # sweep ranks its own: res_score/size, then the runner's
             # quality preference and min-resolution gate over the REAL tiers.
-            ranked=_rank_custom_matches(loc_all, n_custom, custom)
-            if ranked:
-                best_match=dict(ranked[0])
+            ranked=_rank_custom_matches(loc_all, n_custom, custom, _page_url)
+            # O1567 fx-nubiles-wrong-media: a page carrying ANOTHER scene's
+            # options under the same selector (nubiles-porn 257407, 43 matches)
+            # saved that scene's 1080p.  Scope like the other two paths: a
+            # foreign option never decides, an UNKNOWN one only when nothing
+            # on the page proves affinity (then marked, row 388).
+            in_scope,custom_excluded=_scoped_candidates(ranked)
+            if _selection_had_identity_proof(in_scope):
+                in_scope,weaker=_strongest_custom_matches(in_scope)
+                for c in weaker:
+                    item=_candidate_summary(c)
+                    item["reason"]="weaker"
+                    custom_excluded.append(item)
+            if in_scope:
+                best_match=dict(in_scope[0])
                 best_match["_all_candidates"]=[
-                    _candidate_summary(c) for c in ranked[:10]]
+                    _candidate_summary(c) for c in in_scope[:10]]
+                best_match["_excluded_candidates"]=custom_excluded
+                if not _selection_had_identity_proof(in_scope):
+                    best_match["_no_identity_proof"]=True
                 best_match["_custom_selector"]=custom
                 qpref=""
                 cfg=getattr(runner,"config",None) if runner is not None else None
@@ -2940,14 +3001,35 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                     try:
                         chosen=apply_pref(best_match,qpref)
                         if chosen and chosen.get("locator") is not None:
+                            # The preference swap keeps only its own keys;
+                            # the scope evidence belongs to the selection.
+                            for k in ("_excluded_candidates",
+                                      "_no_identity_proof","_custom_selector"):
+                                if k in best_match and k not in chosen:
+                                    chosen[k]=best_match[k]
                             best_match=chosen
                     except Exception:
                         pass
                 _emit=(f"download: custom selector matched {n_custom} "
                        f"option(s); picked {best_match['text'][:60]!r} "
                        f"({res_label(best_match['score'])})")
+                if custom_excluded:
+                    _why={r:sum(1 for c in custom_excluded
+                                if c.get("reason")==r)
+                          for r in ("foreign","unknown","weaker")}
+                    _emit+=(f"; excluded {len(custom_excluded)} not this "
+                            f"page's work ({_why['foreign']} foreign, "
+                            f"{_why['unknown']} unproven, "
+                            f"{_why['weaker']} weaker match)")
                 sys.stderr.write(f"  {_emit}\n")
                 return best_match
+            if ranked:
+                # Every tiered match names another work: `.first` would be
+                # one of them.  Let the wide sweep look at the page instead.
+                sys.stderr.write(f"  download: custom selector matched "
+                                 f"{n_custom} option(s), all another work's; "
+                                 f"falling back to the page sweep\n")
+                n_custom=0
         loc=loc_all.first
         if n_custom>0: return {"locator":loc,"text":custom,"score":9999,"size":0,
                                   "_all_candidates":[{"text":f"custom: {custom}","score":9999,"size":0}]}
