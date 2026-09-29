@@ -288,7 +288,11 @@ def test_enrichment_fires_after_completed():
     # enrichment spawn is near it
     fe_pos = src.find('fire_event("completed"')
     assert fe_pos > 0
-    nearby = src[fe_pos:fe_pos + 1500]
+    # stalegate-source-text-log-event: the rest of the METHOD that fires the
+    # completed event, not a fixed 1500-char window (hooks added between the
+    # fire and the spawn pushed it past the window; the order was kept).
+    end = src.find("\n    def ", fe_pos)
+    nearby = src[fe_pos:end if end > 0 else len(src)]
     assert "_stash_enrich_after_scan" in nearby, (
         "Enrichment must trigger from the completed event so the "
         "Stash scan has time to start before we try to find the scene"

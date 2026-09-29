@@ -350,19 +350,24 @@ def test_heartbeat_to_disk_skipped_under_disable_keepalive():
 
 # ── Better error context ───────────────────────────────────────────────
 
-def test_log_event_includes_site_id_in_stderr():
+def _site_runner(site_id="site42"):
+    """stalegate-source-text-log-event: the production path -- SiteRunner.log_event, the
+    row1021 override in runner.py that must delegate to TelemetryMixin.log_event."""
+    from bulk_downloader.runner import SiteRunner
+
+    return SiteRunner(site_id, {"name": "fixture"})
+
+
+def test_log_event_includes_site_id_in_stderr(capsys):
     """v3.43.24: multi-site stderr lines must be grep-friendly with
     site_id in the prefix. Previously the format was `[kind] message`
-    with no site distinction."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    le_start = src.find("def log_event(self, kind, message")
-    assert le_start > 0
-    le_body = src[le_start:le_start + 3000]
-    # The new prefix format includes site_id explicitly. Match the
-    # f-string body without depending on surrounding whitespace.
-    assert "[{self.site_id}][{kind}]" in le_body, (
-        "log_event stderr prefix must include site_id for "
-        "multi-site grep filtering"
+    with no site distinction. Behavioural since the body moved to
+    runner_telemetry.TelemetryMixin (row1021 left a delegating override
+    in runner.py, which the old source search found first)."""
+    _site_runner().log_event("download", "fixture line", url="https://x.test/scene/1")
+    err = capsys.readouterr().err
+    assert "  [site42][download] https://x.test/scene/1: fixture line" in err, (
+        f"log_event stderr prefix must include site_id for multi-site grep filtering: {err!r}"
     )
 
 

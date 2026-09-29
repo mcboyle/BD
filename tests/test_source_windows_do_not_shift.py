@@ -69,7 +69,9 @@ sys.path.insert(0, str(ROOT))
 # to prevent.
 # Re-measured 2026-09-10 at 102 after both keeper collision tests
 # switched to complete-method AST extraction.
-_MAX_WINDOWS = 102
+# Re-measured 2026-09-29 at 98 after the stash / plex / log_event / event_log
+# checks read the whole method (or run it) instead of fixed windows.
+_MAX_WINDOWS = 98
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming
