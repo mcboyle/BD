@@ -11,7 +11,7 @@ from pathlib import Path
 from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials
-from .login_impl.submit import LOGIN_UNREACHABLE_PREFIX
+from .login_impl.submit import LOGIN_CANCELLED_PREFIX, LOGIN_UNREACHABLE_PREFIX, login_abort_check
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
@@ -403,7 +403,8 @@ class AuthMixin:
                 # Row 723: this runner owns the flow -- a real-Chrome
                 # degradation inside it is filed under this site and put
                 # in this run record as soon as the flow returns.
-                with _cloak.owning_site(self.site_id):
+                with _cloak.owning_site(self.site_id), \
+                        login_abort_check(self._relogin_abort_reason):
                     result=do_login(self.config,allow_manual_takeover=allow_manual,
                                     site_id=self.site_id)
                 _surface_login_channel_fallbacks(self)
@@ -458,8 +459,11 @@ class AuthMixin:
                 # the takeover status would hide "unreachable" from auth_state.
                 # tpl95-evilangel-1: a lockout page is not a stale template;
                 # reopening the site would only deepen the lockout.
+                # dl95-cancel-relogin-1: a withdrawn login was never tried; a
+                # takeover window would reopen the login the operator cancelled.
                 if (not ok and allow_manual and had_template
                         and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
+                        and not str(msg).startswith(LOGIN_CANCELLED_PREFIX)
                         and not isinstance(msg, _sk.LoginLockout)
                         and not getattr(self, "_manual_login_handle", None)
                         and self.config.get("login_url","").startswith("http")):
@@ -1266,6 +1270,15 @@ class AuthMixin:
         self._update_job(url,"pending",
                          f"{why} — re-logging in (try {retries+1}/{max_ret})",
                          retries=retries+1, retry_after=0)
+        # dl95-cancel-relogin-1: this job is a requester of the re-login. A
+        # re-login this path starts (or one it joins that such a path started)
+        # is withdrawn once every requester is cancelled; a UI/keeper login is
+        # never registered, so a job cancel cannot abort it.
+        with self._lock:
+            requesters = self.__dict__.setdefault("_relogin_requesters", set())
+            in_flight = bool(self._login_thread and self._login_thread.is_alive())
+            if not in_flight or requesters:
+                requesters.add(url)
         try:
             # Trigger login if not already in flight (idempotent), then wait.
             self.login_async()
@@ -1275,6 +1288,16 @@ class AuthMixin:
                 # CF challenges and 2captcha solves. We don't want to block
                 # workers forever if the login is genuinely stuck.
                 login_thread.join(timeout=90)
+            with self._lock:
+                requesters.discard(url)
+                cancelled = (self.jobs.get(url) or {}).get("status") == "stopped"
+            if cancelled:
+                # Cancelled while the re-login ran: "pending" would re-arm the
+                # stopped job (the one write _update_job lets over "stopped")
+                # and the queue put would hand it to a worker again.
+                sys.stderr.write(f"  {site_tag(self.site_id)}re-login: {url[-40:]} was "
+                                 "cancelled during the re-login; not re-queued\n")
+                return
             login_succeeded = bool(self.cookies) and (self._cookies_updated_at > 0)
             if login_succeeded:
                 # Re-queue the URL for retry. Goes to the back of the queue,
@@ -1296,8 +1319,20 @@ class AuthMixin:
                                  retry_after=_adm.next_eligible_retry(
                                      time.time()+60, self.config))
         finally:
+            with self._lock:
+                requesters.discard(url)
             # Release other workers regardless of success/failure
             self._session_ok.set()
+    def _relogin_abort_reason(self):
+        """dl95-cancel-relogin-1: why an in-flight re-login is no longer
+        wanted ("" while it is). Consulted by do_login before site contact and
+        before each submit path."""
+        with self._lock:
+            requesters = set(getattr(self, "_relogin_requesters", None) or ())
+            if requesters and all((self.jobs.get(u) or {}).get("status") == "stopped"
+                                  for u in requesters):
+                return f"every job waiting on this re-login was cancelled ({len(requesters)})"
+        return ""
     def _cookie_age_hours(self):
         """Phase 63 (v3.38.x): age of the most recent cookie refresh in
         hours. Exposed in /api/status so the UI insight strip (Phase 48)
