@@ -356,6 +356,23 @@ def _listing_route(url: str) -> bool:
     return len(segments) >= 2 and segments[1] in _LISTING_ROUTE_WORDS
 
 
+# fx-newsensations-discovery-banners: an ad click-tracker route -- a banner or
+# ad directory, or a banner/ad script (bannerload.php?track=<n>, adclick.php).
+# A slug that merely contains the word ("/video/<studio>/banner-girl/<id>") is
+# neither: only a whole directory name or a script file name counts.
+_AD_TRACKER_DIRS = frozenset({"banner", "banners", "ads", "adclick", "bannerclick"})
+_AD_TRACKER_SCRIPT = re.compile(
+    r"^(?:banner\w*|adclick\w*|adserve\w*|ads?)\.(?:php|aspx?|cgi|jsp)$",
+    re.IGNORECASE,
+)
+
+
+def _is_ad_tracker(url: str) -> bool:
+    """True for an ad click-tracker URL, which is never a scene."""
+    return any(part.lower() in _AD_TRACKER_DIRS or _AD_TRACKER_SCRIPT.match(part)
+               for part in _path_parts(url))
+
+
 def _scene_cohort(
     anchors: Iterable[dict[str, Any]],
     listing_url: str,
@@ -367,6 +384,11 @@ def _scene_cohort(
         url = str(anchor.get("url") or "")
         parts = _path_parts(url)
         if len(parts) < 2 or not _same_site(url, listing_url):
+            continue
+        # fx-newsensations-discovery-banners: newsensations' members home
+        # carries 32 thumbnailed bannerload.php?track=<n> ads against scene
+        # cards with one thumbnail between them; the ads out-imaged the scenes.
+        if _is_ad_tracker(url):
             continue
         if urlsplit(url).scheme not in ("http", "https"):
             continue
