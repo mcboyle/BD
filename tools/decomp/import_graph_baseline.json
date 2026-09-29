@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5239,
+  "edge_count": 5259,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1968,6 +1968,7 @@
       "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/tier_probe.py",
+      "bulk_downloader/upscale_detector.py",
       "bulk_downloader/vpn_runtime.py",
       "bulk_downloader/website_title.py",
       "bulk_downloader/ytdlp_updater.py"
@@ -2097,6 +2098,7 @@
       "bulk_downloader/notify_apprise.py"
     ],
     "bulk_downloader/scene_crawler.py": [
+      "bulk_downloader/captcha_relay.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/interstitial.py",
@@ -3179,6 +3181,15 @@
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
     ],
+    "tests/test_dl95_africancasting_3_min_res_page_media_rescue.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_dl95_app_b6_2_throughput_history.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/dashboard_widgets.py"
+    ],
     "tests/test_dl95_beeg_1_related_scene_cards_are_foreign.py": [
       "bulk_downloader/detect.py"
     ],
@@ -3212,6 +3223,10 @@
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_telemetry.py"
     ],
+    "tests/test_dl95_justporn_kvs_get_file_is_fetched.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_dl95_kellymadisonmedia_login_host_unreachable.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/cloak.py",
@@ -3223,6 +3238,13 @@
     "tests/test_dl95_ok_1_admission_before_ranking.py": [
       "bulk_downloader/detect.py"
     ],
+    "tests/test_dl95_pegasproductions_1_zero_scene_reason.py": [
+      "bulk_downloader/cloak.py"
+    ],
+    "tests/test_dl95_porndig_2_scrape_listing_videos_id_scene_links.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_dl95_pussyspace_2_listing_link_classifier.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/listing_links.py",
@@ -3232,9 +3254,17 @@
       "bulk_downloader/app.py",
       "bulk_downloader/runner.py"
     ],
+    "tests/test_dl95_scrape_listing_js_rendered_hint.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_scrape_listing.py",
+      "bulk_downloader/ssrf_transport.py"
+    ],
     "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_dl95_spa_api_min_resolution.py": [
+      "bulk_downloader/runner_extractors.py"
     ],
     "tests/test_dl95_teenmegaworld_1_tier_fallback.py": [
       "bulk_downloader/runner_transport.py"
@@ -3251,6 +3281,14 @@
     "tests/test_dl95_xvideos_1_public_site_discovery.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_dl95_youporn_1_numeric_id_tiles_are_foreign.py": [
+      "bulk_downloader/detect.py"
+    ],
+    "tests/test_dl95_youporn_2_thumbnail_transform_not_video.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/disco_triage.py",
+      "bulk_downloader/runner_util.py"
     ],
     "tests/test_dl_f2_auto_teach_direct_media.py": [
       "bulk_downloader/db.py",
