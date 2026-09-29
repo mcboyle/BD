@@ -63,6 +63,29 @@ else
         # `apt-get install -y $(bd_system_pkgs all)` would install nothing and
         # report success. An empty denominator reading as OK is the exact
         # failure this fragment exists to prevent.
+        # o1567 fx-sysdeps-npm-nodesource: apt is all-or-nothing, so ONE
+        # unresolvable name installs NOTHING. Measured on VM bd: nodesource's
+        # nodejs bundles npm, Ubuntu's `npm` then cannot be resolved ("held
+        # broken packages"), and every other group (xvfb, ffmpeg, fonts, ...)
+        # was silently skipped. Keep the one fast call; when it fails, retry
+        # group by group so the resolvable groups still land, and name the
+        # groups that did not. "$@" is the privilege prefix (empty as root).
+        _bd_apt_install_all() {
+            # shellcheck disable=SC2086
+            "$@" apt-get install -y $_sys_pkgs && return 0
+            echo "  (one apt call for every group failed - retrying group by group)"
+            local _g _gp _bad=""
+            for _g in core node gtk lint media fonts tools db vpn; do
+                _gp="$(bd_system_pkgs "$_g" 2>/dev/null)" || _gp=""
+                [ -n "$_gp" ] || continue
+                # shellcheck disable=SC2086
+                "$@" apt-get install -y $_gp || _bad="$_bad $_g"
+            done
+            if [ -n "$_bad" ]; then
+                echo "  WARNING: system package group(s) not installed:$_bad"
+                return 1
+            fi
+        }
         _sys_pkgs="$(bd_system_pkgs all)" || _sys_pkgs=""
         if [ -z "$_sys_pkgs" ]; then
             echo "  WARNING: bd_system_pkgs returned no packages; refusing to"
@@ -75,7 +98,7 @@ else
             # Word splitting is the point: the fragment returns one
             # space-separated list, apt wants one arg each.
             # shellcheck disable=SC2086
-            apt-get install -y $_sys_pkgs \
+            _bd_apt_install_all \
                 || echo "  (system package install failed - continuing)"
         elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             echo "  Installing system packages (sudo) ..."
@@ -83,7 +106,7 @@ else
                 || echo "  (apt-get update failed - using the cached lists)"
             # Word splitting is the point here too.
             # shellcheck disable=SC2086
-            sudo -n apt-get install -y $_sys_pkgs \
+            _bd_apt_install_all sudo -n \
                 || echo "  (system package install failed - continuing)"
         else
             # Not root, and sudo is either absent or would prompt. Prompting
