@@ -238,7 +238,7 @@ def resolve_url_attribute(url_attr_raw, row_selectors, matched_selector):
 _RUNTIME_NAV_REJECTIONS = frozenset({
     "homepage link", "navigation URL", "search/settings/login/logout",
     "nav/header/footer", "search/filter", "share/favorite/comment/vote",
-    "external/unrelated link",
+    "external/unrelated link", "thumbnail/image transform",
 })
 # URL-bearing attributes, in resolution priority, read off a candidate element.
 _GATE_URL_ATTRS = ("href", "data-href", "data-url", "data-src",
