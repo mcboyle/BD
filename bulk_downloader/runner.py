@@ -5535,7 +5535,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 return
             record_learned_download_outcome(self.config, learned_dl, best)
             if not best:
-                chk=self._check_redirect(page,url)
+                chk=self._check_redirect(page,url,no_candidate=True)
                 if chk=="rl":
                     self.trigger_rate_limit(url,f"Rate limit at {page.url}"); return
                 if chk=="auth":
