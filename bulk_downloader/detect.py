@@ -4,6 +4,7 @@ import math, os, re, shutil, sys, uuid
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 from .constants import NON_VIDEO_RE, QUALITY_LADDER, SIZE_RE
+from .runner_util import gate_candidate_url, resolve_url_attribute
 
 
 # P5-3 DOM honeypot filter — opt-in via BD_DOM_HONEYPOT_FILTER env var.
@@ -1992,7 +1993,8 @@ def _is_cross_origin_filter_query(el, page_url=""):
 
 
 def _candidate_admission(el, text, page_url="", require_signal=True,
-                         label=None, full_length_requested=None, runner=None):
+                         label=None, full_length_requested=None, runner=None,
+                         url_attr=None, learned_sel=""):
     """Shared learned/wide admission. Returns None to admit, else the reason.
 
     ``label`` is the OPERATOR-VISIBLE half of ``text``: rendered text plus
@@ -2009,8 +2011,15 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     """
     t = (text or "").strip()
     visible = t if label is None else (label or "").strip()
+    # Preserve established non-video categories before broader navigation policy.
     if NON_VIDEO_RE.search(visible) or _has_non_video_url_shape(el, page_url):
         return "non_video"
+    # Reject the same hard navigation URLs as transport before resolution
+    # ranking can turn an ad's HD label into a needs-review recommendation.
+    _url, rejection = gate_candidate_url(
+        el, page_url, url_attr=url_attr, learned_sel=learned_sel, text=visible)
+    if rejection:
+        return "navigation_url"
     _listing = _listing_link_path(t)
     if _listing and not _is_cross_origin_filter_query(el, page_url):
         _note_listing_link(t, _listing)
@@ -2092,7 +2101,8 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # Identity is the harvested text, the same key ``seen`` already uses for
     # admitted candidates, so both halves of the page report one vocabulary.
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
-                          "listing_filter": 0, "short_preview": 0}
+                          "listing_filter": 0, "short_preview": 0,
+                          "navigation_url": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
@@ -2255,7 +2265,11 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                     admission = _candidate_admission(
                         target, txt, _page_url,
                         require_signal=require_signal, label=label,
-                        full_length_requested=full_length_requested, runner=runner)
+                        full_length_requested=full_length_requested, runner=runner,
+                        url_attr=resolve_url_attribute(
+                            learned.get("url_attribute"),
+                            learned.get("row_selectors") or [], sel),
+                        learned_sel=sel)
                     if admission is not None:
                         _note_admission_drop(admission, txt)
                         continue
