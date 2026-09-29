@@ -2559,7 +2559,9 @@ class ExtractorsMixin:
         from .detect import safe_dest
         from pathlib import Path as _PathLib
         ext = ".mp4"  # HLS gets remuxed to mp4
-        title_root = result.title or url.rsplit("/", 1)[-1].split("?", 1)[0]
+        # o1567: a title-less scene URL ending "/" (youporn /watch/<id>/) has an
+        # empty last segment -> the hidden name ".mp4.mp4"; use the last real one.
+        title_root = result.title or url.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
         now = datetime.now()
         ctx_vars = {
             "site": self.config.get("name", "site"),

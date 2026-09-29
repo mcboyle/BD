@@ -196,9 +196,14 @@ def _etld1(hostname: str) -> str:
 # o1567 fx-pornhub-quality: pornhub.com is the same shape (a ``flashvars_<id>`` player
 # config listing direct hls 1080/720/480/240 master.m3u8 entries); without it the
 # DOM scorer saved a 300x250 AD clip as the scene.
+# o1567 fx-youporn-trigger: youporn.com is the same shape (indirect
+# `/media/{hls,mp4}/?s=` entries; the mp4 one lists 1080/720/480/240), and
+# without a page-config extractor the DOM scorer picked "Download Time:" /
+# "Save and Close" widgets ("looks like a modal-trigger button").
 AYLO_FREE_TUBES: set = {
     "redtube.com",
     "pornhub.com",
+    "youporn.com",
 }
 
 
