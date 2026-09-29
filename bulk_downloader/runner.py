@@ -5805,6 +5805,10 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 return
             # Phase 5.5: pass learned block so find_best can try learned
             # row_selectors before the full 14-element-type sweep.
+            # A current-scene source list can expose tiers the unlabelled
+            # Download control never offers (dl95-xhamster-1).
+            if self._try_spa_api_media_extractor(url, page, source_list_only=True):
+                return
             best=find_best_download(page,self.config.get("dl_selector","").strip(),
                                     learned=learned_dl,runner=self)
             # F9/F10 detect-side: by now the page's fingerprinting (if any)

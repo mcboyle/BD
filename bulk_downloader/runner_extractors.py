@@ -1258,11 +1258,12 @@ class ExtractorsMixin:
         )
         return True
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
-                                     proven_only: bool = False) -> bool:
+                                     proven_only: bool = False, *, source_list_only=False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
-        Consulted by runner.py ONLY after ``find_best_download`` (and the
-        deep-detect rescue) returned nothing.  Reads what the page itself
+        Normally consulted after ``find_best_download`` (and the
+        deep-detect rescue) returned nothing. source_list_only also checks a
+        scene-bound published menu before the DOM scorer. Reads what the page itself
         already fetched -- the same-site ``/api/`` JSON remembered by
         ``ApiCapture`` (installed with the page's event listeners) and the
         media the page requested / bound to ``<video>``/``<source>`` --
@@ -1282,6 +1283,9 @@ class ExtractorsMixin:
             from . import spa_media_extract as _spa
         except Exception as e:
             sys.stderr.write(f"  spa-api: import failed ({type(e).__name__}); skipped\n")
+            return False
+        source_cands = _spa.xhamster_source_candidates(url, page)
+        if source_list_only and not source_cands:
             return False
         capture = getattr(self, "_spa_api_capture", None)
         records = []
@@ -1315,7 +1319,7 @@ class ExtractorsMixin:
         scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
         # Proven current-scene child sources outrank incidental page ads and
         # previews as a cohort; don't mix those populations by resolution.
-        cands = scene_candidates or ([] if proven_only else (
+        cands = source_cands or scene_candidates or ([] if proven_only else (
             _spa.api_candidates(page_url, records)
             + _spa.page_media_candidates(page_url, page_media)))
         if not cands:
@@ -1365,6 +1369,18 @@ class ExtractorsMixin:
                 quality = f"{height}p" if height else "unknown quality"
                 message = (f"Scene player best is {quality} (minimum {minimum}p)"
                            " — Approve to force.")
+                screenshot = self._screenshot(page, url)
+                self._update_job(url, "needs_review", message, screenshot=screenshot)
+                db_log(self.site_id, self.config.get("name", "?"), url,
+                       "needs_review", "", 0, message, screenshot)
+                return True
+        if source_cands:
+            with self._lock:
+                forced = bool(self.jobs.get(url, {}).get("force_download"))
+            minimum = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+            if height < minimum and not forced:
+                message = (f"Best is {height}p (below {minimum}p) -- the scene's "
+                           "published source list has no higher file. Approve to force.")
                 screenshot = self._screenshot(page, url)
                 self._update_job(url, "needs_review", message, screenshot=screenshot)
                 db_log(self.site_id, self.config.get("name", "?"), url,
