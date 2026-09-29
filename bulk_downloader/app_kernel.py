@@ -39,6 +39,12 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # _load_sites_config rebuild, the same reason predictive_relogin_*
             # above are here.
             "dismiss_selectors","dismiss_selectors_login",
+            # dl95-xvideos-3: explicit "is a members session required to read
+            # the listing" (scene_crawler._site_is_public: a bool wins over the
+            # login_url/username inference). A public tube with an optional
+            # account sets it False; unset ("") keeps the inference. In
+            # CFG_FIELDS so a PUT value survives the _load_sites_config rebuild.
+            "auth_required",
             # Phase 9: Cloudflare-resistance toggles. Real Chrome is opt-in;
             # the stealth and persistent-profile toggles default ON.
             "use_real_chrome","use_stealth","use_stealth_library","use_persistent_profile",

@@ -887,6 +887,19 @@ def api_update(sid):
             elif isinstance(v, (list, dict)):
                 return jsonify({"error": f"{str_field} must be a string"}), 400
             elif not isinstance(v, str): data[str_field] = str(v)
+    # dl95-xvideos-3: auth_required is a tri-state -- True / False, or unset
+    # ("" / None) for "infer from the login fields". Discovery honours only a
+    # real bool, so a form's "false" string is normalised here and anything
+    # else is refused rather than silently read as "unset".
+    if "auth_required" in data:
+        v = data["auth_required"]
+        if isinstance(v, str) and v.strip().lower() in ("true", "false"):
+            v = v.strip().lower() == "true"
+        elif v is None or (isinstance(v, str) and not v.strip()):
+            v = ""
+        if not (isinstance(v, bool) or v == ""):
+            return jsonify({"error": "auth_required must be true, false or empty"}), 400
+        data["auth_required"] = v
     # numeric-range backstop (see SETTINGS_CENTER_PUT_RANGE_BACKSTOP_FINDING):
     # site_editor.validate_config already
     # range-checks, and the Settings Center dry-run gate rejects out-of-range values,
