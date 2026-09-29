@@ -43,6 +43,9 @@ def _finite_config_float(raw, default):
 _TAKEOVER_MODES = ("visible", "remote", "remote_vnc")
 
 _LOGIN_WALL_PEEK = 65536
+# fx-tiny4k-relogin-loop: how long a settled-ok login disproves a URL's logged-out
+# shape (the requeued re-check follows within a minute or two on test1).
+_SHAPE_DISPROOF_WINDOW_S = 600
 _HTML_START_RE = re.compile(rb"^\s*(?:<!--.*?-->\s*)*<(?:!doctype\s+html|html|head)\b", re.I | re.S)
 # The URL an HTML page declares for itself: canonical link, og:url, meta refresh.
 _SELF_URL_RE = re.compile(
@@ -1245,6 +1248,24 @@ class AuthMixin:
                     return "rl"
             except Exception: pass
             if no_candidate and self._page_shows_logged_out(page):
+                # fx-tiny4k-relogin-loop: a login that settled OK after this
+                # URL's last shape verdict disproves the shape for it -- the
+                # page offers a login whatever the session (tiny4k's public
+                # homepage: two re-logins "settled ok", same shape, dead_letter).
+                # No further re-login; the no-download-control path decides.
+                # Only the re-check right after that login: a login that settled
+                # longer ago proves nothing about a session that has expired since.
+                verdicts = self.__dict__.setdefault("_shape_auth_seq", {})
+                seq, outcome = verdicts.get(url), getattr(self, "_login_outcome", None)
+                settled_at = getattr(self, "_login_outcome_at", None)
+                recent = settled_at is not None and time.time() - settled_at < _SHAPE_DISPROOF_WINDOW_S
+                if seq is not None and outcome and outcome[1] and outcome[0] > seq and recent:
+                    sys.stderr.write(
+                        f"  {site_tag(self.site_id)}auth: page still offers a login after "
+                        f"login attempt {outcome[0]} settled ok -- the page shows a login "
+                        f"whatever the session; not re-logging in ({url[:90]})\n")
+                    return None
+                verdicts[url] = getattr(self, "_login_attempt_seq", 0)
                 sys.stderr.write(
                     f"  {site_tag(self.site_id)}auth: page offers a login and "
                     f"no logout -- the worker session is logged out ({url[:90]})\n")
