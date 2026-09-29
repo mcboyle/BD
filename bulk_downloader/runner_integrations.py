@@ -546,7 +546,7 @@ class IntegrationsMixin:
                            + eta + ")")
                     self._update_job(url, "running", msg,
                         filename=st["filename"] or "",
-                        file_size=st["bytes_done"])
+                        file_size=st["bytes_done"], bytes_total=st["bytes_total"])
                 elif time.time() - last_progress_at > 900:
                     # 15 min no progress — torrent is stuck (no peers,
                     # tracker dead, magnet not bootstrapping). Cancel
@@ -800,7 +800,7 @@ class IntegrationsMixin:
                            + (f", {speed_mb:.1f} MB/s)" if speed_mb else ")"))
                     self._update_job(url, "running", msg,
                         filename=st["filename"] or "",
-                        file_size=st["bytes_done"])
+                        file_size=st["bytes_done"], bytes_total=st["bytes_total"])
                     last_seen_bytes = st["bytes_done"]
                     last_progress_at = time.time()
                 elif time.time() - last_progress_at > 600:

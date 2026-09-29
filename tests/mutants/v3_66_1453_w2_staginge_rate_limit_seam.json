@@ -27,7 +27,7 @@
     {
       "label": "M3 stop reporting sequential transfer progress to the liveness seam",
       "file": "bulk_downloader/runner_transport.py",
-      "old": "\n                            report_progress(downloaded, msg)\n",
+      "old": "\n                            report_progress(downloaded, msg, total)\n",
       "new": "\n                            pass\n",
       "direction": "regression",
       "catcher": "tests/test_live_telemetry.py::test_sequential_resume_progress_reports_absolute_file_size"

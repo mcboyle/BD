@@ -1407,7 +1407,7 @@ class TransportMixin:
                                 self._update_job(
                                     page_url, "running",
                                     f"Direct {pct}% • {fmt_bytes(got)}",
-                                    file_size=got,
+                                    file_size=got, bytes_total=total,
                                 )
                             else:
                                 self._update_job(
@@ -1541,7 +1541,7 @@ class TransportMixin:
                 page_url, "running",
                 f"Multi-conn {chunk_count}× {pct}% • "
                 f"{fmt_bytes(got)} / {fmt_bytes(total)}",
-                file_size=got,
+                file_size=got, bytes_total=total,
                 _run_generation=run_generation,
             )
             if accepted is False:
@@ -3303,9 +3303,9 @@ class TransportMixin:
             finally:
                 _rl_slot = None
 
-        def _report_progress(downloaded, msg):
+        def _report_progress(downloaded, msg, total=0):
             self._update_job(page_url, "running", msg,
-                             file_size=downloaded)
+                             file_size=downloaded, bytes_total=total)
             try:
                 from .db import queue_upsert
                 queue_upsert(self.site_id, page_url, status="running",
@@ -3895,7 +3895,7 @@ class TransportMixin:
                                 msg=f"⬇ {pct}% • {fmt_bytes(downloaded)}/{fmt_bytes(total)} • {fmt_bytes(int(speed))}/s{cap_str}"
                             else:
                                 msg=f"⬇ {fmt_bytes(downloaded)} • {fmt_bytes(int(speed))}/s{cap_str}"
-                            report_progress(downloaded, msg)
+                            report_progress(downloaded, msg, total)
                             # Row 986: the same tick feeds this site's per-file
                             # progress tree (TelemetryMixin; optional here).
                             feed_progress = getattr(self, "record_transfer_progress", None)
@@ -4399,7 +4399,8 @@ class TransportMixin:
                 msg = (f"Downloading {n_chunks}× parallel{resume_tag} · "
                        f"{fmt_bytes(total_bytes)}/{fmt_bytes(total)} "
                        f"({pct:.0f}%) · {fmt_bytes(int(speed))}/s")
-                self._update_job(page_url, "running", msg, file_size=total_bytes)
+                self._update_job(page_url, "running", msg, file_size=total_bytes,
+                                 bytes_total=total)
                 # Re-read schedule cap so day↔night transitions work mid-file
                 cap_mbps = self._current_cap_mbps()
                 last_update = now; last_total_bytes = total_bytes

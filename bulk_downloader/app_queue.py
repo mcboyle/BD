@@ -60,6 +60,28 @@ def _diff_lines_for(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_diff_lines_for")(*_a, **_k)
 
+def _m2_live_progress(runner, url, job):
+    """dl95-nubilefilms-1: a running row's progress, read from what every
+    transfer tick records -- `file_size` (bytes so far) and `bytes_total` on
+    the job, and the runner's per-job byte-rate sample -- not from job keys
+    no producer writes. Unknown total: bytes and rate, no percent or ETA."""
+    done = int(job.get("file_size") or 0)
+    total = int(job.get("bytes_total") or 0)
+    from . import dashboard_widgets as _dw
+    import time
+    from .runner import live_sample_bps
+    samples = getattr(runner, "_job_progress_samples", None) or {}
+    bps = live_sample_bps(samples.get(url), time.time())
+    return {
+        "progress": min(100, int(100 * done / total)) if total > 0 else 0,
+        "bytes_done": done,
+        "bytes_total": total,
+        "eta_seconds": (int((total - done) / bps)
+                        if total > done and bps > 0 else None),
+        "rate_human": _dw.format_rate(bps) if bps > 0 else "",
+    }
+
+
 def _m2_avatar_color(*_a, **_k):
     """Delegate to app._m2_avatar_color at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -320,11 +342,7 @@ def api_queue_v2():
                                 "avatar_color": color,
                                 "url": url,
                                 "filename": j.get("filename", ""),
-                                "progress": j.get("progress", 0),
-                                "bytes_done": j.get("bytes_done", 0),
-                                "bytes_total": j.get("bytes_total", 0),
-                                "eta_seconds": j.get("eta_seconds"),
-                                "rate_human": j.get("rate_human", ""),
+                                **_m2_live_progress(runner, url, j),
                             })
                         elif s == "pending":
                             site_waiting += 1
