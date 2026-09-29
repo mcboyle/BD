@@ -1280,6 +1280,10 @@ class AuthMixin:
             if not in_flight or requesters:
                 requesters.add(url)
         try:
+            # dl95-relogin-false-success-1: the attempt this call waits on --
+            # the one in flight, else the one login_async is about to stamp.
+            _awaited_attempt = getattr(self, "_login_attempt_seq", 0) + (
+                0 if (self._login_thread and self._login_thread.is_alive()) else 1)
             # Trigger login if not already in flight (idempotent), then wait.
             self.login_async()
             login_thread = self._login_thread
@@ -1298,7 +1302,13 @@ class AuthMixin:
                 sys.stderr.write(f"  {site_tag(self.site_id)}re-login: {url[-40:]} was "
                                  "cancelled during the re-login; not re-queued\n")
                 return
-            login_succeeded = bool(self.cookies) and (self._cookies_updated_at > 0)
+            # Success is that attempt's own settled verdict (the v3.66.834
+            # _login_outcome stamp), never "a jar exists": an older jar made a
+            # FAILED attempt read as refreshed and the retry spent a second
+            # live login seconds later (.82 10:35:30Z).
+            _outcome = getattr(self, "_login_outcome", None)
+            login_succeeded = bool(
+                _outcome and _outcome[0] >= _awaited_attempt and _outcome[1])
             if login_succeeded:
                 # Re-queue the URL for retry. Goes to the back of the queue,
                 # which is fine — by the time it's pulled, all workers have
