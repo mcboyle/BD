@@ -1926,6 +1926,7 @@ export interface OiCheck {
   detail?: string;
 }
 export interface QueuePreflightResponse {
+  pending?: boolean;
   ok: boolean;
   ready: boolean;
   checks: OiCheck[];

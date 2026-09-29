@@ -46,12 +46,12 @@ export function QueuePreflightStrip({
     queryKey: ["queue-preflight"],
     queryFn: ({ signal }) =>
       apiGet<QueuePreflightResponse>("/api/queue/preflight", signal),
-    refetchInterval: refetchMs || false,
+    refetchInterval: (query) => refetchMs === 0 ? false : query.state.data?.pending ? 1_000 : refetchMs,
     refetchOnWindowFocus: false,
     retry: 0,
   });
 
-  if (isLoading) {
+  if (isLoading || data?.pending) {
     return (
       <div
         className={cn(

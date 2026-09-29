@@ -9,6 +9,10 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import os
+import threading
+from time import monotonic
+
 from flask import Blueprint, jsonify, request
 
 
@@ -107,8 +111,7 @@ def _app_s_cfg():
     return getattr(importlib.import_module("bulk_downloader.app_state"), "s_cfg")
 
 
-@queue_bp.route("/api/queue/preflight", methods=["GET"])
-def api_queue_preflight():
+def _collect_queue_preflight():
     """Read-only go/no-go strip for the queue (Cut 4). Aggregates existing
     signals (auth_health, daily_budget, selector_drift, runner status, review
     backlog) plus two new checks (download-dir writable, dupe estimate). Writes
@@ -194,7 +197,67 @@ def api_queue_preflight():
                        f"{dupes} queued URL(s) already in history"))
 
     ready = not any(ch["status"] == "fail" for ch in checks)
-    return jsonify({"ok": True, "ready": ready, "checks": checks})
+    return {"ok": True, "ready": ready, "checks": checks}
+
+_PREFLIGHT_TTL_S = 30.0
+_PREFLIGHT_CACHE = {}
+_PREFLIGHT_LOCK = threading.Lock()
+
+
+def _reset_preflight_after_fork():
+    # A child inherits neither the parent's refresh thread nor a usable held lock.
+    global _PREFLIGHT_CACHE, _PREFLIGHT_LOCK
+    _PREFLIGHT_CACHE = {}
+    _PREFLIGHT_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_reset_preflight_after_fork)
+
+
+def _preflight_pending(*, error=False):
+    detail = "Preflight checks could not be completed" if error else "Checking..."
+    labels = (
+        ("auth_health", "Auth health"), ("daily_budget", "Daily budget"),
+        ("selector_drift", "Selector drift"), ("runners", "Active runners"),
+        ("review_backlog", "Review backlog"), ("download_dir", "Download directory"),
+        ("dupe_estimate", "Duplicate estimate"),
+    )
+    return {"ok": True, "ready": False, "pending": not error, "checks": [
+        {"key": key, "label": label, "status": "warn", "detail": detail}
+        for key, label in labels
+    ]}
+
+
+def _refresh_queue_preflight(cache):
+    try:
+        payload = _collect_queue_preflight()
+    except Exception:
+        payload = _preflight_pending(error=True)
+    with _PREFLIGHT_LOCK:
+        cache.update(payload=payload, expires=monotonic() + _PREFLIGHT_TTL_S,
+                     running=False)
+
+
+@queue_bp.route("/api/queue/preflight", methods=["GET"])
+def api_queue_preflight():
+    """Return a recent snapshot; slow checks never occupy a request thread."""
+    with _PREFLIGHT_LOCK:
+        cache = _PREFLIGHT_CACHE
+        if cache.get("payload") is not None and monotonic() < cache["expires"]:
+            return jsonify(cache["payload"])
+        if not cache.get("running"):
+            cache["running"] = True
+            worker = threading.Thread(target=_refresh_queue_preflight, args=(cache,),
+                                      name="QueuePreflight", daemon=True)
+            try:
+                worker.start()
+            except Exception:
+                cache["running"] = False
+                raise
+    return jsonify(_preflight_pending())
+
+
 _QUEUE_V2_TERMINAL_STATUSES = frozenset({
     "done",
     "skipped_duplicate",
