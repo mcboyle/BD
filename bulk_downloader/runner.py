@@ -139,7 +139,8 @@ from .detect import (
 )
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import (
-    harvest_page_title,
+    choose_scene_title,
+    harvest_title_candidates,
     strip_repeated_title_template,
 )
 from .integrity import verify_media_integrity
@@ -3480,8 +3481,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 or ""
             )
 
-        raw_title, source = harvest_page_title(
+        candidates = harvest_title_candidates(
             page, listing_title=listing_title)
+        raw_title, source = candidates[0] if candidates else ("", "")
         retroactive = []
         with self._lock:
             # Evaluation happens outside the lock. Re-read observations here
@@ -3492,6 +3494,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 "title": raw_title,
                 "source": source,
                 "raw": raw_title,
+                "candidates": candidates,
                 "page_identity": page_identity,
             }
             self._website_titles[url] = record
@@ -3503,14 +3506,15 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 observed = self._website_titles.get(observed_url)
                 if observed is None:
                     continue
-                normalized = strip_repeated_title_template(
-                    observed_raw, self._website_title_observations)
+                normalized, normalized_source = self._scene_title_for(
+                    observed_url, observed, observed_raw)
                 previous = observed.get("title", "")
                 observed["title"] = normalized
+                observed["source"] = normalized_source
                 if observed_url in self.jobs:
                     self.jobs[observed_url].update({
                         "website_title": normalized,
-                        "website_title_source": observed.get("source", ""),
+                        "website_title_source": normalized_source,
                         "website_title_raw": observed_raw,
                     })
                 if previous and normalized != previous:
@@ -3518,9 +3522,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         observed_url,
                         observed_raw,
                         normalized,
-                        observed.get("source", ""),
+                        normalized_source,
                     ))
-            title = record["title"]
+            title, source = record["title"], record["source"]
         # Never hold the runner lock across SQLite I/O. The helper updates only
         # rows whose title still equals the raw harvested value, so an operator
         # edit wins over late template learning.
@@ -3531,17 +3535,31 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             )
         return title, source
 
+    def _scene_title_for(self, url, record, raw_title):
+        """fx-newsensations-generic-title: the record's first harvested source
+        that another scene does not repeat verbatim. Caller holds the lock."""
+        others = {
+            other_url: other_raw
+            for other_url, other_raw in self._website_title_observations.items()
+            if other_url != url
+        }
+        candidates = record.get("candidates")
+        if candidates is None:
+            candidates = [(raw_title, record.get("source", ""))]
+        return choose_scene_title(candidates, others)
+
     def _history_title_fields(self, url):
         """Return db_log kwargs without inventing a title from a filename."""
         with self._lock:
             record = self._website_titles.get(url)
             if record is not None and record.get("raw"):
-                title = strip_repeated_title_template(
-                    record.get("raw", ""), self._website_title_observations)
+                title, source = self._scene_title_for(
+                    url, record, record.get("raw", ""))
                 record["title"] = title
+                record["source"] = source
                 return {
                     "title": title,
-                    "title_source": record.get("source", ""),
+                    "title_source": source,
                 }
             job = self.jobs.get(url) or {}
             listing_title = (
@@ -3558,6 +3576,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 "title": title,
                 "source": source,
                 "raw": listing_title,
+                "candidates": [(listing_title, "listing_card")] if listing_title else [],
                 "page_identity": None,
             }
             return {"title": title, "title_source": source}

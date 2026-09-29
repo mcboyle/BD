@@ -3689,10 +3689,14 @@ class TransportMixin:
             # URL, site name. Resolution comes from the heuristic scorer's
             # res_label which is what `quality` would be on this path.
             # Fail-open — never blocks the "Saved" state transition below.
+            # fx-newsensations-generic-title: the tag carries the history's
+            # website title, so a site-wide <title> repeated on every scene is
+            # not written as the scene's name; page title only without one.
             try:
+                _site_title = history_title_kwargs(self, page_url)
                 self._embed_metadata_if_mp4(
                     str(final_path),
-                    title=title,
+                    title=_site_title["title"] if _site_title else title,
                     performer="",  # teach path has no performer info
                     site_name=self.config.get("name", ""),
                     upload_date="",

@@ -34,8 +34,10 @@ def _clean_title(value) -> str:
     return " ".join(_html.unescape(value).split())[:_TITLE_LIMIT]
 
 
-def harvest_page_title(page, *, listing_title: str = "") -> tuple[str, str]:
-    """Return ``(raw_title, source)`` in the operator-required order.
+def harvest_title_candidates(
+    page, *, listing_title: str = ""
+) -> list[tuple[str, str]]:
+    """Every non-empty ``(raw_title, source)`` in the operator-required order.
 
     The detail page is already open, so this reads the DOM only and performs no
     navigation or network work. A failed DOM evaluation still tries Playwright's
@@ -50,26 +52,45 @@ def harvest_page_title(page, *, listing_title: str = "") -> tuple[str, str]:
     except Exception:
         values = {}
 
-    og_title = _clean_title(values.get("og_title"))
-    if og_title:
-        return og_title, "og:title"
-
     document_title = _clean_title(values.get("document_title"))
     if not document_title:
         try:
             document_title = _clean_title(page.title())
         except Exception:
             document_title = ""
-    if document_title:
-        return document_title, "document.title"
+    candidates = [
+        (_clean_title(values.get("og_title")), "og:title"),
+        (document_title, "document.title"),
+        (_clean_title(values.get("h1")), "h1"),
+        (_clean_title(listing_title), "listing_card"),
+    ]
+    return [(value, source) for value, source in candidates if value]
 
-    h1 = _clean_title(values.get("h1"))
-    if h1:
-        return h1, "h1"
 
-    listing = _clean_title(listing_title)
-    if listing:
-        return listing, "listing_card"
+def harvest_page_title(page, *, listing_title: str = "") -> tuple[str, str]:
+    """Return the first ``(raw_title, source)`` in the operator-required order."""
+    candidates = harvest_title_candidates(page, listing_title=listing_title)
+    return candidates[0] if candidates else ("", "")
+
+
+def choose_scene_title(
+    candidates: Iterable[tuple[str, str]],
+    other_scene_titles: Mapping | Iterable[str],
+) -> tuple[str, str]:
+    """Return ``(title, source)``: the first candidate that names the scene.
+
+    fx-newsensations-generic-title: a whole title that another scene of the
+    site repeats verbatim ("New Sensations Premium Access" on every members
+    page) names the site, not the scene, so the next source (h1, then the
+    listing card) is used. With no other source the title is empty rather
+    than the site's name. A partly repeated title keeps the template rule.
+    """
+    others = {value.casefold() for value in _observation_values(other_scene_titles)}
+    for value, source in candidates:
+        value = _clean_title(value)
+        if not value or value.casefold() in others:
+            continue
+        return strip_repeated_title_template(value, other_scene_titles), source
     return "", ""
 
 
