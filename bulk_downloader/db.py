@@ -3473,48 +3473,6 @@ def _row_count_estimate(path=None):
         return 0
 
 
-# ── dl95-evilangel-1: per-site run intent, durable across a restart ──────
-# start()/resume() record "run", stop()/pause() clear it, so boot can resume
-# exactly the sites that were running when the service went down. Queue rows
-# cannot answer this: stop() rewrites job status in memory only, so a row left
-# "running" is also what an operator Stop followed by a restart looks like.
-def _ensure_site_run_intent_table(cx):
-    cx.execute("""CREATE TABLE IF NOT EXISTS site_run_intent(
-        site_id TEXT PRIMARY KEY,
-        running INTEGER NOT NULL DEFAULT 0,
-        ts_updated TEXT DEFAULT(strftime('%Y-%m-%dT%H:%M:%S','now')))""")
-
-
-def run_intent_set(site_id, running):
-    """Record whether the operator/automation wants ``site_id`` running.
-    Returns False when the write failed (the caller logs; nothing raises)."""
-    try:
-        with db_conn() as cx:
-            _ensure_site_run_intent_table(cx)
-            cx.execute(
-                "INSERT INTO site_run_intent(site_id, running, ts_updated) "
-                "VALUES(?,?,strftime('%Y-%m-%dT%H:%M:%S','now')) "
-                "ON CONFLICT(site_id) DO UPDATE SET running=excluded.running, "
-                "ts_updated=excluded.ts_updated",
-                (str(site_id), 1 if running else 0))
-        return True
-    except Exception:
-        return False
-
-
-def run_intent_is_running(site_id):
-    """True only when a readable row says the site was asked to run. An
-    unreadable store is not permission to start anything: it answers False."""
-    try:
-        with db_conn() as cx:
-            _ensure_site_run_intent_table(cx)
-            row = cx.execute("SELECT running FROM site_run_intent WHERE site_id=?",
-                             (str(site_id),)).fetchone()
-        return bool(row and row[0])
-    except Exception:
-        return False
-
-
 # ── EXT-3: per-host throughput store (adaptive multi-conn count) ──────
 def _ensure_host_throughput_table(cx):
     """Idempotently create the per-host throughput table. One row per host,

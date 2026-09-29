@@ -155,7 +155,7 @@ from .db import (
     db_log, db_normalize_history_title,
     queue_load, queue_upsert, queue_bulk_upsert, queue_delete,
     queue_delete_status, queue_bulk_delete, queue_bulk_update,
-    queue_reorder, queue_set_priority, run_intent_set,
+    queue_reorder, queue_set_priority,
 )
 
 # v3.43.60: VPN runtime integration. Keep runner.py importable for diagnostics
@@ -930,24 +930,6 @@ _RUN_LIFECYCLE_BOOTSTRAP_LOCK = threading.Lock()
 _START_RECHECK_TEARDOWN = object()
 
 
-def _record_run_intent(runner, running):
-    """dl95-evilangel-1: persist whether this site should be running, so a
-    service restart resumes it (app._resume_sites_running_at_shutdown).
-    Every start()/resume() records True; every stop()/pause() records False --
-    including a pause() on a runner that is not running, since the call itself
-    says "do not run". Lifecycle verbs keep their unbound-method adapter
-    surface (stubs without a site_id are skipped), and a failed write is
-    logged, never raised."""
-    site_id = getattr(runner, "site_id", None)
-    if not site_id or run_intent_set(site_id, running):
-        return
-    log = getattr(runner, "log", None)
-    if log is not None:
-        log.warning("run intent not persisted for %s: %s", site_id,
-                    "a restart will not resume it" if running else
-                    "a restart may resume it despite this stop/pause")
-
-
 class StartOutcome(str, enum.Enum):
     """Exceptional public outcomes from ``start()``.
 
@@ -1692,7 +1674,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         # serialized recheck below closes the race with retirement itself.
         if getattr(self, "_run_retired", False):
             return StartOutcome.TEARDOWN_PENDING
-        _record_run_intent(self, True)
         # A stopped generation may still be unwinding a browser owned by one
         # of its worker threads. Wait outside the lifecycle lock: a worker
         # that reached a status writer just before stop must be able to enter
@@ -2304,7 +2285,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         a "running" runner in "running" state. Split into pause()/resume()
         so each verb means exactly one thing, matching the separate UI
         buttons that call them."""
-        _record_run_intent(self, False)
         if self._state == "running":
             self._hold_refused_resume_state = None
             if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
@@ -2363,7 +2343,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 else:
                     self._state = "running"
                     self._pause.set()
-                _record_run_intent(self, True)
                 if reset_no_button_streak:
                     self._consec_no_btn = 0
                 try:
@@ -2375,7 +2354,6 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
     @_run_lifecycle_serialized
     def stop(self):
         self._rl_autostart = False  # P3-A: operator stop cancels a pending rate-limit resume
-        _record_run_intent(self, False)
         self._hold_refused_resume_state = None
         if hasattr(self, "lifecycle_subsystem") and self.lifecycle_subsystem is not None:
             self.lifecycle_subsystem.stop()
