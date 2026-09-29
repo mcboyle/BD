@@ -174,3 +174,32 @@ def route_challenge(observation: Dict[str, Any], *, model: Optional[str] = None,
     low = (" ".join(labels) + " " + out["suggested_review_path"]).lower()
     out["clean"] = not any(w in low for w in _FORBIDDEN_OUT)
     return out
+
+
+# dl95-reddit-2: a full-page bot wall whose widget has not rendered (reddit's
+# "Prove your humanity", its "blocked by network security" sibling) carries no
+# CAPTCHA_SELECTORS iframe, so the runner used to call it "No download button
+# found". A wall IS the page: little visible text, and the wording stands as a
+# headline line of its own -- never inside a sentence of a post or comment that
+# merely discusses bot checks. Detection signal only, never a solving step.
+_BOT_WALL_TEXT = re.compile(
+    r"prove your humanity|blocked by network security|"
+    r"verify you are human|are you a robot",
+    re.I,
+)
+_BOT_WALL_MAX_CHARS = 1200      # measured walls: ~250 visible chars
+_BOT_WALL_LINE_SLACK = 24       # "You've been " + "." around the phrase
+
+
+def bot_wall_phrase(title: str, text: str) -> Optional[str]:
+    """The bot-wall headline in a page's title or visible text, lower-cased,
+    or None. Detection only."""
+    text = text or ""
+    if len(text.strip()) > _BOT_WALL_MAX_CHARS:
+        return None
+    for line in [title or ""] + text.splitlines():
+        line = line.strip()
+        m = _BOT_WALL_TEXT.search(line)
+        if m and len(line) <= len(m.group(0)) + _BOT_WALL_LINE_SLACK:
+            return m.group(0).lower()
+    return None
