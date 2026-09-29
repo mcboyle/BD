@@ -14,10 +14,12 @@ href is the media file: the transport never clicks such a winner, it fetches the
 visible junk link carrying "720p" outranked the page's 1080p file and tripped the min-resolution hold.
 
 THE RULE. Row 759 zeroes hidden tiers so that a VISIBLE offering wins. A hidden candidate whose own href
-routes to a direct fetch (the transport's own pure routing functions) keeps its tier only when the page has
-NO visible candidate that routes to a direct fetch -- then the hidden files are the page's only files. With
-a visible direct file present (row 759 section 1: visible 1080.mp4 beside hidden 2160.mp4) the hidden ones
-stay zeroed, and hidden cells without a file href are zeroed as before (controls below).
+routes to a direct fetch (the transport's own pure routing functions) gets its tier back only when a visible
+candidate carries a tier but is NOT a direct fetch (eporner's junk "720p" link) and no visible candidate is a
+direct fetch. A visible direct file keeps row 759 in force (section 1); an all-zero visible set keeps row
+722's reveal in force (score-0 trigger -> open the menu -> re-pick). Hidden cells without a file href are zeroed
+as before. Controls below; the row 722 reveal is held by its own file
+(tests/test_row722_reveal_href_less_quality_buttons.py::test_negative_b, which the shipped G3 broke).
 
 Mock-page pattern of tests/test_row759_hidden_quality_cell_is_not_a_candidate.py: no browser, no network.
 The eporner anchors come from the real capture, not invented text.
@@ -86,14 +88,15 @@ def _eporner_anchors():
             for a in FIXTURE["anchors"]]
 
 
-# The visible junk the live run saw: text carries a 720p token, the href is a page, not a file.
-_JUNK = _Loc(text="[VV] @cc£$$ https://www.eporner.com/cat/720p/", visible=True,
-             attrs={"href": "https://www.eporner.com/cat/720p/"})
+# The visible junk the live run saw: its text ("[VV] @cc£$$ https://www.eporne", tier 720p) is all the
+# hold message recorded. It rotates and was gone by 04:0xZ (live epprobe: no [VV]/@cc element), so its href is
+# unknown; "#" is a shape the admission gate keeps (a /cat/ page href is dropped as navigation_url, which
+# would hide the premise). The /dload capture itself is real.
+_JUNK = _Loc(text="[VV] @cc£$$ https://www.eporner.com/ 720p", visible=True, attrs={"href": "#"})
 
 
 def _live_page():
-    return _Page({"a[href*='.mp4']": _eporner_anchors(), "a[href*='/cat/']": [_JUNK],
-                  "a": _eporner_anchors() + [_JUNK]})
+    return _Page({"a[href*='.mp4']": _eporner_anchors(), "a": _eporner_anchors() + [_JUNK]})
 
 
 class TestTheCaptureItself:

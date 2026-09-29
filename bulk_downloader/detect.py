@@ -2926,13 +2926,17 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     # P5-3 operator log — one event summarizing dropped candidates.
     _emit_filter_summary(all_dropped=False)
     # dl95-eporner-3: row 759 zeroes hidden tiers so a VISIBLE offering wins.
-    # When the page has no visible candidate the transport can fetch, its only
-    # files are the hidden ones (eporner's shut #downloaddiv panel), and the
-    # transport fetches a direct-media winner without a click -- so they keep
-    # their tier instead of losing to a visible junk link.
+    # That misfires when the visible "offering" is a tiered link that is not a
+    # file while the page's real files sit hidden (eporner: a junk "720p" link
+    # beside the shut #downloaddiv panel of /dload/*.mp4). Only then do the
+    # hidden direct files -- fetched without a click -- get their tier back.
+    # A visible direct file keeps row 759 in force; an all-zero visible set
+    # keeps row 722's reveal (open the menu, re-pick) in force.
     held=[c for c in candidates if c.get("_hidden_file_tier")]
-    if held and not any(_fetched_without_click(c["locator"], _page_url)
-                        for c in candidates if not c.get("_hidden_cell")):
+    shown=[c for c in candidates if not c.get("_hidden_cell")]
+    if (held and any(c["score"]>0 for c in shown)
+            and not any(_fetched_without_click(c["locator"], _page_url)
+                        for c in shown)):
         for c in held: c["score"]=c["_hidden_file_tier"]
     # Row 701 scopes the decision population: preserve foreign/unknown evidence
     # for diagnostics, but never let it drive a quality verdict.
