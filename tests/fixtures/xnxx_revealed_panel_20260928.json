@@ -1,0 +1,31 @@
+{
+ "_source": "bd-worker-A3-A live probe on test2 (10.0.70.95) 2026-09-28, real Chromium + bulk_downloader.detect.find_best_download on https://www.xnxx.com/video-13c6ura2/erotic_masturbation_in_hd (harness-work/FIX/dl95-xnxx-1-bd-worker-A3-A/LIVE-95-*.txt); signed query tokens dropped",
+ "trigger": {
+  "text": "Download",
+  "score": 0
+ },
+ "revealed": [
+  {
+   "text": "MEDIUM https://mp4-cdn77.xnxx-cdn.com/1a9cc62f-53ea-4a24-ab13-33f17eccf015/0/video_360p.mp4",
+   "score": 360
+  },
+  {
+   "text": "LOW https://mp4-cdn77.xnxx-cdn.com/1a9cc62f-53ea-4a24-ab13-33f17eccf015/0/video_240p.mp4",
+   "score": 240
+  }
+ ],
+ "download": {
+  "url": "https://mp4-cdn77.xnxx-cdn.com/1a9cc62f-53ea-4a24-ab13-33f17eccf015/0/video_360p.mp4?secure=REDACTED&download=XNXX_erotic_masturbation_in_hd_SD.mp4",
+  "suggested_filename": "XNXX_erotic_masturbation_in_hd_SD.mp4"
+ },
+ "site": {
+  "min_resolution": 1080,
+  "quality_preference": "4320,3160,2880,2160,1440,1080,720"
+ },
+ "history_row_before_fix": {
+  "status": "done",
+  "filename": "XNXX_erotic_masturbation_in_hd_SD.mp4",
+  "bytes_fetched": 19767487,
+  "transfer_mode": "http"
+ }
+}

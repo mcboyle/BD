@@ -2226,6 +2226,9 @@ class TransportMixin:
         loc = best.get("locator")
         if loc is None or loc is trigger.get("locator"):
             return None
+        # dl95-xnxx-1: the revealed label's resolution, for the caller's
+        # min_resolution check when the file's own name says nothing.
+        trigger["_revealed_score"] = best.get("score") or 0
         sys.stderr.write(
             f"  download: the trigger click revealed a quality modal -> "
             f"{res_label(best.get('score') or 0)} "
@@ -2278,6 +2281,41 @@ class TransportMixin:
         except Exception as e:  # noqa: BLE001 -- as above
             sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
             return False
+
+    def _below_min_resolution_by_file(self,page,page_url,dl,best,suggested):
+        """dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
+        gate") judges only a SCORED candidate. An unlabelled "Download" control
+        scores 0 and passes it, so xnxx saved its 360p "High" mp4 as done under
+        min_resolution 1080. Once the click has resolved the real file, judge the
+        file's own name (URL leaf + suggested name; never the query, which carries
+        tokens), else the label a revealed quality modal showed: below the bar -> needs_review "Approve to force", as the pre-click
+        gate does, and the started download is cancelled. A name that says nothing
+        about resolution stays unknown and proceeds (unchanged). Returns True iff held."""
+        if (best.get("score",0) or 0)>0:
+            return False            # the pre-click gate already judged it
+        min_res=int(float(self.config.get("min_resolution",DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            if self.jobs.get(page_url,{}).get("force_download"):
+                return False
+        from .detect import res_score
+        leaf=Path(urlsplit(dl.url or "").path).name
+        got=res_score(f"{leaf} {suggested}")
+        if got<=0:
+            got=best.get("_revealed_score") or 0   # the revealed modal's label
+        if not 0<got<min_res:
+            return False
+        ss=self._screenshot(page,page_url)
+        avail=res_label(got)
+        msg=(f"Best is {avail} (below {min_res}p) — the Download control was "
+             f"unlabelled; its file {leaf or suggested} is {avail} — Approve to force.")
+        sys.stderr.write(f"  download: held {page_url[-40:]} — file {leaf or suggested} "
+                         f"is {avail} (below min_res={min_res}p)\n")
+        self._update_job(page_url,"needs_review",msg,screenshot=ss)
+        db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review","",0,
+               f"below {min_res}p; got {avail} (file {leaf or suggested})",ss)
+        try: dl.cancel()
+        except Exception: pass
+        return True
 
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
@@ -2597,6 +2635,8 @@ class TransportMixin:
         # past this point on the probe path (dl_dir may be None).
         if probe:
             self._do_probe_fetch(page_url,page,ctx,dl,best,res_lbl,suggested)
+            return
+        if self._below_min_resolution_by_file(page,page_url,dl,best,suggested):
             return
         ext=Path(suggested).suffix or ".mp4"
         # Compute templated final path
