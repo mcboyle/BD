@@ -15,7 +15,8 @@ export type SceneCrawlState =
   | "RUNNING"
   | "COMPLETED"
   | "NOT_LOGGED_IN"
-  | "FAILED";
+  | "FAILED"
+  | "CANCELLED";
 
 export interface SceneCrawlDefaults {
   listing_url: string;
@@ -56,6 +57,12 @@ export function sceneCrawlView(status: SceneCrawlStatus): SceneCrawlView {
     return {
       tone: "danger",
       label: status.error ? `Discovery failed: ${status.error}` : "Discovery failed.",
+    };
+  }
+  if (status.state === "CANCELLED") {
+    return {
+      tone: "warning",
+      label: "Discovery was interrupted (the app restarted) — start it again.",
     };
   }
   if (status.state === "RUNNING") {
