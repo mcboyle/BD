@@ -36,8 +36,30 @@ export interface SceneCrawlStatus {
   queued: number;
   pages_walked: number;
   zero_scenes_found: boolean;
+  /** Why a completed crawl found nothing (dl95-pegasproductions-1); "" when scenes were found. */
+  zero_reason?: string;
+  zero_page?: { url?: string; status?: number | null; challenge?: string; title?: string };
   error?: string;
   defaults?: SceneCrawlDefaults;
+}
+
+/** Operator-facing reason for a zero-scene crawl; blocked is never shown as an empty library. */
+function zeroReasonText(status: SceneCrawlStatus): { text: string; blocked: boolean } | null {
+  const page = status.zero_page ?? {};
+  switch (status.zero_reason) {
+    case "challenge_page":
+      return { text: `the listing served a bot challenge${page.challenge ? ` (${page.challenge})` : ""}`, blocked: true };
+    case "http_error":
+      return { text: `the listing returned HTTP ${page.status ?? "error"}`, blocked: true };
+    case "no_links":
+      return { text: "the listing page had no links", blocked: false };
+    case "no_thumbnails":
+      return { text: "no thumbnail cards on the listing; use the members video listing URL", blocked: false };
+    case "no_scene_cohort":
+      return { text: "no repeated scene-card shape on the listing", blocked: false };
+    default:
+      return null;
+  }
 }
 
 export interface SceneCrawlView {
@@ -70,9 +92,17 @@ export function sceneCrawlView(status: SceneCrawlStatus): SceneCrawlView {
   }
   if (status.state === "COMPLETED") {
     if (status.zero_scenes_found) {
+      const pages = `${status.pages_walked} ${status.pages_walked === 1 ? "page" : "pages"}`;
+      const reason = zeroReasonText(status);
+      if (reason) {
+        return {
+          tone: reason.blocked ? "warning" : "neutral",
+          label: `No scenes found after ${pages}: ${reason.text}.`,
+        };
+      }
       return {
         tone: "neutral",
-        label: `No scenes found after ${status.pages_walked} ${status.pages_walked === 1 ? "page" : "pages"}.`,
+        label: `No scenes found after ${pages}.`,
       };
     }
     return {
