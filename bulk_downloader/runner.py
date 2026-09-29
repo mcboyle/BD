@@ -1373,6 +1373,11 @@ def live_sample_bps(sample, now):
     return sample_bps if 0.0 <= age <= 5.0 else 0.0
 
 
+# Job statuses that end a run-history attempt (run_history rows).
+_RUN_TERMINAL_STATUSES = ("done", "failed", "error",
+                          "skipped_duplicate", "cancelled", "tombstone")
+
+
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
     _WORKER_CLAIM_STALE = "stale"
     _WORKER_CLAIM_INELIGIBLE = "ineligible"
@@ -3538,6 +3543,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception:
                 pass
         byte_advanced = False
+        released_run_id = None
         with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
             # dl95-porndig-3: a stopped job (Cancel, site Stop) is re-armed only
@@ -3548,6 +3554,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     and not _memory_already_updated):
                 return False
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
+            # dl95-dailymotion-2 (lens A10-A R1): a job leaving running for a
+            # non-terminal status (retry -> pending, needs_review) is claimable
+            # the moment this writer ends, so its attempt id leaves the job
+            # HERE, under the lock. Popped after it, a new claim's id could be
+            # taken and closed instead. Callers that already updated memory
+            # release their own id (dl-f4 runner_teach).
+            if (prev_status == "running" and status != "running"
+                    and status not in _RUN_TERMINAL_STATUSES
+                    and not _memory_already_updated and url in self.jobs):
+                released_run_id = self.jobs[url].pop("_run_id", None)
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
             if url not in self.jobs:
                 self.jobs[url] = {"last_progress_at": now}
@@ -3654,8 +3670,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # the download path (the whole try is swallowed).
             try:
                 from . import run_history as _rh
-                _RUN_TERMINAL = ("done", "failed", "error",
-                                 "skipped_duplicate", "cancelled", "tombstone")
+                _RUN_TERMINAL = _RUN_TERMINAL_STATUSES
                 if status == "running" and prev_status != "running":
                     rid = _rh.record_run_start(self.site_id, url)
                     if rid:
@@ -3673,8 +3688,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     if status in _RUN_TERMINAL:
                         rid = (self.jobs.get(url) or {}).get("_run_id")
                     else:
-                        with self._lock:
-                            rid = (self.jobs.get(url) or {}).pop("_run_id", None)
+                        rid = released_run_id  # popped in the writer above
                         run_status = {"pending": "failed", "dead_letter": "failed",
                                       "stopped": "cancelled"}.get(status, status)
                     if rid:

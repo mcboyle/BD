@@ -155,3 +155,63 @@ def test_mod3_shadow_read_writes_one_run_per_attempt(clean_workdir, monkeypatch)
     runs = _runs()
     assert len(runs) == 1, f"D2_DUPLICATE_RUN_TWIN: {runs}"
     assert runs[0][1] == "failed" and runs[0][2] is not None, f"D2_MOD3_RUN_LEFT_OPEN: {runs}"
+
+
+# GEN 2 (lens A10-A R1): the attempt id must leave the job INSIDE the status
+# writer. Worker B's claim is forced into the window between A's lock release
+# and A's run-history hook (A's post-lock log_event), where B stores rid_B.
+RACE_URL = "https://example.invalid/dl95-dailymotion-2/race"
+
+
+def _race_runs():
+    from bulk_downloader import db
+    with db.db_conn() as cx:
+        return [tuple(row) for row in cx.execute(
+            "SELECT id, status, finished_at FROM job_runs WHERE url=? ORDER BY id",
+            (RACE_URL,))]
+
+
+def _race_claim(r, idx):
+    r.jobs[RACE_URL]["retry_after"] = 0
+    outcome, _gen = r._claim_worker_item(idx, RACE_URL)
+    assert outcome == "claimed", outcome
+    r._update_job(RACE_URL, "running", "Claimed by worker",
+                  _transition_prev_status="pending", _memory_already_updated=True)
+
+
+def test_a_release_never_closes_the_next_claims_row(clean_workdir, monkeypatch):
+    from bulk_downloader import run_history
+    from bulk_downloader.db import db_init
+    from bulk_downloader.runner import SiteRunner
+    monkeypatch.setenv("MOD3_PG_DSN", "")
+    monkeypatch.setenv("MOD3_SHADOW_READ", "0")
+    monkeypatch.delenv("MOD3_CUTOVER", raising=False)
+    db_init()
+    run_history.init()
+    (clean_workdir / "screenshots").mkdir(exist_ok=True)
+    r = SiteRunner("dm2race", {"name": "dm2race", "max_retries": 2})
+    r._drain_url_queue()
+    r.jobs[RACE_URL] = {"status": "pending", "message": ""}
+    _race_claim(r, 0)
+    rid_a = r.jobs[RACE_URL]["_run_id"]
+
+    real_log_event = r.log_event
+    fired = []
+
+    def log_event(kind, message, url=None, extra=None):
+        real_log_event(kind, message, url=url, extra=extra)
+        if kind == "state" and str(message).startswith("pending:") and not fired:
+            fired.append(1)
+            _race_claim(r, 1)   # worker B claims inside A's post-lock window
+
+    monkeypatch.setattr(r, "log_event", log_event)
+    r._update_job(RACE_URL, "pending", "Cluster rate limit hit (4/4)")
+    assert fired, "D2_RACE_WINDOW_NOT_EXERCISED"
+    runs = _race_runs()
+    by_id = {row[0]: row for row in runs}
+    rid_b = max(by_id)
+    assert rid_b != rid_a and r.jobs[RACE_URL]["status"] == "running", (runs, r.jobs[RACE_URL])
+    assert by_id[rid_a][2] is not None, f"D2_RACE_A_LEFT_OPEN: A's row {by_id[rid_a]} of {runs}"
+    assert by_id[rid_b][2] is None, f"D2_RACE_B_CLOSED_WHILE_RUNNING: B's row {by_id[rid_b]} of {runs}"
+    assert r.jobs[RACE_URL].get("_run_id") == rid_b, (
+        f"D2_RACE_B_ID_STOLEN: {r.jobs[RACE_URL].get('_run_id')} runs={runs}")
