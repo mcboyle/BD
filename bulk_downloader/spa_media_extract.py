@@ -306,7 +306,10 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
         if not isinstance(u, str) or not u.strip():
             continue
         u = urljoin(page_url, u.strip())
-        if not u.startswith(("http://", "https://")) or not MEDIA_EXT_RE.search(u):
+        # A KVS player's file keeps a directory slash after its name:
+        # /get_file/.../<id>.mp4/?... (dl95-porn00-1-live-1; as dl95-justporn-1).
+        if not u.startswith(("http://", "https://")) or not (
+                MEDIA_EXT_RE.search(u) or MEDIA_EXT_RE.search(urlparse(u).path.rstrip("/"))):
             continue
         if u in seen:
             continue
