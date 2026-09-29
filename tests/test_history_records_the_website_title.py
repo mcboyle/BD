@@ -419,6 +419,35 @@ def test_source_resolution_order_is_exact():
         assert page.evaluate_calls == 1
 
 
+def test_og_title_html_entities_are_unescaped():
+    """dl95-beeg-3 (LIVE-RESULT-B6-B, live-dl95-beeg-2-live-1): beeg's
+    og:title carries double-escaped entities, and the saved filename kept
+    the raw "&lbrack;"/"&rsqb;" text. Entities must be decoded at harvest
+    time, before the title reaches filename sanitising."""
+    from bulk_downloader.website_title import harvest_page_title
+
+    page = _FixturePage(
+        "https://beeg.example/-0156505713415670",
+        '<html><head><meta property="og:title" '
+        'content="Morning Glory &amp;lbrack;AI-generated&amp;rsqb; _ Beeg"></head>'
+        "<body></body></html>",
+    )
+    assert harvest_page_title(page) == ("Morning Glory [AI-generated] _ Beeg", "og:title")
+
+
+def test_titles_without_entities_are_unchanged():
+    """dl95-beeg-3 negative control: single-escaped markup decodes at parse
+    time; harvesting must not mangle text that has no entities left."""
+    from bulk_downloader.website_title import harvest_page_title
+
+    page = _FixturePage(
+        "https://example.invalid/plain",
+        "<html><head><title>Plain &amp; Simple</title></head>"
+        "<body><h1>Heading</h1></body></html>",
+    )
+    assert harvest_page_title(page) == ("Plain & Simple", "document.title")
+
+
 def test_retry_reharvests_a_new_page_but_not_the_same_page(clean_workdir):
     empty_html = "<html><head></head><body></body></html>"
     runner, first_page, _best, _download_dir, _target = _runner_and_page(
