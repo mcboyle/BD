@@ -593,6 +593,59 @@ def _handle_confirmed_no_video_page(runner, page, url, screenshot):
     return True
 
 
+# dl95-newsensations-1: a content page the SITE says does not exist (measured:
+# members/gallery.php?id=11370 -> "Content Id does not exist: 11370.") failed as
+# "[page_shape] No download button found" -- retried, and counted toward
+# paused_no_button as if the site's controls had broken. Only a short rendered
+# line that IS the not-found statement counts; prose containing the words does not.
+_CONTENT_NOT_FOUND_LINE_RE = re.compile(
+    r"^(?:sorry[,.!]?\s+)?(?:the\s+|this\s+|that\s+)?(?:requested\s+)?"
+    r"(?:content(?:\s+id)?|video|scene|gallery|movie|clip|update|page)"
+    r"(?:\s+you\s+(?:are|were)\s+looking\s+for)?\s+"
+    r"(?:does\s+not\s+exist|doesn't\s+exist|no\s+longer\s+exists"
+    r"|(?:was\s+|could\s+not\s+be\s+|cannot\s+be\s+)?not\s+found"
+    r"|(?:has\s+been|was)\s+(?:removed|deleted)|is\s+no\s+longer\s+available)"
+    r"(?:\s*[:#-]\s*[\w-]{1,40}|\s+\d[\w-]{0,39})?\s*[.!]?$",
+    re.I)
+CONTENT_NOT_FOUND_MESSAGE = (
+    'Content not found on the site: "{line}" -- the page loaded but names no '
+    "such content; check the URL or id")
+
+
+def _content_not_found_statement(page):
+    """The page's own "this content does not exist" line, or "" -- never raises."""
+    try:
+        text = page.evaluate("() => document.body ? document.body.innerText : ''")
+    except Exception:
+        return ""
+    if not isinstance(text, str):
+        return ""
+    for raw in text.splitlines()[:400]:
+        line = " ".join(raw.split())
+        if line and _CONTENT_NOT_FOUND_LINE_RE.match(line):
+            return line
+    return ""
+
+
+def _handle_content_not_found_page(runner, page, url, screenshot):
+    """Fail the job with the site's own not-found verdict, if the page states one.
+
+    Returns True only when it handled the job. The message classifies
+    "permanent" (terminal, no retry ladder); like the photo-gallery outcome, a
+    page that names no such content is not a broken-control miss, so the
+    paused_no_button streak is reset rather than advanced.
+    """
+    line = _content_not_found_statement(page)
+    if not line:
+        return False
+    runner._consec_no_btn = 0
+    sys.stderr.write(
+        f"  download: {url[-40:]} -- the site says {line!r}; content not found.\n")
+    runner._handle_failure(url, CONTENT_NOT_FOUND_MESSAGE.format(line=line),
+                           screenshot=screenshot)
+    return True
+
+
 # F5 Phase 2 (v3.66.701): per-capture netns for the BROWSER launch. The engine
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
@@ -5702,6 +5755,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if self._try_spa_api_media_extractor(url, page):
                     return
                 ss=self._screenshot(page,url)
+                if _handle_content_not_found_page(self, page, url, ss):
+                    return
                 if _handle_confirmed_no_video_page(self, page, url, ss):
                     return
                 if _handle_cdn_origin_error_page(self, page, url, ss):
