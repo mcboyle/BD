@@ -24,6 +24,7 @@ served by ``page.route``.  NO LIVE SITE IS TOUCHED; a missing browser SKIPS.
 from __future__ import annotations
 
 import os
+import threading
 from contextlib import contextmanager
 
 import pytest
@@ -289,6 +290,9 @@ def _runner_seam(monkeypatch, tmp_path, best, consulted):
     r.site_id = 1
     r.jobs = {}
     r.messages = []
+    # stalegate-row722-transport-lock: SiteRunner.__init__ owns this lock and the
+    # tier fallback (dl95-teenmegaworld-1) now takes it; same type as the product's.
+    r._lock = threading.Lock()
     r._update_job = lambda url, status, msg, **kw: r.messages.append((status, msg))
     r._screenshot = lambda page, url: ""
     r._do_download(_FakePage(), None, SCENE_URL, best, tmp_path, "?")
