@@ -1258,7 +1258,8 @@ class ExtractorsMixin:
         )
         return True
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
-                                     proven_only: bool = False, *, source_list_only=False) -> bool:
+                                     proven_only: bool = False, hold_below: bool = False,
+                                     *, source_list_only=False) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Normally consulted after ``find_best_download`` (and the
@@ -1278,6 +1279,11 @@ class ExtractorsMixin:
         prove they are THIS scene's -- the scene player's children and the
         streams whose path carries the page's opaque id -- never the API or
         page-media populations, which carry no identity.
+
+        ``hold_below`` (dl95-porn00-3): when ``min_height`` leaves nothing but
+        an option of KNOWN height sits below it, take over with the same
+        "Best is <h>p (below <min>p) -- Approve to force" hold the button path
+        writes, instead of returning a miss the caller must word itself.
         """
         self._spa_embed_hosts = []   # never a previous job's embed hosts
         try:
@@ -1300,7 +1306,13 @@ class ExtractorsMixin:
             page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
         except Exception:
             page_media = []
-        page_media += self._kvs_flashvars_media(page, _spa)  # dl95-kvs-flashvars-1
+        from contextlib import nullcontext
+        # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
+        jobs = getattr(self, "jobs", None)
+        with getattr(self, "_lock", None) or nullcontext():
+            job = jobs.get(url) if isinstance(jobs, dict) else None
+            forced = bool((job or {}).get("force_download"))
+        page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
         try:
             page_url = page.url or url
         except Exception:
@@ -1345,9 +1357,15 @@ class ExtractorsMixin:
         if min_height > 0:
             # dl95-africancasting-3: the min-resolution refusal arm asks only for an
             # option at or above min_resolution; an unknown height does not qualify.
+            offered = ranked
             ranked = [c for c in ranked if int(c.get("height") or 0) >= min_height]
             if not ranked:
                 sys.stderr.write(f"  spa-api: no option at or above {min_height}p\n")
+                known = [c for c in offered if int(c.get("height") or 0) > 0]
+                if hold_below and known:
+                    self._hold_below_minimum(url, page, int(known[0]["height"]), min_height,
+                                             self._spa_option_summary(offered))
+                    return True
                 return False
         headers_by_record = {r["url"]: r.get("headers") or {} for r in records}
         chosen = None
@@ -1400,9 +1418,7 @@ class ExtractorsMixin:
                 db_log(self.site_id, self.config.get("name", "?"), url,
                        "needs_review", "", 0, message, screenshot)
                 return True
-        summary = " | ".join(
-            f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
-            for c in ranked[:6])
+        summary = self._spa_option_summary(ranked)
         self.log_event("spa_api_candidate",
                        f"chose {height}p from {chosen.get('source')}; saw: {summary}",
                        url=url)
@@ -1412,23 +1428,10 @@ class ExtractorsMixin:
         # measured once it lands (below). A job whose URL IS the media file chose
         # nothing, so there is nothing to hold.
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-        from contextlib import nullcontext
-        # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
-        jobs = getattr(self, "jobs", None)
-        with getattr(self, "_lock", None) or nullcontext():
-            job = jobs.get(url) if isinstance(jobs, dict) else None
-            forced = bool((job or {}).get("force_download"))
         chosen_for_us = not forced and not _spa_job_is_the_file(url, master_url)
         gated = min_res > 0 and chosen_for_us
         if gated and 0 < height < min_res:
-            screenshot_fn = getattr(self, "_screenshot", None)
-            ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
-            msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
-            sys.stderr.write(f"  spa-api: skipped {url[-40:]} — best is {height}p "
-                             f"(below min_res={min_res}p)\n")
-            self._update_job(url, "needs_review", msg, screenshot=ss)
-            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
-                   f"below {min_res}p; got {height}p; saw: {summary}", ss)
+            self._hold_below_minimum(url, page, height, min_res, summary)
             return True
 
         dl_dir_str = (self.config.get("download_dir") or "").strip()
@@ -2196,10 +2199,32 @@ class ExtractorsMixin:
             return master_url, pick["height"], pick["program"]
         return pick["url"], pick["height"], None
 
-    def _kvs_flashvars_media(self, page, _spa):
+    def _spa_option_summary(self, ranked):
+        return " | ".join(
+            f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
+            for c in ranked[:6])
+
+    def _hold_below_minimum(self, url, page, height, min_res, summary):
+        """The page-media arms' min_resolution hold, worded as the button path's."""
+        screenshot_fn = getattr(self, "_screenshot", None)
+        ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+        msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
+        sys.stderr.write(f"  spa-api: skipped {url[-40:]} — best is {height}p "
+                         f"(below min_res={min_res}p)\n")
+        self._update_job(url, "needs_review", msg, screenshot=ss)
+        db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+               f"below {min_res}p; got {height}p; saw: {summary}", ss)
+
+    def _kvs_flashvars_media(self, page, _spa, forced=False):
         """dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-        video_url / video_alt_url[N] + *_text), bounded by min_resolution --
-        an option below it, or of unknown height, is never offered."""
+        video_url / video_alt_url[N] + *_text).  An option of unknown height is
+        never offered (it would pass the min_resolution hold unmeasured).
+
+        dl95-porn00-3: a KNOWN height below min_resolution is offered, so the
+        caller's min_resolution hold judges it and names it ("Best is 720p
+        (below 1080p) -- Approve to force"); it was withheld here, so the job
+        blamed a modal trigger and Approve could never lift it.  A job forced
+        by Approve takes any height, as the button path does."""
         try:
             items = page.evaluate(_spa.KVS_FLASHVARS_JS) or []
             page_url = page.url or ""
@@ -2207,10 +2232,12 @@ class ExtractorsMixin:
             return []
         kvs = _spa.kvs_flashvars_candidates(page_url, items)
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-        kept = [c for c in kvs if min_res <= 0 or int(c.get("height") or 0) >= min_res]
+        if forced or min_res <= 0:
+            return kvs
+        kept = [c for c in kvs if int(c.get("height") or 0) > 0]
         if len(kept) < len(kvs):
-            below = ", ".join(f"{c.get('height') or '?'}p" for c in kvs if c not in kept)
-            sys.stderr.write(f"  spa-api: KVS flashvars option(s) below {min_res}p not offered: {below}\n")
+            sys.stderr.write(f"  spa-api: {len(kvs) - len(kept)} KVS flashvars option(s) "
+                             f"of unknown height not offered\n")
         return kept
 
     def _try_aylo_extractor(self, url: str, page) -> bool:

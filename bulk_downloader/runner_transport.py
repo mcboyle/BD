@@ -2331,7 +2331,9 @@ class TransportMixin:
 
         The site's min_resolution holds here as on the DOM path: the extractor
         takes only an option at or above it, and an option of unknown height
-        counts as below. A job forced by Approve takes any height."""
+        counts as below. A job forced by Approve takes any height. With only
+        known-height options below it, the extractor writes the "Approve to
+        force" hold itself (dl95-porn00-3) and this returns True."""
         extractor = getattr(self, "_try_spa_api_media_extractor", None)
         if not callable(extractor):
             return False
@@ -2351,7 +2353,9 @@ class TransportMixin:
             return False
         sys.stderr.write(f"  download: {why}; trying the page's own media\n")
         try:
-            return bool(extractor(page_url, page, min_height=0 if forced else min_res))
+            # dl95-porn00-3: options only below the minimum -> the named hold.
+            return bool(extractor(page_url, page, min_height=0 if forced else min_res,
+                                  hold_below=True))
         except Exception as e:  # noqa: BLE001 -- as above
             sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
             return False
