@@ -456,6 +456,19 @@ def _arm_popup_grant_capture(page):
     return _read, _disarm
 
 
+def _is_player_source_element(locator):
+    """fx-xnxx-preview: True when a learned element is a media player's own
+    <video>/<source> (its src is whatever that player plays -- xnxx's ad
+    clip), not a download link. Unreadable -> False (the learned URL stands)."""
+    if locator is None:
+        return False
+    try:
+        tag = locator.evaluate("e => e.tagName")
+    except Exception:  # noqa: BLE001 -- a detached/odd element keeps BASE behaviour
+        return False
+    return str(tag or "").upper() in ("VIDEO", "SOURCE")
+
+
 def _is_login_wall_href(href):
     """True when a download candidate's href is the site's login page
     (``/login-required/``, ``/login``, ``/sign-in``...). The session keeper's
@@ -2846,6 +2859,23 @@ class TransportMixin:
                     suggested="download.bin"
                 sys.stderr.write(f"  download: direct URL extracted from [{url_attr}] -> {suggested}\n")
                 _bump_learned_stat(self.config,"direct_extractions")
+                # fx-xnxx-preview: a learned direct URL of UNKNOWN height (score 0) is
+                # a guess -- xnxx's learned `video source[src*='.mp4']` matched an AD
+                # player's <source> (a 15 s 360p / 1 s 300x250 clip) and saved it as the
+                # scene. When the learned element is a player's own <video>/<source>
+                # (whatever it plays: an ad, a preview), the scene's own media (its
+                # player's setVideo*/HLS master) is consulted first (unforced: an
+                # option at min_resolution, else the "Approve to force" hold; forced:
+                # the tallest). No option of known height there -> the learned URL
+                # proceeds unchanged. A learned download LINK is never second-guessed
+                # by the page's player stream (a trailer is not the full file).
+                if (learned_unknown_height and nav_download is None and not probe
+                        and _is_player_source_element(best.get("locator"))
+                        and self._fallback_to_page_media(
+                            page, page_url,
+                            f"learned media {suggested} has no measurable tier",
+                            scene_own_only=True)):
+                    return
 
         # ── v3.66.819: a STREAM is decided before the click, not after 60s ──
         #

@@ -1396,16 +1396,18 @@ class ExtractorsMixin:
         with getattr(self, "_lock", None) or nullcontext():
             job = jobs.get(url) if isinstance(jobs, dict) else None
             forced = bool((job or {}).get("force_download"))
+        wgcz_media = []
         if not feature_only:
             page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
             try:
-                page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
+                wgcz_media = _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
             except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
                 sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
             try:
                 page_media += _spa.okru_player_candidates(page.url or url, page.content(), url)  # fx-ok-extractor
             except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
                 sys.stderr.write("  spa-api: page content unreadable; no ok.ru player sources\n")
+            page_media += wgcz_media
         try:
             page_url = page.url or url
         except Exception:
@@ -1445,9 +1447,13 @@ class ExtractorsMixin:
             # the 1080p embed).
             # dl95-porn00-3-live-1: scene_own_only admits, of the unproven
             # population, only the page's own KVS player config.
+            # fx-xnxx-preview: the page's one WGCZ html5player (setVideoHLS/UrlHigh/
+            # UrlLow) is the scene's own player too; a related/ad <video> is not.
             if scene_own_only:
+                from urllib.parse import urljoin as _urljoin
+                own = {_urljoin(page_url, u.strip()) for u in wgcz_media}
                 unproven = [c for c in _spa.page_media_candidates(page_url, page_media)
-                            if c.get("source") == "kvs-flashvars"]
+                            if c.get("source") == "kvs-flashvars" or c.get("url") in own]
             else:
                 unproven = [] if proven_only else (
                     _spa.api_candidates(page_url, records)
