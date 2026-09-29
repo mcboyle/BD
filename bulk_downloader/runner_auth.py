@@ -294,6 +294,12 @@ class AuthMixin:
                     return
                 _settled.set()
                 self._login_outcome = (_attempt, ok)
+                # dl95-vip4k-2: WHEN it settled, so auth_state can tell a failed
+                # attempt that postdates the jar from one a later jar replaced.
+                self._login_outcome_at = time.time()
+                sys.stderr.write(
+                    f"  {site_tag(self.site_id)}login: attempt {_attempt} settled "
+                    f"{'ok' if ok else 'FAILED'}\n")
                 _fire(ok)
             try:
                 # v3.43.78 (F2): pause session keepers BEFORE do_login spawns
