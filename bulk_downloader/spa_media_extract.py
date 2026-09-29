@@ -369,15 +369,28 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
         if not named or u in seen:
             continue
         seen.add(u)
-        heights = [int(m.group(1)) for s in segments
+        rend_segments = [s for s in segments if _RENDITION_SEGMENT_RE.fullmatch(s)]
+        heights = [int(m.group(1)) for s in rend_segments
                    if (m := _RENDITION_SEGMENT_RE.fullmatch(s))]
-        if not heights:
-            heights = [max(int(h) for h in _VARIANT_DIMENSIONS_RE.findall(s))
-                       for s in segments if _VARIANT_DIMENSIONS_RE.search(s)]
+        is_multi = False
+        codec = ""
+        if heights:
+            for s in rend_segments:
+                if s.lower().startswith("av1_"):
+                    codec = "av1"
+                else:
+                    codec = "h264"
+        else:
+            multi_heights = [max(int(h) for h in _VARIANT_DIMENSIONS_RE.findall(s))
+                             for s in segments if _VARIANT_DIMENSIONS_RE.search(s)]
+            if multi_heights:
+                heights = multi_heights
+            is_multi = True
         height = heights[-1] if heights else 0
         out.append({"url": u, "label": f"{height}p" if height else "unknown",
                     "height": height, "size": 0, "source": "scene-stream",
-                    "filename": re.sub(r"\.(m3u8|mpd)$", "", named[-1], flags=re.I)})
+                    "filename": re.sub(r"\.(m3u8|mpd)$", "", named[-1], flags=re.I),
+                    "is_multi": is_multi, "codec": codec})
     return out
 
 
@@ -386,9 +399,17 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
 MANIFEST_TEXT_JS = """async (url) => {
   try {
     const r = await fetch(url, {credentials: 'include'});
-    if (!r.ok) return '';
-    return (await r.text()).slice(0, 262144);
-  } catch (e) { return ''; }
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  try {
+    const r = await fetch(url, {credentials: 'omit'});
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  try {
+    const r = await fetch(url);
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  return '';
 }"""
 
 _H264_CODEC_RE = re.compile(r"\bavc[13]\.", re.I)
@@ -575,11 +596,20 @@ def rank_candidates(cands: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Highest resolution first, then size; API options before page media;
     an explicit download option before a stream; files before manifests."""
     def key(c):
-        is_manifest = 1 if re.search(r"\.(m3u8|mpd)(\?|$)", c.get("url") or "", re.I) else 0
+        u = str(c.get("url") or "")
+        is_manifest = 1 if re.search(r"\.(m3u8|mpd)(\?|$)", u, re.IGNORECASE) else 0
         fmt = (c.get("format") or "").lower()
-        wmv = 1 if fmt == "wmv" or (c.get("url") or "").lower().endswith(".wmv") else 0
+        wmv = 1 if fmt == "wmv" or u.lower().endswith(".wmv") else 0
         source = str(c.get("source", ""))
-        return (-int(c.get("height") or 0), -int(c.get("size") or 0),
+        # dl95-beeg-2-live-1: a multi-variant master ranks below a specific variant of the same height
+        is_multi = 1 if c.get("is_multi") or "multi=" in u else 0
+        # Codec priority at the same height: prefer h264 over av1
+        codec = str(c.get("codec") or "").lower()
+        codec_penalty = 1 if codec == "av1" or "av1_" in u.lower() else 0
+        return (-int(c.get("height") or 0),
+                is_multi,
+                codec_penalty,
+                -int(c.get("size") or 0),
                 0 if source.startswith("api:") else 1,
                 0 if "download" in source.lower() else 1,   # a download file over a stream
                 is_manifest, wmv)

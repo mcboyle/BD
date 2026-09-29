@@ -1413,6 +1413,18 @@ class ExtractorsMixin:
             return False
         self._spa_measure_hls_masters(page, url, cands, _spa)  # tpl95-xnxx-1
         ranked = _spa.rank_candidates(cands)
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        allow_av1 = bool(self.config.get("allow_av1", True))
+        if not allow_av1:
+            floor = min_height if min_height > 0 else min_res
+            compliant_non_av1 = [
+                c for c in ranked
+                if not (c.get("codec") == "av1" or "av1_" in (c.get("url") or "").lower())
+                and not c.get("is_multi", False)
+                and int(c.get("height") or 0) >= floor
+            ]
+            if compliant_non_av1:
+                ranked = compliant_non_av1 + [c for c in ranked if c not in compliant_non_av1]
         if min_height > 0:
             # dl95-africancasting-3: the min-resolution refusal arm asks only for an
             # option at or above min_resolution; an unknown height does not qualify.
@@ -1441,13 +1453,12 @@ class ExtractorsMixin:
             sys.stderr.write("  spa-api: no candidate resolved to a fetchable URL\n")
             return False
         file_url = chosen["url"]
-        height = int(chosen.get("height") or 0)
-        # dl95-beeg-2: a master is fetched as the variant its rank named; the
-        # segmented downloader maps the FIRST video stream (beeg's: 240p).
         master_url = file_url
+        height = int(chosen.get("height") or 0)
+        # dl95-beeg-2-live-1: skip only when chosen is already a direct variant with known height
         is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
         hls_program = None
-        if is_hls:
+        if is_hls and (chosen.get("is_multi", True) or chosen.get("is_master") or chosen.get("height", 0) == 0):
             file_url, height, hls_program = self._spa_hls_ranked_variant(
                 page, url, file_url, height, _spa)
         if scene_candidates:
@@ -1489,6 +1500,17 @@ class ExtractorsMixin:
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
         chosen_for_us = not forced and not _spa_job_is_the_file(url, master_url)
         gated = min_res > 0 and chosen_for_us
+        # dl95-beeg-2-live-1: if the only 1080p is AV1 and AV1 is not allowed, say that in the hold.
+        if chosen_for_us and not self.config.get("allow_av1", True):
+            is_av1 = chosen.get("codec") == "av1" or "av1_" in (chosen.get("url") or "").lower()
+            if is_av1:
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                msg = f"Only {height}p is AV1 and AV1 is not allowed — Approve to force. Saw: {summary}"
+                self._update_job(url, "needs_review", msg, screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       msg, ss)
+                return True
         if gated and 0 < height < min_res:
             self._hold_below_minimum(url, page, height, min_res, summary)
             return True
@@ -2313,6 +2335,7 @@ class ExtractorsMixin:
                 pick = None
             if pick:
                 cand["height"], cand["label"] = pick["height"], f"{pick['height']}p"
+                cand["is_master"] = True
                 self.log_event("spa_api_hls_measured",
                                f"master tallest {pick['height']}p: {cand['url'][:120]}", url=url)
 
