@@ -250,6 +250,19 @@ AGE = [
     "button:has-text('I am over')",
     "button:has-text('Continue')",
 ]
+# dl95-hoopladigital-3: ``:has-text`` is a case-insensitive SUBSTRING match, so
+# "a:has-text('Enter')" clicked a publisher link reading "Disney Enterprises,
+# Inc." (and would click "Help Center") on hoopladigital, leaving the scene.
+# The AGE selectors only NOMINATE controls; one is clicked only when its whole
+# label is an age affordance, and the vaguest words additionally need the page
+# to say it is an 18-plus gate (row 721's discipline: an unreadable page is
+# not permission).
+AGE_CONTROL_LABEL = re.compile(
+    r"^(?:enter(?: (?:the )?site| here)?|continue|"
+    r"(?:yes[, ]+)?i(?: am|'m) (?:over |at least )?(?:18|21)"
+    r"(?: or (?:older|over))?(?: years?(?: old| of age)?)?)[.!]?$", re.I)
+AGE_LABEL_NEEDS_PAGE_PROOF = re.compile(r"^(?:enter|continue)[.!]?$", re.I)
+AGE_NOMINATION_CAP = 20
 INTERSTITIAL = [
     "a:has-text('No Thanks')",
     "button:has-text('No Thanks')",
@@ -355,6 +368,54 @@ def _safe_candidate(page: Any, selector: str) -> Optional[Any]:
         return None
 
 
+def _age_candidate(page: Any, selector: str) -> Optional[Any]:
+    """The first visible control ``selector`` nominates whose WHOLE label is an
+    age affordance (dl95-hoopladigital-3); ``None`` when there is none.
+
+    Every nominee is judged, not just the first: a publisher link can precede
+    the real ENTER in document order. A bare "Enter"/"Continue" is admitted
+    only when the body text carries 18-plus language; unreadable text refuses.
+    """
+    try:
+        candidates = page.locator(selector)
+        count = candidates.count()
+    except Exception:
+        return None
+    page_is_age_gate = None
+    for index in range(min(count or 0, AGE_NOMINATION_CAP)):
+        try:
+            candidate = (candidates.nth(index) if hasattr(candidates, "nth")
+                         else candidates.first)
+            if not candidate.is_visible():
+                continue
+            label = " ".join((candidate.inner_text() or "").split())
+        except Exception:
+            continue
+        if FORBIDDEN.search(label) or not AGE_CONTROL_LABEL.fullmatch(label):
+            continue
+        if AGE_LABEL_NEEDS_PAGE_PROOF.fullmatch(label):
+            if page_is_age_gate is None:
+                text = _body_text(page)
+                page_is_age_gate = bool(
+                    text and AGE_GATE_LANGUAGE.search(text))
+            if not page_is_age_gate:
+                continue
+        return candidate
+    return None
+
+
+def _left_requested_url(current: str, requested: str) -> bool:
+    """Whether ``current`` is a different resource from ``requested``.
+
+    A trailing slash or a fragment is the same resource, so an ordinary
+    canonicalising redirect does not cost a re-request.
+    """
+    def key(value: str):
+        parts = urlsplit(value or "")
+        return (parts.netloc.lower(), parts.path.rstrip("/"), parts.query)
+    return key(current) != key(requested)
+
+
 def _clear_gates_origin(url: Any) -> str:
     """Return a comparable HTTP(S) origin, or an empty value if unprovable.
 
@@ -407,8 +468,9 @@ def clear_gates(page: Any, *, site_gates: Any = None,
     interstitial_cleared = False
 
     for tier, selectors in tiers:
+        pick = _age_candidate if tier == "age" else _safe_candidate
         for selector in selectors:
-            candidate = _safe_candidate(page, selector)
+            candidate = pick(page, selector)
             if candidate is None:
                 continue
             before_url = str(getattr(page, "url", "") or "")
@@ -456,6 +518,12 @@ def clear_gates(page: Any, *, site_gates: Any = None,
                 interstitial_cleared = True
             break
 
+    # dl95-hoopladigital-3: a click's navigation can commit after the settle
+    # read above, so a clearance that leaves the page anywhere but the
+    # requested URL is re-requested too -- never scraped as the scene.
+    if (url and result and not interstitial_cleared
+            and _left_requested_url(str(getattr(page, "url", "") or ""), url)):
+        interstitial_cleared = True
     if url and interstitial_cleared:
         page.goto(
             url,
