@@ -245,6 +245,18 @@
   cursor: grabbing;
 }
 
+/* dl95-app-B6-4 — view mode never animates tile geometry. react-grid-layout
+ * styles an item with top/left before its mount and swaps to
+ * transform:translate after it; whenever the browser styled the pre-mount
+ * frame (a remount with cached data, e.g. the second visit to Home) the
+ * transform transition flies every card out of the container origin and
+ * draws them on top of one another for 200ms -- the overlap caught in two
+ * live screenshots on test2. Movement only means something while the
+ * operator drags or resizes, so the library transition stays in edit mode. */
+.dashboard-grid:not(.dashboard-grid-edit) .react-grid-item {
+  transition: none;
+}
+
 /* 1b — widget fills its grid cell so an empty/short widget leaves no
  * inner void (the cell height is fixed by the layout; without this the
  * card sits at content height and the rest of the cell is dead space). */
