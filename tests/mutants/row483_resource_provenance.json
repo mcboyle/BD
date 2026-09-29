@@ -43,10 +43,10 @@
       ]
     },
     {
-      "label": "M4 a measured resource mismatch is rebound over nonzero bytes",
+      "label": "M4 a measured resource mismatch is appended over nonzero bytes (dl95-reptyle-4: set aside, never refused)",
       "file": "bulk_downloader/staging_claim.py",
-      "old_regex": "raise\\s+StagingResourceMismatch",
-      "new": "return staging\n                RuntimeError",
+      "old_regex": "_set_aside_unowned_bytes\\(staging\\)(?=\\n            _rewrite_owner\\(owner, identity, proven=True, resource=resource\\))",
+      "new": "pass",
       "direction": "regression",
       "catcher": "tests/test_part_staging_collision.py::test_changed_resource_is_never_appended_to_the_old_resources_bytes"
     },

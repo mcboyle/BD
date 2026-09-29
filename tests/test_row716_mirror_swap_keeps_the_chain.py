@@ -566,6 +566,10 @@ def test_a_genuinely_different_resource_on_one_host_still_refuses(
         origin, tmp_path):
     """Negative control, failing for the intended reason.
 
+    Name kept for the row-357 stable-value evidence that anchors on it; since
+    dl95-reptyle-4 (PM ruling A) what it refuses is the SPLICE -- the job now
+    restarts from byte 0 with the old bytes set aside.
+
     Same host, DIFFERENT path -- a real second media object. Had row 716 been
     "fixed" by relaxing ``resource_identity`` or by retrying through every
     mismatch, this would pass a transfer that splices two files together.
@@ -589,16 +593,15 @@ def test_a_genuinely_different_resource_on_one_host_still_refuses(
     except BaseException as exc:                  # noqa: BLE001 - measured
         raised = exc
 
-    assert raised is not None, (
+    # dl95-reptyle-4 (PM ruling A): the guard still never appends a second
+    # object to the first one's bytes, but it no longer abandons the job:
+    # the old bytes are set aside intact and the new object lands whole.
+    assert raised is None, f"a changed resource parked the job: {raised!r}"
+    assert final.read_bytes() == OTHER_BODY, (
         "a different media object was appended to the first resource's bytes")
-    assert type(raised).__name__ == "_StagingUnavailable", repr(raised)
-    assert "resource mismatch" in str(raised).lower(), str(raised)
-    assert _discriminator(raised) == "StagingResourceMismatch", (
-        f"the raise-site discriminator was not retained: "
-        f"{_discriminator(raised)}")
-    assert _byte_census(staging.read_bytes()) == census_before, (
-        "a resource mismatch altered the staged bytes it refused")
-    assert not final.exists()
+    orphans = sorted(tmp_path.glob("*.orphaned-*.part"))
+    assert [_byte_census(p.read_bytes()) for p in orphans] == [census_before], (
+        "the first resource's staged bytes were not set aside intact")
 
 
 def test_the_control_really_names_a_second_resource(origin):
