@@ -10,7 +10,7 @@
     {
       "label": "R446-M1 learned trigger path restores the fixed sleep instead of settling",
       "file": "bulk_downloader/runner.py",
-      "old": "                    trigger_settle_state, _tm, _treads = _settle_after_trigger(\n                        page, before_metrics, budget_s=settle_budget)",
+      "old": "                    trigger_settle_state, _tm, _treads = _settle_after_trigger(\n                        scope, before_metrics, budget_s=settle_budget)",
       "new": "                    time.sleep(1.5)\n                    trigger_settle_state = TRIGGER_SETTLE_UNCHANGED",
       "direction": "regression",
       "catcher": "tests/test_row446_download_trigger_settle.py::test_row446_both_trigger_paths_settle_and_neither_sleeps_a_fixed_budget"

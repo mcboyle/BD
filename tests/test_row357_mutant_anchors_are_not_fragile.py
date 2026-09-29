@@ -282,7 +282,9 @@ _STABLE_VALUE_EXCEPTIONS: dict[str, StableValueException] = {
             "tests/test_v3_53_phase6.py",
             r"(?m)^def test_vault_isolation_refuses_a_path_outside_the_fixture_home\(\):$",
         ),
-    "2761826e2b40cff26858cdeea4479fe12a37f11260276ed9e7f3d5343f7f8c3f":
+    # tpl95-pornhoarder-1: the learned trigger settles the document that holds
+    # it (``scope``: top document or child frame), so the anchor text moved.
+    "5418ab6ae3fe6fcb131474e4ac9267ef8fafcd744b3af827353b33ad8ecc8e66":
         StableValueException(
             "the learned trigger must call the audited settle seam exactly here",
             "tests/test_row446_download_trigger_settle.py",

@@ -2407,8 +2407,12 @@ class TransportMixin:
         # link is never a download: refuse it here so it can never reach the
         # filename step / become download.bin. URL-less click-targets are not
         # gated (they fall through to expect_download below).
+        # tpl95-pornhoarder-1: a candidate found inside an iframe belongs to
+        # that document; its relative URLs and its host are judged there.
+        doc_url = (best.get("_frame_url")
+                   or getattr(page, "url", "") or page_url or "")
         _gate_abs, _gate_reject = ("", None) if nav_download is not None else gate_candidate_url(
-            best.get("locator"), getattr(page, "url", "") or page_url or "",
+            best.get("locator"), doc_url,
             url_attr=(url_attr if best.get("_via_learned") else None),
             learned_sel=best.get("_learned_sel") or "",
             text=best.get("text", ""))
@@ -2447,7 +2451,7 @@ class TransportMixin:
                 if not direct_url.startswith(("http://", "https://")):
                     try:
                         from urllib.parse import urljoin
-                        direct_url = urljoin(page.url, direct_url)
+                        direct_url = urljoin(doc_url, direct_url)
                         sys.stderr.write(f"  download: resolved relative url -> {direct_url[:80]}\n")
                     except Exception as e:
                         sys.stderr.write(f"  download: urljoin failed ({e}); using raw value\n")

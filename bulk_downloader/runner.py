@@ -134,7 +134,7 @@ from .cookies import (
 )
 from .detect import (
     find_best_download, res_label, fmt_bytes,
-    disk_free_gb, safe_dest,
+    disk_free_gb, safe_dest, child_frames,
 )
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import (
@@ -358,6 +358,31 @@ def _safe_trigger_metrics(page, metrics=None):
         return (metrics or _trigger_page_metrics)(page)
     except Exception:
         return None
+
+
+def _locate_trigger(page, selector, timeout_ms=5000):
+    """``(document, locator)`` for a download trigger.
+
+    tpl95-pornhoarder-1: an embedded player keeps its play control inside an
+    iframe, where a top-document locator never finds it. The top document
+    keeps priority and its existing wait; a child frame is consulted only
+    after that wait expires, and only for a match already visible there.
+    Raises the top document's wait error when no document has it, so the
+    caller's per-selector ``except`` moves on as before.
+    """
+    loc = page.locator(selector).first
+    try:
+        loc.wait_for(timeout=timeout_ms)
+        return page, loc
+    except Exception:
+        for frame in child_frames(page):
+            try:
+                frame_loc = frame.locator(selector).first
+                if frame_loc.count() and frame_loc.is_visible():
+                    return frame, frame_loc
+            except Exception:
+                continue
+        raise
 
 
 def _settle_after_trigger(page, before, *, poll_s=TRIGGER_SETTLE_POLL_S,
@@ -5573,13 +5598,14 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             trigger_settle_state = None
             for tsel in triggers_to_try:
                 try:
-                    loc = page.locator(tsel).first
-                    loc.wait_for(timeout=5000)
+                    scope, loc = _locate_trigger(page, tsel)
                     # Read the pre-trigger shape BEFORE dispatching, so the
                     # settle can tell "the modal arrived" from "the page has
                     # not moved yet" -- a stability poll with no `before`
                     # anchor calls the untouched pre-click page settled.
-                    before_metrics = _safe_trigger_metrics(page)
+                    # The document that holds the trigger is the one that
+                    # changes, so that is the one measured.
+                    before_metrics = _safe_trigger_metrics(scope)
                     if trigger_action in ("hover", "click_after_hover"):
                         # Hover dispatches the real mouseenter/mouseover/
                         # mousemove events that hover-only menus listen
@@ -5590,9 +5616,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     if trigger_action != "hover":
                         loc.click()
                     trigger_settle_state, _tm, _treads = _settle_after_trigger(
-                        page, before_metrics, budget_s=settle_budget)
+                        scope, before_metrics, budget_s=settle_budget)
+                    where = ("" if scope is page else
+                             f" in frame {getattr(scope, 'url', '')[:80]}")
                     sys.stderr.write(
-                        f"  download: triggered via [{tsel}] "
+                        f"  download: triggered via [{tsel}]{where} "
                         f"action={trigger_action} "
                         f"settle={trigger_settle_state}\n")
                     trigger_clicked = True

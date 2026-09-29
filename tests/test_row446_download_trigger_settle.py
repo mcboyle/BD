@@ -294,7 +294,7 @@ def _calls_named(scope, name):
 
 
 def _trigger_locator_names(scope):
-    """Names bound from ``page.locator(...)`` -- the trigger locators.
+    """Names bound from ``page.locator(...)`` or ``_locate_trigger(...)``.
 
     Derived, not listed: a third trigger added later enters this denominator
     automatically.  ``best["locator"].click()`` further down is deliberately
@@ -305,6 +305,16 @@ def _trigger_locator_names(scope):
     names = set()
     for node in ast.walk(scope):
         if not isinstance(node, ast.Assign):
+            continue
+        # tpl95-pornhoarder-1: ``scope, loc = _locate_trigger(page, tsel)``
+        # binds the learned trigger locator (top document or child frame).
+        if (isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "_locate_trigger"):
+            for target in node.targets:
+                if (isinstance(target, ast.Tuple) and target.elts
+                        and isinstance(target.elts[-1], ast.Name)):
+                    names.add(target.elts[-1].id)
             continue
         call = node.value
         while isinstance(call, ast.Attribute):

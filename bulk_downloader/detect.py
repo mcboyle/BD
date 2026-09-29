@@ -2458,6 +2458,67 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
         _emit_admission_summary()
 
 
+# Whether an <iframe> element shows its document to a person, judged in the
+# document that contains it (each ancestor frame is judged in its own).
+# Playwright's is_visible() passes a 0x0 iframe (its border draws a box), a
+# fully transparent one, and one parked off the page, so each is measured:
+# a non-empty content box, a box reaching into the page, and no element on
+# the ancestor chain that is display:none, visibility:hidden or opacity 0.
+_IFRAME_SEEN_BY_VIEWER_JS = """e => {
+  if (!(e.clientWidth > 0 && e.clientHeight > 0)) return false;
+  const r = e.getBoundingClientRect();
+  if (r.right + window.scrollX <= 0 || r.bottom + window.scrollY <= 0)
+    return false;
+  for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
+    const cs = window.getComputedStyle(n);
+    if (cs.display === 'none' || cs.visibility === 'hidden' ||
+        cs.visibility === 'collapse' || parseFloat(cs.opacity) === 0)
+      return false;
+  }
+  return true;
+}"""
+
+
+def child_frames(page):
+    """Every RENDERED document below ``page``'s top frame (nested included).
+
+    A frame counts only when its own ``<iframe>`` element and every ancestor
+    frame's element are seen by a viewer (``_IFRAME_SEEN_BY_VIEWER_JS``).
+    Inside a hidden, transparent, 0x0 or off-page iframe Playwright still
+    reports the document's elements visible, so without this an unseen ad
+    frame's row would win the learned scan and skip the visible-row rule
+    (cx-worker-1 R1, gen 1 and gen 2). A frame whose element cannot be
+    read is not proved rendered and is skipped; a page with no frames to
+    offer yields ``[]`` -- the top document is always searched regardless.
+    """
+    try:
+        frames = [f for f in page.frames if f.parent_frame is not None]
+    except Exception:
+        return []
+    rendered = {}
+
+    def is_rendered(frame):
+        parent = frame.parent_frame
+        if parent is None:
+            return True
+        if frame not in rendered:
+            try:
+                shown = bool(frame.frame_element().evaluate(
+                    _IFRAME_SEEN_BY_VIEWER_JS))
+            except Exception:
+                shown = False
+            rendered[frame] = bool(shown) and is_rendered(parent)
+        return rendered[frame]
+
+    return [f for f in frames if is_rendered(f)]
+
+
+def _learned_row_roots(page):
+    """The top document, then -- lazily, only if asked -- its child frames."""
+    yield page
+    yield from child_frames(page)
+
+
 def _rank_custom_matches(loc_all, count, custom):
     """Score every element a multi-match dl_selector names (row 722, G30).
 
@@ -2502,14 +2563,20 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     if full_length_requested is None:
         full_length_requested = _full_length_mode(runner)
 
-    if learned and isinstance(learned, dict):
+    # tpl95-pornhoarder-1: an embedded player keeps its media in an iframe, so
+    # a reviewed row that names it matches nothing in the top document. Each
+    # document is judged on its own (affinity, scoping, exclusions); child
+    # frames are read only when the top document yields no learned winner.
+    learned_roots = (_learned_row_roots(page)
+                     if learned and isinstance(learned, dict) else ())
+    for root in learned_roots:
         row_sels = learned.get("row_selectors") or []
         learned_excluded = []
         scored_groups = []
         winning_group = None
         for sel in row_sels:
             try:
-                loc_all = page.locator(sel)
+                loc_all = root.locator(sel)
                 count = loc_all.count()
             except Exception: continue
             if count == 0: continue
@@ -2671,6 +2738,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             best_match["_excluded_candidates"] = learned_excluded
             if not _selection_had_identity_proof(winning):
                 best_match["_no_identity_proof"] = True
+            if root is not page:
+                # The candidate's own document: relative URLs resolve and the
+                # nav gate judges hosts against it, not the embedding page.
+                best_match["_frame_url"] = getattr(root, "url", "") or ""
             return best_match
 
     if custom:
