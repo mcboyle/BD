@@ -823,6 +823,16 @@ def api_queue_dead_letter_requeue():
     ok = _db.db_queue_requeue_dead_letter(sid, url)
     if not ok:
         return jsonify({"ok": False, "error": "no dead-lettered job for that site_id/url"}), 404
+    # O1567: the live runner keeps its own copy of the job; without this the
+    # DB says pending while the runner still skips it as dead_letter.
+    runner = _app_runners().get(sid)
+    if runner is not None:
+        with runner._lock:
+            job = runner.jobs.get(url)
+            stale = bool(job) and job.get("status") == "dead_letter"
+        if stale:
+            runner._update_job(url, "pending", "requeued from dead-letter",
+                               retries=0, retry_after=0)
     return jsonify({"ok": True, "site_id": sid, "url": url})
 
 
