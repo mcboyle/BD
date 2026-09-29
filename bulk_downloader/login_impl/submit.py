@@ -658,14 +658,16 @@ SUBMIT_FALLBACKS=_build_submit_fallbacks()
 # Every JS-scoped submit method resolves the form through THIS function: the
 # password field a human can see (a rendered box), preferring the one that
 # already holds the typed value; the first match only when none is visible;
-# the first form only when no candidate matches at all.
+# the first form only when no candidate matches at all -- a matched password
+# field outside every form resolves to NO form (dl95-scrolller-3).
 _LOGIN_FORM_JS = """(sels) => {
     const seen = (el) => el.getClientRects().length > 0;
-    let first = null, visible = null, filled = null;
+    let first = null, visible = null, filled = null, matched = false;
     for (const sel of sels) {
         let matches = [];
         try { matches = document.querySelectorAll(sel); } catch (e) { continue; }
         for (const pf of matches) {
+            matched = true;
             const f = pf.closest('form');
             if (!f) continue;
             if (!first) first = f;
@@ -676,7 +678,74 @@ _LOGIN_FORM_JS = """(sels) => {
         }
         if (filled) break;
     }
+    // dl95-scrolller-3: a password field that sits in NO form (a SPA login
+    // modal) is not "no candidate": the page's first form was the header
+    // search box, and requestSubmit() on it navigated to /search as a submit.
+    if (matched && !(filled || visible || first)) return null;
     return filled || visible || first || document.querySelector('form');
+}"""
+
+
+# dl95-scrolller-3 (scrolller, test2 .82 04:38Z): the login is a SPA modal with
+# no <form>; its control is <button>Log in!</button>. Tier 5's exact texts miss
+# the "!", and a page-wide text match would hit the "LOG IN" tab or the navbar
+# Login first. This tags the first submit-word control (optional trailing
+# punctuation) after the visible password field INSIDE the login's own
+# container (see the ownership notes in the JS). Formless password fields only:
+# a <form> login keeps its form-scoped methods. Returns its text, or null.
+_PASSWORD_SCOPED_SUBMIT_JS = r"""(sels) => {
+    const seen = (el) => el.getClientRects().length > 0;
+    const WORD = /^(?:log\s*-?\s*in|sign\s*-?\s*in|submit|continue|enter|get\s+in(?:side)?|go)\s*[!.>\u00bb\u2192]*$/i;
+    let pw = null;
+    for (const sel of sels) {
+        let ms = [];
+        try { ms = document.querySelectorAll(sel); } catch (e) { continue; }
+        for (const m of ms) { if (seen(m)) { pw = m; break; } }
+        if (pw) break;
+    }
+    if (!pw || pw.closest('form')) return null;   // a <form> login is m1/m2's
+    for (const old of document.querySelectorAll('[data-bd-pw-submit]')) old.removeAttribute('data-bd-pw-submit');
+    // Lens R1 G1/G2 (bd-cx-worker-1): OWNERSHIP, not proximity or document
+    // order. The login container is the lowest ancestor holding BOTH the
+    // identifier field (the nearest visible text-entry input before the
+    // password) and the password; it may widen one ancestor at a time only
+    // while the wider box holds no other text-entry field or form and the
+    // box is not a dialog boundary, and never to <body>. Without an
+    // identifier, or when the control is not inside that container, decline.
+    const ENTRY = 'input:not([type]), input[type=text], input[type=email], input[type=tel], input[type=search], input[type=url], input[type=number], textarea, select';
+    const BTN = 'button, [role=button], input[type=submit], input[type=button]';
+    const DIALOG = 'dialog, [role=dialog], [role=alertdialog], [aria-modal=true]';
+    const before = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    let id = null;
+    for (const el of document.querySelectorAll(ENTRY)) {
+        if (el.tagName === 'INPUT' && before(el, pw) && seen(el)) id = el;
+    }
+    if (!id) return null;
+    let box = pw.parentElement;
+    while (box && !box.contains(id)) box = box.parentElement;
+    const owned = (el, c) => c.contains(el) && !el.closest('form') &&
+        !(el.closest(DIALOG) && !el.closest(DIALOG).contains(pw));
+    const foreign = (c) => [...c.querySelectorAll(ENTRY + ', form')]
+        .some(el => el !== id && el !== pw && !pw.contains(el) && seen(el));
+    const pick = (c) => {
+        for (const n of c.querySelectorAll(BTN)) {
+            if (!before(pw, n) || !owned(n, c)) continue;
+            const t = (n.innerText || n.value || '').replace(/\s+/g, ' ').trim();
+            if (!WORD.test(t)) continue;
+            if (!seen(n) || n.disabled || n.getAttribute('aria-disabled') === 'true') return false;
+            return {n, t};
+        }
+        return null;
+    };
+    for (let step = 0; box && box !== document.body && box !== document.documentElement && step < 6; step++) {
+        if (foreign(box)) return null;
+        const hit = pick(box);
+        if (hit === false) return null;
+        if (hit) { hit.n.setAttribute('data-bd-pw-submit', '1'); return hit.t; }
+        if (box.matches(DIALOG)) return null;
+        box = box.parentElement;
+    }
+    return null;
 }"""
 
 
@@ -691,7 +760,7 @@ GET_FORM_REFUSED="form method is GET -- refused: submitting would put the creden
 
 
 def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
-    """Try nine independent ways to submit the login form. Each method
+    """Try ten independent ways to submit the login form. Each method
     is attempted with a short timeout; we declare success the moment the
     page navigates WITHIN THE LOGIN PAGE'S ORIGIN. Returns (ok, method_used).
 
@@ -722,7 +791,7 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
     # Heartbeat at entry — without this, a long selector walk looks
     # identical to a silent hang, which was the visible symptom in v3.15.5.
     sys.stderr.write(f"  {site_tag()}login submit: attempting "
-                     f"({len(sb_candidates)} button selector(s), 9 methods)\n")
+                     f"({len(sb_candidates)} button selector(s), 10 methods)\n")
     try: initial_url=page.url
     except Exception as e:
         # Page already closed before we even started — treat like submit
@@ -774,6 +843,15 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         s=str(s).lower()
         return ("target page" in s and "closed" in s) or "browser has been closed" in s or "context or browser" in s
 
+    def _password_visible():
+        try:
+            return bool(page.evaluate("""(sels) => sels.some(sel => {
+                try { return [...document.querySelectorAll(sel)]
+                        .some(el => el.getClientRects().length > 0); }
+                catch (e) { return false; } })""", pf_candidates))
+        except Exception: return True   # unmeasurable: keep the old sweep
+
+    _pw_at_start=_password_visible()
     methods=[]
 
     # Method 1: configured/text-matched submit button click
@@ -781,6 +859,18 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         ok,info=_try_click(page,sb_candidates,"submit button")
         return ok,f"click [{info}]"
     methods.append(("click submit selector",m1))
+
+    # Method 1b (dl95-scrolller-3): the submit control that follows the
+    # password field when the login is not a <form>; see
+    # _PASSWORD_SCOPED_SUBMIT_JS. Configured/learned selectors (m1) keep
+    # priority; the JS form fallbacks below never see a formless login.
+    def m1b():
+        try: text=page.evaluate(_PASSWORD_SCOPED_SUBMIT_JS, pf_candidates)
+        except Exception as e: return False,f"password-scoped submit error: {str(e)[:60]}"
+        if not text: return False,"no submit control follows the password field"
+        ok,info=_try_click(page,["[data-bd-pw-submit='1']"],"password-scoped submit")
+        return ok,(f"click {text!r} after the password field" if ok else info)
+    methods.append(("password-scoped submit",m1b))
 
     # Method 2: JS form.requestSubmit() — uses the form's default submit
     # path including any submit-event handlers, no button needed
@@ -1001,6 +1091,14 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
             moved=_moved()
             if moved is not None: return _settle(moved,label)
             time.sleep(0.3)
+        # dl95-scrolller-3: a SPA login that took the submit closes its modal
+        # without navigating. With the password field gone, every method
+        # left (requestSubmit's first-form fallback, Enter, Tab+Enter, broad
+        # clicks) acts on some OTHER control of the page -- live, the header
+        # search form. Stop and let do_login read the session.
+        if _pw_at_start and not _password_visible():
+            return False,(f"{label} consumed the login form without "
+                          "navigation (SPA login)")
         # No navigation? Maybe it's a SPA that just updates auth state
         # silently. Move to the next method.
     return False,"no submit method produced navigation"
