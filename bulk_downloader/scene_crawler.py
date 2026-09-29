@@ -34,6 +34,11 @@ STATE_RUNNING = "RUNNING"
 STATE_COMPLETED = "COMPLETED"
 STATE_NOT_LOGGED_IN = "NOT_LOGGED_IN"
 STATE_FAILED = "FAILED"
+STATE_CANCELLED = "CANCELLED"
+
+# dl95-naughtyamerica-1: a crawl lives in a daemon thread of this process, so a
+# restart kills it before it can write a terminal state.
+ORPHANED_RUN_ERROR = "interrupted: app restarted before discovery finished"
 
 SETTLE_SETTLED = "SETTLED"
 SETTLE_UNKNOWN = "UNKNOWN"
@@ -1278,6 +1283,36 @@ def start_background_crawl(
     return {"ok": True, "run_id": run_id, "site_id": site_id, "state": STATE_RUNNING}
 
 
+def _cancel_orphaned_run(row: Any, db_path: str | None) -> Any:
+    """Close a RUNNING row that no crawl in this process owns.
+
+    Every live crawl is registered in ``_ACTIVE`` before its row is written
+    and leaves only after its terminal write, so a RUNNING row whose run_id is
+    not there lost its thread to a restart (dl95-naughtyamerica-1). Nothing
+    will ever finish it; reading it verbatim showed "Discovering" forever.
+    The UPDATE is guarded on RUNNING so it never overwrites a terminal write.
+    """
+    if row is None or row["state"] != STATE_RUNNING:
+        return row
+    with _ACTIVE_LOCK:
+        if _ACTIVE.get(row["site_id"]) == row["run_id"]:
+            return row
+    with db.db_conn(db_path) as cx:
+        cx.execute(
+            """
+            UPDATE scene_crawl_runs
+            SET state = ?, finished_at = ?, error = ?
+            WHERE run_id = ? AND state = ?
+            """,
+            (STATE_CANCELLED, time.time(), ORPHANED_RUN_ERROR,
+             row["run_id"], STATE_RUNNING),
+        )
+        return cx.execute(
+            "SELECT * FROM scene_crawl_runs WHERE run_id = ?",
+            (row["run_id"],),
+        ).fetchone()
+
+
 def crawl_status(
     *,
     site_id: str,
@@ -1301,6 +1336,7 @@ def crawl_status(
                 """,
                 (site_id,),
             ).fetchone()
+    row = _cancel_orphaned_run(row, db_path)
     if not row:
         return {
             "ok": True,
