@@ -14,14 +14,46 @@ from typing import Final
 FALLBACK_TTL_SECONDS = 5.0  # row842: negative/fallback cache window
 _DEFAULT_NAMESERVER: Final = ("127.0.0.1", 53)
 _DEFAULT_TTL_SECONDS: Final = 60.0
+_STALE_WINDOW_SECONDS: Final = 300.0  # row1008: serve stale for 5 min past TTL
 _CACHE: dict[str, tuple[float, str]] = {}
 _CACHE_LOCK = threading.Lock()
+
+# row1008: stale DNS cache for serve-stale with async refresh
+_STALE_CACHE: "StaleDNSCache | None" = None
+_STALE_CACHE_LOCK = threading.Lock()
+
+
+def _get_stale_cache() -> "StaleDNSCache":
+    """Lazy-init the stale DNS cache singleton."""
+    global _STALE_CACHE
+    with _STALE_CACHE_LOCK:
+        if _STALE_CACHE is None:
+            from bulk_downloader.stale_dns_cache import StaleDNSCache
+            _STALE_CACHE = StaleDNSCache(
+                ttl_seconds=_DEFAULT_TTL_SECONDS,
+                stale_window_seconds=_STALE_WINDOW_SECONDS,
+                refresh_callback=_refresh_mesh_host,
+                client_response_seconds=0.25,  # the CoreDNS query timeout
+            )
+        return _STALE_CACHE
+
+
+def _refresh_mesh_host(key: str) -> "str | None":
+    """Async refresh callback for stale cache: re-query CoreDNS."""
+    try:
+        return _query_coredns(key, nameserver=_DEFAULT_NAMESERVER, timeout=0.25)
+    except (OSError, ValueError):
+        return None
 
 
 def clear_mesh_cache() -> None:
     """Clear cached mesh addresses; primarily useful for controlled tests."""
+    global _STALE_CACHE
     with _CACHE_LOCK:
         _CACHE.clear()
+    with _STALE_CACHE_LOCK:
+        if _STALE_CACHE is not None:
+            _STALE_CACHE.clear()
 
 
 def resolve_mesh_host(
@@ -36,11 +68,24 @@ def resolve_mesh_host(
     Only ``.mesh.local`` names are sent to CoreDNS.  Every CoreDNS datagram is
     restricted to a loopback address; a failed local query never prompts a
     network fallback.
+
+    Row 1008 (RFC 8767): once an answer's TTL lapses, CoreDNS is re-asked
+    asynchronously and a timely answer is returned fresh.  The stale answer is
+    served only when that refresh fails or is still unanswered, for at most
+    5 minutes past the TTL; after a failure it is served without a new query
+    for 30 seconds.  An ``/etc/hosts`` fallback is never served stale.
     """
     name = hostname.rstrip(".").lower()
     if not name.endswith(".mesh.local"):
         return _hosts_address(name)
 
+    # row1008: fresh answer, or an async refresh that falls back to stale
+    stale_cache = _get_stale_cache()
+    stale_result = stale_cache.lookup(name)
+    if stale_result is not None:
+        return stale_result
+
+    # Legacy path: fresh lookup
     now = time.monotonic()
     with _CACHE_LOCK:
         cached = _CACHE.get(name)
@@ -60,8 +105,10 @@ def resolve_mesh_host(
             _CACHE[name] = (time.monotonic() + min(FALLBACK_TTL_SECONDS, max(0.0, ttl_seconds)), address)
         return address
 
+    # Store in both caches
     with _CACHE_LOCK:
         _CACHE[name] = (time.monotonic() + max(0.0, ttl_seconds), address)
+    stale_cache.store(name, address, ttl_override=max(0.0, ttl_seconds))
     return address
 
 
