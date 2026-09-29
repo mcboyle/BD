@@ -422,6 +422,32 @@ MANIFEST_TEXT_JS = """async (url) => {
   return '';
 }"""
 
+# O1567 fx-pussyspace: where a playlist was actually served from. A master asked at a
+# redirecting URL (pussyspace: /reversebuffer?u64hash=... -> 301 -> the CDN master) lists
+# RELATIVE variants; they resolve against this final URL, not the one that was asked.
+MANIFEST_FINAL_URL_JS = """async (url) => {
+  for (const cred of ['include', 'omit']) {
+    try {
+      const r = await fetch(url, {credentials: cred});
+      if (r.ok) return r.url || '';
+    } catch (e) {}
+  }
+  return '';
+}"""
+
+
+def final_manifest_url(page: Any, url: str) -> str:
+    """The URL the playlist at *url* was served from once redirects are followed,
+    read through the page's own session; *url* itself when that cannot be read."""
+    try:
+        got = page.evaluate(MANIFEST_FINAL_URL_JS, url)
+    except Exception:  # noqa: BLE001 -- any page/driver failure keeps the asked URL
+        return url
+    if isinstance(got, str) and got.startswith(("http://", "https://")) and not any(c in got for c in "\r\n "):
+        return got
+    return url
+
+
 _H264_CODEC_RE = re.compile(r"\bavc[13]\.", re.I)
 
 

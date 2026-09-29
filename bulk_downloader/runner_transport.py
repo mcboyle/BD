@@ -2652,7 +2652,11 @@ class TransportMixin:
                 page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
             deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
             gate_passes = 0
-            while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
+            # O1567 fx-pussyspace: an MSE player hands its <video> a blob: URL at
+            # once and fetches the manifest a moment later, so a blob:/data: URL
+            # names no fetchable media and must not end the wait.
+            while not [u for u in (page.evaluate(_spa.PAGE_MEDIA_JS) or [])
+                       if not str(u).startswith(("blob:", "data:"))] and time.monotonic() < deadline:
                 # dl95-porndoe-1-live-2: an age/consent layer can render after
                 # the one gate pass (porndoe's, over the player); clear it here
                 # too, with the same deny rules, or the player never starts.

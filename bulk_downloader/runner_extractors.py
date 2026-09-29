@@ -1701,7 +1701,12 @@ class ExtractorsMixin:
                     url, "running", f"API/media HLS • {fmt_bytes(p.get('bytes', 0))}"),
                 cancel_check=lambda: transfer_cancelled(self, url), **hls_kw)
             if not dl_result.ok:
-                self.log_event("spa_api_hls_failed", f"hls failed: {dl_result.error}", url=url)
+                # O1567 fx-pussyspace: name ffmpeg's own words (URLs scrubbed -- they
+                # carry signed tokens), not just "ffmpeg_failed".
+                _why = re.sub(r"https?://\S+", "<url>", str(getattr(dl_result, "error_detail", "") or ""))
+                self.log_event("spa_api_hls_failed",
+                               f"hls failed: {dl_result.error}" + (f" -- {_why[:300]}" if _why else ""),
+                               url=url)
                 try:
                     if os.path.exists(output_path):
                         os.remove(output_path)
@@ -2360,7 +2365,7 @@ class ExtractorsMixin:
         try:
             text = page.evaluate(_spa.MANIFEST_TEXT_JS, master_url)
             pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
-                                        master_url, height)
+                                        _spa.final_manifest_url(page, master_url), height)
         except Exception:  # noqa: BLE001 -- any page/driver failure keeps the master
             pick = None
         if not pick:
@@ -2422,7 +2427,7 @@ class ExtractorsMixin:
             try:
                 text = page.evaluate(_spa.MANIFEST_TEXT_JS, cand["url"])
                 pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
-                                            cand["url"], 0)
+                                            _spa.final_manifest_url(page, cand["url"]), 0)
             except Exception:  # noqa: BLE001 -- any page/driver failure leaves it unknown
                 pick = None
             if pick:
