@@ -99,10 +99,25 @@ log = logging.getLogger(__name__)
 # ─── Availability ──────────────────────────────────────────────────
 
 
+def _import_videohash():
+    """The one videohash import. videohash 2.1.9 -- the newest release the
+    requirements range (>=2.1,<3.0) admits -- resizes collage frames with
+    ``Image.ANTIALIAS``, an alias Pillow 10 removed (it was always LANCZOS).
+    Pillow is unpinned, so on a current Pillow every hash raised
+    AttributeError and dedup silently skipped every download
+    (dl95-app-B6-3). Restore the alias, only where it is missing, before
+    videohash runs; pinning Pillow<10 would hold back every other user."""
+    from PIL import Image
+    if not hasattr(Image, "ANTIALIAS"):
+        Image.ANTIALIAS = Image.Resampling.LANCZOS
+    import videohash
+    return videohash
+
+
 def is_videohash_available() -> bool:
     """True if the `videohash` Python library imports cleanly."""
     try:
-        import videohash  # noqa: F401
+        _import_videohash()
         return True
     except ImportError:
         return False
@@ -308,7 +323,7 @@ def compute_hash(path: str, *,
                           error="file_too_small_for_hashing")
     start = time.monotonic()
     try:
-        import videohash
+        videohash = _import_videohash()
         # videohash.VideoHash(path=...) does all the work in __init__
         vh = videohash.VideoHash(path=path)
         raw_hash = getattr(vh, "hash_hex", None) or getattr(vh, "hash", None)
