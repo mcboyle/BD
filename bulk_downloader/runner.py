@@ -135,7 +135,7 @@ from .cookies import (
 )
 from .detect import (
     find_best_download, res_label, fmt_bytes,
-    disk_free_gb, safe_dest, child_frames,
+    disk_free_gb, safe_dest, child_frames, phase_deadline,
 )
 from .fname import resolve_filename_template, format_duration_for_filename
 from .website_title import (
@@ -144,6 +144,7 @@ from .website_title import (
 )
 from .integrity import verify_media_integrity
 from .login import do_login
+from .log import site_tag
 # v3.66.144: reviewed-template runtime bridge. Soft import so the runner
 # still works if the template subsystem is ever absent (degraded mode: no
 # reviewed-template hints, learned/configured selectors only).
@@ -384,6 +385,61 @@ def _locate_trigger(page, selector, timeout_ms=5000):
             except Exception:
                 continue
         raise
+
+
+def _trigger_skip_reason(page, selector):
+    """dl95-naughtyamerica-3: why a learned trigger was not clicked, for the log.
+
+    Measured (members.naughtyamerica.com scene, 2026-09-29): the learned
+    Download tab was attached but sat in a display:none section, so the
+    visible-wait timed out and the trigger loop moved on without a word; the
+    job then closed as trailer-only with nothing in the log naming the
+    trigger. Any error while measuring reads as "unreadable", never raises.
+    """
+    try:
+        loc = page.locator(selector).first
+        if not loc.count():
+            return "not on the page"
+        if not loc.is_visible():
+            return "attached but hidden"
+        return "visible but the click failed"
+    except Exception as e:  # noqa: BLE001 -- a log line must never fail the job
+        return f"unreadable ({type(e).__name__})"
+
+
+def _reveal_hidden_trigger(page, triggers, reveals):
+    """dl95-naughtyamerica-3: open the collapsed section that hides a trigger.
+
+    ``reveals`` are the learned block's ``reveal_selectors`` (a control a
+    human clicks first, e.g. a "MORE INFO" toggle). One is clicked only when
+    a trigger is attached and none is visible, so a site without
+    reveal_selectors, or whose trigger is already visible, is untouched.
+    Returns the reveal selector clicked, or "".
+    """
+    if not reveals or not triggers:
+        return ""
+    attached = False
+    for tsel in triggers:
+        try:
+            loc = page.locator(tsel).first
+            if not loc.count():
+                continue
+            if loc.is_visible():
+                return ""
+            attached = True
+        except Exception:  # noqa: BLE001 -- unreadable selector: next one
+            continue
+    if not attached:
+        return ""
+    for rsel in reveals:
+        try:
+            loc = page.locator(rsel).first
+            if loc.count() and loc.is_visible():
+                loc.click(timeout=5000)
+                return rsel
+        except Exception:  # noqa: BLE001 -- a failed reveal leaves the loop as before
+            continue
+    return ""
 
 
 def _settle_after_trigger(page, before, *, poll_s=TRIGGER_SETTLE_POLL_S,
@@ -1371,6 +1427,11 @@ def live_sample_bps(sample, now):
         return 0.0
     age = float(now) - float(sample_at)
     return sample_bps if 0.0 <= age <= 5.0 else 0.0
+
+
+# Job statuses that end a run-history attempt (run_history rows).
+_RUN_TERMINAL_STATUSES = ("done", "failed", "error",
+                          "skipped_duplicate", "cancelled", "tombstone")
 
 
 class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, TelemetryMixin, SchedulerMixin, BrowserMixin, AccountsMixin, ManualMixin, IntegrityMixin, TeachMixin, ChallengeMixin, IntegrationsMixin):
@@ -3570,10 +3631,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 status_code = extra.get("status_code")
                 if tombstone.classify(status_code=status_code, message=message):
                     status = "tombstone"
+                    # dl95-dailymotion-2: tombstone_url syncs this job to
+                    # "tombstone" before prev_status is read below, which hid
+                    # the transition (no log, run row left "running").
+                    if _transition_prev_status is None:
+                        _transition_prev_status = (self.jobs.get(url) or {}).get("status")
                     tombstone.tombstone_url(self.site_id, url, reason=message, _runner=self)
             except Exception:
                 pass
         byte_advanced = False
+        released_run_id = None
         with self._job_status_writer() as mark_status_changed:
             prev_status = (self.jobs.get(url) or {}).get("status")
             # dl95-porndig-3: a stopped job (Cancel, site Stop) is re-armed only
@@ -3584,6 +3651,16 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                     and not _memory_already_updated):
                 return False
             prev_bytes = int((self.jobs.get(url) or {}).get("file_size", 0))
+            # dl95-dailymotion-2 (lens A10-A R1): a job leaving running for a
+            # non-terminal status (retry -> pending, needs_review) is claimable
+            # the moment this writer ends, so its attempt id leaves the job
+            # HERE, under the lock. Popped after it, a new claim's id could be
+            # taken and closed instead. Callers that already updated memory
+            # release their own id (dl-f4 runner_teach).
+            if (prev_status == "running" and status != "running"
+                    and status not in _RUN_TERMINAL_STATUSES
+                    and not _memory_already_updated and url in self.jobs):
+                released_run_id = self.jobs[url].pop("_run_id", None)
             # v3.43.80: auto-create entry for unknown URL so stale retry_one isn't a no-op.
             if url not in self.jobs:
                 self.jobs[url] = {"last_progress_at": now}
@@ -3690,8 +3767,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # the download path (the whole try is swallowed).
             try:
                 from . import run_history as _rh
-                _RUN_TERMINAL = ("done", "failed", "error",
-                                 "skipped_duplicate", "cancelled", "tombstone")
+                _RUN_TERMINAL = _RUN_TERMINAL_STATUSES
                 if status == "running" and prev_status != "running":
                     rid = _rh.record_run_start(self.site_id, url)
                     if rid:
@@ -3700,21 +3776,31 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 self.jobs[url]["_run_id"] = rid
                         _rh.emit_lifecycle(self, "start", run_id=rid, url=url,
                                            message=message)
-                elif status in _RUN_TERMINAL:
-                    rid = (self.jobs.get(url) or {}).get("_run_id")
+                elif status in _RUN_TERMINAL or prev_status == "running":
+                    # dl95-dailymotion-2: an attempt also ends when its job
+                    # leaves running for a non-terminal status (a failure that
+                    # retries -> pending, needs_review, ...). Pop the id there,
+                    # so the next claim opens its own row and nothing re-closes it.
+                    run_status = status
+                    if status in _RUN_TERMINAL:
+                        rid = (self.jobs.get(url) or {}).get("_run_id")
+                    else:
+                        rid = released_run_id  # popped in the writer above
+                        run_status = {"pending": "failed", "dead_letter": "failed",
+                                      "stopped": "cancelled"}.get(status, status)
                     if rid:
                         # Cut 4: persist an operator reason_code on failures so
                         # /api/runs?status=failed can group + explain them.
                         rc = None
-                        if status in ("failed", "error"):
+                        if run_status in ("failed", "error"):
                             try:
                                 from . import failure_reasons as _fr
                                 rc = _fr.reason_for(message).get("reason_code")
                             except Exception:
                                 rc = None
-                        _rh.record_run_finish(rid, status, reason_code=rc)
+                        _rh.record_run_finish(rid, run_status, reason_code=rc)
                         _rh.emit_lifecycle(self, "finish", run_id=rid, url=url,
-                                           message=status)
+                                           message=run_status)
             except Exception:
                 pass  # advisory: history never breaks the worker
         # Phase 4.2: persist the change. Outside the lock to avoid holding
@@ -4885,6 +4971,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 from_local_queue = True
                 try: url=self._url_queue.get(timeout=1)
                 except queue.Empty:
+                    # dl-f4: catch-all for a teach target that left
+                    # needs_review by a path with no explicit release.
+                    self._release_teach_waiters_if_unblocked()
                     stolen = self._try_steal_job()
                     if stolen is not None:
                         url = stolen
@@ -5185,6 +5274,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         return (" — no identity proof: no candidate on this page could be "
                 "attributed to the scene")
 
+    def _handle_find_button_budget_spent(self, page, url, best):
+        """dl95-tube8-1: fail the job when find_best_download stopped at the
+        "Finding download button..." budget.  True when handled.  Consulted
+        BEFORE the `if not best:` guards: the result is falsy, and those
+        guards would run deep-detect and report "No download button found"
+        for a page that was never fully read."""
+        get = getattr(best, "get", None)
+        if get is None or not get("_find_button_budget_spent"):
+            return False
+        ss = self._screenshot(page, url)
+        self._handle_failure(
+            url, get("reason") or "Finding download button spent its budget",
+            screenshot=ss)
+        return True
+
     def _handle_nothing_in_scope(self, page, url, best):
         """Row 701's distinct outcome: a download control WAS found on this
         page and every candidate was refused as belonging to another scene.
@@ -5196,9 +5300,25 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         The refusal names the outcome and the reason each candidate was
         refused, so it can never be read as "best is 240p" nor as "no download
         button found".
+
+        dl95-tube8-1: the other falsy, keyed outcome -- a spent "Finding
+        download button..." budget -- is handled first, at this same seam, so
+        it is neither a learned miss nor "no download button found".
+        Class-qualified so a runner-shaped host needs no extra method.
         """
+        if SiteRunner._handle_find_button_budget_spent(self, page, url, best):
+            return True
         if best is None or not best.get("_no_in_scope_candidates"):
             return False
+        # dl95-porn00-3-live-1: every refused candidate was a site link, but the
+        # scene's own player media (KVS flashvars 360p/720p) was never asked. It
+        # finishes the job, or writes the "Best is 720p (below 1080p) -- Approve
+        # to force" hold that Approve lifts; only a miss is "Nothing in scope".
+        # Scene-bound sources only: the generic page-media sweep also carries
+        # the related scenes this page was just refused for (lens cx-worker-1 R1).
+        if self._fallback_to_page_media(page, url, "nothing in scope on the DOM",
+                                        scene_own_only=True):
+            return True
         ss = self._screenshot(page, url)
         excluded = best.get("_excluded_candidates") or []
         reasons = ", ".join(sorted(
@@ -5769,6 +5889,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 TRIGGER_SETTLE_BUDGET_S),
                 TRIGGER_SETTLE_BUDGET_S)
             trigger_settle_state = None
+            _revealed = _reveal_hidden_trigger(
+                page, triggers_to_try, learned_dl.get("reveal_selectors") or [])
+            if _revealed:
+                sys.stderr.write(
+                    f"  {site_tag(self.site_id)}download: revealed hidden "
+                    f"trigger via [{_revealed}]\n")
             for tsel in triggers_to_try:
                 try:
                     scope, loc = _locate_trigger(page, tsel)
@@ -5798,7 +5924,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         f"settle={trigger_settle_state}\n")
                     trigger_clicked = True
                     break
-                except Exception: continue
+                except Exception as _terr:
+                    # dl95-naughtyamerica-3: never skip a trigger silently.
+                    sys.stderr.write(
+                        f"  {site_tag(self.site_id)}download: trigger [{tsel}] "
+                        f"not clicked -- {_trigger_skip_reason(page, tsel)} "
+                        f"({type(_terr).__name__})\n")
+                    continue
             # v3.43.73: Scrapling-based selector recovery. If all learned
             # triggers failed AND the site has opted in to recovery AND
             # Scrapling is installed AND we have stored fingerprints, try
@@ -5865,6 +5997,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if chk=="auth":
                 self._handle_auth_required(url); return
             self._update_job(url,"running","Finding download button...")
+            # dl95-tube8-1: the phase budget is anchored HERE, so the
+            # pre-scrape action and extractors below count against it.
+            _find_deadline=phase_deadline()
             # v3.43.65: optional pre-scrape action — click the quality
             # menu to "highest" before find_best_download scrapes the
             # <video src>. Opt-in per site via pre_scrape_action config.
@@ -5945,7 +6080,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             if self._try_spa_api_media_extractor(url, page, source_list_only=True):
                 return
             best=find_best_download(page,self.config.get("dl_selector","").strip(),
-                                    learned=learned_dl,runner=self)
+                                    learned=learned_dl,runner=self,
+                                    deadline=_find_deadline)
             # F9/F10 detect-side: by now the page's fingerprinting (if any)
             # has executed; read back and report what was observed.
             self._flush_fingerprint_observation(page, url)
@@ -6076,6 +6212,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if (best.get("_no_identity_proof")
                         and self._try_spa_api_media_extractor(url, page, min_height=min_res)):
                     return
+                # dl95-ok-1b: the unproven winner may be a poster image (ok.xxx:
+                # a 540p videos_screenshots JPG) while THIS scene's own player
+                # lists files below min_res; hold on those, not on the guess.
+                if (best.get("_no_identity_proof")
+                        and self._try_spa_api_media_extractor(
+                            url, page, min_height=min_res, proven_only=True, hold_below=True)):
+                    return
                 ss=self._screenshot(page,url)
                 avail=res_label(best["score"])
                 # Format the candidate list so the user can see exactly what
@@ -6104,6 +6247,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 self._update_job(url,"needs_review",msg,screenshot=ss)
                 db_log(self.site_id,self.config.get("name","?"),url,"needs_review","",0,
                        f"below {min_res}p; got {avail}; saw: {seen}",ss)
+                return
+
+            # dl95-beeg-1-live-1: a winner admitted WITHOUT identity proof is a
+            # guess; a stream the page requested that names this scene is not.
+            # Only that proven population is consulted -- else the click runs.
+            if (best.get("_no_identity_proof")
+                    and self._try_spa_api_media_extractor(url, page, proven_only=True)):
                 return
 
             lbl=res_label(best["score"])

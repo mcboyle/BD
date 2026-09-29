@@ -32,6 +32,7 @@ from .playlist_extractor import _LISTING_ROUTE_WORDS, _looks_like_scene_url
 
 STATE_IDLE = "IDLE"
 STATE_RUNNING = "RUNNING"
+STATE_STOPPED = "STOPPED"  # the operator stopped it (POST /api/discovery/scenes/stop)
 STATE_COMPLETED = "COMPLETED"
 STATE_NOT_LOGGED_IN = "NOT_LOGGED_IN"
 STATE_FAILED = "FAILED"
@@ -55,7 +56,20 @@ SCROLL_SETTLE_POLL_S = 0.05
 SCROLL_SETTLE_QUIET_POLLS = 6
 SCROLL_SETTLE_BUDGET_S = 10.0
 
+# A run proves it is alive by reaching its next navigation (_Pacer).  Nothing
+# between two navigations is meant to be unbounded (goto 45 s, settle budget
+# 10 s), so a run silent this long is stuck, not slow: tpl95-newsensations-1
+# sat RUNNING for 18 minutes with no page walked and nothing could end it.
+STALL_S = 180.0
+
 _ACTIVE: dict[str, str] = {}
+# The active run's control, by site, for status/stop/stall; _active_control()
+# reads it only while _ACTIVE still names that run.  The crawl itself uses the
+# control bound to its own thread (_BOUND): a stop while the browser was still
+# opening frees the site, and a newer run may take it, but the stopped thread
+# still checks the control it was started with.
+_CONTROLS: dict[str, "_RunControl"] = {}
+_BOUND = threading.local()
 _ACTIVE_LOCK = threading.Lock()
 
 _DATE_LINE_RE = re.compile(
@@ -120,6 +134,34 @@ _ANCHOR_JS = r"""
   };
 })
 """.replace("__LINK_SELECTOR__", _LINK_SELECTOR)
+
+
+class CrawlStopped(Exception):
+    """The run was stopped or abandoned; its thread must not go on."""
+
+
+class _RunControl:
+    """Liveness and stop signal for one background run, read by status/stop."""
+
+    def __init__(self, run_id: str, site_id: str):
+        self.run_id = run_id
+        self.site_id = site_id
+        self.stop = threading.Event()
+        self.phase = "opening the browser"
+        self.url = ""
+        self.beat = time.monotonic()
+
+    def checkpoint(self, phase: str, url: str) -> None:
+        if self.stop.is_set():
+            raise CrawlStopped(self.run_id)
+        self.phase, self.url, self.beat = phase, url, time.monotonic()
+
+    def idle_s(self) -> float:
+        return time.monotonic() - self.beat
+
+    def progress(self) -> dict[str, Any]:
+        return {"phase": self.phase, "current_url": self.url,
+                "idle_s": round(self.idle_s(), 1)}
 
 
 class CrawlAlreadyRunning(RuntimeError):
@@ -292,15 +334,6 @@ def _shape_label(
         else:
             rendered.append("<slug>")
     return "/" + "/".join(rendered)
-
-
-def _listing_route(url: str) -> bool:
-    """The product rule's listing ROUTE test (playlist_extractor): the second
-    path segment, after a locale prefix, is a listing action such as gallery."""
-    segments = [part.lower() for part in _path_parts(url)]
-    if segments and len(segments[0]) == 2 and segments[0].isalpha():
-        segments = segments[1:]
-    return len(segments) >= 2 and segments[1] in _LISTING_ROUTE_WORDS
 
 
 def _is_page_number_link(anchor: dict[str, Any], parts: tuple[str, ...]) -> bool:
@@ -518,7 +551,7 @@ _SCROLL_JS = """
 () => new Promise((resolve) => {
   let done = false;
   const finish = () => { if (!done) { done = true; resolve(true); } };
-  window.scrollTo(0, document.body.scrollHeight);
+  window.scrollTo(0, (document.body || document.documentElement).scrollHeight);
   // The listener that appends lazy-loaded cards runs during "update the
   // rendering", in the scroll steps, which precede animation-frame callbacks.
   // Resolving inside a frame callback therefore PROVES the scroll event was
@@ -537,8 +570,11 @@ def _scroll_to_end(page: Any) -> None:
     except Exception:
         # A page that cannot run the frame barrier still gets the scroll; the
         # stability poll below remains the settle condition.
+        # tpl95-newsensations-2: a document with no body (mid-navigation) must
+        # not crash the run ("Cannot read properties of null").
         _read_through_navigation(page, lambda: page.evaluate(
-            "() => window.scrollTo(0, document.body.scrollHeight)"))
+            "() => window.scrollTo(0, "
+            "(document.body || document.documentElement).scrollHeight)"))
 
 
 def _settle_metrics(
@@ -718,6 +754,32 @@ def _members_evidence(
     # omits a logout link.
     path = urlsplit(str(getattr(page, "url", "") or "")).path.lower()
     return "/members/" in path or path.startswith("/members/")
+
+
+def _member_area_evidence(
+    page: Any,
+    site_config: dict[str, Any],
+    pacer: "_Pacer",
+) -> bool:
+    """dl95-hoopladigital-1: a logged-in listing without a logout anchor or a
+    members path (hoopla: "My Hoopla" + a settings button) proves nothing by
+    itself. Ask the site's own member area -- success_url on the listing's
+    host, the page Verify checks -- with the same session. Staying there with
+    no login wall is a live login; a redirect to login or a login form in
+    place is not. The caller never probes from a listing that is itself a
+    login wall."""
+    success_url = str(site_config.get("success_url") or "").strip()
+    success = urlsplit(success_url)
+    if success.scheme not in ("http", "https") or not success.hostname:
+        return False
+    if success.hostname != urlsplit(str(getattr(page, "url", "") or "")).hostname:
+        return False
+    response = _goto(page, success_url, pacer, "member area")
+    status = getattr(response, "status", None) if response else None
+    if _negative_auth_page(page, status):
+        return False
+    current = urlsplit(str(page.url))
+    return current.hostname == success.hostname and current.path.startswith(success.path)
 
 
 def _holds_cookies(cookie_file: Any) -> bool:
@@ -902,18 +964,21 @@ def _save_frontier(
 
 
 class _Pacer:
-    def __init__(self, delay_s: float):
+    def __init__(self, delay_s: float, control: _RunControl | None = None):
         self.delay_s = max(0.0, float(delay_s))
         self.requests = 0
+        self.control = control
 
-    def before_request(self) -> None:
+    def before_request(self, phase: str = "", url: str = "") -> None:
         if self.requests and self.delay_s:
             time.sleep(self.delay_s)
         self.requests += 1
+        if self.control is not None:
+            self.control.checkpoint(phase, url)
 
 
-def _goto(page: Any, url: str, pacer: _Pacer) -> Any:
-    pacer.before_request()
+def _goto(page: Any, url: str, pacer: _Pacer, phase: str = "listing page") -> Any:
+    pacer.before_request(phase, url)
     return page.goto(url, wait_until="domcontentloaded", timeout=45000)
 
 
@@ -940,6 +1005,48 @@ def _clear_gates(
         site_config.get("dismiss_selectors", ""),
         settle_s=settle,
     )
+
+
+def _clear_listing_gates(
+    page: Any,
+    site_config: dict[str, Any],
+    *,
+    requested: str,
+    first_listing_page: bool,
+    delay_s: float,
+) -> list[dict[str, Any]]:
+    """tpl95-newsensations-2: a listing page's gates go through the runner's
+    gate path (interstitial.dismiss_gates, runner._dismiss_page_gates), which
+    measures each click and re-requests the destination an interstitial took
+    the page away from.  newsensations answers /members/ with the offers.php
+    cross-sell: the download path cleared it live ("site: cleared via
+    a:has-text(\"TAKE ME TO MY MEMBERSHIP\")", "re-requested the original
+    url after an interstitial") while discovery's bare dismiss walked the
+    cross-sell and queued its ad banners as scenes."""
+    from . import interstitial
+
+    if first_listing_page:
+        interstitial.dismiss(
+            page,
+            site_config.get("dismiss_selectors_login", ""),
+            settle_s=min(0.5, max(0.0, float(delay_s))),
+        )
+    actions: list[dict[str, Any]] = []
+    for _pass in range(2):
+        before = str(page.url)
+        found = interstitial.dismiss_gates(
+            page,
+            site_config.get("dismiss_selectors", ""),
+            destination_url=requested,
+        ) or []
+        actions += found
+        # G3 (lens cx-worker-2 F1): a re-requested (or otherwise newly loaded)
+        # listing is a new document whose own page gates -- a cookie bar --
+        # are cleared once more before it is read.
+        if not (any(a.get("destination_re_requested") for a in found)
+                or str(page.url) != before):
+            break
+    return actions
 
 
 def _page_title(page: Any, response_status: int | None) -> tuple[str, str]:
@@ -978,7 +1085,7 @@ def _resolve_scene_titles(
     fetched: list[tuple[dict[str, Any], str, str]] = []
     for record in records[: max(0, int(limit))]:
         try:
-            response = _goto(page, record["url"], pacer)
+            response = _goto(page, record["url"], pacer, "scene title")
             status = getattr(response, "status", None) if response else None
             _clear_gates(
                 page, site_config, first_listing_page=False, delay_s=pacer.delay_s
@@ -986,6 +1093,8 @@ def _resolve_scene_titles(
             title, source = _page_title(page, status)
             if title:
                 fetched.append((record, title, source))
+        except CrawlStopped:
+            raise
         except Exception:
             continue
     stripped = strip_repeated_title_templates(item[1] for item in fetched)
@@ -1049,9 +1158,10 @@ def _finish_run(run_id: str | None, result: dict[str, Any], db_path: str | None)
             """
             UPDATE scene_crawl_runs
             SET state = ?, finished_at = ?, result_json = ?, error = ''
-            WHERE run_id = ?
+            WHERE run_id = ? AND state = ?
             """,
-            (result["state"], time.time(), json.dumps(result), run_id),
+            (result["state"], time.time(), json.dumps(result), run_id,
+             STATE_RUNNING),
         )
 
 
@@ -1123,7 +1233,8 @@ def crawl_with_page(
     max_pages = max(1, min(int(max_pages), 500))
     max_scrolls = max(0, min(int(max_scrolls), 50))
     title_fetch_limit = max(0, min(int(title_fetch_limit), 1000))
-    pacer = _Pacer(delay_s)
+    control = getattr(_BOUND, "control", None)
+    pacer = _Pacer(delay_s, control)
 
     existing = _existing(site_id, db_path)
     saved_frontier = _load_frontier(site_id, listing_url, db_path)
@@ -1141,6 +1252,7 @@ def crawl_with_page(
     scroll_late_growth_steps = 0
     shapes: set[str] = set()
     authenticated = False
+    member_area_ok = False
     saw_scene_cohort = False
     terminated_on_no_new = False
     stopped_on_depth = False
@@ -1156,14 +1268,21 @@ def crawl_with_page(
         pages_walked += 1
         current = str(page.url)
         page_urls.append(current)
-        if not effective_url:
-            effective_url = current
-        _clear_gates(
+        gate_actions = _clear_listing_gates(
             page,
             site_config,
+            requested=requested,
             first_listing_page=pages_walked == 1,
             delay_s=delay_s,
         )
+        if gate_actions:
+            # The listing is read from where the gates left it.
+            if any(a.get("destination_re_requested") for a in gate_actions):
+                status = None
+            current = str(page.url)
+            page_urls[-1] = current
+        if not effective_url:
+            effective_url = current
         anchors, growth, page_settle_state, absorbed = _scroll_and_collect(
             page,
             max_scrolls=max_scrolls,
@@ -1179,8 +1298,15 @@ def crawl_with_page(
         if not scenes and not zero_page:
             zero_page = _zero_page_evidence(page, current, status, anchors)
 
-        if not (_members_evidence(page, site_config, status)
-                or _public_listing_evidence(page, site_config, status, scenes)):
+        listing_ok = (_members_evidence(page, site_config, status)
+                      or _public_listing_evidence(page, site_config, status, scenes))
+        if not listing_ok and not _negative_auth_page(page, status):
+            # dl95-hoopladigital-1: no evidence either way on the listing;
+            # ask the member area once per run with this session.
+            if not member_area_ok:
+                member_area_ok = _member_area_evidence(page, site_config, pacer)
+            listing_ok = member_area_ok
+        if not listing_ok:
             _save_frontier(
                 site_id, listing_url, [], completed=True, db_path=db_path
             )
@@ -1285,6 +1411,9 @@ def crawl_with_page(
         db_path=db_path,
     )
 
+    if control is not None:
+        # A stop that landed during the last navigation must not queue scenes.
+        control.checkpoint("queueing scenes", "")
     queued = 0
     requeued = 0
     enqueue_errors: list[dict[str, str]] = []
@@ -1358,16 +1487,73 @@ def _create_run(
         )
 
 
-def _fail_run(run_id: str, error: str, db_path: str | None) -> None:
+def _end_run(run_id: str, state: str, error: str, db_path: str | None) -> None:
+    # Guarded on RUNNING: the first terminal write wins, so a thread that
+    # resumes after a stop or a stall verdict (its CrawlStopped reaches the
+    # background run's _fail_run) cannot overwrite it.
     with db.db_conn(db_path) as cx:
         cx.execute(
             """
             UPDATE scene_crawl_runs
             SET state = ?, finished_at = ?, error = ?
-            WHERE run_id = ?
+            WHERE run_id = ? AND state = ?
             """,
-            (STATE_FAILED, time.time(), error[:500], run_id),
+            (state, time.time(), error[:500], run_id, STATE_RUNNING),
         )
+
+
+def _fail_run(run_id: str, error: str, db_path: str | None) -> None:
+    _end_run(run_id, STATE_FAILED, error, db_path)
+
+
+def _abandon(control: _RunControl, state: str, error: str, db_path: str | None) -> None:
+    """End a run now and free its site; its thread stops at its next checkpoint."""
+    control.stop.set()
+    with _ACTIVE_LOCK:
+        if _ACTIVE.get(control.site_id) == control.run_id:
+            _ACTIVE.pop(control.site_id, None)
+    _end_run(control.run_id, state, error, db_path)
+
+
+def _active_control(site_id: str) -> _RunControl | None:
+    with _ACTIVE_LOCK:
+        control = _CONTROLS.get(site_id)
+        if control is not None and _ACTIVE.get(site_id) == control.run_id:
+            return control
+        return None
+
+
+def _reap_stalled(site_id: str, db_path: str | None) -> None:
+    control = _active_control(site_id)
+    if control is None or control.idle_s() < STALL_S:
+        return
+    where = control.phase + (f" {control.url}" if control.url else "")
+    _abandon(
+        control,
+        STATE_FAILED,
+        f"no progress for {int(control.idle_s())}s while {where}; run abandoned "
+        "(browser stuck) -- start a new run",
+        db_path,
+    )
+
+
+def _run_bound(control: _RunControl, work: Callable[[], None]) -> None:
+    _BOUND.control = control
+    try:
+        work()
+    finally:
+        _BOUND.control = None
+
+
+def stop_crawl(site_id: str, db_path: str | None = None) -> dict[str, Any]:
+    """Operator stop: end the site's active run as STOPPED."""
+    control = _active_control(site_id)
+    if control is None:
+        return {"ok": False, "site_id": site_id,
+                "error": "no scene discovery is running for this site"}
+    _abandon(control, STATE_STOPPED, "stopped by operator", db_path)
+    return {"ok": True, "site_id": site_id, "run_id": control.run_id,
+            "state": STATE_STOPPED}
 
 
 @contextlib.contextmanager
@@ -1475,11 +1661,14 @@ def start_background_crawl(
 ) -> dict[str, Any]:
     """Start one bounded GUI-triggered crawl without blocking Flask."""
     run_id = uuid.uuid4().hex
+    _reap_stalled(site_id, db_path)
+    control = _RunControl(run_id, site_id)
     with _ACTIVE_LOCK:
         active = _ACTIVE.get(site_id)
         if active:
             raise CrawlAlreadyRunning(active)
         _ACTIVE[site_id] = run_id
+        _CONTROLS[site_id] = control
     try:
         _create_run(run_id, site_id, listing_url, db_path)
     except Exception:
@@ -1535,7 +1724,8 @@ def start_background_crawl(
                     _ACTIVE.pop(site_id, None)
 
     threading.Thread(
-        target=work,
+        target=_run_bound,
+        args=(control, work),
         name=f"scene-crawl-{site_id}",
         daemon=True,
     ).start()
@@ -1579,6 +1769,7 @@ def crawl_status(
     db_path: str | None = None,
 ) -> dict[str, Any]:
     _ensure_schema(db_path)
+    _reap_stalled(site_id, db_path)
     with db.db_conn(db_path) as cx:
         if run_id:
             row = cx.execute(
@@ -1628,6 +1819,9 @@ def crawl_status(
         "scroll_settle_state": SETTLE_UNKNOWN,
     }
     payload.update(result)
+    control = _active_control(row["site_id"])
+    if control is not None and control.run_id == row["run_id"]:
+        payload["progress"] = control.progress()
     return payload
 
 
@@ -1637,5 +1831,6 @@ __all__ = [
     "crawl_with_page",
     "discovery_history",
     "start_background_crawl",
+    "stop_crawl",
     "strip_repeated_title_templates",
 ]

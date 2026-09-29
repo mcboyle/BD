@@ -30,41 +30,6 @@ def _selector_text(raw):
     return ""
 
 
-# dl95-eporner-4: the in-browser test behind _search_field_reason. Only the
-# form action's PATH is read, so a login form posting to /login?next=/search/
-# is not a search form.
-_SEARCH_FIELD_JS = r"""el => {
-  const low = s => String(s || '').toLowerCase();
-  if (low(el.getAttribute('type')) === 'search') return 'type=search';
-  if (low(el.getAttribute('role')) === 'searchbox') return 'role=searchbox';
-  if (el.closest('[role=search], search')) return 'inside role=search';
-  const name = low(el.getAttribute('name'));
-  if (['q', 'search', 'search_query', 'searchterm', 'query'].includes(name)) return 'name=' + name;
-  const form = el.form;
-  if (form) {
-    let path = '';
-    try { path = new URL(form.getAttribute('action') || '', document.baseURI).pathname; } catch (e) {}
-    if (/(^|\/)search(\/|\.|$)/i.test(path)) return 'form action ' + path;
-  }
-  return '';
-}"""
-
-
-def _search_field_reason(loc):
-    """dl95-eporner-4: why ``loc`` is a site SEARCH input, or ``""``.
-
-    A search box is never a login field.  On eporner the last-ditch username
-    fallback (``form input:not(...)``) matched the header search input, the
-    account name was typed into it and submitted, and the login ended on the
-    search results page.  Fail-open: a locator that cannot be inspected (or a
-    test double answering something other than a string) is not refused."""
-    try:
-        why = loc.evaluate(_SEARCH_FIELD_JS)
-    except Exception:
-        return ""
-    return why if isinstance(why, str) else ""
-
-
 def _first_positive_size_match(page, selector, skip=None):
     """Return the first visible, positive-size match for ``selector``.
 
@@ -191,7 +156,38 @@ def _fire_auto_login_trigger(page):
         )
 
 
-def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
+def resolve_login_trigger(config=None, page=None):
+    """dl95-eporner-4-live-1: resolve login_trigger, gap-filling from template defaults
+    when an existing site config has login_trigger='' (O1528 / B6-B live note)."""
+    trigger = ""
+    if isinstance(config, dict):
+        trigger = str(config.get("login_trigger") or "").strip()
+    if trigger:
+        return trigger
+    try:
+        from ..site_templates import suggest_for_url, get as get_tpl
+        candidates = []
+        if isinstance(config, dict):
+            for k in ("login_url", "url", "start_url"):
+                u = (config.get(k) or "").strip()
+                if u and u not in candidates:
+                    candidates.append(u)
+        page_u = (getattr(page, "url", "") or "").strip() if page else ""
+        if page_u and page_u not in candidates:
+            candidates.append(page_u)
+        for u in candidates:
+            tids = suggest_for_url(u)
+            if tids:
+                tpl = get_tpl(tids[0])
+                defaults = (tpl or {}).get("config_defaults") or {}
+                if defaults.get("login_trigger"):
+                    return str(defaults["login_trigger"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _fire_login_trigger_if_needed(page, login_trigger, username_selectors, *, config=None):
     """Reveal a configured modal login form when no username field is usable.
 
     Returns ``(needed, fired, detail)``.  With no configured trigger the
@@ -200,15 +196,19 @@ def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
     """
     trigger = login_trigger.strip() if isinstance(login_trigger, str) else ""
     if not trigger:
+        trigger = resolve_login_trigger(config=config, page=page)
+    if not trigger:
         if _visible_login_field(page, username_selectors):
             return False, False, ""
         return _fire_auto_login_trigger(page)
 
     for raw_selector in username_selectors:
         selector = _selector_text(raw_selector)
-        # dl95-eporner-4: a visible search box is not a visible username field.
+        # dl95-eporner-4: a visible search box is not a visible username field;
+        # counting it kept a configured trigger from ever opening the modal.
         if selector and _first_positive_size_match(
-                page, selector, skip=_search_field_reason) is not None:
+                page, selector,
+                skip=lambda m: _is_search_field(m)[0]) is not None:
             return False, False, "username field is already visible"
 
     visible_trigger = _first_positive_size_match(page, trigger)
@@ -385,6 +385,57 @@ def _is_honeypot_field(loc):
     return False, ""
 
 
+_SEARCH_FIELD_JS = r"""el => {
+  const t = (el.getAttribute('type') || '').toLowerCase();
+  if (t === 'search') return 'type=search';
+  if ((el.getAttribute('role') || '').toLowerCase() === 'searchbox') return 'role=searchbox';
+  if (el.closest('[role=search], search')) return 'inside role=search';
+  const n = (el.getAttribute('name') || '').toLowerCase();
+  if (['q', 'query', 'search', 'search_query', 'searchterm', 'keyword', 'keywords'].includes(n)) return 'name=' + n;
+  const f = el.form;
+  if (f) {
+    // dl95-eporner-4: the action's PATH only -- a login form posting to
+    // /login?next=/search/ is not a search form.
+    let act = '';
+    try { act = new URL(f.getAttribute('action') || '', document.baseURI).pathname.toLowerCase(); } catch (e) {}
+    // tpl95-whoreshub-1-detector-merge: main's path rule too (/search.php);
+    // the reason names both "search form" (lane) and "form action" (main).
+    if (/(^|\/)search(\/|\.|\?|$)/.test(act)) return 'search form action ' + act;
+    const idc = ((f.getAttribute('id') || '') + ' ' + (f.getAttribute('class') || '')).toLowerCase();
+    if (/search/.test(idc)) return 'search form';
+  }
+  const hint = ((el.getAttribute('placeholder') || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
+  if (/\bsearch\b/.test(hint)) return 'search placeholder';
+  return '';
+}"""
+
+
+def _is_search_field(loc):
+    """Return ``(is_search, reason)`` for a Playwright input locator.
+
+    tpl95-whoreshub-1 (test2 2026-09-29): a site whose login is a modal had
+    no login form on the page, so the generic ``form input[type='text']``
+    matched the header SEARCH box (``form#search_form``, ``name=q``); the
+    username was typed into it and the staged-login continue click submitted
+    it as a search. A search box is never a credential field. Fail-open on
+    an introspection error, as ``_is_honeypot_field`` does."""
+    try:
+        why = loc.evaluate(_SEARCH_FIELD_JS)
+    except Exception:  # noqa: BLE001 -- fail-open, as _is_honeypot_field: never block a real field
+        return False, ""
+    # dl95-eporner-4: only a non-empty reason string marks a search box; a
+    # test double answering an object is not one (fail-open, as above).
+    return (True, why) if isinstance(why, str) and why else (False, "")
+
+
+def _search_field_reason(loc):
+    """dl95-eporner-4 (main's name): why ``loc`` is a site SEARCH input, or
+    ``""``.  tpl95-whoreshub-1-detector-merge: the SAME detector as
+    ``_is_search_field`` -- one ``_SEARCH_FIELD_JS``, two spellings of the
+    answer -- so main's callers and tests read the lane's rules."""
+    return _is_search_field(loc)[1]
+
+
 def _try_fill(page,selectors,value,what):
     """Walk the candidate list; fill the first visible, non-honeypot
     element, return (True, used_selector). On total failure return
@@ -428,10 +479,9 @@ def _try_fill(page,selectors,value,what):
                 if decoy:
                     skipped.append(f"{sel}[{idx}]:{why}")
                     continue
-                # dl95-eporner-4: never type credentials into a site search box.
-                search=_search_field_reason(loc)
+                search,why=_is_search_field(loc)
                 if search:
-                    searches.append(f"{sel}[{idx}]:{search}")
+                    searches.append(f"{sel}[{idx}]:{why}")
                     continue
                 _wait_visible(loc)
                 # Clear any existing value, then click to focus, then type.
@@ -466,14 +516,15 @@ def _try_fill(page,selectors,value,what):
     # situations -- the first wants a better selector list, the second says
     # the filter is doing its job (or is over-firing) -- and the pre-fix
     # message collapsed them into one string. Name the decoys and why.
-    # dl95-eporner-4: a page whose only match is a search box says so.
-    refused=(f"; skipped {len(searches)} search field(s): "
-             f"{', '.join(searches[:3])}") if searches else ""
+    # tpl95-whoreshub-1-detector-merge: name both "search field" (main's
+    # eporner-4 wording) and "search box" (the lane's / whoreshub's).
+    also=(f"; skipped {len(searches)} search field(s), a search box is not a login field: "
+          f"{', '.join(searches[:3])}" if searches else "")
     if skipped:
         return False,(f"could not fill {what}; tried {len(tried)} selectors, "
                       f"skipped {len(skipped)} honeypot field(s): "
-                      f"{', '.join(skipped[:5])}{refused}")
-    return False,f"could not fill {what}; tried {len(tried)} selectors{refused}"
+                      f"{', '.join(skipped[:5])}{also}")
+    return False,f"could not fill {what}; tried {len(tried)} selectors{also}"
 
 
 def get_input_scheduler():

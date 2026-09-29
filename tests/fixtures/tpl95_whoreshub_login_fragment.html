@@ -1,0 +1,45 @@
+<!-- tpl95-whoreshub-1: verbatim https://www.whoreshub.com/login/ (curl 2026-09-29, 1,639 bytes): the fancybox login
+     fragment the site's a#login opens. Unmodified. -->
+<div class="popup">	
+	<div class="headline">
+		<h2 class="title">Login</h2>
+	</div>
+	<div class="popup-holder">
+		<form action="https://www.whoreshub.com/login/" data-form="ajax" method="post">
+			<div class="generic-error hidden">
+							</div>
+			<div>
+				<div class="row">
+					<label for="login_username" class="name-textfield required">Username*:</label>
+					<input type="text" name="username" id="login_username" class="textfield" placeholder="Please enter login here"/>
+					<div class="field-error down"></div>
+				</div>
+
+				<div class="row">
+					<label for="login_pass" class="name-textfield required">Password*:</label>
+					<input type="password" name="pass" id="login_pass" class="textfield"/>
+					<div class="field-error down"></div>
+				</div>
+
+				<div class="wrap-link second">
+					<input type="hidden" name="action" value="login"/>
+					<input type="hidden" name="email_link" value="https://www.whoreshub.com/email/"/>
+					<input type="submit" class="submit btn" value="Login"/>
+					<div class="wrap-pass">
+						<a href="https://www.whoreshub.com/reset-password/" class="pass-link" data-fancybox="ajax">Forgot password?</a>
+						<span class="separator">/</span>
+						<a href="https://www.whoreshub.com/resend-confirmation/" data-fancybox="ajax"  class="pass-link">Missing confirmation email?</a>
+					</div>
+				</div>
+
+				
+				<div class="dark-box">
+					<div class="text">Not a member yet? Sign up now for free!</div>
+					<a href="https://www.whoreshub.com/signup/" data-fancybox="ajax" class="btn btn-submit">
+						<span class="text">Sign Up</span>
+					</a>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>

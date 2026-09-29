@@ -1,6 +1,6 @@
 """Resolution scoring, download-link detection, file utilities."""
 # Load-bearing invariants tagged inline as # INV-<ID>; see DANGER_MAP.md.
-import math, os, re, shutil, sys, uuid
+import math, os, re, shutil, sys, time, uuid
 from pathlib import Path
 from urllib.parse import parse_qsl, urljoin, urlparse
 from .constants import NON_VIDEO_RE, QUALITY_LADDER, SIZE_RE
@@ -821,6 +821,36 @@ _CANDIDATE_URL_ATTRS = (
     "href", "data-href", "data-url", "data-src", "data-download",
     "data-signed-url-key")
 
+# dl95-africancasting-4: rendition metadata that a quality option carries and a
+# scene title does not.
+_RENDITION_WORD_RE = re.compile(
+    r"\b(?:mp4|mkv|mov|wmv|webm|avi|m4v|flv|h\.?26[45]|hevc|avc|[xh]26[45]"
+    r"|\d+(?:\.\d+)?\s*[km]bps)\b", re.I)
+
+
+def _title_shaped_label_only(text):
+    """dl95-africancasting-4: free link text is a title, not a quality option.
+
+    res_score falls back to named tier WORDS ("tiny"/"mobile" = 240, "low" =
+    360, "hd" = 720) when no height is written. On a related-scene card,
+    "Spicy Doll seeks makeup sex wi..." therefore scored 240p. The min-res gate
+    then refused the scene as "got 240p" (test2, history 266). A quality
+    option is a badge (few words), names a height, or carries rendition
+    metadata -- a file size or a container/codec word ("Full HD MP4 (2.1 GB)").
+    Long text with none of these is a title, and a tier word inside it is not
+    evidence. (Text that says download is admitted on that word by
+    _candidate_admission regardless.)"""
+    t = (text or "").strip()
+    return (len(t.split()) > 4
+            and not _EXPLICIT_VIDEO_HEIGHT_RE.search(t)
+            and not _RENDITION_WORD_RE.search(t)
+            and parse_size_bytes(t) <= 0)
+
+
+def _quality_signal(text):
+    """res_score for admission, with no signal from a title's tier word."""
+    return -1 if _title_shaped_label_only(text) else res_score(text)
+
 
 def _split_regex_alternatives(pattern):
     """Top-level ``|`` alternatives of a regex source, or None if unreadable."""
@@ -1346,6 +1376,47 @@ def _no_in_scope_result(excluded):
         locator=None)
 
 
+# dl95-tube8-1: "Finding download button..." had no bound -- tube8/pornhub
+# jobs sat at 0% for 9-19 min on a hub shared by 16-20 jobs.  The sweep reads
+# the clock between elements (a Playwright call is never interrupted from
+# another thread) and, once the phase deadline passes, stops and returns the
+# falsy result below instead of scoring a half-read page.  Monotonic via
+# ``_phase_clock`` so a stepped host clock cannot move the bound.
+FIND_BUTTON_BUDGET_S = 300.0
+_phase_clock = time.monotonic
+
+
+def phase_deadline(budget_s=None):
+    """The absolute ``_phase_clock`` deadline ``budget_s`` from now (default
+    FIND_BUTTON_BUDGET_S), or None when the budget is 0/unset (unbounded)."""
+    budget = FIND_BUTTON_BUDGET_S if budget_s is None else budget_s
+    try:
+        budget = float(budget)
+    except (TypeError, ValueError):
+        return None
+    return _phase_clock() + budget if budget > 0 else None
+
+
+class _FindButtonBudgetSpent(dict):
+    """Falsy like _NoInScopeCandidates, so every caller reads it as "no
+    selection"; runner.py consumes the ``_find_button_budget_spent`` key first
+    and fails the job with ``reason``."""
+    def __bool__(self):
+        return False
+
+
+def _budget_spent_result(budget_s, elapsed_s, stage, n_candidates):
+    """The spent-budget outcome.  The reason carries no raw counts: the
+    runner's retry classifier matches digit runs such as 404/410/429."""
+    reason = (f"Finding download button spent its {budget_s:.0f} s budget "
+              f"(stopped in {stage} after {elapsed_s / 60.0:.1f} min) -- "
+              "no candidate was chosen from a partly read page")
+    return _FindButtonBudgetSpent(
+        _find_button_budget_spent=True, reason=reason,
+        _candidates_read=int(n_candidates), _all_candidates=[],
+        _excluded_candidates=[], score=0, size=0, text="", locator=None)
+
+
 def no_selection(best):
     """True when `best` is NOT a found candidate: None, an empty result, or
     the nothing-in-scope sentinel.
@@ -1362,7 +1433,8 @@ def no_selection(best):
     get = getattr(best, "get", None)
     if get is None:
         return False
-    return bool(get("_no_in_scope_candidates"))
+    return bool(get("_no_in_scope_candidates")
+                or get("_find_button_budget_spent"))
 
 
 def _split_selector_list(selector):
@@ -1796,6 +1868,35 @@ def _is_frame_element(el):
         return False
 
 
+def _fetched_without_click(el, page_url):
+    """True when *el*'s href is a stream or media file the transport fetches directly.
+
+    dl95-eporner-3. Row 759 zeroes a hidden candidate's resolution because it
+    cannot be clicked. The transport never clicks a winner whose href routes to
+    a direct fetch (``TransportMixin._stream_route`` / ``_direct_media_route``,
+    rows 819 and 384), so for that winner visibility does not matter. eporner
+    keeps all ten ``/dload/<id>/<h>/<file>.mp4`` anchors in a ``display:none``
+    panel (tests/fixtures/eporner_dload_anchors.json); zeroed, a visible junk
+    "720p" link beat the page's 1080p file and tripped the min-resolution hold.
+
+    Asks the transport's own routing functions rather than keeping a second
+    copy of their rules, so this can never admit a URL the transport would then
+    click. Fails closed (False, score zeroed as before) when that cannot be asked.
+    """
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        return False
+    if not href:
+        return False
+    try:
+        from .runner_transport import TransportMixin
+        return bool(TransportMixin._stream_route(href, page_url)[0]
+                    or TransportMixin._direct_media_route(href, page_url)[0])
+    except Exception:
+        return False
+
+
 def _is_wrapper_not_control(el):
     """True only for a measured wrapper with no affordance of its own."""
     if _candidate_has_own_affordance(el):
@@ -1805,6 +1906,43 @@ def _is_wrapper_not_control(el):
     except Exception:
         # Locator stubs and detached elements cannot prove wrapper status.
         return False
+
+
+_MEDIA_ROW_TAGS = ("source", "video")
+
+
+def _learned_media_row(el, url_attr):
+    """``(url, label)`` when a taught row matches a player media element.
+
+    tpl95: a template row on ``<source>``/``<video>`` names a URL to FETCH --
+    ``_do_download``'s learned ``url_attribute`` fast path reads it off the
+    winner and never clicks. Such an element has no click target, and a
+    ``<source>`` has no layout box, so the click-oriented checks of the learned
+    loop (visibility, taught-control resolution) do not apply to it.
+
+    ``url`` is ``""`` when the element carries nothing to fetch under the
+    selector's resolved ``url_attribute``; ``label`` is the player's quality
+    label (video.js ``label=``). Returns None for any other element, and for
+    one whose tag cannot be read, so the click path decides as before.
+    """
+    try:
+        tag = el.evaluate("e => e.tagName.toLowerCase()")
+    except Exception:
+        return None
+    if tag not in _MEDIA_ROW_TAGS:
+        return None
+    url = label = ""
+    try:
+        if url_attr:
+            url = (el.get_attribute(url_attr) or "").strip()
+        label = (el.get_attribute("label") or "").strip()
+        if not label:
+            res_val = (el.get_attribute("res") or "").strip()
+            if res_val:
+                label = f"{res_val}p" if res_val.isdigit() else res_val
+    except Exception:
+        pass
+    return url, label
 
 
 def _resolve_taught_control(el):
@@ -2280,7 +2418,7 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         _note_listing_link(t, _listing)
         return "listing_link"
     if require_signal and (
-            not t or (res_score(t) < 0 and not _DL_WORD_RE.search(t))):
+            not t or (_quality_signal(t) < 0 and not _DL_WORD_RE.search(t))):
         return "no_signal"
     # After no_signal: only a vote label that would otherwise SCORE ("6K
     # Dislike") is refused and counted; a plain "Like" stays uncounted.
@@ -2304,7 +2442,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
     return None
 
 
-def find_best_download(page,custom="",learned=None,full_length_requested=None,runner=None):
+def find_best_download(page,custom="",learned=None,full_length_requested=None,runner=None,
+                       deadline=None):
     """Locate the best download candidate on the page — defensively.
 
     Phase 5.5: if `learned` is a dict with row_selectors, try those first.
@@ -2316,6 +2455,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     `learned` schema:
       {
         "trigger_selectors": [...],     # for opening modals; used by caller
+        "reveal_selectors": [...],      # opens a collapsed section hiding the trigger; caller
         "row_selectors": [...],         # tried first here
         "url_attribute": "data-href",   # caller uses for direct fetch
       }
@@ -2329,7 +2469,12 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     (auto_detect.py) and preserves fail-open semantics if log_event raises.
 
     Original selection rules unchanged (custom > direct media > general
-    sweep > ancestor walk > resolution scoring + size tiebreaker)."""
+    sweep > ancestor walk > resolution scoring + size tiebreaker).
+
+    dl95-tube8-1: ``deadline`` is an absolute ``_phase_clock`` time (see
+    :func:`phase_deadline`); None anchors FIND_BUTTON_BUDGET_S at this call.
+    Past it the sweep stops and returns the falsy
+    ``_find_button_budget_spent`` result."""
     # Phase 5.5: learned-pattern fast path. If we have row_selectors,
     # locate any matching elements and pick the strongest same-work row, then
     # resolution/size. Skip the full sweep when we hit.
@@ -2365,8 +2510,9 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # admitted candidates, so both halves of the page report one vocabulary.
     _admission_dropped = {"chrome_ghost": 0, "wrapper_unresolved": 0,
                           "listing_filter": 0, "short_preview": 0,
-                          "navigation_url": 0, "collection_action": 0,
-                          "player_control": 0, "rating_control": 0}
+                          "navigation_url": 0, "media_without_url": 0,
+                          "collection_action": 0, "player_control": 0,
+                          "rating_control": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
@@ -2404,11 +2550,15 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     # exits today and the whole defect being fixed is a drop nobody reported,
     # so a later exit that forgets to emit would reproduce it exactly (A7).
     learned_trace = []
+    if deadline is None:
+        deadline = phase_deadline()
     try:
         result = _find_best_download(
             page, custom, learned, runner, _page_url, _note_admission_drop,
             full_length_requested=full_length_requested,
-            learned_trace=learned_trace)
+            learned_trace=learned_trace, deadline=deadline)
+        if isinstance(result, _FindButtonBudgetSpent):
+            sys.stderr.write(f"  download: {result['reason']}\n")
         # tpl95-nubiles-porn-1: what each learned row selector found, so a
         # learned miss can say why (record_learned_download_outcome).
         if learned_trace and isinstance(result, dict) and result:
@@ -2515,7 +2665,7 @@ def _rank_custom_matches(loc_all, count, custom):
 
 def _find_best_download(page, custom, learned, runner, _page_url,
                         _note_admission_drop, full_length_requested=None,
-                        learned_trace=None):
+                        learned_trace=None, deadline=None):
     """Body of :func:`find_best_download`; see that function for the contract.
 
     Split out only so every exit reports its counted admission drops through
@@ -2524,6 +2674,25 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     """
     if learned_trace is None:
         learned_trace = []
+    # dl95-tube8-1: the phase bound.  ``_over`` only reads the clock and
+    # latches the stage, so it is safe inside the sweep's broad
+    # ``except Exception`` blocks; every loop breaks on it and the spent
+    # result is returned outside them.
+    _bound = {"stage": None}
+
+    def _over(stage):
+        if _bound["stage"] is not None:
+            return True
+        if deadline is not None and _phase_clock() >= deadline:
+            _bound["stage"] = stage
+            return True
+        return False
+
+    def _spent(n_candidates):
+        return _budget_spent_result(
+            FIND_BUTTON_BUDGET_S,
+            _phase_clock() - (deadline - FIND_BUTTON_BUDGET_S),
+            _bound["stage"], n_candidates)
     if full_length_requested is None:
         full_length_requested = _full_length_mode(runner)
 
@@ -2534,12 +2703,16 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     learned_roots = (_learned_row_roots(page)
                      if learned and isinstance(learned, dict) else ())
     for root in learned_roots:
+        if _over("learned rows"):
+            break
         row_sels = learned.get("row_selectors") or []
         learned_excluded = []
         scored_groups = []
         hidden_groups = []
         winning_group = None
         for sel in row_sels:
+            if _over("learned rows"):
+                break
             try:
                 loc_all = root.locator(sel)
                 count = loc_all.count()
@@ -2563,11 +2736,37 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             _VISIBLE_CAP = 30
             _RAW_SCAN_CAP = 200
             _seen_visible = 0
+            sel_url_attr = resolve_url_attribute(
+                learned.get("url_attribute"), row_sels, sel)
             for i in range(min(count, _RAW_SCAN_CAP)):
                 if _seen_visible >= _VISIBLE_CAP:
                     break
+                if _over("learned rows"):
+                    break
                 try:
                     el = loc_all.nth(i)
+                    media = _learned_media_row(el, sel_url_attr)
+                    if media is not None:
+                        media_url, media_label = media
+                        if not media_url:
+                            # Neither fetchable nor clickable: counted, so a
+                            # template naming the wrong attribute is visible.
+                            _note_admission_drop("media_without_url", sel)
+                            continue
+                        txt = f"{media_label} {media_url}".strip()
+                        if _candidate_admission(
+                                el, txt, _page_url, require_signal=False,
+                                label=media_label,
+                                full_length_requested=full_length_requested,
+                                runner=runner) is not None:
+                            continue
+                        _seen_visible += 1
+                        scored.append({
+                            "locator": el, "text": txt[:160],
+                            "score": max(0, res_score(txt)),
+                            "size": parse_size_bytes(txt),
+                            "work": _candidate_work_affinity(el, _page_url)})
+                        continue
                     # v3.66.247: a learned row that is not visible cannot be
                     # clicked. Returning it as a _via_learned hit produces a
                     # false drift "hit", wastes the full expect_download timeout
@@ -2656,6 +2855,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                         c["work"], c["score"], c["size"]),
                               reverse=True)
                     groups.append((sel, rows))
+        if _bound["stage"] is not None:
+            break  # never score a partly read learned population
         # Row 701, seam 1.  "Does anything prove affinity" is a question about
         # the PAGE.  Asked per group it is a different, weaker question: the
         # UNKNOWN fallback fired inside a group holding no proven candidate
@@ -2707,6 +2908,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 # nav gate judges hosts against it, not the embedding page.
                 best_match["_frame_url"] = getattr(root, "url", "") or ""
             return best_match
+    if _bound["stage"] is not None:
+        return _spent(0)
 
     if custom:
         loc_all=page.locator(custom)
@@ -2882,11 +3085,19 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         # become the quality winner nobody can click.
         # Asked last on purpose -- is_visible() is a live DOM round trip, so it
         # is asked only of text that survived every cheap refusal above.
-        if _is_hidden_from_operator(el): s=0
+        tier=max(0,s); hidden=False
+        if _is_hidden_from_operator(el): s=0; hidden=True
         seen.add(t)
-        candidates.append({"locator":el,"text":t[:160],
-                           "score":max(0,s),"size":parse_size_bytes(t),
-                           "work":gather_work(el)})
+        entry={"locator":el,"text":t[:160],
+               "score":max(0,s),"size":parse_size_bytes(t),
+               "work":gather_work(el)}
+        if hidden:
+            entry["_hidden_cell"]=True
+            # dl95-eporner-3: a hidden anchor whose href IS the file is held
+            # back, not discarded -- see the population check before the sort.
+            if tier and _fetched_without_click(el, _page_url):
+                entry["_hidden_file_tier"]=tier
+        candidates.append(entry)
 
     # ── 1. Direct download links / explicit media extensions ──────────────
     for sel in ["a[download]",
@@ -2895,8 +3106,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 "a[href*='download']","a[href*='/dl/']",
                 "[data-href*='.mp4']","[data-href*='.mkv']",
                 "[data-url*='.mp4']","[data-src*='.mp4']"]:
+        if _over(f"direct links [{sel}]"): break
         try:
             for el in page.locator(sel).all():
+                if _over(f"direct links [{sel}]"): break
                 try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
@@ -2918,11 +3131,13 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         "[tabindex='0']",
     ]
     for sel in general_selectors:
+        if _over(f"general sweep [{sel}]"): break
         try:
             loc=page.locator(sel)
             els=loc.all()
             cheap=harvest_texts(loc, len(els))
             for i, el in enumerate(els):
+                if _over(f"general sweep [{sel}]"): break
                 try:
                     if cheap is not None and not (
                             dl_re.search(cheap[i]) or res_re.search(cheap[i])):
@@ -2935,8 +3150,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
 
     # ── 3. Data-attribute markers (resolution declared explicitly) ────────
     for attr in ["[data-quality]","[data-res]","[data-resolution]","[data-format]"]:
+        if _over(f"data attributes [{attr}]"): break
         try:
             for el in page.locator(attr).all():
+                if _over(f"data attributes [{attr}]"): break
                 try: add(el,*gather_text(el))
                 except Exception: pass
         except Exception: pass
@@ -2947,13 +3164,16 @@ def _find_best_download(page, custom, learned, runner, _page_url,
     # a clickable element, treat that ancestor as the candidate. This catches
     # the styled-components case where text lives in <span>s nested inside
     # a clickable <div> with a hash classname we can't predict.
+    text_holders=[]
     try:
-        text_holders=page.locator(
-            ":text-matches('\\\\b(?:[1-9]\\\\d{2,3}\\\\s*p|[1-9]\\\\d{3}\\\\s*[x×]\\\\s*\\\\d{3,4}|"
-            "[24568]K|HD|FHD|UHD|QHD)\\\\b','i')"
-        ).all()
+        if not _over("ancestor walk"):
+            text_holders=page.locator(
+                ":text-matches('\\\\b(?:[1-9]\\\\d{2,3}\\\\s*p|[1-9]\\\\d{3}\\\\s*[x×]\\\\s*\\\\d{3,4}|"
+                "[24568]K|HD|FHD|UHD|QHD)\\\\b','i')"
+            ).all()
     except Exception: text_holders=[]
     for el in text_holders:
+        if _over("ancestor walk"): break
         try:
             ancestor=el.locator(
                 "xpath=ancestor-or-self::*[self::a or self::button "
@@ -2998,6 +3218,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                 pass
         sys.stderr.write(f"  {msg}\n")
 
+    if _bound["stage"] is not None:
+        return _spent(len(candidates))
     if not candidates:
         # P5-3: surface the filter-summary even when every
         # candidate was dropped — operator wants to know the
@@ -3006,6 +3228,19 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         return None
     # P5-3 operator log — one event summarizing dropped candidates.
     _emit_filter_summary(all_dropped=False)
+    # dl95-eporner-3: row 759 zeroes hidden tiers so a VISIBLE offering wins.
+    # That misfires when the visible "offering" is a tiered link that is not a
+    # file while the page's real files sit hidden (eporner: a junk "720p" link
+    # beside the shut #downloaddiv panel of /dload/*.mp4). Only then do the
+    # hidden direct files -- fetched without a click -- get their tier back.
+    # A visible direct file keeps row 759 in force; an all-zero visible set
+    # keeps row 722's reveal (open the menu, re-pick) in force.
+    held=[c for c in candidates if c.get("_hidden_file_tier")]
+    shown=[c for c in candidates if not c.get("_hidden_cell")]
+    if (held and any(c["score"]>0 for c in shown)
+            and not any(_fetched_without_click(c["locator"], _page_url)
+                        for c in shown)):
+        for c in held: c["score"]=c["_hidden_file_tier"]
     # Row 701 scopes the decision population: preserve foreign/unknown evidence
     # for diagnostics, but never let it drive a quality verdict.
     # LEADING key and only ever 1 or 0, so this reorders exactly one thing --

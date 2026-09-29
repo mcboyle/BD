@@ -1762,6 +1762,20 @@ def _load_sites_config():
         # Apply defaults only where genuinely unset (preserves explicit 0/False)
         for k, d in DEFAULTS.items():
             if cfg.get(k) in ("", None): cfg[k] = d
+        # dl95-eporner-4-live-1: gap-fill login_trigger from matching template defaults
+        # for existing sites where login_trigger is empty (O1528 / B6-B live note)
+        if not (cfg.get("login_trigger") and str(cfg["login_trigger"]).strip()):
+            try:
+                from .site_templates import suggest_for_url, get as get_tpl
+                login_u = (cfg.get("login_url") or cfg.get("start_url") or "").strip()
+                tids = suggest_for_url(login_u) if login_u else []
+                if tids:
+                    tpl = get_tpl(tids[0])
+                    defaults = (tpl or {}).get("config_defaults") or {}
+                    if defaults.get("login_trigger"):
+                        cfg["login_trigger"] = defaults["login_trigger"]
+            except Exception:
+                pass
         # B2 (GUI cut): carry the per-site draft-test override across a restart.
         # It is transient runtime state set by POST /api/template/test_extract,
         # NOT an operator-edited config field, so it is deliberately absent from
@@ -1783,6 +1797,9 @@ def _load_sites_config():
         # Carried the same way; the url_attribute heal below reads them.
         if isinstance(cfg_in.get("learned"), dict):
             cfg["learned"] = cfg_in["learned"]
+        # dl95-xvideos-2b: a site that predates its built-in template never
+        # went through _create_site's auto-pick (test2 xvideos ecdb57cd).
+        _gap_fill_builtin_download_template(sid, cfg, cfg_in)
         # v3.43.16: auto-heal misaligned parallel-array url_attribute.
         # If a previous version's merge_learned added row_selectors at
         # the front without prepending matching url_attribute slots,
@@ -5680,6 +5697,57 @@ def _auto_pick_templates(sid, cfg):
                 f"  auto_pick_templates: login lookup failed: {e}\n")
 
     return result
+
+
+def _gap_fill_builtin_download_template(sid, cfg, cfg_in):
+    """dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
+    static download branch, for sites already in sites_config.json.
+
+    Applies only when the site has no download selectors and no applied
+    template, and only on an UNAMBIGUOUS match (exactly one template for
+    the first matching URL) -- a silent restart must not guess between
+    competing templates (spankbang.com also matches bang_originals).
+    config_defaults fill only keys absent from the persisted config, so an
+    operator's explicit value (including False/0) is never overwritten.
+    Mutates cfg in place; the next save persists applied_template, so the
+    fill runs once per site. Returns the applied id or None."""
+    try:
+        learned_dl = (cfg.get("learned") or {}).get("download") or {}
+        if (cfg.get("applied_template")
+                or (cfg.get("dl_selector") or "").strip()
+                or (cfg.get("trigger_selector") or "").strip()
+                or learned_dl.get("row_selectors")
+                or learned_dl.get("trigger_selectors")):
+            return None
+        mode = (_app_cfg.get("template_auto_detect_mode") or "static")
+        if str(mode).strip().lower() == "detect":
+            return None
+        from . import templates as _tpls
+        from .learn import merge_learned
+        tids = []
+        for k in ("login_url", "start_url", "success_url"):
+            u = str(cfg_in.get(k) or "").strip()
+            tids = _tpls.suggest_for_url(u) if u else []
+            if tids:
+                break
+        if len(tids) != 1:
+            return None
+        tpl = _tpls.get(tids[0]) or {}
+        download = (tpl.get("learned") or {}).get("download") or {}
+        if not download:
+            return None
+        fill = {k: v for k, v in (tpl.get("config_defaults") or {}).items()
+                if k not in cfg_in and k != CAPTCHA_EGRESS_ACK_FIELD}
+        if captcha_egress_disclosure_error(fill, cfg):
+            return None
+        merge_learned(cfg, json.loads(json.dumps(download)), kind="download")
+        cfg.update(fill)
+        cfg["applied_template"] = tids[0]
+        sys.stderr.write(f"  template gap-fill {sid}: applied {tids[0]}\n")
+        return tids[0]
+    except Exception as e:
+        sys.stderr.write(f"  ! template gap-fill {sid} failed: {e}\n")
+        return None
 
 
 def _vault_guard_for_password():

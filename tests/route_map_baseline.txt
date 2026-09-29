@@ -302,6 +302,7 @@
 /api/discovery/run	POST	api_discovery_run
 /api/discovery/scenes/start	POST	api_discovery_scenes_start
 /api/discovery/scenes/status	GET	api_discovery_scenes_status
+/api/discovery/scenes/stop	POST	api_discovery_scenes_stop
 /api/doctor	GET	api_doctor
 /api/doctor/diagnose	POST	api_doctor_diagnose
 /api/download_hold	GET	api_download_hold_get

@@ -19,6 +19,7 @@ from ._common import (
     _try_click,
     _try_fill,
     log_url,
+    resolve_login_trigger,
 )
 from .manual import _MANUAL_LOGIN_BANNER_JS
 from .replay import (
@@ -504,6 +505,38 @@ _CHALLENGE_LANDING_MARKERS = (
     "verify you are human",
     "just a moment...",
 )
+
+
+# dl95-site-ma-brazzers-1 (live .82 10:35Z): the sweep's SPA verdict, and how
+# long a form-consuming submit gets to reach its landing after the sweep.
+_SPA_CONSUMED_NO_NAV = "consumed the login form without navigation"
+_LATE_LANDING_POLLS = 10   # x (load wait <=0.5 s + 0.5 s)
+
+
+def _late_rejected_landing(page, polls):
+    """The URL of a rejected-login landing the page reached within ``polls``
+    settle waits, or "". Same predicate as the navigating branch: the
+    /badlogin URL, or the "wrong username or password provided" body (row
+    772: the Gamma /en/login inline rejection keeps the login URL)."""
+    for _i in range(polls + 1):
+        try:
+            cur = page.url or ""
+        except Exception:
+            return ""
+        if cur.partition("?")[0].lower().endswith("/badlogin"):
+            return cur
+        try:
+            if "wrong username or password provided" in (page.content() or "").lower():
+                return cur or "(login page)"
+        except Exception:
+            pass    # mid-navigation read; the next poll reads the settled page
+        if _i < polls:
+            try:
+                page.wait_for_load_state("load", timeout=500)
+            except Exception:
+                pass
+            time.sleep(0.5)
+    return ""
 
 
 def _settled_non_success(page, config, status, why, hard_close):
@@ -2001,11 +2034,16 @@ def do_login(config, allow_manual_takeover=False):
                 sys.stderr.write(f"  {site_tag()}login: AI assist failed: {e} "
                                   f"(falling back to enumeration)\n")
 
+        login_trigger = resolve_login_trigger(config=config, page=page)
+        if login_trigger and not config.get("login_trigger"):
+            config["login_trigger"] = login_trigger
+
         trigger_needed, trigger_fired, trigger_detail = (
             _fire_login_trigger_if_needed(
                 page,
-                config.get("login_trigger"),
+                login_trigger,
                 trigger_uf_candidates or uf_candidates,
+                config=config,
             )
         )
         if trigger_needed:
@@ -2195,6 +2233,17 @@ def do_login(config, allow_manual_takeover=False):
                                  f"convincing session cookies: {method}")
             _hard_close(); return False,f"Submit failed: {method}",[]
         if not ok:
+            # dl95-site-ma-brazzers-1: a submit that consumed the form without
+            # navigating can still land on the site's rejection page a moment
+            # later. That is a rejected login -- judged before any jar, and
+            # never handed to a manual takeover as "couldn't submit".
+            _late = _late_rejected_landing(
+                page, _LATE_LANDING_POLLS if _SPA_CONSUMED_NO_NAV in str(method) else 0)
+            if _late:
+                sys.stderr.write(f"  {site_tag()}login: no-navigation submit landed on the "
+                                 f"rejected-login page {log_url(_late)}\n")
+                _hard_close()
+                return False, f"Rejected login landing: {_late[:200]}", []
             # v3.65.3: before handing off, check cookies. Sites whose
             # submit is an AJAX call followed by client-side navigation
             # (e.g. wowgirls' div.loginform-submit-button → XHR →

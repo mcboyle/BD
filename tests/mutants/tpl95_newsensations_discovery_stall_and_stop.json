@@ -1,0 +1,50 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "tpl95-newsensations-1: a scene discovery that stops moving is failed with where it stopped, can be stopped, and a resumed thread cannot overwrite or queue.",
+  "subject": "bulk_downloader/scene_crawler.py",
+  "band": [
+    "tests/test_tpl95_newsensations_discovery_stall_and_stop.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 a silent run is never reaped",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "control\\.idle_s\\(\\) < STALL_S:",
+      "new": "control.idle_s() < STALL_S or control:",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_newsensations_discovery_stall_and_stop.py::test_the_row_a_stuck_run_is_failed_with_where_it_stopped_and_frees_its_site"
+    },
+    {
+      "label": "M2 a checkpoint ignores the stop signal",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "        if self\\.stop\\.is_set\\(\\):\\n            raise CrawlStopped\\(self\\.run_id\\)\\n",
+      "new": "        pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_newsensations_discovery_stall_and_stop.py::test_an_operator_stop_cancels_the_run_and_the_resumed_thread_queues_nothing"
+    },
+    {
+      "label": "M3 abandoning a run does not signal its thread",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "    control\\.stop\\.set\\(\\)\\n",
+      "new": "    control.stop.clear()\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_newsensations_discovery_stall_and_stop.py::test_an_operator_stop_cancels_the_run_and_the_resumed_thread_queues_nothing"
+    },
+    {
+      "label": "M4 status hides a running run's progress",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "control\\.progress\\(\\)\\n",
+      "new": "{}\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_newsensations_discovery_stall_and_stop.py::test_a_running_discovery_says_where_it_is"
+    },
+    {
+      "label": "M5 the run's control is not bound to its thread (lens R1 shape)",
+      "file": "bulk_downloader/scene_crawler.py",
+      "old_regex": "        work\\(\\)\\n",
+      "new": "        _BOUND.__dict__.clear()\n        work()\n",
+      "direction": "regression",
+      "catcher": "tests/test_tpl95_newsensations_discovery_stall_and_stop.py::test_a_stop_while_the_browser_is_opening_still_stops_the_run"
+    }
+  ]
+}

@@ -123,15 +123,15 @@ def test_page_media_arm_takes_the_kvs_players_720_file(tmp_path, monkeypatch):
     assert r.transfers == [F720], r.transfers
 
 
-def test_min_resolution_bounds_the_kvs_options(tmp_path, monkeypatch, capsys):
-    """Negative control: at the default 1080 minimum neither 360p nor 720p is offered; no bytes move."""
+def test_min_resolution_bounds_the_kvs_options(tmp_path, monkeypatch):
+    """Negative control: at the default 1080 minimum neither 360p nor 720p is taken; no bytes move.
+    dl95-porn00-3: the options reach the min_resolution hold, which names them for Approve."""
     r = _runner(tmp_path, monkeypatch, 1080)
     with _page(PORN00_SHAPE) as page:
         took = r._try_spa_api_media_extractor(SCENE_URL, page)
-    assert took is False
     assert r.transfers == [], r.transfers
-    err = capsys.readouterr().err
-    assert "KVS flashvars option(s) below 1080p not offered: 360p, 720p" in err, err
+    assert took is True and r.jobs[-1][0] == "needs_review", r.jobs
+    assert r.jobs[-1][1].startswith("Best is 720p (below 1080p) — Approve to force"), r.jobs
 
 
 def test_highest_kvs_option_wins_and_obfuscated_values_are_skipped(

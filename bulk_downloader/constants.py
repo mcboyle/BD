@@ -143,6 +143,18 @@ LOGGED_OUT_SHAPE_JS = r"""() => {
     /\b(?:log|sign)[\s_-]?in\b/i.test(text);
 }"""
 
+# dl95-naughtyamerica-3: the logged-IN half of the same test -- a logout
+# control is on the page (the selectors and words LOGGED_OUT_SHAPE_JS takes
+# as proof of a member page). A verdict that would tell the operator to log
+# in asks this first: a page with a logout control is already logged in.
+LOGOUT_CONTROL_JS = r"""() => {
+  const text = (document.body ? document.body.textContent : '') || '';
+  return !!(document.querySelector(
+    'a[href*="logout" i],a[href*="log-out" i],a[href*="signout" i],' +
+    'a[href*="sign-out" i],form[action*="logout" i]') ||
+    /\b(?:log|sign)[\s-]?out\b/i.test(text));
+}"""
+
 
 class _HTTPDownloadFailed(Exception):
     """Raised by SiteRunner._http_download when httpx can't complete the

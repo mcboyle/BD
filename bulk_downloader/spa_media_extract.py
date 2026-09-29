@@ -25,6 +25,7 @@ The fallback is consulted ONLY when the DOM yielded no candidate (runner.py).
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import Any, Dict, Iterable, List, Optional
@@ -229,6 +230,31 @@ def _option_candidates(record_url: str, key: str, value: Any,
             yield cand
 
 
+# dl95-kellymadisonmedia-2: a trailer / teaser / preview / sample FILE is never the
+# scene. Tokens are delimited by / _ . - (a word-boundary \b does not split on "_",
+# so "1138_maddie_wren_trailer_1080p_pf.mp4" slipped through as the member scene).
+PREVIEW_MEDIA_RE = re.compile(
+    r"(?:^|[/_.-])(?:trailers?|teasers?|previews?|samples?)(?:[/_.-]|$)", re.I)
+
+
+def is_preview_media(url: str) -> bool:
+    try:
+        return bool(PREVIEW_MEDIA_RE.search(urlparse(url).path or ""))
+    except Exception:
+        return False
+
+
+def preview_media_urls(page_url: str, urls: Iterable[str]) -> List[str]:
+    """The trailer/preview media files among what the page fetched (see above)."""
+    out: List[str] = []
+    for u in urls or []:
+        if isinstance(u, str) and u.strip():
+            u = urljoin(page_url, u.strip())
+            if MEDIA_EXT_RE.search(u) and is_preview_media(u) and u not in out:
+                out.append(u)
+    return out
+
+
 def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Walk every remembered API record for download-like options."""
     out: List[Dict[str, Any]] = []
@@ -253,6 +279,180 @@ def api_candidates(page_url: str, records: List[Dict[str, Any]]) -> List[Dict[st
     for rec in records or []:
         walk(rec.get("json"), str(rec.get("url") or page_url), 0)
     return out
+
+
+def scene_player_candidates(page_url: str, html: str, job_url: str = "",
+                            strict: bool = False) -> List[Dict[str, Any]]:
+    """Recover child sources whose route identifies this numeric scene.
+
+    Keep the parser's complete URL: the trailing slash and signed query are
+    transport data. Only the path is inspected for identity and resolution.
+    A bare rendition has unknown quality, never an inferred top tier.
+
+    dl95-beeg-1-live-1 (cx-2 F1): the page may have moved on from the job
+    (a feed rewrites the address bar), so the page's scene counts only while
+    it is the JOB's: a *job_url* naming another scene id proves nothing, and
+    under *strict* a job_url naming no scene id proves nothing either.
+    """
+    scene = re.fullmatch(r"/video/(\d+)/?", urlparse(page_url).path)
+    if not scene:
+        return []
+    job_scene = re.fullmatch(r"/video/(\d+)/?", urlparse(job_url or "").path)
+    if (job_scene.group(1) if job_scene else None) != scene.group(1) and (
+            strict or job_scene):
+        return []
+    from .deep_detect.providers import extract_player_configs
+
+    scene_id = re.escape(scene.group(1))
+    route = re.compile(
+        rf"/get_file/[^/]+/[^/]+/\d+/{scene_id}/{scene_id}"
+        r"(?:_(\d{3,4})p)?\.mp4/?")
+    out = []
+    seen = set()
+    for source in extract_player_configs(html, base_url=page_url):
+        if (source.get("source_type") != "videojs_source"
+                or source.get("found_in") != "<video class=video-js><source>"):
+            continue
+        url = source.get("url") or ""
+        parsed = urlparse(url)
+        match = route.fullmatch(parsed.path)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc or not match:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        height = int(match.group(1) or 0)
+        out.append({"url": url, "label": f"{height}p" if height else "unknown",
+                    "height": height, "size": 0, "source": "scene-player",
+                    "filename": parsed.path.rstrip("/").rsplit("/", 1)[-1]})
+    return out
+
+
+# dl95-beeg-1-live-1: beeg's scene route is one opaque id (/-0920833012505915),
+# its player is a blob:, and its feed prefetches the NEXT scenes' streams too.
+# The scene's own stream is the one whose path carries that id
+# (.../av1_720p/920833012505915.mp4.m3u8).  Height: a rendition segment
+# ("av1_720p"), else the tallest WxH a master's variant list declares
+# ("multi=426x240:240p:...,1920x1080:1080p:..."), which ffmpeg's default
+# stream selection takes.
+_OPAQUE_SCENE_SEGMENT_RE = re.compile(r"[-_]?0*(\d{8,})")
+_ID_NAMED_SEGMENT_RE = re.compile(r"0*(\d{8,})(?:\.[A-Za-z0-9]+)*")
+_RENDITION_SEGMENT_RE = re.compile(r"(?:[A-Za-z0-9]+_)?(\d{3,4})p", re.I)
+_VARIANT_DIMENSIONS_RE = re.compile(r"(?<!\d)\d{3,4}x(\d{3,4})(?!\d)")
+
+
+def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
+    """Streams the page requested whose path names the scene *page_url* asks for.
+
+    Pass the JOB's URL: beeg's feed rewrites the address bar to the next
+    scene as it plays on.  Identity is positive evidence only: the route must
+    carry exactly one opaque id segment, and a stream qualifies only when one
+    of its path segments IS that id (leading zeros aside) or an id-named file.
+    A signed token, another scene's id or an id-less playlist never qualifies.
+    """
+    ids = [m.group(1) for seg in urlparse(page_url).path.split("/")
+           if (m := _OPAQUE_SCENE_SEGMENT_RE.fullmatch(seg))]
+    if len(ids) != 1:
+        return []
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for u in urls or []:
+        if not isinstance(u, str) or not u.strip():
+            continue
+        u = urljoin(page_url, u.strip())
+        parsed = urlparse(u)
+        if parsed.scheme not in ("http", "https") or not MEDIA_EXT_RE.search(parsed.path):
+            continue
+        segments = [s for s in parsed.path.split("/") if s]
+        named = [s for s in segments
+                 if (m := _ID_NAMED_SEGMENT_RE.fullmatch(s)) and m.group(1) == ids[0]]
+        if not named or u in seen:
+            continue
+        seen.add(u)
+        rend_segments = [s for s in segments if _RENDITION_SEGMENT_RE.fullmatch(s)]
+        heights = [int(m.group(1)) for s in rend_segments
+                   if (m := _RENDITION_SEGMENT_RE.fullmatch(s))]
+        is_multi = False
+        codec = ""
+        if heights:
+            for s in rend_segments:
+                if s.lower().startswith("av1_"):
+                    codec = "av1"
+                else:
+                    codec = "h264"
+        else:
+            multi_heights = [max(int(h) for h in _VARIANT_DIMENSIONS_RE.findall(s))
+                             for s in segments if _VARIANT_DIMENSIONS_RE.search(s)]
+            if multi_heights:
+                heights = multi_heights
+            is_multi = True
+        height = heights[-1] if heights else 0
+        out.append({"url": u, "label": f"{height}p" if height else "unknown",
+                    "height": height, "size": 0, "source": "scene-stream",
+                    "filename": re.sub(r"\.(m3u8|mpd)$", "", named[-1], flags=re.I),
+                    "is_multi": is_multi, "codec": codec})
+    return out
+
+
+# dl95-beeg-2: the page's own fetch of a playlist it already requested (same
+# session, same egress as the player); "" on any refusal.
+MANIFEST_TEXT_JS = """async (url) => {
+  try {
+    const r = await fetch(url, {credentials: 'include'});
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  try {
+    const r = await fetch(url, {credentials: 'omit'});
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  try {
+    const r = await fetch(url);
+    if (r.ok) return (await r.text()).slice(0, 262144);
+  } catch (e) {}
+  return '';
+}"""
+
+_H264_CODEC_RE = re.compile(r"\bavc[13]\.", re.I)
+
+
+def hls_variant_for(master_text: str, master_url: str,
+                    want_height: int) -> Optional[Dict[str, Any]]:
+    """dl95-beeg-2: the variant of an HLS master that a ranked height names.
+
+    beeg's "multi=" master lists 240p first; the segmented downloader maps the
+    FIRST video stream, so a master labelled 1080p landed 240p.  Picks, in
+    order: an h264 variant at *want_height*, any variant at it, the tallest
+    h264 variant, the tallest variant -- highest bandwidth within a height.
+    None when the text is not a master or no variant declares a height.
+    ``program`` is the variant's index in master order (ffmpeg's program id)
+    and ``audio_group`` its EXT-X-MEDIA audio group: such a variant's playlist
+    carries no audio, so it must be taken from the master (lens B19-B).
+    The program is the chosen ENTRY's position, never its URI's first
+    occurrence: two entries may share one video playlist with different audio
+    groups (dl95-beeg-2-g2-audiofix, lens cx-worker-1 R1).
+    """
+    try:
+        from .streaming_manifest import parse_streaming_manifest
+        manifest = parse_streaming_manifest(master_text or "", base_url=master_url)
+    except ValueError:
+        return None
+    if not manifest.is_master:
+        return None
+    sized = [v for v in manifest.variants
+             if v.height and v.uri.startswith(("http://", "https://"))]
+    if not sized:
+        return None
+    h264 = [v for v in sized if _H264_CODEC_RE.search(v.codecs or "")]
+    for pool in ([v for v in h264 if v.height == want_height],
+                 [v for v in sized if v.height == want_height], h264, sized):
+        if pool:
+            best = max(pool, key=lambda v: (v.height, v.bandwidth))
+            return {"url": best.uri, "height": int(best.height),
+                    "codecs": best.codecs or "", "audio_group": best.audio_group or "",
+                    "program": best.master_index}
+    return None
+
+
 
 
 def xhamster_source_candidates(page_url: str, page) -> list[dict[str, Any]]:
@@ -335,9 +535,51 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
             continue
         if u in seen:
             continue
+        if is_preview_media(u):  # dl95-kellymadisonmedia-2
+            continue
         seen.add(u)
         out.append({"url": u, "label": "", "height": _height_of(u), "size": 0,
                     "source": "page-media", "filename": ""})
+    return out
+
+
+# tpl95-xnxx-1: the WGCZ (xvideos/xnxx) player's own sources, declared in an
+# inline script -- html5player.setVideoHLS('.../hls.m3u8') is the only route to
+# its >=480p renditions; the player fetches nothing until play.
+_WGCZ_PLAYER_SOURCE_RE = re.compile(
+    r"""\bsetVideo(?:HLS|UrlHigh|UrlLow)\(\s*(['"])(https?://[^'"\s]+)\1\s*\)""")
+
+
+def wgcz_player_media(html: str) -> List[str]:
+    """URLs the page's WGCZ html5player was handed (setVideoHLS/UrlHigh/UrlLow)."""
+    out: List[str] = []
+    for m in _WGCZ_PLAYER_SOURCE_RE.finditer(html or ""):
+        if m.group(2) not in out:
+            out.append(m.group(2))
+    return out[:6]
+
+
+def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """dl95-kvs-flashvars-1: the files a KVS player declares in its page-global
+    ``flashvars`` (video_url, video_alt_url, video_alt_url2 ... each with a
+    ``*_text`` label such as "720p"). The player fetches nothing until play, so
+    neither page media nor API JSON sees them (porn00: /get_file/.../42561_720p.mp4/).
+    A license-obfuscated ``function/0/...`` value is not decodable here and is skipped."""
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        raw = str(it.get("url") or "").strip()
+        if not raw or raw.startswith("function/"):
+            continue
+        u = urljoin(page_url, raw)
+        if not u.startswith(("http://", "https://")) or u in seen:
+            continue
+        seen.add(u)
+        label = str(it.get("text") or "")
+        out.append({"url": u, "label": label, "height": _height_of(label, u), "size": 0,
+                    "source": "kvs-flashvars", "filename": ""})
     return out
 
 
@@ -367,39 +609,24 @@ def click_miss_candidates(cands: List[Dict[str, Any]], min_height: int) -> List[
     return out
 
 
-def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """dl95-kvs-flashvars-1: the files a KVS player declares in its page-global
-    ``flashvars`` (video_url, video_alt_url, video_alt_url2 ... each with a
-    ``*_text`` label such as "720p"). The player fetches nothing until play, so
-    neither page media nor API JSON sees them (porn00: /get_file/.../42561_720p.mp4/).
-    A license-obfuscated ``function/0/...`` value is not decodable here and is skipped."""
-    out: List[Dict[str, Any]] = []
-    seen = set()
-    for it in items or []:
-        if not isinstance(it, dict):
-            continue
-        raw = str(it.get("url") or "").strip()
-        if not raw or raw.startswith("function/"):
-            continue
-        u = urljoin(page_url, raw)
-        if not u.startswith(("http://", "https://")) or u in seen:
-            continue
-        seen.add(u)
-        label = str(it.get("text") or "")
-        out.append({"url": u, "label": label, "height": _height_of(label, u), "size": 0,
-                    "source": "kvs-flashvars", "filename": ""})
-    return out
-
-
 def rank_candidates(cands: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Highest resolution first, then size; API options before page media;
     an explicit download option before a stream; files before manifests."""
     def key(c):
-        is_manifest = 1 if re.search(r"\.(m3u8|mpd)(\?|$)", c.get("url") or "", re.I) else 0
+        u = str(c.get("url") or "")
+        is_manifest = 1 if re.search(r"\.(m3u8|mpd)(\?|$)", u, re.IGNORECASE) else 0
         fmt = (c.get("format") or "").lower()
-        wmv = 1 if fmt == "wmv" or (c.get("url") or "").lower().endswith(".wmv") else 0
+        wmv = 1 if fmt == "wmv" or u.lower().endswith(".wmv") else 0
         source = str(c.get("source", ""))
-        return (-int(c.get("height") or 0), -int(c.get("size") or 0),
+        # dl95-beeg-2-live-1: a multi-variant master ranks below a specific variant of the same height
+        is_multi = 1 if c.get("is_multi") or "multi=" in u else 0
+        # Codec priority at the same height: prefer h264 over av1
+        codec = str(c.get("codec") or "").lower()
+        codec_penalty = 1 if codec == "av1" or "av1_" in u.lower() else 0
+        return (-int(c.get("height") or 0),
+                is_multi,
+                codec_penalty,
+                -int(c.get("size") or 0),
                 0 if source.startswith("api:") else 1,
                 0 if "download" in source.lower() else 1,   # a download file over a stream
                 is_manifest, wmv)
@@ -422,6 +649,12 @@ PAGE_MEDIA_JS = """() => {
   } catch (e) {}
   return out.slice(0, 60);
 }"""
+
+# dl95-txxx-5: what the page's own <video> elements decoded -- the stream's real
+# height once its metadata loaded (a blob:/MSE source never matches a URL).
+PLAYER_HEIGHTS_JS = """() => Array.from(document.querySelectorAll('video'))
+  .filter(v => v.videoHeight > 0 && (v.currentSrc || v.src))
+  .map(v => [v.currentSrc || v.src, v.videoHeight]).slice(0, 12)"""
 
 KVS_FLASHVARS_JS = """() => {
   const fv = window.flashvars;
@@ -595,3 +828,82 @@ def third_party_frame_hosts(page) -> List[str]:
         if h and h != top and h not in hosts:
             hosts.append(h)
     return hosts
+
+
+# dl95-porndoe-1 (test2 2026-09-29, re-measured live on the hub): a tube scene
+# page renders NO <video> until its poster play control is clicked, so every
+# DOM candidate is chrome ("Mobile menu", a playlist "Save") and the click
+# fires nothing.  After the play click the page holds four <video> elements:
+# the scene (HLS, 709.8 s), a hover preview (8.9 s) and two ad creatives
+# (29.8 s, unloaded).  The scene is the LONGEST finite media, and a feature
+# floor keeps a preview or a pre-roll from ever standing in for it.
+FEATURE_MEDIA_MIN_S = 60.0
+FEATURE_MEDIA_JS = """() => [...document.querySelectorAll('video')].map(v => ({
+  src: v.currentSrc || v.src || '', duration: v.duration}))"""
+# Player-start controls only: buttons and overlay icons, never an anchor (a
+# related card reads "Play ..." and navigates to another scene).
+PLAYER_START_SELECTORS = (
+    "button[class*='poster-play' i]",
+    "[class*='poster' i] button[class*='play' i]",
+    "button.vjs-big-play-button",
+    ".jw-display-icon-display",
+    "button.plyr__control--overlaid",
+    "button[class*='big-play' i]",
+)
+
+
+def feature_media_urls(items: Any, min_s: float = FEATURE_MEDIA_MIN_S) -> List[str]:
+    """http(s) sources of the longest finite-duration <video> >= *min_s*."""
+    best = 0.0
+    out: List[str] = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        src, dur = it.get("src"), it.get("duration")
+        if not isinstance(src, str) or not src.startswith(("http://", "https://")):
+            continue
+        if isinstance(dur, bool) or not isinstance(dur, (int, float)):
+            continue
+        dur = float(dur)
+        if not math.isfinite(dur) or dur < min_s:
+            continue
+        if dur > best:
+            best, out = dur, [src]
+        elif dur == best and src not in out:
+            out.append(src)
+    return out
+
+
+def start_player_for_feature_media(page, *, wait_s: float = 10.0,
+                                   poll_s: float = 0.5, sleep=None) -> List[str]:
+    """Feature media of the page's player, starting it with ONE click when it
+    has not started.  ``[]`` when nothing feature-length ever loads."""
+    import time as _time
+    sleep = sleep or _time.sleep
+
+    def measure() -> List[str]:
+        try:
+            return feature_media_urls(page.evaluate(FEATURE_MEDIA_JS))
+        except Exception:
+            return []
+
+    media = measure()
+    if media:
+        return media
+    for sel in PLAYER_START_SELECTORS:
+        try:
+            loc = page.locator(sel).first
+            if not loc.count() or not loc.is_visible():
+                continue
+            loc.click(timeout=3000)
+        except Exception:
+            continue
+        waited = 0.0
+        while waited < wait_s:
+            sleep(poll_s)
+            waited += poll_s
+            media = measure()
+            if media:
+                return media
+        return []
+    return []

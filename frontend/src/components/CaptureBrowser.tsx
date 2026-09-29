@@ -23,6 +23,7 @@ import {
   fetchSceneCrawlStatus,
   sceneCrawlView,
   startSceneCrawl,
+  stopSceneCrawl,
   type SceneCrawlStatus,
 } from "@/lib/guidedCapture";
 
@@ -156,6 +157,15 @@ export function CaptureBrowser() {
       toast.success("Scene discovery started");
     },
     onError: (error) => toast.error(`Couldn't start discovery: ${String(error)}`),
+  });
+
+  const stopCrawl = useMutation({
+    mutationFn: () => stopSceneCrawl(selectedSite),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["scene-crawl-status", selectedSite] });
+      toast.success("Scene discovery stopped");
+    },
+    onError: (error) => toast.error(`Couldn't stop discovery: ${String(error)}`),
   });
 
   const list = useQuery({
@@ -382,6 +392,16 @@ export function CaptureBrowser() {
                   ? sceneCrawlView(crawlStatus.data).label
                   : "Loading discovery state…"}
               </div>
+              {crawlStatus.data?.state === "RUNNING" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => stopCrawl.mutate()}
+                  disabled={stopCrawl.isPending}
+                >
+                  Stop
+                </Button>
+              )}
               {crawlStatus.data && (
                 <Button
                   size="sm"

@@ -1289,6 +1289,10 @@ class AuthMixin:
             if not in_flight or requesters:
                 requesters.add(url)
         try:
+            # dl95-relogin-false-success-1: the attempt this call waits on --
+            # the one in flight, else the one login_async is about to stamp.
+            _awaited_attempt = getattr(self, "_login_attempt_seq", 0) + (
+                0 if (self._login_thread and self._login_thread.is_alive()) else 1)
             # Trigger login if not already in flight (idempotent), then wait.
             self.login_async()
             login_thread = self._login_thread
@@ -1307,7 +1311,13 @@ class AuthMixin:
                 sys.stderr.write(f"  {site_tag(self.site_id)}re-login: {url[-40:]} was "
                                  "cancelled during the re-login; not re-queued\n")
                 return
-            login_succeeded = bool(self.cookies) and (self._cookies_updated_at > 0)
+            # Success is that attempt's own settled verdict (the v3.66.834
+            # _login_outcome stamp), never "a jar exists": an older jar made a
+            # FAILED attempt read as refreshed and the retry spent a second
+            # live login seconds later (.82 10:35:30Z).
+            _outcome = getattr(self, "_login_outcome", None)
+            login_succeeded = bool(
+                _outcome and _outcome[0] >= _awaited_attempt and _outcome[1])
             if login_succeeded:
                 # Re-queue the URL for retry. Goes to the back of the queue,
                 # which is fine — by the time it's pulled, all workers have
@@ -1470,6 +1480,33 @@ class AuthMixin:
                 f"raised (proceeding): {type(e).__name__}: {e}\n")
             return ""
 
+    def _stored_session_usable(self):
+        """Stored cookies that can still carry a session: some unexpired,
+        or session cookies (which carry no expiry to judge)."""
+        if not self.cookies:
+            return False
+        ei = cookies_expiry_info(self.cookies)
+        return ei["expired"] <= 0 or ei["session"] != 0
+
+    def session_for_capture(self, timeout=60.0):
+        """tpl95-bang-1 (O1517): the cookie jar a template capture starts
+        from, so the capture browser is logged in without a human. The
+        stored session when it is usable, else the worker's own automatic
+        login (never a manual takeover). Returns (cookies, how); cookies is
+        [] with the reason in `how` when no session could be had."""
+        if self._stored_session_usable():
+            return list(self.cookies), "stored session"
+        if not (self.config.get("username") and self.config.get("password")):
+            return [], "no usable stored session and no credentials"
+        ev = threading.Event(); result = [False]
+        def _od(ok): result[0] = ok; ev.set()
+        self.login_async(on_done=_od, allow_manual=False)
+        if not ev.wait(timeout=timeout):
+            return [], "automatic login did not finish in time"
+        if not result[0] or not self.cookies:
+            return [], f"automatic login failed: {getattr(self, '_login_status', '')}"[:300]
+        return list(self.cookies), "automatic login"
+
     def _check_cookies_or_relogin(self, url):
         """If all stored cookies are expired and there are no session cookies,
         kick off an automated re-login. Blocks up to 120 s waiting for the
@@ -1481,8 +1518,7 @@ class AuthMixin:
         if not self.cookies:
             return True
         self._report_uncovered_session_scope(url)
-        ei = cookies_expiry_info(self.cookies)
-        if ei["expired"] <= 0 or ei["session"] != 0:
+        if self._stored_session_usable():
             return True
         if self.config.get("username") and self.config.get("password"):
             self._update_job(url, "running", "Cookies expired — re-logging in...")

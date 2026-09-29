@@ -1861,6 +1861,18 @@
   "file": "src/lib/guidedCapture.ts",
   "fn": "apiPost",
   "keys": [
+   "site_id"
+  ],
+  "path": "/api/discovery/scenes/stop",
+  "sample": {
+   "site_id": "x"
+  },
+  "unknownType": false
+ },
+ {
+  "file": "src/lib/guidedCapture.ts",
+  "fn": "apiPost",
+  "keys": [
    "url",
    "template",
    "mode"

@@ -156,9 +156,12 @@ def _runner(clean_workdir, download_dir, template=_COLLIDING_TEMPLATE):
     return runner
 
 
-def _best(name: str):
+def _best(name: str, scene_url: str):
+    # Each scene resolves ITS OWN media object (dl95-wowgirls-1: one resolved
+    # resource belongs to one job); only the rendered filename collides.
+    scene = scene_url.rstrip("/").rsplit("/", 1)[-1]
     return {
-        "locator": _Locator(f"https://cdn.example.test/{name}"),
+        "locator": _Locator(f"https://cdn.example.test/{scene}/{name}"),
         "text": "Download 1080p",
         "score": 1080,
         # 0, not a real size: the Phase 17.20 sanity check only fires above
@@ -217,7 +220,7 @@ def scene_runner(clean_workdir):
 
 def _run(runner, dl_dir, url, title, name=_COLLIDING_NAME):
     page = _FakePage(url, title)
-    runner._do_download(page, None, url, _best(name), Path(dl_dir), "1080p")
+    runner._do_download(page, None, url, _best(name, url), Path(dl_dir), "1080p")
     return page
 
 

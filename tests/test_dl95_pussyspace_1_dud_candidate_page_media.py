@@ -11,9 +11,7 @@ Fix, two parts:
      hand the player's own media to the Row 722 page-media path before any needs_review.
 
   3. (review-shape R1) the fallback keeps the site's min_resolution: the extractor takes only an option at or above it,
-     and only a job forced by Approve takes a lower one. Below it -> needs_review. Re-diffed onto main (T147) as the ONE
-     fallback shared with tpl95-site-ma-brazzers-1: the extractor is called as a click miss (click_miss_floor), so the
-     brazzers trailer filter holds here too (tests/test_dl95_pussyspace_1_rediff_scope.py).
+     an unknown height counts as below, and only a job forced by Approve takes a lower one. Below it -> needs_review.
 
 Hermetic: a 127.0.0.1 site shaped like the measured scene, headless Chromium. Parts 1-2 use a recording extractor stub;
 part 3 uses the REAL Row 722 extractor (ExtractorsMixin) with only the byte transfer recorded.
@@ -107,10 +105,10 @@ class _Runner(runner_transport.TransportMixin):
         self.jobs = {}
         self._lock = threading.Lock()
 
-    def _try_spa_api_media_extractor(self, url, page, min_height=0, click_miss_floor=None):
+    def _try_spa_api_media_extractor(self, url, page, min_height=0, hold_below=False):
         media = page.evaluate(spa_media_extract.PAGE_MEDIA_JS) or []
         self.calls.append({"url": url, "page_url": page.url, "media": media, "min_height": min_height,
-                           "click_miss_floor": click_miss_floor})
+                           "hold_below": hold_below})
         return self._finish and any(m.endswith("720p.mp4") for m in media)
 
 
@@ -236,9 +234,11 @@ def _fallback_with_real_extractor(site, page, tmp_path, monkeypatch, **kw):
 def test_a_720p_player_stream_under_the_default_min_resolution_is_not_done(site, page, tmp_path, monkeypatch):
     """The lens probe's shape: the winner claimed 1080p, the player streams 720p, min_resolution is the default 1080."""
     r, took = _fallback_with_real_extractor(site, page, tmp_path, monkeypatch)
-    assert took is False, r.updates
     assert r.transfers == [], "a sub-threshold page stream was transferred"
     assert not any(st == "done" for st, _ in r.updates), r.updates
+    # dl95-porn00-3: held with the floor named, not left to a "modal trigger" guess.
+    assert took is True and r.updates[-1][0] == "needs_review", r.updates
+    assert r.updates[-1][1].startswith("Best is 720p (below 1080p) — Approve to force"), r.updates
 
 
 def test_a_player_stream_at_min_resolution_is_taken(site, page, tmp_path, monkeypatch):

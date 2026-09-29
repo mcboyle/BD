@@ -89,6 +89,8 @@ import hashlib
 import json
 import os
 import pathlib
+import re
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -279,6 +281,100 @@ def resource_identity(file_url) -> str:
     canonical = urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(),
                             parsed.path or "/", "", ""))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# A path ending in one of these names a media FILE; its query is signing,
+# expiry or a filename hint, never the object's identity.
+_NAMED_MEDIA_EXTS = (".mp4", ".m4v", ".mkv", ".mov", ".webm", ".avi", ".wmv",
+                     ".flv", ".ts", ".m3u8", ".mpd")
+
+
+def media_resource_key(file_url) -> str:
+    """Which media object ``file_url`` names, for comparing two JOBS.
+
+    A path that names a media file is the object (``resource_identity``: host
+    + path, so a freshly signed query still matches). Any other path -- a
+    ``download.php?id=N`` endpoint -- is named by its query, which therefore
+    stays in the key: a false match here refuses a real download, while a
+    false mismatch only loses this guard. Raises ``StagingUnavailable`` when
+    the URL has no scheme or host.
+    """
+    base = resource_identity(file_url)
+    parsed = urlsplit(file_url)
+    if (parsed.path or "").lower().endswith(_NAMED_MEDIA_EXTS):
+        return base
+    return hashlib.sha256(f"{base}?{parsed.query}".encode("utf-8")).hexdigest()
+
+
+# An id-like page path segment: letters and digits only, at least one digit,
+# six or more characters (``ba91fb1f``, ``123456``). A slug, a year, ``film``
+# are not ids and never decide anything here.
+_PAGE_ID_TOKEN = re.compile(r"^(?=[a-z]*[0-9])[0-9a-z]{6,}$")
+
+
+def page_id_tokens(page_url) -> frozenset:
+    """The id-like path segments of a scene PAGE url, lowercased."""
+    path = urlsplit(page_url or "").path.lower()
+    return frozenset(seg for seg in path.split("/") if _PAGE_ID_TOKEN.match(seg))
+
+
+def _media_url_tokens(media_url) -> frozenset:
+    parts = urlsplit(media_url or "")
+    text = f"{parts.path}?{parts.query}".lower()
+    return frozenset(t for t in re.split(r"[^0-9a-z]+", text) if t)
+
+
+def media_id_candidates(media_url, page_url) -> list:
+    """GEN 3: id-like tokens the media url carries that are not ``page_url``'s
+    own -- the ids of OTHER pages it may name (sorted, at most 8)."""
+    mine = page_id_tokens(page_url)
+    return sorted(t for t in _media_url_tokens(media_url)
+                  if _PAGE_ID_TOKEN.match(t) and t not in mine)[:8]
+
+
+class MediaResourceOwners:
+    """Run-scoped record of which job owns each resolved media resource.
+
+    dl95-wowgirls-1 (test2, 2026-09-29): two film pages queued in one run both
+    staged ``BellaSpark_HerDeepestNeeds...mp4[_1].part`` -- two claims with
+    different job ids naming the SAME ``resource_identity`` and the same ETag.
+    ``reserve`` answers "is this NAME mine", so the second job took ``X_1``
+    and downloaded another film's media under its own job.
+
+    GEN 2: ownership is resolved PER PAGE, not by who resolved first.
+      1. The media url names this page (one of its id segments appears in the
+         media path/query): it is this job's, whatever resolved it earlier.
+      2. Else it names ANOTHER known page's id: that page owns it, in any
+         order and whether or not that page ran, was skipped, or ran in an
+         earlier run. Known = this run's queue plus (GEN 3) the pages the
+         site's download history names -- not this registry's memory.
+      3. Else (no id evidence either way) the first job to resolve it owns it.
+
+    Keyed on ``media_resource_key``. Bindings live as long as the registry,
+    i.e. the runner: a finished or skipped job still owns its media.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._owners: dict[str, str] = {}
+
+    def bind(self, resource_url, page_url: str, queued_pages=()) -> str | None:
+        """Bind ``resource_url`` to ``page_url``'s job. Returns the page URL of
+        ANOTHER job that owns the resource, else None. ``queued_pages`` are
+        the page urls known to the site (queue + history). Raises ``StagingUnavailable`` when
+        the resource cannot be identified."""
+        resource = media_resource_key(resource_url)
+        media_tokens = _media_url_tokens(resource_url)
+        mine = page_id_tokens(page_url)
+        with self._lock:
+            if mine & media_tokens:
+                self._owners[resource] = page_url
+                return None
+            for other in queued_pages:
+                if other != page_url and (page_id_tokens(other) - mine) & media_tokens:
+                    return other
+            holder = self._owners.setdefault(resource, page_url)
+        return None if holder == page_url else holder
 
 
 def staging_path_for(final_path) -> Path:

@@ -15,6 +15,33 @@ import {
 } from "@/lib/guidedCapture";
 
 describe("sceneCrawlView", () => {
+  it("shows where a running discovery is and how long since it moved (tpl95-newsensations-1)", () => {
+    const view = sceneCrawlView({
+      state: "RUNNING",
+      discovered: 0,
+      queued: 0,
+      pages_walked: 0,
+      zero_scenes_found: false,
+      progress: { phase: "listing page", current_url: "https://x.test/members/", idle_s: 42.4 },
+    });
+    expect(view.tone).toBe("info");
+    expect(view.label).toContain("listing page https://x.test/members/");
+    expect(view.label).toContain("(42s)");
+  });
+
+  it("names a stopped run as stopped, not as failed or empty", () => {
+    const view = sceneCrawlView({
+      state: "STOPPED",
+      discovered: 0,
+      queued: 0,
+      pages_walked: 0,
+      zero_scenes_found: false,
+      error: "stopped by operator",
+    });
+    expect(view.label).toMatch(/stopped/i);
+    expect(view.tone).toBe("neutral");
+  });
+
   it("keeps NOT_LOGGED_IN distinct from a completed zero-scene crawl", () => {
     const view = sceneCrawlView({
       state: "NOT_LOGGED_IN",

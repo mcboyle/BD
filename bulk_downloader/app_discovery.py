@@ -206,6 +206,38 @@ def api_discovery_scenes_start():
     return jsonify(result), 202
 
 
+@discovery_bp.route("/api/discovery/scenes/stop", methods=["POST"])
+def api_discovery_scenes_stop():
+    """Stop the site's running scene discovery (tpl95-newsensations-1)."""
+    _check_csrf()
+    body = request.get_json(silent=True) or {}
+    sid = str(body.get("site_id") or "").strip()
+    if not sid:
+        return jsonify({"ok": False, "error": "site_id required"}), 400
+    if sid not in (_app_s_cfg() or {}):
+        return jsonify({"ok": False, "error": f"unknown site_id {sid!r}"}), 400
+    from . import scene_crawler as _crawler
+    result = _crawler.stop_crawl(sid)
+    if not result["ok"]:
+        # Idempotent: the run may have finished between the poll and the click.
+        return jsonify({"ok": True, "site_id": sid, "stopped": False,
+                        "note": result["error"]})
+    result["stopped"] = True
+    try:
+        from . import audit as _audit
+        _audit.audit_log(
+            source="api",
+            action="scene_crawl_stop",
+            target=f"site:{sid}",
+            after={"run_id": result["run_id"]},
+            actor=(request.cookies.get("bd_session", "")[:8]
+                   or request.remote_addr or "operator"),
+        )
+    except Exception:
+        pass
+    return jsonify(result)
+
+
 @discovery_bp.route("/api/discovery/scenes/status")
 def api_discovery_scenes_status():
     sid = str(request.args.get("site_id") or "").strip()

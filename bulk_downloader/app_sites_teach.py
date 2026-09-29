@@ -443,6 +443,14 @@ def api_session_reuse_onboarding(sid):
     return jsonify(resp)
 
 
+def _write_capture_jar(path, cookies):
+    """The session jar for a template capture: owner-only from creation
+    (O_EXCL, 0600); capture_session deletes it once read."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(cookies, f)
+
+
 @sites_bp.route("/api/sites/<sid>/template_onboard", methods=["POST"])
 def api_template_onboard(sid):
     """Run template onboarding for the site (manual trigger from the UI).
@@ -478,13 +486,35 @@ def api_template_onboard(sid):
                                 "error": "site has only a login URL; "
                                 "no content URL to capture"}), 400
             display = _os.environ.get("DISPLAY", ":99")
-            info = build_capture_command(sid, content_url, display)
+            # tpl95-bang-1 (O1517): start the capture logged in, from the
+            # site's stored session or the worker's automatic login. Only
+            # cookies cross to the capture process, never credentials. With
+            # no session the capture still opens for a human login, and the
+            # response says why.
+            cookies, session = [], {"seeded": False, "why": "site has no login_url"}
+            if cfg.get("login_url"):
+                runner = _app_runners().get(sid)
+                if runner is None:
+                    session["why"] = "site has no runner"
+                else:
+                    cookies, how = runner.session_for_capture()
+                    session = {"seeded": bool(cookies), "why": how}
+            result["session"] = session
+            info = build_capture_command(sid, content_url, display,
+                                         with_session=bool(cookies))
+            if cookies:
+                _write_capture_jar(info["cookies_file"], cookies)
             # B1: record started_at + the capture-wrapper pid so a marker left
             # behind by a DIED capture (no draft) can be self-healed in
             # /template_status. Launch first to obtain the pid, then persist the
             # marker once.
             _started_at = float(time.time())
-            _cap_pid = run_capture_flow(info, run=True)  # detached Popen
+            try:
+                _cap_pid = run_capture_flow(info, run=True)  # detached Popen
+            except Exception:
+                if info.get("cookies_file"):
+                    Path(info["cookies_file"]).unlink(missing_ok=True)
+                raise
             cfg["template_capture"] = {
                 k: info[k] for k in ("profile_dir", "wacz", "draft", "display")
             }

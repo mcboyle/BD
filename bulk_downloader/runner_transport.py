@@ -26,7 +26,7 @@ from .runner_util import (
     DEFAULT_MIN_RESOLUTION, _bump_learned_stat, gate_candidate_url,
     record_bandwidth, resolve_url_attribute, transfer_cancelled,
 )
-from .db import db_log, db_skip_attribution_state, db_skip_identity
+from .db import db_conn, db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, _sanitize_filename_var
 from .website_title import history_title_kwargs
@@ -452,6 +452,22 @@ def _arm_popup_grant_capture(page):
     return _read, _disarm
 
 
+def _is_login_wall_href(href):
+    """True when a download candidate's href is the site's login page
+    (``/login-required/``, ``/login``, ``/sign-in``...). The session keeper's
+    login-URL vocabulary decides, read on the URL path only."""
+    if not isinstance(href, str) or not href.strip():
+        return False
+    from urllib.parse import urlparse
+
+    from .session_keeper import _LOGIN_URL_RE
+    try:
+        path = urlparse(href.strip()).path or ""
+    except ValueError:
+        return False
+    return bool(_LOGIN_URL_RE.search(path))
+
+
 def _closeable_response_context(response):
     """Turn a closeable HTTP response into a context manager.
 
@@ -474,6 +490,77 @@ def _identity_requires_refusal(identity, final_path, attribution_state):
         )
     )
     return unmeasurable
+
+
+_MEDIA_OWNERS_INIT_LOCK = threading.Lock()
+
+
+def _media_owned_by_another_job(runner, dl, direct_url, page_url):
+    """dl95-wowgirls-1: the page URL of ANOTHER job of this run that already
+    resolved the media this page resolved, else None.
+
+    The registry lives on the runner, so it spans every worker thread of the
+    site and every job of the run. A media URL with no identifiable host/path
+    (``blob:``, ``data:``, none at all) cannot be compared and is not refused
+    here; the staging claim's own resource check still governs its bytes.
+    """
+    media_url = getattr(dl, "url", None) or direct_url
+    # GEN 2: the queue decides which page a media url NAMES (per-page
+    # resolution), independent of which worker got there first.
+    try:
+        with runner._lock:
+            queued = [u for u in getattr(runner, "jobs", {}) or {}
+                      if isinstance(u, str) and u.startswith(("http://", "https://"))]
+    except Exception:
+        queued = []
+    # GEN 3 (A10-A R1): a page that finished and left the queue (cleared,
+    # replaced, restart) still owns the media that names it -- ask history.
+    known = queued + [u for u in _history_pages_naming(runner, media_url, page_url)
+                      if u not in queued]
+    with _MEDIA_OWNERS_INIT_LOCK:
+        owners = runner.__dict__.get("_media_resource_owners")
+        if owners is None:
+            owners = staging_claim.MediaResourceOwners()
+            runner.__dict__["_media_resource_owners"] = owners
+    try:
+        return owners.bind(media_url, page_url, known)
+    except staging_claim.StagingUnavailable:
+        return None
+
+
+def _history_pages_naming(runner, media_url, page_url):
+    """Page urls of this site's download history that carry an id token the
+    media url names (not ``page_url``'s own). Unreadable history -> [] (the
+    queue and the run registry still decide)."""
+    try:
+        tokens = staging_claim.media_id_candidates(media_url, page_url)
+    except Exception:
+        return []
+    if not tokens:
+        return []
+    pages = []
+    try:
+        with db_conn() as cx:
+            for tok in tokens:
+                for (u,) in cx.execute(
+                        "SELECT DISTINCT url FROM history WHERE site_id=? "
+                        "AND lower(url) LIKE ? LIMIT 20",
+                        (str(getattr(runner, "site_id", "")), f"%{tok}%")):
+                    if (isinstance(u, str) and u != page_url and u not in pages
+                            and tok in staging_claim.page_id_tokens(u)):
+                        pages.append(u)
+    except Exception:
+        return []
+    return pages
+
+
+def _media_for_log(url):
+    """Scheme, host and path only: a signed query is a credential."""
+    try:
+        parts = urlsplit(url or "")
+        return f"{parts.scheme}://{parts.netloc}{parts.path}"
+    except Exception:
+        return "<unparseable media url>"
 
 
 # RFC 9110 14.4: a 416 answer carries the UNSATISFIED-RANGE form of
@@ -1294,6 +1381,34 @@ class TransportMixin:
         finally:
             self._unregister_daily_byte_accumulator(accumulator)
 
+    def _browser_download_stopped(self, dl, job_url):
+        """dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
+        until the browser holds the WHOLE file, so a Stop/Cancel that landed
+        mid-transfer was only seen afterwards. Wait for the download here,
+        pumping the page's event loop, and Download.cancel() it the moment the
+        job or the site is stopped. True when stopped (the job already says
+        so). A download without Playwright's loop (test fakes) is not watched.
+        """
+        impl = getattr(dl, "_impl_obj", None)
+        loop = getattr(dl, "_loop", None)
+        page = getattr(dl, "page", None) if impl is not None else None
+        if impl is None or loop is None or page is None:
+            return transfer_cancelled(self, job_url)
+        finished = loop.create_task(impl.failure())   # resolves when the download ends
+        finished.add_done_callback(lambda t: t.cancelled() or t.exception())
+        while not finished.done():
+            if transfer_cancelled(self, job_url):
+                try:
+                    dl.cancel()
+                except Exception:  # noqa: BLE001, S110 -- already finished or gone; nothing left to stop
+                    pass
+                return True
+            try:
+                page.wait_for_timeout(250)
+            except Exception:  # noqa: BLE001 -- page closed: save_as reports the real outcome
+                break
+        return False
+
     def _transfer_gate_open(self, accumulator, local_stop=None):
         """Wait through pause and flush either side of an interrupt race."""
         stopped = self._stop.is_set() or (
@@ -1545,6 +1660,8 @@ class TransportMixin:
                     headers=headers, proxy_url=proxy_url,
                 ):
                     return True
+                if transfer_cancelled(self, page_url):
+                    return False     # a cancelled leg is not "not viable": no second leg
                 # fall through to single-conn
                 sys.stderr.write(
                     "  multi_conn: not viable / failed; "
@@ -2484,17 +2601,76 @@ class TransportMixin:
         except PWTimeout:
             return None
 
-    def _browser_save_stopped(self, job_url):
-        """dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
-        marks only the JOB "stopped".  Either one ends a browser download."""
-        stop = getattr(self, "_stop", None)
-        if stop is not None and stop.is_set():
-            return True
-        jobs = getattr(self, "jobs", None)
-        if not isinstance(jobs, dict):
+    # dl95-pussyspace-1: how long the returned-to page may take to request its media.
+    _PAGE_MEDIA_WAIT_S = 8.0
+
+    def _clear_late_gates(self, page, page_url):
+        """dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
+        was not there at the runner's gate pass. Its messages go to the gate
+        log; any failure is just "nothing cleared"."""
+        try:
+            from . import interstitial as _interstitial
+            log = getattr(self, "log_event", None)
+            return _interstitial.clear_gates(
+                page, site_gates=(getattr(self, "config", None) or {}).get("dismiss_selectors", ""),
+                url=page_url,
+                log=(lambda m: log("gate", m, url=page_url)) if callable(log) else None)
+        except Exception as e:  # noqa: BLE001 -- the media read below still runs
+            sys.stderr.write(f"  download: late gate pass raised {type(e).__name__}: {e}\n")
+            return []
+
+    def _fallback_to_page_media(self, page, page_url, why, scene_own_only=False):
+        """dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
+        link, or clicked with no download event (pussyspace: "/1080p/" and
+        "cat/hd/" category links, a captcha-gated "/dl/<id>/" page) -- while
+        the scene's own player was streaming the media (the app logged the
+        page's HLS manifest). Before a needs_review, go back to the scene if
+        the click navigated away, wait (bounded) for the player's media
+        requests, and hand them to the Row 722 page-media path
+        (``_try_spa_api_media_extractor``), which finishes the job or returns
+        False. True only when it took over and finished the transfer.
+
+        The site's min_resolution holds here as on the DOM path: the extractor
+        takes only an option at or above it, and an option of unknown height
+        counts as below. A job forced by Approve takes any height. With only
+        known-height options below it, the extractor writes the "Approve to
+        force" hold itself (dl95-porn00-3) and this returns True.
+
+        scene_own_only (dl95-porn00-3-live-1): only this scene's own sources
+        answer (see ``_try_spa_api_media_extractor``)."""
+        extractor = getattr(self, "_try_spa_api_media_extractor", None)
+        if not callable(extractor):
             return False
-        with getattr(self, "_lock", None) or contextlib.nullcontext():
-            return (jobs.get(job_url) or {}).get("status") == "stopped"
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            forced = bool((self.jobs.get(page_url) or {}).get("force_download"))
+        try:
+            from . import spa_media_extract as _spa
+            here = (page.url or "").split("#", 1)[0].rstrip("/")
+            if here != page_url.split("#", 1)[0].rstrip("/"):
+                page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+            deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
+            gate_passes = 0
+            while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
+                # dl95-porndoe-1-live-2: an age/consent layer can render after
+                # the one gate pass (porndoe's, over the player); clear it here
+                # too, with the same deny rules, or the player never starts.
+                # Bounded: at most three sweeps, none after one clears.
+                if 0 <= gate_passes < 3:
+                    gate_passes = -1 if self._clear_late_gates(page, page_url) else gate_passes + 1
+                page.wait_for_timeout(500)
+        except Exception as e:  # noqa: BLE001 -- the needs_review path below still runs
+            sys.stderr.write(f"  download: page-media fallback could not reach the scene: {e}\n")
+            return False
+        sys.stderr.write(f"  download: {why}; trying the page's own media\n")
+        try:
+            # dl95-porn00-3: options only below the minimum -> the named hold.
+            scope = {"scene_own_only": True} if scene_own_only else {}
+            return bool(extractor(page_url, page, min_height=0 if forced else min_res,
+                                  hold_below=True, **scope))
+        except Exception as e:  # noqa: BLE001 -- as above
+            sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
+            return False
 
     def _below_min_resolution_by_file(self,page,page_url,dl,best,suggested):
         """dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
@@ -2518,8 +2694,15 @@ class TransportMixin:
             got=best.get("_revealed_score") or 0   # the revealed modal's label
         if not 0<got<min_res:
             return False
-        ss=self._screenshot(page,page_url)
         avail=res_label(got)
+        try: dl.cancel()
+        except Exception: pass
+        # tpl95-xnxx-1: before holding, the page's own media may carry the scene at
+        # min_resolution where the DOM scorer never looks (xnxx: >=480p is only in
+        # its setVideoHLS master). The rescue takes only an option at or above it.
+        if self._fallback_to_page_media(page,page_url,f"file {leaf or suggested} is {avail}"):
+            return True
+        ss=self._screenshot(page,page_url)
         msg=(f"Best is {avail} (below {min_res}p) — the Download control was "
              f"unlabelled; its file {leaf or suggested} is {avail} — Approve to force.")
         sys.stderr.write(f"  download: held {page_url[-40:]} — file {leaf or suggested} "
@@ -2527,51 +2710,19 @@ class TransportMixin:
         self._update_job(page_url,"needs_review",msg,screenshot=ss)
         db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review","",0,
                f"below {min_res}p; got {avail} (file {leaf or suggested})",ss)
-        try: dl.cancel()
-        except Exception: pass
         return True
 
-    # dl95-pussyspace-1: how long the returned-to page may take to request its media.
-    _PAGE_MEDIA_WAIT_S = 8.0
-
-    def _fallback_to_page_media(self, page, page_url, why):
-        """The one page-media fallback at _do_download's two needs_review exits.
-
-        dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav link,
-        or clicked with no download event (pussyspace: "/1080p/" and "cat/hd/"
-        category links, a captcha-gated "/dl/<id>/" page) -- while the scene's
-        own player was streaming the media. Go back to the scene if the click
-        navigated away and wait (bounded) for the player's media requests.
-        tpl95-site-ma-brazzers-1: a learned trigger can open a menu whose scored
-        entries are not media links (Aylo MA renditions). Both hand the page's
-        media to the Row 722 extractor as a click miss, held to the tier floor:
-        never a trailer, a below-min file or a progressive file of unknown
-        height; a job forced by Approve takes any height. True only when it
-        took over and finished the transfer."""
-        extractor = getattr(self, "_try_spa_api_media_extractor", None)
-        if not callable(extractor):
+    def _browser_save_stopped(self, job_url):
+        """dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+        marks only the JOB "stopped".  Either one ends a browser download."""
+        stop = getattr(self, "_stop", None)
+        if stop is not None and stop.is_set():
+            return True
+        jobs = getattr(self, "jobs", None)
+        if not isinstance(jobs, dict):
             return False
-        floor = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-        with self._lock:
-            if (self.jobs.get(page_url) or {}).get("force_download"):
-                floor = 0
-        try:
-            from . import spa_media_extract as _spa
-            here = (page.url or "").split("#", 1)[0].rstrip("/")
-            if here != page_url.split("#", 1)[0].rstrip("/"):
-                page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
-            deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
-            while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
-                page.wait_for_timeout(500)
-        except Exception as e:  # noqa: BLE001 -- the needs_review path below still runs
-            sys.stderr.write(f"  download: page-media fallback could not reach the scene: {e}\n")
-            return False
-        sys.stderr.write(f"  download: {why}; trying the page's own media\n")
-        try:
-            return bool(extractor(page_url, page, click_miss_floor=floor))
-        except Exception as e:  # noqa: BLE001 -- as above
-            sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
-            return False
+        with getattr(self, "_lock", None) or contextlib.nullcontext():
+            return (jobs.get(job_url) or {}).get("status") == "stopped"
 
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
@@ -2584,6 +2735,7 @@ class TransportMixin:
         entirely — saves 5-10 seconds per URL and dodges signed-URL race
         conditions on sites with short-lived URLs."""
         _download_started = time.monotonic()
+        learned_unknown_height = bool(best.get("_via_learned")) and not best.get("score")
         # Normally captured in _process_one before page-specific extractors.
         # Keep this idempotent call at the transport boundary for direct
         # callers and for any future path that enters with an already-open page.
@@ -2693,6 +2845,15 @@ class TransportMixin:
         # right here, so the decision happens here.
         is_stream = False
         click_only_grant = False
+        if direct_url:
+            # tpl95: a learned url_attribute can name a manifest -- a player's
+            # HLS <source> -- and the HTTP leg would save the playlist text.
+            _surl, _sname = TransportMixin._stream_route(direct_url, page.url)
+            if _surl:
+                direct_url, suggested, is_stream = _surl, _sname, True
+                sys.stderr.write(
+                    f"  download: learned streaming manifest -> segmented "
+                    f"downloader ({_surl[:90]})\n")
         # Row 722 (G9): a score-0 winner may be a dropdown toggle, or an item
         # inside a shut menu. Open it and re-pick BEFORE any click is spent on
         # an unclickable element; nothing found -> the existing hint below.
@@ -2826,13 +2987,34 @@ class TransportMixin:
                     res_lbl = res_label(best["score"])
                     direct_url=dl.url
                     suggested=dl.suggested_filename or "download.bin"
+            if (dl is None and not probe and best.get("score", 0) == 0
+                    and not best.get("_dropdown_note")):
+                # dl95-porndoe-1: a zero-score control that fired nothing on
+                # a page whose player has not started (porndoe: "Mobile menu",
+                # a playlist "Save").  Start the player and take its feature
+                # media before recording the modal-trigger needs_review.
+                take_player = getattr(self, "_try_player_media_extractor", None)
+                if callable(take_player) and take_player(page_url, page):
+                    return
             if dl is None:
                 # No actual download event fired.
-                # tpl95-site-ma-brazzers-1: `best` was truthy, so runner.py never
-                # consulted the page's own media. Try it before filing the click
-                # as a review (the one fallback, held to the tier floor).
                 if not probe and self._fallback_to_page_media(page, page_url, "clicked candidate fired no download"):
                     return
+                # tpl95-site-ma-brazzers-1: a learned trigger can open a menu
+                # whose scored entries are not media links (Aylo MA renditions),
+                # so `best` was truthy and runner.py never consulted the page's
+                # own media. Try it before filing the click as a review, held
+                # to the tier floor: never a trailer or a below-min file.
+                _spa_media = None if probe else getattr(
+                    self, "_try_spa_api_media_extractor", None)
+                if callable(_spa_media):
+                    _floor = int(float(self.config.get(
+                        "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+                    with self._lock:
+                        if (self.jobs.get(page_url) or {}).get("force_download"):
+                            _floor = 0
+                    if _spa_media(page_url, page, click_miss_floor=_floor):
+                        return
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"
@@ -2867,6 +3049,13 @@ class TransportMixin:
                           f"them, so no download event can fire. This needs the "
                           f"segmented downloader (ffmpeg via hls_downloader); "
                           f"it is not a selector problem")
+                elif _is_login_wall_href(href):
+                    # tpl95-whoreshub-1: logged out, every rendition link on the
+                    # scene page points at /login-required/ (a login modal), so
+                    # the click can never download. Say so, not "set Trigger".
+                    hint=(f"not logged in — the download link points to the "
+                          f"site's login page ({href[:80]}); log in, then retry. "
+                          f"It is not a selector problem")
                 elif best.get("_dropdown_note"):
                     hint=best["_dropdown_note"]
                 elif best["score"]==0:
@@ -2891,7 +3080,10 @@ class TransportMixin:
         # segments, not names. The website title G19 already harvested for
         # the history row names the file instead; the scene URL's own slug is
         # the last resort. A real stem is never touched.
+        original_bare_leaf = None
+        _wtitle = ""
         if _is_bare_media_leaf(suggested) and suggested != _NO_NAME_PLACEHOLDER:
+            original_bare_leaf = suggested
             _score = best.get("score", 0) or 0
             _tier = res_label(_score) if 0 < _score < 9999 else ""
             try:
@@ -2957,6 +3149,28 @@ class TransportMixin:
             rendered+=ext
         final_path=dl_dir/rendered
         final_path.parent.mkdir(parents=True,exist_ok=True)
+
+        # dl95-wowgirls-1: a NAME being free is not the same as the MEDIA
+        # being this page's. A second film page that resolved the first film's
+        # media was handed `X_1` by reserve() and saved another scene's bytes.
+        # One resolved resource belongs to one job of this run. GEN 2: checked
+        # BEFORE the "Already have" arm, so a skipped job still binds its
+        # media and a job resolving another page's media is refused even
+        # when that other page is only on disk from an earlier run.
+        _other_owner = _media_owned_by_another_job(self, dl, direct_url, page_url)
+        if _other_owner is not None:
+            note = (f"media resource already owned by another job: this page "
+                    f"resolved {_media_for_log(getattr(dl, 'url', None) or direct_url)}, "
+                    f"which belongs to job {_other_owner}; "
+                    f"refusing to save another scene's media under this job")
+            self._update_job(page_url, "needs_review", note,
+                             filename=final_path.name, file_size=0)
+            db_log(self.site_id, self.config.get("name","?"), page_url,
+                   "needs_review", final_path.name, 0, note,
+                   bytes_fetched=0)
+            try: dl.cancel()
+            except Exception: pass
+            return
 
         # ── "Already have" pre-download check ────────────────────────────
         # EXISTENCE IS NOT IDENTITY. This branch used to skip on
@@ -3296,6 +3510,9 @@ class TransportMixin:
                     # a row that names a transfer which did not happen is the same
                     # failure as the message prose this column replaces.
                     transfer_mode="browser"
+                    if self._browser_download_stopped(dl, page_url):
+                        staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+                        return
                     downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                     # part-staging-collision: the browser wrote straight to
                     # the reserved final name, so the reservation has done
@@ -3303,6 +3520,9 @@ class TransportMixin:
                     staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
             else:
                 transfer_mode="browser"
+                if self._browser_download_stopped(dl, page_url):
+                    staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+                    return
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
 
@@ -3385,6 +3605,62 @@ class TransportMixin:
             # resumable bytes are kept.
             if transfer_mode == "browser":
                 staging_claim.discard(final_path, staging_claim.job_identity(page_url))
+
+            # tpl95-cumlouder-2: bare media leaf tier must come from the
+            # element's label/res or the probed height, never a default/floor.
+            # If the landed file was named from a bare leaf and ffprobe measures
+            # a real video height, reconcile the filename and score with the
+            # probed height through the configured filename template contract.
+            probed_h = 0
+            below = ""
+            if (original_bare_leaf or learned_unknown_height) and final_path.exists():
+                probed_h = self._probe_video_height(final_path)
+            if original_bare_leaf:
+                if probed_h > 0:
+                    probed_tier = res_label(probed_h)
+                    probed_named = resolve_media_leaf_name(
+                        original_bare_leaf, website_title=_wtitle,
+                        tier=probed_tier, scene_url=page_url)
+                    probed_ctx_vars = dict(ctx_vars)
+                    probed_ctx_vars["filename"] = Path(probed_named).stem
+                    probed_ctx_vars["stem"] = Path(probed_named).stem
+                    probed_ctx_vars["resolution"] = probed_tier
+                    probed_ctx_vars["quality"] = probed_tier
+                    probed_rendered = resolve_filename_template(
+                        tpl, probed_ctx_vars)
+                    if not probed_rendered:
+                        probed_rendered = probed_named
+                    elif not probed_rendered.lower().endswith(_SIZED_HREF_MEDIA_EXTS + (ext.lower(),)):
+                        probed_rendered += ext
+                    new_dest = dl_dir / probed_rendered
+                    if new_dest != final_path:
+                        new_dest.parent.mkdir(parents=True, exist_ok=True)
+                        if new_dest.exists() and new_dest != final_path:
+                            new_dest = Path(safe_dest(str(new_dest)))
+                        try:
+                            final_path.rename(new_dest)
+                            sys.stderr.write(
+                                f"  download: probed video height {probed_h}p "
+                                f"({final_path.name!r} -> {new_dest.name!r})\n")
+                            final_path = new_dest
+                            filename = final_path.name
+                            if isinstance(best, dict):
+                                best["score"] = probed_h
+                        except OSError as e:
+                            sys.stderr.write(
+                                f"  download: rename to probed tier failed: {e}\n")
+            # tpl95-cumlouder-3-live-1: live, the learned <source> carried a
+            # score (the file was first named "[1080p]") while its bare leaf
+            # held no tier, so the gate keyed on "no score" never fired and a
+            # probed 360p closed done unflagged. A bare leaf IS "height unknown
+            # before download" whatever the score said.
+            if (learned_unknown_height
+                    or (best.get("_via_learned") and original_bare_leaf)) and not _forced:
+                min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+                if 0 < probed_h < min_res:
+                    below = f" — below the {min_res}p minimum (height unknown before download)"
+                    self.log_event("learned_media_below_minimum",
+                                   f"landed {probed_h}p; minimum {min_res}p", url=page_url)
             # Clear the force_download flag on success so a future retry
             # doesn't keep bypassing the threshold silently.
             with self._lock:
@@ -3415,7 +3691,7 @@ class TransportMixin:
                 sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
             file_size_on_disk = self._size_on_disk_after_tagging(
                 str(final_path), downloaded_size)
-            self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}",
+            self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}{below}",
                              filename=filename,file_size=file_size_on_disk)
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
                    honeypot_score=best.get("_honeypot_score"),  # P5-2b: stamp resolve-time score for per-site threshold learning
@@ -3508,7 +3784,7 @@ class TransportMixin:
                     "file_size": downloaded_size,
                     "resolution": (best.get("text", "") or "")[:40],
                     "hash": expected_hash or "",
-                    "message": f"Saved: {filename}{verify_msg}",
+                    "message": f"Saved: {filename}{verify_msg}{below}",
                 })
             except Exception as e:
                 sys.stderr.write(f"  hook: fire_event(completed) failed: {e}\n")
@@ -4927,6 +5203,31 @@ class TransportMixin:
             return int(round(float(out) * 1000))
         except ValueError:
             return None
+
+    @staticmethod
+    def _probe_video_height(path):
+        """ffprobe the pixel height of the primary video stream (``"v:0"``).
+        Returns 0 when it cannot be measured (no ffprobe, no video stream,
+        unreadable file)."""
+        ffprobe_exe = ffmpeg_bin.ffprobe()
+        if not ffprobe_exe:
+            return 0
+        cmd = [ffprobe_exe, "-v", "error", "-select_streams", "v:0",
+               "-show_entries", "stream=height", "-of",
+               "default=noprint_wrappers=1:nokey=1", str(path)]
+        try:
+            proc = subprocess.run(
+                cmd, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=30, check=False)
+        except (subprocess.SubprocessError, OSError):
+            return 0
+        out = (proc.stdout or "").strip()
+        if proc.returncode != 0 or not out:
+            return 0
+        try:
+            return int(out.split()[0])
+        except (ValueError, IndexError):
+            return 0
 
     @staticmethod
     def _verify_av_sync(output_path, tolerance_ms=250):

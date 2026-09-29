@@ -63,7 +63,11 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # /api/deploy/timeline (deployment_timeline.api_deploy_timeline), the deployment
 # lifecycle / revision rollout timeline read. Baseline 1017 -> 1018 lines with
 # exactly that one addition. INTENTIONAL surface change, stated here.
-_BASELINE_SHA = "4c05311e06d7b2854a2a67570c7e94ea185f62e99e71ec1fd1099773c0f6740a"
+# tpl95-newsensations-1: re-frozen. ONE route ADDED, none removed or re-pathed:
+# POST /api/discovery/scenes/stop (app_discovery.api_discovery_scenes_stop), the
+# stop for a scene discovery run that the start/status pair never had. Baseline
+# 1018 -> 1019 lines with exactly that addition.
+_BASELINE_SHA = "e16967cf982ba5ccb94e29264ccad9ab480d761a2e1fbc799ac9f7342f5a6e27"
 
 
 def _live_snapshot() -> str:

@@ -287,15 +287,6 @@ def _build_gallerydl_cmd(*, gallerydl, dl_dir, url, proxy_url=None,
     return cmd
 
 
-def site_untaught(config) -> bool:
-    """dl95-dailymotion-1: True iff the site has no applied template and no learned
-    download selectors -- the DOM scrape had nothing to look for."""
-    if config.get("applied_template"):
-        return False
-    learned_dl = (config.get("learned") or {}).get("download") or {}
-    return not (learned_dl.get("trigger_selectors") or learned_dl.get("row_selectors"))
-
-
 # dl95-hqporner-2: a landed clip this short, picked with no known height, is a
 # hover preview or an ad (measured 5.9 s / 7 s), not the scene.
 SPA_PREVIEW_MAX_SECONDS = 10.0
@@ -343,6 +334,39 @@ def _landed_video_height(path):
         return int(probe_video_metadata(path, timeout=10.0)[1] or 0)
     except (OSError, ValueError):   # no ffprobe / unreadable file: height stays unknown
         return 0
+
+
+def _landed_body_kind(path):
+    """dl95-ok-3: what a page-media direct transfer actually saved.
+
+    "manifest" -- an HLS playlist (#EXTM3U) served at a media-looking path
+    (ok.xxx: /…/720p.mp4 answered with a master playlist, saved as a 1002 B
+    ".mp4" and recorded done); it is an index of segments, not the video.
+    "page" -- an HTML/XML/JSON body (an error or login page), no media at all.
+    "media" -- anything else. Only the two positive shapes are refused: an
+    unfamiliar container (MPEG-TS, FLV, ...) is not evidence of a bad file.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512)
+    except OSError:
+        return "media"      # unreadable here: the existing size/height checks decide
+    body = head.lstrip(b"\xef\xbb\xbf \t\r\n")
+    if body[:7] == b"#EXTM3U":
+        return "manifest"
+    low = body[:16].lower()
+    if low.startswith((b"<!doctype", b"<html", b"<head", b"<body", b"<?xml", b"{", b"[")):
+        return "page"
+    return "media"
+
+
+def site_untaught(config) -> bool:
+    """dl95-dailymotion-1: True iff the site has no applied template and no learned
+    download selectors -- the DOM scrape had nothing to look for."""
+    if config.get("applied_template"):
+        return False
+    learned_dl = (config.get("learned") or {}).get("download") or {}
+    return not (learned_dl.get("trigger_selectors") or learned_dl.get("row_selectors"))
 
 
 class ExtractorsMixin:
@@ -1249,8 +1273,55 @@ class ExtractorsMixin:
             url=url,
         )
         return True
+    def _spa_player_heights(self, page, url, cands, _spa):
+        """dl95-txxx-5: a candidate of unknown height that the page's own
+        <video> is playing takes the height the player decoded, so the
+        min_resolution gate judges the stream, not its silent URL (txxx:
+        "chose 0p from scene-stream" -> every job held "unknown quality")."""
+        unknown = [c for c in cands if not int(c.get("height") or 0)]
+        if not unknown:
+            return
+        try:
+            decoded = page.evaluate(_spa.PLAYER_HEIGHTS_JS) or []
+        except Exception:  # noqa: BLE001 -- a page/driver failure leaves the height unknown
+            return
+        heights = {src: int(h) for src, h in (p for p in decoded
+                                              if isinstance(p, list) and len(p) == 2)
+                   if isinstance(src, str) and isinstance(h, (int, float)) and h > 0}
+        for cand in unknown:
+            h = heights.get(cand.get("url") or "")
+            if h:
+                cand["height"], cand["label"] = h, f"{h}p"
+                self.log_event("spa_api_player_height",
+                               f"player decoded {h}p: {cand['url'][:120]}", url=url)
+
+    def _try_player_media_extractor(self, url: str, page) -> bool:
+        """dl95-porndoe-1: start the page's player and take its FEATURE media.
+
+        Consulted only after a click fired nothing on a zero-score control
+        (the modal-trigger failure).  Hands the feature media, and only it,
+        to the SPA path's transfer; False when no feature-length media loads.
+        """
+        try:
+            from . import spa_media_extract as _spa
+        except Exception as e:
+            sys.stderr.write(f"  player-media: import failed ({type(e).__name__}); skipped\n")
+            return False
+        # dl95-porndoe-1-live-2: an age/consent layer that rendered after the
+        # runner's gate pass covers the player; the start click cannot reach it.
+        clear_late = getattr(self, "_clear_late_gates", None)
+        if callable(clear_late):
+            clear_late(page, url)
+        media = _spa.start_player_for_feature_media(page)
+        if not media:
+            sys.stderr.write("  player-media: no feature-length media after player start\n")
+            return False
+        return self._try_spa_api_media_extractor(url, page, page_media=media)
+
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
-                                     click_miss_floor=None, *, source_list_only=False) -> bool:
+                                     proven_only: bool = False, hold_below: bool = False,
+                                     page_media=None, *, source_list_only=False,
+                                     scene_own_only=False, click_miss_floor=None) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Normally consulted after ``find_best_download`` (and the
@@ -1265,6 +1336,22 @@ class ExtractorsMixin:
 
         Returns True when it took over and finished the transfer; False on
         any miss so the caller's "No download button found" handling runs.
+
+        ``proven_only`` (dl95-beeg-1-live-1): consult only the sources that
+        prove they are THIS scene's -- the scene player's children and the
+        streams whose path carries the page's opaque id -- never the API or
+        page-media populations, which carry no identity.
+
+        ``hold_below`` (dl95-porn00-3): when ``min_height`` leaves nothing but
+        an option of KNOWN height sits below it, take over with the same
+        "Best is <h>p (below <min>p) -- Approve to force" hold the button path
+        writes, instead of returning a miss the caller must word itself.
+
+        ``scene_own_only`` (dl95-porn00-3-live-1): the DOM refused every
+        candidate as not this scene's, so only sources bound to THIS scene may
+        answer -- the published source list, the proven scene player/streams,
+        or the page's own KVS player config (window.flashvars) -- never the
+        page-media/API sweep, which also carries related scenes' media.
         """
         self._spa_embed_hosts = []   # never a previous job's embed hosts
         try:
@@ -1282,42 +1369,119 @@ class ExtractorsMixin:
                 records = capture.records()
             except Exception as e:
                 sys.stderr.write(f"  spa-api: reading captured API records raised {type(e).__name__}\n")
-        page_media = []
-        try:
-            page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
-        except Exception:
+        # dl95-porndoe-1: an explicit page_media is the WHOLE population (the
+        # player's feature media); captured API options, scene/stream sweeps
+        # and KVS flashvars are not merged in, or a 2160p preview record
+        # outranks the 720p scene.
+        feature_only = page_media is not None
+        if not feature_only:
             page_media = []
-        page_media += self._kvs_flashvars_media(page, _spa)  # dl95-kvs-flashvars-1
+            try:
+                page_media = page.evaluate(_spa.PAGE_MEDIA_JS) or []
+            except Exception:
+                page_media = []
+        from contextlib import nullcontext
+        # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
+        jobs = getattr(self, "jobs", None)
+        with getattr(self, "_lock", None) or nullcontext():
+            job = jobs.get(url) if isinstance(jobs, dict) else None
+            forced = bool((job or {}).get("force_download"))
+        if not feature_only:
+            page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
+            try:
+                page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
+            except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
+                sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
         try:
             page_url = page.url or url
         except Exception:
             page_url = url
-        # The scene-bound download menu outranks a low player rendition or ad.
-        # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
-        # files join the page population, ranked with the page media by height
-        # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
-        # the 1080p embed).
-        cands = source_cands or (_spa.api_candidates(page_url, records)
-                                 + _spa.page_media_candidates(page_url, page_media)
-                                 + _spa.embed_frame_candidates(page, page_url))
-        # Named in the caller's "No download button found" when nothing is found.
-        self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
+        if feature_only:
+            # Neither the scene-player gate nor the xhamster source-list gate
+            # below is this cohort's.
+            scene_candidates = source_cands = []
+            cands = _spa.page_media_candidates(page_url, page_media)
+        else:
+            try:
+                scene_candidates = _spa.scene_player_candidates(
+                    page_url, page.content(), job_url=url, strict=proven_only or scene_own_only)
+            except Exception:
+                scene_candidates = []
+            # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
+            # wire (row 899) join the page's own resource list -- beeg fills the
+            # 250-entry resource-timing buffer with thumbnails first.  Read, not
+            # drained: the queue is shared by the site's workers, and identity is
+            # asked of the JOB url (the feed moves page.url on to the next scene).
+            detected = [e.get("url") for e in list(getattr(self, "manifest_urls", None) or [])
+                        if isinstance(e, dict)]
+            scene_candidates += _spa.scene_stream_candidates(url, page_media + detected)
+            self._spa_player_heights(page, url, scene_candidates, _spa)  # dl95-txxx-5
+            # Proven current-scene child sources outrank incidental page ads and
+            # previews as a cohort; don't mix those populations by resolution.
+            # dl95-fullporner-1: a VISIBLE cross-origin embed player's own <source>
+            # files join the page population, ranked with the page media by height
+            # (PM ruling 0245Z 2(a), hqporner-2: a top-page ad clip must not beat
+            # the 1080p embed).
+            # dl95-porn00-3-live-1: scene_own_only admits, of the unproven
+            # population, only the page's own KVS player config.
+            if scene_own_only:
+                unproven = [c for c in _spa.page_media_candidates(page_url, page_media)
+                            if c.get("source") == "kvs-flashvars"]
+            else:
+                unproven = [] if proven_only else (
+                    _spa.api_candidates(page_url, records)
+                    + _spa.page_media_candidates(page_url, page_media)
+                    + _spa.embed_frame_candidates(page, page_url))
+            cands = source_cands or scene_candidates or unproven
+            # Named in the caller's "No download button found" when nothing is found.
+            self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
         if click_miss_floor is not None:
             # tpl95-site-ma-brazzers-1: called after a scored click missed, so
             # only options that can stand in for the scored tier qualify.
             cands = _spa.click_miss_candidates(cands, int(click_miss_floor))
         if not cands:
+            # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
+            # own media is here; a trailer verdict is a claim about the unproven
+            # population, so it stays with the other callers (the click runs).
+            # dot95-pm1-pussyspace-clickmiss-floor (PM RULING MERGE-1300, as MERGE-0930):
+            # the page-media fallback (hold_below) runs after a DOM candidate missed, so a
+            # trailer there meets the click-miss floor (click_miss_candidates refuses
+            # trailer/preview-class options): a miss, took False, and the caller files its
+            # review. The porn00-3 hold below and the kmm-2 hold elsewhere are unchanged.
+            previews = ([] if proven_only or scene_own_only or hold_below
+                        else _spa.preview_media_urls(page_url, page_media))
+            if previews:  # dl95-kellymadisonmedia-2
+                return self._spa_trailer_only(url, page, previews)
             sys.stderr.write(
                 f"  spa-api: no download-like options in {len(records)} captured "
                 f"API record(s) and {len(page_media)} page media URL(s)\n")
             return False
+        self._spa_measure_hls_masters(page, url, cands, _spa)  # tpl95-xnxx-1
         ranked = _spa.rank_candidates(cands)
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        allow_av1 = bool(self.config.get("allow_av1", True))
+        if not allow_av1:
+            floor = min_height if min_height > 0 else min_res
+            compliant_non_av1 = [
+                c for c in ranked
+                if not (c.get("codec") == "av1" or "av1_" in (c.get("url") or "").lower())
+                and not c.get("is_multi", False)
+                and int(c.get("height") or 0) >= floor
+            ]
+            if compliant_non_av1:
+                ranked = compliant_non_av1 + [c for c in ranked if c not in compliant_non_av1]
         if min_height > 0:
             # dl95-africancasting-3: the min-resolution refusal arm asks only for an
             # option at or above min_resolution; an unknown height does not qualify.
+            offered = ranked
             ranked = [c for c in ranked if int(c.get("height") or 0) >= min_height]
             if not ranked:
                 sys.stderr.write(f"  spa-api: no option at or above {min_height}p\n")
+                known = [c for c in offered if int(c.get("height") or 0) > 0]
+                if hold_below and known:
+                    self._hold_below_minimum(url, page, int(known[0]["height"]), min_height,
+                                             self._spa_option_summary(offered))
+                    return True
                 return False
         headers_by_record = {r["url"]: r.get("headers") or {} for r in records}
         chosen = None
@@ -1351,7 +1515,33 @@ class ExtractorsMixin:
             sys.stderr.write("  spa-api: no candidate resolved to a fetchable URL\n")
             return False
         file_url = chosen["url"]
+        master_url = file_url
         height = int(chosen.get("height") or 0)
+        # dl95-beeg-2-live-1: skip only when chosen is already a direct variant with known height
+        is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
+        hls_program = None
+        if is_hls and (chosen.get("is_multi", True) or chosen.get("is_master") or chosen.get("height", 0) == 0):
+            file_url, height, hls_program = self._spa_hls_ranked_variant(
+                page, url, file_url, height, _spa)
+        if scene_candidates:
+            from contextlib import nullcontext
+            with getattr(self, "_lock", None) or nullcontext():
+                forced = bool(self.jobs.get(url, {}).get("force_download"))
+            minimum = int(float(self.config.get(
+                "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+            # dot95-brazzers1-clickmiss-exempt (PM RULING MERGE-0930): a manifest the
+            # click-miss fallback admitted stands in for the scored tier, so an
+            # unknown height is not held here (a master's RESOLUTION still is).
+            click_miss_unknown = click_miss_floor is not None and not height
+            if minimum > 0 and height < minimum and not forced and not click_miss_unknown:
+                quality = f"{height}p" if height else "unknown quality"
+                message = (f"Scene player best is {quality} (minimum {minimum}p)"
+                           " — Approve to force.")
+                screenshot = self._screenshot(page, url)
+                self._update_job(url, "needs_review", message, screenshot=screenshot)
+                db_log(self.site_id, self.config.get("name", "?"), url,
+                       "needs_review", "", 0, message, screenshot)
+                return True
         if source_cands:
             with self._lock:
                 forced = bool(self.jobs.get(url, {}).get("force_download"))
@@ -1364,9 +1554,7 @@ class ExtractorsMixin:
                 db_log(self.site_id, self.config.get("name", "?"), url,
                        "needs_review", "", 0, message, screenshot)
                 return True
-        summary = " | ".join(
-            f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
-            for c in ranked[:6])
+        summary = self._spa_option_summary(ranked)
         self.log_event("spa_api_candidate",
                        f"chose {height}p from {chosen.get('source')}; saw: {summary}",
                        url=url)
@@ -1376,23 +1564,21 @@ class ExtractorsMixin:
         # measured once it lands (below). A job whose URL IS the media file chose
         # nothing, so there is nothing to hold.
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-        from contextlib import nullcontext
-        # jobs/_lock are optional here: the row 722/825/1056 mixin hosts carry neither.
-        jobs = getattr(self, "jobs", None)
-        with getattr(self, "_lock", None) or nullcontext():
-            job = jobs.get(url) if isinstance(jobs, dict) else None
-            forced = bool((job or {}).get("force_download"))
-        chosen_for_us = not forced and not _spa_job_is_the_file(url, file_url)
+        chosen_for_us = not forced and not _spa_job_is_the_file(url, master_url)
         gated = min_res > 0 and chosen_for_us
+        # dl95-beeg-2-live-1: if the only 1080p is AV1 and AV1 is not allowed, say that in the hold.
+        if chosen_for_us and not self.config.get("allow_av1", True):
+            is_av1 = chosen.get("codec") == "av1" or "av1_" in (chosen.get("url") or "").lower()
+            if is_av1:
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                msg = f"Only {height}p is AV1 and AV1 is not allowed — Approve to force. Saw: {summary}"
+                self._update_job(url, "needs_review", msg, screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       msg, ss)
+                return True
         if gated and 0 < height < min_res:
-            screenshot_fn = getattr(self, "_screenshot", None)
-            ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
-            msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
-            sys.stderr.write(f"  spa-api: skipped {url[-40:]} — best is {height}p "
-                             f"(below min_res={min_res}p)\n")
-            self._update_job(url, "needs_review", msg, screenshot=ss)
-            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
-                   f"below {min_res}p; got {height}p; saw: {summary}", ss)
+            self._hold_below_minimum(url, page, height, min_res, summary)
             return True
 
         dl_dir_str = (self.config.get("download_dir") or "").strip()
@@ -1412,7 +1598,6 @@ class ExtractorsMixin:
             sys.stderr.write(f"  spa-api: mkdir failed: {e}\n")
             return False
 
-        is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
         fname = chosen.get("filename") or ""
         if not fname:
             try:
@@ -1458,6 +1643,38 @@ class ExtractorsMixin:
                          f"API/media: downloading {height}p ({chosen.get('source')})...")
         _download_started = time.monotonic()
         transfer_mode = None
+        hls_format = None
+        if not is_hls:
+            transfer_mode = "http"
+            ok = self._do_direct_http_download(
+                page_url=url, file_url=file_url, output_path=output_path, referer=url)
+            if not ok:
+                self.log_event("spa_api_mp4_failed", "direct http failed", url=url)
+                return False
+            # dl95-ok-3: the URL said .mp4; the body decides what landed.
+            body_kind = _landed_body_kind(output_path)
+            if body_kind != "media":
+                try:
+                    os.remove(output_path)
+                except OSError as exc:
+                    # dot95-pm2-dp13-lane-log (DP-13): the refused body stays on disk; name it.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_cleanup", f"{body_kind} body not removed, left at {output_path}: {left}", url=url)
+            if body_kind == "page":
+                self.log_event("spa_api_not_media",
+                               f"{height}p option answered with a page, not media: {file_url[:120]}",
+                               url=url)
+                return False
+            if body_kind == "manifest":
+                self.log_event("spa_api_manifest_body",
+                               f"{height}p option is an HLS playlist; re-fetching segmented: {file_url[:120]}",
+                               url=url)
+                is_hls, hls_format = True, "hls"
+            else:
+                try:
+                    downloaded_size = os.path.getsize(output_path)
+                except OSError:
+                    downloaded_size = 0
         if is_hls:
             transfer_mode = "segmented"
             try:
@@ -1471,11 +1688,14 @@ class ExtractorsMixin:
             ua = self.config.get("user_agent", "") or (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            hls_kw = {"input_format": hls_format} if hls_format else {}
+            if hls_program is not None:
+                hls_kw["program"] = hls_program  # dl95-beeg-2 G2: demuxed audio
             dl_result = self._hls_download_guarded(
                 _hls, file_url, output_path, user_agent=ua, referer=url,
                 progress_callback=lambda p: self._update_job(
                     url, "running", f"API/media HLS • {fmt_bytes(p.get('bytes', 0))}"),
-                cancel_check=lambda: transfer_cancelled(self, url))
+                cancel_check=lambda: transfer_cancelled(self, url), **hls_kw)
             if not dl_result.ok:
                 self.log_event("spa_api_hls_failed", f"hls failed: {dl_result.error}", url=url)
                 try:
@@ -1485,21 +1705,33 @@ class ExtractorsMixin:
                     pass
                 return False
             downloaded_size = dl_result.bytes_written
-        else:
-            transfer_mode = "http"
-            ok = self._do_direct_http_download(
-                page_url=url, file_url=file_url, output_path=output_path, referer=url)
-            if not ok:
-                self.log_event("spa_api_mp4_failed", "direct http failed", url=url)
-                return False
-            try:
-                downloaded_size = os.path.getsize(output_path)
-            except OSError:
-                downloaded_size = 0
 
         below = ""
-        if not height:
-            height = _landed_video_height(output_path)
+        labelled = height
+        landed_height = _landed_video_height(output_path)
+        if labelled and landed_height and landed_height != labelled:
+            # dl95-beeg-2: the label is a claim, the landed stream the measurement
+            # (a "1080p" master closed done as a 426x240 file).
+            height = landed_height
+            self.log_event("spa_api_height_mismatch",
+                           f"labelled {labelled}p; landed {landed_height}p", url=url)
+            if gated and height < min_res:
+                try:
+                    os.remove(output_path)
+                except OSError as exc:
+                    # dot95-pm2-dp13-lane-log (DP-13): the mislabelled file stays on disk; name it.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_cleanup", f"mislabelled file not removed, left at {output_path}: {left}", url=url)
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                msg = (f"Landed {height}p though labelled {labelled}p (below {min_res}p)"
+                       f" — Approve to force. Saw: {summary}")
+                self._update_job(url, "needs_review", msg, screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       f"landed {height}p, labelled {labelled}p, below {min_res}p; saw: {summary}", ss)
+                return True
+        if not labelled:
+            height = landed_height
             secs = _landed_video_seconds(output_path)
             if chosen_for_us and 0 < secs < SPA_PREVIEW_MAX_SECONDS:
                 try:
@@ -1607,6 +1839,40 @@ class ExtractorsMixin:
             f"Direct media URL answered {got}, {ctype or 'unknown type'}; "
             f"no media fetched and the page is not scored for download candidates",
             screenshot=ss)
+        return True
+
+    def _spa_trailer_only(self, url, page, previews):
+        """dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+        (logged out on a member site). That file is never taken as the scene: the
+        job goes to needs_review naming it, never to a silent done. True = handled.
+
+        dl95-naughtyamerica-3: a page with a logout control is logged in, so the
+        verdict must not send the operator to log in; it names the missing
+        member download control instead."""
+        from .constants import LOGOUT_CONTROL_JS
+        name = previews[0].split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+        try:
+            logged_in = page.evaluate(LOGOUT_CONTROL_JS) is True
+        except Exception:  # noqa: BLE001 -- unreadable page: keep the login hint
+            logged_in = False
+        if logged_in:
+            msg = (f"Only a trailer/preview is on this page ({name}) and the page is "
+                   f"logged in (it has a logout control) -- the member download "
+                   f"control was not found; check the site's download template "
+                   f"(trigger/row selectors) and retry")
+        else:
+            msg = (f"Only a trailer/preview is on this page ({name}) -- the member file "
+                   f"needs a login; log in (or check the site's login_url) and retry")
+        sys.stderr.write(f"  spa-api: trailer/preview only on the page: {name}\n")
+        try:
+            ss = self._screenshot(page, url)
+        except Exception:
+            ss = ""
+        self._update_job(url, "needs_review", msg, screenshot=ss)
+        try:
+            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0, msg, ss)
+        except Exception:
+            pass
         return True
 
     def _try_vixen_extractor(self, url: str, page) -> bool:
@@ -2078,10 +2344,55 @@ class ExtractorsMixin:
             url=url,
         )
         return True
-    def _kvs_flashvars_media(self, page, _spa):
+
+    def _spa_hls_ranked_variant(self, page, url, master_url, height, _spa):
+        """dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+        master the rank chose, read through the page's own session: the variant
+        playlist itself, or -- when its audio is a separate EXT-X-MEDIA rendition
+        the variant playlist does not carry -- the master with that variant's
+        program. The master, the ranked height and None when it is not a master
+        or cannot be read."""
+        try:
+            text = page.evaluate(_spa.MANIFEST_TEXT_JS, master_url)
+            pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
+                                        master_url, height)
+        except Exception:  # noqa: BLE001 -- any page/driver failure keeps the master
+            pick = None
+        if not pick:
+            return master_url, height, None
+        self.log_event("spa_api_hls_variant",
+                       f"{height}p master -> {pick['height']}p {pick['codecs'] or '?'} variant",
+                       url=url)
+        if pick["audio_group"]:
+            return master_url, pick["height"], pick["program"]
+        return pick["url"], pick["height"], None
+
+    def _spa_option_summary(self, ranked):
+        return " | ".join(
+            f"{c.get('height') or '?'}p:{(c.get('label') or c.get('source'))[:24]}"
+            for c in ranked[:6])
+
+    def _hold_below_minimum(self, url, page, height, min_res, summary):
+        """The page-media arms' min_resolution hold, worded as the button path's."""
+        screenshot_fn = getattr(self, "_screenshot", None)
+        ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+        msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
+        sys.stderr.write(f"  spa-api: skipped {url[-40:]} — best is {height}p "
+                         f"(below min_res={min_res}p)\n")
+        self._update_job(url, "needs_review", msg, screenshot=ss)
+        db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+               f"below {min_res}p; got {height}p; saw: {summary}", ss)
+
+    def _kvs_flashvars_media(self, page, _spa, forced=False):
         """dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-        video_url / video_alt_url[N] + *_text), bounded by min_resolution --
-        an option below it, or of unknown height, is never offered."""
+        video_url / video_alt_url[N] + *_text).  An option of unknown height is
+        never offered (it would pass the min_resolution hold unmeasured).
+
+        dl95-porn00-3: a KNOWN height below min_resolution is offered, so the
+        caller's min_resolution hold judges it and names it ("Best is 720p
+        (below 1080p) -- Approve to force"); it was withheld here, so the job
+        blamed a modal trigger and Approve could never lift it.  A job forced
+        by Approve takes any height, as the button path does."""
         try:
             items = page.evaluate(_spa.KVS_FLASHVARS_JS) or []
             page_url = page.url or ""
@@ -2089,11 +2400,31 @@ class ExtractorsMixin:
             return []
         kvs = _spa.kvs_flashvars_candidates(page_url, items)
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-        kept = [c for c in kvs if min_res <= 0 or int(c.get("height") or 0) >= min_res]
+        if forced or min_res <= 0:
+            return kvs
+        kept = [c for c in kvs if int(c.get("height") or 0) > 0]
         if len(kept) < len(kvs):
-            below = ", ".join(f"{c.get('height') or '?'}p" for c in kvs if c not in kept)
-            sys.stderr.write(f"  spa-api: KVS flashvars option(s) below {min_res}p not offered: {below}\n")
+            sys.stderr.write(f"  spa-api: {len(kvs) - len(kept)} KVS flashvars option(s) "
+                             f"of unknown height not offered\n")
         return kept
+
+    def _spa_measure_hls_masters(self, page, url, cands, _spa):
+        """tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+        tallest variant, read through the page's own session, so the rank and
+        the min_resolution filter see what it offers (xnxx's hls.m3u8: 1080p)."""
+        for cand in [c for c in cands if not int(c.get("height") or 0)
+                     and re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
+            try:
+                text = page.evaluate(_spa.MANIFEST_TEXT_JS, cand["url"])
+                pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
+                                            cand["url"], 0)
+            except Exception:  # noqa: BLE001 -- any page/driver failure leaves it unknown
+                pick = None
+            if pick:
+                cand["height"], cand["label"] = pick["height"], f"{pick['height']}p"
+                cand["is_master"] = True
+                self.log_event("spa_api_hls_measured",
+                               f"master tallest {pick['height']}p: {cand['url'][:120]}", url=url)
 
     def _try_aylo_extractor(self, url: str, page) -> bool:
         """v3.43.66: extract via Aylo flashvars and download.
