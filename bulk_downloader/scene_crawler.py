@@ -933,6 +933,7 @@ def _run_base(
     title_pages_fetched: int,
     zero_scenes_found: bool,
     enqueue_errors: list[dict[str, str]] | None = None,
+    requeued: int = 0,
 ) -> dict[str, Any]:
     return {
         "state": state,
@@ -950,6 +951,10 @@ def _run_base(
         "scenes": scenes,
         "discovered": discovered,
         "queued": queued,
+        # dl95-site-ma-bangbros-1: scenes an EARLIER run discovered but never
+        # enqueued (e.g. interrupted), submitted by this run. Kept out of
+        # `queued` so discovered >= queued holds for this run's own scenes.
+        "requeued": requeued,
         "title_pages_fetched": title_pages_fetched,
         "zero_scenes_found": bool(zero_scenes_found),
         "enqueue_errors": enqueue_errors or [],
@@ -1047,6 +1052,7 @@ def crawl_with_page(
     visited: set[str] = set()
     new_records: list[dict[str, Any]] = []
     queue_records: dict[str, dict[str, Any]] = {}
+    carried_over: set[str] = set()
     pages_walked = 0
     page_urls: list[str] = []
     effective_url = ""
@@ -1132,6 +1138,7 @@ def crawl_with_page(
             if old is not None:
                 if old.get("queued_at") is None:
                     queue_records[url] = old
+                    carried_over.add(url)
                 continue
             if newest_n and len(new_records) >= newest_n:
                 stopped_on_depth = True
@@ -1199,8 +1206,14 @@ def crawl_with_page(
     )
 
     queued = 0
+    requeued = 0
     enqueue_errors: list[dict[str, str]] = []
     for record in queue_records.values():
+        # dl95-site-ma-bangbros-1: newest_n caps what ONE run submits, carried-
+        # over scenes included (test2: newest_n=3 queued 6). The rest keep
+        # queued_at NULL and are submitted by the next run.
+        if newest_n and queued + requeued >= newest_n:
+            break
         try:
             response = enqueue_fn(site_id, record["url"])
             if isinstance(response, dict) and response.get("ok") is False:
@@ -1208,7 +1221,10 @@ def crawl_with_page(
             added = 1
             if isinstance(response, dict):
                 added = int(response.get("added", 1) or 0)
-            queued += added
+            if record["url"] in carried_over:
+                requeued += added
+            else:
+                queued += added
             # A duplicate response still proves the URL is already in the
             # canonical queue, so it must not be submitted again next run.
             _mark_queued(site_id, record["url"], db_path)
@@ -1231,6 +1247,7 @@ def crawl_with_page(
         scenes=new_records,
         discovered=len(new_records),
         queued=queued,
+        requeued=requeued,
         title_pages_fetched=title_pages_fetched,
         zero_scenes_found=authenticated and not saw_scene_cohort,
         enqueue_errors=enqueue_errors,
