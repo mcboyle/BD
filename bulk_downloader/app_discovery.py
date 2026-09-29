@@ -7,8 +7,8 @@ routing surface is byte-identical (test_route_map_invariant diffs empty).
 Shared state (runners, s_cfg) is owned by app.py and reached
 via _app_<name>() accessors (getattr, fresh per call -- same object by reference).
 """
-import sys
 from __future__ import annotations
+import sys
 
 from flask import Blueprint, jsonify, request
 from urllib.parse import urlsplit
