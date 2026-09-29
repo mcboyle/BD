@@ -1752,6 +1752,13 @@ def _load_sites_config():
     for sid, cfg_in in data.items():
         cfg = {k: cfg_in.get(k, DEFAULTS.get(k, "")) for k in CFG_FIELDS}
         cfg["name"] = cfg_in.get("name", f"Site {sid}")
+        # tpl95-restart-2: the applied-template marker (POST /templates/apply,
+        # the auto-detect gap fill) is not a CFG_FIELDS entry either, so the
+        # rebuild dropped it on every restart -- template_status then read
+        # "No reviewed template" and the next save erased it from disk (test2
+        # .183 vip4k, 04:00Z). Carried only as a non-empty string.
+        if isinstance(cfg_in.get("applied_template"), str) and cfg_in["applied_template"].strip():
+            cfg["applied_template"] = cfg_in["applied_template"]
         # Apply defaults only where genuinely unset (preserves explicit 0/False)
         for k, d in DEFAULTS.items():
             if cfg.get(k) in ("", None): cfg[k] = d
