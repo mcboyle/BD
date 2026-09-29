@@ -276,12 +276,10 @@ _UNDECLARED_OUTSIDE_BY_DESIGN = {
     "atheris": "tools/fuzz_probe.py's coverage-guided harness, try/except "
                "guarded into HAS_ATHERIS; it needs a clang build and the "
                "whole Z.8 section is explicitly best-effort",
-    "hypothesis": "tools/code_intelligence/fuzz_service.py only, inside the "
-                  "branch that has already been handed a strategy factory; a "
-                  "dev fuzz service, not a path any lane or the service runs",
-    "markdown": "tools/cockpit_console.py and tools/framework_dashboard.py "
-                "render docs when it is present; both try/except to _md = "
-                "None and fall back to raw text",
+    # hypothesis' and markdown's waivers were REMOVED 2026-09-29 (IA-12,
+    # spare8 install audit): both are declared in requirements-dev.txt now, for
+    # tools/code_intelligence/fuzz_service.py and tools/cockpit_console.py +
+    # tools/framework_dashboard.py. Same reasoning as PIL and psycopg above.
     "paho": "docs/plugin_examples/notify_events.py is an EXAMPLE plugin the "
             "operator copies and edits. BD never imports it, and the import "
             "is try/except guarded inside the publish helper",

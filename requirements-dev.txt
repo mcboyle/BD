@@ -25,3 +25,11 @@ pyinstaller>=6.0,<7.0
 # Pinned 4.x (the evaluated line was 4.1.3). See tools/nuitka_eval.runbook().
 nuitka>=4.0,<5.0
 zstandard>=0.22,<1.0
+
+# IA-12: dev tools' own imports. markdown: tools/cockpit_console.py and
+# tools/framework_dashboard.py (was only transitive via apprise). hypothesis:
+# tools/code_intelligence/fuzz_service.py, which tools/fuzz_harness.py drives.
+# atheris (tools/fuzz_probe.py) stays out: ImportError-guarded, best-effort,
+# needs a clang toolchain to build.
+markdown>=3.5,<4.0
+hypothesis>=6.100,<7.0
