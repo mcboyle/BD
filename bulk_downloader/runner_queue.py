@@ -38,7 +38,10 @@ _JOB_STATUS_BOOTSTRAP_LOCK = threading.Lock()
 
 # The statuses bulk_retry re-queues. retryable_urls reports exactly these, so an
 # "offer a requeue" caller never offers a retry bulk_retry would then skip.
-BULK_RETRY_STATUSES = ("failed", "needs_review")
+# dl95-dfxtra-1: dead_letter too -- retries exhausted, History shows it "failed", so a
+# re-add must offer the same Requeue (bulk_retry clears retries/retry_after like
+# db_queue_requeue_dead_letter does).
+BULK_RETRY_STATUSES = ("failed", "needs_review", "dead_letter")
 
 
 @contextlib.contextmanager
