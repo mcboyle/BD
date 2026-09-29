@@ -408,6 +408,11 @@ def _is_honeypot_field(loc):
 _SEARCH_FIELD_JS = r"""el => {
   const t = (el.getAttribute('type') || '').toLowerCase();
   if (t === 'search') return 'type=search';
+  // dl95-eporner-5: a slider/checkbox/radio/colour/file/date/image/reset control is
+  // never a credential field (eporner's home sidebar duration range sliders were
+  // filled as the username and their form's Apply button pressed as "continue").
+  if (['range', 'checkbox', 'radio', 'color', 'file', 'date', 'datetime-local', 'month', 'week',
+       'time', 'image', 'reset'].includes(t)) return 'type=' + t;
   if ((el.getAttribute('role') || '').toLowerCase() === 'searchbox') return 'role=searchbox';
   if (el.closest('[role=search], search')) return 'inside role=search';
   const n = (el.getAttribute('name') || '').toLowerCase();

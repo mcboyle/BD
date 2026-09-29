@@ -1,0 +1,109 @@
+<div id="searcharea">
+<form name="forma" id="forma" class="header-search" data-search-trending="1" action="/search/" method="post" data-search-ux="{&quot;enabled&quot;:true,&quot;version&quot;:&quot;search_v2&quot;,&quot;trackingPercent&quot;:10,&quot;experiment&quot;:&quot;suggest_index_v1&quot;,&quot;experimentEnabled&quot;:true,&quot;manticoreEnabled&quot;:true,&quot;treatmentPercent&quot;:50,&quot;idleSeconds&quot;:30}">
+<div id="catebrowse" class="search-type">
+<svg class="search-type-symbols" width="0" height="0" aria-hidden="true" focusable="false">
+<symbol id="search-icon-all" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+<symbol id="search-icon-video" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4Z"/></symbol>
+<symbol id="search-icon-photo" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></symbol>
+<symbol id="search-icon-pornstar" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+<symbol id="search-icon-playlist" viewBox="0 0 24 24"><path d="M3 5h13M3 10h13M3 15h6m4-1 7 4-7 4Z"/></symbol>
+<symbol id="search-icon-keyword" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></symbol>
+<symbol id="search-icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="search-icon-trending" viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8"/><path d="M14 8h6v6"/></symbol>
+</svg>
+<label for="srchtype" id="search-type-label" class="search-type-label">Search in:</label>
+<select id="srchtype" name="searchtype">
+<option value="all" selected>All</option>
+<option value="video">Videos</option>
+<option value="photo">Photos</option>
+<option value="pornstar">Pornstars</option>
+<option value="playlist">Playlists</option>
+</select>
+<button type="button" id="search-type-toggle" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="search-type-options" aria-labelledby="search-type-label search-type-current" aria-hidden="true" disabled>
+<svg id="search-type-icon" class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+<use data-searchtype-preview="all" href="#search-icon-all"/>
+<use data-searchtype-preview="video" href="#search-icon-video"/>
+<use data-searchtype-preview="photo" href="#search-icon-photo"/>
+<use data-searchtype-preview="pornstar" href="#search-icon-pornstar"/>
+<use data-searchtype-preview="playlist" href="#search-icon-playlist"/>
+</svg>
+<span id="search-type-current">
+<span data-searchtype-preview="all">All</span>
+<span data-searchtype-preview="video">Videos</span>
+<span data-searchtype-preview="photo">Photos</span>
+<span data-searchtype-preview="pornstar">Pornstars</span>
+<span data-searchtype-preview="playlist">Playlists</span>
+</span>
+<span class="search-type-arrow" aria-hidden="true">▾</span>
+</button>
+<div id="search-type-options" role="listbox" aria-labelledby="search-type-label" hidden>
+<button type="button" class="search-type-option" role="option" tabindex="-1" data-searchtype="all" aria-selected="true">
+<svg class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><use href="#search-icon-all"/></svg>
+<span class="search-type-option-label">All</span>
+<span class="search-type-check" aria-hidden="true">✓</span>
+</button>
+<button type="button" class="search-type-option" role="option" tabindex="-1" data-searchtype="video" aria-selected="false">
+<svg class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><use href="#search-icon-video"/></svg>
+<span class="search-type-option-label">Videos</span>
+<span class="search-type-check" aria-hidden="true">✓</span>
+</button>
+<button type="button" class="search-type-option" role="option" tabindex="-1" data-searchtype="photo" aria-selected="false">
+<svg class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><use href="#search-icon-photo"/></svg>
+<span class="search-type-option-label">Photos</span>
+<span class="search-type-check" aria-hidden="true">✓</span>
+</button>
+<button type="button" class="search-type-option" role="option" tabindex="-1" data-searchtype="pornstar" aria-selected="false">
+<svg class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><use href="#search-icon-pornstar"/></svg>
+<span class="search-type-option-label">Pornstars</span>
+<span class="search-type-check" aria-hidden="true">✓</span>
+</button>
+<button type="button" class="search-type-option" role="option" tabindex="-1" data-searchtype="playlist" aria-selected="false">
+<svg class="search-type-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><use href="#search-icon-playlist"/></svg>
+<span class="search-type-option-label">Playlists</span>
+<span class="search-type-check" aria-hidden="true">✓</span>
+</button>
+</div>
+</div>
+<label class="search-field-label" for="srch">Search</label>
+<input type="search" id="srch" name="search" value="" placeholder="Find your favorite porn…" enterkeyhint="search" autocomplete="off">
+<button type="button" id="search-clear" aria-label="Clear search" hidden><span aria-hidden="true">×</span></button>
+<button type="submit" id="search-submit" aria-label="Search"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></svg></button>
+</form></div>
+<a href="/login/" id="loginslide" data-nav-header="login_open" onclick="return EP.account.login.checkSilent(undefined, this);"></a>
+<div id="headmenu">
+<a data-nav-header="login_open" href="/login/" onclick="return EP.account.login.openModal('login', 'header');">Sign in</a>
+</div>
+<div id="modal_login" style="display:none">
+<form id="loginform" method="post" action="/xhr/login/">
+  <input type="text" name="login" id="modal_user" placeholder="Username">
+  <input type="password" name="pass" id="modal_pass" placeholder="Password">
+  <button type="submit" id="modal_sub">Sign in</button>
+</form>
+</div>
+<script>
+var EP = EP || {};
+EP.account = EP.account || {};
+EP.account.login = EP.account.login || {};
+EP.account.login.checkSilent = function() { return false; };
+EP.account.login.openModal = function(tab, source) {
+  var m = document.getElementById('modal_login');
+  if (m) m.style.display = 'block';
+  return false;
+};
+</script>
+
+<!-- dl95-eporner-5: REAL markup of the eporner home page sidebar (captured 2026-09-29T20:31Z on bd3,
+     login_evidence of the failed re-login; scripts stripped, no account data) -->
+<form id="home-video-filter-form" action="/cat/all/" method="post" data-home-video-filters="">
+  <input type="hidden" name="home_video_filters" value="1">
+  <div class="cat-video-duration" data-video-duration-range="">
+    <div class="cat-video-duration-slider" data-video-duration-slider="">
+      <input id="home-video-filter-duration-min" class="cat-video-duration-min" type="range" name="duration_min_minutes" min="0" max="61" step="1" value="0" aria-label="Minimum duration" aria-valuetext="0 min" data-duration-min="" style="z-index: 5;">
+      <input id="home-video-filter-duration-max" class="cat-video-duration-max" type="range" name="duration_max_minutes" min="0" max="61" step="1" value="61" aria-label="Maximum duration" aria-valuetext="1h+" data-duration-max="" style="z-index: 4;">
+    </div>
+  </div>
+  <div class="cat-video-filter-actions">
+    <button type="submit" data-home-video-filter-apply="">Apply</button>
+    <a href="/" data-home-video-filter-clear="">Clear</a>
+  </div>
+</form>
