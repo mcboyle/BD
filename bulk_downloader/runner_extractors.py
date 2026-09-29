@@ -1392,6 +1392,10 @@ class ExtractorsMixin:
                 page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
             except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
                 sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
+            try:
+                page_media += _spa.okru_player_candidates(page.url or url, page.content(), url)  # fx-ok-extractor
+            except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
+                sys.stderr.write("  spa-api: page content unreadable; no ok.ru player sources\n")
         try:
             page_url = page.url or url
         except Exception:

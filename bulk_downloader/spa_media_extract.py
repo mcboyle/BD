@@ -529,8 +529,8 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     out: List[Dict[str, Any]] = []
     seen = set()
     for u in urls or []:
-        if isinstance(u, dict) and u.get("source") == "kvs-flashvars":
-            # dl95-kvs-flashvars-1: already a candidate (label, height, bound applied)
+        if isinstance(u, dict) and u.get("source") in ("kvs-flashvars", "okru-player"):
+            # dl95-kvs-flashvars-1 / fx-ok-extractor: already a candidate (label, height, bound applied)
             if u.get("url") and u["url"] not in seen:
                 seen.add(u["url"])
                 out.append(u)
@@ -567,6 +567,47 @@ def wgcz_player_media(html: str) -> List[str]:
         if m.group(2) not in out:
             out.append(m.group(2))
     return out[:6]
+
+
+# fx-ok-extractor: an ok.ru video page declares its files in the player's data-options
+# attribute (JSON -> flashvars.metadata JSON -> videos [{name, url}]) and fetches nothing until
+# play. The urls carry no height and no extension; ok.ru's own rendition names do.
+_OKRU_DATA_OPTIONS_RE = re.compile(r"""\bdata-options=(["'])(.*?)\1""", re.S)
+_OKRU_HEIGHTS = {"mobile": 144, "lowest": 240, "low": 360, "sd": 480, "hd": 720,
+                 "full": 1080, "quad": 1440, "ultra": 2160}
+_OKRU_VIDEO_ID_RE = re.compile(r"/video(?:embed)?/(\d{6,})")
+
+
+def okru_player_candidates(page_url: str, html: str, job_url: str = "") -> List[Dict[str, Any]]:
+    """The files the ok.ru player for THIS video (metadata.movie.id == the id in the job url)
+    declares. A recommendation card's player, an unnamed rendition or a non-http url is never offered."""
+    import html as _htmllib
+    import json as _json
+    m = _OKRU_VIDEO_ID_RE.search(job_url or page_url or "")
+    if not m or "ok.ru" not in urlparse(job_url or page_url or "").netloc:
+        return []
+    want = m.group(1)
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for hit in list(_OKRU_DATA_OPTIONS_RE.finditer(html or ""))[:12]:
+        try:
+            opts = _json.loads(_htmllib.unescape(hit.group(2)))
+            meta = ((opts.get("flashvars") or {}).get("metadata"))
+            meta = _json.loads(meta) if isinstance(meta, str) else meta
+            if str((meta.get("movie") or {}).get("id") or "") != want:
+                continue
+            videos = meta.get("videos") or []
+        except Exception:  # noqa: BLE001 -- an unparsable player block adds nothing
+            continue
+        for v in videos:
+            name = str((v or {}).get("name") or "").lower()
+            u = str((v or {}).get("url") or "").strip()
+            if name not in _OKRU_HEIGHTS or not u.startswith(("http://", "https://")) or u in seen:
+                continue
+            seen.add(u)
+            out.append({"url": u, "label": name, "height": _OKRU_HEIGHTS[name], "size": 0,
+                        "source": "okru-player", "filename": ""})
+    return out
 
 
 def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
