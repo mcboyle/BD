@@ -117,7 +117,8 @@ def save_config(path: Path, data):
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def build_capture_command(site_id: str, url: str, display: str):
+def build_capture_command(site_id: str, url: str, display: str, *,
+                          with_session: bool = False):
     host = slug(host_for_url(url))
     safe_id = slug(site_id)
     # Second-resolution ts + a short random token, so two launches of the SAME
@@ -151,6 +152,11 @@ def build_capture_command(site_id: str, url: str, display: str):
         "--finish-file",
         str(finish_file.relative_to(ROOT)),
     ]
+    # tpl95-bang-1 (O1517): the app writes the site's session jar here (0600)
+    # and capture_session reads + deletes it before its first navigation.
+    cookies_file = out_wacz.with_suffix(".cookies.json")
+    if with_session:
+        cmd += ["--cookies-file", str(cookies_file.relative_to(ROOT))]
 
     draft_cmd = [
         str(ROOT / "venv" / "bin" / "python"),
@@ -166,6 +172,7 @@ def build_capture_command(site_id: str, url: str, display: str):
         "wacz": str(out_wacz),
         "draft": str(out_draft),
         "finish_file": str(finish_file),
+        "cookies_file": str(cookies_file) if with_session else "",
         "display": display,
         "capture_cmd": cmd,
         "draft_cmd": draft_cmd,

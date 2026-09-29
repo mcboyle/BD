@@ -96,6 +96,12 @@ def _build_parser() -> argparse.ArgumentParser:
                         "passwords fill the login form; the operator still "
                         "submits by hand. No credential is read or stored by "
                         "this tool.")
+    p.add_argument("--cookies-file", default=None,
+                   help="Start logged in: a JSON cookie jar the app wrote for "
+                        "this capture (template onboarding, O1517). Read, then "
+                        "DELETED before the browser launches; its cookies are "
+                        "added to the context before the first navigation. "
+                        "Recorded cookie values stay redacted.")
     p.add_argument("--title", default=None,
                    help="Logical title name for this capture. On a SECOND (or "
                         "later) capture of the same --title, the tool navigates "
@@ -128,6 +134,36 @@ def _build_parser() -> argparse.ArgumentParser:
                         "(CSP-immune) and never recorded into the WACZ. Also "
                         "disabled globally via BD_HUD_OVERLAY=0.")
     return p
+
+
+def _take_cookie_jar(path):
+    """Read and delete the session jar handed over by --cookies-file.
+
+    The file holds live session cookies, so it is unlinked whether or not it
+    parses. Each entry is normalised to the Playwright add_cookies shape (the
+    runner holds both the stored and the login-returned spelling). Raises
+    OSError/ValueError on an unreadable jar: a capture that was meant to start
+    logged in must not quietly run logged out."""
+    if not path:
+        return []
+    from bulk_downloader.cookies import normalize_stored_cookie
+    p = Path(path)
+    try:
+        jar = json.loads(p.read_text(encoding="utf-8"))
+    finally:
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+    if not isinstance(jar, list):
+        raise ValueError("cookie jar is not a list")
+    out = []
+    for c in jar:
+        e = normalize_stored_cookie(c)
+        if float(c.get("expires") or 0) > 0:
+            e["expires"] = int(c["expires"])
+        out.append(e)
+    return out
 
 
 def _hud_enabled(args, env=None) -> bool:
@@ -763,6 +799,12 @@ def _goto_or_continue_if_usable(page, start_url) -> bool:
 
 def run(argv=None) -> int:
     args = _build_parser().parse_args(argv)
+    try:
+        seed_cookies = _take_cookie_jar(args.cookies_file)
+    except (OSError, ValueError) as e:
+        print(f"ERROR: --cookies-file unreadable ({type(e).__name__}); "
+              "not starting a logged-out capture.", file=sys.stderr)
+        return 2
 
     # Imports deferred so --help works without Playwright installed.
     try:
@@ -864,6 +906,10 @@ def run(argv=None) -> int:
                 headless=False, args=launch_args, **launch_extra)
             ctx = browser.new_context(**ctx_kw)
             page = ctx.new_page()
+        if seed_cookies:
+            ctx.add_cookies(seed_cookies)
+            print(f"  started from the site's session ({len(seed_cookies)} cookies)",
+                  file=sys.stderr)
         _cloak.log_choice("capture", backend,
                           "persistent" if args.profile_dir else "non-persistent")
 

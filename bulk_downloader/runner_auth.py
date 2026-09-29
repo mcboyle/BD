@@ -1326,6 +1326,33 @@ class AuthMixin:
                 f"raised (proceeding): {type(e).__name__}: {e}\n")
             return ""
 
+    def _stored_session_usable(self):
+        """Stored cookies that can still carry a session: some unexpired,
+        or session cookies (which carry no expiry to judge)."""
+        if not self.cookies:
+            return False
+        ei = cookies_expiry_info(self.cookies)
+        return ei["expired"] <= 0 or ei["session"] != 0
+
+    def session_for_capture(self, timeout=60.0):
+        """tpl95-bang-1 (O1517): the cookie jar a template capture starts
+        from, so the capture browser is logged in without a human. The
+        stored session when it is usable, else the worker's own automatic
+        login (never a manual takeover). Returns (cookies, how); cookies is
+        [] with the reason in `how` when no session could be had."""
+        if self._stored_session_usable():
+            return list(self.cookies), "stored session"
+        if not (self.config.get("username") and self.config.get("password")):
+            return [], "no usable stored session and no credentials"
+        ev = threading.Event(); result = [False]
+        def _od(ok): result[0] = ok; ev.set()
+        self.login_async(on_done=_od, allow_manual=False)
+        if not ev.wait(timeout=timeout):
+            return [], "automatic login did not finish in time"
+        if not result[0] or not self.cookies:
+            return [], f"automatic login failed: {getattr(self, '_login_status', '')}"[:300]
+        return list(self.cookies), "automatic login"
+
     def _check_cookies_or_relogin(self, url):
         """If all stored cookies are expired and there are no session cookies,
         kick off an automated re-login. Blocks up to 60 s waiting for the
@@ -1337,8 +1364,7 @@ class AuthMixin:
         if not self.cookies:
             return True
         self._report_uncovered_session_scope(url)
-        ei = cookies_expiry_info(self.cookies)
-        if ei["expired"] <= 0 or ei["session"] != 0:
+        if self._stored_session_usable():
             return True
         if self.config.get("username") and self.config.get("password"):
             self._update_job(url, "running", "Cookies expired — re-logging in...")
