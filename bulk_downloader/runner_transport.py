@@ -2188,6 +2188,18 @@ class TransportMixin:
         except PWTimeout:
             return None
 
+    def _browser_save_stopped(self, job_url):
+        """dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+        marks only the JOB "stopped".  Either one ends a browser download."""
+        stop = getattr(self, "_stop", None)
+        if stop is not None and stop.is_set():
+            return True
+        jobs = getattr(self, "jobs", None)
+        if not isinstance(jobs, dict):
+            return False
+        with getattr(self, "_lock", None) or contextlib.nullcontext():
+            return (jobs.get(job_url) or {}).get("status") == "stopped"
+
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
@@ -2865,6 +2877,14 @@ class TransportMixin:
                 transfer_mode="browser"
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+
+            # dl95-filthykings-1: save_as blocks until the browser has moved the
+            # whole file straight to the final name, and reads neither the site
+            # Stop nor the job's Cancel.  One that landed meanwhile owns the
+            # outcome: the file is not kept and the job stays "stopped".
+            if transfer_mode=="browser" and self._browser_save_stopped(page_url):
+                final_path.unlink(missing_ok=True)
+                return
 
             # ── Phase 17.20: Size sanity check ───────────────────────────────
             # If the page advertised a file size and we got back something
