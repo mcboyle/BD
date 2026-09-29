@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1713 - train141: row
+
+T141 (dl95/tpl95 product batch, 11 BOARDed cuts): dl95-cumlouder-1 36512d71; dl95-dailymotion-1-bd-worker-A3-A-G2 72e8a4a8; dl95-xvideos-1 123c11db; tpl95-bang-2-bd-worker-A6-A 6606dfc0; dl95-pussyspace-2-bd-worker-A6-A 3cd0ac8d; dl95-vip4k-3-bd-worker-A3-A e6ad552d; dl95-site-ma-brazzers-2-bd-worker-A6-A 05e0b52d; dl95-dfxtra-1-bd-worker-A6-A 6871f2ed; dl95-kellymadisonmedia-1-g4-bd-worker-B10-B 52b04307; dl95-beeg-1-bd-worker-B9-B bcb19820; dl95-teenfidelity-2-bd-worker-B5-B 7ed3ca61. No register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1712 - train140: row127, row127
 
 T140 (HIGH row127 shadow-read fix first, then dl95 product batch, row127 pg shard CI, launch dry-run test): row127-shadow-rewrite-A4-A 6ddc0f49 (HIGH, MOD3 shadow read re-ran writes); row127-pgshard-A4-A c947f987; dl95-blacked-1-bd-worker-A8-A 37ae394c; dl95-reptyle-2-bd-worker-B2-B 4f3f4644; dl95-teenmegaworld-1-bd-worker-A6-A 58d5205b; dl95-app-B6-1-bd-cx-worker-1 1a75361f; dl95-ok-1-bd-cx-worker-2 G2 1858e825 (PM ruling 00:15Z, row761 unchanged); launch-dryrun-writes-prompt-bd-worker-B2-B 3d6ec451. Row 127 is multi-step: no register close. Generated artifacts regenerated. No deploy.

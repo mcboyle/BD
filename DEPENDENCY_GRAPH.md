@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1806**
+- internal import edges: **1808**
 - tools: 235 · with internal edge: 134 · with tool→package edge: 74
 - blueprints: 163 · config stores: 5
 
@@ -152,7 +152,7 @@ Graph version: 1
 - **scene_score** (`app_scene_score.py`) — routes 3, providers 1
 - **scheduled_exports** (`app_scheduled_exports.py`) — routes 4, providers 1
 - **schedules** (`app_schedules.py`) — routes 4, providers 1
-- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 1
+- **scrape_listing** (`app_scrape_listing.py`) — routes 1, providers 2
 - **scrapling** (`app_scrapling.py`) — routes 4, providers 0
 - **search** (`app_search.py`) — routes 5, providers 1
 - **secrets** (`app_secrets.py`) — routes 17, providers 5

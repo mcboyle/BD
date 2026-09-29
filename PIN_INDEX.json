@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 155,
+    "total": 157,
     "version": 1,
-    "count_dict": 154,
-    "test_files_scanned": 2205,
+    "count_dict": 156,
+    "test_files_scanned": 2216,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -33,6 +33,7 @@
       "tests/test_cut_quality_permits.py": 1,
       "tests/test_daily_digest.py": 2,
       "tests/test_differential_oracle_frontend.py": 4,
+      "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py": 3,
       "tests/test_dom_analyzer.py": 1,
       "tests/test_history_records_the_website_title.py": 7,
       "tests/test_kb_golden_questions.py": 1,
@@ -47,7 +48,6 @@
       "tests/test_row439_segmented_transfers_honor_the_egress_gate.py": 1,
       "tests/test_row667_login_attempt_accounting.py": 1,
       "tests/test_row753_a_run_records_its_own_outcome.py": 1,
-      "tests/test_row777_retry_ladder.py": 1,
       "tests/test_row807_empty_stats_is_unknown_not_clean.py": 1,
       "tests/test_row869_distributed_config.py": 3,
       "tests/test_row904.py": 2,
@@ -272,6 +272,36 @@
         "stat": 1
       },
       "gates_what": "test_pid_is_running_treats_proc_stat_disappearance_as_exit"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py",
+      "line": 31,
+      "value": {
+        "running": 2,
+        "pending": 1,
+        "done": 1
+      },
+      "gates_what": "_site_with_jobs"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py",
+      "line": 40,
+      "value": {
+        "stopped": 3,
+        "done": 1
+      },
+      "gates_what": "test_stop_persists_stopped_so_counts_have_no_running_jobs"
+    },
+    {
+      "form": "count_dict",
+      "file": "tests/test_dl95_site_ma_brazzers_2_stop_persists_job_status.py",
+      "line": 59,
+      "value": {
+        "done": 1
+      },
+      "gates_what": "test_stop_with_nothing_in_flight_writes_nothing"
     },
     {
       "form": "count_dict",
@@ -531,15 +561,6 @@
     },
     {
       "form": "count_dict",
-      "file": "tests/test_row777_retry_ladder.py",
-      "line": 90,
-      "value": {
-        "failed": 1
-      },
-      "gates_what": "test_page_shape_failure_population_is_terminal_at_the_schedule_seam — Deleting the page-shape classifier branch reintroduces the 10m/1h ladder."
-    },
-    {
-      "form": "count_dict",
       "file": "tests/test_row807_empty_stats_is_unknown_not_clean.py",
       "line": 78,
       "value": {
@@ -651,7 +672,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1712",
+      "value": "3.66.1713",
       "gates_what": "test_containment_routes_and_version"
     },
     {
