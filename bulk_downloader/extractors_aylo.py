@@ -187,8 +187,20 @@ def _etld1(hostname: str) -> str:
     return rd if "." in rd else ""
 
 
+# tpl95-redtube-1: Aylo FREE tubes whose scene page carries the same
+# mediaDefinitions player config. On redtube the entries are indirect
+# (`/media/mp4?s=..`, `/media/hls?s=..` answer a JSON list of the real
+# per-quality files) and the DOM <video> only ever holds a ~4 MB preview,
+# so a template row or the DOM scorer can never name the scene's file --
+# the scorer picked an ad (a.adtng.com "4K") then nav (/redtube/hd).
+AYLO_FREE_TUBES: set = {
+    "redtube.com",
+}
+
+
 def is_aylo_url(url: str) -> bool:
-    """Return True if `url`'s hostname looks like an Aylo brand domain.
+    """Return True if `url`'s hostname looks like an Aylo brand domain
+    (or an Aylo free tube in AYLO_FREE_TUBES).
 
     Matches the eTLD+1, so subdomains like `site-ma.brazzers.com`,
     `members.brazzers.com`, `www.brazzers.com` all return True.
@@ -200,7 +212,18 @@ def is_aylo_url(url: str) -> bool:
         host = urlparse(url).hostname or ""
     except Exception:
         return False
-    return _etld1(host) in AYLO_BRANDS
+    rd = _etld1(host)
+    return rd in AYLO_BRANDS or rd in AYLO_FREE_TUBES
+
+
+def is_free_tube_url(url: str) -> bool:
+    """True if `url`'s eTLD+1 is an Aylo free tube (AYLO_FREE_TUBES), not
+    a paysite brand. The runner holds its min-resolution floor for these."""
+    try:
+        host = urlparse(url).hostname or ""
+    except Exception:
+        return False
+    return _etld1(host) in AYLO_FREE_TUBES
 
 
 # ─── flashvars extraction ───────────────────────────────────────────
@@ -331,6 +354,116 @@ def extract_flashvars(html: str) -> Optional[dict]:
         if isinstance(obj, dict) and obj.get("mediaDefinitions"):
             return obj
     return None
+
+
+# tpl95-redtube-1: redtube's player config is not a `flashvars_<id>`
+# object; the `mediaDefinitions` array sits in another JS object literal
+# (quoted or bare key). Found by key, bracket-matched, JSON-parsed.
+_MEDIADEFS_KEY_RE = re.compile(r"""["']?mediaDefinitions["']?\s*:\s*(\[)""")
+
+
+def _find_matching_bracket(text: str, start_idx: int) -> int:
+    """`_find_matching_brace` for a JSON array: index AFTER the `]` that
+    closes the `[` at `start_idx`, or -1. String-literal aware."""
+    if start_idx >= len(text) or text[start_idx] != "[":
+        return -1
+    depth = 0
+    in_string = False
+    string_char = ""
+    escape = False
+    for i in range(start_idx, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == string_char:
+                in_string = False
+        elif ch in ('"', "'"):
+            in_string = True
+            string_char = ch
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def extract_media_definitions(html: str) -> Optional[dict]:
+    """The page's player config: the `flashvars_<id>` object when there is
+    one, else `{"mediaDefinitions": [...]}` from the first bare
+    `mediaDefinitions: [...]` array with at least one entry. Never raises."""
+    fv = extract_flashvars(html)
+    if fv is not None:
+        return fv
+    if not html or not isinstance(html, str):
+        return None
+    for m in _MEDIADEFS_KEY_RE.finditer(html):
+        end = _find_matching_bracket(html, m.start(1))
+        if end == -1:
+            continue
+        try:
+            arr = json.loads(html[m.start(1):end])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(arr, list) and any(isinstance(md, dict) for md in arr):
+            return {"mediaDefinitions": arr}
+    return None
+
+
+def is_indirect_definition(md) -> bool:
+    """True for a mediaDefinitions entry whose videoUrl is not a media
+    file but a JSON endpoint listing the files (redtube `/media/mp4?s=`,
+    `/media/hls?s=`): no numeric quality and a path that is neither .mp4
+    nor .m3u8. Downloading one of these writes a JSON document."""
+    if not isinstance(md, dict):
+        return False
+    url = (md.get("videoUrl") or md.get("video_url") or "").strip()
+    if not url:
+        return False
+    try:
+        path = (urlparse(url).path or "").lower()
+    except Exception:
+        return False
+    if path.endswith((".mp4", ".m3u8")):
+        return False
+    q = md.get("quality", "")
+    qs = q if isinstance(q, list) else [q]
+    return not any(str(x).rstrip("p").isdigit() for x in qs)
+
+
+_FETCH_JSON_JS = """async (u) => {
+    const r = await fetch(u, {credentials: 'include'});
+    if (!r.ok) return null;
+    try { return await r.json(); } catch (e) { return null; }
+}"""
+
+
+def resolve_indirect_definitions(page, mediadefs: list, page_url: str = "") -> list:
+    """Fetch each indirect entry through the page's own session (same
+    registrable domain as the page only) and return the media entries it
+    lists. At most 4 fetches; a failed fetch contributes nothing."""
+    try:
+        page_rd = _etld1(urlparse(page_url).hostname or "")
+    except Exception:
+        page_rd = ""
+    out: list = []
+    for md in [m for m in (mediadefs or []) if is_indirect_definition(m)][:4]:
+        u = (md.get("videoUrl") or md.get("video_url") or "").strip()
+        try:
+            if not page_rd or _etld1(urlparse(u).hostname or "") != page_rd:
+                continue
+            data = page.evaluate(_FETCH_JSON_JS, u)
+        except Exception as e:
+            log.debug("aylo: indirect mediaDefinitions fetch failed: %s", e)
+            continue
+        if isinstance(data, list):
+            out.extend(x for x in data
+                       if isinstance(x, dict) and not is_indirect_definition(x))
+    return out
 
 
 def _max_numeric_quality(mediadefs: list) -> int:
@@ -510,11 +643,25 @@ def extract_from_html(
     """
     if not html:
         return AyloResult(ok=False, error="empty_html")
-    fv = extract_flashvars(html)
+    fv = extract_media_definitions(html)
     if fv is None:
         return AyloResult(ok=False, error="no_flashvars",
                           error_detail="no flashvars_<id> block found")
-    mediadefs = fv.get("mediaDefinitions") or []
+    return _result_from_config(fv, fv.get("mediaDefinitions") or [],
+                               quality_pref=quality_pref,
+                               force_format=force_format)
+
+
+def _result_from_config(
+    fv: dict,
+    mediadefs: list,
+    *,
+    quality_pref: Optional[list] = None,
+    force_format: str = "",
+) -> AyloResult:
+    # tpl95-redtube-1: an indirect entry is a JSON endpoint, never a file.
+    mediadefs = [md for md in (mediadefs or [])
+                 if not is_indirect_definition(md)]
     if not mediadefs:
         return AyloResult(ok=False, error="empty_mediadefs")
     variant = pick_best_variant(mediadefs, quality_pref=quality_pref,
@@ -565,16 +712,35 @@ def extract_from_page(
     except Exception as e:
         return AyloResult(ok=False, error="page_content_failed",
                           error_detail=f"{type(e).__name__}: {e}")
-    return extract_from_html(html, quality_pref=quality_pref,
-                             force_format=force_format)
+    if not html:
+        return AyloResult(ok=False, error="empty_html")
+    fv = extract_media_definitions(html)
+    if fv is None:
+        return AyloResult(ok=False, error="no_flashvars",
+                          error_detail="no flashvars_<id> block found")
+    mediadefs = list(fv.get("mediaDefinitions") or [])
+    # tpl95-redtube-1: redtube lists only indirect `/media/{mp4,hls}` entries;
+    # the per-quality files come from fetching them in the page's session.
+    try:
+        page_url = page.url or ""
+    except Exception:
+        page_url = ""
+    mediadefs += resolve_indirect_definitions(page, mediadefs, page_url)
+    return _result_from_config(fv, mediadefs, quality_pref=quality_pref,
+                               force_format=force_format)
 
 
 __all__ = [
     "AYLO_BRANDS",
+    "AYLO_FREE_TUBES",
     "AyloResult",
     "AyloVariant",
     "is_aylo_url",
+    "is_free_tube_url",
     "extract_flashvars",
+    "extract_media_definitions",
+    "is_indirect_definition",
+    "resolve_indirect_definitions",
     "pick_best_variant",
     "extract_from_html",
     "extract_from_page",

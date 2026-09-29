@@ -2178,6 +2178,29 @@ class ExtractorsMixin:
         if variant is None or not variant.url:
             return False
 
+        # tpl95-redtube-1 (R1, B13-B F1): a free tube routed here holds the
+        # min-resolution floor as the scorer / SPA paths do. Scoped to
+        # AYLO_FREE_TUBES: the paysite brands keep their BASE behaviour.
+        if _aylo.is_free_tube_url(url):
+            min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+            height = int(variant.quality or 0)
+            from contextlib import nullcontext
+            jobs = getattr(self, "jobs", None)
+            with getattr(self, "_lock", None) or nullcontext():
+                job = jobs.get(url) if isinstance(jobs, dict) else None
+                forced = bool((job or {}).get("force_download"))
+            if min_res > 0 and 0 < height < min_res and not forced:
+                summary = " | ".join(result.available_qualities or [f"{height}p"])
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                msg = f"Best is {height}p (below {min_res}p) — Approve to force. Saw: {summary}"
+                sys.stderr.write(f"  aylo: skipped {url[-40:]} — best is {height}p "
+                                 f"(below min_res={min_res}p)\n")
+                self._update_job(url, "needs_review", msg, screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       f"below {min_res}p; got {height}p; saw: {summary}", ss)
+                return True
+
         # Build filename context from the extractor metadata.
         # The runner already has the teach-path filename rendering
         # logic in `_process_one`; we reuse the same template + ctx
