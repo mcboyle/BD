@@ -451,6 +451,97 @@ def _clear_gates_origin(url: Any) -> str:
     return "%s://%s" % (parsed.scheme.lower(), parsed.netloc.lower())
 
 
+# fx-dorcelclub-frame-gate: the host <iframe> is drawn fixed/absolute over
+# the viewport centre -- the only shape of child frame that is a wall.
+_FRAME_COVERS_VIEWPORT_JS = """el => {
+  const style = window.getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  if (style.position !== 'fixed' && style.position !== 'absolute') return false;
+  const r = el.getBoundingClientRect();
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+  return r.width > 0 && r.height > 0 && r.left <= cx && r.right >= cx &&
+    r.top <= cy && r.bottom >= cy;
+}"""
+FRAME_GATE_CAP = 8
+
+
+def _frame_covers_viewport(host: Any) -> Optional[bool]:
+    try:
+        return bool(host.evaluate(_FRAME_COVERS_VIEWPORT_JS))
+    except Exception:
+        return None
+
+
+def _covering_child_frames(page: Any, expected_origin: str) -> List[Tuple[Any, Any]]:
+    """Direct child frames of ``page`` that sit over the viewport and have
+    no origin of their own (``about:``) or the page's own origin."""
+    try:
+        main = page.main_frame
+        frames = [f for f in list(page.frames) if f is not main]
+    except Exception:
+        return []
+    out: List[Tuple[Any, Any]] = []
+    for frame in frames[:FRAME_GATE_CAP]:
+        try:
+            if frame.parent_frame is not main:
+                continue
+            frame_url = str(frame.url or "")
+            if not frame_url.startswith("about:") and not (
+                    expected_origin
+                    and _clear_gates_origin(frame_url) == expected_origin):
+                continue
+            host = frame.frame_element()
+        except Exception:
+            continue
+        if _frame_covers_viewport(host):
+            out.append((frame, host))
+    return out
+
+
+def _clear_frame_gate(page: Any, frame: Any, host: Any, expected_origin: str,
+                      url: Optional[str], note, sleep) -> bool:
+    """Click one consent/age control inside a covering child frame.
+
+    True once a click was made (cleared, still covering, or escaped and
+    undone) -- the caller stops offering frames. The origin verdict is the
+    PAGE's, exactly as for a main-frame gate.
+    """
+    for tier, selectors in (("consent", CONSENT), ("age", AGE)):
+        pick = _age_candidate if tier == "age" else _safe_candidate
+        for selector in selectors:
+            candidate = pick(frame, selector)
+            if candidate is None:
+                continue
+            try:
+                candidate.click(timeout=GATE_CLICK_TIMEOUT_MS)
+                sleep(GATE_SETTLE_S)
+            except Exception:
+                continue
+            current_origin = _clear_gates_origin(getattr(page, "url", ""))
+            if not expected_origin or current_origin != expected_origin:
+                note("%s: %s in a child frame LEFT THE ORIGIN (%s -> %s) -- "
+                     "going back, not trusting it" % (
+                         tier, selector, expected_origin, current_origin))
+                try:
+                    page.go_back(wait_until="domcontentloaded",
+                                 timeout=ORIGIN_RECOVERY_TIMEOUT_MS)
+                    sleep(ORIGIN_RECOVERY_SETTLE_S)
+                except Exception:
+                    pass
+                if (url and _clear_gates_origin(getattr(page, "url", ""))
+                        != expected_origin):
+                    page.goto(url, wait_until="domcontentloaded",
+                              timeout=DESTINATION_TIMEOUT_MS)
+                return True
+            if _frame_covers_viewport(host):
+                note("%s: clicked %s in a child frame but the frame still "
+                     "covers the page -- not cleared" % (tier, selector))
+            else:
+                note("%s: cleared via %s in a child frame" % (tier, selector))
+            return True
+    return False
+
+
 def clear_gates(page: Any, *, site_gates: Any = None,
                 url: Optional[str] = None, log=None,
                 sleep=time.sleep) -> List[str]:
@@ -532,6 +623,20 @@ def clear_gates(page: Any, *, site_gates: Any = None,
             if tier == "interstitial" or (url and after_url != before_url):
                 interstitial_cleared = True
             break
+
+    # fx-dorcelclub-frame-gate: a wall drawn in a child frame fixed over the
+    # page (dorcel's about:blank 18+/cookie iframe) has no control in the
+    # main frame, so the tiers above found nothing and the scene's download
+    # click timed out under it. Only when the page itself had no gate, the
+    # consent and age tiers are offered to a viewport-covering child frame
+    # with no origin of its own or the page's own; a foreign frame is never
+    # clicked. The same FORBIDDEN / 18-plus checks pick the control.
+    if not result:
+        for frame, host in _covering_child_frames(page, expected_origin):
+            outcome = _clear_frame_gate(page, frame, host, expected_origin,
+                                        url, note, sleep)
+            if outcome:
+                break
 
     # dl95-hoopladigital-3: a click's navigation can commit after the settle
     # read above, so a clearance that leaves the page anywhere but the
