@@ -146,15 +146,29 @@ def _fire_auto_login_trigger(page):
         return False, False, ""
     if not isinstance(index, int) or index < 0:
         return False, False, ""
+    control = page.locator("button, a, [role='button']").nth(index)
     try:
-        page.locator("button, a, [role='button']").nth(index).click(
-            timeout=2500)
+        control.click(timeout=2500)
         return True, True, "clicked the page's sole Login control (auto)"
     except Exception as exc:
-        return True, False, (
-            f"could not click the page's Login control (auto): "
-            f"{str(exc)[:120]}"
-        )
+        click_error = str(exc)[:120]
+    # fx-pornhoarder-login-trigger: a Login <a href> whose click is never
+    # actionable (off-canvas nav, overlay) is still one navigation from the
+    # form.  Follow the link's own http(s) href; a control without one keeps
+    # the "could not click" result.
+    try:
+        target = control.evaluate(
+            "e => (e.tagName === 'A' && e.href) ? e.href : ''")
+        if isinstance(target, str) and target.startswith(("http://", "https://")):
+            page.goto(target, wait_until="domcontentloaded", timeout=15000)
+            return True, True, (
+                "followed the page's sole Login link (auto) after its click "
+                "was not actionable")
+    except Exception:
+        pass
+    return True, False, (
+        f"could not click the page's Login control (auto): {click_error}"
+    )
 
 
 def resolve_login_trigger(config=None, page=None):
