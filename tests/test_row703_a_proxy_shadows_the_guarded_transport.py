@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:3479",  # dl95-cumlouder-1 moved it (+37); was :3442 after dl95-teenmegaworld-1 moved it (+62); was :3380 after T102 rows 1113/1119 moved it (+8); was :3372 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340 after row 1077
-    "bulk_downloader/runner_transport.py:3890",  # dl95-cumlouder-1 moved it (+37); was :3853 after dl95-teenmegaworld-1 moved it (+62); was :3791 after T102 rows 1113/1119 moved it (+21); was :3770 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728 after row 1077
-    "bulk_downloader/runner_transport.py:4122",  # dl95-cumlouder-1 moved it (+37); was :4085 after dl95-teenmegaworld-1 moved it (+62); was :4023 after T102 rows 1113/1119 moved it (+21); was :4002 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960 after row 1077
+    "bulk_downloader/runner_transport.py:3485",  # LANE-1 dl95-justporn-1 moved it (+6); was :3479 after dl95-cumlouder-1 moved it (+37); was :3442 after dl95-teenmegaworld-1 moved it (+62); was :3380 after T102 rows 1113/1119 moved it (+8); was :3372 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3340 after row 1077
+    "bulk_downloader/runner_transport.py:3896",  # LANE-1 dl95-justporn-1 moved it (+6); was :3890 after dl95-cumlouder-1 moved it (+37); was :3853 after dl95-teenmegaworld-1 moved it (+62); was :3791 after T102 rows 1113/1119 moved it (+21); was :3770 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3728 after row 1077
+    "bulk_downloader/runner_transport.py:4128",  # LANE-1 dl95-justporn-1 moved it (+6); was :4122 after dl95-cumlouder-1 moved it (+37); was :4085 after dl95-teenmegaworld-1 moved it (+62); was :4023 after T102 rows 1113/1119 moved it (+21); was :4002 after row 1066 moved it (+22: kernel pacing inserted at line 1148); was :3960 after row 1077
 }
 
 
