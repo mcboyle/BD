@@ -134,6 +134,9 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
 # dl95-kellymadisonmedia-1: do_login's verdict when the login page never loads.
 LOGIN_UNREACHABLE_PREFIX="Login page unreachable: "
 LOGIN_CANCELLED_PREFIX="Login cancelled before submit: "
+# O1567 fx-relogin-vault-locked: refused before any site contact -- the vault
+# is still locked (a restart resumes workers before it unlocks).
+LOGIN_VAULT_LOCKED_PREFIX="Credential vault locked: "
 
 # dl95-cancel-relogin-1: whoever started a login can withdraw it (a re-login
 # for a job the operator then cancelled). The predicate returns a reason once
@@ -1635,7 +1638,7 @@ def do_login(config, allow_manual_takeover=False):
             f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r}: credential "
             f"vault is LOCKED; the stored password cannot be decrypted. "
             f"Unlock it in Settings -> Secrets after every service restart.\n")
-        return False, "Credential vault locked: password", []
+        return False, LOGIN_VAULT_LOCKED_PREFIX + "password", []
     if password_state == "missing":
         sys.stderr.write(
             f"  {site_tag()}login: SKIPPED — site {config.get('name','?')!r}: stored "

@@ -11,7 +11,8 @@ from pathlib import Path
 from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials
-from .login_impl.submit import LOGIN_CANCELLED_PREFIX, LOGIN_UNREACHABLE_PREFIX, login_abort_check
+from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_UNREACHABLE_PREFIX,
+                                 LOGIN_VAULT_LOCKED_PREFIX, login_abort_check)
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
@@ -409,8 +410,17 @@ class AuthMixin:
                 _surface_login_channel_fallbacks(self)
                 # dl95-cancel-relogin-cap-1: a login withdrawn before submit
                 # sent no credentials -- give its day slot back.
+                # O1567 fx-relogin-vault-locked: nor did a login refused
+                # because the vault is still locked; stamp it for the re-login
+                # path so the job keeps its retry.
+                _vault_locked = bool(
+                    result and result[0] is False
+                    and str(result[1]).startswith(LOGIN_VAULT_LOCKED_PREFIX))
+                if _vault_locked:
+                    self._login_vault_locked_attempt = _attempt
                 if (result and result[0] is False
-                        and str(result[1]).startswith(LOGIN_CANCELLED_PREFIX)
+                        and (str(result[1]).startswith(LOGIN_CANCELLED_PREFIX)
+                             or _vault_locked)
                         and not _sk.withdraw_login_attempt(
                             _reservation.get("row_id"), result[1])):
                     sys.stderr.write(
@@ -472,6 +482,7 @@ class AuthMixin:
                 if (not ok and allow_manual and had_template
                         and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
                         and not str(msg).startswith(LOGIN_CANCELLED_PREFIX)
+                        and not str(msg).startswith(LOGIN_VAULT_LOCKED_PREFIX)
                         and not isinstance(msg, _sk.LoginLockout)
                         and not getattr(self, "_manual_login_handle", None)
                         and self.config.get("login_url","").startswith("http")):
@@ -1349,10 +1360,17 @@ class AuthMixin:
                 # Login failed (manual takeover required, captcha unsolved,
                 # bad credentials, etc.). Mark URL pending with a 60s backoff
                 # so _watch_done's retry path will eventually pick it up.
+                # O1567 fx-relogin-vault-locked: a refusal because the vault
+                # was still locked (restart_resume beats the unlock) tried
+                # nothing -- the job keeps its retry budget.
+                vault_locked = (getattr(self, "_login_vault_locked_attempt", 0)
+                                >= _awaited_attempt)
                 from . import admission as _adm
                 self._update_job(url,"pending",
-                                 "Re-login did not complete — will retry later",
-                                 retries=retries+1,
+                                 ("Re-login waiting for the credential vault to unlock"
+                                  if vault_locked else
+                                  "Re-login did not complete — will retry later"),
+                                 retries=retries if vault_locked else retries+1,
                                  retry_after=_adm.next_eligible_retry(
                                      time.time()+60, self.config))
         finally:
