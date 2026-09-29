@@ -164,6 +164,7 @@ class TeachMixin:
                     changed = True
             if changed:
                 mark_status_changed()
+        self._release_teach_waiters()
         # Phase 41.5: spawn workers now that selectors are learned and
         # pending URLs exist. start() is idempotent.
         try: self.start()
@@ -196,6 +197,7 @@ class TeachMixin:
                         except Exception: pass
                         mark_status_changed()
             self._auto_teach_logged = False
+            self._release_teach_waiters()
         except Exception: pass
         self._login_status = "✗ Teach Mode cancelled"
         return True, "Cancelled"
@@ -307,6 +309,34 @@ class TeachMixin:
                           safe)
         except Exception as e:
             self.log.error("test_extract draft writeback failed: %s", e)
+    def _release_teach_waiters_locked(self, mark_status_changed):
+        """dl-f4: requeue every URL _handle_auto_teach_check parked. Caller
+        holds _job_status_writer."""
+        self._teach_waiters_parked = False
+        for u, j in self.jobs.items():
+            if not j.pop("auto_teach_waiting", False):
+                continue
+            if j.get("status") == "pending":
+                j["message"] = "Queued after teach completion"
+                try: self._url_queue.put_nowait(u)
+                except Exception: pass
+            mark_status_changed()
+    def _release_teach_waiters(self):
+        """dl-f4: a teach flow ended (commit, cancel, manual finish/cancel):
+        requeue the parked URLs. Must not be called under _job_status_writer."""
+        with self._job_status_writer() as mark_status_changed:
+            self._release_teach_waiters_locked(mark_status_changed)
+    def _release_teach_waiters_if_unblocked(self):
+        """dl-f4: requeue parked URLs once no teach target remains in
+        needs_review, whatever removed it (bulk delete, mark, skip). Cheap
+        no-op when nothing is parked; idle workers call it every poll."""
+        if not getattr(self, "_teach_waiters_parked", False):
+            return
+        with self._job_status_writer() as mark_status_changed:
+            if any(j.get("status") == "needs_review" and j.get("auto_teach_seen")
+                   for j in self.jobs.values()):
+                return
+            self._release_teach_waiters_locked(mark_status_changed)
     def _handle_auto_teach_check(self, url, job):
         """Phase 19 auto-teach for the first URL: if the site has no learned
         download selectors yet, route ONE URL to needs_review so the user can
@@ -335,6 +365,7 @@ class TeachMixin:
         teach_message = (
             "Auto-teach: take over to teach download selectors. "
             "Click the download button by hand, then 'I'm Done'.")
+        released_run_id = None
         with self._job_status_writer() as mark_status_changed:
             others_in_teach = any(
                 j.get("status") == "needs_review" and j.get("auto_teach_seen")
@@ -348,8 +379,14 @@ class TeachMixin:
                         "message": "Waiting for teach completion",
                         "ts": "",
                     })
-                try: self._url_queue.put_nowait(url)
-                except Exception: pass
+                    # dl-f4: this claim ends here, so its run row must close.
+                    released_run_id = current.pop("_run_id", None)
+                # dl-f4: park, do not requeue. Requeueing made every worker
+                # re-claim this URL every 5s (a new open run row each time)
+                # until teach finished; _release_teach_waiters requeues it.
+                if current:
+                    current["auto_teach_waiting"] = True
+                    self._teach_waiters_parked = True
                 mark_status_changed()
                 deferred = True
             else:
@@ -368,10 +405,19 @@ class TeachMixin:
                         "ts_iso": _ts_iso(),
                         "auto_teach_seen": True,
                     })
+                    current.pop("auto_teach_waiting", None)
+                    # dl-f4-live-1: the worker releases the job here, so this
+                    # claim's run row closes too (it stayed running forever).
+                    released_run_id = current.pop("_run_id", None)
                     mark_status_changed()
                     selected = True
+        if released_run_id:
+            run_status = "deferred" if deferred else "needs_review"
+            from . import run_history as _rh  # both calls are fail-open
+            _rh.record_run_finish(released_run_id, run_status)
+            _rh.emit_lifecycle(self, "finish", run_id=released_run_id,
+                               url=url, message=run_status)
         if deferred:
-            self._stop.wait(timeout=5.0)
             return True
         if selected:
             self._update_job(

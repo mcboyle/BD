@@ -487,6 +487,11 @@ class QueueMixin:
             self.urls[:]=[u for u in self.urls if u not in urls]
             if removed:
                 mark_status_changed()
+        # dl-f4: deleting the teach target must not strand parked URLs.
+        # Lightweight QueueMixin hosts carry no TeachMixin and park nothing.
+        release = getattr(self, "_release_teach_waiters_if_unblocked", None)
+        if release is not None:
+            release()
         try:
             queue_bulk_delete(self.site_id, list(urls))
         except Exception: pass
