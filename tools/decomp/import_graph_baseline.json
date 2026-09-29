@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5354,
+  "edge_count": 5366,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2082,6 +2082,7 @@
       "bulk_downloader/rate_limit.py",
       "bulk_downloader/resume.py",
       "bulk_downloader/runner_util.py",
+      "bulk_downloader/spa_media_extract.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/ssrf_transport.py",
       "bulk_downloader/staging_claim.py",
@@ -3191,6 +3192,11 @@
     "tests/test_dl95_ad_frames_are_not_download_candidates.py": [
       "bulk_downloader/detect.py"
     ],
+    "tests/test_dl95_africancasting_2_discovery_relogin.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cookies.py",
+      "bulk_downloader/scene_crawler.py"
+    ],
     "tests/test_dl95_africancasting_3_min_res_page_media_rescue.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py",
@@ -3356,6 +3362,16 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_dl95_pussyspace_1_dud_candidate_page_media.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_dl95_pussyspace_1_rediff_scope.py": [
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py"
+    ],
     "tests/test_dl95_pussyspace_2_listing_link_classifier.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/listing_links.py",
@@ -3442,6 +3458,10 @@
       "bulk_downloader/happy_eyeballs.py",
       "bulk_downloader/multi_homed_egress.py",
       "bulk_downloader/ssrf_transport.py"
+    ],
+    "tests/test_dl_f6_navigation_download_is_the_file.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_dl_f7_site_delete_closes_orphan_runs.py": [
       "bulk_downloader/app.py",

@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1723 - train151: row
+
+T151 = backlog-3 (PM ruling 07:1xZ backlog batch; RULING-REDIFF 1b/1c fix-forward cuts + the pussyspace-1 re-diff, all main-based BOARDs): dl95-africancasting-2-dp13 abf2de67; dl-f6-dp13 083a64f5 (merged in place: nav_download def line + pornhoarder-1's frame-aware gate); dl95-pussyspace-1-rediff 7a343c6c (merged in place: its single trailer-safe page-media fallback replaces brazzers-1's inline block, placed above main's new methods); dl95-cumlouder-3-gen2delta-dp13 2a50bb71. These replace the lane originals excluded from LANE-1/2/3 for DP-13 or the brazzers collision. Held for re-diff: dl95-porndig-3b-dp13 (a later porndig-3 generation colliding with T150's lane porndig-3). test_row703 STAR_KWARGS re-pin (+43). Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1722 - train150: row
 
 T150 = LANE-3 (DOT95 lane to main per PM ruling 07:1xZ: next 19 boarded lane commits with content, in lane order from lane head d197fa82 starting at dl95-hustlerunlimited-1; empties = content already on main): dl95-hustlerunlimited-1, tpl95-xhamster-1, dl95-kvs-flashvars-1 (union), dl95-hqporner-1 (union), dl95-xempire-2 and tpl95-teenfidelity-1 (merged in place: admission counter keys), and the other clean picks listed in the record. Excluded: tpl95-whoreshub-1 (search-field detector collides with main's eporner-4; re-diff), dl95-africancasting-4 (breaks africancasting-3's measured precondition; re-diff), dl95-beeg-1-live-1-r2delta (delta on a refuted generation not on main), and +1 DP-13 each: tpl95-cumlouder-1, dl95-kellymadisonmedia-2, dl95-cumlouder-3-gen2delta, dl95-ok-3 (fix forward). Fixed in place (tests only): tpl95-tiny4k-1 fixture AWS-key-shaped X-Amz-Credential redacted inside the pick (not baselined); tpl95-xh1 test double gets the runner lock; test_row703 STAR_KWARGS re-pin. Generated artifacts regenerated. No deploy.
