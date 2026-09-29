@@ -626,6 +626,7 @@ def enqueue_one_url(site_id, url, *, runners=None):
     if sid not in runners or not runners[sid]:
         raise KeyError(f"unknown site_id {sid!r}")
     added, dupes, skipped = runners[sid].load_urls([target])
+    retryable = runners[sid].retryable_urls([target]) if dupes else []
     try:
         import importlib
         _eg = importlib.import_module("bulk_downloader.event_gateway")
@@ -639,6 +640,9 @@ def enqueue_one_url(site_id, url, *, runners=None):
         "added": int(added),
         "dupes": int(dupes),
         "skipped": int(skipped),
+        # dl95-dailymotion-6: the dupe is a failed job the caller may re-queue
+        # via /api/sites/<sid>/bulk_retry.
+        "retryable_dupes": retryable,
     }
 
 
@@ -667,7 +671,7 @@ def api_queue_v2_add_url():
     header mechanism is the closest existing analog). Storing
     them is a v3.66.9 candidate once the runner grows a hint slot.
 
-    Returns: {ok, site_id, url, added, dupes, skipped}.
+    Returns: {ok, site_id, url, added, dupes, skipped, retryable_dupes}.
 
     On unknown site_id: 400. On missing url: 400. On load_urls
     raising: 500 with the exception type + truncated message.

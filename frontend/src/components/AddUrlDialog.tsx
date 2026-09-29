@@ -34,12 +34,18 @@ interface SingleResult extends OkResult {
   added?: number;
   dupes?: number;
   skipped?: number;
+  retryable_dupes?: string[];
 }
 
 interface ListResult extends OkResult {
   added?: number;
   dupes_skipped?: number;
   already_on_disk?: number;
+  retryable_dupes?: string[];
+}
+
+interface RetryResult extends OkResult {
+  retried?: number;
 }
 
 interface ScrapeResult extends OkResult {
@@ -103,6 +109,33 @@ export function AddUrlDialog({
     qc.invalidateQueries({ queryKey: ["dashboard-v2"] });
   };
 
+  // dl95-dailymotion-6: a "dupe" can be a FAILED job -- load_urls leaves it
+  // failed, so the "0 added, N dupes" toast read as done while nothing will run.
+  // The server names those URLs (retryable_dupes); say so and offer the same
+  // bulk_retry the Queue page uses.
+  const requeueMut = useMutation<RetryResult, Error, { sid: string; urls: string[] }>({
+    mutationFn: ({ sid, urls }) =>
+      apiPost<RetryResult>(`/api/sites/${encodeURIComponent(sid)}/bulk_retry`, { urls }),
+    onSuccess: (res) => {
+      toast.success(`${res.retried ?? 0} requeued`);
+      afterEnqueue();
+    },
+    onError: (e) => toast.error(e.message || "Requeue failed"),
+  });
+
+  const reportEnqueue = (summary: string, sid: string, retryable?: string[]) => {
+    const urls = retryable ?? [];
+    if (!urls.length) {
+      toast.success(summary);
+      return;
+    }
+    const n = urls.length;
+    toast.warning(`${summary} \u00b7 ${n} failed \u2014 not re-added`, {
+      action: { label: "Requeue", onClick: () => requeueMut.mutate({ sid, urls }) },
+      duration: 10000,
+    });
+  };
+
   const singleMut = useMutation<SingleResult, Error, void>({
     mutationFn: () =>
       apiPost<SingleResult>("/api/queue/v2/add_url", {
@@ -110,7 +143,7 @@ export function AddUrlDialog({
         url: url.trim(),
       }),
     onSuccess: (res) => {
-      toast.success(summarize(res.added, res.dupes, res.skipped));
+      reportEnqueue(summarize(res.added, res.dupes, res.skipped), effectiveSite, res.retryable_dupes);
       afterEnqueue();
       reset();
       onOpenChange(false);
@@ -124,7 +157,7 @@ export function AddUrlDialog({
         text: listText,
       }),
     onSuccess: (res) => {
-      toast.success(summarize(res.added, res.dupes_skipped, res.already_on_disk));
+      reportEnqueue(summarize(res.added, res.dupes_skipped, res.already_on_disk), effectiveSite, res.retryable_dupes);
       afterEnqueue();
       reset();
       onOpenChange(false);
