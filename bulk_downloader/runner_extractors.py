@@ -1408,6 +1408,10 @@ class ExtractorsMixin:
             except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
                 sys.stderr.write("  spa-api: page content unreadable; no ok.ru player sources\n")
             page_media += wgcz_media
+            try:
+                page_media += _spa.youjizz_encodings_candidates(page.url or url, page.content())  # fx-youjizz-quality
+            except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
+                sys.stderr.write("  spa-api: page content unreadable; no youjizz encodings\n")
         try:
             page_url = page.url or url
         except Exception:

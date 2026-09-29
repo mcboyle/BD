@@ -555,8 +555,8 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     out: List[Dict[str, Any]] = []
     seen = set()
     for u in urls or []:
-        if isinstance(u, dict) and u.get("source") in ("kvs-flashvars", "okru-player"):
-            # dl95-kvs-flashvars-1 / fx-ok-extractor: already a candidate (label, height, bound applied)
+        if isinstance(u, dict) and u.get("source") in ("kvs-flashvars", "okru-player", "youjizz-encodings"):
+            # dl95-kvs-flashvars-1 / fx-ok-extractor / fx-youjizz-quality: already a candidate (label, height, bound applied)
             if u.get("url") and u["url"] not in seen:
                 seen.add(u["url"])
                 out.append(u)
@@ -737,6 +737,50 @@ def okru_player_candidates(page_url: str, html: str, job_url: str = "") -> List[
             out.append({"url": u, "label": name, "height": _OKRU_HEIGHTS[name], "size": 0,
                         "source": "okru-player", "filename": ""})
     return out
+
+
+# fx-youjizz-quality: a youjizz scene page declares every rendition in its inline
+# `var dataEncodings = [{quality, filename, name}...]` (progressive mp4s on
+# cdne-mobile, then the same heights as _hls/ m3u8, then "Auto"). The player
+# loads 240p, so page media saw only 240p though 1080p is declared.
+_YOUJIZZ_ENCODINGS_RE = re.compile(r"\bvar\s+dataEncodings\s*=\s*(?=\[)")
+
+
+def youjizz_encodings_candidates(page_url: str, html: str) -> List[Dict[str, Any]]:
+    """The progressive mp4 renditions of THIS youjizz page's player (its own
+    dataEncodings assignment); the HLS twins only when no mp4 is declared."""
+    import json as _json
+    if not (urlparse(page_url or "").hostname or "").endswith("youjizz.com"):
+        return []
+    m = _YOUJIZZ_ENCODINGS_RE.search(html or "")
+    if not m:
+        return []
+    try:
+        items, _end = _json.JSONDecoder().raw_decode(html, m.end())
+    except ValueError:
+        return []
+    mp4: List[Dict[str, Any]] = []
+    hls: List[Dict[str, Any]] = []
+    seen = set()
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        quality = str(it.get("quality") or "")
+        raw = str(it.get("filename") or "").strip()
+        if not quality.isdigit() or not raw:
+            continue
+        u = urljoin(page_url, raw)
+        if not u.startswith(("http://", "https://")) or u in seen:
+            continue
+        seen.add(u)
+        path = urlparse(u).path.lower()
+        cand = {"url": u, "label": str(it.get("name") or f"{quality}p"), "height": int(quality),
+                "size": 0, "source": "youjizz-encodings", "filename": ""}
+        if path.endswith(".mp4") and "/_hls/" not in path:
+            mp4.append(cand)
+        elif path.endswith(".m3u8"):
+            hls.append(cand)
+    return mp4 or hls
 
 
 def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
