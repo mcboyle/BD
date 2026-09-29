@@ -220,6 +220,9 @@ def _regional_connection_errors():
 _BARE_MEDIA_LEAF_RE = re.compile(
     r"^(?:mp4|m4v|webm|mov|high|low|medium|hd|sd|full|stream|download|video"
     r"|file|index|\d{3,4}p|4k|8k"
+    # tpl95-nookies-1: a numeric-only leaf (/membersarea/video/stream/3504 ->
+    # "3504.mp4") is a route id, not a name.
+    r"|\d+"
     # brazzers/bangbros live (17:1xZ): CDN object names are bare hex hashes
     # (936997063d2c...mp4, 2da1abca...mp4) or uuids -- not a name either.
     r"|[0-9a-f]{32,64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", re.I)
@@ -249,7 +252,9 @@ def _scene_url_stem(scene_url):
         return ""
     for seg in reversed(path.split("/")):
         seg = seg.strip()
-        if seg and not _is_bare_media_leaf(seg):
+        # A numeric scene id is bare as a FILE leaf but is still the best
+        # fallback stem the scene URL has (never the route word before it).
+        if seg and (seg.isdigit() or not _is_bare_media_leaf(seg)):
             return Path(seg).stem or seg
     return ""
 
