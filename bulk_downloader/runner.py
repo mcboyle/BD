@@ -2352,8 +2352,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         for _ in self._worker_threads:
             try: self._url_queue.put_nowait(None)
             except Exception: pass
+        stopped_urls = []
         with job_status_writer(self) as mark_status_changed:
-            changed = False
             for u,j in self.jobs.items():
                 # Corrupt/legacy queue payloads must not make lifecycle
                 # teardown fail open.  The status endpoint already reports
@@ -2362,9 +2362,18 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if (isinstance(j, dict)
                         and j.get("status") in ("pending", "running")):
                     j.update({"status":"stopped","message":"Stopped","ts":_ts()})
-                    changed = True
-            if changed:
+                    stopped_urls.append(u)
+            if stopped_urls:
                 mark_status_changed()
+        # dl95-site-ma-brazzers-2: persist the transition, as bulk_pause does
+        # (outside the lock). Only memory changed before, so the queue table --
+        # /queue/counts, a restart's restore -- kept the jobs "running".
+        if stopped_urls:
+            try:
+                queue_bulk_update(self.site_id, stopped_urls,
+                                  status="stopped", message="Stopped")
+            except Exception as e:
+                self.log.debug("stop: queue persist failed: %s", e)
         self._state="stopped"
         # Workers close their own browsers in their finally blocks. We don't
         # call browser.close() across threads — Playwright sync is not
