@@ -339,10 +339,23 @@ def _scene_cohort(
     shapes: list[str] = []
     seen = set()
     for _images, _size, signature, rows in winning:
-        shapes.append(_shape_label(signature, rows[0]))
+        # dl95-vip4k-3: a text-only card joins its cohort only when its varying
+        # segments have the same kind (id digits vs word) as a thumbnail card's.
+        # vip4k's sidebar /en/videos/history|favorites|later|liked share the
+        # /en/videos/<x> signature with the /en/videos/<id> scene cards and were
+        # queued as scenes; nubilefilms' text-only sibling cards still join.
+        fixed = {index for index, _value in signature[1]}
+
+        def _kinds(row: dict[str, Any]) -> tuple[bool, ...]:
+            return tuple(part.isdigit() for index, part in enumerate(row["_parts"])
+                         if index not in fixed)
+
+        shown = {_kinds(row) for row in rows if row.get("has_img")}
+        shapes.append(_shape_label(signature, next(row for row in rows if row.get("has_img"))))
         for row in rows:
+            admitted = _kinds(row) in shown     # a thumbnail row always is
             row.pop("_parts", None)
-            if row["url"] in seen:
+            if not admitted or row["url"] in seen:
                 continue
             seen.add(row["url"])
             scenes.append(row)

@@ -1,0 +1,138 @@
+{
+ "_source": "real anchors: bulk_downloader.scene_crawler._ANCHOR_JS run in headless Chromium over tests/corpus/recognizer/vip4k.cap.json (dom_log full_snapshot of members.vip4k.com/en/videos), merged by _merge_anchors; kept: members.vip4k.com /en/videos/<x> rows without a query string, DOM order (bd-worker-A3-A, 2026-09-29). Live counterpart: test2 scene_crawl_runs 101078be queued /en/videos/history + /favorites; 4d41856a queued /later + /liked + 741/36/600/609.",
+ "listing_url": "https://members.vip4k.com/en/videos",
+ "anchors": [
+  {
+   "url": "https://members.vip4k.com/en/videos/history",
+   "text": "\n                                \n                                    \n                                        \n                                    \n                                \n                                History\n                            ",
+   "title": "History",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": false,
+   "class_name": "sidebar-nav__link ",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/favorites",
+   "text": "\n                                \n                                    \n                                        \n                                    \n                                \n                                Favorites\n                            ",
+   "title": "Favorites",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": false,
+   "class_name": "sidebar-nav__link ",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/later",
+   "text": "\n                                \n                                    \n                                        \n                                    \n                                \n                                Watch Later\n                            ",
+   "title": "Watch Later",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": false,
+   "class_name": "sidebar-nav__link ",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/liked",
+   "text": "\n                                \n                                    \n                                        \n                                    \n                                \n                                Liked Videos\n                            ",
+   "title": "Liked Videos",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": false,
+   "class_name": "sidebar-nav__link ",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1363",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1371",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1365",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1356",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1351",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1253",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1213",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "hero-slider__item fader__slide keen-slider__slide keen-slider__slide--hero",
+   "rel": ""
+  },
+  {
+   "url": "https://members.vip4k.com/en/videos/1300",
+   "text": "",
+   "title": "",
+   "aria": "",
+   "img_alt": "",
+   "nearest": "",
+   "has_img": true,
+   "class_name": "item__main",
+   "rel": ""
+  }
+ ]
+}
