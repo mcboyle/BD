@@ -2414,7 +2414,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1801,
+    "edge_count": 1804,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2816,6 +2816,7 @@
         "bulk_downloader/disco_triage.py",
         "bulk_downloader/dry_run.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/template_extractor_impl/candidates.py",
         "bulk_downloader/template_multi.py"
@@ -4010,6 +4011,7 @@
       "bulk_downloader/playlist_extractor.py": [
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_queue.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/search_extractor.py"
       ],
       "bulk_downloader/plex_advanced.py": [
@@ -4227,7 +4229,8 @@
         "bulk_downloader/app_sites_teach.py",
         "bulk_downloader/app_stats.py",
         "bulk_downloader/dev_suite/introspection.py",
-        "bulk_downloader/perf_lab.py"
+        "bulk_downloader/perf_lab.py",
+        "bulk_downloader/runner_teach.py"
       ],
       "bulk_downloader/runner_accounts.py": [
         "bulk_downloader/runner.py"
@@ -7199,6 +7202,7 @@
         "bulk_downloader/website_title.py"
       ],
       "bulk_downloader/runner_extractors.py": [
+        "bulk_downloader/candidate_filter.py",
         "bulk_downloader/db.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/events.py",
@@ -7275,6 +7279,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/runner.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/scrapling_adapter.py",
         "bulk_downloader/template_manager.py"
@@ -7349,6 +7354,7 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/interstitial.py",
+        "bulk_downloader/playlist_extractor.py",
         "bulk_downloader/session_keeper.py"
       ],
       "bulk_downloader/scene_scoring.py": [

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5174,
+  "edge_count": 5186,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1944,6 +1944,7 @@
       "bulk_downloader/website_title.py"
     ],
     "bulk_downloader/runner_extractors.py": [
+      "bulk_downloader/candidate_filter.py",
       "bulk_downloader/db.py",
       "bulk_downloader/detect.py",
       "bulk_downloader/events.py",
@@ -2020,6 +2021,7 @@
       "bulk_downloader/app.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/learn.py",
+      "bulk_downloader/runner.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/scrapling_adapter.py",
       "bulk_downloader/template_manager.py"
@@ -2094,6 +2096,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
       "bulk_downloader/interstitial.py",
+      "bulk_downloader/playlist_extractor.py",
       "bulk_downloader/session_keeper.py"
     ],
     "bulk_downloader/scene_scoring.py": [
@@ -3171,6 +3174,23 @@
     ],
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dl95_dailymotion_6_failed_dupe_requeue.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner_queue.py"
+    ],
+    "tests/test_dl95_fe1_direct_media_url_skips_page_scorer.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_telemetry.py"
+    ],
+    "tests/test_dl95_xempire_1_scene_cohort_nav_links.py": [
+      "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_dl_f2_auto_teach_direct_media.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_dl_f3_happy_eyeballs_mapped_connect_error.py": [
       "bulk_downloader/happy_eyeballs.py",

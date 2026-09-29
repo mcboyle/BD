@@ -44,7 +44,7 @@ Tags:
 Schema version: 2
 
 
-## `bulk_downloader/app.py` (137 entries)
+## `bulk_downloader/app.py` (138 entries)
 
 ```
 - L0039 `_selftest_sites_inputs` `[private]` — Read self-test inputs from the exact config identity boot will load.
@@ -137,53 +137,54 @@ Schema version: 2
 - L4456 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
 - L4469 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
 - L4487 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L4535 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L4585 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L4604 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L4631 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L4722 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L4738 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L4780 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L4839 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L4871 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L5001 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L5046 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L5081 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L5106 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L5140 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L5160 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5254 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5288 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5316 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5366 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L5563 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L5599 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5760 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L5824 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L5964 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L5989 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6193 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6206 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6233 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6253 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6293 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6361 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6503 `serve_ss` `GET /screenshots/<path:filename>`
-- L6812 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L6819 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L6830 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L6845 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L6909 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L6938 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L6946 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L6963 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L6975 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L6998 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7014 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7030 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7047 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7100 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7221 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L4535 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
+- L4553 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L4615 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L4634 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L4661 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L4752 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L4768 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L4810 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L4869 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L4901 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L5031 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L5076 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L5111 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L5136 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L5170 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L5190 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5284 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5318 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5346 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5396 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L5593 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5629 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5790 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L5854 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L5994 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L6019 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6223 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6236 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6263 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6283 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6323 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6391 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6533 `serve_ss` `GET /screenshots/<path:filename>`
+- L6842 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6849 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L6860 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L6875 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L6939 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L6968 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L6976 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L6993 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7005 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7028 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7044 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7060 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7077 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7130 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7251 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -536,36 +537,37 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_queue.py` (23 entries)
+## `bulk_downloader/runner_queue.py` (24 entries)
 
 ```
-- L0041 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
-- L0071 `QueueMixin` `[class]`
-  - L0072 `QueueMixin._job_status_writer` `[private]`
-  - L0075 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
-  - L0129 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0406 `QueueMixin.reorder_urls`
-  - L0418 `QueueMixin.set_priority`
-  - L0428 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0446 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0477 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0505 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0530 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0551 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0573 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0597 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0644 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0659 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0675 `QueueMixin.retry`
-  - L0677 `QueueMixin.clear`
-  - L0679 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0685 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L0702 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L0707 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+- L0045 `job_status_writer` — Guard an eligibility/completion mutation and invalidate its token.
+- L0075 `QueueMixin` `[class]`
+  - L0076 `QueueMixin._job_status_writer` `[private]`
+  - L0079 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
+  - L0133 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
+  - L0410 `QueueMixin.reorder_urls`
+  - L0422 `QueueMixin.set_priority`
+  - L0432 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0450 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0481 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0509 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0534 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0555 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0563 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0585 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0609 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0656 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0671 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0687 `QueueMixin.retry`
+  - L0689 `QueueMixin.clear`
+  - L0691 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0697 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0714 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0719 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 
-## `bulk_downloader/runner_extractors.py` (20 entries)
+## `bulk_downloader/runner_extractors.py` (21 entries)
 
 ```
 - L0015 `_dest_in_dir` `[private]` — v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
@@ -581,13 +583,14 @@ Schema version: 2
   - L0870 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
   - L0906 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
   - L1160 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L1364 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L1610 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L1833 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2101 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L2197 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L2263 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L2398 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+  - L1371 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
+  - L1412 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L1658 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L1881 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L2149 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L2245 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L2311 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L2446 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -999,4 +1002,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 823 across 22 files._
+_Total entries: 826 across 22 files._

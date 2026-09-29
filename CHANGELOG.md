@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1711 - train139: row
+
+T139 (dl95/dl-f product batch): dl95-file-examples-3-bd-worker-B10-B 2adff7b5; dl95-xempire-1-bd-worker-B1-B c97bc008; dl95-dailymotion-6-bd-worker-A6-A 76069997; dl95-file-examples-1-bd-worker-B4-B 331b7025; dl-f2-bd-worker-B5-B 784c8a6d; dl95-file-examples-2-bd-worker-B9-B ca46bdce. DROPPED dl95-ok-1 (row761; G2 in T140) and dl95-africancasting-2 (ratchet defect_DP_total +1, DP-13 in scene_crawler.py). dailymotion-6 test gains a module-table restore fixture in place (O1481). Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1710 - train138: row
 
 T138: mcp-say-rule21-stale 2604e303; dl-f3-bd-worker-B4-B 2ba1a3f1. dl-f3 product (happy_eyeballs.py, ssrf_transport.py; SSRF address policy unchanged per BOARD); 3 declared import edges. mcp-say-rule21-stale shape-only BOARD per PM order (O1489). pydantic import in mcp-say-rule21 test via pytest.importorskip in place (O1481). Held: bh1-13, bh1-47, bh2-27 G2. No deploy.
