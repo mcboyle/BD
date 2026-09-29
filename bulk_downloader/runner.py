@@ -55,6 +55,7 @@ from .constants import (
 # error -- the exact shape this row exists to remove. download_hold imports only
 # the standard library at module scope, so there is no cycle to dodge.
 from . import download_hold as _download_hold
+from . import member_rendition as _member_rendition  # dl95-pegasproductions-2b
 
 _DOWNLOAD_HOLD_STATE_TOKENS = (
     _download_hold.STATE_HELD,
@@ -713,6 +714,61 @@ def _refuse_not_found_winner(runner, page, url, best):
     runner._handle_failure(url, CONTENT_NOT_FOUND_MESSAGE.format(line=reason),
                            screenshot=runner._screenshot(page, url))
     return True
+
+
+_MEMBER_SWAP_KEYS = ("_via_learned", "_learned_sel", "_frame_url", "_custom_selector",
+                     "_excluded_candidates", "_no_identity_proof", "expected_hash_algo",
+                     "expected_hash_value", "_honeypot_score", "_honeypot_reason")
+
+
+def _prefer_member_rendition(runner, page, url, best):
+    """dl95-pegasproductions-2b: on a login site, never close a public-tier file
+    as the scene. Returns the candidate to download (the winner, or the best
+    member-only alternative when the winner is public-tier), or None when the
+    job was held needs_review. Public-tier alternatives leave _all_candidates so
+    quality_preference cannot pick them back. Forced jobs, non-login sites,
+    URL-less winners and an unreadable logged-out view are unchanged."""
+    if not best or not _member_rendition.is_login_site(runner.config):
+        return best
+    with getattr(runner, "_lock", None) or contextlib.nullcontext():
+        job = (getattr(runner, "jobs", None) or {}).get(url) or {}
+    if job.get("force_download"):
+        return best
+    scene_url = getattr(page, "url", "") or url
+    base = best.get("_frame_url") or scene_url
+    win = _member_rendition.element_url(best.get("locator"), base)
+    if not win:
+        return best
+    alts = [(c, _member_rendition.element_url(c.get("locator"), base))
+            for c in best.get("_all_candidates") or []]
+    view = _member_rendition.LoggedOutView(page, scene_url)
+    public = view.public({win, *(u for _c, u in alts if u)})
+    if not view.readable():
+        sys.stderr.write(f"  download: member-rendition check skipped -- logged-out "
+                         f"view unreadable ({view.why[:60]})\n")
+        return best
+    if not public:
+        return best
+    keep = [c for c, u in alts if u not in public]
+    if win not in public:
+        best["_all_candidates"] = keep
+        return best
+    member = [c for c, u in alts if u and u not in public]
+    if member:
+        chosen = dict(member[0])
+        for k in _MEMBER_SWAP_KEYS:
+            if k in best and k not in chosen:
+                chosen[k] = best[k]
+        chosen["_all_candidates"] = keep
+        sys.stderr.write(f"  download: {_member_rendition.leaf(win)} is public-tier (the "
+                         f"logged-out page links it); taking member {chosen.get('text', '')[:40]!r}\n")
+        return chosen
+    msg = _member_rendition.HELD_MESSAGE.format(leaf=_member_rendition.leaf(win))
+    sys.stderr.write(f"  download: held {url[-40:]} -- {msg}\n")
+    ss = runner._screenshot(page, url)
+    runner._update_job(url, "needs_review", msg, screenshot=ss)
+    db_log(runner.site_id, runner.config.get("name", "?"), url, "needs_review", "", 0, msg, ss)
+    return None
 
 
 def _handle_bot_wall_page(runner, page, url, screenshot):
@@ -5951,6 +6007,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 pass
             self._consec_no_btn=0
             if _refuse_not_found_winner(self, page, url, best):
+                return
+            # dl95-pegasproductions-2b: a public-tier file is never the scene
+            # on a login site (member rendition, else needs_review).
+            best = _prefer_member_rendition(self, page, url, best)
+            if best is None:
                 return
 
             # Min-resolution gate

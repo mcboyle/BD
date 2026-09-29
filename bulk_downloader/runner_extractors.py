@@ -48,6 +48,7 @@ from .website_title import history_title_kwargs
 # fallbacks. The engine shipped @686; this routes yt-dlp/gallery-dl launches
 # through it (capture_netns bracket + netns_exec_argv wrap).
 from . import netns_isolation
+from . import member_rendition as _member_rendition  # dl95-pegasproductions-2b
 
 # tier_probe soft import (moved verbatim from runner.py; flat sibling).
 try:
@@ -318,6 +319,21 @@ def _spa_job_is_the_file(job_url, file_url):
         p = urlparse(u or "")
         return (p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"))
     return bool(job_url and file_url) and key(job_url) == key(file_url)
+
+
+def _spa_logged_out_view(host, url, page, page_url):
+    """dl95-pegasproductions-2b: the logged-out view that decides public-tier
+    picks, or None when nothing is judged (not a login site, or a forced job)."""
+    from contextlib import nullcontext
+
+    if not _member_rendition.is_login_site(getattr(host, "config", None)):
+        return None
+    jobs = getattr(host, "jobs", None)
+    with getattr(host, "_lock", None) or nullcontext():
+        job = jobs.get(url) if isinstance(jobs, dict) else None
+    if (job or {}).get("force_download"):
+        return None
+    return _member_rendition.LoggedOutView(page, page_url or url)
 
 
 def _landed_video_height(path):
@@ -1305,6 +1321,8 @@ class ExtractorsMixin:
                 return False
         headers_by_record = {r["url"]: r.get("headers") or {} for r in records}
         chosen = None
+        public_skipped = []
+        view = _spa_logged_out_view(self, url, page, page_url)
         for cand in ranked[:6]:
             rec_headers = {}
             ru = cand.get("resolve_url") or ""
@@ -1313,7 +1331,22 @@ class ExtractorsMixin:
                     rec_headers = h; break
             file_url = _spa.resolve_candidate_url(page, cand, rec_headers)
             if file_url and file_url.startswith(("http://", "https://")):
+                # dl95-pegasproductions-2b: a public-tier file (the logged-out
+                # page links it) is never the scene on a login site.
+                if (view is not None and not _spa_job_is_the_file(url, file_url)
+                        and view.public({_member_rendition.normalize(file_url, page_url)})):
+                    public_skipped.append(file_url)
+                    continue
                 chosen = cand; break
+        if chosen is None and public_skipped:
+            msg = _member_rendition.HELD_MESSAGE.format(
+                leaf=_member_rendition.leaf(public_skipped[0]))
+            sys.stderr.write(f"  spa-api: held {url[-40:]} -- {msg}\n")
+            screenshot_fn = getattr(self, "_screenshot", None)
+            ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+            self._update_job(url, "needs_review", msg, screenshot=ss)
+            db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0, msg, ss)
+            return True
         if chosen is None:
             sys.stderr.write("  spa-api: no candidate resolved to a fetchable URL\n")
             return False
