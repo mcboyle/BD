@@ -24,6 +24,7 @@ from .app_sites import (
     _app_s_cfg,
     _chk,
     _do_action,
+    _m2_auth_state,
     _oi_dir_writable,
     _save_sites_config,
     _start_session_keepers,
@@ -59,19 +60,28 @@ def api_site_readiness(sid):
             checks.append(_chk("download_dir", "Download directory", "fail",
                                f"{dl} {'not writable' if exists else 'missing'}"))
             fixes.append(f"Create or fix permissions on {dl}.")
-    # auth health for this site
-    try:
-        from . import cookie_health as _ch
-        info = (_ch.status_all() or {}).get(sid) if isinstance(_ch.status_all(), dict) else None
-        if isinstance(info, dict):
-            blob = " ".join(str(info.get(k, "")) for k in ("status", "state", "class")).lower()
-            if any(m in blob for m in ("expired", "unhealthy")):
-                checks.append(_chk("auth_health", "Auth health", "fail", "credentials need refresh"))
-                fixes.append("Re-login / refresh this site's credentials.")
-            else:
-                checks.append(_chk("auth_health", "Auth health", "ok", "healthy"))
-    except Exception:
-        pass
+    # auth health for this site. dl95-txxx-3: the runner's own auth bucket first --
+    # the one /api/sites/v2 shows. cookie_health has no entry for a site whose
+    # login never landed, so a dead jar read green "Ready" beside "expired".
+    runner = _app_runners().get(sid)
+    if runner is not None and _m2_auth_state(runner, cfg) == "expired":
+        last = str(getattr(runner, "_login_status", "") or "").strip()
+        checks.append(_chk("auth_health", "Auth health", "fail",
+                           f"login expired; last login: {last}" if last else "login expired"))
+        fixes.append("Re-login / refresh this site's credentials.")
+    else:
+        try:
+            from . import cookie_health as _ch
+            info = (_ch.status_all() or {}).get(sid) if isinstance(_ch.status_all(), dict) else None
+            if isinstance(info, dict):
+                blob = " ".join(str(info.get(k, "")) for k in ("status", "state", "class")).lower()
+                if any(m in blob for m in ("expired", "unhealthy")):
+                    checks.append(_chk("auth_health", "Auth health", "fail", "credentials need refresh"))
+                    fixes.append("Re-login / refresh this site's credentials.")
+                else:
+                    checks.append(_chk("auth_health", "Auth health", "ok", "healthy"))
+        except Exception:
+            pass
     # drift for this site
     try:
         from . import selector_drift as _sd
