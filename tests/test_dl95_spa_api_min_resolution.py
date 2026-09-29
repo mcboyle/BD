@@ -10,6 +10,10 @@ Contract after the fix (design note harness-work/FIX/dl95-cumlouder-3-bd-worker-
   * an UNKNOWN height passes (as on the button path) and the landed file is measured: its real height is recorded
     and a below-minimum result is flagged in the done message, the history message and a spa_api_below_minimum event;
   * force_download and a job whose URL IS the media file are not held.
+GEN 2 (dl95-hqporner-2, PM ruling NOTE-PM-ASKS-0245Z.md #2): hqporner on test2 v1710 "chose 0p from page-media" and
+saved a 5.9 s 854x480 clip as DONE (download-95/A8-A/p1/hqporner/bytes-landed.txt): a hover preview / ad, not the scene.
+A pick with no known height that lands shorter than SPA_PREVIEW_MAX_SECONDS is removed and held needs_review;
+forced jobs, direct-media jobs and picks with a known height are untouched.
 
 The landed files are REAL MP4s made by ffmpeg at test time and measured by the real ffprobe.
 """
@@ -28,13 +32,13 @@ SCENE = "https://www.cumlouder.com/porn-video/masturbation-expert-gives-a-lesson
 SOURCE = "https://m4cdnst.cumlouder.com/07a97691a99801434b7f82702b14cbc6/07a97691a99801434b7f82702b14cbc6.mp4?secure=REDACTED"
 
 
-def _mp4(path, w, h):
+def _mp4(path, w, h, seconds=12):
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         pytest.fail("ffmpeg is required to build the landed-file fixture")
     subprocess.run(
-        [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={w}x{h}:rate=5",
-         "-t", "1", "-pix_fmt", "yuv420p", str(path)],
+        [ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc=size={w}x{h}:rate=1",
+         "-t", str(seconds), "-pix_fmt", "yuv420p", str(path)],
         check=True, timeout=60)
     return path
 
@@ -142,3 +146,88 @@ def test_zero_minimum_holds_nothing(make, tmp_path):
     r = make(landed=_mp4(tmp_path / "360.mp4", 640, 360), min_resolution=0)
     assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
     assert r.updates[-1] == ("done", r.updates[-1][1]) and "below" not in r.updates[-1][1]
+
+
+@pytest.mark.parametrize("min_res", [1080, 0])
+def test_a_seconds_long_clip_with_no_known_height_is_not_the_scene(make, tmp_path, min_res):
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=min_res)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    status, msg = r.updates[-1]
+    assert status == "needs_review" and msg.startswith("Landed a 6.0 s clip"), f"DL95_SPA_PREVIEW_SAVED_AS_SCENE: {msg!r}"
+    assert [e[0] for e in r.events if e[0] == "spa_api_preview_rejected"], r.events
+    assert r.logged[-1][3] == "needs_review", r.logged[-1]
+    assert not list((tmp_path / "dl").rglob("*.mp4")), "the preview must not stay in the library"
+
+
+def test_a_forced_short_clip_lands(make, tmp_path):
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=1080)
+    r.jobs[SCENE] = {"force_download": True}
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    assert r.updates[-1][0] == "done", r.updates
+
+
+def test_a_short_direct_media_job_lands(make, tmp_path):
+    media = "https://cdn.example.invalid/clips/short.mp4"
+    r = make(landed=_mp4(tmp_path / "short.mp4", 854, 480, seconds=6), min_resolution=0)
+    assert r._try_spa_api_media_extractor(media, _Page([media], url=media)) is True
+    assert r.updates[-1][0] == "done", r.updates
+
+
+def test_a_short_clip_with_a_known_height_is_not_second_guessed(make, tmp_path):
+    """Control: a pick the page attributed (a named 720p rendition) is not measured for duration."""
+    named = "https://m4cdnst.cumlouder.com/abc/abc_720.mp4"
+    r = make(landed=_mp4(tmp_path / "720.mp4", 1280, 720, seconds=6), min_resolution=0)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([named])) is True
+    assert r.updates[-1][0] == "done" and r.updates[-1][1].startswith("API/media 720p"), r.updates
+
+
+def _dp13_lines(path):
+    import json
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+
+    root = _P(__file__).resolve().parents[1]
+    out = subprocess.run([_sys.executable, str(root / "toolchain" / "bin" / "bd-defect-scan"), "--file", str(path),
+                          "--json"], capture_output=True, text=True, check=True, cwd=root).stdout
+    return {f["line"] for f in json.loads(out) if f["dp"] == "DP-13"}
+
+
+def _dp13_probe_can_say_yes(tmp_path):
+    control = tmp_path / "control.py"
+    control.write_text("def f(p):\n    try:\n        p.x()\n    except Exception:\n        pass\n")
+    assert _dp13_lines(control) == {4}, "probe cannot see a pass-only handler"
+
+
+def test_a_rejected_clip_that_cannot_be_removed_is_said(make, tmp_path, monkeypatch):
+    """dl95-cumlouder-3-gen2delta-dp13: the preview clip's removal failing is an event naming the file."""
+    from bulk_downloader import runner_extractors as rx
+
+    r = make(landed=_mp4(tmp_path / "preview.mp4", 854, 480, seconds=6), min_resolution=1080)
+
+    def refuse(path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(rx.os, "remove", refuse)
+    assert r._try_spa_api_media_extractor(SCENE, _Page([SOURCE])) is True
+    assert r.updates[-1][0] == "needs_review", r.updates
+    cleanup = [m for k, m in r.events if k == "spa_api_cleanup"]
+    assert cleanup and "rejected file not removed" in cleanup[-1] and "PermissionError" in cleanup[-1], (
+        f"CL3_DP13_SILENT: {r.events}")
+
+
+def test_spa_preview_cleanup_adds_no_swallowed_exception(tmp_path):
+    """dl95-cumlouder-3-gen2delta-dp13 (DP-13 ratchet): the try that removes the rejected file is not pass-only. Positive control first."""
+    import ast
+    from pathlib import Path as _P
+
+    _dp13_probe_can_say_yes(tmp_path)
+    src_path = _P(__file__).resolve().parents[1] / "bulk_downloader" / "runner_extractors.py"
+    src = src_path.read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src))
+              if isinstance(n, ast.FunctionDef) and n.name == "_try_spa_api_media_extractor")
+    handlers = {h.lineno for n in ast.walk(fn) if isinstance(n, ast.Try) and len(n.body) == 1
+                and ast.get_source_segment(src, n.body[0]) == "os.remove(output_path)" for h in n.handlers}
+    assert handlers, "the os.remove(output_path) try moved"
+    swallowed = handlers & _dp13_lines(src_path)
+    assert not swallowed, f"CL3_DP13_SWALLOWED: lines {sorted(swallowed)}"
