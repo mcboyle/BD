@@ -39,6 +39,11 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # _load_sites_config rebuild, the same reason predictive_relogin_*
             # above are here.
             "dismiss_selectors","dismiss_selectors_login",
+            # fx-xhamster-login-verdict: the DECLARED member-state selector row 708
+            # admits for a login that fires no navigation (a present match on the
+            # page read = logged in). Until now only a learned template could
+            # carry one; in CFG_FIELDS so an operator PUT survives the rebuild.
+            "member_indicator",
             # dl95-xvideos-3: explicit "is a members session required to read
             # the listing" (scene_crawler._site_is_public: a bool wins over the
             # login_url/username inference). A public tube with an optional

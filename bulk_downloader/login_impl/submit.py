@@ -2374,6 +2374,22 @@ def do_login(config, allow_manual_takeover=False):
                                        why, "no nav signal", _hard_close)
             sys.stderr.write(f"  {site_tag()}login: no nav signal and cookies "
                              f"unconvincing ({why})\n")
+            # fx-xhamster-login-verdict: an AJAX login that consumed its form sets
+            # no auth-named cookie (xhamster: 13 cookies) -- the jar cannot say
+            # yes, but a DECLARED member check on the page read can (row 708).
+            if _SPA_CONSUMED_NO_NAV in str(method) and (
+                    config.get("success_url") or config.get("member_indicator")
+                    or ((config.get("learned") or {}).get("login") or {}).get("member_indicator")):
+                declared_ok, member_why, evidence = member_state_check(
+                    page, config, tag="login-no-nav-jar-unconvincing")
+                if declared_ok:
+                    _hard_close()
+                    info = (f"OK \u2014 {len(cookies_after_submit)} cookies (no nav signal; {why}; "
+                            f"member state confirmed: {member_why}; evidence {evidence})")
+                    sys.stderr.write(f"  {site_tag()}login: {info}\n")
+                    return True, info, cookies_after_submit
+                sys.stderr.write(f"  {site_tag()}login: declared member check did not "
+                                 f"confirm ({member_why})\n")
             if allow_manual_takeover:
                 # dl95-teenfidelity-2: name the captcha the submit ran into.
                 _cap=_captcha_mount_name(page)

@@ -285,7 +285,10 @@ def member_state_check(page, config, *, tag="login"):
     config = config or {}
     success_url = config.get("success_url", "") or ""
     learned_login = (config.get("learned") or {}).get("login") or {}
-    indicator = learned_login.get("member_indicator") or ""
+    # fx-xhamster-login-verdict: the site's declared member_indicator when no
+    # template learned one.
+    indicator = (learned_login.get("member_indicator")
+                 or str(config.get("member_indicator") or "").strip() or "")
     try:
         final_url = redact_url_credentials(page.url)
     except Exception as e:
