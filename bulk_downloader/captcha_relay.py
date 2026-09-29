@@ -124,7 +124,11 @@ _DETECTION_PROBES: list[tuple[str, list[str]]] = [
     ("turnstile", [
         'iframe[src*="challenges.cloudflare.com"]',
         '.cf-turnstile',
-        '[data-sitekey][data-callback]',  # heuristic: Turnstile widget mount
+        # heuristic: Turnstile widget mount. dl95-teenfidelity-1: never a
+        # reCAPTCHA/hCaptcha mount, which carry the same two attributes
+        # (members.kellymadisonmedia.com's invisible .g-recaptcha was
+        # reported as turnstile because this probe runs first).
+        '[data-sitekey][data-callback]:not(.g-recaptcha):not(.h-captcha)',
     ]),
     # hCaptcha — used by some adult sites and Cloudflare alternative tier.
     ("hcaptcha", [
