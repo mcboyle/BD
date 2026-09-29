@@ -712,6 +712,32 @@ def _members_evidence(
     return "/members/" in path or path.startswith("/members/")
 
 
+def _member_area_evidence(
+    page: Any,
+    site_config: dict[str, Any],
+    pacer: "_Pacer",
+) -> bool:
+    """dl95-hoopladigital-1: a logged-in listing without a logout anchor or a
+    members path (hoopla: "My Hoopla" + a settings button) proves nothing by
+    itself. Ask the site's own member area -- success_url on the listing's
+    host, the page Verify checks -- with the same session. Staying there with
+    no login wall is a live login; a redirect to login or a login form in
+    place is not. The caller never probes from a listing that is itself a
+    login wall."""
+    success_url = str(site_config.get("success_url") or "").strip()
+    success = urlsplit(success_url)
+    if success.scheme not in ("http", "https") or not success.hostname:
+        return False
+    if success.hostname != urlsplit(str(getattr(page, "url", "") or "")).hostname:
+        return False
+    response = _goto(page, success_url, pacer, "member area")
+    status = getattr(response, "status", None) if response else None
+    if _negative_auth_page(page, status):
+        return False
+    current = urlsplit(str(page.url))
+    return current.hostname == success.hostname and current.path.startswith(success.path)
+
+
 def _holds_cookies(cookie_file: Any) -> bool:
     """dl95-hqporner-1: _save_sites_config fills ``cookie_file`` with
     <BD_HOME>/cookies/<sid>.json for EVERY site, so the path alone declares
@@ -1182,6 +1208,7 @@ def crawl_with_page(
     scroll_late_growth_steps = 0
     shapes: set[str] = set()
     authenticated = False
+    member_area_ok = False
     saw_scene_cohort = False
     terminated_on_no_new = False
     stopped_on_depth = False
@@ -1227,8 +1254,15 @@ def crawl_with_page(
         if not scenes and not zero_page:
             zero_page = _zero_page_evidence(page, current, status, anchors)
 
-        if not (_members_evidence(page, site_config, status)
-                or _public_listing_evidence(page, site_config, status, scenes)):
+        listing_ok = (_members_evidence(page, site_config, status)
+                      or _public_listing_evidence(page, site_config, status, scenes))
+        if not listing_ok and not _negative_auth_page(page, status):
+            # dl95-hoopladigital-1: no evidence either way on the listing;
+            # ask the member area once per run with this session.
+            if not member_area_ok:
+                member_area_ok = _member_area_evidence(page, site_config, pacer)
+            listing_ok = member_area_ok
+        if not listing_ok:
             _save_frontier(
                 site_id, listing_url, [], completed=True, db_path=db_path
             )
