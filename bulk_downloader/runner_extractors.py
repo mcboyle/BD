@@ -1350,6 +1350,11 @@ class ExtractorsMixin:
             return False
         file_url = chosen["url"]
         height = int(chosen.get("height") or 0)
+        # dl95-beeg-2: a master is fetched as the variant its rank named; the
+        # segmented downloader maps the FIRST video stream (beeg's: 240p).
+        is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
+        if is_hls:
+            file_url, height = self._spa_hls_ranked_variant(page, url, file_url, height, _spa)
         if scene_candidates:
             from contextlib import nullcontext
             with getattr(self, "_lock", None) or nullcontext():
@@ -1413,7 +1418,6 @@ class ExtractorsMixin:
             sys.stderr.write(f"  spa-api: mkdir failed: {e}\n")
             return False
 
-        is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
         fname = chosen.get("filename") or ""
         if not fname:
             try:
@@ -1513,8 +1517,29 @@ class ExtractorsMixin:
             downloaded_size = dl_result.bytes_written
 
         below = ""
-        if not height:
-            height = _landed_video_height(output_path)
+        labelled = height
+        landed_height = _landed_video_height(output_path)
+        if labelled and landed_height and landed_height != labelled:
+            # dl95-beeg-2: the label is a claim, the landed stream the measurement
+            # (a "1080p" master closed done as a 426x240 file).
+            height = landed_height
+            self.log_event("spa_api_height_mismatch",
+                           f"labelled {labelled}p; landed {landed_height}p", url=url)
+            if gated and height < min_res:
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+                screenshot_fn = getattr(self, "_screenshot", None)
+                ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
+                msg = (f"Landed {height}p though labelled {labelled}p (below {min_res}p)"
+                       f" — Approve to force. Saw: {summary}")
+                self._update_job(url, "needs_review", msg, screenshot=ss)
+                db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
+                       f"landed {height}p, labelled {labelled}p, below {min_res}p; saw: {summary}", ss)
+                return True
+        if not labelled:
+            height = landed_height
             secs = _landed_video_seconds(output_path)
             if chosen_for_us and 0 < secs < SPA_PREVIEW_MAX_SECONDS:
                 try:
@@ -2110,6 +2135,24 @@ class ExtractorsMixin:
             url=url,
         )
         return True
+
+    def _spa_hls_ranked_variant(self, page, url, master_url, height, _spa):
+        """dl95-beeg-2: (variant URL, its declared height) for the master the
+        rank chose, read through the page's own session; the master itself and
+        the ranked height when it is not a master or cannot be read."""
+        try:
+            text = page.evaluate(_spa.MANIFEST_TEXT_JS, master_url)
+            pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
+                                        master_url, height)
+        except Exception:  # noqa: BLE001 -- any page/driver failure keeps the master
+            pick = None
+        if not pick:
+            return master_url, height
+        self.log_event("spa_api_hls_variant",
+                       f"{height}p master -> {pick['height']}p {pick['codecs'] or '?'} variant",
+                       url=url)
+        return pick["url"], pick["height"]
+
     def _kvs_flashvars_media(self, page, _spa):
         """dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
         video_url / video_alt_url[N] + *_text), bounded by min_resolution --

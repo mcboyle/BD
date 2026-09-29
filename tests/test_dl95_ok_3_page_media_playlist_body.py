@@ -139,7 +139,9 @@ def test_a_playlist_served_at_a_mp4_path_is_fetched_segmented_and_lands_video(cd
     assert r.segmented == [(option, "hls")], f"DL95_OK3_PLAYLIST_NOT_SEGMENTED: {r.segmented}"
     assert "spa_api_manifest_body" in r.events, r.events
     status, msg = r.updates[-1]
-    assert status == "done" and msg.startswith("API/media 720p"), msg
+    # dl95-beeg-2: the "720p" option landed the master's 240p rendition (asserted below); the done
+    # message carries the measured height, not the label.
+    assert status == "done" and msg.startswith("API/media 240p"), msg
     [f] = _landed(tmp_path)
     head = f.read_bytes()[:16]
     assert head[4:8] == b"ftyp" and not head.startswith(b"#EXTM3U"), f"DL95_OK3_PLAYLIST_SAVED_AS_VIDEO: {head!r}"

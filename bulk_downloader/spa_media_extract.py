@@ -380,6 +380,50 @@ def scene_stream_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str
     return out
 
 
+# dl95-beeg-2: the page's own fetch of a playlist it already requested (same
+# session, same egress as the player); "" on any refusal.
+MANIFEST_TEXT_JS = """async (url) => {
+  try {
+    const r = await fetch(url, {credentials: 'include'});
+    if (!r.ok) return '';
+    return (await r.text()).slice(0, 262144);
+  } catch (e) { return ''; }
+}"""
+
+_H264_CODEC_RE = re.compile(r"\bavc[13]\.", re.I)
+
+
+def hls_variant_for(master_text: str, master_url: str,
+                    want_height: int) -> Optional[Dict[str, Any]]:
+    """dl95-beeg-2: the variant of an HLS master that a ranked height names.
+
+    beeg's "multi=" master lists 240p first; the segmented downloader maps the
+    FIRST video stream, so a master labelled 1080p landed 240p.  Picks, in
+    order: an h264 variant at *want_height*, any variant at it, the tallest
+    h264 variant, the tallest variant -- highest bandwidth within a height.
+    None when the text is not a master or no variant declares a height.
+    """
+    try:
+        from .streaming_manifest import parse_streaming_manifest
+        manifest = parse_streaming_manifest(master_text or "", base_url=master_url)
+    except ValueError:
+        return None
+    if not manifest.is_master:
+        return None
+    sized = [v for v in manifest.variants
+             if v.height and v.uri.startswith(("http://", "https://"))]
+    if not sized:
+        return None
+    h264 = [v for v in sized if _H264_CODEC_RE.search(v.codecs or "")]
+    for pool in ([v for v in h264 if v.height == want_height],
+                 [v for v in sized if v.height == want_height], h264, sized):
+        if pool:
+            best = max(pool, key=lambda v: (v.height, v.bandwidth))
+            return {"url": best.uri, "height": int(best.height),
+                    "codecs": best.codecs or ""}
+    return None
+
+
 def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, Any]]:
     """Media files the page actually requested / bound to <video>/<source>."""
     out: List[Dict[str, Any]] = []
