@@ -2382,8 +2382,15 @@ class TransportMixin:
             got=best.get("_revealed_score") or 0   # the revealed modal's label
         if not 0<got<min_res:
             return False
-        ss=self._screenshot(page,page_url)
         avail=res_label(got)
+        try: dl.cancel()
+        except Exception: pass
+        # tpl95-xnxx-1: before holding, the page's own media may carry the scene at
+        # min_resolution where the DOM scorer never looks (xnxx: >=480p is only in
+        # its setVideoHLS master). The rescue takes only an option at or above it.
+        if self._fallback_to_page_media(page,page_url,f"file {leaf or suggested} is {avail}"):
+            return True
+        ss=self._screenshot(page,page_url)
         msg=(f"Best is {avail} (below {min_res}p) — the Download control was "
              f"unlabelled; its file {leaf or suggested} is {avail} — Approve to force.")
         sys.stderr.write(f"  download: held {page_url[-40:]} — file {leaf or suggested} "
@@ -2391,8 +2398,6 @@ class TransportMixin:
         self._update_job(page_url,"needs_review",msg,screenshot=ss)
         db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review","",0,
                f"below {min_res}p; got {avail} (file {leaf or suggested})",ss)
-        try: dl.cancel()
-        except Exception: pass
         return True
 
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):

@@ -1314,6 +1314,10 @@ class ExtractorsMixin:
             forced = bool((job or {}).get("force_download"))
         page_media += self._kvs_flashvars_media(page, _spa, forced)  # dl95-kvs-flashvars-1
         try:
+            page_media += _spa.wgcz_player_media(page.content())  # tpl95-xnxx-1
+        except Exception:  # noqa: BLE001 -- an unreadable page adds nothing
+            sys.stderr.write("  spa-api: page content unreadable; no WGCZ player sources\n")
+        try:
             page_url = page.url or url
         except Exception:
             page_url = url
@@ -1353,6 +1357,7 @@ class ExtractorsMixin:
                 f"  spa-api: no download-like options in {len(records)} captured "
                 f"API record(s) and {len(page_media)} page media URL(s)\n")
             return False
+        self._spa_measure_hls_masters(page, url, cands, _spa)  # tpl95-xnxx-1
         ranked = _spa.rank_candidates(cands)
         if min_height > 0:
             # dl95-africancasting-3: the min-resolution refusal arm asks only for an
@@ -2239,6 +2244,23 @@ class ExtractorsMixin:
             sys.stderr.write(f"  spa-api: {len(kvs) - len(kept)} KVS flashvars option(s) "
                              f"of unknown height not offered\n")
         return kept
+
+    def _spa_measure_hls_masters(self, page, url, cands, _spa):
+        """tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+        tallest variant, read through the page's own session, so the rank and
+        the min_resolution filter see what it offers (xnxx's hls.m3u8: 1080p)."""
+        for cand in [c for c in cands if not int(c.get("height") or 0)
+                     and re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
+            try:
+                text = page.evaluate(_spa.MANIFEST_TEXT_JS, cand["url"])
+                pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
+                                            cand["url"], 0)
+            except Exception:  # noqa: BLE001 -- any page/driver failure leaves it unknown
+                pick = None
+            if pick:
+                cand["height"], cand["label"] = pick["height"], f"{pick['height']}p"
+                self.log_event("spa_api_hls_measured",
+                               f"master tallest {pick['height']}p: {cand['url'][:120]}", url=url)
 
     def _try_aylo_extractor(self, url: str, page) -> bool:
         """v3.43.66: extract via Aylo flashvars and download.

@@ -530,6 +530,22 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     return out
 
 
+# tpl95-xnxx-1: the WGCZ (xvideos/xnxx) player's own sources, declared in an
+# inline script -- html5player.setVideoHLS('.../hls.m3u8') is the only route to
+# its >=480p renditions; the player fetches nothing until play.
+_WGCZ_PLAYER_SOURCE_RE = re.compile(
+    r"""\bsetVideo(?:HLS|UrlHigh|UrlLow)\(\s*(['"])(https?://[^'"\s]+)\1\s*\)""")
+
+
+def wgcz_player_media(html: str) -> List[str]:
+    """URLs the page's WGCZ html5player was handed (setVideoHLS/UrlHigh/UrlLow)."""
+    out: List[str] = []
+    for m in _WGCZ_PLAYER_SOURCE_RE.finditer(html or ""):
+        if m.group(2) not in out:
+            out.append(m.group(2))
+    return out[:6]
+
+
 def kvs_flashvars_candidates(page_url: str, items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """dl95-kvs-flashvars-1: the files a KVS player declares in its page-global
     ``flashvars`` (video_url, video_alt_url, video_alt_url2 ... each with a
