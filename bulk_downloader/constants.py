@@ -98,8 +98,10 @@ RL_RE = re.compile(
 # bare denial phrase is a page's ONLY rate-limit evidence and the page says the
 # content is for members, _check_redirect answers "auth" (login + requeue).
 RL_DENIAL_ONLY_RE = re.compile(r"access\s*(?:denied|forbidden)", re.IGNORECASE)
+# fx-dorcelclub-member-denial-auth: dorcel says "You need to be member to
+# download this" (no article) -- "need to" and the missing "a" are admitted.
 MEMBERS_ONLY_RE = re.compile(
-    r"you\s+must\s+be\s+a\s+(?:member|subscriber)"
+    r"you\s+(?:must|need\s+to)\s+be\s+(?:a\s+)?(?:member|subscriber)"
     r"|\bfor\s+members\s+only\b|\bmembers?[\s-]+only\s+(?:content|video|area)\b"
     r"|become\s+a\s+member\s+to\s+(?:watch|view|download|access)", re.IGNORECASE)
 
