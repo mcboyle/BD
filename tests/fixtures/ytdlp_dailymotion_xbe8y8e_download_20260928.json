@@ -1,0 +1,15 @@
+{
+ "latest": {
+  "yt_dlp": "2026.09.27.232945",
+  "rc": 0,
+  "stdout": "[dailymotion] Extracting URL: https://www.dailymotion.com/video/xbe8y8e\n[dailymotion] Downloading Access Token\n[dailymotion] xbe8y8e: Downloading media JSON metadata\n[dailymotion] xbe8y8e: Downloading metadata JSON\n[dailymotion] xbe8y8e: Downloading m3u8 information with randomized headers\n[dailymotion] xbe8y8e: Retrying m3u8 download with Chrome impersonation\n[info] xbe8y8e: Downloading 1 format(s): hls-720+hls-0_aac_q2-_original_\n[hlsnative] Downloading m3u8 manifest\n[hlsnative] Total fragments: 9\n[download] Destination: {DL}/Massive_Landslide_Tears_Through_Chame_Nepal-xbe8y8e.fhls-720.mp4\n[download] Download completed\n[hlsnative] Downloading m3u8 manifest\n[hlsnative] Total fragments: 9\n[download] Destination: {DL}/Massive_Landslide_Tears_Through_Chame_Nepal-xbe8y8e.fhls-0_aac_q2-_original_.mp4\n[download] Download completed\n[Merger] Merging formats into \"{DL}/Massive_Landslide_Tears_Through_Chame_Nepal-xbe8y8e.mp4\"\nDeleting original file {DL}/Massive_Landslide_Tears_Through_Chame_Nepal-xbe8y8e.fhls-720.mp4 (pass -k to keep)\nDeleting original file {DL}/Massive_Landslide_Tears_Through_Chame_Nepal-xbe8y8e.fhls-0_aac_q2-_original_.mp4 (pass -k to keep)\n",
+  "stderr": ""
+ },
+ "pinned": {
+  "yt_dlp": "2025.12.08",
+  "rc": 1,
+  "stdout": "[dailymotion] Extracting URL: https://www.dailymotion.com/video/xbe8y8e\n[dailymotion] Downloading Access Token\n[dailymotion] xbe8y8e: Downloading media JSON metadata\n[dailymotion] xbe8y8e: Downloading metadata JSON\n[dailymotion] xbe8y8e: Downloading m3u8 information\n",
+  "stderr": "ERROR: [dailymotion] xbe8y8e: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U\n"
+ },
+ "_source": "yt-dlp download of https://www.dailymotion.com/video/xbe8y8e on test2 (10.0.70.95), 2026-09-28, argv from _build_ytdlp_cmd(min_res=1080); download dir replaced by {DL}"
+}

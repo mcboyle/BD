@@ -821,7 +821,7 @@ from .runner_browser import BrowserMixin  # noqa: E402
 from .runner_scheduler import SchedulerMixin  # noqa: E402
 from .runner_telemetry import TelemetryMixin, end_url_trace_span, start_url_trace_span  # noqa: E402
 from .runner_queue import QueueMixin, job_status_writer  # noqa: E402
-from .runner_extractors import ExtractorsMixin  # noqa: E402
+from .runner_extractors import ExtractorsMixin, site_untaught  # noqa: E402
 from .runner_auth import AuthMixin  # noqa: E402
 from .runner_transport import TransportMixin  # noqa: E402
 from .runner_decoupling import (  # noqa: E402
@@ -5423,6 +5423,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 # a DOM candidate exists. Takes over the transfer on success.
                 if self._try_spa_api_media_extractor(url, page):
                     return
+                # dl95-dailymotion-1: an untaught site on a public yt-dlp host
+                # (dailymotion) has no button to find -- let yt-dlp fetch it
+                # instead of failing page_shape. False -> unchanged.
+                if self._try_ytdlp_untaught(url):
+                    return
                 ss=self._screenshot(page,url)
                 if _handle_confirmed_no_video_page(self, page, url, ss):
                     return
@@ -5443,6 +5448,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         url)
                 except Exception:
                     pass
+                if site_untaught(self.config):
+                    # dl95-dailymotion-1: say what the operator must do, not just
+                    # that the scrape missed. Still page_shape (row 777 census).
+                    self._handle_failure(url,"No download button found -- site needs onboarding:"
+                                         " no template or learned download selectors, and no"
+                                         " extractor fetched it",screenshot=ss); return
                 self._handle_failure(url,"No download button found",screenshot=ss); return
             # We DID find a download — reset the drift counter so a stretch
             # of failures + one success doesn't keep flagging the site.

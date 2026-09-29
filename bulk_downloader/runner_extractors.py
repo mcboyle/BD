@@ -182,7 +182,7 @@ def _permitted_plugin_dirs(kind, config):
 
 def _build_ytdlp_cmd(*, ytdlp, dl_dir, url, proxy_url=None, cookie_file="",
                      min_res=0, plugin_dirs=(), concurrent_fragments=0,
-                     rate_limit="", netns=None):
+                     rate_limit="", netns=None, dedicated_only=False):
     """Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
 
     Track-K (A1): when ``proxy_url`` is in effect (an explicit per-site proxy or
@@ -195,7 +195,11 @@ def _build_ytdlp_cmd(*, ytdlp, dl_dir, url, proxy_url=None, cookie_file="",
     risk-ack + live-pin, when interop governance is on). Each is threaded as its
     own ``--plugin-dirs DIR`` occurrence. Empty (the default for every site that
     has not configured plugin dirs) -> no flag -> byte-identical to the prior
-    cmd. The gate lives in the caller, not here, so this stays a pure builder."""
+    cmd. The gate lives in the caller, not here, so this stays a pure builder.
+
+    dl95-dailymotion-1: ``dedicated_only`` excludes yt-dlp's GENERIC extractor, which
+    claims any page with an HTML5 <video> (a members page's teaser). Only a host yt-dlp
+    knows by name (dailymotion, vimeo, ...) is fetched; anything else -> "Unsupported URL"."""
     import os as _os
     prefix = list(ytdlp) if isinstance(ytdlp, (list, tuple)) else [ytdlp]
     cmd = prefix + ["--no-progress", "--no-warnings",
@@ -207,8 +211,13 @@ def _build_ytdlp_cmd(*, ytdlp, dl_dir, url, proxy_url=None, cookie_file="",
     # yt-dlp wants Netscape-format cookies; only a maintained .txt is usable.
     if cookie_file and cookie_file.endswith(".txt") and _os.path.exists(cookie_file):
         cmd += ["--cookies", cookie_file]
+    if dedicated_only:
+        cmd += ["--ies", "default,-generic"]
     if min_res > 0:
-        cmd += ["-f", f"best[height>={min_res}]/best"]
+        # dl95-dailymotion-1: "best" is a single MUXED format, and split-stream hosts
+        # (dailymotion: video-only HLS + audio-only HLS) have none -> "Requested format
+        # is not available". Keep the height preference, fall back to yt-dlp's default.
+        cmd += ["-f", f"bv*[height>={min_res}]+ba/b[height>={min_res}]/bv*+ba/b"]
     # Cut 665 (2.2): segment-parallel HLS/DASH. yt-dlp downloads one fragment at
     # a time by default; thread --concurrent-fragments only when the operator
     # configures N>1. N<=1 -> omit -> byte-identical cmd for unconfigured sites.
@@ -277,8 +286,17 @@ def _build_gallerydl_cmd(*, gallerydl, dl_dir, url, proxy_url=None,
     return cmd
 
 
+def site_untaught(config) -> bool:
+    """dl95-dailymotion-1: True iff the site has no applied template and no learned
+    download selectors -- the DOM scrape had nothing to look for."""
+    if config.get("applied_template"):
+        return False
+    learned_dl = (config.get("learned") or {}).get("download") or {}
+    return not (learned_dl.get("trigger_selectors") or learned_dl.get("row_selectors"))
+
+
 class ExtractorsMixin:
-    def _try_ytdlp_fallback(self, url, fail_reason=""):
+    def _try_ytdlp_fallback(self, url, fail_reason="", *, force=False):
         """Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
         Playwright-based download flow fails on a URL, optionally try
         yt-dlp as a last resort before marking the URL needs_review/failed.
@@ -305,8 +323,12 @@ class ExtractorsMixin:
         runner_challenge._handle_captcha_check, so a short return there is not
         a wrong number -- it is a ValueError that fails the job as a worker
         error and skips the whole needs_review/screenshot/takeover flow. Do not
-        add a return here without the fifth element."""
-        if not self.config.get("use_ytdlp_fallback", False):
+        add a return here without the fifth element.
+
+        ``force`` (dl95-dailymotion-1): run without the per-site opt-in, and then
+        only through a dedicated extractor, never the generic one; see
+        ``_try_ytdlp_untaught``."""
+        if not force and not self.config.get("use_ytdlp_fallback", False):
             return (False, "ytdlp_fallback disabled", None, 0, 0)
         from . import ytdlp_updater
         ytdlp = ytdlp_updater.resolve_ytdlp_argv()
@@ -357,7 +379,8 @@ class ExtractorsMixin:
                                        proxy_url=proxy_url, cookie_file=cookie_file,
                                        min_res=min_res, plugin_dirs=plugin_dirs,
                                        concurrent_fragments=concurrent_fragments,
-                                       rate_limit=rate_limit, netns=ns)
+                                       rate_limit=rate_limit, netns=ns,
+                                       dedicated_only=force)
                 self.log_event("ytdlp", f"Trying yt-dlp fallback for {fail_reason or 'failed URL'}", url=url)
                 try:
                     r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600, encoding="utf-8")
@@ -406,6 +429,25 @@ class ExtractorsMixin:
             return (False,
                     f"netns isolation required for {self.site_id}, unavailable "
                     f"-- failing closed (yt-dlp not run): {e}", None, 0, 0)
+
+    def _try_ytdlp_untaught(self, url):
+        """dl95-dailymotion-1: the last resort before "No download button found" on an
+        untaught site (``site_untaught``): the DOM scrape had nothing to look for, and a
+        public yt-dlp host (dailymotion, vimeo, ...) is exactly that shape. Runs the
+        Phase 61 yt-dlp fallback without its per-site opt-in and completes the job as the
+        captcha path does. Returns True iff it downloaded; False -> the caller fails."""
+        if not site_untaught(self.config):
+            return False
+        ok, msg, fn, sz, fetched = self._try_ytdlp_fallback(
+            url, "untaught site with no download button", force=True)
+        if not ok:
+            if msg != "yt-dlp not installed":   # not per URL on a host without yt-dlp
+                self.log_event("ytdlp", f"yt-dlp could not fetch the untaught site: {msg}", url=url)
+            return False
+        self._update_job(url, "done", msg, filename=fn or "", file_size=sz)
+        db_log(self.site_id, self.config.get("name", "?"), url, "done", fn or "", sz, msg,
+               bytes_fetched=fetched, **history_title_kwargs(self, url))
+        return True
 
     def _try_gallerydl_fallback(self, url, fail_reason=""):
         """C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback

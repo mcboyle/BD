@@ -14,7 +14,12 @@ BD_GATE_SCOPE = "repo-wide"
 
 # This is the complete literal page-shape failure population emitted through
 # _handle_failure in bulk_downloader/ on the row-777 base census.
-PAGE_SHAPE_FAILURES = ("No download button found",)
+PAGE_SHAPE_FAILURES = (
+    "No download button found",
+    # dl95-dailymotion-1: the same failure on an untaught site names the fix.
+    "No download button found -- site needs onboarding: no template or learned download"
+    " selectors, and no extractor fetched it",
+)
 _REPO = Path(__file__).resolve().parents[1]
 
 
@@ -29,7 +34,9 @@ def _emitted_page_shape_failures():
                 continue
             message = node.args[1]
             if isinstance(message, ast.Constant) and isinstance(message.value, str):
-                if message.value.lower().startswith("no download") and message.value.lower().endswith("found"):
+                lower = message.value.lower()
+                if lower.startswith("no download") and (
+                        lower.endswith("found") or lower.startswith("no download button found")):
                     messages.add(message.value)
     return tuple(sorted(messages))
 
@@ -79,7 +86,7 @@ def _run_failure(monkeypatch, message, *, classify=None):
 def test_page_shape_failure_population_is_terminal_at_the_schedule_seam(monkeypatch):
     """Deleting the page-shape classifier branch reintroduces the 10m/1h ladder."""
     assert PAGE_SHAPE_FAILURES == _emitted_page_shape_failures()
-    assert len(PAGE_SHAPE_FAILURES) == 1
+    assert len(PAGE_SHAPE_FAILURES) == 2
     kinds = Counter()
     for message in PAGE_SHAPE_FAILURES:
         args, kwargs = _run_failure(monkeypatch, message)
@@ -87,7 +94,7 @@ def test_page_shape_failure_population_is_terminal_at_the_schedule_seam(monkeypa
         assert args[1] == "failed"
         assert args[2] == "[page_shape] " + message
         assert kwargs == {"screenshot": "", "_run_generation": None}
-    assert kinds == {"failed": 1}
+    assert kinds == {"failed": len(PAGE_SHAPE_FAILURES)}
 
 
 @pytest.mark.parametrize(
