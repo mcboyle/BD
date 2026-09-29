@@ -934,6 +934,13 @@ def _staged_direct_download(transfer):
     return staged
 
 
+def _progress_rate(bytes_now, bytes_prev, now, last_tick, started):
+    """Bytes/s over the current ~1 Hz progress window. Both transfer loops start
+    with last_tick=0 so the first chunk reports at once; that first window opens
+    at `started`, never at the epoch (dl95-reptyle-3: 1 MB fetched read "3 B/s")."""
+    return (bytes_now - bytes_prev) / max(0.001, now - (last_tick or started))
+
+
 class TransportMixin:
     def _regional_gateway_router(self):
         """Return this runner's regional policy router, if configured.
@@ -3774,7 +3781,7 @@ class TransportMixin:
                         now=time.time()
                         if now-last_update>=1.0:
                             elapsed=now-start
-                            speed=(downloaded-last_bytes)/(now-last_update)
+                            speed=_progress_rate(downloaded,last_bytes,now,last_update,start)
                             last_update=now; last_bytes=downloaded
                             cap_str=f" (cap {cap_mbps:.0f} MB/s)" if cap_mbps>0 else ""
                             if total>0:
@@ -4233,7 +4240,6 @@ class TransportMixin:
         # Monitor — aggregate progress, apply cap, update UI
         cap_mbps = self._current_cap_mbps()
         last_update = 0
-        last_total_bytes = 0
         # v3.43.27: track checkpoint saves separately from UI updates.
         # Save every 5MB of total progress so a crash loses at most 5MB
         # per chunk of redownload work. Frequent enough to be useful,
@@ -4242,6 +4248,9 @@ class TransportMixin:
         last_saved_bytes = sum(resume_offset)  # already-saved bytes from prior run
         # The pre-resume baseline — added to per-run progress to get absolute total
         pre_resume_total = sum(resume_offset)
+        # dl95-reptyle-3: the rate counts this run's bytes only -- resumed
+        # bytes were not fetched in the first window.
+        last_total_bytes = pre_resume_total
         while True:
             alive = [t for t in threads if t.is_alive()]
             # Total bytes = prior checkpoint baseline + this-run progress.
@@ -4276,7 +4285,7 @@ class TransportMixin:
                         sleep_for = min(0.5, expected_min - elapsed)
                         time.sleep(sleep_for)
                 # UI update — show absolute progress including resume baseline
-                speed = (total_bytes - last_total_bytes) / max(0.001, now - last_update)
+                speed = _progress_rate(total_bytes, last_total_bytes, now, last_update, start_time)
                 pct = (total_bytes / total) * 100 if total else 0
                 # v3.43.27: mention resume in the message so the user
                 # can see at a glance that the % > 0 isn't a fresh start
