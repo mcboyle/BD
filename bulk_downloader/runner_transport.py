@@ -2195,6 +2195,47 @@ class TransportMixin:
         except PWTimeout:
             return None
 
+    # dl95-pussyspace-1: how long the returned-to page may take to request its media.
+    _PAGE_MEDIA_WAIT_S = 8.0
+
+    def _fallback_to_page_media(self, page, page_url, why):
+        """dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
+        link, or clicked with no download event (pussyspace: "/1080p/" and
+        "cat/hd/" category links, a captcha-gated "/dl/<id>/" page) -- while
+        the scene's own player was streaming the media (the app logged the
+        page's HLS manifest). Before a needs_review, go back to the scene if
+        the click navigated away, wait (bounded) for the player's media
+        requests, and hand them to the Row 722 page-media path
+        (``_try_spa_api_media_extractor``), which finishes the job or returns
+        False. True only when it took over and finished the transfer.
+
+        The site's min_resolution holds here as on the DOM path: the extractor
+        takes only an option at or above it, and an option of unknown height
+        counts as below. A job forced by Approve takes any height."""
+        extractor = getattr(self, "_try_spa_api_media_extractor", None)
+        if not callable(extractor):
+            return False
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            forced = bool((self.jobs.get(page_url) or {}).get("force_download"))
+        try:
+            from . import spa_media_extract as _spa
+            here = (page.url or "").split("#", 1)[0].rstrip("/")
+            if here != page_url.split("#", 1)[0].rstrip("/"):
+                page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+            deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
+            while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
+                page.wait_for_timeout(500)
+        except Exception as e:  # noqa: BLE001 -- the needs_review path below still runs
+            sys.stderr.write(f"  download: page-media fallback could not reach the scene: {e}\n")
+            return False
+        sys.stderr.write(f"  download: {why}; trying the page's own media\n")
+        try:
+            return bool(extractor(page_url, page, min_height=0 if forced else min_res))
+        except Exception as e:  # noqa: BLE001 -- as above
+            sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
+            return False
+
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
@@ -2251,6 +2292,8 @@ class TransportMixin:
             sys.stderr.write(
                 f"  download: REJECTED non-download URL [{_gate_abs[:80]}] "
                 f"— {_gate_reject}\n")
+            if not probe and self._fallback_to_page_media(page, page_url, f"winner rejected: {_gate_reject}"):
+                return
             ss = self._screenshot(page, page_url)
             self._update_job(
                 page_url, "needs_review",
@@ -2419,6 +2462,8 @@ class TransportMixin:
                     suggested=dl.suggested_filename or "download.bin"
             if dl is None:
                 # No actual download event fired.
+                if not probe and self._fallback_to_page_media(page, page_url, "clicked candidate fired no download"):
+                    return
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"
