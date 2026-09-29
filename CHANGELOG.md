@@ -4,6 +4,28 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1728 - train156: row
+
+T156 = O1568 train of the next sixteen BOARDed O1567 fix rows (ISP-SPLIT-O1564), each cut on main 34bde3e2 (train154) at its BOARD PATCH-SHA256, applied on main after T155:
+- fx-adulttime-turnstile (B7-B, test3): app-side Cloudflare Turnstile handling on the adulttime login (pre-form challenge line); row722 M1 re-anchored.
+- fx-deadletter-requeue-runner (wrk-191): dead-letter requeue path in app_queue.
+- fx-dorcelclub-frame-gate (bd1): interstitial frame gate on dorcelclub.
+- fx-eporner (bd3): eporner login-trigger path in login_impl/_common.
+- fx-evidence-password-redact (B18-B, security, GEN 2): login evidence replay never records the password.
+- fx-hls-dotleaf-name (wrk-191): HLS output naming for dot-leaf names in runner_transport.
+- fx-hustler1-cred-ref (wrk-191): hustlerunlimited-1 credential reference in app.
+- fx-hustler-mse-manifest-wait (wrk-191): wait for the MSE manifest on hustler in runner_extractors.
+- fx-login-async-double-start (OP-test4): async login is not started twice (runner_auth).
+- fx-manual-banner-iframe (wrk-191): manual-login banner inside an iframe (login_impl/manual).
+- fx-newsensations-generic-title (OP-test7): a site-wide title repeated across scenes is not a scene title (runner, runner_transport, website_title).
+- fx-redtube-mediadefs-relative (fresh149): relative mediaDefinitions entries resolved in extractors_aylo.
+- fx-relogin-vault-locked (OP-test4): re-login with a locked vault (submit, runner_auth).
+- fx-scrolller-login-modal (OP-test2): register/login modal over posts gets a working login flow (runner_extractors, spa_media_extract).
+- fx-teenfidelity-recaptcha (OP-bd2): app-side reCAPTCHA handling on the kellymadisonmedia login (submit).
+- fx-xnxx-preview (test1, GEN 3): page-media-first asks only the scene's own player; preview/ad clips are not saved (runner_extractors, runner_transport).
+Overlaps with T155 and among members are merged in place (O1319). No VM gate (O1560); auto-merge on green PR checks.
+
+
 ## v3.66.1727 - train155: row
 
 T155 = O1568 train of the first six BOARDed O1567 fix rows (ISP-SPLIT-O1564; operator "do it" 21:2xZ), each cut on main 34bde3e2 (train154) at its BOARD PATCH-SHA256:
