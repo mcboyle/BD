@@ -1491,7 +1491,11 @@ class ExtractorsMixin:
                 forced = bool(self.jobs.get(url, {}).get("force_download"))
             minimum = int(float(self.config.get(
                 "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-            if minimum > 0 and height < minimum and not forced:
+            # dot95-brazzers1-clickmiss-exempt (PM RULING MERGE-0930): a manifest the
+            # click-miss fallback admitted stands in for the scored tier, so an
+            # unknown height is not held here (a master's RESOLUTION still is).
+            click_miss_unknown = click_miss_floor is not None and not height
+            if minimum > 0 and height < minimum and not forced and not click_miss_unknown:
                 quality = f"{height}p" if height else "unknown quality"
                 message = (f"Scene player best is {quality} (minimum {minimum}p)"
                            " — Approve to force.")
