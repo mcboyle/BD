@@ -393,6 +393,18 @@ MANIFEST_TEXT_JS = """async (url) => {
 _H264_CODEC_RE = re.compile(r"\bavc[13]\.", re.I)
 
 
+def _master_order(master_text: str, master_url: str) -> List[str]:
+    """Variant URIs in master order, resolved as streaming_manifest resolves them."""
+    lines = [ln.strip() for ln in (master_text or "").splitlines() if ln.strip()]
+    order: List[str] = []
+    for i, ln in enumerate(lines):
+        if ln.startswith("#EXT-X-STREAM-INF:"):
+            uri = next((n for n in lines[i + 1:] if not n.startswith("#")), "")
+            order.append(uri if uri.startswith(("http://", "https://"))
+                         else urljoin(master_url, uri))
+    return order
+
+
 def hls_variant_for(master_text: str, master_url: str,
                     want_height: int) -> Optional[Dict[str, Any]]:
     """dl95-beeg-2: the variant of an HLS master that a ranked height names.
@@ -402,6 +414,9 @@ def hls_variant_for(master_text: str, master_url: str,
     order: an h264 variant at *want_height*, any variant at it, the tallest
     h264 variant, the tallest variant -- highest bandwidth within a height.
     None when the text is not a master or no variant declares a height.
+    ``program`` is the variant's index in master order (ffmpeg's program id)
+    and ``audio_group`` its EXT-X-MEDIA audio group: such a variant's playlist
+    carries no audio, so it must be taken from the master (lens B19-B).
     """
     try:
         from .streaming_manifest import parse_streaming_manifest
@@ -420,7 +435,8 @@ def hls_variant_for(master_text: str, master_url: str,
         if pool:
             best = max(pool, key=lambda v: (v.height, v.bandwidth))
             return {"url": best.uri, "height": int(best.height),
-                    "codecs": best.codecs or ""}
+                    "codecs": best.codecs or "", "audio_group": best.audio_group or "",
+                    "program": _master_order(master_text, master_url).index(best.uri)}
     return None
 
 

@@ -41,6 +41,17 @@ RANKED_BODY = (
     '#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240,CODECS="avc1.64001E"\nr240/index.m3u8\n'
     '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS="avc1.64002A"\nr1080/index.m3u8\n')
 BARE_BODY = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=400000\nr240/index.m3u8\n"
+# Lens B19-B (REFUTE G1): the standard Apple layout -- video-only variants whose audio is one EXT-X-MEDIA
+# rendition. The variant playlist alone carries no audio, so G1 landed a silent 1080p file and closed it done.
+DEMUX = "https://beeg.com/-0920833012505917"
+DEMUX_MASTER = CDN + MULTI + "920833012505917.mp4.m3u8"
+DEMUX_BODY = (
+    "#EXTM3U\n"
+    '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="en",DEFAULT=YES,AUTOSELECT=YES,URI="aud/index.m3u8"\n'
+    '#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240,CODECS="avc1.64001E,mp4a.40.2",AUDIO="aud"\n'
+    "r240/index.m3u8\n"
+    '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS="avc1.64002A,mp4a.40.2",AUDIO="aud"\n'
+    "r1080/index.m3u8\n")
 
 
 def _tool(name):
@@ -50,11 +61,14 @@ def _tool(name):
     return path
 
 
+def _streams(path):
+    out = subprocess.run([_tool("ffprobe"), "-v", "error", "-show_entries", "stream=codec_type,height",
+                          "-of", "json", str(path)], capture_output=True, text=True, check=True, timeout=30).stdout
+    return [(s["codec_type"], s.get("height")) for s in json.loads(out)["streams"]]
+
+
 def _probe_height(path):
-    out = subprocess.run([_tool("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
-                          "stream=height", "-of", "json", str(path)],
-                         capture_output=True, text=True, check=True, timeout=30).stdout
-    return int(json.loads(out)["streams"][0]["height"])
+    return next(h for kind, h in _streams(path) if kind == "video")
 
 
 @pytest.fixture(scope="module")
@@ -66,9 +80,15 @@ def cdn(tmp_path_factory):
                         "-t", "2", "-pix_fmt", "yuv420p", "-g", "5", "-f", "hls", "-hls_time", "1",
                         "-hls_segment_filename", str(root / name / "seg%d.ts"), str(root / name / "index.m3u8")],
                        check=True, timeout=120)
+    (root / "aud").mkdir()
+    subprocess.run([_tool("ffmpeg"), "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                    "-c:a", "aac", "-f", "hls", "-hls_time", "1",
+                    "-hls_segment_filename", str(root / "aud" / "seg%d.ts"), str(root / "aud" / "index.m3u8")],
+                   check=True, timeout=120)
     fixed = {"/scene": ("text/html", b"<!doctype html><html><body><video></video></body></html>"),
              RANKED_MASTER: ("application/vnd.apple.mpegurl", RANKED_BODY.encode()),
-             BARE_MASTER: ("application/vnd.apple.mpegurl", BARE_BODY.encode())}
+             BARE_MASTER: ("application/vnd.apple.mpegurl", BARE_BODY.encode()),
+             DEMUX_MASTER: ("application/vnd.apple.mpegurl", DEMUX_BODY.encode())}
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -76,7 +96,7 @@ def cdn(tmp_path_factory):
             parts = path.split("/")
             if path in fixed:
                 ctype, body = fixed[path]
-            elif len(parts) > 2 and parts[-2] in ("r240", "r1080") and (root / parts[-2] / parts[-1]).is_file():
+            elif len(parts) > 2 and parts[-2] in ("r240", "r1080", "aud") and (root / parts[-2] / parts[-1]).is_file():
                 ctype, body = "application/octet-stream", (root / parts[-2] / parts[-1]).read_bytes()
             else:
                 self.send_error(404)
@@ -168,6 +188,16 @@ def test_a_1080p_master_lands_its_1080p_variant(run, cdn):
     assert r.updates[-1][0] == "done" and r.updates[-1][1].startswith("API/media 1080p"), r.updates[-1]
 
 
+def test_a_demuxed_audio_master_lands_its_1080p_variant_with_the_audio(run, cdn):
+    r, landed = run(DEMUX, DEMUX_MASTER)
+    assert len(landed) == 1, (landed, r.updates)
+    streams = _streams(landed[0])
+    assert ("video", 1080) in streams and any(kind == "audio" for kind, _ in streams), (
+        f"DL95_BEEG2_DEMUXED_AUDIO_DROPPED: {streams}")
+    assert r.segmented == [cdn + DEMUX_MASTER], r.segmented   # the master, mapped to the variant's program
+    assert r.updates[-1][0] == "done" and r.updates[-1][1].startswith("API/media 1080p"), r.updates[-1]
+
+
 def test_a_landed_height_below_the_minimum_goes_to_review_not_done(run):
     r, landed = run(BARE, BARE_MASTER)
     statuses = [s for s, _ in r.updates]
@@ -193,7 +223,12 @@ def test_the_h264_variant_at_the_ranked_height_wins_over_a_higher_bandwidth_av1(
             '#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS="avc1.64002A,mp4a.40.2"\nh264.m3u8\n')
     pick = spa_media_extract.hls_variant_for(body, MASTER, 1080)
     assert pick == {"url": "https://video.example/hls/_TPL_/h264.m3u8", "height": 1080,
-                    "codecs": "avc1.64002A,mp4a.40.2"}, pick
+                    "codecs": "avc1.64002A,mp4a.40.2", "audio_group": "", "program": 2}, pick
+
+
+def test_a_variant_with_an_audio_group_names_its_program_in_master_order():
+    pick = spa_media_extract.hls_variant_for(DEMUX_BODY, MASTER, 1080)
+    assert pick and pick["audio_group"] == "aud" and pick["program"] == 1 and pick["height"] == 1080, pick
 
 
 def test_without_the_ranked_height_the_tallest_h264_variant_is_taken():

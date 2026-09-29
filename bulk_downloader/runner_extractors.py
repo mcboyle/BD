@@ -1367,9 +1367,12 @@ class ExtractorsMixin:
         height = int(chosen.get("height") or 0)
         # dl95-beeg-2: a master is fetched as the variant its rank named; the
         # segmented downloader maps the FIRST video stream (beeg's: 240p).
+        master_url = file_url
         is_hls = bool(re.search(r"\.m3u8(\?|$)", file_url, re.I))
+        hls_program = None
         if is_hls:
-            file_url, height = self._spa_hls_ranked_variant(page, url, file_url, height, _spa)
+            file_url, height, hls_program = self._spa_hls_ranked_variant(
+                page, url, file_url, height, _spa)
         if scene_candidates:
             from contextlib import nullcontext
             with getattr(self, "_lock", None) or nullcontext():
@@ -1415,7 +1418,7 @@ class ExtractorsMixin:
         with getattr(self, "_lock", None) or nullcontext():
             job = jobs.get(url) if isinstance(jobs, dict) else None
             forced = bool((job or {}).get("force_download"))
-        chosen_for_us = not forced and not _spa_job_is_the_file(url, file_url)
+        chosen_for_us = not forced and not _spa_job_is_the_file(url, master_url)
         gated = min_res > 0 and chosen_for_us
         if gated and 0 < height < min_res:
             screenshot_fn = getattr(self, "_screenshot", None)
@@ -1534,6 +1537,8 @@ class ExtractorsMixin:
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             hls_kw = {"input_format": hls_format} if hls_format else {}
+            if hls_program is not None:
+                hls_kw["program"] = hls_program  # dl95-beeg-2 G2: demuxed audio
             dl_result = self._hls_download_guarded(
                 _hls, file_url, output_path, user_agent=ua, referer=url,
                 progress_callback=lambda p: self._update_job(
@@ -2170,9 +2175,12 @@ class ExtractorsMixin:
         return True
 
     def _spa_hls_ranked_variant(self, page, url, master_url, height, _spa):
-        """dl95-beeg-2: (variant URL, its declared height) for the master the
-        rank chose, read through the page's own session; the master itself and
-        the ranked height when it is not a master or cannot be read."""
+        """dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+        master the rank chose, read through the page's own session: the variant
+        playlist itself, or -- when its audio is a separate EXT-X-MEDIA rendition
+        the variant playlist does not carry -- the master with that variant's
+        program. The master, the ranked height and None when it is not a master
+        or cannot be read."""
         try:
             text = page.evaluate(_spa.MANIFEST_TEXT_JS, master_url)
             pick = _spa.hls_variant_for(text if isinstance(text, str) else "",
@@ -2180,11 +2188,13 @@ class ExtractorsMixin:
         except Exception:  # noqa: BLE001 -- any page/driver failure keeps the master
             pick = None
         if not pick:
-            return master_url, height
+            return master_url, height, None
         self.log_event("spa_api_hls_variant",
                        f"{height}p master -> {pick['height']}p {pick['codecs'] or '?'} variant",
                        url=url)
-        return pick["url"], pick["height"]
+        if pick["audio_group"]:
+            return master_url, pick["height"], pick["program"]
+        return pick["url"], pick["height"], None
 
     def _kvs_flashvars_media(self, page, _spa):
         """dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars

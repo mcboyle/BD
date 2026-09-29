@@ -303,6 +303,7 @@ def _build_ffmpeg_cmd(
     extra_args: Optional[list[str]] = None,
     proxy_url: Optional[str] = None,
     input_format: Optional[str] = None,
+    program: Optional[int] = None,
 ) -> list[str]:
     """Construct an ffmpeg argv that downloads `input_url` (HLS or DASH)
     into `output_path`. Designed to be robust on flaky CDNs:
@@ -363,8 +364,11 @@ def _build_ffmpeg_cmd(
     # Output options (after -i)
     cmd += [
         "-c", "copy",       # stream-copy: no re-encoding
-        "-map", "0:v:0",    # first video
-        "-map", "0:a:0?",   # first audio if present (the '?' = optional)
+        # first video + first audio if present (the '?' = optional); with
+        # ``program`` (dl95-beeg-2), those of that master variant, whose audio
+        # may be a separate EXT-X-MEDIA rendition ffmpeg groups into it
+        "-map", "0:v:0" if program is None else f"0:p:{int(program)}:v:0",
+        "-map", "0:a:0?" if program is None else f"0:p:{int(program)}:a:0?",
         "-bsf:a", "aac_adtstoasc",  # HLS audio often needs this for mp4 muxing
         "-threads", str(max(1, threads)),
     ]
@@ -392,6 +396,7 @@ def download(
     proxy_url: Optional[str] = None,
     env: Optional[dict] = None,
     input_format: Optional[str] = None,
+    program: Optional[int] = None,
 ) -> DownloadResult:
     """Download an HLS/DASH stream at `manifest_url` to `output_path`.
 
@@ -465,7 +470,7 @@ def download(
         user_agent=user_agent, referer=referer,
         extra_headers=extra_headers, threads=threads,
         extra_args=extra_ffmpeg_args, proxy_url=proxy_url,
-        input_format=input_format,
+        input_format=input_format, program=program,
     )
 
     # Launch in its own process group so we can kill the whole tree on
