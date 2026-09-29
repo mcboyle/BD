@@ -2492,6 +2492,7 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         row_sels = learned.get("row_selectors") or []
         learned_excluded = []
         scored_groups = []
+        hidden_groups = []
         winning_group = None
         for sel in row_sels:
             try:
@@ -2511,6 +2512,9 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             # up to _RAW_SCAN_CAP raw matches but stop after _VISIBLE_CAP visible
             # rows are scored.
             scored = []
+            hidden_scored = []
+            sel_url_attr = resolve_url_attribute(
+                learned.get("url_attribute"), row_sels, sel)
             _VISIBLE_CAP = 30
             _RAW_SCAN_CAP = 200
             _seen_visible = 0
@@ -2530,9 +2534,18 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                     # is_visible() is caught by the enclosing except below
                     # (treated as a skip), consistent with per-element error
                     # handling on this path.
-                    if not el.is_visible():
-                        continue
-                    _seen_visible += 1
+                    # tpl95-justporn-1: a row the template FETCHES by its
+                    # url_attribute needs no click, so a closed dropdown's row
+                    # (visibility:hidden until a toggle opens it) is kept as a
+                    # FALLBACK: scored apart and consulted only when no visible
+                    # row of any learned selector scored.
+                    hidden = not el.is_visible()
+                    if hidden:
+                        if not (sel_url_attr and (
+                                el.get_attribute(sel_url_attr) or "").strip()):
+                            continue
+                    else:
+                        _seen_visible += 1
                     require_signal = _learned_candidate_requires_signal(
                         el, sel)
                     # The harvest is split, not narrowed: `label` is what the
@@ -2567,9 +2580,7 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                         target, txt, _page_url,
                         require_signal=require_signal, label=label,
                         full_length_requested=full_length_requested, runner=runner,
-                        url_attr=resolve_url_attribute(
-                            learned.get("url_attribute"),
-                            learned.get("row_selectors") or [], sel),
+                        url_attr=sel_url_attr,
                         learned_sel=sel)
                     if admission is not None:
                         _note_admission_drop(admission, txt)
@@ -2588,16 +2599,18 @@ def _find_best_download(page, custom, learned, runner, _page_url,
                     if hash_info:
                         entry["expected_hash_algo"] = hash_info[0]
                         entry["expected_hash_value"] = hash_info[1]
-                    scored.append(entry)
+                    (hidden_scored if hidden else scored).append(entry)
                 except Exception: continue
             learned_trace.append({"selector": sel, "matched": count,
                                   "visible": _seen_visible,
                                   "admitted": len(scored)})
-            if scored:
-                scored.sort(key=lambda c: (
-                    c["work"], c["score"], c["size"]),
-                            reverse=True)
-                scored_groups.append((sel, scored))
+            for rows, groups in ((scored, scored_groups),
+                                 (hidden_scored, hidden_groups)):
+                if rows:
+                    rows.sort(key=lambda c: (
+                        c["work"], c["score"], c["size"]),
+                              reverse=True)
+                    groups.append((sel, rows))
         # Row 701, seam 1.  "Does anything prove affinity" is a question about
         # the PAGE.  Asked per group it is a different, weaker question: the
         # UNKNOWN fallback fired inside a group holding no proven candidate
@@ -2606,6 +2619,10 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         # unattributable tile won over a proven one, which is precisely the
         # harm row 701 exists to prevent.  Score every group, answer once,
         # then scope.
+        if not scored_groups:
+            # No visible row matched any learned selector: fall back to the
+            # hidden rows the template fetches by url_attribute (see above).
+            scored_groups = hidden_groups
         page_proves_affinity = any(
             _candidate_is_in_scope(c) for _s, g in scored_groups for c in g)
         for sel, group in scored_groups:

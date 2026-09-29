@@ -32,6 +32,10 @@ DL_SELECTOR = "a.post_download_link"  # the site's dl_selector on test2
 ROWS = [".post_download_wrapper a.post_download_link[href*='/download/index/']",
         "a.post_download_link[href*='videos.porndig.com/download/index/']"]  # the template's row selectors
 LEARNED = {"trigger_selectors": ["button.btn_download_post_action"], "row_selectors": ROWS, "url_attribute": "href"}
+# tpl95-justporn-1: a hidden taught row the template FETCHES by url_attribute is now a learned hit itself (no click
+# needed). The credit path below is about a template the learned pass must skip while the menu is shut: one that
+# clicks its row (no url_attribute).
+LEARNED_CLICK = dict(LEARNED, url_attribute="")
 CSS = "<style>.post_download_wrapper{display:none}.post_download_wrapper.open{display:block}.hidden{display:none}</style>"
 
 
@@ -54,7 +58,7 @@ def _scene(menu_open=False):
 
 
 def _config():
-    return {"learned": {"download": copy.deepcopy(LEARNED)}}
+    return {"learned": {"download": copy.deepcopy(LEARNED_CLICK)}}
 
 
 def _counts(config):
@@ -63,7 +67,7 @@ def _counts(config):
 
 def test_precondition_the_site_selector_picks_a_taught_row_while_the_learned_pass_skips_it():
     with _scene() as page:
-        best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(LEARNED))
+        best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(LEARNED_CLICK))
         assert best is not None and not best.get("_via_learned"), best
         assert best.get("_custom_selector") == DL_SELECTOR  # "custom selector matched 5 option(s)"
         assert "/download/index/" in best["text"], best["text"]
@@ -73,8 +77,8 @@ def test_precondition_the_site_selector_picks_a_taught_row_while_the_learned_pas
 def test_the_taught_row_that_names_the_pick_is_credited_not_missed(capsys):
     config = _config()
     with _scene() as page:
-        best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(LEARNED))
-        runner_util.record_learned_download_outcome(config, LEARNED, best)
+        best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(LEARNED_CLICK))
+        runner_util.record_learned_download_outcome(config, LEARNED_CLICK, best)
     counts = _counts(config)
     assert counts.get(ROWS[0]) == {"hits": 1, "misses": 0}, counts
     assert not any(rec.get("misses") for rec in counts.values()), counts
@@ -91,6 +95,16 @@ def test_a_learned_pick_is_still_a_plain_hit():
     assert _counts(config).get(best["_learned_sel"]) == {"hits": 1, "misses": 0}
 
 
+def test_a_hidden_taught_row_fetched_by_href_is_a_learned_hit():
+    """tpl95-justporn-1: with url_attribute href the shut menu's taught row is fetched directly."""
+    config = {"learned": {"download": copy.deepcopy(LEARNED)}}
+    with _scene() as page:
+        best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(LEARNED))
+        assert best is not None and best.get("_via_learned") and best["_learned_sel"] == ROWS[0], best
+        runner_util.record_learned_download_outcome(config, LEARNED, best)
+    assert _counts(config).get(ROWS[0]) == {"hits": 1, "misses": 0}
+
+
 def test_control_a_pick_no_taught_row_names_is_a_miss_for_every_row():
     """#video_full_download_btn (a.post_download_link to the site root) matches dl_selector but no taught row."""
     config = _config()
@@ -103,7 +117,7 @@ def test_control_a_pick_no_taught_row_names_is_a_miss_for_every_row():
 
 def test_a_selector_the_dom_cannot_evaluate_names_nothing():
     """Playwright-only syntax (:has-text) cannot be matched in the DOM: counted as before, never raised."""
-    learned = dict(LEARNED, row_selectors=["a:has-text('1080p')"])
+    learned = dict(LEARNED_CLICK, row_selectors=["a:has-text('1080p')"])
     config = {"learned": {"download": copy.deepcopy(learned)}}
     with _scene() as page:
         best = find_best_download(page, DL_SELECTOR, learned=copy.deepcopy(learned))
