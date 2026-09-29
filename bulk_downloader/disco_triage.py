@@ -46,6 +46,7 @@ _STRUCTURAL_REJECTIONS = frozenset({
     "homepage link",
     "navigation URL",
     "internal/non-public host",
+    "thumbnail/image transform",
 })
 
 _CONTENT_MATCH_SCORE = 0.8   # floor score for a content-pattern-matched page
