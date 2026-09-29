@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5171,
+  "edge_count": 5174,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3171,6 +3171,11 @@
     ],
     "tests/test_dispatch_chain.py": [
       "bulk_downloader/__init__.py"
+    ],
+    "tests/test_dl_f3_happy_eyeballs_mapped_connect_error.py": [
+      "bulk_downloader/happy_eyeballs.py",
+      "bulk_downloader/multi_homed_egress.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_dl_f7_site_delete_closes_orphan_runs.py": [
       "bulk_downloader/app.py",

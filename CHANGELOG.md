@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1710 - train138: row
+
+T138: mcp-say-rule21-stale 2604e303; dl-f3-bd-worker-B4-B 2ba1a3f1. dl-f3 product (happy_eyeballs.py, ssrf_transport.py; SSRF address policy unchanged per BOARD); 3 declared import edges. mcp-say-rule21-stale shape-only BOARD per PM order (O1489). pydantic import in mcp-say-rule21 test via pytest.importorskip in place (O1481). Held: bh1-13, bh1-47, bh2-27 G2. No deploy.
+
+
 ## v3.66.1709 - train137: row
 
 T137: o1510-affinity cd65a0f2; dl-f7-bd-worker-B8-B 54bf9839. dl-f7 is product (app_sites_id_core.py, run_history.py); 4 declared import edges; DEPENDENCY_GRAPH/FUNCTION_INDEX regenerated. Held: bh1-13, bh1-47, bh2-27 G2. No deploy.
