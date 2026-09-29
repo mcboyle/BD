@@ -1305,7 +1305,7 @@ class ExtractorsMixin:
     def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
                                      proven_only: bool = False, hold_below: bool = False,
                                      page_media=None, *, source_list_only=False,
-                                     scene_own_only=False) -> bool:
+                                     scene_own_only=False, click_miss_floor=None) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Normally consulted after ``find_best_download`` (and the
@@ -1419,6 +1419,10 @@ class ExtractorsMixin:
             cands = source_cands or scene_candidates or unproven
             # Named in the caller's "No download button found" when nothing is found.
             self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
+        if click_miss_floor is not None:
+            # tpl95-site-ma-brazzers-1: called after a scored click missed, so
+            # only options that can stand in for the scored tier qualify.
+            cands = _spa.click_miss_candidates(cands, int(click_miss_floor))
         if not cands:
             # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
             # own media is here; a trailer verdict is a claim about the unproven

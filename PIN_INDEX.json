@@ -17,10 +17,10 @@
     ]
   },
   "counts": {
-    "total": 160,
+    "total": 161,
     "version": 1,
-    "count_dict": 159,
-    "test_files_scanned": 2223,
+    "count_dict": 160,
+    "test_files_scanned": 2239,
     "by_file": {
       "tests/test_capture_scrub_hook.py": 2,
       "tests/test_capture_shell_runtime.py": 1,
@@ -37,6 +37,7 @@
       "tests/test_dom_analyzer.py": 1,
       "tests/test_history_records_the_website_title.py": 7,
       "tests/test_kb_golden_questions.py": 1,
+      "tests/test_row1008_rfc_8767_serving_stale_dns_cache_with_asynchronous_refresh.py": 1,
       "tests/test_row1020_gateway_routeregistry_decomp.py": 1,
       "tests/test_row1026_async_eventloop_consolidation.py": 2,
       "tests/test_row1076_postcrash_blackbox_snapshotter.py": 1,
@@ -409,6 +410,15 @@
     },
     {
       "form": "count_dict",
+      "file": "tests/test_row1008_rfc_8767_serving_stale_dns_cache_with_asynchronous_refresh.py",
+      "line": 480,
+      "value": {
+        "stale": 1
+      },
+      "gates_what": "test_refresh_keeps_the_answer_ttl — A refreshed entry keeps the TTL it was stored with, not the cache default."
+    },
+    {
+      "form": "count_dict",
       "file": "tests/test_row1020_gateway_routeregistry_decomp.py",
       "line": 133,
       "value": {
@@ -673,7 +683,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1717",
+      "value": "3.66.1719",
       "gates_what": "test_containment_routes_and_version"
     },
     {

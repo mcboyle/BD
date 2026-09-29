@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1719 - train147: row1008
+
+T147 = backlog-1 (PM ruling 07:1xZ: old main-based BOARD backlog, oldest first, re-measured on main; 6 cuts): row1008-stale-dns-cache 87d3d136; opusb-003-B1-B ef7c04d3 (G2 BOARD); dl95-dailymotion-4-bd-worker-B1-B c2852ca6; dl95-vip4k-2c-bd-worker-A2-A 250cb6b4; dl95-filthykings-1 3d8d1838; tpl95-site-ma-brazzers-1-bd-worker-B18-B e3b3ff4e. Generated artifacts regenerated. No deploy.
+
+
+## v3.66.1718 - train146: row
+
+T146 = LANE-1 (DOT95 lane to main per PM ruling 07:1xZ in T145-LANE-QUESTION: first 11 boarded lane commits with content, in lane order from lane head a4d042ba; empties = content already on main; dl-f6 and dl95-africancasting-2 excluded: ratchet +DP-13): dl95-dailymotion-3 (merged in place onto listing_links), dl95-file-examples-4, dl95-youporn-1, dl95-youporn-2, dl95-africancasting-3, dl95-naughtyamerica-1, dl95-pegasproductions-1, dl95-justporn-1, dl95-app-B6-2, dl95-porndig-2 (merged in place onto listing_links), dl95-cumlouder-3 (add/add union). No register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1717 - train145: row
 
 T145 (7 stale-gate repairs + dl95 scrolller-3, 8 BOARDed cuts): stalegate-install-windows-bat bc5e1249; stalegate-redis-event-gateway 53d38ff0; stalegate-row722-transport-lock 203b04b6; stalegate-source-text-log-event f4bb204e; stalegate-stream-verifier-lowfps c15f5fa7; stalegate-super-typeerror 8be03e9b; stalegate-thumbnail-image-signature 3c3b596d; dl95-scrolller-3-bd-worker-B15-B 887d88bb. No register close. Generated artifacts regenerated. No deploy.

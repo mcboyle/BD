@@ -2426,6 +2426,18 @@ class TransportMixin:
                f"below {min_res}p; got {avail} (file {leaf or suggested})",ss)
         return True
 
+    def _browser_save_stopped(self, job_url):
+        """dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+        marks only the JOB "stopped".  Either one ends a browser download."""
+        stop = getattr(self, "_stop", None)
+        if stop is not None and stop.is_set():
+            return True
+        jobs = getattr(self, "jobs", None)
+        if not isinstance(jobs, dict):
+            return False
+        with getattr(self, "_lock", None) or contextlib.nullcontext():
+            return (jobs.get(job_url) or {}).get("status") == "stopped"
+
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
@@ -2695,6 +2707,21 @@ class TransportMixin:
                 # No actual download event fired.
                 if not probe and self._fallback_to_page_media(page, page_url, "clicked candidate fired no download"):
                     return
+                # tpl95-site-ma-brazzers-1: a learned trigger can open a menu
+                # whose scored entries are not media links (Aylo MA renditions),
+                # so `best` was truthy and runner.py never consulted the page's
+                # own media. Try it before filing the click as a review, held
+                # to the tier floor: never a trailer or a below-min file.
+                _spa_media = None if probe else getattr(
+                    self, "_try_spa_api_media_extractor", None)
+                if callable(_spa_media):
+                    _floor = int(float(self.config.get(
+                        "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+                    with self._lock:
+                        if (self.jobs.get(page_url) or {}).get("force_download"):
+                            _floor = 0
+                    if _spa_media(page_url, page, click_miss_floor=_floor):
+                        return
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"
@@ -3183,6 +3210,14 @@ class TransportMixin:
                     return
                 downloaded_size, bytes_fetched = self._pw_save(dl,final_path)
                 staging_claim.release(_staging_path, staging_claim.job_identity(page_url))
+
+            # dl95-filthykings-1: save_as blocks until the browser has moved the
+            # whole file straight to the final name, and reads neither the site
+            # Stop nor the job's Cancel.  One that landed meanwhile owns the
+            # outcome: the file is not kept and the job stays "stopped".
+            if transfer_mode=="browser" and self._browser_save_stopped(page_url):
+                final_path.unlink(missing_ok=True)
+                return
 
             # dl95-eporner-1: the site's login page instead of the media is an
             # auth failure, not a bad file (runner_auth._login_wall_rejects).
