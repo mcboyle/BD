@@ -446,6 +446,22 @@ def _arm_popup_grant_capture(page):
     return _read, _disarm
 
 
+def _is_login_wall_href(href):
+    """True when a download candidate's href is the site's login page
+    (``/login-required/``, ``/login``, ``/sign-in``...). The session keeper's
+    login-URL vocabulary decides, read on the URL path only."""
+    if not isinstance(href, str) or not href.strip():
+        return False
+    from urllib.parse import urlparse
+
+    from .session_keeper import _LOGIN_URL_RE
+    try:
+        path = urlparse(href.strip()).path or ""
+    except ValueError:
+        return False
+    return bool(_LOGIN_URL_RE.search(path))
+
+
 def _closeable_response_context(response):
     """Turn a closeable HTTP response into a context manager.
 
@@ -2619,6 +2635,13 @@ class TransportMixin:
                           f"them, so no download event can fire. This needs the "
                           f"segmented downloader (ffmpeg via hls_downloader); "
                           f"it is not a selector problem")
+                elif _is_login_wall_href(href):
+                    # tpl95-whoreshub-1: logged out, every rendition link on the
+                    # scene page points at /login-required/ (a login modal), so
+                    # the click can never download. Say so, not "set Trigger".
+                    hint=(f"not logged in — the download link points to the "
+                          f"site's login page ({href[:80]}); log in, then retry. "
+                          f"It is not a selector problem")
                 elif best.get("_dropdown_note"):
                     hint=best["_dropdown_note"]
                 elif best["score"]==0:

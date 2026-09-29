@@ -250,6 +250,40 @@ def _is_honeypot_field(loc):
     return False, ""
 
 
+_SEARCH_FIELD_JS = r"""el => {
+  const t = (el.getAttribute('type') || '').toLowerCase();
+  if (t === 'search') return 'type=search';
+  if (el.closest('[role=search]')) return 'inside role=search';
+  const n = (el.getAttribute('name') || '').toLowerCase();
+  if (['q', 'query', 'search', 'search_query', 'keyword', 'keywords'].includes(n)) return 'name=' + n;
+  const f = el.form;
+  if (f) {
+    const act = (f.getAttribute('action') || '').toLowerCase();
+    const idc = ((f.getAttribute('id') || '') + ' ' + (f.getAttribute('class') || '')).toLowerCase();
+    if (/\/search(\/|\?|$)/.test(act) || /search/.test(idc)) return 'search form';
+  }
+  const hint = ((el.getAttribute('placeholder') || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
+  if (/\bsearch\b/.test(hint)) return 'search placeholder';
+  return '';
+}"""
+
+
+def _is_search_field(loc):
+    """Return ``(is_search, reason)`` for a Playwright input locator.
+
+    tpl95-whoreshub-1 (test2 2026-09-29): a site whose login is a modal had
+    no login form on the page, so the generic ``form input[type='text']``
+    matched the header SEARCH box (``form#search_form``, ``name=q``); the
+    username was typed into it and the staged-login continue click submitted
+    it as a search. A search box is never a credential field. Fail-open on
+    an introspection error, as ``_is_honeypot_field`` does."""
+    try:
+        why = loc.evaluate(_SEARCH_FIELD_JS)
+    except Exception:  # noqa: BLE001 -- fail-open, as _is_honeypot_field: never block a real field
+        return False, ""
+    return (True, why) if why else (False, "")
+
+
 def _try_fill(page,selectors,value,what):
     """Walk the candidate list; fill the first visible, non-honeypot
     element, return (True, used_selector). On total failure return
@@ -270,6 +304,7 @@ def _try_fill(page,selectors,value,what):
     (_type_field_value)."""
     tried=[]
     skipped=[]
+    searches=[]
     for sel in selectors:
         if not sel: continue
         tried.append(sel)
@@ -291,6 +326,10 @@ def _try_fill(page,selectors,value,what):
                 decoy,why=_is_honeypot_field(loc)
                 if decoy:
                     skipped.append(f"{sel}[{idx}]:{why}")
+                    continue
+                search,why=_is_search_field(loc)
+                if search:
+                    searches.append(f"{sel}[{idx}]:{why}")
                     continue
                 _wait_visible(loc)
                 # Clear any existing value, then click to focus, then type.
@@ -325,11 +364,13 @@ def _try_fill(page,selectors,value,what):
     # situations -- the first wants a better selector list, the second says
     # the filter is doing its job (or is over-firing) -- and the pre-fix
     # message collapsed them into one string. Name the decoys and why.
+    also=(f"; skipped {len(searches)} search box(es), not a login field: "
+          f"{', '.join(searches[:3])}" if searches else "")
     if skipped:
         return False,(f"could not fill {what}; tried {len(tried)} selectors, "
                       f"skipped {len(skipped)} honeypot field(s): "
-                      f"{', '.join(skipped[:5])}")
-    return False,f"could not fill {what}; tried {len(tried)} selectors"
+                      f"{', '.join(skipped[:5])}{also}")
+    return False,f"could not fill {what}; tried {len(tried)} selectors{also}"
 
 
 def get_input_scheduler():
