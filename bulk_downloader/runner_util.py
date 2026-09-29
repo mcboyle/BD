@@ -445,6 +445,40 @@ def _learned_row_naming(best, row_selectors):
     return ""
 
 
+def learned_selector_origin(config, selector):
+    """tpl95-nubiles-porn-1: where a learned row selector came from.
+
+    The runner merges enabled reviewed-template rows into the site's learned
+    rows before the scan, so a hit can be a reviewed template's selector while
+    the status says a user template is applied (filthykings)."""
+    cfg = config if isinstance(config, dict) else {}
+    applied = str(cfg.get("applied_template") or "").strip()
+    own = ((cfg.get("learned") or {}).get("download") or {}).get("row_selectors") or []
+    if selector in own:
+        return f"applied template {applied}" if applied else "site learned rows"
+    if applied:
+        return f"reviewed template, not applied template {applied}"
+    return "reviewed template"
+
+
+def _learned_miss_line(config, row_sels, best):
+    """tpl95-nubiles-porn-1: one line naming the template, what each learned
+    row selector found (detect's ``_learned_trace``) and what won instead."""
+    cfg = config if isinstance(config, dict) else {}
+    template = str(cfg.get("applied_template") or "").strip() or "-"
+    custom = str(cfg.get("dl_selector") or "").strip()
+    if custom and (best.get("_custom_selector") == custom or best.get("text") == custom):
+        won = f"custom selector [{custom}]"
+    else:
+        won = "the wide sweep"
+    trace = best.get("_learned_trace") or [
+        {"selector": s, "matched": "?", "visible": "?", "admitted": "?"} for s in row_sels]
+    rows = "; ".join(f"[{r['selector']}] matched={r['matched']} visible={r['visible']} "
+                     f"admitted={r['admitted']}" for r in trace)
+    return (f"learned rows missed: template={template}: {len(trace)} learned row "
+            f"selector(s) named no usable row ({rows}); won by {won}")
+
+
 def record_learned_download_outcome(config, learned_dl, best):
     """Phase 5.8/7.3 learned download hit/miss accounting for one scored page.
 
@@ -460,7 +494,10 @@ def record_learned_download_outcome(config, learned_dl, best):
         won_sel = _learned_row_naming(best, row_sels)
         how = " (same element as the non-learned pick)"
     if best.get("_via_learned") or won_sel:
-        sys.stderr.write(f"  download: learned hit via [{won_sel}]{how}\n")
+        # tpl95-nubiles-porn-1: say whose selector won (a merged reviewed
+        # template can out-rank the applied one, filthykings).
+        sys.stderr.write(f"  download: learned hit via [{won_sel}]{how} "
+                         f"({learned_selector_origin(config, won_sel)})\n")
         _bump_learned_stat(config, "download_hits")
         # Phase 7.3: per-selector hit. Bump THIS selector's hit count. Move it
         # to the front of row_selectors next time so the most-reliable pattern
@@ -468,6 +505,9 @@ def record_learned_download_outcome(config, learned_dl, best):
         _bump_per_selector(config, "download", "row_selectors", won_sel, "hits")
     elif row_sels:
         # No learned row names the pick: every learned selector missed.
+        # tpl95-nubiles-porn-1: this was counted and never said, so an applied
+        # template that selected nothing still read as applied and working.
+        sys.stderr.write(f"  download: {_learned_miss_line(config, row_sels, best)}\n")
         _bump_learned_stat(config, "download_misses")
         for stale_sel in row_sels:
             _bump_per_selector(config, "download", "row_selectors", stale_sel, "misses")
