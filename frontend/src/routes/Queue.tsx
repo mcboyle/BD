@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Navigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckSquare, Pause, Play, Plus, Square, Trash2, Wrench, X } from "lucide-react";
 import { toast } from "sonner";
@@ -73,6 +74,8 @@ type ModalTarget = {
 // `${site_id}-${url}` and the bulk_cancel endpoint takes a list of
 // {site_id, url} pairs, so we encode here and split on send.
 const KEY_SEP = "\u0001"; // pick a separator that can't appear in a URL
+// The ?status= values this page renders a view for (see statusFilter).
+const QUEUE_STATUS_VIEWS = ["all", "running", "waiting", "failed"] as const;
 function selKey(j: { site_id: string; url: string }): string {
   return `${j.site_id}${KEY_SEP}${j.url}`;
 }
@@ -208,7 +211,14 @@ export function Queue() {
   // narrow to one. The active filter renders as a removable chip.
   // dl95-file-examples-3: "failed" (Home's "Failed runs" link) lists the failed
   // runs and hides both queue sections -- it used to fall through to "all".
-  const [statusFilter, setStatusFilter] = useUrlState("status", "all");
+  // dl95-file-examples-6: a status this page has no view for (needs_review) fell
+  // through to "all" under a "Status: needs_review" chip. Such a value now reads
+  // as "all" with no chip; needs_review itself redirects to /needs-review, the
+  // page that lists those jobs (see the early return before the render).
+  const [statusParam, setStatusFilter] = useUrlState("status", "all");
+  const statusFilter = (QUEUE_STATUS_VIEWS as readonly string[]).includes(statusParam)
+    ? statusParam
+    : "all";
   const showFailed = statusFilter === "failed";
   const showRunning = statusFilter !== "waiting" && !showFailed;
   const showWaiting = statusFilter !== "running" && !showFailed;
@@ -545,6 +555,8 @@ export function Queue() {
   const sortingJobs = sortingSite
     ? waiting.filter((j) => j.site_id === sortingSite.id)
     : [];
+
+  if (statusParam === "needs_review") return <Navigate to="/needs-review" replace />;
 
   return (
     <AppShell title="Queue" trailing={trailing}>
