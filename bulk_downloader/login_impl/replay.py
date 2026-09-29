@@ -583,9 +583,9 @@ def verify_login_replay(config, profile_dir, member_url=None,
       1. If the URL transitions to success_url (or doesn't contain
          the login form anymore) → "cookies_only" pass. Worker can
          skip the credential dance entirely on next run.
-      2. If the login form is still present, run the usual fill+
-         submit. If it lands on success_url with valid cookies →
-         "fresh_login" pass.
+      2. If the login form is still present, run the worker's own
+         do_login. If it succeeds → "fresh_login" pass, and its
+         cookies are added to this context for the member probe.
       3. Otherwise → fail with diagnostic detail.
 
     Then if member_url is set, navigate there and check for the
@@ -632,148 +632,111 @@ def verify_login_replay(config, profile_dir, member_url=None,
         verify_extra = {"viewport": {"width": 1366, "height": 800}}
         if config.get("use_real_chrome", True):
             verify_extra["channel"] = "chrome"
-        # Use the manual flow's profile dir → same cookies, same local
-        # storage, same browser fingerprint. v3.66.141: launched via the
-        # shared cloak wrapper (honours the configured backend; the
-        # bundled-Chromium fallback is handled by persistent_context).
-        with _cloak.persistent_context(
-                user_data_dir=profile_dir, headless=True, args=launch_args,
-                config=config, **verify_extra) as (ctx, backend):
-            _cloak.log_choice("login verify", backend, "persistent")
-            try:
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                # v3.43.56: apply playwright-stealth if configured
+
+        def _in_profile(step):
+            # Use the manual flow's profile dir → same cookies, same local
+            # storage, same browser fingerprint. v3.66.141: launched via the
+            # shared cloak wrapper (honours the configured backend; the
+            # bundled-Chromium fallback is handled by persistent_context).
+            with _cloak.persistent_context(
+                    user_data_dir=profile_dir, headless=True, args=launch_args,
+                    config=config, **verify_extra) as (ctx, backend):
+                _cloak.log_choice("login verify", backend, "persistent")
                 try:
-                    from .. import stealth as _stealth
-                    _stealth.apply_to_page(page, config)
-                except Exception:
-                    pass  # best-effort; not load-bearing for verify
-                page.set_default_timeout(int(timeout * 1000))
-
-                # Step 1: navigate to login_url and see what happens.
-                try:
-                    page.goto(login_url, wait_until="domcontentloaded",
-                                timeout=int(timeout * 1000))
-                except Exception as e:
-                    replay_error = f"navigation failed: {str(e)[:150]}"
-                    return _build_verify_result(
-                        replay_ok=False, replay_ms=_ms_since(started),
-                        replay_error=replay_error, replay_method="",
-                        member_probe_ok=None, member_probe_ms=0,
-                        member_probe_error="",
-                        cookies_expire_in_days=cookies_expire_in_days)
-
-                # Wait a beat for redirects / JS-driven nav
-                page.wait_for_timeout(1500)
-                current_url = page.url
-
-                # Check 1: did we redirect to success_url (cookies
-                # alone were enough)?
-                cookies_alone_sufficient = False
-                if success_url:
-                    # v3.65.2: was `success_url in current_url or
-                    # current_url.startswith(success_url)`. The substring
-                    # check is unsafe — see _success_url_matches docstring.
-                    if _success_url_matches(success_url, current_url):
-                        cookies_alone_sufficient = True
-                # Check 2: is the login form GONE? (heuristic — no
-                # input[type=password] visible). If so, we're either
-                # already logged in or on a 404/error page.
-                if not cookies_alone_sufficient:
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    # v3.43.56: apply playwright-stealth if configured
                     try:
-                        pw_count = page.locator(
-                            "input[type='password']").count()
-                        if pw_count == 0:
-                            # No password field on the page → likely
-                            # already logged in (or hit an error
-                            # page; we'll catch that via member probe)
-                            cookies_alone_sufficient = True
+                        from .. import stealth as _stealth
+                        _stealth.apply_to_page(page, config)
+                    except Exception:
+                        pass  # best-effort; not load-bearing for verify
+                    page.set_default_timeout(int(timeout * 1000))
+                    return step(ctx, page)
+                finally:
+                    try:
+                        ctx.close()
                     except Exception:
                         pass
 
-                if cookies_alone_sufficient:
-                    replay_ok = True
-                    replay_method = "cookies_only"
-                else:
-                    # Step 2: cookies weren't enough, attempt full
-                    # fill+submit using the captured credentials +
-                    # learned selectors. We replicate just enough of
-                    # do_login's logic to test the headless path.
-                    fill_ok, fill_msg = _attempt_headless_fill_submit(
-                        page, config, timeout=timeout)
-                    if fill_ok:
-                        # Did we land on success_url?
-                        final_url = page.url
-                        # v3.65.2: substring check replaced — see
-                        # _success_url_matches docstring for the
-                        # failure modes that motivated this change.
-                        if success_url and _success_url_matches(success_url, final_url):
-                            replay_ok = True
-                            replay_method = "fresh_login"
-                        elif not success_url:
-                            # No success_url configured; trust the fill+submit msg
-                            replay_ok = True
-                            replay_method = "fresh_login"
-                        else:
-                            replay_ok = False
-                            replay_error = (
-                                f"login submitted but URL didn't transition to "
-                                f"success_url. Final URL: {final_url[:200]}")
-                    else:
-                        replay_ok = False
-                        replay_error = fill_msg
+        def _cookies_alone(ctx, page):
+            # Step 1: navigate to login_url and see what happens.
+            # Returns (navigation error, cookies alone sufficient, probe).
+            try:
+                page.goto(login_url, wait_until="domcontentloaded",
+                            timeout=int(timeout * 1000))
+            except Exception as e:
+                return f"navigation failed: {str(e)[:150]}", False, None
 
-                replay_ms = _ms_since(started)
+            # Wait a beat for redirects / JS-driven nav
+            page.wait_for_timeout(1500)
+            current_url = page.url
 
-                # Step 3: member-only URL probe (if configured)
-                if member_url and replay_ok:
-                    member_started = time.time()
-                    try:
-                        page.goto(member_url, wait_until="domcontentloaded",
-                                    timeout=int(timeout * 1000))
-                        page.wait_for_timeout(1000)
-                        # Probe: is there a password field? If yes,
-                        # we were bounced to login → cookies not
-                        # granting member access.
-                        try:
-                            pw_count = page.locator(
-                                "input[type='password']").count()
-                            if pw_count > 0:
-                                member_probe_ok = False
-                                member_probe_error = (
-                                    "member URL bounced to a login form "
-                                    "(cookies don't grant member access)")
-                            else:
-                                # Sanity: did the URL match what we
-                                # asked for? Cross-host redirect is
-                                # also a failure mode.
-                                actual = page.url
-                                try:
-                                    from urllib.parse import urlparse
-                                    if (urlparse(actual).netloc.lower()
-                                          != urlparse(member_url).netloc.lower()):
-                                        member_probe_ok = False
-                                        member_probe_error = (
-                                            f"member URL redirected to a "
-                                            f"different host: {actual[:150]}")
-                                    else:
-                                        member_probe_ok = True
-                                except Exception:
-                                    member_probe_ok = True
-                        except Exception as e:
-                            member_probe_ok = False
-                            member_probe_error = (
-                                f"probe failed: {str(e)[:100]}")
-                    except Exception as e:
-                        member_probe_ok = False
-                        member_probe_error = (
-                            f"navigation to member URL failed: {str(e)[:150]}")
-                    member_probe_ms = _ms_since(member_started)
-            finally:
+            # Check 1: did we redirect to success_url (cookies
+            # alone were enough)?
+            sufficient = False
+            if success_url:
+                # v3.65.2: was `success_url in current_url or
+                # current_url.startswith(success_url)`. The substring
+                # check is unsafe — see _success_url_matches docstring.
+                if _success_url_matches(success_url, current_url):
+                    sufficient = True
+            # Check 2: is the login form GONE? (heuristic — no
+            # input[type=password] visible). If so, we're either
+            # already logged in or on a 404/error page.
+            if not sufficient:
                 try:
-                    ctx.close()
+                    pw_count = page.locator(
+                        "input[type='password']").count()
+                    if pw_count == 0:
+                        # No password field on the page → likely
+                        # already logged in (or hit an error
+                        # page; we'll catch that via member probe)
+                        sufficient = True
                 except Exception:
                     pass
+            probe = (_probe_member_url(page, member_url, timeout)
+                     if sufficient and member_url else None)
+            return "", sufficient, probe
+
+        nav_error, sufficient, probe = _in_profile(_cookies_alone)
+        if nav_error:
+            return _build_verify_result(
+                replay_ok=False, replay_ms=_ms_since(started),
+                replay_error=nav_error, replay_method="",
+                member_probe_ok=None, member_probe_ms=0,
+                member_probe_error="",
+                cookies_expire_in_days=cookies_expire_in_days)
+        if sufficient:
+            replay_ok = True
+            replay_method = "cookies_only"
+        else:
+            # Step 2: cookies weren't enough -- run THE worker login.
+            # dl95-blacked-1 (test2, O1513): a stripped fill+submit copy
+            # judged the URL 1.5s after submit, so blacked's wait-redirect
+            # shell (row 722) failed here while do_login completes it. A
+            # verify that runs another login proves nothing about workers.
+            # Outside the profile context: sync Playwright cannot nest.
+            from .submit import do_login
+            verdict, info, cookies = do_login(
+                config, allow_manual_takeover=False,
+                site_id=_cloak.ledger_site_id(config))
+            if verdict is True:
+                replay_ok = True
+                replay_method = "fresh_login"
+                from ..cookies import normalize_stored_cookie
+                jar = [normalize_stored_cookie(c) for c in cookies]
+
+                def _keep_session(ctx, page):
+                    # The profile keeps the worker's session, as the
+                    # in-profile fill+submit did; the probe reads it.
+                    ctx.add_cookies(jar)
+                    return (_probe_member_url(page, member_url, timeout)
+                            if member_url else None)
+                probe = _in_profile(_keep_session)
+            else:
+                replay_error = str(info)[:300]
+        if probe:
+            member_probe_ok, member_probe_ms, member_probe_error = probe
     except Exception as e:
         replay_error = f"verify infra error: {type(e).__name__}: {str(e)[:200]}"
 
@@ -784,6 +747,55 @@ def verify_login_replay(config, profile_dir, member_url=None,
         member_probe_error=member_probe_error,
         cookies_expire_in_days=cookies_expire_in_days)
 
+
+def _probe_member_url(page, member_url, timeout):
+    """Step 3 of verify: open the member-only URL on `page` and check for
+    the presence of a login form. Returns (ok, ms, error)."""
+    import time
+    member_probe_ok = None
+    member_probe_error = ""
+    member_started = time.time()
+    try:
+        page.goto(member_url, wait_until="domcontentloaded",
+                    timeout=int(timeout * 1000))
+        page.wait_for_timeout(1000)
+        # Probe: is there a password field? If yes,
+        # we were bounced to login → cookies not
+        # granting member access.
+        try:
+            pw_count = page.locator(
+                "input[type='password']").count()
+            if pw_count > 0:
+                member_probe_ok = False
+                member_probe_error = (
+                    "member URL bounced to a login form "
+                    "(cookies don't grant member access)")
+            else:
+                # Sanity: did the URL match what we
+                # asked for? Cross-host redirect is
+                # also a failure mode.
+                actual = page.url
+                try:
+                    from urllib.parse import urlparse
+                    if (urlparse(actual).netloc.lower()
+                          != urlparse(member_url).netloc.lower()):
+                        member_probe_ok = False
+                        member_probe_error = (
+                            f"member URL redirected to a "
+                            f"different host: {actual[:150]}")
+                    else:
+                        member_probe_ok = True
+                except Exception:
+                    member_probe_ok = True
+        except Exception as e:
+            member_probe_ok = False
+            member_probe_error = (
+                f"probe failed: {str(e)[:100]}")
+    except Exception as e:
+        member_probe_ok = False
+        member_probe_error = (
+            f"navigation to member URL failed: {str(e)[:150]}")
+    return member_probe_ok, _ms_since(member_started), member_probe_error
 
 def _build_verify_result(*, replay_ok, replay_ms, replay_error,
                             replay_method, member_probe_ok,
@@ -798,11 +810,11 @@ def _build_verify_result(*, replay_ok, replay_ms, replay_error,
                           f"({replay_ms}ms). Workers will skip the "
                           "credential dance.")
         else:
-            parts.append(f"Headless login replayed cleanly "
+            parts.append(f"Worker login replayed cleanly "
                           f"({replay_ms}ms). Workers can re-login "
                           "automatically when cookies expire.")
     else:
-        parts.append(f"Headless replay failed: {replay_error}")
+        parts.append(f"Login replay failed: {replay_error}")
 
     if member_probe_ok is True:
         parts.append(f"Member-only URL loads OK ({member_probe_ms}ms).")
