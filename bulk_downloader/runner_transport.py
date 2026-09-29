@@ -2318,6 +2318,21 @@ class TransportMixin:
     # dl95-pussyspace-1: how long the returned-to page may take to request its media.
     _PAGE_MEDIA_WAIT_S = 8.0
 
+    def _clear_late_gates(self, page, page_url):
+        """dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
+        was not there at the runner's gate pass. Its messages go to the gate
+        log; any failure is just "nothing cleared"."""
+        try:
+            from . import interstitial as _interstitial
+            log = getattr(self, "log_event", None)
+            return _interstitial.clear_gates(
+                page, site_gates=(getattr(self, "config", None) or {}).get("dismiss_selectors", ""),
+                url=page_url,
+                log=(lambda m: log("gate", m, url=page_url)) if callable(log) else None)
+        except Exception as e:  # noqa: BLE001 -- the media read below still runs
+            sys.stderr.write(f"  download: late gate pass raised {type(e).__name__}: {e}\n")
+            return []
+
     def _fallback_to_page_media(self, page, page_url, why, scene_own_only=False):
         """dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
         link, or clicked with no download event (pussyspace: "/1080p/" and
@@ -2349,7 +2364,14 @@ class TransportMixin:
             if here != page_url.split("#", 1)[0].rstrip("/"):
                 page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
             deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
+            gate_passes = 0
             while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
+                # dl95-porndoe-1-live-2: an age/consent layer can render after
+                # the one gate pass (porndoe's, over the player); clear it here
+                # too, with the same deny rules, or the player never starts.
+                # Bounded: at most three sweeps, none after one clears.
+                if 0 <= gate_passes < 3:
+                    gate_passes = -1 if self._clear_late_gates(page, page_url) else gate_passes + 1
                 page.wait_for_timeout(500)
         except Exception as e:  # noqa: BLE001 -- the needs_review path below still runs
             sys.stderr.write(f"  download: page-media fallback could not reach the scene: {e}\n")

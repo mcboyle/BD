@@ -1291,6 +1291,11 @@ class ExtractorsMixin:
         except Exception as e:
             sys.stderr.write(f"  player-media: import failed ({type(e).__name__}); skipped\n")
             return False
+        # dl95-porndoe-1-live-2: an age/consent layer that rendered after the
+        # runner's gate pass covers the player; the start click cannot reach it.
+        clear_late = getattr(self, "_clear_late_gates", None)
+        if callable(clear_late):
+            clear_late(page, url)
         media = _spa.start_player_for_feature_media(page)
         if not media:
             sys.stderr.write("  player-media: no feature-length media after player start\n")
