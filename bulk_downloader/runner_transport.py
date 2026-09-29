@@ -2733,7 +2733,10 @@ class TransportMixin:
         # segments, not names. The website title G19 already harvested for
         # the history row names the file instead; the scene URL's own slug is
         # the last resort. A real stem is never touched.
+        original_bare_leaf = None
+        _wtitle = ""
         if _is_bare_media_leaf(suggested) and suggested != _NO_NAME_PLACEHOLDER:
+            original_bare_leaf = suggested
             _score = best.get("score", 0) or 0
             _tier = res_label(_score) if 0 < _score < 9999 else ""
             try:
@@ -3225,6 +3228,47 @@ class TransportMixin:
             # resumable bytes are kept.
             if transfer_mode == "browser":
                 staging_claim.discard(final_path, staging_claim.job_identity(page_url))
+
+            # tpl95-cumlouder-2: bare media leaf tier must come from the
+            # element's label/res or the probed height, never a default/floor.
+            # If the landed file was named from a bare leaf and ffprobe measures
+            # a real video height, reconcile the filename and score with the
+            # probed height through the configured filename template contract.
+            if original_bare_leaf and final_path.exists():
+                probed_h = self._probe_video_height(final_path)
+                if probed_h > 0:
+                    probed_tier = res_label(probed_h)
+                    probed_named = resolve_media_leaf_name(
+                        original_bare_leaf, website_title=_wtitle,
+                        tier=probed_tier, scene_url=page_url)
+                    probed_ctx_vars = dict(ctx_vars)
+                    probed_ctx_vars["filename"] = Path(probed_named).stem
+                    probed_ctx_vars["stem"] = Path(probed_named).stem
+                    probed_ctx_vars["resolution"] = probed_tier
+                    probed_ctx_vars["quality"] = probed_tier
+                    probed_rendered = resolve_filename_template(
+                        tpl, probed_ctx_vars)
+                    if not probed_rendered:
+                        probed_rendered = probed_named
+                    elif not probed_rendered.lower().endswith(_SIZED_HREF_MEDIA_EXTS + (ext.lower(),)):
+                        probed_rendered += ext
+                    new_dest = dl_dir / probed_rendered
+                    if new_dest != final_path:
+                        new_dest.parent.mkdir(parents=True, exist_ok=True)
+                        if new_dest.exists() and new_dest != final_path:
+                            new_dest = Path(safe_dest(str(new_dest)))
+                        try:
+                            final_path.rename(new_dest)
+                            sys.stderr.write(
+                                f"  download: probed video height {probed_h}p "
+                                f"({final_path.name!r} -> {new_dest.name!r})\n")
+                            final_path = new_dest
+                            filename = final_path.name
+                            if isinstance(best, dict):
+                                best["score"] = probed_h
+                        except OSError as e:
+                            sys.stderr.write(
+                                f"  download: rename to probed tier failed: {e}\n")
             # Clear the force_download flag on success so a future retry
             # doesn't keep bypassing the threshold silently.
             with self._lock:
@@ -4767,6 +4811,31 @@ class TransportMixin:
             return int(round(float(out) * 1000))
         except ValueError:
             return None
+
+    @staticmethod
+    def _probe_video_height(path):
+        """ffprobe the pixel height of the primary video stream (``"v:0"``).
+        Returns 0 when it cannot be measured (no ffprobe, no video stream,
+        unreadable file)."""
+        ffprobe_exe = ffmpeg_bin.ffprobe()
+        if not ffprobe_exe:
+            return 0
+        cmd = [ffprobe_exe, "-v", "error", "-select_streams", "v:0",
+               "-show_entries", "stream=height", "-of",
+               "default=noprint_wrappers=1:nokey=1", str(path)]
+        try:
+            proc = subprocess.run(
+                cmd, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=30, check=False)
+        except (subprocess.SubprocessError, OSError):
+            return 0
+        out = (proc.stdout or "").strip()
+        if proc.returncode != 0 or not out:
+            return 0
+        try:
+            return int(out.split()[0])
+        except (ValueError, IndexError):
+            return 0
 
     @staticmethod
     def _verify_av_sync(output_path, tolerance_ms=250):

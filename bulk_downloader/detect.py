@@ -1853,6 +1853,10 @@ def _learned_media_row(el, url_attr):
         if url_attr:
             url = (el.get_attribute(url_attr) or "").strip()
         label = (el.get_attribute("label") or "").strip()
+        if not label:
+            res_val = (el.get_attribute("res") or "").strip()
+            if res_val:
+                label = f"{res_val}p" if res_val.isdigit() else res_val
     except Exception:
         pass
     return url, label
