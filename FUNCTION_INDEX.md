@@ -44,7 +44,7 @@ Tags:
 Schema version: 2
 
 
-## `bulk_downloader/app.py` (138 entries)
+## `bulk_downloader/app.py` (139 entries)
 
 ```
 - L0039 `_selftest_sites_inputs` `[private]` — Read self-test inputs from the exact config identity boot will load.
@@ -167,24 +167,25 @@ Schema version: 2
 - L6236 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
 - L6263 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
 - L6283 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6323 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6391 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6533 `serve_ss` `GET /screenshots/<path:filename>`
-- L6842 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L6849 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L6860 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L6875 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L6939 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L6968 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L6976 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L6993 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7005 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7028 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7044 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7060 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7077 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7130 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7251 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L6316 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
+- L6361 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6429 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6571 `serve_ss` `GET /screenshots/<path:filename>`
+- L6880 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L6887 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L6898 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L6913 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L6977 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7006 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7014 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7031 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7043 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7066 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7082 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7098 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7115 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7168 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7289 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -632,7 +633,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_transport.py` (89 entries)
+## `bulk_downloader/runner_transport.py` (90 entries)
 
 ```
 - L0079 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -698,32 +699,33 @@ Schema version: 2
   - L1824 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
   - L1875 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
   - L1904 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L2046 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L2096 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L3023 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L3098 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L3146 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L3751 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L3801 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L4206 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L4239 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L4263 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L4288 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L4314 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L4334 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L4358 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L4375 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L4392 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L4407 `_ManifestConsumers` `[private]`
-  - L4408 `_ManifestConsumers.__init__` `[dunder]`
-  - L4411 `_ManifestConsumers.join`
-- L4418 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L4466 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L4476 `HTTP3Transport.__init__` `[dunder]`
-  - L4484 `HTTP3Transport.allocate_stream_id`
-  - L4489 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L4512 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L4525 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+  - L2047 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
+  - L2098 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L2148 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L3085 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L3160 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L3208 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L3813 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L3863 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L4268 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L4301 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L4325 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L4350 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L4376 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L4396 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L4420 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L4437 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L4454 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L4469 `_ManifestConsumers` `[private]`
+  - L4470 `_ManifestConsumers.__init__` `[dunder]`
+  - L4473 `_ManifestConsumers.join`
+- L4480 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L4528 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L4538 `HTTP3Transport.__init__` `[dunder]`
+  - L4546 `HTTP3Transport.allocate_stream_id`
+  - L4551 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L4574 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L4587 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
@@ -916,7 +918,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (24 entries)
+## `bulk_downloader/login_impl/replay.py` (25 entries)
 
 ```
 - L0034 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
@@ -940,9 +942,10 @@ Schema version: 2
 - L0462 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
 - L0517 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
 - L0558 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0788 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0833 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0893 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0751 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
+- L0800 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0845 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0905 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
@@ -1002,4 +1005,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 826 across 22 files._
+_Total entries: 829 across 22 files._

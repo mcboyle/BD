@@ -34,8 +34,8 @@ authoritative; this file is only a deterministic locality view.
 
 ## INV-005 — live source tags
 
-- `bulk_downloader/detect.py:317` — `_RES_LABEL_PATTERNS=[  # INV-005`
-- `bulk_downloader/detect.py:409` — `def res_label(score):  # INV-005`
+- `bulk_downloader/detect.py:318` — `_RES_LABEL_PATTERNS=[  # INV-005`
+- `bulk_downloader/detect.py:410` — `def res_label(score):  # INV-005`
 - `bulk_downloader/dev_suite/introspection.py:244` — `try:                                            # INV-005`
 - `bulk_downloader/heuristic_scoring.py:122` — `RESOLUTION_TIERS: List[Tuple[re.Pattern, int, str]] = [  # INV-005`
 
