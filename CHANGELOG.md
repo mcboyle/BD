@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1716 - train144: row
+
+T144 (stale-gate repair, 1 BOARDed cut): stalegate-assign-lens-codex-remote-root-bd-worker-B17-B 8d45d0cd (B13-B BOARD). No register close. Generated artifacts regenerated. No deploy.
+
+
 ## v3.66.1715 - train143: row
 
 T143 (stale-gate repairs from RULING-STALEGATE-e2c67c92 + VM-gate all-shards test, 6 BOARDed cuts): stalegate-add-url-endpoint d42551df; stalegate-body-contract-regen ca89cbf8; stalegate-integrity-check-fake-threading f884b75f; stalegate-print-in-pg-backend d20232c5; stalegate-sites-config-health-warning e0389274; vmgate-all-shards-bd-worker-B2-B b7ce1cad. No register close. Generated artifacts regenerated. No deploy.
