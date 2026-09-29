@@ -143,6 +143,7 @@ from .website_title import (
 )
 from .integrity import verify_media_integrity
 from .login import do_login
+from .log import site_tag
 # v3.66.144: reviewed-template runtime bridge. Soft import so the runner
 # still works if the template subsystem is ever absent (degraded mode: no
 # reviewed-template hints, learned/configured selectors only).
@@ -383,6 +384,61 @@ def _locate_trigger(page, selector, timeout_ms=5000):
             except Exception:
                 continue
         raise
+
+
+def _trigger_skip_reason(page, selector):
+    """dl95-naughtyamerica-3: why a learned trigger was not clicked, for the log.
+
+    Measured (members.naughtyamerica.com scene, 2026-09-29): the learned
+    Download tab was attached but sat in a display:none section, so the
+    visible-wait timed out and the trigger loop moved on without a word; the
+    job then closed as trailer-only with nothing in the log naming the
+    trigger. Any error while measuring reads as "unreadable", never raises.
+    """
+    try:
+        loc = page.locator(selector).first
+        if not loc.count():
+            return "not on the page"
+        if not loc.is_visible():
+            return "attached but hidden"
+        return "visible but the click failed"
+    except Exception as e:  # noqa: BLE001 -- a log line must never fail the job
+        return f"unreadable ({type(e).__name__})"
+
+
+def _reveal_hidden_trigger(page, triggers, reveals):
+    """dl95-naughtyamerica-3: open the collapsed section that hides a trigger.
+
+    ``reveals`` are the learned block's ``reveal_selectors`` (a control a
+    human clicks first, e.g. a "MORE INFO" toggle). One is clicked only when
+    a trigger is attached and none is visible, so a site without
+    reveal_selectors, or whose trigger is already visible, is untouched.
+    Returns the reveal selector clicked, or "".
+    """
+    if not reveals or not triggers:
+        return ""
+    attached = False
+    for tsel in triggers:
+        try:
+            loc = page.locator(tsel).first
+            if not loc.count():
+                continue
+            if loc.is_visible():
+                return ""
+            attached = True
+        except Exception:  # noqa: BLE001 -- unreadable selector: next one
+            continue
+    if not attached:
+        return ""
+    for rsel in reveals:
+        try:
+            loc = page.locator(rsel).first
+            if loc.count() and loc.is_visible():
+                loc.click(timeout=5000)
+                return rsel
+        except Exception:  # noqa: BLE001 -- a failed reveal leaves the loop as before
+            continue
+    return ""
 
 
 def _settle_after_trigger(page, before, *, poll_s=TRIGGER_SETTLE_POLL_S,
@@ -5684,6 +5740,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 TRIGGER_SETTLE_BUDGET_S),
                 TRIGGER_SETTLE_BUDGET_S)
             trigger_settle_state = None
+            _revealed = _reveal_hidden_trigger(
+                page, triggers_to_try, learned_dl.get("reveal_selectors") or [])
+            if _revealed:
+                sys.stderr.write(
+                    f"  {site_tag(self.site_id)}download: revealed hidden "
+                    f"trigger via [{_revealed}]\n")
             for tsel in triggers_to_try:
                 try:
                     scope, loc = _locate_trigger(page, tsel)
@@ -5713,7 +5775,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         f"settle={trigger_settle_state}\n")
                     trigger_clicked = True
                     break
-                except Exception: continue
+                except Exception as _terr:
+                    # dl95-naughtyamerica-3: never skip a trigger silently.
+                    sys.stderr.write(
+                        f"  {site_tag(self.site_id)}download: trigger [{tsel}] "
+                        f"not clicked -- {_trigger_skip_reason(page, tsel)} "
+                        f"({type(_terr).__name__})\n")
+                    continue
             # v3.43.73: Scrapling-based selector recovery. If all learned
             # triggers failed AND the site has opted in to recovery AND
             # Scrapling is installed AND we have stored fingerprints, try

@@ -1802,10 +1802,25 @@ class ExtractorsMixin:
     def _spa_trailer_only(self, url, page, previews):
         """dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
         (logged out on a member site). That file is never taken as the scene: the
-        job goes to needs_review naming it, never to a silent done. True = handled."""
+        job goes to needs_review naming it, never to a silent done. True = handled.
+
+        dl95-naughtyamerica-3: a page with a logout control is logged in, so the
+        verdict must not send the operator to log in; it names the missing
+        member download control instead."""
+        from .constants import LOGOUT_CONTROL_JS
         name = previews[0].split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
-        msg = (f"Only a trailer/preview is on this page ({name}) -- the member file "
-               f"needs a login; log in (or check the site's login_url) and retry")
+        try:
+            logged_in = page.evaluate(LOGOUT_CONTROL_JS) is True
+        except Exception:  # noqa: BLE001 -- unreadable page: keep the login hint
+            logged_in = False
+        if logged_in:
+            msg = (f"Only a trailer/preview is on this page ({name}) and the page is "
+                   f"logged in (it has a logout control) -- the member download "
+                   f"control was not found; check the site's download template "
+                   f"(trigger/row selectors) and retry")
+        else:
+            msg = (f"Only a trailer/preview is on this page ({name}) -- the member file "
+                   f"needs a login; log in (or check the site's login_url) and retry")
         sys.stderr.write(f"  spa-api: trailer/preview only on the page: {name}\n")
         try:
             ss = self._screenshot(page, url)

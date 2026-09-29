@@ -2412,6 +2412,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
     `learned` schema:
       {
         "trigger_selectors": [...],     # for opening modals; used by caller
+        "reveal_selectors": [...],      # opens a collapsed section hiding the trigger; caller
         "row_selectors": [...],         # tried first here
         "url_attribute": "data-href",   # caller uses for direct fetch
       }
