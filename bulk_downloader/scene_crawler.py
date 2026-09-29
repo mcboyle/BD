@@ -376,6 +376,16 @@ def _scene_cohort(
         item for item in candidates
         if item[0] == best_images and item[1] == best_size
     ]
+    # tpl95-wowgirls-1: a members home can carry a photo-set row
+    # (/gallery/<id>/<slug>) the same size as its film row.  When the tie
+    # splits on the product scene-URL rule, only the scene-shaped cohorts win.
+    scene_shaped = [
+        item for item in winning
+        if any(row.get("has_img") and _looks_like_scene_url(row["url"])
+               for row in item[3])
+    ]
+    if scene_shaped:
+        winning = scene_shaped
     scenes: list[dict[str, Any]] = []
     shapes: list[str] = []
     seen = set()
