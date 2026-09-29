@@ -102,11 +102,18 @@ def test_public_site_listing_is_discovered(page, origin, tmp_path):
 @pytest.mark.parametrize("config", [
     {"login_url": "https://tube.example/login"},
     {"username": "someone"},
-    {"cookie_file": "/tmp/cookies.txt"},
+    {"cookie_file": "JAR"},
     {"accounts": [{"username": "a", "password": "b"}]},
     {"auth_required": True},
 ], ids=["login_url", "username", "cookie_file", "account", "auth_required"])
 def test_a_site_that_declares_a_login_stays_fail_closed(page, origin, tmp_path, config):
+    if config.get("cookie_file") == "JAR":
+        # dl95-hqporner-1: every saved site carries a cookie_file path; a jar
+        # that holds cookies is what declares a session.
+        # (Written directly: save_cookies_to_file also publishes to the vault.)
+        jar = tmp_path / "members.json"
+        jar.write_text('[{"name": "sid", "value": "x", "domain": "127.0.0.1", "path": "/"}]')
+        config = {"cookie_file": str(jar)}
     result, queued = _crawl(page, origin, tmp_path, "/", config, site_id="dl95-members")
     assert result["state"] == "NOT_LOGGED_IN", result
     assert queued == []

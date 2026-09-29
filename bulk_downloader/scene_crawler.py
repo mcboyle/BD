@@ -265,6 +265,17 @@ def _shape_label(
     return "/" + "/".join(rendered)
 
 
+def _is_page_number_link(anchor: dict[str, Any], parts: tuple[str, ...]) -> bool:
+    """dl95-hqporner-1: "2" -> /hdporn/2 is the listing's pager, not a card.
+
+    It shares the scene path shape, so left in the cohort it is queued as a
+    scene and _pager_urls (which skips scene URLs) never walks it."""
+    if anchor.get("has_img"):
+        return False
+    text = _clean_text(anchor.get("text"))
+    return bool(parts) and text.isdigit() and text == parts[-1]
+
+
 def _scene_cohort(
     anchors: Iterable[dict[str, Any]],
     listing_url: str,
@@ -278,6 +289,8 @@ def _scene_cohort(
         if len(parts) < 2 or not _same_site(url, listing_url):
             continue
         if urlsplit(url).scheme not in ("http", "https"):
+            continue
+        if _is_page_number_link(anchor, parts):
             continue
         # dl95-xempire-1: one destination linked twice (#top, trailing slash)
         # is one card.  Counted twice it both repeats every path segment into
@@ -599,12 +612,25 @@ def _members_evidence(
     return "/members/" in path or path.startswith("/members/")
 
 
+def _holds_cookies(cookie_file: Any) -> bool:
+    """dl95-hqporner-1: _save_sites_config fills ``cookie_file`` with
+    <BD_HOME>/cookies/<sid>.json for EVERY site, so the path alone declares
+    nothing. A jar that holds cookies (written only by a login, a cookie import
+    or a takeover, or held in the vault) does. An unreadable jar or vault is
+    not proof of a public site."""
+    from .cookies import cookie_jar_state
+
+    path = str(cookie_file or "").strip()
+    return bool(path) and cookie_jar_state(path) != "empty"
+
+
 def _site_is_public(site_config: dict[str, Any]) -> bool:
     """dl95-xvideos-1: a site that declares no login at all is a public site.
 
     An explicit ``auth_required`` bool wins. Otherwise any http ``login_url``,
-    username, password or cookie file -- on the site or on one of its
-    accounts -- declares a members area, and discovery stays fail-closed."""
+    username, password or cookie jar holding cookies -- on the site or on one
+    of its accounts -- declares a members area, and discovery stays
+    fail-closed."""
     declared = site_config.get("auth_required")
     if isinstance(declared, bool):
         return not declared
@@ -614,7 +640,8 @@ def _site_is_public(site_config: dict[str, Any]) -> bool:
         a for a in (site_config.get("accounts") or []) if isinstance(a, dict)]
     return not any(
         str(h.get(k) or "").strip()
-        for h in holders for k in ("username", "password", "cookie_file"))
+        for h in holders for k in ("username", "password")
+    ) and not any(_holds_cookies(h.get("cookie_file")) for h in holders)
 
 
 def _public_listing_evidence(

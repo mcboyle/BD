@@ -141,8 +141,12 @@ def _redis_command(
     port: int,
     cmd_args: list[str | bytes],
     timeout: float = 2.0,
+    require_reply: bool = False,
 ) -> bytes | None:
-    """Execute a single Redis command via RESP protocol over a raw socket."""
+    """Execute a single Redis command via RESP protocol over a raw socket.
+
+    ``require_reply``: a connection closed with no reply raises instead of
+    reading as a nil reply (dl95-hqporner-1: VaultSync.lookup_session)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
@@ -163,6 +167,8 @@ def _redis_command(
             line.extend(chunk)
 
         if not line:
+            if require_reply:
+                raise ConnectionError("Redis closed the connection without a reply")
             return None
 
         rtype = chr(line[0])
@@ -198,11 +204,15 @@ class VaultSync:
         host: str = "127.0.0.1",
         port: int = 6379,
         fallback_local: bool = False,
+        explicit_endpoint: bool = True,
     ) -> None:
         self.crypto: SessionCrypto = SessionCrypto(secret_key)
         self.host: str = host
         self.port: int = port
         self.fallback_local: bool = fallback_local
+        # False only when get_vault_sync fell back to the default endpoint
+        # because no Redis host/port was configured (see lookup_session).
+        self.explicit_endpoint: bool = explicit_endpoint
         self._local_cache: dict[str, tuple[float, str]] = {}
 
     def _cache_key(self, site_id: str, account_id: str) -> str:
@@ -280,6 +290,47 @@ class VaultSync:
                 return None
             del self._local_cache[key]
         return None
+
+    def lookup_session(
+        self, site_id: str, account_id: str
+    ) -> tuple[str, dict[str, Any] | None]:
+        """dl95-hqporner-1: get_session with the outcome kept explicit.
+
+        ("found", data), ("absent", None) or ("unreadable", None). get_session
+        answers None for all three; a caller that must fail closed on an
+        unknown needs them apart. A refused connection to the default,
+        unconfigured endpoint means no vault service runs on this host (test2
+        runs none): the in-process fallback cache is then the whole vault.
+        Every other transport, protocol or decrypt failure is unreadable."""
+        key = self._cache_key(site_id, account_id)
+        try:
+            raw = _redis_command(self.host, self.port, ["GET", key], require_reply=True)
+        except ConnectionRefusedError:
+            no_service = self.fallback_local and not self.explicit_endpoint
+            return self._local_lookup(key) or (
+                ("absent", None) if no_service else ("unreadable", None))
+        except (OSError, RuntimeError):
+            return self._local_lookup(key) or ("unreadable", None)
+        if raw is None:
+            return ("absent", None)
+        try:
+            data = self.crypto.decrypt(raw.decode("ascii"))
+        except Exception:
+            return ("unreadable", None)
+        return ("found", data) if isinstance(data, dict) else ("unreadable", None)
+
+    def _local_lookup(self, key: str) -> tuple[str, dict[str, Any] | None] | None:
+        """The fallback cache's answer, or None when it holds nothing live."""
+        if not self.fallback_local:
+            return None
+        entry = self._local_cache.get(key)
+        if entry is None or time.time() >= entry[0]:
+            return None
+        try:
+            data = self.crypto.decrypt(entry[1])
+        except Exception:
+            return ("unreadable", None)
+        return ("found", data) if isinstance(data, dict) else ("unreadable", None)
 
     def get_ttl(self, site_id: str, account_id: str) -> int:
         """Return remaining TTL seconds for the session key, or -2 if missing/expired."""
@@ -361,5 +412,8 @@ def get_vault_sync(
         host=resolved_host,
         port=resolved_port,
         fallback_local=fallback_local,
+        explicit_endpoint=bool(
+            host or port
+            or os.environ.get("BD_REDIS_HOST") or os.environ.get("BD_REDIS_PORT")),
     )
     return _VAULT_SYNC_INSTANCE

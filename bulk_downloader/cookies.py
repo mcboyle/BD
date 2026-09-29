@@ -51,6 +51,30 @@ def load_cookies_from_file(path):
         if isinstance(v,list): items.extend(v)
     return [normalize_stored_cookie(c) for c in items]
 
+def cookie_jar_state(path):
+    """dl95-hqporner-1: "cookies", "empty" or "unreadable" for the jar that
+    load_cookies_from_file(path) reads, including its vault fallback. Unlike
+    the loader, an unreadable file or vault is not reported as empty."""
+    p = Path(path)
+    if p.exists():
+        try:
+            return "cookies" if load_cookies_from_file(p) else "empty"
+        except Exception:
+            return "unreadable"
+    try:
+        from .vault_sync import get_vault_sync
+        vs = get_vault_sync()
+        if vs is None or not p.stem:
+            return "empty"
+        status, sess = vs.lookup_session(p.stem, "0")
+    except Exception:
+        return "unreadable"
+    if status == "unreadable":
+        return "unreadable"
+    cookies = (sess or {}).get("cookies")
+    return "cookies" if isinstance(cookies, list) and cookies else "empty"
+
+
 def pw_to_json(cookies):
     out=[]
     for c in cookies:
