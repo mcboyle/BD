@@ -334,6 +334,7 @@ def _collect_live_health(runners: dict) -> dict:
     """Current action, liveness, retry, and 24-hour captcha signals."""
     now = time.time()
     action = stuck = retries = 0
+    review_items = failed_jobs = 0
     captcha = 0
     active_states = {"running", "downloading", "processing", "active"}
     action_tokens = ("captcha", "login", "log in", "auth", "session", "cookie")
@@ -365,7 +366,16 @@ def _collect_live_health(runners: dict) -> dict:
             ))
             # A manual-wait flag usually describes one of the review jobs;
             # take the larger count so that item is not counted twice.
-            action += max(actionable_jobs, manual_wait)
+            review_items += max(actionable_jobs, manual_wait)
+            # dl95-dailymotion-4: a failed job with no auto-retry scheduled
+            # waits on the operator (requeue/onboard); one whose retry is
+            # scheduled is reported under retries_pending instead.
+            failed_jobs += sum(
+                1 for job in jobs
+                if isinstance(job, dict)
+                and job.get("status") == "failed"
+                and not float(job.get("next_auto_retry_at") or 0) > now
+            )
             stuck += sum(
                 1 for job in jobs
                 if isinstance(job, dict)
@@ -415,9 +425,17 @@ def _collect_live_health(runners: dict) -> dict:
                 and event.get("url")
                 and float(event.get("ts") or 0) >= now - 86400
             })
+    action = review_items + failed_jobs
+    parts = []
+    if review_items:
+        parts.append(f"{review_items} captcha/login review item"
+                     + ("s" if review_items != 1 else ""))
+    if failed_jobs:
+        parts.append(f"{failed_jobs} failed job"
+                     + ("s" if failed_jobs != 1 else ""))
     return {
         "action_req": action,
-        "action_req_breakdown": "captcha/login review items" if action else "none",
+        "action_req_breakdown": ", ".join(parts) or "none",
         "stuck": stuck,
         "stuck_breakdown": "no progress for 60+ minutes" if stuck else "none",
         "retries_pending": retries,
