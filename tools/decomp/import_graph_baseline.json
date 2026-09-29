@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5585,
+  "edge_count": 5616,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3892,17 +3892,38 @@
     "tests/test_fx_dorcelclub_frame_hosted_age_wall.py": [
       "bulk_downloader/interstitial.py"
     ],
+    "tests/test_fx_dorcelclub_need_to_be_member_denial_is_auth.py": [
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_fx_ok_extractor_okru_player_options.py": [
       "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_fx_pornhoarder_hoster_embed_configured_source.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_fx_pornone_gone_scene.py": [
+      "bulk_downloader/runner.py"
     ],
     "tests/test_fx_scrolller_jsonld_scene_video.py": [
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_fx_xhamster_login_verdict_declared_member_indicator.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/stealth.py"
+    ],
     "tests/test_fx_xnxx_preview_learned_ad_clip_is_not_the_scene.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_fx_youjizz_quality_data_encodings.py": [
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/spa_media_extract.py"
     ],
     "tests/test_git_deploy_gaps_are_documented.py": [
       "bulk_downloader/app.py"
@@ -4199,6 +4220,19 @@
       "bulk_downloader/db.py",
       "bulk_downloader/i18n.py"
     ],
+    "tests/test_ia01_eaf_base_api_pin_keeps_the_extractors_importable.py": [
+      "bulk_downloader/extractors.py"
+    ],
+    "tests/test_ia03_install_linux_frontend_messages_match_the_root_503.py": [
+      "bulk_downloader/app.py"
+    ],
+    "tests/test_ia08_gitignore_covers_audit_chain_files.py": [
+      "bulk_downloader/log.py"
+    ],
+    "tests/test_ia10_no_library_entry_names_an_unshipped_module.py": [
+      "bulk_downloader/extractors.py",
+      "bulk_downloader/extractors_aylo.py"
+    ],
     "tests/test_infinite_scroll_pager.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/runner.py",
@@ -4451,14 +4485,27 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
     ],
+    "tests/test_o1567_bare_403_wall_is_auth_not_rate_limit.py": [
+      "bulk_downloader/runner.py"
+    ],
     "tests/test_o1567_cred_ref_not_stored_as_password.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/secrets_store.py"
+    ],
+    "tests/test_o1567_dead_letter_requeue_reaches_the_live_runner.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_o1567_deadletter_requeue_wakes_runner.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_o1567_fx_nubiles_wrong_media_custom_selector_scoped.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_integrity.py"
     ],
     "tests/test_o1567_fx_pussyspace_blob_video_does_not_end_the_media_wait.py": [
       "bulk_downloader/runner_transport.py",
@@ -4470,6 +4517,20 @@
     ],
     "tests/test_o1567_fx_redtube_mediadefs_relative.py": [
       "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1567_fx_tiny4k_relogin_loop_shape_disproved_by_settled_login.py": [
+      "bulk_downloader/runner_auth.py"
+    ],
+    "tests/test_o1567_fx_tube8_age_gate_enter_suffix.py": [
+      "bulk_downloader/interstitial.py"
+    ],
+    "tests/test_o1567_fx_tube8_aylo_free_tube.py": [
+      "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1567_fx_whoreshub_poster_held_before_scene_player.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py"
     ],
     "tests/test_o1567_fx_youporn_trigger_aylo_free_tube.py": [
       "bulk_downloader/extractors_aylo.py",
@@ -4487,6 +4548,9 @@
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_o1567_newsensations_ad_banner_trackers_are_not_scenes.py": [
+      "bulk_downloader/scene_crawler.py"
+    ],
     "tests/test_o1567_newsensations_site_wide_title_is_not_a_scene_title.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/website_title.py"
@@ -4498,6 +4562,9 @@
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_o1567_youporn_config_object_keeps_the_title.py": [
+      "bulk_downloader/extractors_aylo.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"

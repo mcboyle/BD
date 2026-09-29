@@ -4,6 +4,29 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1729 - train157: row
+
+T157 = O1568 train of the next twenty-six BOARDed rows: sixteen O1567 fix rows (FIXROWS-O1567.tsv) and ten INSTALL-AUDIT rows (INSTALL-AUDIT-spare8/ROWS.tsv, ORDER-BUILD-IA "integrator trains"), each at its BOARD PATCH-SHA256, applied on main after T156:
+- dep-pyautogui-opencv (O1571): pyautogui + opencv-python declared; python3-tk/python3-dev provisioned; ~/.Xauthority created (install_linux.sh, requirements.txt, system_deps.sh).
+- fx-dead-letter-requeue-live (OP-test4): live dead-letter requeue in app_queue.
+- fx-dorcelclub-member-denial-auth (OP-bd1): member-area denial is an auth outcome (constants).
+- fx-ma-rate-limited (OP-test4): site-ma starts no longer return blocked_by rate_limited before any login attempt (constants, runner_auth).
+- fx-newsensations-discovery-banners (OP-test7): scene discovery on /members/ skips queued ad banners (scene_crawler).
+- fx-nubiles-wrong-media (OP-test3big): nubiles wrong-media pick fixed in detect.
+- fx-pornhoarder-hoster-embed (OP-bd1): pornhoarder hoster embed handled (runner_transport, spa_media_extract).
+- fx-pornone-gone-scene (OP-spare12): an HTTP 410 removed scene is not saved as a promo clip (runner).
+- fx-sysdeps-npm-nodesource (OP-bd): npm from nodesource in install_linux.sh.
+- fx-tiny4k-relogin-loop: tiny4k re-login loop ended (runner_auth).
+- fx-tube8 (OP-fresh149): tube8 extractor + interstitial (extractors_aylo, interstitial); cut on T155 main.
+- fx-whoreshub-poster-held (bd4): whoreshub poster-held needs_review resolved (runner).
+- fx-xhamster-login-submit (OP-spare12): xhamster login submit no longer clicks the header SEARCH button (login_impl/_common, submit).
+- fx-xhamster-login-verdict (OP-spare12): xhamster AJAX login verdict accepted instead of manual takeover (app_kernel, login_impl/replay, submit).
+- fx-youjizz-quality-t155 (OP-spare12): youjizz picks the declared top quality, not 426x240 (runner_extractors, spa_media_extract); cut on T155 main.
+- fx-youporn-title (OP-test4): youporn title from the Aylo page config (extractors_aylo).
+- IA-01 eaf_base_api pin; IA-02 Node 20 for the frontend build; IA-03 install_linux.sh SPA message; IA-04 first-run vault hint (install_service.sh); IA-08 .gitignore audit_chain.*; IA-09 playwright OS deps; IA-10 redtube module in extractors; IA-11 drop s3fs; IA-12 dev requirements (GEN 2); IA-13 livecheck timer display.
+Overlaps (install_linux.sh x5, tools/linux_install_sources.json x3, requirements.txt x3, runner.py x2, runner_auth.py x2, extractors_aylo.py x2, constants.py x2, spa_media_extract.py x2, login_impl/submit.py x2) merged in place (O1319). No VM gate (O1560); auto-merge on green PR checks.
+
+
 ## v3.66.1728 - train156: row
 
 T156 = O1568 train of the next sixteen BOARDed O1567 fix rows (ISP-SPLIT-O1564), each cut on main 34bde3e2 (train154) at its BOARD PATCH-SHA256, applied on main after T155:
