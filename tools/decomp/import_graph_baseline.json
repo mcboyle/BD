@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5405,
+  "edge_count": 5414,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3227,6 +3227,16 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/login.py"
     ],
+    "tests/test_dl95_cancel_relogin_1_cancel_withdraws_the_relogin.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
+    ],
+    "tests/test_dl95_cancel_relogin_cap_1_withdrawn_login_is_not_an_attempt.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py"
+    ],
     "tests/test_dl95_cl2_cdn_origin_error_is_not_page_shape.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_telemetry.py"
@@ -3385,6 +3395,9 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_dl95_porndoe_1_live_1_scope.py": [
+      "bulk_downloader/interstitial.py"
+    ],
     "tests/test_dl95_pussyspace_1_dud_candidate_page_media.py": [
       "bulk_downloader/candidate_filter.py",
       "bulk_downloader/runner_extractors.py",
@@ -3447,6 +3460,10 @@
     ],
     "tests/test_dl95_txxx_3_readiness_reflects_expired_login.py": [
       "bulk_downloader/app.py"
+    ],
+    "tests/test_dl95_txxx_6_vote_counter_is_not_a_tier.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_dl95_vip4k_3_member_nav_is_not_a_scene.py": [
       "bulk_downloader/scene_crawler.py"

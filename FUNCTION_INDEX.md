@@ -624,7 +624,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (35 entries)
+## `bulk_downloader/runner_auth.py` (36 entries)
 
 ```
 - L0022 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -644,24 +644,25 @@ Schema version: 2
 - L0248 `AuthMixin` `[class]`
   - L0249 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
   - L0254 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0513 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0560 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0686 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0714 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0823 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0867 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1072 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1124 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1129 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1144 `AuthMixin.is_awaiting_manual_login`
-  - L1146 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
-  - L1161 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1203 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
-  - L1222 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1301 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1309 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1374 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1429 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L0526 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0573 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0699 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0727 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0836 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0880 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1085 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1137 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1142 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1157 `AuthMixin.is_awaiting_manual_login`
+  - L1159 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
+  - L1174 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1216 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
+  - L1235 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1335 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
+  - L1345 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1353 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1418 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1473 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -891,22 +892,22 @@ Schema version: 2
 - L3120 `queue_paginate` — Server-side pagination for the queue UI (Phase 4.5/4.6).
 - L3133 `queue_changed_since` — Return queue rows updated since the given ISO timestamp. Used by
 - L3146 `session_event_record` — Append one row to session_history. event_type is one of:
-- L3187 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
-- L3200 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
-- L3250 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
-- L3344 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
-- L3351 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
-- L3362 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
-- L3374 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
-- L3474 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
-- L3491 `_ensure_site_run_intent_table` `[private]`
-- L3498 `run_intent_set` — Record whether the operator/automation wants ``site_id`` running.
-- L3515 `run_intent_is_running` — True only when a readable row says the site was asked to run. An
-- L3529 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
-- L3540 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
-- L3560 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
-- L3579 `db_bulk_ingest_staging`
-- L3590 `db_staging_ingest_stats`
+- L3191 `session_event_recent` — Return recent session_history rows. Used by the UI event log.
+- L3204 `session_lifetime_observations` — For a given (site, account), find all session lifetimes we've
+- L3254 `db_session_failure_clusters` — F2.1: cluster session_history failure events by (site, event_type)
+- L3348 `_integrity_state_path` `[private]` — Where we record the last successful check timestamp. Lives next to
+- L3355 `_last_integrity_check_ts` `[private]` — Returns the unix timestamp of the most recent successful check, or
+- L3366 `_record_integrity_check_ts` `[private]` — Atomic write of the timestamp marker. Best-effort — a failed write
+- L3378 `run_integrity_check` — Run PRAGMA integrity_check on a background thread, debounced to
+- L3478 `_row_count_estimate` `[private]` — Cheap estimate of total history+queue rows for the log message —
+- L3495 `_ensure_site_run_intent_table` `[private]`
+- L3502 `run_intent_set` — Record whether the operator/automation wants ``site_id`` running.
+- L3519 `run_intent_is_running` — True only when a readable row says the site was asked to run. An
+- L3533 `_ensure_host_throughput_table` `[private]` — Idempotently create the per-host throughput table. One row per host,
+- L3544 `host_throughput_record` — Upsert the last multi-conn outcome for a host. Best-effort; never raises.
+- L3564 `host_throughput_get` — Return {chunk_count, avg_speed_bps, chunks_failed, updated_at} for a host,
+- L3583 `db_bulk_ingest_staging`
+- L3594 `db_staging_ingest_stats`
 ```
 
 
@@ -994,33 +995,35 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (24 entries)
+## `bulk_downloader/login_impl/submit.py` (26 entries)
 
 ```
-- L0036 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
-- L0048 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
-- L0063 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
-- L0092 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0136 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
-- L0243 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
-- L0278 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
-- L0323 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
-- L0432 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
-- L0444 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0480 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0495 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0579 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0595 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0774 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L0818 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1184 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1255 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1357 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1377 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1424 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1440 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1461 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1500 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0038 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
+- L0050 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
+- L0065 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
+- L0094 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
+- L0145 `login_abort_check`
+- L0154 `_login_abort_reason` `[private]`
+- L0165 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
+- L0272 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
+- L0307 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
+- L0352 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
+- L0461 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
+- L0473 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0509 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0524 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0608 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0624 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L0803 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L0847 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1213 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1284 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1386 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1406 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1453 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1469 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1490 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1529 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -1054,4 +1057,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 878 across 22 files._
+_Total entries: 881 across 22 files._
