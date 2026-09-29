@@ -713,9 +713,91 @@ fi
 # machine for fresh-PC installs that don't have Node. To force a
 # rebuild from a dist-included install, delete frontend/dist/ before
 # re-running this script.
+#
+# IA-02: frontend/package.json's engines.node floor decides which Node can
+# build the SPA. Ubuntu 24.04's apt nodejs is 18.19.1 while the floor is 20:
+# npm then skips @tailwindcss/oxide's native binding, `vite build` dies with
+# "Cannot find native binding", and / serves 503. When a build is due and
+# node is missing or below the floor, install the fleet's pinned official
+# Node (version + sha256 pinned here; the capacity boxes pin the same) under
+# /usr/local (root or sudo -n, so deploy.sh's plain `node` finds it) or else
+# ~/.local, and put it first on PATH. Non-fatal like the rest of this step.
+_node_pin="v22.23.2"
+_node_floor=""
+if [ -f "$INSTALL_DIR/frontend/package.json" ]; then
+    _node_floor="$(sed -n 's/^[[:space:]]*"node"[[:space:]]*:[[:space:]]*">=[[:space:]]*\([0-9][0-9]*\)[[:space:]]*".*/\1/p' \
+        "$INSTALL_DIR/frontend/package.json" | head -n 1)"
+fi
+
+_node_needs_provision() {
+    [ -f "$INSTALL_DIR/frontend/dist/index.html" ] && return 1
+    [ -n "$_node_floor" ] || return 1
+    command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || return 0
+    _nv="$(node --version 2>/dev/null)" || return 0
+    _nv="${_nv#v}"
+    _nv="${_nv%%.*}"
+    case "$_nv" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$_nv" -lt "$_node_floor" ]
+}
+
+_provision_node() {
+    case "$(uname -m)" in
+        x86_64|amd64)  _na=x64;   _nsum=d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307 ;;
+        aarch64|arm64) _na=arm64; _nsum=fff4078c5def658577f92c88db7db3bc0072924bfb93fe52c1e744a54e94abb8 ;;
+        *) echo "  (no pinned Node build for $(uname -m))"; return 1 ;;
+    esac
+    _nname="node-$_node_pin-linux-$_na"
+    if [ "$(id -u)" = "0" ]; then
+        _nsudo=""; _nroot=/usr/local
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+        _nsudo="sudo -n"; _nroot=/usr/local
+    else
+        _nsudo=""; _nroot="$HOME/.local"
+    fi
+    _ndir="$_nroot/lib/nodejs/$_nname"
+    if [ "$("$_ndir/bin/node" --version 2>/dev/null)" != "$_node_pin" ]; then
+        command -v curl >/dev/null 2>&1 || { echo "  (curl not found)"; return 1; }
+        _ntmp="$(mktemp -d)" || return 1
+        if ! curl -fsSL "https://nodejs.org/dist/$_node_pin/$_nname.tar.xz" \
+                -o "$_ntmp/$_nname.tar.xz"; then
+            echo "  (download of $_nname.tar.xz failed)"
+            rm -rf "$_ntmp"; return 1
+        fi
+        _ngot="$(sha256sum "$_ntmp/$_nname.tar.xz" | cut -d' ' -f1)"
+        if [ "$_ngot" != "$_nsum" ]; then
+            echo "  WARNING: $_nname.tar.xz sha256 $_ngot does not match the"
+            echo "  pinned $_nsum; not installing it."
+            rm -rf "$_ntmp"; return 1
+        fi
+        # shellcheck disable=SC2086
+        if ! { $_nsudo mkdir -p "$_nroot/lib/nodejs" "$_nroot/bin" \
+                && $_nsudo tar -xJf "$_ntmp/$_nname.tar.xz" -C "$_nroot/lib/nodejs"; }; then
+            rm -rf "$_ntmp"; return 1
+        fi
+        rm -rf "$_ntmp"
+    fi
+    for _nb in node npm npx; do
+        # shellcheck disable=SC2086
+        $_nsudo ln -sfn "$_ndir/bin/$_nb" "$_nroot/bin/$_nb" || return 1
+    done
+    PATH="$_ndir/bin:$PATH"
+    export PATH
+    hash -r
+    echo "  Installed Node $_node_pin at $_ndir (linked into $_nroot/bin)."
+    if [ "$_nroot" != /usr/local ]; then
+        echo "  NOTE: put $_nroot/bin first on PATH for later builds and deploys."
+    fi
+}
+
 if [ -d "$INSTALL_DIR/frontend" ]; then
     echo
     echo "  Frontend (D3 React SPA at /m2) ..."
+    if _node_needs_provision; then
+        echo "  frontend/package.json needs Node >=$_node_floor; found:" \
+             "$(node --version 2>/dev/null || echo none)."
+        _provision_node \
+            || echo "  (Node $_node_pin was not installed; the build below may fail)"
+    fi
     if [ -f "$INSTALL_DIR/frontend/dist/index.html" ]; then
         echo "  Using existing frontend/dist/ (built ahead of install)."
         echo "  To force a rebuild: rm -rf $INSTALL_DIR/frontend/dist"
@@ -738,9 +820,9 @@ if [ -d "$INSTALL_DIR/frontend" ]; then
                 echo "  error, upgrade to Node 18+."
                 ;;
             *)
-                if [ "$NODE_MAJOR" -lt 18 ]; then
+                if [ "$NODE_MAJOR" -lt "${_node_floor:-18}" ]; then
                     echo "  WARNING: Node $NODE_VER is older than the required"
-                    echo "  18.x. Skipping frontend build -- /m2 will return"
+                    echo "  ${_node_floor:-18}.x. Skipping frontend build -- /m2 will return"
                     echo "  503 until you upgrade Node and re-run this script."
                     echo "  The existing UIs at / and /m are unaffected."
                     SKIP_BUILD="yes"
