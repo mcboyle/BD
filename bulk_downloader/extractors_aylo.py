@@ -193,8 +193,12 @@ def _etld1(hostname: str) -> str:
 # per-quality files) and the DOM <video> only ever holds a ~4 MB preview,
 # so a template row or the DOM scorer can never name the scene's file --
 # the scorer picked an ad (a.adtng.com "4K") then nav (/redtube/hd).
+# o1567 fx-pornhub-quality: pornhub.com is the same shape (a ``flashvars_<id>`` player
+# config listing direct hls 1080/720/480/240 master.m3u8 entries); without it the
+# DOM scorer saved a 300x250 AD clip as the scene.
 AYLO_FREE_TUBES: set = {
     "redtube.com",
+    "pornhub.com",
 }
 
 
