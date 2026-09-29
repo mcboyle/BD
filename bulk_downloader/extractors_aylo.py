@@ -200,10 +200,14 @@ def _etld1(hostname: str) -> str:
 # `/media/{hls,mp4}/?s=` entries; the mp4 one lists 1080/720/480/240), and
 # without a page-config extractor the DOM scorer picked "Download Time:" /
 # "Save and Close" widgets ("looks like a modal-trigger button").
+# O1567 fx-tube8: tube8 carries the same config with ABSOLUTE indirect
+# entries (https://www.tube8.com/media/mp4/?s=..) listing 1080p; its DOM
+# holds only 720p page media, so the scorer held the scene for review.
 AYLO_FREE_TUBES: set = {
     "redtube.com",
     "pornhub.com",
     "youporn.com",
+    "tube8.com",
 }
 
 

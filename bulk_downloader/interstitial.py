@@ -94,10 +94,13 @@ _GENERIC_TIERS = (
     # matched no tier. The affirmation vocabulary now admits OVER / AT LEAST
     # and "or over" / "years old" tails; fullmatch keeps it to the bare
     # affirmation, never a sentence.
+    # O1567 fx-tube8: "I am 18 or older - Enter" (Tube8's wall). The affirmation
+    # keeps its fullmatch; only a trailing "- Enter" of the same control is new.
     ("age", re.compile(
         r"^(?:i agree[, ]+(?:enter|continue)(?: here)?|"
         r"(?:yes[, ]+)?i(?: am|'m) (?:over |at least )?(?:18|21)"
-        r"(?: or (?:older|over))?(?: years?(?: old| of age)?)?)$", re.I)),
+        r"(?: or (?:older|over))?(?: years?(?: old| of age)?)?"
+        r"(?:\s*[-\u2013\u2014:]\s*enter)?)$", re.I)),
     ("interstitial", re.compile(
         r"^(?:no[ ,.]+thanks(?:[., ]+continue(?: to (?:members(?: area)?|the site))?)?|"
         r"continue to (?:members(?: area)?|the site)|"
@@ -275,7 +278,8 @@ AGE = [
 AGE_CONTROL_LABEL = re.compile(
     r"^(?:enter(?: (?:the )?site| here)?|continue|"
     r"(?:yes[, ]+)?i(?: am|'m) (?:over |at least )?(?:18|21)"
-    r"(?: or (?:older|over))?(?: years?(?: old| of age)?)?)[.!]?$", re.I)
+    r"(?: or (?:older|over))?(?: years?(?: old| of age)?)?"
+    r"(?:\s*[-\u2013\u2014:]\s*enter)?)[.!]?$", re.I)
 AGE_LABEL_NEEDS_PAGE_PROOF = re.compile(r"^(?:enter|continue)[.!]?$", re.I)
 AGE_NOMINATION_CAP = 20
 INTERSTITIAL = [
