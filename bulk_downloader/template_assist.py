@@ -156,12 +156,36 @@ def template_to_learned_download(template):
     }
 
 
-def merge_template_download_hints(page, learned_dl, override_template=None):
+def applied_template_download(config, lookup=None):
+    """The learned download block of the template /templates/apply recorded for
+    this site (``config["applied_template"]``), or {} when none is recorded or
+    the id no longer resolves. ``lookup`` defaults to ``templates.get``."""
+    tid = ((config or {}).get("applied_template") or "").strip()
+    if not tid:
+        return {}
+    if lookup is None:
+        from .templates import get as lookup
+    try:
+        tpl = lookup(tid) or {}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return dict((tpl.get("learned") or {}).get("download") or {})
+
+
+def merge_template_download_hints(page, learned_dl, override_template=None,
+                                  applied=None):
     """Merge enabled reviewed template selectors into learned_dl.
 
     Template selectors are prepended so reviewed hints get tried first.
     Existing learned selectors remain as fallback.
     Returns: (merged_learned_dl, template_or_none)
+
+    ``applied`` (tpl95-reptyle-1): the download block of the template the
+    operator applied to this site (``applied_template_download``). Its rows and
+    triggers that are still in learned_dl lead the reviewed hints -- applying a
+    template is an explicit choice, and without this a reviewed host (reptyle)
+    always outranked it. Rows decay dropped from learned_dl are not revived.
+    Ignored on the draft-test override branch.
 
     ``override_template`` (B2, v3.66.240): when provided (a draft-test override
     set per-site via ``POST /api/template/test_extract``), it is used DIRECTLY
@@ -183,13 +207,14 @@ def merge_template_download_hints(page, learned_dl, override_template=None):
 
     merged = deepcopy(learned_dl or {})
     hints = template_to_learned_download(template)
+    pinned = (applied or {}) if override_template is None else {}
 
-    merged["row_selectors"] = _dedupe_keep_order(
-        hints.get("row_selectors", []) + (merged.get("row_selectors") or [])
-    )
-    merged["trigger_selectors"] = _dedupe_keep_order(
-        hints.get("trigger_selectors", []) + (merged.get("trigger_selectors") or [])
-    )
+    for role in ("row_selectors", "trigger_selectors"):
+        learned = merged.get(role) or []
+        chosen = pinned.get(role) or []
+        lead = [s for s in learned if s in chosen]
+        merged[role] = _dedupe_keep_order(
+            lead + hints.get(role, []) + learned)
 
     merged["_template_host"] = template.get("host")
     merged["_template_file"] = template.get("_template_file")
