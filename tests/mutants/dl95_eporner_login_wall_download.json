@@ -1,0 +1,42 @@
+{
+  "schema": "bd-mutate-spec/1",
+  "_comment": "dl95-eporner-1: a login page answering a media request takes the auth-required path (login + requeue), not size sanity.",
+  "subject": "bulk_downloader/runner_auth.py",
+  "band": [
+    "tests/test_dl95_eporner_login_wall_download.py"
+  ],
+  "mutants": [
+    {
+      "label": "M1 download path no longer checks the login wall",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "            if self\\._login_wall_rejects\\(page_url, final_path\\):\\n                return\\n",
+      "new": "            pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_dl95_eporner_login_wall_download.py::test_the_download_path_checks_the_login_wall_before_size_sanity"
+    },
+    {
+      "label": "M2 the page's self-declared login URL is ignored (AUTH_BODY_RE only)",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "    for m in _SELF_URL_RE\\.finditer\\(text\\):\\n",
+      "new": "    for m in ():\n",
+      "direction": "regression",
+      "catcher": "tests/test_dl95_eporner_login_wall_download.py::test_the_row_body_is_recognised_as_the_login_page"
+    },
+    {
+      "label": "M3 nothing is recognised as HTML",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "    if not _HTML_START_RE\\.match\\(head\\):",
+      "new": "    if not _HTML_START_RE.match(b\"\"):",
+      "direction": "regression",
+      "catcher": "tests/test_dl95_eporner_login_wall_download.py::test_the_row_body_is_recognised_as_the_login_page"
+    },
+    {
+      "label": "M4 the login page is left in place, not quarantined",
+      "file": "bulk_downloader/runner_auth.py",
+      "old_regex": "            shutil\\.move\\(str\\(path\\), str\\(quarantine / path\\.name\\)\\)\\n",
+      "new": "            pass\n",
+      "direction": "regression",
+      "catcher": "tests/test_dl95_eporner_login_wall_download.py::test_the_row_download_logs_in_and_requeues_instead_of_failing"
+    }
+  ]
+}
