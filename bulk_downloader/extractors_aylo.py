@@ -129,7 +129,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 log = logging.getLogger(__name__)
 
@@ -462,6 +462,10 @@ def resolve_indirect_definitions(page, mediadefs: list, page_url: str = "") -> l
     out: list = []
     for md in [m for m in (mediadefs or []) if is_indirect_definition(m)][:4]:
         u = (md.get("videoUrl") or md.get("video_url") or "").strip()
+        # O1567 fx-redtube-mediadefs-relative: live redtube writes these as
+        # relative paths ("/media/mp4?s=.."); resolve against the page.
+        if page_url:
+            u = urljoin(page_url, u)
         try:
             if not page_rd or _etld1(urlparse(u).hostname or "") != page_rd:
                 continue
