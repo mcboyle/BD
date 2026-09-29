@@ -144,7 +144,7 @@ def test_capture_launch_persists_the_process_identity(
     monkeypatch.setattr(
         onboard_site_template,
         "build_capture_command",
-        lambda _sid, _url, _display: dict(info),
+        lambda _sid, _url, _display, **_kw: dict(info),  # tpl95-bang-1: with_session=
     )
     monkeypatch.setattr(
         onboard_site_template,

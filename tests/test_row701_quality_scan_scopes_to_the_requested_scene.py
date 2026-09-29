@@ -512,6 +512,11 @@ class _RecordingRunner:
         self.updates = []
         self.shots = 0
 
+    def _fallback_to_page_media(self, page, url, why, scene_own_only=False):
+        # dl95-porn00-3-live-1: the seam now asks the scene's own player media
+        # first; this host has none, so it is a miss and the named outcome follows.
+        return False
+
     def _screenshot(self, page, url):
         self.shots += 1
         return "shot.png"

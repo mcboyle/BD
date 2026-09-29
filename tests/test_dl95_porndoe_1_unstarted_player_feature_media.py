@@ -240,6 +240,9 @@ class _SpaRunner(_extractors_mixin()):
     """The real extractor mixin (its helpers included); only the capture
     and the lane's KVS sweep are stubbed."""
     _spa_api_capture = _Capture()
+    # T154 (lane merge): the lane's beeg-2-live-1 reads config["min_resolution"] /
+    # ["allow_av1"] after ranking; the stub carries the defaults it did before.
+    config = {}
 
     def _kvs_flashvars_media(self, page, spa_mod, forced=False):
         return []            # the lane's KVS sweep: nothing on this page

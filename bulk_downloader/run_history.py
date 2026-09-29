@@ -115,6 +115,8 @@ def reconcile_restored_runs(site_id):
     except Exception as e:
         log.warning("reconcile_restored_runs failed (advisory): %s: %s",
                     type(e).__name__, e)
+        # Advisory: do not let the traceback keep the calling runner's frames alive.
+        e.__traceback__ = None
         return 0
 
 
