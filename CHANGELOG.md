@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1727 - train155: row
+
+T155 = O1568 train of the first six BOARDed O1567 fix rows (ISP-SPLIT-O1564; operator "do it" 21:2xZ), each cut on main 34bde3e2 (train154) at its BOARD PATCH-SHA256:
+- fx-dailymotion-player (B8-B, test2): alphanumeric /video/<id> scene route identifies dailymotion's own HLS manifest (embed player yielded no file list).
+- fx-ok-extractor (spare12): ok.ru had no extractor; the player's own files (data-options metadata.videos) are offered to the spa-api arm.
+- fx-pornhoarder-login-trigger (bd1): login form hidden behind a page Login control -- click the trigger, then fill.
+- fx-pornhub-quality (test4): best-found 240p then wrong media after approve -- extractors_aylo quality selection fixed.
+- fx-pussyspace (test6): a redirected HLS master's variants are resolved at its final URL; ffmpeg's error is named.
+- fx-youporn-trigger (test4): modal-trigger download button gets its trigger selector; a 300x250 ad clip is no longer saved.
+Overlapping product files merged in place (O1319): spa_media_extract.py (dailymotion/ok/pussyspace), runner_extractors.py (ok/pussyspace/youporn), extractors_aylo.py (pornhub/youporn). Later BOARDed rows go on the next train. No VM gate (O1560); auto-merge on green PR checks.
+
+
 ## v3.66.1726 - train154: 
 
 T154 = EVERYTHING (O1546 + O1553/O1554, operator "combine everything into the train"): the 10 main-based BOARD rows of O1537-BOARDED-FOR-TRAIN.tsv on main 1c0cf431 (dl95-blacked-2, dl95-pegasproductions-2b, tpl95-redtube-1, dl95-app-1, dl95-dorcelclub-1 GEN 5, dl95-hqporner-2, dl95-reddit-1, dl95-reptyle-1, dl95-reptyle-5, dl95-vixen-1, each at its newest BOARD PATCH-SHA256) plus the WHOLE test2 lane merged at its 17:00Z head dad5e77e (185 lane commits not on main, incl. the 10 lane-based BOARD rows and every lane-only covering commit of the O1537 CLOSE rows; approval per the O1529 lane-to-main ruling, DOT95-LANE/MERGE-*.md). Merge conflicts resolved in place (O1319): detect.py admission dict (rating_control + media_without_url), runner_auth.py re-login tail (lane side: cancel-relogin + _login_outcome verdict), scene_crawler.py settle scroll (navigation-safe body-less scroll). O805 fixes in place: dorcelclub-1 and reddit-1 DP-13 handlers, the lane's 13 new pass/log-only handlers, row703 **kwargs pins and row995 seam pin (S2-B/S3-B red-fixes), templates snapshot re-frozen for the lane's eporner template (index 81). LANE-6 is empty.

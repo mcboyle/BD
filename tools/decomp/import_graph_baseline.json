@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5550,
+  "edge_count": 5559,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3886,6 +3886,12 @@
     "tests/test_fuzz_harness_frontend.py": [
       "tools/fuzz_harness.py"
     ],
+    "tests/test_fx_dailymotion_player_alnum_scene_id_stream.py": [
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_fx_ok_extractor_okru_player_options.py": [
+      "bulk_downloader/runner_extractors.py"
+    ],
     "tests/test_git_deploy_gaps_are_documented.py": [
       "bulk_downloader/app.py"
     ],
@@ -4427,6 +4433,21 @@
     ],
     "tests/test_o1164_sqlite_lock_isolation.py": [
       "bulk_downloader/db.py"
+    ],
+    "tests/test_o1567_fx_pussyspace_blob_video_does_not_end_the_media_wait.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_o1567_fx_pussyspace_master_redirect_resolves_variants_at_the_final_url.py": [
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_o1567_fx_youporn_trigger_aylo_free_tube.py": [
+      "bulk_downloader/extractors_aylo.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_o1567_pornhub_is_an_aylo_free_tube_with_a_1080_scene_file.py": [
+      "bulk_downloader/extractors_aylo.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
