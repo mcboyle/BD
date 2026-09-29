@@ -4539,12 +4539,31 @@ def _m2_auth_state(runner, cfg) -> str:
         return "unknown"
 
 
+def _m2_hold_reason(runner) -> str:
+    """Operator-facing cause of a runner self-hold, or "" when not held.
+
+    Only ``paused_no_button`` is named: the runner sets it itself after
+    ``no_button_threshold`` consecutive pages with no download button, and
+    no other surface reported it (dl95-file-examples-2)."""
+    try:
+        if runner.state() != "paused_no_button":
+            return ""
+        streak = int(getattr(runner, "_consec_no_btn", 0) or 0)
+    except Exception:
+        return ""
+    if streak > 0:
+        return (f"Paused: no download button found on {streak} "
+                f"page{'s' if streak != 1 else ''} in a row")
+    return "Paused: no download button found"
+
+
 def _m2_attention_for_site(sid: str, runner, cfg) -> dict | None:
     """Return an attention-banner entry for a site, or None if it has
     no attention condition. Order of precedence:
       1. captcha_pending  (blocks downloads outright)
       2. login expired    (blocks the next login attempt)
-      3. rate_limited     (transient; lowest priority)
+      3. paused_no_button (runner auto-paused itself; waits for resume)
+      4. rate_limited     (transient; lowest priority)
     Site can only appear once in the attention list — the highest
     precedence condition wins."""
     import time as _t
@@ -4574,6 +4593,17 @@ def _m2_attention_for_site(sid: str, runner, cfg) -> dict | None:
                 "age_human": _m2_age_human(_t.time() - expired_at) if expired_at else "",
             }
     except Exception: pass
+    # dl95-file-examples-2: the no-download-button auto-pause holds every
+    # pending job with 0 workers and clears only on resume. Without an entry
+    # Home read "All clear" beside a queue that could never drain.
+    hold = _m2_hold_reason(runner)
+    if hold:
+        return {
+            "site_id": sid, "name": name,
+            "kind": "paused_no_button",
+            "label": hold,
+            "since_ts": 0,
+        }
     # Rate limited
     try:
         if runner.is_rate_limited():

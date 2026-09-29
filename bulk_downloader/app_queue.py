@@ -61,6 +61,11 @@ def _m2_avatar_color(*_a, **_k):
     import importlib
     return getattr(importlib.import_module("bulk_downloader.app"), "_m2_avatar_color")(*_a, **_k)
 
+def _m2_hold_reason(*_a, **_k):
+    """Delegate to app._m2_hold_reason at call time (lazy; avoids an import cycle)."""
+    import importlib
+    return getattr(importlib.import_module("bulk_downloader.app"), "_m2_hold_reason")(*_a, **_k)
+
 def _m2_site_drain_eta(*_a, **_k):
     """Delegate to app._m2_site_drain_eta at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -304,8 +309,14 @@ def api_queue_v2():
             except Exception:
                 continue
             if site_running or site_waiting:
+                state_fn = getattr(runner, "state", None)
+                site_state = state_fn() if callable(state_fn) else ""
                 per_site_acc.append({
                     "site_id": sid, "site_name": name, "avatar_color": color,
+                    # dl95-file-examples-2: the SPA offers Resume for a held
+                    # site and names why its waiting jobs are not moving.
+                    "state": site_state,
+                    "hold_reason": _m2_hold_reason(runner),
                     "waiting_count": site_waiting,
                     "running_count": site_running,
                     "drain_eta_seconds": _m2_site_drain_eta(

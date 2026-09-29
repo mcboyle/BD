@@ -42,6 +42,7 @@ from .app_sites import (
     _m2_auth_state,
     _m2_avatar_color,
     _m2_honeypot_suggestion,
+    _m2_hold_reason,
     _rate_check,
     _sanitize_display_name,
     _save_sites_config,
@@ -404,6 +405,8 @@ def api_sites_v2():
                 "name": name,
                 "avatar_color": _m2_avatar_color(name),
                 "state": runner.state(),
+                # dl95-file-examples-2: why a self-held site is idle.
+                "hold_reason": _m2_hold_reason(runner),
                 "auth_state": auth,
                 "captcha_pending": captcha,
                 "downloaded_total": downloaded_total,
