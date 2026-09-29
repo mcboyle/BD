@@ -147,10 +147,16 @@ from .login import do_login
 # still works if the template subsystem is ever absent (degraded mode: no
 # reviewed-template hints, learned/configured selectors only).
 try:
-    from .template_assist import merge_template_download_hints
+    from .template_assist import (
+        applied_template_download,
+        merge_template_download_hints,
+    )
 except Exception:  # pragma: no cover - defensive
     def merge_template_download_hints(page, learned_dl):
         return (learned_dl or {}), None
+
+    def applied_template_download(config):
+        return {}
 from .db import (
     db_log, db_normalize_history_title,
     queue_load, queue_upsert, queue_bulk_upsert, queue_delete,
@@ -5563,7 +5569,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # When no override is set this is byte-identical to the prior call.
             learned_dl, _reviewed_template = merge_template_download_hints(
                 page, learned_dl,
-                override_template=self._draft_override_template())
+                override_template=self._draft_override_template(),
+                applied=applied_template_download(self.config))
             triggers_to_try=([trigger] if trigger else []) + (learned_dl.get("trigger_selectors") or [])
             # v3.65.2: hover-trigger support. Some sites reveal their
             # download menu only on :hover, with no click handler bound
