@@ -27,6 +27,11 @@ bd_home/
 # leave the identical defect waiting behind the second database. Row 688.
 *.db-shm
 *.db-wal
+# signed audit chain, written beside the history DB (log.AUDIT_CHAIN_FILES): .key is the raw
+# Ed25519 signer seed, .jsonl/.head the chain and its anchor -- never commit, never `git clean`. IA-08.
+audit_chain.key
+audit_chain.jsonl
+audit_chain.head
 # pre-migration DB backup (migrations.py: <db> + ".premigration.bak") -- live history, never commit
 *.premigration.bak
 *.sqlite3
