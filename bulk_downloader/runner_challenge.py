@@ -121,12 +121,13 @@ class ChallengeMixin:
         timeout because we're checking the rendered page state, not
         waiting for one to appear."""
         from .constants import CAPTCHA_SELECTORS
+        from .captcha_resolver import page_captcha_matches
         for sel in CAPTCHA_SELECTORS:
             try:
-                loc=page.locator(sel).first
-                if loc.count()>0 and loc.is_visible(timeout=timeout_ms):
-                    sys.stderr.write(f"  captcha detected via [{sel}]\n")
-                    return True
+                for loc in page_captcha_matches(page, sel):
+                    if loc.is_visible(timeout=timeout_ms):
+                        sys.stderr.write(f"  captcha detected via [{sel}]\n")
+                        return True
             except Exception: continue
         return False
     def _try_turnstile_solve(self, page):
