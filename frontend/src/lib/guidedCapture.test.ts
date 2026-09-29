@@ -40,6 +40,30 @@ describe("sceneCrawlView", () => {
     expect(view.label).toContain("8 queued");
     expect(view.label).toContain("3 pages");
   });
+
+  // dl95-pegasproductions-1: a bot wall / HTTP error is not an empty library.
+  it("names a challenge page as blocked, not as an empty listing", () => {
+    const view = sceneCrawlView({
+      state: "COMPLETED",
+      discovered: 0,
+      queued: 0,
+      pages_walked: 1,
+      zero_scenes_found: true,
+      zero_reason: "challenge_page",
+      zero_page: { challenge: "cloudflare" },
+    });
+    expect(view.tone).toBe("warning");
+    expect(view.label).toBe("No scenes found after 1 page: the listing served a bot challenge (cloudflare).");
+  });
+
+  it("names the HTTP status and the no-thumbnail case", () => {
+    const base = { state: "COMPLETED" as const, discovered: 0, queued: 0, pages_walked: 2, zero_scenes_found: true };
+    expect(sceneCrawlView({ ...base, zero_reason: "http_error", zero_page: { status: 503 } }).label).toContain("HTTP 503");
+    const empty = sceneCrawlView({ ...base, zero_reason: "no_thumbnails" });
+    expect(empty.tone).toBe("neutral");
+    expect(empty.label).toContain("members video listing");
+    expect(sceneCrawlView({ ...base }).label).toBe("No scenes found after 2 pages.");
+  });
 });
 
 function ctx(over: Partial<GuidedCtx> = {}): GuidedCtx {

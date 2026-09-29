@@ -864,6 +864,46 @@ def _finish_run(run_id: str | None, result: dict[str, Any], db_path: str | None)
         )
 
 
+def _zero_page_evidence(
+    page: Any,
+    url: str,
+    status: int | None,
+    anchors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """What a listing page that yielded no scene cohort actually showed."""
+    from .captcha_relay import detect_captcha_in_page
+
+    try:
+        challenge = detect_captcha_in_page(page) or ""
+    except Exception:
+        challenge = ""
+    try:
+        title = _clean_text(page.title())[:120]
+    except Exception:
+        title = ""
+    return {
+        "url": url,
+        "status": status,
+        "challenge": challenge,
+        "title": title,
+        "links": len(anchors),
+        "thumbnail_links": sum(bool(row.get("has_img")) for row in anchors),
+    }
+
+
+def _zero_reason(evidence: dict[str, Any]) -> str:
+    """dl95-pegasproductions-1: blocked, challenged and empty are different answers."""
+    if evidence.get("challenge"):
+        return "challenge_page"
+    if int(evidence.get("status") or 0) >= 400:
+        return "http_error"
+    if not evidence.get("links"):
+        return "no_links"
+    if not evidence.get("thumbnail_links"):
+        return "no_thumbnails"
+    return "no_scene_cohort"
+
+
 def crawl_with_page(
     page: Any,
     *,
@@ -912,6 +952,7 @@ def crawl_with_page(
     saw_scene_cohort = False
     terminated_on_no_new = False
     stopped_on_depth = False
+    zero_page: dict[str, Any] = {}
 
     while to_visit and pages_walked < max_pages:
         requested = to_visit.pop(0)
@@ -943,6 +984,8 @@ def crawl_with_page(
         scenes, page_shapes = _scene_cohort(anchors, current)
         shapes.update(page_shapes)
         saw_scene_cohort = saw_scene_cohort or bool(scenes)
+        if not scenes and not zero_page:
+            zero_page = _zero_page_evidence(page, current, status, anchors)
 
         if not _members_evidence(page, site_config, status):
             _save_frontier(
@@ -1085,6 +1128,9 @@ def crawl_with_page(
         zero_scenes_found=authenticated and not saw_scene_cohort,
         enqueue_errors=enqueue_errors,
     )
+    zero = authenticated and not saw_scene_cohort
+    result["zero_reason"] = _zero_reason(zero_page) if zero and zero_page else ""
+    result["zero_page"] = zero_page if zero else {}
     _finish_run(run_id, result, db_path)
     return result
 
