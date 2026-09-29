@@ -295,16 +295,14 @@ def api_dashboard_v2_sparkline():
     s_cfg = _app_s_cfg()
     import time as _t
     try:
-        # Reuse the dashboard_widgets snapshot for the current rate;
-        # build a 60-point history by reading the widgets module's
-        # rolling buffer if available, falling back to a single point.
+        # Reuse the dashboard_widgets snapshot for the current rate and
+        # its per-minute history for the last hour.
         from bulk_downloader import dashboard_widgets as _dw
         snap = _dw.snapshot(runners_dict=runners, s_cfg=s_cfg)
-        history = _dw.get_widgets().get_history("bytes_per_sec") \
-            if hasattr(_dw.get_widgets(), "get_history") else None
+        history = _dw.get_widgets().get_history("bytes_per_sec")
         if not history:
-            # Fall back to a single-point sparkline. The SPA renders
-            # this as a flat line and will fill in on subsequent polls.
+            # No progress in the last hour: a single point, which the
+            # SPA renders as "No activity yet".
             history = [{"ts": int(_t.time()),
                         "value": snap.get("bytes_per_sec", 0)}]
         return jsonify({
