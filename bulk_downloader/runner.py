@@ -715,6 +715,39 @@ def _refuse_not_found_winner(runner, page, url, best):
     return True
 
 
+def _handle_bot_wall_page(runner, page, url, screenshot):
+    """dl95-reddit-2: a bot-challenge wall is not a missing download button.
+
+    Returns True only when it handled the job: needs_review for an operator,
+    naming the wall. A page with an article or a video is content, not a wall. The no-button streak is left alone -- a wall says nothing
+    about the site's download control. Detection only; nothing on the page is
+    touched.
+    """
+    from . import challenge_classify as _cc
+    try:
+        if page.locator("article, video").count():
+            return False
+        title = page.title()
+        text = page.inner_text("body", timeout=2000)
+    except Exception:
+        return False
+    phrase = _cc.bot_wall_phrase(title, text)
+    if not phrase:
+        return False
+    message = (f"Bot challenge page ('{phrase}') -- not a missing download "
+               "button; use 🧠 Take over to complete it manually")
+    published = runner._update_job(
+        url, "needs_review", message, screenshot=screenshot,
+        captcha_type="bot-wall")
+    if published is False:
+        return True
+    sys.stderr.write(f"  download: bot wall on {url[-40:]} ({phrase}); "
+                     "needs_review.\n")
+    db_log(runner.site_id, runner.config.get("name", "?"), url,
+           "needs_review", "", 0, f"bot challenge: {phrase}", screenshot)
+    return True
+
+
 # F5 Phase 2 (v3.66.701): per-capture netns for the BROWSER launch. The engine
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
@@ -5864,6 +5897,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if self._try_ytdlp_untaught(url):
                     return
                 ss=self._screenshot(page,url)
+                if _handle_bot_wall_page(self, page, url, ss):
+                    return
                 if _handle_content_not_found_page(self, page, url, ss):
                     return
                 if _handle_confirmed_no_video_page(self, page, url, ss):
