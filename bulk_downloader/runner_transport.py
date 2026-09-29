@@ -2326,6 +2326,48 @@ class TransportMixin:
         except Exception: pass
         return True
 
+    # dl95-pussyspace-1: how long the returned-to page may take to request its media.
+    _PAGE_MEDIA_WAIT_S = 8.0
+
+    def _fallback_to_page_media(self, page, page_url, why):
+        """The one page-media fallback at _do_download's two needs_review exits.
+
+        dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav link,
+        or clicked with no download event (pussyspace: "/1080p/" and "cat/hd/"
+        category links, a captcha-gated "/dl/<id>/" page) -- while the scene's
+        own player was streaming the media. Go back to the scene if the click
+        navigated away and wait (bounded) for the player's media requests.
+        tpl95-site-ma-brazzers-1: a learned trigger can open a menu whose scored
+        entries are not media links (Aylo MA renditions). Both hand the page's
+        media to the Row 722 extractor as a click miss, held to the tier floor:
+        never a trailer, a below-min file or a progressive file of unknown
+        height; a job forced by Approve takes any height. True only when it
+        took over and finished the transfer."""
+        extractor = getattr(self, "_try_spa_api_media_extractor", None)
+        if not callable(extractor):
+            return False
+        floor = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            if (self.jobs.get(page_url) or {}).get("force_download"):
+                floor = 0
+        try:
+            from . import spa_media_extract as _spa
+            here = (page.url or "").split("#", 1)[0].rstrip("/")
+            if here != page_url.split("#", 1)[0].rstrip("/"):
+                page.goto(page_url, wait_until="domcontentloaded", timeout=30000)
+            deadline = time.monotonic() + self._PAGE_MEDIA_WAIT_S
+            while not (page.evaluate(_spa.PAGE_MEDIA_JS) or []) and time.monotonic() < deadline:
+                page.wait_for_timeout(500)
+        except Exception as e:  # noqa: BLE001 -- the needs_review path below still runs
+            sys.stderr.write(f"  download: page-media fallback could not reach the scene: {e}\n")
+            return False
+        sys.stderr.write(f"  download: {why}; trying the page's own media\n")
+        try:
+            return bool(extractor(page_url, page, click_miss_floor=floor))
+        except Exception as e:  # noqa: BLE001 -- as above
+            sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
+            return False
+
     def _do_download(self,page,ctx,page_url,best,dl_dir,res_lbl,probe=False,nav_download=None):
         """Click the download button and save the file. Tries the HTTP path
         first (httpx with progress, resume, real %), falls back to Playwright
@@ -2386,6 +2428,8 @@ class TransportMixin:
             sys.stderr.write(
                 f"  download: REJECTED non-download URL [{_gate_abs[:80]}] "
                 f"— {_gate_reject}\n")
+            if not probe and self._fallback_to_page_media(page, page_url, f"winner rejected: {_gate_reject}"):
+                return
             ss = self._screenshot(page, page_url)
             self._update_job(
                 page_url, "needs_review",
@@ -2572,21 +2616,11 @@ class TransportMixin:
                     suggested=dl.suggested_filename or "download.bin"
             if dl is None:
                 # No actual download event fired.
-                # tpl95-site-ma-brazzers-1: a learned trigger can open a menu
-                # whose scored entries are not media links (Aylo MA renditions),
-                # so `best` was truthy and runner.py never consulted the page's
-                # own media. Try it before filing the click as a review, held
-                # to the tier floor: never a trailer or a below-min file.
-                _spa_media = None if probe else getattr(
-                    self, "_try_spa_api_media_extractor", None)
-                if callable(_spa_media):
-                    _floor = int(float(self.config.get(
-                        "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
-                    with self._lock:
-                        if (self.jobs.get(page_url) or {}).get("force_download"):
-                            _floor = 0
-                    if _spa_media(page_url, page, click_miss_floor=_floor):
-                        return
+                # tpl95-site-ma-brazzers-1: `best` was truthy, so runner.py never
+                # consulted the page's own media. Try it before filing the click
+                # as a review (the one fallback, held to the tier floor).
+                if not probe and self._fallback_to_page_media(page, page_url, "clicked candidate fired no download"):
+                    return
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"

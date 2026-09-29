@@ -103,7 +103,11 @@ _NAV_PATH_RE = re.compile(
     r"popular|latest|newest|top|recommended|deals|offers|pricing|plans|"
     r"upgrade|premium|store|shop|cart|checkout|settings|preferences|"
     r"account|profile|dashboard|billing|membership|favou?rites|history|"
-    r"watchlist|login|signin|logout|signout|register|signup|home|index)"
+    r"watchlist|login|signin|logout|signout|register|signup|home|index|"
+    # dl95-pussyspace-1: a root quality/category listing ("/1080p/", "/hd/",
+    # "/cat/hd/") is a nav link, not a rendition; a resolution label alone
+    # never overrides it (a media file under it still carries a strong signal).
+    r"cats?|\d{3,4}p|[48]k|u?hd|fhd)"
     r"(?:/|\?|#|$)", re.I)
 # A URL signal strong enough to OVERRIDE a nav-path match (real media/download).
 # Resolution-label alone is intentionally NOT strong: a nav URL can carry a
