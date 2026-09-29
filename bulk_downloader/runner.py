@@ -536,6 +536,63 @@ def _handle_cdn_origin_error_page(runner, page, url, screenshot):
     return True
 
 
+# dl95-hoopladigital-2: a library-lending title page (hoopla) whose action is
+# BORROW. No media exists until the account borrows the title -- a limited,
+# account-side action the app does not take -- so it is an operator decision,
+# never a page_shape miss that walks the site toward paused_no_button.
+LENDING_GATE_MARKER = "Borrow-gated title"
+_LENDING_GATE_JS = """() => {
+  const want = /^(borrow|borrow (now|title|it|this title)|place (a )?hold)$/i;
+  const els = document.querySelectorAll(
+    'button, a, [role="button"], input[type="submit"], input[type="button"]');
+  for (const el of els) {
+    const text = String(el.innerText || el.value || '').replace(/\\s+/g, ' ').trim();
+    if (!want.test(text)) continue;
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    if (r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none') return text;
+  }
+  return '';
+}"""
+
+
+def _lending_gate(page):
+    """The visible borrow/hold control's label ("BORROW"), else "".
+
+    Positive evidence only: a VISIBLE button or link whose whole label is a
+    lending verb. Prose that mentions borrowing, or a hidden control, is not
+    a gate."""
+    try:
+        return str(page.evaluate(_LENDING_GATE_JS) or "")
+    except Exception:
+        return ""
+
+
+def _handle_lending_gate_page(runner, page, url, screenshot):
+    """Hold a borrow-gated title for the operator with a named reason.
+
+    Returns True only when it handled the job. Like the photo-gallery
+    outcome, a positively recognised page is not another broken-control miss,
+    so the no-download-button streak is reset rather than advanced."""
+    what = _lending_gate(page)
+    if not what:
+        return False
+    message = (f"{LENDING_GATE_MARKER}: the title page offers '{what}' (a library "
+               "loan the app does not take) and no media -- not a missing "
+               "download button. Borrow it on the account, or mark the site "
+               "unsupported for web download.")
+    published = runner._update_job(
+        url, "needs_review", message, screenshot=screenshot)
+    if published is False:
+        return True
+    sys.stderr.write(
+        f"  download: {url[-40:]} is borrow-gated ('{what}'); needs_review.\n")
+    runner._consec_no_btn = 0
+    db_log(runner.site_id, runner.config.get("name", "?"), url,
+           "needs_review", "", 0, message, screenshot)
+    return True
+
+
 def _handle_confirmed_no_video_page(runner, page, url, screenshot):
     """Publish the distinct photo-gallery outcome, if positively proven.
 
@@ -5579,6 +5636,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if _handle_confirmed_no_video_page(self, page, url, ss):
                     return
                 if _handle_cdn_origin_error_page(self, page, url, ss):
+                    return
+                if _handle_lending_gate_page(self, page, url, ss):
                     return
                 self._consec_no_btn+=1
                 threshold=int(self.config.get("no_button_threshold",5))
