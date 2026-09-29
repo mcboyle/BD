@@ -1712,7 +1712,13 @@ class TransportMixin:
             parsed = urlparse(absolute)
             if parsed.scheme not in ("http", "https") or not parsed.netloc:
                 return None, None
-            path = (parsed.path or "").lower()
+            # dl95-justporn-1: KVS sites (justporn, ok.xxx) serve the file at
+            # /get_file/<n>/<hash>/<id>/<id>_720p.mp4/?...&download=true -- the
+            # file name is followed by a slash. The extension is still the last
+            # path segment's; without this the winner was clicked, fired nothing,
+            # and the job ended "looks like a modal-trigger button".
+            file_path = (parsed.path or "").rstrip("/")
+            path = file_path.lower()
             # Refuse a manifest even though the caller asks _stream_route first.
             # ASK THE OWNER. hls_downloader.is_streaming_url holds the streaming
             # table; a local ".m3u8"/".mpd" tuple here would be a SECOND COPY of
@@ -1733,12 +1739,12 @@ class TransportMixin:
                 return None, None
             qs = parse_qs(parsed.query or "")
             name = ""
-            for key in ("dl", "filename", "file"):
+            for key in ("dl", "filename", "file", "download_filename"):
                 if qs.get(key) and qs[key][0].strip():
                     name = unquote(qs[key][0].strip())
                     break
             if not name:
-                name = unquote(Path(parsed.path).name or "")
+                name = unquote(Path(file_path).name or "")
             if not name:
                 return None, None
             return absolute, name
