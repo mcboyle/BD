@@ -1421,6 +1421,13 @@ class ExtractorsMixin:
                     page_url, page.content(), job_url=url, strict=proven_only or scene_own_only)
             except Exception:
                 scene_candidates = []
+            # fx-scrolller-login-modal: the <video> the page's own JSON-LD
+            # VideoObject plays (its "Download" control opens a signup modal).
+            try:
+                scene_candidates += _spa.jsonld_scene_video_candidates(
+                    page_url, page.content(), job_url=url)
+            except Exception:  # noqa: BLE001 -- an unreadable page proves nothing
+                sys.stderr.write("  spa-api: page content unreadable; no JSON-LD scene video\n")
             # dl95-beeg-1-live-1: the manifests the runner's watcher saw on the
             # wire (row 899) join the page's own resource list -- beeg fills the
             # 250-entry resource-timing buffer with thumbnails first.  Read, not

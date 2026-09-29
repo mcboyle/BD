@@ -579,6 +579,109 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     return out
 
 
+# fx-scrolller-login-modal (O1567, test2 21:32Z): scrolller's "Download" control
+# opens a Register/Log in modal, yet the post's media is public and on the page.
+# The page's JSON-LD VideoObject names the page (url) and the ONE <video> that
+# plays it: by poster (thumbnailUrl; SSR only -- the hydrated player drops it),
+# by a <source> that IS its contentUrl, or by an element id that is the
+# base64 of its contentUrl (scrolller's player, measured on both post kinds).
+# That video's <source> children are the post's renditions, and the page's own records declare each
+# one's dimensions ("url":..,"width":..,"height":..; RSC-escaped).  The page
+# also carries native-ad clips (galleryAds mediaSources) that prove nothing.
+_LD_JSON_SCRIPT_RE = re.compile(
+    r"""<script\b[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>""",
+    re.S | re.I)
+_VIDEO_ELEMENT_RE = re.compile(r"<video\b([^>]*)>(.*?)</video>", re.S | re.I)
+_POSTER_ATTR_RE = re.compile(r"""\bposter\s*=\s*["']([^"']+)["']""", re.I)
+_ID_ATTR_RE = re.compile(r"""\bid\s*=\s*["']([A-Za-z0-9+/=_-]{16,})["']""")
+_SRC_ATTR_RE = re.compile(r"""\bsrc\s*=\s*["']([^"']+)["']""", re.I)
+_SOURCE_TAG_RE = re.compile(r"<source\b([^>]*)>", re.I)
+_DECLARED_DIMS_RE = re.compile(r'"url":"([^"]+)","width":(\d+),"height":(\d+)')
+
+
+def _names_page(named: str, actual: str) -> bool:
+    """*named* is the page *actual*: same host (www. aside) and path; a query
+    on *named* must match too (an id-in-query page is another page)."""
+    a, b = urlparse(named or ""), urlparse(actual or "")
+    host = lambda p: (p.hostname or "").lower().removeprefix("www.")
+    return (bool(host(a)) and host(a) == host(b)
+            and (a.path.rstrip("/") or "/") == (b.path.rstrip("/") or "/")
+            and (not a.query or a.query == b.query))
+
+
+def _b64_text(match) -> str:
+    """The URL an element id base64-encodes, or "" (no id / not base64 text)."""
+    import base64
+    import binascii
+    if not match:
+        return ""
+    raw = match.group(1)
+    try:
+        return base64.b64decode(raw + "=" * (-len(raw) % 4), altchars=b"-_"
+                                if ("-" in raw or "_" in raw) else None,
+                                validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        return ""
+
+
+def jsonld_scene_video_candidates(page_url: str, html: str,
+                                  job_url: str = "") -> List[Dict[str, Any]]:
+    """The <source>s of the <video> the page's own JSON-LD VideoObject plays."""
+    from html import unescape
+    if job_url and not _names_page(page_url, job_url):
+        return []
+    posters, contents = set(), set()
+    for m in _LD_JSON_SCRIPT_RE.finditer(html or ""):
+        try:
+            data = json.loads(m.group(1).strip())
+        except (ValueError, TypeError):
+            continue
+        items = data.get("@graph", [data]) if isinstance(data, dict) else data
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            jtype = item.get("@type")
+            if "VideoObject" not in ([jtype] if isinstance(jtype, str) else list(jtype or [])):
+                continue
+            if not (isinstance(item.get("url"), str)
+                    and _names_page(urljoin(page_url, item["url"]), page_url)):
+                continue
+            for key, into in (("thumbnailUrl", posters), ("contentUrl", contents)):
+                v = item.get(key)
+                if isinstance(v, str) and v.strip():
+                    into.add(urljoin(page_url, v.strip()))
+    if not (posters or contents):
+        return []
+    srcs: List[str] = []
+    for vm in _VIDEO_ELEMENT_RE.finditer(html):
+        tags = [vm.group(1)] + [t.group(1) for t in _SOURCE_TAG_RE.finditer(vm.group(2))]
+        found = [urljoin(page_url, unescape(m.group(1)).strip())
+                 for m in map(_SRC_ATTR_RE.search, tags) if m]
+        poster = _POSTER_ATTR_RE.search(vm.group(1))
+        if not (poster and urljoin(page_url, unescape(poster.group(1))) in posters
+                or contents.intersection(found)
+                or _b64_text(_ID_ATTR_RE.search(vm.group(1))) in contents):
+            continue
+        for u in found:
+            if (u.startswith(("http://", "https://")) and MEDIA_EXT_RE.search(u)
+                    and not is_preview_media(u) and u not in srcs):
+                srcs.append(u)
+    if not srcs:
+        return []
+    heights: Dict[str, int] = {}
+    for u, w, h in _DECLARED_DIMS_RE.findall(re.sub(r'\\+"', '"', html)):
+        heights.setdefault(u, min(int(w), int(h)))   # the short side: 1440x1080 -> 1080p
+    out = []
+    for u in srcs:
+        h = heights.get(u) or _height_of(u)
+        out.append({"url": u, "label": f"{h}p" if h else "unknown", "height": h,
+                    "size": 0, "source": "jsonld-scene-video",
+                    "filename": urlparse(u).path.rsplit("/", 1)[-1]})
+    # mp4 before webm at the same height (the ranker's sort is stable).
+    out.sort(key=lambda c: (-c["height"], 0 if c["url"].lower().split("?")[0].endswith(".mp4") else 1))
+    return out
+
+
 # tpl95-xnxx-1: the WGCZ (xvideos/xnxx) player's own sources, declared in an
 # inline script -- html5player.setVideoHLS('.../hls.m3u8') is the only route to
 # its >=480p renditions; the player fetches nothing until play.
