@@ -1625,6 +1625,23 @@ def _is_hidden_from_operator(el):
         return False
 
 
+def _is_frame_element(el):
+    """True for an <iframe>/<frame>: embedded content, never a download control.
+
+    dl95-file-examples-7 (test2 54cf03cf, 2026-09-29): Google ad slots are
+    ``<iframe aria-label="Advertisement" title="Advertisement" tabindex="0"
+    src="https://googleads.g.doubleclick.net/pagead/ads?...&h=280...">``. The
+    wide sweep's ``[tabindex='0']`` net admitted them, res_score read a tier out
+    of their src, and five file-examples pages went to needs_review "Best is
+    900p ... Approve to force" -- where Approve clicks an ad. A click on a frame
+    element cannot drive anything inside it; the page's own controls are what
+    the sweep is for. Fails to False (keep the candidate) on any error."""
+    try:
+        return (el.evaluate("e => e.tagName") or "").upper() in ("IFRAME", "FRAME")
+    except Exception:  # noqa: BLE001 -- a detached/odd element stays a candidate
+        return False
+
+
 def _is_wrapper_not_control(el):
     """True only for a measured wrapper with no affordance of its own."""
     if _candidate_has_own_affordance(el):
@@ -2520,6 +2537,8 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         if not t or t in seen: return
         # v3.66.1340: a pure layout wrapper is not clickable-as-a-download.
         if _is_wrapper_not_control(el): return
+        # dl95-file-examples-7: embedded content is not a control either.
+        if _is_frame_element(el): return
         # P5-3 DOM-honeypot filter at candidate-construction time.
         # Filter here (not at scoring) so invisible candidates don't
         # pollute the scoring list. Off by default — env var unset →
