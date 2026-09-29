@@ -1923,7 +1923,7 @@
       "endpoint": "dashboard.api_dashboard_v2_resolve",
       "function": "api_dashboard_v2_resolve",
       "file": "bulk_downloader/app_dashboard.py",
-      "line": 319,
+      "line": 317,
       "csrf": true,
       "spa_wired": true,
       "operator_facing": true,

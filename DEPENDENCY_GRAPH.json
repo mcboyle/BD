@@ -2415,7 +2415,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1808,
+    "edge_count": 1810,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2831,6 +2831,7 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/login_impl/manual.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/scene_crawler.py",
         "bulk_downloader/takeover_vnc.py"
       ],
       "bulk_downloader/captcha_resolver.py": [
@@ -4758,6 +4759,7 @@
       "bulk_downloader/upscale_detector.py": [
         "bulk_downloader/enrichment.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_integrity.py"
       ],
       "bulk_downloader/urllib_ssrf.py": [
@@ -7233,6 +7235,7 @@
         "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/ssrf_transport.py",
         "bulk_downloader/tier_probe.py",
+        "bulk_downloader/upscale_detector.py",
         "bulk_downloader/vpn_runtime.py",
         "bulk_downloader/website_title.py",
         "bulk_downloader/ytdlp_updater.py"
@@ -7362,6 +7365,7 @@
         "bulk_downloader/notify_apprise.py"
       ],
       "bulk_downloader/scene_crawler.py": [
+        "bulk_downloader/captcha_relay.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/interstitial.py",
