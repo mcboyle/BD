@@ -6084,6 +6084,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if (best.get("_no_identity_proof")
                         and self._try_spa_api_media_extractor(url, page, min_height=min_res)):
                     return
+                # dl95-ok-1b: the unproven winner may be a poster image (ok.xxx:
+                # a 540p videos_screenshots JPG) while THIS scene's own player
+                # lists files below min_res; hold on those, not on the guess.
+                if (best.get("_no_identity_proof")
+                        and self._try_spa_api_media_extractor(
+                            url, page, min_height=min_res, proven_only=True, hold_below=True)):
+                    return
                 ss=self._screenshot(page,url)
                 avail=res_label(best["score"])
                 # Format the candidate list so the user can see exactly what
