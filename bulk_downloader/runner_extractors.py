@@ -1623,8 +1623,10 @@ class ExtractorsMixin:
             if body_kind != "media":
                 try:
                     os.remove(output_path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # dot95-pm2-dp13-lane-log (DP-13): the refused body stays on disk; name it.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_cleanup", f"{body_kind} body not removed, left at {output_path}: {left}", url=url)
             if body_kind == "page":
                 self.log_event("spa_api_not_media",
                                f"{height}p option answered with a page, not media: {file_url[:120]}",
@@ -1683,8 +1685,10 @@ class ExtractorsMixin:
             if gated and height < min_res:
                 try:
                     os.remove(output_path)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    # dot95-pm2-dp13-lane-log (DP-13): the mislabelled file stays on disk; name it.
+                    left = f"{type(exc).__name__}: {str(exc)[:120]}"
+                    self.log_event("spa_api_cleanup", f"mislabelled file not removed, left at {output_path}: {left}", url=url)
                 screenshot_fn = getattr(self, "_screenshot", None)
                 ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
                 msg = (f"Landed {height}p though labelled {labelled}p (below {min_res}p)"
