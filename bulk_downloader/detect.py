@@ -1731,6 +1731,35 @@ def _is_frame_element(el):
         return False
 
 
+def _fetched_without_click(el, page_url):
+    """True when *el*'s href is a stream or media file the transport fetches directly.
+
+    dl95-eporner-3. Row 759 zeroes a hidden candidate's resolution because it
+    cannot be clicked. The transport never clicks a winner whose href routes to
+    a direct fetch (``TransportMixin._stream_route`` / ``_direct_media_route``,
+    rows 819 and 384), so for that winner visibility does not matter. eporner
+    keeps all ten ``/dload/<id>/<h>/<file>.mp4`` anchors in a ``display:none``
+    panel (tests/fixtures/eporner_dload_anchors.json); zeroed, a visible junk
+    "720p" link beat the page's 1080p file and tripped the min-resolution hold.
+
+    Asks the transport's own routing functions rather than keeping a second
+    copy of their rules, so this can never admit a URL the transport would then
+    click. Fails closed (False, score zeroed as before) when that cannot be asked.
+    """
+    try:
+        href = (el.get_attribute("href") or "").strip()
+    except Exception:
+        return False
+    if not href:
+        return False
+    try:
+        from .runner_transport import TransportMixin
+        return bool(TransportMixin._stream_route(href, page_url)[0]
+                    or TransportMixin._direct_media_route(href, page_url)[0])
+    except Exception:
+        return False
+
+
 def _is_wrapper_not_control(el):
     """True only for a measured wrapper with no affordance of its own."""
     if _candidate_has_own_affordance(el):
@@ -2764,11 +2793,19 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         # become the quality winner nobody can click.
         # Asked last on purpose -- is_visible() is a live DOM round trip, so it
         # is asked only of text that survived every cheap refusal above.
-        if _is_hidden_from_operator(el): s=0
+        tier=max(0,s); hidden=False
+        if _is_hidden_from_operator(el): s=0; hidden=True
         seen.add(t)
-        candidates.append({"locator":el,"text":t[:160],
-                           "score":max(0,s),"size":parse_size_bytes(t),
-                           "work":gather_work(el)})
+        entry={"locator":el,"text":t[:160],
+               "score":max(0,s),"size":parse_size_bytes(t),
+               "work":gather_work(el)}
+        if hidden:
+            entry["_hidden_cell"]=True
+            # dl95-eporner-3: a hidden anchor whose href IS the file is held
+            # back, not discarded -- see the population check before the sort.
+            if tier and _fetched_without_click(el, _page_url):
+                entry["_hidden_file_tier"]=tier
+        candidates.append(entry)
 
     # ── 1. Direct download links / explicit media extensions ──────────────
     for sel in ["a[download]",
@@ -2888,6 +2925,15 @@ def _find_best_download(page, custom, learned, runner, _page_url,
         return None
     # P5-3 operator log — one event summarizing dropped candidates.
     _emit_filter_summary(all_dropped=False)
+    # dl95-eporner-3: row 759 zeroes hidden tiers so a VISIBLE offering wins.
+    # When the page has no visible candidate the transport can fetch, its only
+    # files are the hidden ones (eporner's shut #downloaddiv panel), and the
+    # transport fetches a direct-media winner without a click -- so they keep
+    # their tier instead of losing to a visible junk link.
+    held=[c for c in candidates if c.get("_hidden_file_tier")]
+    if held and not any(_fetched_without_click(c["locator"], _page_url)
+                        for c in candidates if not c.get("_hidden_cell")):
+        for c in held: c["score"]=c["_hidden_file_tier"]
     # Row 701 scopes the decision population: preserve foreign/unknown evidence
     # for diagnostics, but never let it drive a quality verdict.
     # LEADING key and only ever 1 or 0, so this reorders exactly one thing --

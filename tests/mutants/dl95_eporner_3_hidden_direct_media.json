@@ -1,0 +1,35 @@
+{
+ "schema": "bd-mutate-spec/1",
+ "_comment": "dl95-eporner-3: a hidden wide-sweep candidate whose href routes to a direct fetch keeps its tier only when no visible candidate routes to a direct fetch; otherwise row 759 zeroes it. Anchors are structural (no value token, no '=').",
+ "subject": "hidden direct-media tiers are restored only on a page with no visible direct file; row 759 holds otherwise",
+ "band": [
+  "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py",
+  "tests/test_row759_hidden_quality_cell_is_not_a_candidate.py"
+ ],
+ "mutants": [
+  {
+   "label": "EP3-M1 the held tiers are never restored -- the dl95-eporner-3 defect put back exactly",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=    if held and )(?=not any\\(_fetched_without_click)",
+   "new": "False and ",
+   "direction": "regression",
+   "catcher": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestHiddenDirectMediaKeepsItsTier::test_the_page_s_1080p_file_wins_over_visible_junk"
+  },
+  {
+   "label": "EP3-M2 the held tiers are restored even beside a visible direct file -- row 759 section 1 undone",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=    if held and )(?=not any\\(_fetched_without_click)",
+   "new": "True or ",
+   "direction": "overcorrection",
+   "catcher": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestRow759StillHolds::test_a_visible_direct_file_keeps_hidden_files_zeroed"
+  },
+  {
+   "label": "EP3-M3 the stream route is not asked -- a hidden manifest is zeroed",
+   "file": "bulk_downloader/detect.py",
+   "old_regex": "(?<=bool\\(TransportMixin\\.)_stream_route(?=\\(href)",
+   "new": "_direct_media_route",
+   "direction": "regression",
+   "catcher": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestHiddenDirectMediaKeepsItsTier::test_a_hidden_stream_manifest_keeps_its_tier"
+  }
+ ]
+}
