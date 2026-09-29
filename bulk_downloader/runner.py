@@ -820,6 +820,14 @@ def _prefer_member_rendition(runner, page, url, best):
         sys.stderr.write(f"  download: {_member_rendition.leaf(win)} is public-tier (the "
                          f"logged-out page links it); taking member {chosen.get('text', '')[:40]!r}\n")
         return chosen
+    # O1567 fx-whoreshub-poster-held: an unproven winner (whoreshub: a screenshot
+    # <img>) is a guess, not the scene; the scene's own player (KVS flashvars
+    # 480p/720p/1080p) answers first -- it finishes the job or writes its own
+    # min_resolution hold. Only a miss keeps the public-tier hold.
+    scene_media = getattr(runner, "_fallback_to_page_media", None)
+    if (best.get("_no_identity_proof") and callable(scene_media)
+            and scene_media(page, url, "public-tier unproven pick", scene_own_only=True)):
+        return None
     msg = _member_rendition.HELD_MESSAGE.format(leaf=_member_rendition.leaf(win))
     sys.stderr.write(f"  download: held {url[-40:]} -- {msg}\n")
     ss = runner._screenshot(page, url)
