@@ -13,6 +13,7 @@ least some ``<img>`` descendants.
 """
 from __future__ import annotations
 
+import sys
 import contextlib
 import json
 import re
@@ -439,8 +440,50 @@ def _scene_cohort(
     return scenes, shapes
 
 
+# dl95-reddit-1: a listing that redirects or reloads itself after
+# DOMContentLoaded (reddit's front page) destroys the document a harvest read
+# was evaluating in.  Playwright reports that as "Execution context was
+# destroyed, most likely because of a navigation"; CDP as "Cannot find context
+# with specified id".  The read is retried on the new document once it loads.
+_NAVIGATED_AWAY = (
+    "execution context was destroyed",
+    "cannot find context with specified id",
+    "because of a navigation",
+)
+HARVEST_NAVIGATION_RETRIES = 3
+HARVEST_NAVIGATION_LOAD_TIMEOUT_MS = 15000
+
+
+def _navigated_away(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _NAVIGATED_AWAY)
+
+
+def _read_through_navigation(page: Any, read: Callable[[], Any]) -> Any:
+    """Run one DOM read; when the page navigates under it, wait for the new
+    document to load and read again (bounded).  Any other error, or a page
+    still navigating after the last retry, propagates unchanged."""
+    for attempt in range(HARVEST_NAVIGATION_RETRIES + 1):
+        try:
+            return read()
+        except Exception as exc:
+            if attempt >= HARVEST_NAVIGATION_RETRIES or not _navigated_away(exc):
+                raise
+            try:
+                page.wait_for_load_state(
+                    "domcontentloaded", timeout=HARVEST_NAVIGATION_LOAD_TIMEOUT_MS
+                )
+            except Exception as load_exc:
+                # The retried read is the judge of whether the page settled.
+                sys.stderr.write(f"  harvest: load-state wait after a navigation "
+                                 f"failed ({type(load_exc).__name__}); re-reading anyway\n")
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def _collect_anchors(page: Any) -> list[dict[str, Any]]:
-    rows = page.locator(_LINK_SELECTOR).evaluate_all(_ANCHOR_JS)
+    rows = _read_through_navigation(
+        page, lambda: page.locator(_LINK_SELECTOR).evaluate_all(_ANCHOR_JS)
+    )
     return [dict(row) for row in (rows or []) if isinstance(row, dict)]
 
 
@@ -463,11 +506,11 @@ def _merge_anchors(
 
 
 def _page_metrics(page: Any) -> tuple[int, int]:
-    result = page.evaluate(
+    result = _read_through_navigation(page, lambda: page.evaluate(
         "() => [Math.max(document.body?.scrollHeight || 0, "
         "document.documentElement?.scrollHeight || 0), "
         "document.querySelectorAll('a[href]').length]"
-    )
+    ))
     return int(result[0]), int(result[1])
 
 
@@ -490,11 +533,12 @@ _SCROLL_JS = """
 
 def _scroll_to_end(page: Any) -> None:
     try:
-        page.evaluate(_SCROLL_JS)
+        _read_through_navigation(page, lambda: page.evaluate(_SCROLL_JS))
     except Exception:
         # A page that cannot run the frame barrier still gets the scroll; the
         # stability poll below remains the settle condition.
-        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        _read_through_navigation(page, lambda: page.evaluate(
+            "() => window.scrollTo(0, document.body.scrollHeight)"))
 
 
 def _settle_metrics(
