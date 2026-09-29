@@ -193,6 +193,16 @@ def cookies_expiry_info(cookies):
         else: earliest=min(earliest,exp) if earliest else exp
     return {"session":session,"expired":expired,"expiring_soon":expiring,"earliest":earliest}
 
+def jar_fingerprint(cookies):
+    """Order-independent identity of a cookie jar's contents (domain, path,
+    name, value). Two reads of the same jar compare equal; any login that
+    replaces a cookie value changes it."""
+    import hashlib
+    rows = sorted(
+        "\t".join(str(c.get(k) or "") for k in ("domain", "path", "name", "value"))
+        for c in (cookies or []))
+    return hashlib.sha1("\n".join(rows).encode("utf-8")).hexdigest()
+
 def cookie_age_str(saved_at):
     if not saved_at: return ""
     s=time.time()-saved_at

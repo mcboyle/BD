@@ -1134,6 +1134,44 @@ def _runner_page(runner: Any, site_id: str):
                 pass
 
 
+RELOGIN_TIMEOUT_S = 60.0
+
+
+def _relogin_for_discovery(runner: Any, timeout_s: float = RELOGIN_TIMEOUT_S) -> str:
+    """Stored-credential re-login, gated and bounded like
+    runner_auth._check_cookies_or_relogin: "ok", "failed" or "no_credentials"."""
+    cfg = getattr(runner, "config", None) or {}
+    if not (cfg.get("username") and cfg.get("password")):
+        return "no_credentials"
+    done = threading.Event()
+    outcome = [False]
+
+    def on_done(ok: bool) -> None:
+        outcome[0] = bool(ok)
+        done.set()
+
+    runner.login_async(on_done=on_done, allow_manual=False)
+    done.wait(timeout=timeout_s)
+    return "ok" if outcome[0] else "failed"
+
+
+def _mark_login_wall(runner: Any, jar: list[dict[str, Any]], *, walled: bool) -> None:
+    """Record whether this exact jar met a login wall, so app._m2_auth_state
+    stops reporting a proven-dead jar as "ok" until a login replaces it (and
+    un-records it once the same jar walks the members area again)."""
+    if not jar:
+        return
+    from .cookies import jar_fingerprint
+    fp = jar_fingerprint(jar)
+    try:
+        if walled:
+            runner._login_wall_jar = fp
+        elif getattr(runner, "_login_wall_jar", None) == fp:
+            runner._login_wall_jar = None
+    except Exception:
+        pass
+
+
 def start_background_crawl(
     *,
     site_id: str,
@@ -1163,23 +1201,41 @@ def start_background_crawl(
                 _ACTIVE.pop(site_id, None)
         raise
 
+    def crawl_once() -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        # run_id=None: the run row is finished once, below, after any re-login
+        # retry -- a status poll must never read an interim NOT_LOGGED_IN.
+        jar = list(getattr(runner, "cookies", None) or [])
+        with _runner_page(runner, site_id) as page:
+            result = crawl_with_page(
+                page,
+                site_id=site_id,
+                listing_url=listing_url,
+                site_config=site_config,
+                newest_n=newest_n,
+                max_pages=max_pages,
+                max_scrolls=max_scrolls,
+                delay_s=delay_s,
+                title_fetch_limit=title_fetch_limit,
+                enqueue_fn=enqueue_fn,
+                db_path=db_path,
+                run_id=None,
+            )
+        return result, jar
+
     def work() -> None:
         try:
-            with _runner_page(runner, site_id) as page:
-                crawl_with_page(
-                    page,
-                    site_id=site_id,
-                    listing_url=listing_url,
-                    site_config=site_config,
-                    newest_n=newest_n,
-                    max_pages=max_pages,
-                    max_scrolls=max_scrolls,
-                    delay_s=delay_s,
-                    title_fetch_limit=title_fetch_limit,
-                    enqueue_fn=enqueue_fn,
-                    db_path=db_path,
-                    run_id=run_id,
-                )
+            result, jar = crawl_once()
+            if result["state"] == STATE_NOT_LOGGED_IN:
+                # dl95-africancasting-2: the jar's session cookies read as a live
+                # login (auth_state=ok) but the server had dropped the session.
+                # Log in with the stored credentials, as a worker does, and walk
+                # once more; if the wall stands, that jar is proven dead.
+                relogin = _relogin_for_discovery(runner)
+                if relogin == "ok":
+                    result, jar = crawl_once()
+                result["relogin"] = relogin
+            _mark_login_wall(runner, jar, walled=result["state"] == STATE_NOT_LOGGED_IN)
+            _finish_run(run_id, result, db_path)
         except Exception as exc:
             _fail_run(
                 run_id,
