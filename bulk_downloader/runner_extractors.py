@@ -1219,7 +1219,8 @@ class ExtractorsMixin:
             url=url,
         )
         return True
-    def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0) -> bool:
+    def _try_spa_api_media_extractor(self, url: str, page, min_height: int = 0,
+                                     click_miss_floor=None) -> bool:
         """Row 722 (G5): API/media extraction fallback for SPA scene pages.
 
         Consulted by runner.py ONLY after ``find_best_download`` (and the
@@ -1257,6 +1258,10 @@ class ExtractorsMixin:
             page_url = url
         cands = _spa.api_candidates(page_url, records)
         cands += _spa.page_media_candidates(page_url, page_media)
+        if click_miss_floor is not None:
+            # tpl95-site-ma-brazzers-1: called after a scored click missed, so
+            # only options that can stand in for the scored tier qualify.
+            cands = _spa.click_miss_candidates(cands, int(click_miss_floor))
         if not cands:
             sys.stderr.write(
                 f"  spa-api: no download-like options in {len(records)} captured "

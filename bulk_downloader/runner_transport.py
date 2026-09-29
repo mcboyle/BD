@@ -2417,6 +2417,21 @@ class TransportMixin:
                     suggested=dl.suggested_filename or "download.bin"
             if dl is None:
                 # No actual download event fired.
+                # tpl95-site-ma-brazzers-1: a learned trigger can open a menu
+                # whose scored entries are not media links (Aylo MA renditions),
+                # so `best` was truthy and runner.py never consulted the page's
+                # own media. Try it before filing the click as a review, held
+                # to the tier floor: never a trailer or a below-min file.
+                _spa_media = None if probe else getattr(
+                    self, "_try_spa_api_media_extractor", None)
+                if callable(_spa_media):
+                    _floor = int(float(self.config.get(
+                        "min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+                    with self._lock:
+                        if (self.jobs.get(page_url) or {}).get("force_download"):
+                            _floor = 0
+                    if _spa_media(page_url, page, click_miss_floor=_floor):
+                        return
                 ss=self._screenshot(page,page_url)
                 seen=" | ".join(
                     f"{res_label(c['score'])}({fmt_bytes(c['size']) or '?'}):{c['text'][:30]}"

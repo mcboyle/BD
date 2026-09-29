@@ -260,6 +260,32 @@ def page_media_candidates(page_url: str, urls: Iterable[str]) -> List[Dict[str, 
     return out
 
 
+_NOT_THE_WORK_RE = re.compile(
+    r"(?:^|[^a-z])(?:trailers?|previews?|teasers?|samples?|promos?)(?:$|[^a-z])", re.I)
+
+
+def click_miss_candidates(cands: List[Dict[str, Any]], min_height: int) -> List[Dict[str, Any]]:
+    """tpl95-site-ma-brazzers-1: the options a scored click that fired nothing
+    may fall back to.  A DOM candidate existed, so page media is not the only
+    evidence: drop trailer/preview-class URLs, anything with a known height
+    below ``min_height``, and a progressive file whose height is unknown.  An
+    adaptive manifest of unknown height stays (its top variant is taken)."""
+    out = []
+    for c in cands:
+        url = c.get("url") or ""
+        text = " ".join(str(c.get(k) or "") for k in ("url", "resolve_url", "label", "filename"))
+        if _NOT_THE_WORK_RE.search(text):
+            continue
+        height = int(c.get("height") or 0)
+        if height:
+            if min_height > 0 and height < min_height:
+                continue
+        elif not re.search(r"\.(m3u8|mpd)(\?|$)", url, re.I):
+            continue
+        out.append(c)
+    return out
+
+
 def rank_candidates(cands: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Highest resolution first, then size; API options before page media;
     an explicit download option before a stream; files before manifests."""
