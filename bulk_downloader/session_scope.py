@@ -153,6 +153,19 @@ def _cookie_domain(c) -> str:
     return str(c.get("domain", "") or "").strip().lower().rstrip(".")
 
 
+def _auth_cookie_applies(jar, url: str) -> bool:
+    """True when a cookie offered to `url` has an auth-looking name, by the
+    same hints login success uses (``login_impl.replay``)."""
+    from .login_impl.replay import _AUTH_COOKIE_HINTS, _NOT_AUTH_COOKIE_HINTS
+    for c in applicable_cookies(jar, url):
+        name = str(c.get("name", "")).lower()
+        if any(bad in name for bad in _NOT_AUTH_COOKIE_HINTS):
+            continue
+        if any(h in name for h in _AUTH_COOKIE_HINTS):
+            return True
+    return False
+
+
 def uncovered_host_diagnostic(cookies, url: str, *, login_host: str = "") -> str:
     """The named diagnostic, or "" when there is nothing honest to say.
 
@@ -163,7 +176,9 @@ def uncovered_host_diagnostic(cookies, url: str, *, login_host: str = "") -> str
       * the jar is NON-EMPTY (an empty jar is "no session captured", an
         already-visible state with its own handling, not a scoping fault);
       * ZERO of the LOGIN HOST's cookies (those scoped exactly to it; the
-        whole jar when no login host is known) would be offered to that URL.
+        whole jar when no login host is known) would be offered to that URL;
+      * and NO auth-named cookie in the jar (a parent-domain session, say)
+        would be offered to that URL either.
 
     It is a statement about the flat jar and says so, because the runner may
     also carry a persistent browser profile whose cookies were never written
@@ -190,6 +205,13 @@ def uncovered_host_diagnostic(cookies, url: str, *, login_host: str = "") -> str
         if applicable_cookies(login_jar, url):
             return ""
     elif applicable_cookies(jar, url):
+        return ""
+    # dl95-xempire-3: a Gamma login on www.<site> keeps only timezone prefs
+    # host-only and mints its session (autologin_*) on the parent domain.
+    # An AUTH-named cookie that reaches this URL is the session reaching it,
+    # so there is nothing honest to say. Consent/pref cookies still do not
+    # count (the brazzers rule above).
+    if _auth_cookie_applies(jar, url):
         return ""
     subject = login_jar or jar
     scoped = sorted({str(c.get("domain", "")) for c in subject
