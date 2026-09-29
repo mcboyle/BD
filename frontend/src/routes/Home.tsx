@@ -91,7 +91,7 @@ export function Home() {
   // Slice 3: first-run "Add your first site" opens the wizard inline (same
   // self-contained dialog Sites.tsx mounts), no route hop.
   const [wizardOpen, setWizardOpen] = useState(false);
-  const { data: kpiData } = useWidgetData();
+  const { data: kpiData, hasData: kpiReady } = useWidgetData();
 
   const { data, isLoading, isError, error } = useQuery<DashboardV2>({
     queryKey: ["dashboard-v2"],
@@ -160,8 +160,8 @@ export function Home() {
   // We render the union (legacy 5 + selected KPIs) so the layout grid
   // has a child for every entry it expects.
   const widgets = useMemo(
-    () => data ? buildWidgets(data, editMode, widgetSelection.ids, kpiData, () => setWizardOpen(true)) : null,
-    [data, editMode, widgetSelection.ids, kpiData],
+    () => data ? buildWidgets(data, editMode, widgetSelection.ids, kpiData, kpiReady, () => setWizardOpen(true)) : null,
+    [data, editMode, widgetSelection.ids, kpiData, kpiReady],
   );
 
   // V2: derive the mockup status line + pill data from the dashboard
@@ -418,6 +418,7 @@ function buildWidgets(
   editMode: boolean,
   extraIds: string[],
   kpiData: import("@/lib/widgetCatalog").WidgetData,
+  kpiReady: boolean,
   onAddSite: () => void,
 ) {
   const legacyRenderers: Record<WidgetId, React.ReactNode> = {
@@ -470,7 +471,7 @@ function buildWidgets(
         <div key={layoutId} className="dashboard-tile-wrap h-full">
           <DashboardTile id={layoutId} editMode={editMode}>
             <div className="hairline h-full overflow-hidden rounded-md border bg-surface">
-              <KPICard spec={spec} />
+              <KPICard spec={spec} pending={!kpiReady} />
             </div>
           </DashboardTile>
         </div>

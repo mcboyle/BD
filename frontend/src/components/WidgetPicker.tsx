@@ -49,7 +49,7 @@ export interface WidgetPickerProps {
 
 export function WidgetPicker({ open, onOpenChange, siteId }: WidgetPickerProps) {
   const { ids, add, remove } = useWidgetSelection(siteId);
-  const { data } = useWidgetData(siteId);
+  const { data, hasData } = useWidgetData(siteId);
   const [activeCat, setActiveCat] = useState<string>("all");
 
   const selectedSet = useMemo(() => new Set(ids), [ids]);
@@ -128,7 +128,7 @@ export function WidgetPicker({ open, onOpenChange, siteId }: WidgetPickerProps) 
                   )}
                 >
                   <div className="h-[88px]">
-                    <KPICard spec={spec} compact />
+                    <KPICard spec={spec} compact pending={!hasData} />
                   </div>
                   <div className="border-t hairline px-3 py-2">
                     <div className="flex items-start justify-between gap-2">

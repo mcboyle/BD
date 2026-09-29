@@ -1,3 +1,4 @@
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { KPISpec } from "@/lib/widgetCatalog";
 
@@ -20,9 +21,23 @@ export interface KPICardProps {
   /** If true, render a smaller variant. Used when the picker preview
    *  shows a half-size widget. */
   compact?: boolean;
+  /** No snapshot has arrived yet: the spec was computed from an empty
+   *  placeholder, so its "—" and `?? 0` values are not measurements.
+   *  Render a loading skeleton instead (dl95-app-B6-2-live-1). */
+  pending?: boolean;
 }
 
-export function KPICard({ spec, compact = false }: KPICardProps) {
+export function KPICard({ spec, compact = false, pending = false }: KPICardProps) {
+  if (pending) {
+    return (
+      <div className="flex h-full flex-col gap-1.5 p-3" aria-busy="true">
+        <div className="eyebrow">
+          {spec.label}
+        </div>
+        <Skeleton className={compact ? "h-5 w-12" : "h-6 w-16"} />
+      </div>
+    );
+  }
   const value = spec.value == null || spec.value === "" ? "—" : spec.value;
   const valueColor =
     spec.valueKind === "ok" ? "text-green"
