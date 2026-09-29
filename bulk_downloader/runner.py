@@ -5452,6 +5452,12 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 if carried[1] and "_no_identity_proof" not in best:
                     best["_no_identity_proof"] = carried[1]
             if min_res>0 and best["score"]>0 and best["score"]<min_res and not forced:
+                # dl95-africancasting-3: a refusal driven by candidates with no identity
+                # proof (Row 701 UNKNOWN tier, e.g. related-scene "HD" badges) first asks
+                # the page's own media/API options for one at or above min_res.
+                if (best.get("_no_identity_proof")
+                        and self._try_spa_api_media_extractor(url, page, min_height=min_res)):
+                    return
                 ss=self._screenshot(page,url)
                 avail=res_label(best["score"])
                 # Format the candidate list so the user can see exactly what
