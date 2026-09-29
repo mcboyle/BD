@@ -677,6 +677,44 @@ def _handle_content_not_found_page(runner, page, url, screenshot):
     return True
 
 
+# dl95-vip4k-4: members.vip4k.com/en/videos/1425 answered HTTP 404 ("Page not found |
+# Vip4k") with a "best videos" grid whose cards carry real download links for OTHER
+# scenes; the UNKNOWN tier admitted one ("admitted without identity proof") and 198 MB
+# of an unrelated scene landed. The browser's own navigation entry carries the status.
+_NAVIGATION_STATUS_JS = """() => {
+  const nav = performance.getEntriesByType('navigation')[0];
+  return nav && typeof nav.responseStatus === 'number' ? nav.responseStatus : 0;
+}"""
+
+
+def _page_not_found_reason(page):
+    """Why this page is not the requested content ("HTTP 404", the site's own
+    not-found line), or "" -- never raises."""
+    try:
+        status = int(page.evaluate(_NAVIGATION_STATUS_JS) or 0)
+    except Exception:  # noqa: BLE001 -- a closed/navigated page has no verdict (fail-open, as the line reader)
+        status = 0
+    if status in (404, 410):
+        return f"HTTP {status}"
+    return _content_not_found_statement(page)
+
+
+def _refuse_not_found_winner(runner, page, url, best):
+    """A winner nothing ties to the scene, on a page that is not the scene, is
+    another scene's control: fail the job, never download. True when handled."""
+    if not best or not best.get("_no_identity_proof"):
+        return False
+    reason = _page_not_found_reason(page)
+    if not reason:
+        return False
+    sys.stderr.write(
+        f"  download: {url[-40:]} -- page not found ({reason}); its download "
+        f"links belong to other scenes, refusing {str(best.get('text') or '')[:40]!r}\n")
+    runner._handle_failure(url, CONTENT_NOT_FOUND_MESSAGE.format(line=reason),
+                           screenshot=runner._screenshot(page, url))
+    return True
+
+
 # F5 Phase 2 (v3.66.701): per-capture netns for the BROWSER launch. The engine
 # shipped @686 and the shim @699; this is the bracket that owns a worker's
 # namespace for its browser's whole lifetime (see _worker_loop).
@@ -5871,6 +5909,8 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except Exception:
                 pass
             self._consec_no_btn=0
+            if _refuse_not_found_winner(self, page, url, best):
+                return
 
             # Min-resolution gate
             min_res=int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))  # v3.66.527: float() so a non-API (hand-edit/overlay) fractional value truncates, not ValueError
