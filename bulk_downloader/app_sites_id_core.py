@@ -376,10 +376,13 @@ def api_sites_v2():
             name = cfg.get("name") or sid
             auth = _m2_auth_state(runner, cfg)
             captcha = bool(getattr(runner, "_captcha_pending", False))
-            # Quick counts off the runner without acquiring a heavy lock
-            # — get_status(light=True) is the cheap path.
+            # dl95-app-1: counts only -- never wait on the runner's job lock
+            # or its per-site probes (get_status runs both).
             try:
-                st = runner.get_status(light=True)
+                poll = getattr(runner, "get_poll_status", None)
+                st = poll() if callable(poll) else runner.get_status(light=True)
+                if st.get("status_error"):
+                    raise RuntimeError(st["status_error"])
                 counts = st.get("counts") or {}
                 downloaded_total = int(counts.get("done") or 0)
                 active = int(st.get("active") or 0)

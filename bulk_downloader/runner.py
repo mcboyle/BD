@@ -3185,7 +3185,48 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 total += live_sample_bps(sample, current)
         return total
 
-    def get_status(self,light=False):
+    def get_poll_status(self):
+        """dl95-app-1: job counts for the /api/health and /api/sites/v2 polls.
+
+        get_status(light=True) waits for ``_lock`` and then runs every per-site
+        probe (disk, progress tracker, heartbeats, JD/qB, bottlenecks); with six
+        busy sites that stalled both polls for 10-56 s. This takes no lock and
+        runs no probe: ``list(self.jobs.values())`` is one C-level copy under
+        the GIL -- the same lock-free snapshot get_status already takes for its
+        ETA. Job statuses are read without the lock, so a concurrent rename or
+        state handoff can skew one count by one for that poll.
+
+        A probe failure is still reported: get_status records its last
+        exception, and this returns it as ``status_error`` while it is younger
+        than _STATUS_ERROR_TTL_S (the UI's /api/status poll refreshes it)."""
+        jobs = list(self.jobs.values())
+        counts = {"pending": 0, "running": 0, "done": 0, "failed": 0,
+                  "stopped": 0, "needs_review": 0}
+        for j in jobs:
+            s = j.get("status", "")
+            if s in counts:
+                counts[s] += 1
+        out = {"counts": counts, "total": len(jobs), "active": counts["running"]}
+        err = getattr(self, "_status_error", None)
+        if err and time.time() - err[0] <= self._STATUS_ERROR_TTL_S:
+            out["status_error"] = err[1]
+        return out
+
+    # dl95-app-1: how long a get_status failure stays visible to the poll.
+    _STATUS_ERROR_TTL_S = 300.0
+
+    def get_status(self, light=False):
+        """Runner state (see _get_status_impl). dl95-app-1: records the last
+        failure, or clears it on success, for get_poll_status."""
+        try:
+            st = self._get_status_impl(light=light)
+        except Exception as e:
+            self._status_error = (time.time(), f"{type(e).__name__}: {str(e)[:160]}")
+            raise
+        self._status_error = None
+        return st
+
+    def _get_status_impl(self,light=False):
         """Return runner state. With `light=True`, omit `jobs` and
         `url_order` — the two heavy fields. Used by the sidebar poll which
         only needs counts/state/cookie info, not the full job list. At 10k+

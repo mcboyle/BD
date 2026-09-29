@@ -157,6 +157,21 @@ def build_identity(install_dir: str | os.PathLike) -> dict:
     return result
 
 
+def _runner_poll_status(runner) -> dict:
+    """dl95-app-1: counts without waiting on the runner's locks or probes.
+
+    Runners that predate SiteRunner.get_poll_status keep get_status(light).
+    A recent get_status failure the runner recorded raises here, so the
+    caller still reports runner_status_error."""
+    poll = getattr(runner, "get_poll_status", None)
+    if not callable(poll):
+        return runner.get_status(light=True)
+    st = poll()
+    if st.get("status_error"):
+        raise RuntimeError(f"runner status error: {st['status_error']}")
+    return st
+
+
 def _runner_queue_counts(status: dict) -> tuple[int, int]:
     """Return pending/running counts from current or legacy runner status."""
     counts = status.get("counts")
@@ -472,7 +487,7 @@ def api_health():
         total_active = 0
         for _sid, r in _runners_generation(runners):
             try:
-                st = r.get_status(light=True)
+                st = _runner_poll_status(r)
                 pending, running = _runner_queue_counts(st)
                 total_queued += pending
                 total_active += running
@@ -544,7 +559,7 @@ def api_health_v2():
         total_queued = total_active = 0
         for _sid, r in _runners_generation(runners):
             try:
-                st = r.get_status(light=True)
+                st = _runner_poll_status(r)
                 pending, running = _runner_queue_counts(st)
                 total_queued += pending
                 total_active += running
