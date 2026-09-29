@@ -248,6 +248,7 @@ def api_login(sid):
     runner = runners[sid]
     body = request.get_json(silent=True) or {}
     seq_before = getattr(runner, "_login_attempt_seq", 0)
+    manual_before = getattr(runner, "_manual_login_handle", None)
     refusal = runner.login_async()
     if refusal:
         return _login_refused(refusal)
@@ -262,6 +263,17 @@ def api_login(sid):
     thread = getattr(runner, "_login_thread", None)
     in_flight = thread is not None and thread.is_alive()
     if seq == seq_before and not in_flight:
+        # dl95-blacked-2: a manual takeover that was ALREADY pending makes
+        # login_async a no-op (its anti-orphan guard); the site is not logged
+        # in, so say so with the takeover's reason instead of {"ok": true}.
+        # A manual browser this call opened (first-run teach) keeps ok:true.
+        if (manual_before is not None
+                and getattr(runner, "_manual_login_handle", None) is manual_before):
+            status = str(getattr(runner, "_login_status", "") or "")
+            if "Manual login" not in status:
+                status = ("⏳ Manual login required: finish it in the takeover "
+                          "window, then click I'm Done")
+            return jsonify({"ok": False, "state": "manual_pending", "error": status})
         return jsonify({"ok": True})
     deadline = time.time() + _LOGIN_WAIT_S
     while True:
