@@ -249,7 +249,11 @@ CONSENT = [
     "button:has-text('Agree')",
     "button:has-text('Got it')",
     "button:has-text('Allow all')",
-    "button:has-text('OK')",
+    # dl95-porndoe-1-live-1: a preferences layer is saved away (it only
+    # renders once open), and "OK" must be the WHOLE label -- ``:has-text``
+    # is a substring match, and "Manage co-ok-ies" OPENS that layer.
+    "button:has-text('Save my preferences')",
+    "button:text-matches('^\\\\s*ok[.!]?\\\\s*$', 'i')",
 ]
 AGE = [
     "button:has-text('I am 18')",
