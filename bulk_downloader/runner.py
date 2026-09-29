@@ -763,6 +763,7 @@ from .runner_util import (  # noqa: F401  -- external re-export surface
     _ts, _ts_iso, _resolve_safe, _check_video_magic_bytes, resolve_url_attribute,
     gate_candidate_url, _bump_learned_stat, _bump_per_selector,
     _maybe_demote_selectors, record_bandwidth, get_bandwidth_history,
+    record_learned_download_outcome,
     _bw_history, DEFAULT_MIN_RESOLUTION, _BD_TO_APPRISE_EVENT,
 )
 
@@ -5358,22 +5359,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # into one (CLAUDE.md A7).
             if self._handle_nothing_in_scope(page, url, best):
                 return
-            if best and best.get("_via_learned"):
-                won_sel=best.get("_learned_sel","")
-                sys.stderr.write(f"  download: learned hit via [{won_sel}]\n")
-                _bump_learned_stat(self.config,"download_hits")
-                # Phase 7.3: per-selector hit. Bump THIS selector's hit
-                # count. Move it to the front of row_selectors next time
-                # so the most-reliable pattern is tried first.
-                _bump_per_selector(self.config,"download","row_selectors",won_sel,"hits")
-            elif best:
-                # Auto path matched via wide-scan — every learned selector we
-                # had got a "miss" because none of them produced this hit.
-                if learned_dl.get("row_selectors"):
-                    _bump_learned_stat(self.config,"download_misses")
-                    for stale_sel in learned_dl.get("row_selectors") or []:
-                        _bump_per_selector(self.config,"download","row_selectors",stale_sel,"misses")
-                    _maybe_demote_selectors(self.config,"download","row_selectors")
+            record_learned_download_outcome(self.config, learned_dl, best)
             if not best:
                 chk=self._check_redirect(page,url)
                 if chk=="rl":
