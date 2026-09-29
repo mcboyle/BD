@@ -939,6 +939,19 @@ def _guard_credential_get(page,pf_candidates):
     return True
 
 
+# fx-xhamster-login-submit: true unless `el` sits in a <form> holding no password
+# field while a visible password field sits in some form (the login form).
+_SUBMIT_OWNED_BY_LOGIN_FORM_JS = """(el, sels) => {
+  const f = el.closest('form');
+  if (!f) return true;
+  const pws = [];
+  for (const s of sels) { try { pws.push(...document.querySelectorAll(s)); } catch (e) {} }
+  const own = pws.filter(p => p.getClientRects().length > 0 && p.closest('form'));
+  if (!own.length) return true;
+  return own.some(p => p.closest('form') === f);
+}"""
+
+
 def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
     """Try ten independent ways to submit the login form. Each method
     is attempted with a short timeout; we declare success the moment the
@@ -1037,8 +1050,16 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
     script_submitted=[]   # dl95-txxx-2: m2 handed a GET-attributed form to its page script
 
     # Method 1: configured/text-matched submit button click
+    # fx-xhamster-login-submit: `button[type=submit]`'s first visible match was the
+    # header SEARCH form's button (xhamster: search form, then the login modal's form);
+    # the click landed on /search, same origin, and counted as the submit. A match in
+    # a form without the password field is another form's button when the password
+    # field sits in a form of its own.
+    def _owned_by_login_form(loc):
+        try: return bool(loc.evaluate(_SUBMIT_OWNED_BY_LOGIN_FORM_JS, pf_candidates))
+        except Exception: return True   # unmeasurable: keep the old click
     def m1():
-        ok,info=_try_click(page,sb_candidates,"submit button")
+        ok,info=_try_click(page,sb_candidates,"submit button",accept=_owned_by_login_form)
         return ok,f"click [{info}]"
     methods.append(("click submit selector",m1))
 

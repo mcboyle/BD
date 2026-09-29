@@ -592,7 +592,7 @@ def _inter_field_pause():
     time.sleep(delay_s)
 
 
-def _try_click(page,selectors,what):
+def _try_click(page,selectors,what,accept=None):
     """Same pattern as _try_fill but for clicks. Force=True is used as a
     last-resort attempt because some sites have invisible overlays that
     intercept clicks; force=True ignores actionability checks.
@@ -605,7 +605,10 @@ def _try_click(page,selectors,what):
     along a bezier-ish path to the target instead of teleporting it. Real
     users have curved trajectories with overshoot and slight wobble; bots
     that call element.click() never move the mouse at all. CF Bot
-    Management scores this heavily."""
+    Management scores this heavily.
+
+    ``accept(locator) -> bool``, when given, vets each match before it is
+    clicked (both passes); a refused match is skipped as if not visible."""
     tried=[]
     for sel in selectors:
         if not sel: continue
@@ -624,6 +627,7 @@ def _try_click(page,selectors,what):
             try:
                 loc=matches.first if idx==0 else matches.nth(idx)
                 loc.wait_for(state="visible",timeout=400)
+                if accept is not None and not accept(loc): continue
                 try: _human_move_to(page, loc)
                 except Exception: pass
                 loc.click(timeout=2000)
@@ -635,6 +639,7 @@ def _try_click(page,selectors,what):
         try:
             loc=page.locator(sel).first
             loc.wait_for(state="attached",timeout=300)
+            if accept is not None and not accept(loc): continue
             try: _human_move_to(page, loc)
             except Exception: pass
             loc.click(force=True,timeout=2000)
