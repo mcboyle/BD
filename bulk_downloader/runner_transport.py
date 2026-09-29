@@ -24,7 +24,7 @@ from playwright.sync_api import TimeoutError as PWTimeout
 
 from .runner_util import (
     DEFAULT_MIN_RESOLUTION, _bump_learned_stat, gate_candidate_url,
-    record_bandwidth, resolve_url_attribute,
+    record_bandwidth, resolve_url_attribute, transfer_cancelled,
 )
 from .db import db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
@@ -1078,17 +1078,6 @@ class TransportMixin:
         finally:
             self._unregister_daily_byte_accumulator(accumulator)
 
-    def _job_stop_requested(self, job_url):
-        """dl95-porndig-3: Cancel (app_queue) marks the JOB "stopped" and
-        nothing else, so the transfer moving that job's bytes reads it here,
-        beside the site-wide gate below. A host without a job table (the
-        test mixins) has nothing to read."""
-        jobs = getattr(self, "jobs", None)
-        if not job_url or not isinstance(jobs, dict):
-            return False
-        with getattr(self, "_lock", None) or contextlib.nullcontext():
-            return (jobs.get(job_url) or {}).get("status") == "stopped"
-
     def _transfer_gate_open(self, accumulator, local_stop=None):
         """Wait through pause and flush either side of an interrupt race."""
         stopped = self._stop.is_set() or (
@@ -1397,7 +1386,7 @@ class TransportMixin:
                 last_emit = time.time()
                 with open(output_path, "wb") as f:
                     for chunk in r.iter_bytes(1024 * 1024):
-                        if self._stop.is_set():
+                        if transfer_cancelled(self, page_url):
                             return False
                         if chunk:
                             # v3.43.76: bandwidth supervisor.
@@ -1582,7 +1571,7 @@ class TransportMixin:
                 pass  # SSE is best-effort
 
         def _cancel_check() -> bool:
-            return self._stop.is_set()
+            return transfer_cancelled(self, page_url)
 
         # v3.43.76: bandwidth supervisor hook. When the supervisor is
         # configured + enabled, each chunk write blocks here until
@@ -2955,7 +2944,7 @@ class TransportMixin:
                     return
                 res = self._hls_download_guarded(
                     _hls, direct_url, str(final_path), referer=page_url,
-                    cancel_check=lambda: self._stop.is_set())
+                    cancel_check=lambda: transfer_cancelled(self, page_url))
                 if not res.ok:
                     # ffmpeg_not_installed is a DISTINCT code and gets a distinct
                     # verdict: a missing dependency is not a broken stream, and an
@@ -3925,7 +3914,7 @@ class TransportMixin:
                         except Exception:
                             _bucket = None
                     for buf in iterator:
-                        if (self._job_stop_requested(page_url)
+                        if (transfer_cancelled(self, page_url)
                                 or not self._transfer_gate_open(_daily_bytes)):
                             raise _HTTPDownloadFailed("stopped")
                         if _bucket is not None:
@@ -4379,7 +4368,7 @@ class TransportMixin:
                         chunk_iter = (resp.iter_content(chunk_size=1024*1024) if _cffi
                                       else resp.iter_bytes(chunk_size=1024*1024))
                         for buf in chunk_iter:
-                            if (self._job_stop_requested(page_url)
+                            if (transfer_cancelled(self, page_url)
                                     or not self._transfer_gate_open(
                                         _daily_bytes.accumulator, local_stop)):
                                 worker_errors[idx] = "stopped"
