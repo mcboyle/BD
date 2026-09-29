@@ -20,7 +20,7 @@ is a documentation chore, not a catalog bug.
 Schema version: 1
 
 
-## /api/* routes (824)
+## /api/* routes (818)
 
 ```
 POST    /api/a11y/audit                                        CSRF: yes  — Audit an HTML snippet for common ARIA issues. Body: {html}.
@@ -321,12 +321,6 @@ GET     /api/diagnostics/bundle                                CSRF: no   — Re
 GET     /api/diagnostics/download                              CSRF: no   — Generate a zip of the diagnostics bundle for download.
 GET     /api/diagnostics_bundle/download                       CSRF: no   — Stream a zipped bundle as a download.
 GET     /api/diagnostics_bundle/preview                        CSRF: no   — Return the bundle as JSON for inline preview (no zip).
-POST    /api/discovery/disco/run                               CSRF: yes  — Operator manual trigger for A-DISCO (cut 4b): a run-now. It FORCES a pass
-GET     /api/discovery/disco/runs                              CSRF: no   — The persisted A-DISCO run history (disco_runner.recent_runs), so the operator
-GET     /api/discovery/history                                 CSRF: no
-POST    /api/discovery/run                                     CSRF: yes
-POST    /api/discovery/scenes/start                            CSRF: yes  — Start one bounded authenticated library crawl from the existing GUI.
-GET     /api/discovery/scenes/status                           CSRF: no
 GET     /api/doctor                                            CSRF: no   — Full diagnostic pass: environment, optional deps, cookie age.
 POST    /api/doctor/diagnose                                   CSRF: yes  — Pattern-match a failure error string. Body: {error: '...'} or
 GET     /api/download_hold                                     CSRF: no   — Report HELD / CLEAR / UNKNOWN. Read-only; never mutates the store.

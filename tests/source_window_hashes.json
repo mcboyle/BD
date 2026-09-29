@@ -132,12 +132,12 @@
     {
       "bytes": 1004,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_captcha_short_circuits_to_manual::src[pos:pos + 1000]::1",
-      "sha256": "1f060751c6690eb3b7af42eddcad44ea65967262b617f438137ce153e8a452bf"
+      "sha256": "b17bbdc703e1399c9d61d4c8a6499f7f5490dce396ea1f6af7ed0b45318c0fcc"
     },
     {
       "bytes": 6016,
       "key": "tests/test_v3_43_33_ai_login.py::test_ai_failure_falls_back_silently::src[pos:pos + 6000]::1",
-      "sha256": "3bf209f9a7a0698f191b0439d23f94f27678897ef6f027aac5b5afcc76d1edb5"
+      "sha256": "0156e67fcda1042dda59f9dd5d1038afddd5353d595a8a4d22af250b1a2e53fc"
     },
     {
       "bytes": 500,
@@ -155,9 +155,9 @@
       "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
     },
     {
-      "bytes": 8014,
+      "bytes": 8012,
       "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "c406b36afdf0c034972e02e7ee73f5614d185c36b5e50160a9d05bf4e93dd6a9"
+      "sha256": "96f5808af33a97e8f88548d6551b02384471a40a5dceac5424055ef6adbe9696"
     },
     {
       "bytes": 888,

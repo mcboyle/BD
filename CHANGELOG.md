@@ -4,6 +4,11 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1726 - train154: 
+
+T154 = EVERYTHING (O1546 + O1553/O1554, operator "combine everything into the train"): the 10 main-based BOARD rows of O1537-BOARDED-FOR-TRAIN.tsv on main 1c0cf431 (dl95-blacked-2, dl95-pegasproductions-2b, tpl95-redtube-1, dl95-app-1, dl95-dorcelclub-1 GEN 5, dl95-hqporner-2, dl95-reddit-1, dl95-reptyle-1, dl95-reptyle-5, dl95-vixen-1, each at its newest BOARD PATCH-SHA256) plus the WHOLE test2 lane merged at its 17:00Z head dad5e77e (185 lane commits not on main, incl. the 10 lane-based BOARD rows and every lane-only covering commit of the O1537 CLOSE rows; approval per the O1529 lane-to-main ruling, DOT95-LANE/MERGE-*.md). Merge conflicts resolved in place (O1319): detect.py admission dict (rating_control + media_without_url), runner_auth.py re-login tail (lane side: cancel-relogin + _login_outcome verdict), scene_crawler.py settle scroll (navigation-safe body-less scroll). O805 fixes in place: dorcelclub-1 and reddit-1 DP-13 handlers, the lane's 13 new pass/log-only handlers, row703 **kwargs pins and row995 seam pin (S2-B/S3-B red-fixes), templates snapshot re-frozen for the lane's eporner template (index 81). LANE-6 is empty.
+
+
 ## v3.66.1725 - train153: row
 
 T153 = LANE-5 (DOT95 lane to main per PM ruling 07:1xZ: the remaining boarded lane commits in lane order from lane head 076e59ac after tpl95-justporn-1): dl95-txxx-6 (merged in place: _admission_dropped counter dict = main's keys + rating_control), dl95-porndoe-1-live-1, dl95-beeg-3, dl95-cancel-relogin-1, dl95-cancel-relogin-cap-1. Excluded (re-diff, listed in the record): the LANE-4 exclusion list unchanged; tpl95-cumlouder-3 + -live-1 (deltas on excluded tpl95-cumlouder-2); dl95-porndoe-1-live-2 (delta on excluded dl95-porndoe-1); dot95-brazzers1-clickmiss-exempt (refuted beeg-1-live-1 lineage context); dot95-whoreshub-detector-merge-lanedelta (delta on excluded tpl95-whoreshub-1); dot95-row703-repin-lane (lane-only pin, main pins its own); dl95-eporner-4-live-1 (+2 DP-13, template identity drift; fix forward as -dp13). dl95-scrolller-3: already on main (T145), empty pick.

@@ -10,7 +10,7 @@ Pure-AST; handles ternary-guarded blueprints/decorators, `from . import X`, and 
 
 Graph version: 1
 
-- internal import edges: **1821**
+- internal import edges: **1831**
 - tools: 235 · with internal edge: 134 · with tool→package edge: 74
 - blueprints: 163 · config stores: 5
 
@@ -18,11 +18,11 @@ Graph version: 1
 
 - `bulk_downloader/db.py`: 124
 - `bulk_downloader/global_config.py`: 56
-- `bulk_downloader/constants.py`: 33
+- `bulk_downloader/constants.py`: 34
 - `bulk_downloader/ssrf_transport.py`: 30
 - `bulk_downloader/app.py`: 25
 - `bulk_downloader/plugins.py`: 23
-- `bulk_downloader/cookies.py`: 21
+- `bulk_downloader/cookies.py`: 22
 - `bulk_downloader/secrets_store.py`: 19
 - `bulk_downloader/capture_ingest.py`: 17
 - `bulk_downloader/cloak.py`: 17
@@ -33,8 +33,8 @@ Graph version: 1
 - `bulk_downloader/ffmpeg_bin.py`: 15
 - `bulk_downloader/registrable_domain.py`: 15
 - `bulk_downloader/site_editor.py`: 15
+- `bulk_downloader/session_keeper.py`: 14
 - `bulk_downloader/log.py`: 13
-- `bulk_downloader/session_keeper.py`: 13
 - `tools/report_core.py`: 13
 
 ## Blueprints → providers
@@ -85,7 +85,7 @@ Graph version: 1
 - **dev** (`app_dev.py`) — routes 0, providers 11
 - **diagnostics** (`app_diagnostics.py`) — routes 2, providers 1
 - **diagnostics_bundle** (`app_diagnostics_bundle.py`) — routes 2, providers 1
-- **discovery** (`app_discovery.py`) — routes 6, providers 5
+- **discovery** (`app_discovery.py`) — routes 7, providers 5
 - **doctor** (`app_doctor.py`) — routes 2, providers 2
 - **download_hold** (`app_download_hold.py`) — routes 2, providers 1
 - **edge_deploy** (`app_edge_deploy.py`) — routes 2, providers 1

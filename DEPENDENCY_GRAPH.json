@@ -652,14 +652,15 @@
         "bulk_downloader/discovery.py",
         "bulk_downloader/scene_crawler.py"
       ],
-      "route_count": 6,
+      "route_count": 7,
       "routes": [
         "ROUTE /api/discovery/disco/run",
         "ROUTE /api/discovery/disco/runs",
         "ROUTE /api/discovery/history",
         "ROUTE /api/discovery/run",
         "ROUTE /api/discovery/scenes/start",
-        "ROUTE /api/discovery/scenes/status"
+        "ROUTE /api/discovery/scenes/status",
+        "ROUTE /api/discovery/scenes/stop"
       ],
       "var": "discovery_bp"
     },
@@ -2418,7 +2419,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1821,
+    "edge_count": 1831,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3041,6 +3042,7 @@
         "bulk_downloader/runner_auth.py",
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_challenge.py",
+        "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_telemetry.py",
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/scene_crawler.py",
@@ -3099,7 +3101,8 @@
         "bulk_downloader/runner_transport.py",
         "bulk_downloader/scene_crawler.py",
         "bulk_downloader/session_keeper.py",
-        "bulk_downloader/site_changelog.py"
+        "bulk_downloader/site_changelog.py",
+        "tools/capture_session.py"
       ],
       "bulk_downloader/cost_economics.py": [
         "bulk_downloader/app_cost.py"
@@ -3719,6 +3722,7 @@
         "bulk_downloader/login_impl/manual.py",
         "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/scene_crawler.py"
       ],
       "bulk_downloader/ipc_latency.py": [
@@ -3905,6 +3909,10 @@
       "bulk_downloader/mass_import.py": [
         "bulk_downloader/app_import.py",
         "bulk_downloader/perf_lab.py"
+      ],
+      "bulk_downloader/member_rendition.py": [
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_extractors.py"
       ],
       "bulk_downloader/memory_telemetry.py": [
         "bulk_downloader/diagnostics_bundle.py"
@@ -4227,7 +4235,9 @@
         "bulk_downloader/app.py",
         "bulk_downloader/app_runs.py",
         "bulk_downloader/app_sites_id_core.py",
-        "bulk_downloader/runner.py"
+        "bulk_downloader/runner.py",
+        "bulk_downloader/runner_queue.py",
+        "bulk_downloader/runner_teach.py"
       ],
       "bulk_downloader/runner.py": [
         "bulk_downloader/admission.py",
@@ -4293,6 +4303,7 @@
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/runner_transport.py": [
+        "bulk_downloader/detect.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_extractors.py"
       ],
@@ -4437,6 +4448,7 @@
         "bulk_downloader/profile_sync.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_auth.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/scene_crawler.py",
         "tools/cockpit_console.py"
       ],
@@ -4592,7 +4604,8 @@
         "bulk_downloader/integrity.py"
       ],
       "bulk_downloader/streaming_manifest.py": [
-        "bulk_downloader/dev_suite/capture_diag.py"
+        "bulk_downloader/dev_suite/capture_diag.py",
+        "bulk_downloader/spa_media_extract.py"
       ],
       "bulk_downloader/subprocess_helpers.py": [
         "bulk_downloader/dev_tools.py"
@@ -6428,6 +6441,7 @@
         "bulk_downloader/dom_honeypot.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/plugins.py",
+        "bulk_downloader/runner_transport.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/web_dialog.py"
       ],
@@ -7140,6 +7154,7 @@
         "bulk_downloader/login.py",
         "bulk_downloader/macro_recorder.py",
         "bulk_downloader/maintenance.py",
+        "bulk_downloader/member_rendition.py",
         "bulk_downloader/mp4_metadata.py",
         "bulk_downloader/multi_conn.py",
         "bulk_downloader/netns_isolation.py",
@@ -7240,6 +7255,7 @@
       ],
       "bulk_downloader/runner_extractors.py": [
         "bulk_downloader/candidate_filter.py",
+        "bulk_downloader/constants.py",
         "bulk_downloader/db.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/events.py",
@@ -7252,6 +7268,7 @@
         "bulk_downloader/hls_downloader.py",
         "bulk_downloader/interop_registry.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/member_rendition.py",
         "bulk_downloader/netns_isolation.py",
         "bulk_downloader/plugins.py",
         "bulk_downloader/provider_resolve.py",
@@ -7304,6 +7321,7 @@
         "bulk_downloader/hooks.py",
         "bulk_downloader/playlist_extractor.py",
         "bulk_downloader/plugins.py",
+        "bulk_downloader/run_history.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/yt_dlp_archive.py"
       ],
@@ -7318,6 +7336,7 @@
         "bulk_downloader/app.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/learn.py",
+        "bulk_downloader/run_history.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/scrapling_adapter.py",
@@ -7358,6 +7377,7 @@
         "bulk_downloader/fname.py",
         "bulk_downloader/hls_downloader.py",
         "bulk_downloader/hooks.py",
+        "bulk_downloader/interstitial.py",
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/multi_conn.py",
         "bulk_downloader/multi_homed_egress.py",
@@ -7368,6 +7388,7 @@
         "bulk_downloader/rate_limit.py",
         "bulk_downloader/resume.py",
         "bulk_downloader/runner_util.py",
+        "bulk_downloader/session_keeper.py",
         "bulk_downloader/spa_media_extract.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/ssrf_transport.py",
@@ -7492,6 +7513,9 @@
       ],
       "bulk_downloader/socket_pacing.py": [
         "bulk_downloader/traffic_shaper.py"
+      ],
+      "bulk_downloader/spa_media_extract.py": [
+        "bulk_downloader/streaming_manifest.py"
       ],
       "bulk_downloader/sqlite_cdc.py": [
         "bulk_downloader/wal_inspector.py"
@@ -7935,6 +7959,7 @@
         "bulk_downloader/affordance_learning.py",
         "bulk_downloader/challenge_handling.py",
         "bulk_downloader/cloak.py",
+        "bulk_downloader/cookies.py",
         "bulk_downloader/dom_capture.py",
         "bulk_downloader/dom_overlay.py",
         "bulk_downloader/dom_recorder.py",
