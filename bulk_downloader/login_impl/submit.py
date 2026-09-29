@@ -500,6 +500,36 @@ def _captcha_mount_name(page):
     return ""
 
 
+# fx-teenfidelity-recaptcha (O1567, live bd2 21:37Z): the challenge frames an
+# image puzzle renders in. reCAPTCHA pre-renders its bframe HIDDEN on every
+# page (visibility:hidden, top:-10000px, opacity:0) and reveals it only when it
+# issues a puzzle, so presence alone is not a challenge -- it must be shown.
+_CAPTCHA_CHALLENGE_FRAMES=(
+    ("reCAPTCHA","iframe[src*='recaptcha/api2/bframe'], iframe[src*='recaptcha/enterprise/bframe']"),
+    ("hCaptcha","iframe[src*='hcaptcha'][src*='frame=challenge']"),
+)
+_CHALLENGE_SHOWN_JS="""(sel) => [...document.querySelectorAll(sel)].some(f => {
+    const r = f.getBoundingClientRect();
+    if (r.width < 50 || r.height < 50 || r.bottom <= 0 || r.right <= 0) return false;
+    for (let e = f; e; e = e.parentElement) {
+        const s = getComputedStyle(e);
+        if (s.visibility === 'hidden' || s.display === 'none' || parseFloat(s.opacity) === 0) return false;
+    }
+    return true;
+})"""
+
+
+def _captcha_challenge_visible(page):
+    """The captcha whose image challenge is on screen ("reCAPTCHA"), or "" -- never raises."""
+    for name,sel in _CAPTCHA_CHALLENGE_FRAMES:
+        try:
+            if page.evaluate(_CHALLENGE_SHOWN_JS, sel):
+                return name
+        except Exception:
+            continue
+    return ""
+
+
 def _wait_captcha_tokens(page,deadline=30,turnstile_click_after=4.0):
     """Detect and wait for any of the three major invisible captchas to
     populate their hidden token field.  Returns (token_name, seconds_waited)
@@ -1259,6 +1289,18 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
             except Exception as e:
                 if _page_closed_err(e):
                     return "PAGE_CLOSED", f"page closed waiting for {label}"
+            # fx-teenfidelity-recaptcha: the submit opened an image puzzle.
+            # Every method left (form.submit() above all) would post the form
+            # without its token and tear the puzzle down; leave it up for a
+            # human -- solving it runs the site's own callback, which submits.
+            _chal=_captcha_challenge_visible(page)
+            if _chal:
+                sys.stderr.write(f"  {site_tag()}login submit: {_chal} image challenge shown "
+                                 f"after {label} — stopping the method sweep, puzzle left "
+                                 "up for a human\n")
+                return False,(f"{_chal} image challenge shown after {label} -- left up "
+                              "for a human to solve on the VM display (no further "
+                              "submit fired)")
             moved=_moved()
             if moved is not None: return _settle(moved,label)
             time.sleep(0.3)
