@@ -9,8 +9,8 @@
     {
       "label": "M1 do_login no longer clears the challenge before the form",
       "file": "bulk_downloader/login_impl/submit.py",
-      "old_regex": "        clear_cloudflare_challenge\\(page\\)\\n",
-      "new": "        pass\n",
+      "old_regex": "if not clear_cloudflare_challenge\\(page\\) and _is_challenge_interstitial\\(page\\):",
+      "new": "if False:",
       "direction": "regression",
       "catcher": "tests/test_row722_cloudflare_challenge_before_form.py::test_do_login_clears_the_challenge_before_the_gate_walk_and_username_search"
     },

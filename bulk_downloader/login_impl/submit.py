@@ -350,6 +350,32 @@ def _is_cloudflare_challenge_page(page):
     return True
 
 
+def _is_challenge_interstitial(page):
+    """O1567: a challenge page that stands INSTEAD of the login form --
+    Cloudflare's "Just a moment..." interstitial (#challenge-running /
+    #challenge-form) or a site-drawn "Security Check" /turnstile/challenge
+    page.  A bare Turnstile widget embedded in a login form whose password
+    field is not visible yet (username-first step, form behind a gate) is
+    not one."""
+    if not _is_cloudflare_challenge_page(page):
+        return False
+    try:
+        title=(page.title() or "").lower()
+        cur=(page.url or "").lower()
+    except Exception:
+        return False
+    if (CF_CHALLENGE_TITLE in title or "security check" in title
+            or "/turnstile/challenge" in cur):
+        return True
+    for sel in ("#challenge-running","#challenge-form"):
+        try:
+            if page.locator(sel).count():
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
     """Row 722 (adulttime): every login URL answers 307->403 with a
     Cloudflare managed challenge page ("Just a moment...", Turnstile
@@ -1844,8 +1870,22 @@ def do_login(config, allow_manual_takeover=False):
         # Row 722 (adulttime): a Cloudflare managed challenge page ("Just a
         # moment...", Turnstile CHECKBOX) stands BEFORE the login form.  Click
         # the box (operator decision, never a puzzle) and wait for the real
-        # page; otherwise the username search below reports its own failure.
-        clear_cloudflare_challenge(page)
+        # page.
+        # O1567 (adulttime live, test3 21:23Z): Cloudflare re-issued the box
+        # in place after both clicks and the challenge stayed up; the username
+        # search then spent 66 s on it and handed off as "Couldn't find
+        # username field". A challenge still up after the clicks is the human's
+        # to pass: say so and stop here. Only an interstitial stops the login:
+        # a Turnstile widget embedded in a username-first form never navigates
+        # after the click and goes on to the username search as before.
+        if not clear_cloudflare_challenge(page) and _is_challenge_interstitial(page):
+            _cf=("Cloudflare 'Verify you are human' challenge not cleared by the "
+                 "automated clicks")
+            if allow_manual_takeover:
+                return _hand_off(f"{_cf} -- tick it in this window, finish "
+                                 "logging in, then click I'm Done")
+            sys.stderr.write(f"  {site_tag()}login: {_cf}\n")
+            _hard_close(); return False,f"{_cf} -- log in with Take Over to pass it",[]
 
         # Row 371: a missing login form has several visually identical causes.
         # Clear declared per-site gates FIRST, then the conservative generic
