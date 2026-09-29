@@ -30,7 +30,7 @@ def _selector_text(raw):
     return ""
 
 
-def _first_positive_size_match(page, selector):
+def _first_positive_size_match(page, selector, skip=None):
     """Return the first visible, positive-size match for ``selector``.
 
     Login pages often keep desktop and mobile controls in the DOM together.
@@ -38,6 +38,8 @@ def _first_positive_size_match(page, selector):
     though a later desktop match is clickable.  Presence alone is also not a
     useful signal for modal login fields: a complete ``display:none`` form is
     present but has no usable box.
+
+    ``skip(match)`` returning a truthy value passes over that match.
     """
     try:
         matches = page.locator(selector)
@@ -48,6 +50,8 @@ def _first_positive_size_match(page, selector):
         try:
             match = matches.nth(index)
             if not match.is_visible():
+                continue
+            if skip is not None and skip(match):
                 continue
             box = match.bounding_box()
             if (box and box.get("width", 0) > 0
@@ -73,7 +77,11 @@ def _fire_login_trigger_if_needed(page, login_trigger, username_selectors):
 
     for raw_selector in username_selectors:
         selector = _selector_text(raw_selector)
-        if selector and _first_positive_size_match(page, selector) is not None:
+        # dl95-eporner-4: a visible search box is not a visible username field;
+        # counting it kept a configured trigger from ever opening the modal.
+        if selector and _first_positive_size_match(
+                page, selector,
+                skip=lambda m: _is_search_field(m)[0]) is not None:
             return False, False, "username field is already visible"
 
     visible_trigger = _first_positive_size_match(page, trigger)
@@ -253,12 +261,16 @@ def _is_honeypot_field(loc):
 _SEARCH_FIELD_JS = r"""el => {
   const t = (el.getAttribute('type') || '').toLowerCase();
   if (t === 'search') return 'type=search';
-  if (el.closest('[role=search]')) return 'inside role=search';
+  if ((el.getAttribute('role') || '').toLowerCase() === 'searchbox') return 'role=searchbox';
+  if (el.closest('[role=search], search')) return 'inside role=search';
   const n = (el.getAttribute('name') || '').toLowerCase();
   if (['q', 'query', 'search', 'search_query', 'keyword', 'keywords'].includes(n)) return 'name=' + n;
   const f = el.form;
   if (f) {
-    const act = (f.getAttribute('action') || '').toLowerCase();
+    // dl95-eporner-4: the action's PATH only -- a login form posting to
+    // /login?next=/search/ is not a search form.
+    let act = '';
+    try { act = new URL(f.getAttribute('action') || '', document.baseURI).pathname.toLowerCase(); } catch (e) {}
     const idc = ((f.getAttribute('id') || '') + ' ' + (f.getAttribute('class') || '')).toLowerCase();
     if (/\/search(\/|\?|$)/.test(act) || /search/.test(idc)) return 'search form';
   }
@@ -281,7 +293,9 @@ def _is_search_field(loc):
         why = loc.evaluate(_SEARCH_FIELD_JS)
     except Exception:  # noqa: BLE001 -- fail-open, as _is_honeypot_field: never block a real field
         return False, ""
-    return (True, why) if why else (False, "")
+    # dl95-eporner-4: only a non-empty reason string marks a search box; a
+    # test double answering an object is not one (fail-open, as above).
+    return (True, why) if isinstance(why, str) and why else (False, "")
 
 
 def _try_fill(page,selectors,value,what):
