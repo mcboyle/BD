@@ -1427,7 +1427,12 @@ class ExtractorsMixin:
             # dl95-beeg-1-live-1 r3: proven_only asks only whether THIS scene's
             # own media is here; a trailer verdict is a claim about the unproven
             # population, so it stays with the other callers (the click runs).
-            previews = ([] if proven_only or scene_own_only
+            # dot95-pm1-pussyspace-clickmiss-floor (PM RULING MERGE-1300, as MERGE-0930):
+            # the page-media fallback (hold_below) runs after a DOM candidate missed, so a
+            # trailer there meets the click-miss floor (click_miss_candidates refuses
+            # trailer/preview-class options): a miss, took False, and the caller files its
+            # review. The porn00-3 hold below and the kmm-2 hold elsewhere are unchanged.
+            previews = ([] if proven_only or scene_own_only or hold_below
                         else _spa.preview_media_urls(page_url, page_media))
             if previews:  # dl95-kellymadisonmedia-2
                 return self._spa_trailer_only(url, page, previews)
