@@ -323,6 +323,12 @@ class TeachMixin:
         already_flagged = job.get("auto_teach_seen", False)
         if has_dl or already_flagged:
             return False
+        # dl-f2: same exemption as the start() preflight (Row 776) -- a URL that is
+        # already an accepted direct-media href needs no selectors, so never park it
+        # in needs_review for teaching; let the normal download path take it.
+        from .runner import _pending_url_already_downloadable
+        if _pending_url_already_downloadable(url):
+            return False
         deferred = False
         selected = False
         selected_prev_status = None

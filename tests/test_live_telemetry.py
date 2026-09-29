@@ -1101,8 +1101,9 @@ def test_bulk_pause_after_worker_claim_is_after_processing_began(monkeypatch):
 def test_multi_worker_auto_teach_deferral_releases_claim_to_pending(monkeypatch):
     """A second claimed worker must not requeue itself as stuck running."""
     runner = _telemetry_runner(monkeypatch)
-    first = "https://example.test/teach-first.mp4"
-    second = "https://example.test/teach-second.mp4"
+    # dl-f2: page URLs -- a direct-media href (.mp4) is exempt from auto-teach, as in start()'s Row 776 preflight
+    first = "https://example.test/teach-first"
+    second = "https://example.test/teach-second"
     runner.config = {"auto_teach_first_run": True, "learned": {}}
     runner.jobs = {
         first: {"status": "pending", "file_size": 0},
