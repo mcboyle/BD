@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 
 from . import db
 from .constants import AUTH_BODY_RE, AUTH_HINTS
+from .playlist_extractor import _looks_like_scene_url
 
 
 STATE_IDLE = "IDLE"
@@ -221,6 +222,14 @@ def _path_parts(url: str) -> tuple[str, ...]:
     return tuple(part for part in urlsplit(url).path.split("/") if part)
 
 
+def _destination_key(url: str) -> str:
+    """One key per destination: fragment and trailing slash never make a new page."""
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/") or "/"
+    query = f"?{parts.query}" if parts.query else ""
+    return f"{parts.scheme.lower()}://{(parts.netloc or '').lower()}{path}{query}"
+
+
 def _cohort_signature(
     parts: tuple[str, ...],
     repeated: dict[tuple[int, int], set[str]],
@@ -257,6 +266,7 @@ def _scene_cohort(
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Return the image-bearing path cohort, including its text-only cards."""
     usable = []
+    by_destination: dict[str, dict[str, Any]] = {}
     for anchor in anchors:
         url = str(anchor.get("url") or "")
         parts = _path_parts(url)
@@ -264,8 +274,17 @@ def _scene_cohort(
             continue
         if urlsplit(url).scheme not in ("http", "https"):
             continue
+        # dl95-xempire-1: one destination linked twice (#top, trailing slash)
+        # is one card.  Counted twice it both repeats every path segment into
+        # a fake cohort and is queued twice in one crawl.
+        key = _destination_key(url)
+        seen_row = by_destination.get(key)
+        if seen_row is not None:
+            seen_row["has_img"] = bool(seen_row.get("has_img") or anchor.get("has_img"))
+            continue
         copied = dict(anchor)
         copied["_parts"] = parts
+        by_destination[key] = copied
         usable.append(copied)
     if not usable:
         return [], []
@@ -290,6 +309,14 @@ def _scene_cohort(
     for signature, rows in cohorts.items():
         image_count = sum(bool(row.get("has_img")) for row in rows)
         if not image_count:
+            continue
+        # One thumbnail is weak evidence: a members-home banner such as
+        # /livecam/autologin groups with unrelated nav links of the same
+        # depth.  Only the product scene-URL rule may admit such a cohort.
+        if image_count == 1 and not any(
+            row.get("has_img") and _looks_like_scene_url(row["url"])
+            for row in rows
+        ):
             continue
         # Thumbnail evidence dominates frequency.  Cohort size is the
         # tiebreaker, which lets one measured thumbnail identify sibling cards
