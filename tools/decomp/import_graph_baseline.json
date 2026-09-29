@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5549,
+  "edge_count": 5550,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1565,6 +1565,7 @@
       "bulk_downloader/macro_recorder.py"
     ],
     "bulk_downloader/login_impl/_common.py": [
+      "bulk_downloader/log.py",
       "bulk_downloader/synthetic_input_scheduler.py"
     ],
     "bulk_downloader/login_impl/manual.py": [

@@ -2419,7 +2419,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1831,
+    "edge_count": 1832,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3855,6 +3855,7 @@
         "bulk_downloader/cross_site_selectors.py",
         "bulk_downloader/db.py",
         "bulk_downloader/dev_suite/logs.py",
+        "bulk_downloader/login_impl/_common.py",
         "bulk_downloader/login_impl/replay.py",
         "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/runner.py",
@@ -6861,6 +6862,7 @@
         "bulk_downloader/macro_recorder.py"
       ],
       "bulk_downloader/login_impl/_common.py": [
+        "bulk_downloader/log.py",
         "bulk_downloader/synthetic_input_scheduler.py"
       ],
       "bulk_downloader/login_impl/manual.py": [
