@@ -904,6 +904,13 @@ class _Pacer:
             self.control.checkpoint(phase, url)
 
 
+def _same_listing_url(a: str, b: str) -> bool:
+    """Same scheme/host/path/query, a trailing slash and a fragment aside."""
+    pa, pb = urlsplit(a or ""), urlsplit(b or "")
+    return ((pa.scheme, pa.netloc.lower(), pa.path.rstrip("/"), pa.query)
+            == (pb.scheme, pb.netloc.lower(), pb.path.rstrip("/"), pb.query))
+
+
 def _goto(page: Any, url: str, pacer: _Pacer, phase: str = "listing page") -> Any:
     pacer.before_request(phase, url)
     return page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -915,23 +922,26 @@ def _clear_gates(
     *,
     first_listing_page: bool,
     delay_s: float,
-) -> None:
+) -> list[str]:
+    """Click the declared gate controls; return the selectors clicked."""
     # Use the canonical shared dismissal loop.  The login-wall scope is once;
     # per-page gates are retried on every listing/scene navigation.
     from . import interstitial
 
     settle = min(0.5, max(0.0, float(delay_s)))
+    clicked: list[str] = []
     if first_listing_page:
-        interstitial.dismiss(
+        clicked += interstitial.dismiss(
             page,
             site_config.get("dismiss_selectors_login", ""),
             settle_s=settle,
-        )
-    interstitial.dismiss(
+        ) or []
+    clicked += interstitial.dismiss(
         page,
         site_config.get("dismiss_selectors", ""),
         settle_s=settle,
-    )
+    ) or []
+    return clicked
 
 
 def _page_title(page: Any, response_status: int | None) -> tuple[str, str]:
@@ -1152,14 +1162,25 @@ def crawl_with_page(
         pages_walked += 1
         current = str(page.url)
         page_urls.append(current)
-        if not effective_url:
-            effective_url = current
-        _clear_gates(
+        cleared = _clear_gates(
             page,
             site_config,
             first_listing_page=pages_walked == 1,
             delay_s=delay_s,
         )
+        # tpl95-newsensations-2: the listing answered with an interstitial
+        # (/members/ -> offers.php) whose declared control was clicked; its own
+        # navigation on is only scheduled, so the page read next was the
+        # cross-sell and its ad banners were queued as scenes.  Re-request the
+        # listing and read it from where it lands now.
+        if cleared and not _same_listing_url(current, requested):
+            response = _goto(page, requested, pacer, "listing page (after gate)")
+            status = getattr(response, "status", None) if response else None
+            current = str(page.url)
+            page_urls[-1] = current
+            _clear_gates(page, site_config, first_listing_page=False, delay_s=delay_s)
+        if not effective_url:
+            effective_url = current
         anchors, growth, page_settle_state, absorbed = _scroll_and_collect(
             page,
             max_scrolls=max_scrolls,
