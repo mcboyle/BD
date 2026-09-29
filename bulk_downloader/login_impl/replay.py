@@ -121,6 +121,58 @@ def redact_url_credentials(text):
     return _URL_IN_TEXT.sub(redact, str(text))
 
 
+# O1567 fx-evidence-password-redact: a manual-takeover page on test3big was
+# kept with the account's username and password in its <input value="...">
+# attributes -- the page a login is read from is the page the credentials
+# were typed into.  Every user-typed field, and any input whose name/id names
+# a credential, is written as <REDACTED>; buttons, checkboxes and ordinary
+# hidden fields stay as read.
+# A '>' inside a quoted attribute does not end the tag (lens B18-B F2), and
+# value= is only the attribute when whitespace precedes it -- never the tail of
+# data-value= / ng-value= (F1).  Every value= attribute of a matched tag goes.
+_INPUT_TAG = re.compile(r"""<input\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+_INPUT_ATTR = re.compile(
+    r"""(?<=\s)([\w:-]+)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)""")
+_INPUT_VALUE = re.compile(
+    r"""(?<=\s)(value\s*=\s*)("[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
+_TEXTAREA = re.compile(
+    r"""(<textarea\b((?:[^>"']|"[^"]*"|'[^']*')*)>)(.*?)(</textarea\s*>)""",
+    re.IGNORECASE | re.DOTALL)
+_TYPED_INPUT_TYPES = frozenset((
+    "", "text", "password", "email", "tel", "search", "number", "url"))
+
+
+def redact_input_values(html):
+    """Return *html* with credential-bearing ``<input>`` values redacted."""
+    def redact(match):
+        tag = match.group(0)
+        attrs = {k.lower(): v.strip("\"'")
+                 for k, v in _INPUT_ATTR.findall(tag)}
+        if "value" not in attrs:
+            return tag
+        kind = attrs.get("type", "").strip().lower()
+        names = " ".join(attrs.get(k, "") for k in
+                         ("name", "id", "autocomplete"))
+        if kind not in _TYPED_INPUT_TYPES and not (
+                _CREDENTIAL_QUERY_KEY.search(names)):
+            return tag
+        return _INPUT_VALUE.sub(
+            lambda m: m.group(1) + (
+                "'<REDACTED>'" if m.group(2).startswith("'")
+                else '"<REDACTED>"'), tag)
+
+    def redact_textarea(match):
+        # F3: a credential-named <textarea> carries its value as content.
+        attrs = {k.lower(): v.strip("\"'")
+                 for k, v in _INPUT_ATTR.findall(" " + match.group(2))}
+        names = " ".join(attrs.get(k, "") for k in
+                         ("name", "id", "autocomplete"))
+        if not match.group(3) or not _CREDENTIAL_QUERY_KEY.search(names):
+            return match.group(0)
+        return match.group(1) + "<REDACTED>" + match.group(4)
+    return _TEXTAREA.sub(redact_textarea, _INPUT_TAG.sub(redact, str(html)))
+
+
 def _evidence_slug(tag):
     """A filename-safe, nonempty, tag-unique slug for an evidence tag.
 
@@ -154,7 +206,7 @@ def write_login_evidence(page, config, final_url, tag):
     """
     final_url = redact_url_credentials(final_url)
     try:
-        html = redact_url_credentials(page.content())
+        html = redact_input_values(redact_url_credentials(page.content()))
     except Exception as e:
         html = f"<!-- page content unavailable: {e} -->"
     try:
