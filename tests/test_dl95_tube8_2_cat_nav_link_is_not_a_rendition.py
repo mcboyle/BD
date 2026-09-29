@@ -98,8 +98,17 @@ def test_cat_nav_link_is_not_scored_as_a_rendition(capsys):
     assert not any("/cat/" in t for t in texts), (
         f"the category nav link was scored as a rendition: best={best and (best['score'], best['text'])}"
     )
+    # Refused by name, not merely absent. On the lane the admission filter (dl95-pussyspace-1) rejects the link
+    # before Row 722's listing rule logs it, so each layer is pinned on its own and the run must name a refusal.
+    from bulk_downloader import candidate_filter
+    from bulk_downloader.detect import _listing_link_path
+
+    assert _listing_link_path("HD /cat/hd/") == "/cat/hd/", "Row 722 listing rule no longer names /cat/"
+    v = candidate_filter.classify(url=ORIGIN + "/cat/hd/", text="HD", page_host="fixture-t8.test")
+    assert not v.accepted and "navigation URL" in v.rejections, v
     err = capsys.readouterr().err
-    assert "download: skipped listing link 'HD' (/cat/hd/)" in err, err
+    assert ("download: skipped listing link 'HD' (/cat/hd/)" in err
+            or "navigation_url=" in err), err
 
 
 def test_positive_control_a_media_file_under_cat_keeps_its_score():
