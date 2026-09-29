@@ -3529,6 +3529,11 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                 status_code = extra.get("status_code")
                 if tombstone.classify(status_code=status_code, message=message):
                     status = "tombstone"
+                    # dl95-dailymotion-2: tombstone_url syncs this job to
+                    # "tombstone" before prev_status is read below, which hid
+                    # the transition (no log, run row left "running").
+                    if _transition_prev_status is None:
+                        _transition_prev_status = (self.jobs.get(url) or {}).get("status")
                     tombstone.tombstone_url(self.site_id, url, reason=message, _runner=self)
             except Exception:
                 pass
@@ -3659,21 +3664,32 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                                 self.jobs[url]["_run_id"] = rid
                         _rh.emit_lifecycle(self, "start", run_id=rid, url=url,
                                            message=message)
-                elif status in _RUN_TERMINAL:
-                    rid = (self.jobs.get(url) or {}).get("_run_id")
+                elif status in _RUN_TERMINAL or prev_status == "running":
+                    # dl95-dailymotion-2: an attempt also ends when its job
+                    # leaves running for a non-terminal status (a failure that
+                    # retries -> pending, needs_review, ...). Pop the id there,
+                    # so the next claim opens its own row and nothing re-closes it.
+                    run_status = status
+                    if status in _RUN_TERMINAL:
+                        rid = (self.jobs.get(url) or {}).get("_run_id")
+                    else:
+                        with self._lock:
+                            rid = (self.jobs.get(url) or {}).pop("_run_id", None)
+                        run_status = {"pending": "failed", "dead_letter": "failed",
+                                      "stopped": "cancelled"}.get(status, status)
                     if rid:
                         # Cut 4: persist an operator reason_code on failures so
                         # /api/runs?status=failed can group + explain them.
                         rc = None
-                        if status in ("failed", "error"):
+                        if run_status in ("failed", "error"):
                             try:
                                 from . import failure_reasons as _fr
                                 rc = _fr.reason_for(message).get("reason_code")
                             except Exception:
                                 rc = None
-                        _rh.record_run_finish(rid, status, reason_code=rc)
+                        _rh.record_run_finish(rid, run_status, reason_code=rc)
                         _rh.emit_lifecycle(self, "finish", run_id=rid, url=url,
-                                           message=status)
+                                           message=run_status)
             except Exception:
                 pass  # advisory: history never breaks the worker
         # Phase 4.2: persist the change. Outside the lock to avoid holding
