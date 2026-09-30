@@ -188,7 +188,21 @@ sudo mv -f -- "$ENV_TMP" "$ENV_PATH" || exit 1
 
 sudo systemctl daemon-reload || exit 1
 sudo systemctl restart "$SERVICE_INSTANCE" || exit 1
+# A fresh per-run state dir's master-password vault has no password yet:
+# /api/health is 503 credential_vault_uninitialized (row 413) until
+# capture.sh's post-start unlock initializes it. That app IS serving, and
+# demanding 200 first meant the unlock never ran (IA-05, spare8).
+first_use_vault_503() {
+  curl -sS --max-time 2 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null \
+    | grep -Eq '"degraded"[[:space:]]*:[[:space:]]*"credential_vault_uninitialized"'
+}
+first_use_vault_note() {
+  echo "capture service: health is 503 credential_vault_uninitialized -- the" \
+       "instance vault awaits its first unlock (capture.sh does it when a" \
+       "capture-vault password is given)"
+}
 ready=0
+vault_first_use=0  # early-exit-ok
 last_health_code="000"
 last_health_exit=0
 attempt=1
@@ -209,6 +223,11 @@ while [ "$attempt" -le "$READY_TRIES" ]; do
       if [ "$health_exit" -eq 0 ] && [ "$health_code" = "200" ]; then
         ready=1
         break
+      fi
+      if [ "$health_exit" -eq 0 ] && [ "$health_code" = "503" ] && first_use_vault_503; then  # early-exit-ok
+        ready=1  # early-exit-ok
+        vault_first_use=1  # early-exit-ok
+        break  # early-exit-ok
       fi
       ;;
     activating)
@@ -237,3 +256,4 @@ done
 }
 printf 'capture service: started %s on 127.0.0.1:%s\n' \
   "$SERVICE_INSTANCE" "$APP_PORT"
+[ "$vault_first_use" -eq 0 ] || first_use_vault_note  # early-exit-ok
