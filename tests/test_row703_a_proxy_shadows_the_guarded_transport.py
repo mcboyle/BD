@@ -84,9 +84,9 @@ PUBLIC_ONLY_AND_PROXIED: Set[str] = set()
 # parameters, and the scan asserts zero positional constructions below.
 STAR_KWARGS_CONSTRUCTIONS: Set[str] = {
     "bulk_downloader/runner_telemetry.py:347",  # row 1076 moved it (+4: flight-recorder feed in log_event); was :343 after row 1056
-    "bulk_downloader/runner_transport.py:4366",  # T157: fx-pornhoarder-hoster-embed shifts runner_transport (+92); T156 was +38
-    "bulk_downloader/runner_transport.py:4778",  # T157: fx-pornhoarder-hoster-embed shifts runner_transport (+92); T156 was +38
-    "bulk_downloader/runner_transport.py:5010",  # T157: fx-pornhoarder-hoster-embed shifts runner_transport (+92); T156 was +38
+    "bulk_downloader/runner_transport.py:4384",  # T158: dorcelclub-dl-challenge-wall/kmm-generic-filename shift runner_transport (+18); T157 was +92
+    "bulk_downloader/runner_transport.py:4796",  # T158: dorcelclub-dl-challenge-wall/kmm-generic-filename shift runner_transport (+18); T157 was +92
+    "bulk_downloader/runner_transport.py:5028",  # T158: dorcelclub-dl-challenge-wall/kmm-generic-filename shift runner_transport (+18); T157 was +92
 }
 
 
