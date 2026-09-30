@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1742 - train170: row
+
+T170 = O1568 train of the next BOARDed rows, applied on main after T169:
+- fx-harden-kmm-reauth-redirect (H3-B, ORDER-HARDEN-T165 H3 bd2 kellymadisonmedia, 2nd defect from the T168 live proof; lens bd-kimi-lens): with only the stored remember_web cookie, the kmm scene GET is re-auth redirected to the site root and the intended URL is dropped, so the runner read the members home list as the scene (needs_review "720p, no identity proof"); runner._landed_on_site_root detects a same-host non-root request that landed on "/" and _process_one logs scene_redirect and repeats the scene goto once (same timeout / download-is-starting handling) before the 404/410 check (bulk_downloader/runner.py, tests/test_o1567_fx_harden_kmm_reauth_redirect.py).
+
+
 ## v3.66.1741 - train169: row
 
 T169 = O1568 train of the next BOARDed rows, applied on main after T168:

@@ -192,7 +192,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner.py` (117 entries)
+## `bulk_downloader/runner.py` (118 entries)
 
 ```
 - L0084 `captcha_egress_disclosure_error` — Return a refusal when a paid solver transition lacks acknowledgement.
@@ -212,106 +212,107 @@ Schema version: 2
 - L0704 `_content_not_found_statement` `[private]` — The page's own "this content does not exist" line, or "" -- never raises.
 - L0719 `_handle_content_not_found_page` `[private]` — Fail the job with the site's own not-found verdict, if the page states one.
 - L0748 `_page_not_found_reason` `[private]` — Why this page is not the requested content ("HTTP 404", the site's own
-- L0760 `_refuse_not_found_winner` `[private]` — A winner nothing ties to the scene, on a page that is not the scene, is
-- L0781 `_prefer_member_rendition` `[private]` — dl95-pegasproductions-2b: on a login site, never close a public-tier file
-- L0839 `_handle_bot_wall_page` `[private]` — dl95-reddit-2: a bot-challenge wall is not a missing download button.
-- L0988 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
-- L1013 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
-- L1022 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
-- L1188 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
-- L1198 `get_global_concurrent_cap`
-- L1243 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L1267 `_record_run_intent` `[private]` — dl95-evilangel-1: persist whether this site should be running, so a
-- L1285 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
-- L1297 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
-- L1315 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
-- L1396 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
-- L1424 `get_active_runner` — Return live SiteRunner instance if still referenced in memory (Row 1028).
-- L1429 `live_sample_bps` — One job's byte rate from its progress sample, or 0.0 when the sample
-- L1446 `SiteRunner` `[class]`
-  - L1452 `SiteRunner._state` `[private]`
-  - L1459 `SiteRunner._state` `[private]`
-  - L1466 `SiteRunner._rl_autostart` `[private]`
-  - L1473 `SiteRunner._rl_autostart` `[private]`
-  - L1479 `SiteRunner.__init__` `[dunder]`
-  - L1734 `SiteRunner.get_subsystem` — Return the named runner subsystem if registered (Row 1021).
-  - L1738 `SiteRunner.set_state` — Update runner state via LifecycleSubsystem (Row 1021).
-  - L1742 `SiteRunner.add_url` — Enqueue URL via QueueSubsystem (Row 1021).
-  - L1750 `SiteRunner.record_job` — Record job metadata via QueueSubsystem (Row 1021).
-  - L1757 `SiteRunner.record_bytes` — Record transferred bytes via TelemetrySubsystem (Row 1021).
-  - L1762 `SiteRunner.record_error` — Record error occurrence via TelemetrySubsystem (Row 1021).
-  - L1767 `SiteRunner.register_accumulator` — Register byte accumulator via TransportSubsystem (Row 1021).
-  - L1774 `SiteRunner.unregister_accumulator` — Unregister byte accumulator via TransportSubsystem (Row 1021).
-  - L1781 `SiteRunner.trigger_rate_limit` — Trigger rate limit and notify TransportSubsystem (Row 1021).
-  - L1787 `SiteRunner.log_event` — Log event and mirror errors to TelemetrySubsystem (Row 1021).
-  - L1793 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
-  - L1798 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
-  - L1812 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
-  - L1883 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
-  - L1891 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
-  - L1904 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
-  - L1913 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
-  - L1944 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
-  - L1982 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
-  - L1992 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
-  - L2007 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
-  - L2021 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
-  - L2035 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
-  - L2040 `SiteRunner.start`
-  - L2102 `SiteRunner._restart_resume_withdrawn` `[private]` — True (and logged) when an operator Stop/Pause cleared the run
-  - L2112 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
-  - L2134 `SiteRunner._start_serialized` `[private]`
-  - L2517 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
-  - L2527 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
-  - L2588 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
-  - L2666 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
-  - L2679 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
-  - L2715 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
-  - L2769 `SiteRunner._repend_jobs_parked_by_stop` `[private]` — dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
-  - L2803 `SiteRunner.stop`
-  - L2917 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
-  - L3240 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
-  - L3258 `SiteRunner.get_poll_status` — dl95-app-1: job counts for the /api/health and /api/sites/v2 polls.
-  - L3288 `SiteRunner.get_status` — Runner state (see _get_status_impl). dl95-app-1: records the last
-  - L3299 `SiteRunner._get_status_impl` `[private]` — Return runner state. With `light=True`, omit `jobs` and
-  - L3408 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
-  - L3425 `SiteRunner.state`
-  - L3427 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
-  - L3463 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
-  - L3470 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
-  - L3477 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
-  - L3546 `SiteRunner._scene_title_for` `[private]` — fx-newsensations-generic-title: the record's first harvested source
-  - L3559 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
-  - L3592 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
-  - L3613 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
-  - L4233 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
-  - L4262 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
-  - L4317 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
-  - L4375 `SiteRunner._worker_generation_is_current` `[private]`
-  - L4379 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
-  - L4440 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
-  - L4500 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
-  - L4532 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
-  - L4563 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
-  - L4583 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
-  - L4592 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
-  - L4617 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
-  - L4642 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
-  - L4671 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
-  - L4773 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
-  - L4786 `SiteRunner._worker_threads_status` `[private]`
-  - L4794 `SiteRunner._cgroup_controller_or_none` `[private]`
-  - L4804 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
-  - L4815 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
-  - L4849 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
-  - L5233 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
-  - L5248 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
-  - L5278 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
-  - L5304 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
-  - L5319 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
-  - L5369 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
-  - L5396 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
-  - L5449 `SiteRunner._process_one` `[private]` — Process a single URL.
+- L0760 `_landed_on_site_root` `[private]` — True when navigating to a non-root URL ended on the SAME host's root
+- L0773 `_refuse_not_found_winner` `[private]` — A winner nothing ties to the scene, on a page that is not the scene, is
+- L0794 `_prefer_member_rendition` `[private]` — dl95-pegasproductions-2b: on a login site, never close a public-tier file
+- L0852 `_handle_bot_wall_page` `[private]` — dl95-reddit-2: a bot-challenge wall is not a missing download button.
+- L1001 `_turnstile_bypass_state` `[private]` — Measure the exact Scrapling capability used by the runner.
+- L1026 `_translate_failed_message` `[private]` — Translate a failed-job message with any required live measurement.
+- L1035 `_try_scrapling_turnstile` `[private]` — Run the Turnstile seam only after measuring a usable fetcher.
+- L1201 `set_global_concurrent_cap` — Resize the global semaphore. n=0 disables the cap.
+- L1211 `get_global_concurrent_cap`
+- L1256 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L1280 `_record_run_intent` `[private]` — dl95-evilangel-1: persist whether this site should be running, so a
+- L1298 `StartOutcome` `[class]` — Exceptional public outcomes from ``start()``.
+- L1310 `_pending_url_already_downloadable` `[private]` — Row 776: True when `url` is already an accepted direct-media href
+- L1328 `_pending_url_ranker_accepts_media` `[private]` — Row 776 (REFUTE fix, correctness lens): True when a lightweight
+- L1409 `_run_lifecycle_serialized` `[private]` — Serialize public run transitions through one re-entrant lock.
+- L1437 `get_active_runner` — Return live SiteRunner instance if still referenced in memory (Row 1028).
+- L1442 `live_sample_bps` — One job's byte rate from its progress sample, or 0.0 when the sample
+- L1459 `SiteRunner` `[class]`
+  - L1465 `SiteRunner._state` `[private]`
+  - L1472 `SiteRunner._state` `[private]`
+  - L1479 `SiteRunner._rl_autostart` `[private]`
+  - L1486 `SiteRunner._rl_autostart` `[private]`
+  - L1492 `SiteRunner.__init__` `[dunder]`
+  - L1747 `SiteRunner.get_subsystem` — Return the named runner subsystem if registered (Row 1021).
+  - L1751 `SiteRunner.set_state` — Update runner state via LifecycleSubsystem (Row 1021).
+  - L1755 `SiteRunner.add_url` — Enqueue URL via QueueSubsystem (Row 1021).
+  - L1763 `SiteRunner.record_job` — Record job metadata via QueueSubsystem (Row 1021).
+  - L1770 `SiteRunner.record_bytes` — Record transferred bytes via TelemetrySubsystem (Row 1021).
+  - L1775 `SiteRunner.record_error` — Record error occurrence via TelemetrySubsystem (Row 1021).
+  - L1780 `SiteRunner.register_accumulator` — Register byte accumulator via TransportSubsystem (Row 1021).
+  - L1787 `SiteRunner.unregister_accumulator` — Unregister byte accumulator via TransportSubsystem (Row 1021).
+  - L1794 `SiteRunner.trigger_rate_limit` — Trigger rate limit and notify TransportSubsystem (Row 1021).
+  - L1800 `SiteRunner.log_event` — Log event and mirror errors to TelemetrySubsystem (Row 1021).
+  - L1806 `SiteRunner.configure_work_stealing` — Configure dynamic work stealing from other saturated site queues.
+  - L1811 `SiteRunner._try_steal_job` `[private]` — Attempt to steal a pending job from another site's queue when idle.
+  - L1825 `SiteRunner._scrape_listing_urls` `[private]` — Phase 73: same scrape logic as /api/scrape_listing endpoint —
+  - L1896 `SiteRunner.update_config` — Swap in a new config dict and restart the scheduler so the
+  - L1904 `SiteRunner.set_cookies_from_file` — Load Playwright-format cookies from `path` into this runner.
+  - L1917 `SiteRunner.set_cookies` — Replace the runner's cookie list in memory and bump the
+  - L1926 `SiteRunner._refresh_worker_cookies` `[private]` — Inject freshly published cookies into a worker's persistent context.
+  - L1957 `SiteRunner.cookie_info` — Return a snapshot dict describing cookie health for the UI:
+  - L1995 `SiteRunner._begin_auxiliary_start` `[private]` — Register the current auth/manual launcher before it can block.
+  - L2005 `SiteRunner._end_auxiliary_start` `[private]` — Release a launcher, retaining its handle after retirement.
+  - L2020 `SiteRunner._start_owned_auxiliary_thread` `[private]` — Atomically publish/start one auxiliary generation or refuse it.
+  - L2034 `SiteRunner._start_tracked_auxiliary_thread` `[private]` — Publish a callback-only thread in the shared auxiliary registry.
+  - L2048 `SiteRunner._finish_tracked_auxiliary_thread` `[private]`
+  - L2053 `SiteRunner.start`
+  - L2115 `SiteRunner._restart_resume_withdrawn` `[private]` — True (and logged) when an operator Stop/Pause cleared the run
+  - L2125 `SiteRunner._refuse_for_download_hold` `[private]` — Publish the runner-visible refusal for a held/unmeasurable hold.
+  - L2147 `SiteRunner._start_serialized` `[private]`
+  - L2530 `SiteRunner._publish_watchdog_snapshot` `[private]` — Publish only a still-current heartbeat snapshot for this run.
+  - L2540 `SiteRunner._watchdog_loop` `[private]` — v3.43.24: monitor worker heartbeats. Threads should stamp
+  - L2601 `SiteRunner._effective_concurrency` `[private]` — Phase 64 (v3.41.0): bandwidth-aware concurrency. If
+  - L2679 `SiteRunner.drain` — Drain in-flight workers to safe transactional boundary and pause (Row 1075).
+  - L2692 `SiteRunner.pause` — Pause the worker pool. Workers finish the URL they're currently
+  - L2728 `SiteRunner.resume` — Resume from paused / paused_no_button / low_disk states.
+  - L2782 `SiteRunner._repend_jobs_parked_by_stop` `[private]` — dl95-justporn-3: Stop parks the jobs it interrupted ("pending" and
+  - L2816 `SiteRunner.stop`
+  - L2930 `SiteRunner.retire_workers` — Permanently stop and prove every runner-owned writer quiescent.
+  - L3253 `SiteRunner._current_throughput_bps` `[private]` — Sum recent byte rates for jobs that are still running.
+  - L3271 `SiteRunner.get_poll_status` — dl95-app-1: job counts for the /api/health and /api/sites/v2 polls.
+  - L3301 `SiteRunner.get_status` — Runner state (see _get_status_impl). dl95-app-1: records the last
+  - L3312 `SiteRunner._get_status_impl` `[private]` — Return runner state. With `light=True`, omit `jobs` and
+  - L3421 `SiteRunner._learned_summary` `[private]` — Compact summary for the UI: which kinds are learned, how many
+  - L3438 `SiteRunner.state`
+  - L3440 `SiteRunner._compute_site_usage` `[private]` — Phase 65 (v3.38.x): sum the byte size of all files under
+  - L3476 `SiteRunner._worker_write_generation` `[private]` — Return a worker-thread generation, or None for control-plane writes.
+  - L3483 `SiteRunner._worker_write_generation_is_current` `[private]` — Reject mutations from worker threads whose run was invalidated.
+  - L3490 `SiteRunner._capture_website_title` `[private]` — Harvest a settled detail page once and retain its provenance.
+  - L3559 `SiteRunner._scene_title_for` `[private]` — fx-newsensations-generic-title: the record's first harvested source
+  - L3572 `SiteRunner._history_title_fields` `[private]` — Return db_log kwargs without inventing a title from a filename.
+  - L3605 `SiteRunner._update_job` `[private]` — Serialize worker-originated publication against stop/start.
+  - L3626 `SiteRunner._update_job_current` `[private]` — Central state-mutation: change a job's status/message, log
+  - L4246 `SiteRunner._wait_for_lazy_video` `[private]` — v3.43.75: wait for a <video> or <source> to appear in the
+  - L4275 `SiteRunner._playlist_expand_one` `[private]` — v3.43.75: expand one listing URL into scene URLs.
+  - L4330 `SiteRunner._search_site` `[private]` — v3.43.77: search this site for `query`. Returns SearchResult.
+  - L4388 `SiteRunner._worker_generation_is_current` `[private]`
+  - L4392 `SiteRunner._watch_done` `[private]` — Background overseer thread spawned by start(). Polls the queue
+  - L4453 `SiteRunner._finalize_watch_done` `[private]` — Commit retry/final state only if this overseer still owns the run.
+  - L4513 `SiteRunner._claim_completion_notification` `[private]` — Atomically claim a still-current completion token for delivery.
+  - L4545 `SiteRunner._notify_watch_done_if_current` `[private]` — Deliver a completion token only after an atomic current-state claim.
+  - L4576 `SiteRunner._requeue_generation_item` `[private]` — Restore eligible work using the documented lifecycle lock order.
+  - L4596 `SiteRunner._generation_item_is_processable` `[private]` — Validate a dequeued item against the current run and job state.
+  - L4605 `SiteRunner._claim_worker_item` `[private]` — Atomically claim eligible current-run work immediately pre-process.
+  - L4630 `SiteRunner._publish_worker_exception` `[private]` — Publish an exception that escaped one worker attempt.
+  - L4655 `SiteRunner._process_worker_url` `[private]` — Claim, map, and process one URL with an unambiguous result.
+  - L4684 `SiteRunner._resource_admission_hold` `[private]` — Return a visible hold when a configured resource gate is not safe.
+  - L4786 `SiteRunner._record_worker_thread_telemetry` `[private]` — Row 995: must run ON the worker thread -- the reading is of the caller.
+  - L4799 `SiteRunner._worker_threads_status` `[private]`
+  - L4807 `SiteRunner._cgroup_controller_or_none` `[private]`
+  - L4817 `SiteRunner._cgroup_backpressure_delay_s` `[private]` — Seconds to slow the intake by on the high-water ramp (0 when the
+  - L4828 `SiteRunner._cgroup_trial_feedback` `[private]` — Settle the HALF_OPEN trial this worker's URL was admitted as
+  - L4862 `SiteRunner._worker_loop` `[private]` — One persistent worker thread. Owns its own playwright + browser
+  - L5246 `SiteRunner._dismiss_page_gates` `[private]` — Clear configured/generic gates and publish every observed action.
+  - L5261 `SiteRunner._page_gates_are_safe` `[private]` — Run/report page gates and hold the job on any UNKNOWN verdict.
+  - L5291 `SiteRunner._record_no_identity_proof` `[private]` — Row 701: stamp the RUN RECORD when the winner was admitted without
+  - L5317 `SiteRunner._handle_find_button_budget_spent` `[private]` — dl95-tube8-1: fail the job when find_best_download stopped at the
+  - L5332 `SiteRunner._handle_nothing_in_scope` `[private]` — Row 701's distinct outcome: a download control WAS found on this
+  - L5382 `SiteRunner._accept_navigation_download` `[private]` — dl-f6: the job URL itself started a browser download on goto.
+  - L5409 `SiteRunner._resolve_write_dir` `[private]` — The directory a job's file is written to, or "" when none resolves.
+  - L5462 `SiteRunner._process_one` `[private]` — Process a single URL.
 ```
 
 
@@ -1114,4 +1115,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 938 across 22 files._
+_Total entries: 939 across 22 files._
