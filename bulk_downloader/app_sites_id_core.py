@@ -412,6 +412,8 @@ def api_sites_v2():
                 "hold_reason": _m2_hold_reason(runner),
                 "auth_state": auth,
                 "captcha_pending": captcha,
+                # fx-im-done-wiring: the Site page offers I'm Done / Cancel.
+                "awaiting_manual_login": getattr(runner, "is_awaiting_manual_login", lambda: False)() is True,
                 "downloaded_total": downloaded_total,
                 "active_workers": active,
                 "last_event_ts": last_event_ts,

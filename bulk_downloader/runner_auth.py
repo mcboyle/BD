@@ -313,7 +313,7 @@ class AuthMixin:
         if getattr(self, "_manual_login_handle", None):
             sys.stderr.write(
                 f"  {site_tag(self.site_id)}login: manual login already in progress for {self.site_id} "
-                f"— click I'm Done in the takeover panel\n")
+                f"— click I'm Done (Home › Needs attention, or the site's page)\n")
             _fire(False)
             return
         # Auto-teach: skip the auto chain when nothing's learned yet
@@ -783,7 +783,7 @@ class AuthMixin:
             if self._manual_login_handle is handle:
                 self._manual_login_handle = None
             raise
-        self._set_login_status("⏳ Manual login: complete in browser, then click I'm Done")
+        self._set_login_status("⏳ Manual login: complete in browser, then click I'm Done (Home › Needs attention, or the site's page)")
         sys.stderr.write(f"  manual login started for {self.site_id}: {login_url}\n")
         return True, "Manual login window opened"
     def _poll_manual_cookies(self, session, stop_event):

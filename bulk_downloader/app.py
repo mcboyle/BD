@@ -4663,6 +4663,8 @@ def _m2_hold_reason(runner) -> str:
 def _m2_attention_for_site(sid: str, runner, cfg) -> dict | None:
     """Return an attention-banner entry for a site, or None if it has
     no attention condition. Order of precedence:
+      0. manual_login_pending (a takeover browser waits for the operator's
+                               I'm Done / Cancel)
       1. captcha_pending  (blocks downloads outright)
       2. login expired    (blocks the next login attempt)
       3. paused_no_button (runner auto-paused itself; waits for resume)
@@ -4671,6 +4673,17 @@ def _m2_attention_for_site(sid: str, runner, cfg) -> dict | None:
     precedence condition wins."""
     import time as _t
     name = (cfg.get("name") or sid) if cfg else sid
+    # fx-im-done-wiring: the takeover tells the operator to "click I'm Done";
+    # this entry is where the UI offers that button (and Cancel).
+    try:
+        if runner.is_awaiting_manual_login() is True:
+            return {
+                "site_id": sid, "name": name,
+                "kind": "manual_login_pending",
+                "label": "Manual login open: finish it in the browser, then click I'm Done",
+                "since_ts": 0,
+            }
+    except Exception: pass
     try:
         # Captcha pending — the runner exposes a flag set by the
         # captcha-aware login path.

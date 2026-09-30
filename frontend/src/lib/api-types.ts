@@ -3,6 +3,8 @@
 // one place to update.
 
 export type AttentionKind =
+  // fx-im-done-wiring: a takeover browser waits for I'm Done / Cancel.
+  | "manual_login_pending"
   | "captcha_pending"
   | "login_expired"
   | "paused_no_button"
@@ -106,6 +108,8 @@ export interface SiteEntryV2 {
   hold_reason?: string;
   auth_state: AuthState;
   captcha_pending: boolean;
+  // fx-im-done-wiring: a manual-login takeover is open (I'm Done / Cancel).
+  awaiting_manual_login?: boolean;
   downloaded_total: number;
   active_workers: number;
   last_event_ts: number;

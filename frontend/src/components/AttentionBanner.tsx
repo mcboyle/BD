@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
+import { ManualLoginPending } from "@/components/ManualLoginPending";
 import { apiPost } from "@/lib/api-client";
 import type { AttentionEntry, ResolveResponse } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,10 @@ import { cn } from "@/lib/utils";
 //
 // A11y (FROZEN by test_d3_u8_polish.py): role="alert" + aria-live.
 // V2 keeps both attributes in place.
+//
+// fx-im-done-wiring: a manual_login_pending entry (a takeover browser is
+// open) gets I'm Done / Cancel instead of Resolve — Resolve would only
+// start another manual login.
 
 export interface AttentionBannerProps {
   attention: AttentionEntry[];
@@ -121,6 +126,9 @@ export function AttentionBanner({ attention }: AttentionBannerProps) {
        * Note: rendered as a native button (not @/components/ui/button)
        * so we can apply mockup-specific full-width styling without
        * fighting Button's variant defaults. */}
+      {next.kind === "manual_login_pending" ? (
+        <ManualLoginPending siteId={next.site_id} name={next.name} />
+      ) : (
       <button
         type="button"
         disabled={resolveMut.isPending || !next}
@@ -146,6 +154,7 @@ export function AttentionBanner({ attention }: AttentionBannerProps) {
         {resolveMut.isPending ? "Resolving…" : "Resolve"}
         <ArrowRight className="h-4 w-4" aria-hidden />
       </button>
+      )}
     </section>
   );
 }

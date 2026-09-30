@@ -243,8 +243,9 @@ def api_dashboard_v2():
         # Stable sort for attention: captcha first, login_expired next,
         # rate_limited last; within a class, by name. Predictable order
         # matters because the SPA renders the banner without flicker.
-        _kind_order = {"captcha_pending": 0, "login_expired": 1,
-                       "paused_no_button": 2, "rate_limited": 3}
+        _kind_order = {"manual_login_pending": -1, "captcha_pending": 0,
+                       "login_expired": 1, "paused_no_button": 2,
+                       "rate_limited": 3}
         attention.sort(key=lambda e: (_kind_order.get(e["kind"], 9),
                                        (e.get("name") or "").lower()))
         # by_site sorted by queue depth desc, then name — busiest first.

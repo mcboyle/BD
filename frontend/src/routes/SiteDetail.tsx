@@ -22,6 +22,7 @@ import { Card } from "@/components/ui/card";
 import { Callout } from "@/components/ui/Callout";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KPICard } from "@/components/KPICard";
+import { ManualLoginPending } from "@/components/ManualLoginPending";
 import { SiteTemplateCard } from "@/components/SiteTemplateCard";
 import { ApprovalGate } from "@/components/ApprovalGate";
 import { ProfileCard } from "@/components/ProfileCard";
@@ -306,6 +307,17 @@ export function SiteDetail() {
             Delete
           </Button>
         </div>
+
+        {/* fx-im-done-wiring: a manual-login takeover is open for this site. */}
+        {site.awaiting_manual_login && (
+          <Callout tone="caution" title="Manual login open">
+            <p className="mb-3">
+              Finish logging in in the takeover browser, then click I'm Done
+              to save the login, or Cancel to close it.
+            </p>
+            <ManualLoginPending siteId={siteId} name={site.name} />
+          </Callout>
+        )}
 
         {/* Cut 4: composite readiness for this site (green/amber/red + fixes). */}
         <ReadinessBadge siteId={siteId} expanded />
