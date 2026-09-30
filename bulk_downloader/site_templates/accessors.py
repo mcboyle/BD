@@ -88,7 +88,19 @@ def get(template_id):
     """Look up a template by id. Returns None if not found.
 
     v3.43.9: also searches user templates from user_templates.py so the
-    template apply endpoint works for both built-ins and saved teaches."""
+    template apply endpoint works for both built-ins and saved teaches.
+
+    fx-templates-vm-seed: a user_ id is the user namespace, so the user file
+    wins for it; a built-in carrying a user_ id (the seeded O1517 set) is
+    only the fallback for an install whose user file lacks that id."""
+    if str(template_id).startswith("user_"):
+        try:
+            from .. import user_templates as _ut
+            user = _ut.get_user_template(template_id)
+            if user is not None:
+                return user
+        except Exception:
+            pass
     for t in TEMPLATES:
         if t["id"] == template_id:
             return t
@@ -134,7 +146,10 @@ def list_templates():
             })
     except Exception:
         pass
-    return out
+    # A seeded built-in whose id the user file also holds is shadowed by it
+    # (get() returns the user one), so list it once, as the user entry.
+    user_ids = {t["id"] for t in out if t["source"] == "user"}
+    return [t for t in out if not (t["source"] == "builtin" and t["id"] in user_ids)]
 
 
 def suggest_for_url(url):

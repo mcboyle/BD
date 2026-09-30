@@ -16,10 +16,12 @@ _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
 # 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
 # Row771 updates gamma_kosmos selectors, so the assembled reviewed-selector corpus digest moves.
 # 95 / 565 -> 99 / 622: row 722 (2026-09-15) verified site templates -- four added (filthykings, dfxtra, brazzers, stepsiblingscaught), twelve updated in place with measured selectors (wowgirls_network gains one login and one row selector: 17 -> 19).
+# 114 / 694 -> 121 / 694: T175 merge (2026-09-30): fx-templates-missing-9 (T174, 7 hosts, no selectors) + fx-templates-vm-seed (12 learned, 32 selectors).
+# 102 / 662 -> 114 / 694: fx-templates-vm-seed (2026-09-30): 12 O1517 learned templates seeded as built-ins (_data_learned_o1517, appended; the first 102 unchanged).
 # 102 / 662 -> 109 / 662: fx-templates-missing-9 (2026-09-30): 7 extractor-host templates appended (_data_extractor_hosts, no selectors; rows + sha unchanged).
 # 102 / 660 -> 102 / 662: T160 fx-vixen-member-download (2026-09-30): vixen_network gained the member DownloadButton trigger and the VideoDownloadModal 4K row selector (old selectors kept).
 # 99 / 622 -> 102 / 660: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added; pegasproductions, reptyle_teamskeet, africancasting, bang_originals gained measured login/config selectors.
-_LEGACY_ROWS_SHA256 = "307dae8ba4372f03e07abb78eb8811d196cab65c77a1a107ce2fccd938efccbf"
+_LEGACY_ROWS_SHA256 = "9bba11d46d7ea56bf70959c491bc7522072bbc4fa2c4e32f7c168852f3149d4c"
 _REVIEWED_DIR = _REPO / "templates" / "reviewed"
 _ROW455 = _REPO / "tests" / "test_row455_reviewed_template_against_a_live_dom.py"
 _HAZARD = _REPO / "tests" / "fixtures" / "row671" / "grouped_hazard.template.json"
@@ -96,9 +98,11 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
     templates_module = importlib.import_module("bulk_downloader.site_templates")
     committed = templates_module.TEMPLATES
 
+    # 114 -> 121: T175 merge (2026-09-30): missing-9 (T174) + vm-seed.
+    # 102 -> 114: fx-templates-vm-seed (2026-09-30): 12 O1517 learned templates appended.
     # 102 -> 109: fx-templates-missing-9 (2026-09-30): 7 extractor-host templates appended.
     # 99 -> 102: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added.
-    assert len(committed) == 109, "precondition: legacy template population changed"
+    assert len(committed) == 121, "precondition: legacy template population changed"
     templates = {template["id"]: template for template in committed}
     assert "wowgirls_network" in templates
     sample = api.enumerate_template_selectors(templates["wowgirls_network"])
@@ -116,13 +120,13 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
         for row in api.enumerate_template_selectors(template)
     ]
     encoded = json.dumps(all_rows, sort_keys=True, separators=(",", ":")).encode()
-    assert len(all_rows) == 662
+    assert len(all_rows) == 694
     assert hashlib.sha256(encoded).hexdigest() == _LEGACY_ROWS_SHA256
 
     audit = api.audit_committed_selector_syntax()
-    assert audit["template_count"] == 109
-    assert audit["selector_count"] == 662
-    assert audit["checked_count"] == 662
+    assert audit["template_count"] == 121
+    assert audit["selector_count"] == 694
+    assert audit["checked_count"] == 694
     assert audit["malformed_count"] == 0
     assert audit["unknown_count"] == 0
 

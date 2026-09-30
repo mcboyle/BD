@@ -47,8 +47,10 @@ def test_templates_count_is_99():
     tool = _load_tool()
     manifest = tool.compute_manifest()
     # 99 -> 102: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added at the END of studios_b; five other verified sheet sites updated existing ids in place.
+    # 114 -> 121: T175 merge (2026-09-30): fx-templates-missing-9 (T174, 7 hosts) + fx-templates-vm-seed (12 learned).
     # 102 -> 109: fx-templates-missing-9 (2026-09-30): 7 extractor-host templates appended in _data_extractor_hosts.
-    assert manifest["count"] == 109, f"expected 109 elements, got {manifest['count']}"
+    # 102 -> 114: fx-templates-vm-seed (2026-09-30): 12 O1517 learned templates appended in _data_learned_o1517.
+    assert manifest["count"] == 121, f"expected 121 elements, got {manifest['count']}"
 
 
 def test_templates_shim_reexports_surface():
@@ -81,6 +83,7 @@ def test_every_template_identity_producer_bands_this_gate():
         "bulk_downloader/site_templates/_data_cms.py",
         "bulk_downloader/site_templates/_data_extractor_hosts.py",
         "bulk_downloader/site_templates/_data_heuristics.py",
+        "bulk_downloader/site_templates/_data_learned_o1517.py",
         "bulk_downloader/site_templates/_data_mainstream.py",
         "bulk_downloader/site_templates/_data_players.py",
         "bulk_downloader/site_templates/_data_studios_a.py",

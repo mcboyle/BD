@@ -352,6 +352,7 @@ TEMPLATE_IDENTITY_PRODUCERS = {
     "bulk_downloader/site_templates/_data_cms.py",
     "bulk_downloader/site_templates/_data_extractor_hosts.py",
     "bulk_downloader/site_templates/_data_heuristics.py",
+    "bulk_downloader/site_templates/_data_learned_o1517.py",
     "bulk_downloader/site_templates/_data_mainstream.py",
     "bulk_downloader/site_templates/_data_players.py",
     "bulk_downloader/site_templates/_data_studios_a.py",
