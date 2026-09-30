@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1746 - train174: row
+
+T174 = O1568 train of the next BOARDed rows, applied on main after T173:
+- fx-templates-missing-9 (H5-B, ORDER-TEMPLATES-TO-REPO Cut 2; lens H3-B): 7 extractor-host site templates (dailymotion, fullporner, hustlerunlimited, ok, porndoe, pussyspace, scrolller) that the VMs had learned but the repo lacked are appended in the new site_templates/_data_extractor_hosts.py (no selectors; each resolves only its own host, ids unique across 109); kellymadisonmedia and the tplbang2 probe were declined with evidence. The template population pins move 102 -> 109 (row671 enumeration, list identity, templates_snapshot baseline) and bd-band-derive lists the new producer file (bulk_downloader/site_templates/__init__.py, _data_extractor_hosts.py, tests/test_o1567_fx_templates_missing_9.py, tests/test_row671_reviewed_template_selectors_are_enumerated.py, tests/test_templates_list_identity.py, toolchain/bin/bd-band-derive, tools/decomp/templates_snapshot_baseline.json).
+
+
 ## v3.66.1745 - train173: row
 
 T173 = O1568 train of the next BOARDed rows, applied on main after T172:
