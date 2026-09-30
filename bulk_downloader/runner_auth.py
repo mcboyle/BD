@@ -451,6 +451,25 @@ class AuthMixin:
                 # Manual takeover branch: store handle, set state, return
                 if result and result[0]=="MANUAL_PENDING":
                     _,reason,handle=result
+                    if isinstance(handle, tuple):
+                        # fx-manual-cancel-noop (O1567): (pw, browser, ctx) is
+                        # sync Playwright bound to THIS thread, which exits on
+                        # return; a later cancel / I'm Done from a request
+                        # thread raised "cannot switch to a different thread",
+                        # swallowed, and the window stayed open with no
+                        # cookies read (test3 adulttime). Close it here, while
+                        # this thread still owns it, and hand the operator a
+                        # thread-owned manual window on the same attempt.
+                        from .login import cancel_manual_login
+                        cancel_manual_login(handle)
+                        w_ok, w_msg = self._open_manual_window(
+                            (self.config.get("login_url") or "").strip())
+                        self._set_login_status(
+                            f"⏳ Manual login required: {reason}" if w_ok else
+                            f"✗ Manual login required: {reason}; the takeover "
+                            f"window did not open: {w_msg}")
+                        _settle(False)
+                        return
                     self._manual_login_handle=handle
                     self._set_login_status(f"⏳ Manual login required: {reason}")
                     # Don't change self._state — login isn't a worker state.
@@ -685,6 +704,12 @@ class AuthMixin:
                 f"({_reservation['count']}/{_daily_cap}); raise "
                 f"{_sk.LOGIN_CAP_KEY} for this site to log in again today")
 
+        return self._open_manual_window(login_url)
+    def _open_manual_window(self, login_url):
+        """Open the thread-owned manual-login window at ``login_url`` and
+        start its cookie poller. The caller has already reserved the login
+        attempt (start_manual_login) or is the attempt that handed off
+        (login_async, fx-manual-cancel-noop)."""
         from .login import open_manual_login_browser
         # Phase 41.6: persistent profile for password manager extensions
         manual_profile = (self._manual_profile_dir()
@@ -697,6 +722,7 @@ class AuthMixin:
         # crashes with "Sync API inside asyncio loop" or browser
         # launch errors.
         try:
+            from . import session_keeper as _sk
             _sk.pause_site_keepers(self.site_id)  # INV-001
         except Exception as e:
             sys.stderr.write(f"  manual_login: keeper pause failed "
@@ -1195,14 +1221,20 @@ class AuthMixin:
         browser without capturing cookies."""
         h=getattr(self,"_manual_login_handle",None)
         if not h: return False,"No pending manual login"
+        from .login import cancel_manual_login
+        if cancel_manual_login(h) is False:
+            # fx-manual-cancel-noop: never report "Cancelled" for a window
+            # that is still open; keep the handle so cancel / I'm Done can
+            # be retried.
+            sys.stderr.write(f"  {site_tag(self.site_id)}manual login: O1567-CANCEL-NOT-CLOSED "
+                             "the takeover window did not close\n")
+            return False,"Cancel failed: the takeover window did not close"
         # Stop the snapshot poller
         try:
             stop_ev = getattr(self, "_manual_snapshot_stop", None)
             if stop_ev: stop_ev.set()
         except Exception: pass
         self._manual_login_handle=None
-        from .login import cancel_manual_login
-        cancel_manual_login(h)
         self._set_login_status("✗ Manual login cancelled")
         return True,"Cancelled"
     def is_awaiting_manual_login(self):

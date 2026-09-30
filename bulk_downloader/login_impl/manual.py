@@ -742,13 +742,21 @@ def finalize_manual_login(handle):
 
 
 def cancel_manual_login(handle):
-    """Wrapper for runner-side compatibility. Accepts session or tuple."""
+    """Wrapper for runner-side compatibility. Accepts session or tuple.
+
+    Returns False when the window could not be closed (fx-manual-cancel-noop:
+    a session thread that did not exit, or a tuple called from a thread that
+    does not own it), True otherwise."""
     if isinstance(handle, ManualLoginSession):
-        handle.cancel()
-        return
+        return handle.cancel() is not False
     # Legacy tuple path
     pw, browser, ctx = handle
-    try: browser.close()
-    except Exception: pass
-    try: pw.stop()
-    except Exception: pass
+    closed = True
+    for obj, op in ((browser, "close"), (pw, "stop")):
+        if obj is None:
+            continue
+        try: getattr(obj, op)()
+        except Exception as e:
+            closed = False
+            sys.stderr.write(f"  manual_login: takeover {op} failed: {type(e).__name__}: {str(e)[:80]}\n")
+    return closed
