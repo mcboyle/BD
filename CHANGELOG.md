@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1740 - train168: row
+
+T168 = O1568 train of the next BOARDed row, applied on main after T167:
+- fx-harden-kellymadisonmedia (H3-B, ORDER-HARDEN-T165; lens bd-kimi-lens): the stored-session check treated a jar with one expired cookie as dead, so a kellymadisonmedia jar whose short-lived session cookies had expired but whose remember-me cookies run to 2027 forced a fresh login, hit the reCAPTCHA puzzle and failed the auto re-login twice on bd2, although the server accepts the remember-me cookies alone; the jar now counts as usable while any cookie is still live, matching its docstring and the dashboard auth state, and a jar the server refuses still re-logs in through the auth-required path (bulk_downloader/runner_auth.py).
+
+
 ## v3.66.1739 - train167: row
 
 T167 = O1568 train of the next BOARDed row, applied on main after T166:

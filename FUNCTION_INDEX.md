@@ -694,8 +694,8 @@ Schema version: 2
   - L1650 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
   - L1715 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
   - L1770 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
-  - L1778 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
-  - L1797 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L1783 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
+  - L1802 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 

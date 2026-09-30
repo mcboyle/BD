@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5661,
+  "edge_count": 5664,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4543,6 +4543,11 @@
     "tests/test_o1567_fx_blacked_relogin_post_to_self_shell_is_a_submit.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/login.py"
+    ],
+    "tests/test_o1567_fx_harden_kmm_remember_cookie_carries_session.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_o1567_fx_nubiles_wrong_media_custom_selector_scoped.py": [
       "bulk_downloader/detect.py",
