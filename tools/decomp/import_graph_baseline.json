@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5682,
+  "edge_count": 5694,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3905,6 +3905,10 @@
     "tests/test_fx_dailymotion_player_alnum_scene_id_stream.py": [
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_fx_dfxtra_quality_pin_learned_subset_does_not_cap_quality.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/runner_integrity.py"
+    ],
     "tests/test_fx_dorcelclub_dl_challenge_wall.py": [
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/runner_challenge.py",
@@ -3915,6 +3919,10 @@
     ],
     "tests/test_fx_dorcelclub_need_to_be_member_denial_is_auth.py": [
       "bulk_downloader/runner.py"
+    ],
+    "tests/test_fx_empty_title_dotfile_name.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/runner_extractors.py"
     ],
     "tests/test_fx_ok_extractor_okru_player_options.py": [
       "bulk_downloader/runner_extractors.py"
@@ -3943,6 +3951,11 @@
     ],
     "tests/test_fx_xhamster_member_quality_player_hls.py": [
       "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_fx_xnxx_hls_720_to_sd_forced_file_below_page_variant.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_fx_xnxx_preview_learned_ad_clip_is_not_the_scene.py": [
       "bulk_downloader/cloak.py",
@@ -4687,6 +4700,13 @@
     ],
     "tests/test_o1567_youporn_config_object_keeps_the_title.py": [
       "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1569_fx_txxx_premium_page_fallback.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/plugins.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/runner_integrity.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"

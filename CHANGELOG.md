@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1749 - train177: row
+
+T177 = O1568 train of the ORDER-FIX-SWEEP-T175 fix cuts BOARDed at cut time, applied on main after T176:
+- fx-dfxtra-quality-pin (r3 bd-worker-A11-A, r1-r2 bd-worker-C1-C; lens bd-review-correctness-D1-D): test1 dfxtra saved 1080p though the prior PASS was 4K, because find_best_download's learned pass took only the first in-scope selector group and a learned row pinned to "[href*='/1080p/']" capped the candidates below quality_preference; a pinned row no longer caps quality when a later row of the same element kind (tag.class and parent) offers a wider superset with a taller variant, so quality_preference picks the highest (bulk_downloader/detect.py, tests/test_fx_dfxtra_quality_pin_learned_subset_does_not_cap_quality.py).
+- fx-empty-title-dotfile-name (bd-worker-C2-C; lens bd-review-correctness-D1-D): bd4 whoreshub and porn00 saved as "<site>/.mp4.mp4" because an empty title gave an empty stem in _try_spa_api_media_extractor; an empty or blank title now falls back to the scene URL stem (_scene_url_stem), and a non-empty title names the file exactly as before (bulk_downloader/runner_extractors.py, tests/test_fx_empty_title_dotfile_name.py).
+- fx-txxx-premium-page-fallback (r2 bd-worker-A11-A; lens bd-worker-C2-C): on txxx the learned template fetched the premium member download page and saved the 123 KB HTML as the video ("no moov atom"); runner_transport._do_direct_http_download now refuses a page body (HTML, XML error, JSON; DASH MPD exempt; media magic wins) on both success returns, moves it to _failed/ with a direct_http_not_media event and returns False so the next extractor (public HLS) runs, for every direct-http caller (bulk_downloader/runner_transport.py, tests/test_o1569_fx_txxx_premium_page_fallback.py).
+- fx-xnxx-hls-720-to-sd (r3 bd-worker-A11-A; lens bd-worker-C2-C): xnxx detected the hls-720p manifest and still saved the 640x360 SD file; a forced job's file of known tier first asks the scene's own media for a taller option (fetched -> the clicked download is cancelled and the taller one is kept; offered but unfetchable -> the job fails naming both), an unforced unscored file at or above the bar takes the same check, and a labelled one takes it only when the watcher saw a taller or untiered manifest (bulk_downloader/runner_extractors.py, bulk_downloader/runner_transport.py, tests/test_fx_xnxx_hls_720_to_sd_forced_file_below_page_variant.py).
+
+
 ## v3.66.1748 - train176: row
 
 T176 = O1568 train of the next BOARDed rows, applied on main after T175:
