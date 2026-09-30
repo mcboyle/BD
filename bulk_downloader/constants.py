@@ -264,7 +264,7 @@ CAPTCHA_SELECTORS = [
 #   navigator.webdriver       → undefined (vs. true on plain Playwright)
 #   navigator.plugins         → length 3, realistic PluginArray
 #   navigator.languages       → ["en-US","en"] (was [] under headless)
-#   navigator.permissions     → Notification returns "default", not "denied"
+#   navigator.permissions     → NOT patched: query stays native (see 4. below)
 #   chrome.runtime            → present (was missing — dead giveaway)
 #   chrome.loadTimes/csi      → stubbed methods that return plausible data
 #   WebGL vendor/renderer     → Intel Iris, not "Brian Paul Mesa OffScreen"
@@ -315,17 +315,13 @@ STEALTH_JS = r"""
     _patch(navigator, 'languages', ['en-US', 'en']);
   }
 
-  // 4. permissions.query — headless returns "denied" for Notification
-  // (a tell-tale sign); real browsers return "default" for non-secure pages
-  // and the actual setting elsewhere.
-  try {
-    const origQuery = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = (params) => (
-      params && params.name === 'notifications'
-        ? Promise.resolve({ state: Notification.permission || 'default' })
-        : origQuery(params)
-    );
-  } catch (e) {}
+  // 4. permissions.query stays NATIVE (as cloak.DEFAULT_NORMALIZATION_SCRIPT,
+  // Row 915 REFUTE E2). fx-blacked-login-blocked: the old override read
+  // Notification.permission synchronously; every app browser launches with
+  // --disable-notifications, which removes window.Notification, so a page's
+  // notifications query THREW -- vixen/blacked's FingerprintJS/Castle token
+  // step died and the login never posted ("functionality blocked by your
+  // browser"). Its {state:'default'} object was itself a tell.
 
   // 5. chrome.runtime — Chrome installs this for extension messaging.
   // Headless Chromium has `window.chrome` but no runtime. CF checks for it.

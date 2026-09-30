@@ -111,7 +111,15 @@ def apply_to_page(page: Any, config: dict | None = None) -> tuple[bool, str]:
         # Try the newer class-based API first
         Stealth = getattr(_ps, "Stealth", None)
         if Stealth is not None:
-            stealth = Stealth()
+            # fx-blacked-login-blocked: keep navigator.permissions.query
+            # NATIVE, as STEALTH_JS and cloak's normalization script do. The
+            # library's evasion reads Notification.permission, which every app
+            # browser removes (--disable-notifications), so a page's
+            # notifications query threw and vixen/blacked's token step died.
+            try:
+                stealth = Stealth(navigator_permissions=False)
+            except TypeError:
+                stealth = Stealth()
             method = getattr(stealth, "apply_stealth_sync", None)
             if method:
                 method(page)
