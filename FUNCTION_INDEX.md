@@ -647,7 +647,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/runner_auth.py` (47 entries)
+## `bulk_downloader/runner_auth.py` (48 entries)
 
 ```
 - L0024 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
@@ -671,32 +671,33 @@ Schema version: 2
 - L0272 `AuthMixin` `[class]`
   - L0273 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
   - L0278 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0613 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0660 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0725 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
-  - L0793 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0821 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0930 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0974 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1179 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1231 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1236 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
-  - L1288 `AuthMixin._human_challenge_wait` `[private]`
-  - L1347 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1374 `AuthMixin.is_awaiting_manual_login`
-  - L1376 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
-  - L1391 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
-  - L1402 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1470 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
-  - L1500 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
-  - L1519 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1636 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
-  - L1646 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1654 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1719 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1774 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
-  - L1787 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
-  - L1806 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+  - L0615 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0662 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0727 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
+  - L0795 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0823 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0932 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0976 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1181 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1233 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1238 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
+  - L1290 `AuthMixin._human_challenge_wait` `[private]`
+  - L1349 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1376 `AuthMixin.is_awaiting_manual_login`
+  - L1378 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
+  - L1393 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
+  - L1404 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1472 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
+  - L1502 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
+  - L1521 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1642 `AuthMixin._hold_for_parked_takeover` `[private]` — O1567 fx-worker-relogin-no-manual: while a manual takeover is
+  - L1657 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
+  - L1667 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1675 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1740 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1795 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
+  - L1808 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
+  - L1827 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -1116,4 +1117,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 940 across 22 files._
+_Total entries: 941 across 22 files._

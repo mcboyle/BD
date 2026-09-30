@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1747 - train175: row
+
+T175 = O1568 train of the next BOARDed rows, applied on main after T174:
+- fx-worker-relogin-no-manual (bd-worker-A4-A, ROW-worker-relogin-allow-manual; lens H3-B): worker-initiated relogins were meant to stay report-only, but _handle_auth_required and _check_cookies_or_relogin called login_async() with the default allow_manual=True, so a job could open a manual takeover and the next try died on "manual login already in progress"; both job paths now pass allow_manual=False, the auto_teach_first_run manual route requires allow_manual, and when a manual login handle is already open the job is held (pending, retries unchanged, retry_after from admission.next_eligible_retry) instead of burning a try (bulk_downloader/runner_auth.py, tests/test_o1567_fx_worker_relogin_no_manual.py; eporner and naughtyamerica_2 test stubs accept the new keyword).
+- fx-auto-approve-loginfree (bd-worker-A4-A, takeover of kimi H1; lens bd-worker-A10-A): member_rendition.is_login_site treated every site with an http login_url as a login site, so login-free sites (porndoe, scrolller, spankbang, xvid on the measured VM configs) were held with "Only a public-tier file found ... Approve to force"; an explicit auth_required=False now makes it False (same precedence as scene_crawler._site_is_public; unset/None/True keep the old rule) for both callers, runner._prefer_member_rendition and runner_extractors._spa_logged_out_view (bulk_downloader/member_rendition.py, tests/test_o1567_fx_auto_approve_loginfree.py).
+- fx-templates-vm-seed (H5-B, ORDER-TEMPLATES-TO-REPO Cut 1, round 2; lens bd-worker-A10-A): the 12 O1517 learned templates are seeded as built-ins in site_templates/_data_learned_o1517.py (32 selectors), appended after T174's extractor hosts; accessors.get() asks the user file first for a user_ id so a user's edit still wins over the seeded copy, and list_templates() lists a shadowed seed once, as the user entry. Merged in place with T174 fx-templates-missing-9: template pins 121 templates / 694 selectors (row671, list identity, templates_snapshot baseline re-frozen), bd-band-derive lists both producer files (bulk_downloader/site_templates/{__init__,_data_learned_o1517,accessors}.py, tests/test_fx_templates_vm_seed_scope.py, tests/test_row671_reviewed_template_selectors_are_enumerated.py, tests/test_templates_list_identity.py, toolchain/bin/bd-band-derive, tools/decomp/templates_snapshot_baseline.json).
+
+
 ## v3.66.1746 - train174: row
 
 T174 = O1568 train of the next BOARDed rows, applied on main after T173:

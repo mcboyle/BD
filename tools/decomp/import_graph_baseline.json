@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5673,
+  "edge_count": 5682,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3930,6 +3930,10 @@
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/spa_media_extract.py"
     ],
+    "tests/test_fx_templates_vm_seed_scope.py": [
+      "bulk_downloader/__init__.py",
+      "bulk_downloader/user_templates.py"
+    ],
     "tests/test_fx_xhamster_login_verdict_declared_member_indicator.py": [
       "bulk_downloader/app_kernel.py",
       "bulk_downloader/cloak.py",
@@ -4538,6 +4542,12 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py"
     ],
+    "tests/test_o1567_fx_auto_approve_loginfree.py": [
+      "bulk_downloader/detect.py",
+      "bulk_downloader/member_rendition.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_extractors.py"
+    ],
     "tests/test_o1567_fx_blacked_login_blocked.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
@@ -4615,6 +4625,11 @@
       "bulk_downloader/detect.py",
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_o1567_fx_worker_relogin_no_manual.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_o1567_fx_wowgirls_relogin_root_success.py": [
       "bulk_downloader/cloak.py",
