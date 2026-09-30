@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1738 - train166: row
+
+T166 = O1568 train of the next BOARDed row, applied on main after T165:
+- fx-im-done-wiring = fx-vixen-login-challenge bug 2 (bd-worker-A4-A, ORDER-FX-VIXEN-LOGIN-CHALLENGE.md, ruling Q-IM-DONE-WIRING-A4-A.md; lens bd-kimi-lens): the takeover told the operator to click "I'm Done" but the React app rendered no such control: it never read awaiting_manual_login, Home's attention list had no entry for it and dashboard Resolve only started a manual login; the attention builder now returns a top-precedence manual_login_pending kind, the sites v2 row carries awaiting_manual_login, a ManualLoginPending component (I'm Done posts login_manual_done, Cancel posts login_manual_cancel, then refreshes dashboard and sites) renders in the attention banner for that kind and as a caution callout on the site page, and the runner status text names where I'm Done lives (bulk_downloader/app.py, app_dashboard.py, app_sites_id_core.py, runner_auth.py; frontend AttentionBanner, ManualLoginPending, SiteDetail, api-types).
+
+
 ## v3.66.1737 - train165: row
 
 T165 = O1568 train of the next BOARDed row, applied on main after T164:
