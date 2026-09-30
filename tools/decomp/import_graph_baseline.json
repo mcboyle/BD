@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5653,
+  "edge_count": 5656,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4530,6 +4530,11 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_o1567_fx_blacked_login_blocked.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/constants.py",
+      "bulk_downloader/stealth.py"
     ],
     "tests/test_o1567_fx_blacked_relogin_post_to_self_shell_is_a_submit.py": [
       "bulk_downloader/cloak.py",

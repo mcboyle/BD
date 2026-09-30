@@ -991,25 +991,27 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/manual.py` (16 entries)
+## `bulk_downloader/login_impl/manual.py` (18 entries)
 
 ```
 - L0086 `_manual_launch_kwargs` `[private]` — MOD-1 A-4: build the launch kwargs (args + headless + optional channel)
-- L0105 `_dispatch_cdp_input` `[private]` — Translate one allowlisted takeover input event (already validated by the
-- L0122 `_drain_and_dispatch_input` `[private]` — Pump: drain queued operator input for `sid` and dispatch each to the CDP
-- L0139 `ManualLoginSession` `[class]` — Phase 19.fix: dedicated-thread owner of a Playwright session.
-  - L0160 `ManualLoginSession.__init__` `[dunder]`
-  - L0191 `ManualLoginSession.ready`
-  - L0195 `ManualLoginSession.error`
-  - L0198 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
-  - L0474 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
-  - L0609 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
-  - L0628 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
-  - L0645 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
-  - L0673 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
-- L0690 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
-- L0715 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
-- L0744 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
+- L0137 `_autofilled_label` `[private]` — 'credentials' / 'username' / 'password' for what the fill reported, '' for nothing.
+- L0143 `_dispatch_cdp_input` `[private]` — Translate one allowlisted takeover input event (already validated by the
+- L0160 `_drain_and_dispatch_input` `[private]` — Pump: drain queued operator input for `sid` and dispatch each to the CDP
+- L0177 `ManualLoginSession` `[class]` — Phase 19.fix: dedicated-thread owner of a Playwright session.
+  - L0198 `ManualLoginSession.__init__` `[dunder]`
+  - L0229 `ManualLoginSession.ready`
+  - L0233 `ManualLoginSession.error`
+  - L0236 `ManualLoginSession._launch` `[private]` — Open the browser and prepare the context. Called only from
+  - L0489 `ManualLoginSession._autofill_tick` `[private]` — fx-takeover-autofill: fill the login form in any page of this
+  - L0510 `ManualLoginSession._run` `[private]` — Worker thread main loop. Owns playwright; serves commands
+  - L0646 `ManualLoginSession.start_screencast` — MOD-1 A-4: begin screencasting the solve browser to takeover channel
+  - L0665 `ManualLoginSession.snapshot_cookies` — Return cookies from the live ctx. Returns None on error or
+  - L0682 `ManualLoginSession.finalize` — Read final cookies + harvest recordings, then close the
+  - L0710 `ManualLoginSession.cancel` — Close the session without capturing anything. Safe to call
+- L0727 `open_manual_login_browser` — Phase 19.fix: now returns a ManualLoginSession (thread-owned)
+- L0752 `finalize_manual_login` — Wrapper for runner-side compatibility. `handle` may be either:
+- L0781 `cancel_manual_login` — Wrapper for runner-side compatibility. Accepts session or tuple.
 ```
 
 
@@ -1111,4 +1113,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 935 across 22 files._
+_Total entries: 937 across 22 files._

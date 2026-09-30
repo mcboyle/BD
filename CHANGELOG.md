@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1735 - train163: row
+
+T163 = O1568 train of the T162 dependency-census fix (first, per PM) and the rows BOARDed at cut time (ORDER-ACCEL-T163 item 3), applied on main after T162:
+- fx-pyscreeze-decl (bd-integrator-A2-A, PM order after the T162 red): pyscreeze, the screenshot/locate library pyautogui pulls in and that tests/test_o1567_remember_me_clicker.py imports directly, is declared in requirements-dev.txt so the third-party-import declaration census (test_v3_66_653_dep_freshness) is green again; T162 was landed red on the operator's rule (landing/T162-RED-CLASSIFY.md) (requirements-dev.txt).
+- fx-takeover-autofill (bd-worker-A4-A, operator ORDER-FX-TAKEOVER-AUTOFILL.md; lens bd-kimi-lens): the manual-login takeover filled the form once right after load, so a window that opened on a "prove your humanity" check (test2 reddit) showed an empty Log In form afterwards and the input[type=text] fallback could type the username into a verification box; the takeover now autofills through a page-evaluate that takes the credentials as its argument (never in source, logs or return values), fills only empty fields at most once each, re-arms after the challenge clears, and without a visible password field touches only an unmistakable username field (bulk_downloader/login_impl/manual.py).
+- fx-auth-expired-evidence-t161 (gen 3 reapply, operator ruling via bd-pm-A 02:45Z; lens bd-kimi-lens): the bare-403 login-wall leg of the redirect check now returns the full auth verdict with its evidence (page, url, "bare-403", the matched wall text) instead of a bare "auth" string, so an expired-session diagnosis keeps its evidence on that path too (bulk_downloader/runner_auth.py).
+- fx-blacked-login-blocked (bd-worker-A4-A, ORDER-FX-BLACKED-LOGIN-BLOCKED.md, folds fx-blacked-relogin live; lens bd-kimi-lens): every app browser launches with --disable-notifications, and both STEALTH_JS and the stealth library overrode navigator.permissions.query by reading Notification.permission, so a notifications query threw ReferenceError, the vixen/blacked FingerprintJS/Castle token step died and the login form never POSTed ("blocked by your browser"); permissions.query now stays native as the cloak normalisation script already does: STEALTH_JS drops its override and apply_to_page builds Stealth(navigator_permissions=False) with a fallback for libraries without the switch (bulk_downloader/constants.py, bulk_downloader/stealth.py).
+
+
 ## v3.66.1734 - train162: row
 
 T162 = O1568 train of the next BOARDed row, applied on main after T161:
