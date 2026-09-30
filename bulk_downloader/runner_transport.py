@@ -29,7 +29,7 @@ from .runner_util import (
 from .db import db_conn, db_log, db_skip_attribution_state, db_skip_identity
 from .detect import res_label, fmt_bytes, safe_dest
 from .fname import resolve_filename_template, _sanitize_filename_var
-from .website_title import history_title_kwargs
+from .website_title import history_title_kwargs, scene_heading_over_chrome_title
 from .constants import (
     _HTTPDownloadFailed, _DownloadTruncated, _StagingUnavailable,
 )
@@ -219,7 +219,9 @@ def _regional_connection_errors():
 # the first one saved.
 _BARE_MEDIA_LEAF_RE = re.compile(
     r"^(?:mp4|m4v|webm|mov|high|low|medium|hd|sd|full|stream|download|video"
-    r"|file|index|(?:\d{3,4}p|4k|8k)(?:\.h26[45])?"
+    # fx-kmm-generic-filename: kellymadisonmedia's /download/video/<id>/4k_h264
+    # joins the codec with "_" -- the same rendition leaf as "4k.h264".
+    r"|file|index|(?:\d{3,4}p|4k|8k)(?:[._-]h26[45])?"
     # tpl95-nookies-1: a numeric-only leaf (/membersarea/video/stream/3504 ->
     # "3504.mp4") is a route id, not a name.
     r"|\d+"
@@ -229,7 +231,7 @@ _BARE_MEDIA_LEAF_RE = re.compile(
     # O1567 hustlerunlimited: dacast manifests end ".../<uuid>.ism/.m3u8".
     r"|m3u8|mpd)$", re.I)
 # dl95-xhamster-2: quality/codec leaves describe the rendition, not the scene.
-_LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:\.h26[45])?$", re.I)
+_LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:[._-]h26[45])?$", re.I)
 _FORMAT_TOKEN_RE = re.compile(r"^(?:mp4|m4v|webm|mov)$", re.I)
 # The transport's own placeholder for "nothing was suggested at all"; it is
 # not a site leaf and the existing paths (and their tests) rely on it.
@@ -3219,7 +3221,13 @@ class TransportMixin:
             _score = best.get("score", 0) or 0
             _tier = res_label(_score) if 0 < _score < 9999 else ""
             try:
-                _wtitle = history_title_kwargs(self, page_url).get("title", "")
+                _wfields = history_title_kwargs(self, page_url)
+                _wtitle = _wfields.get("title", "")
+                # fx-kmm-generic-filename: a site-chrome <title> ("Members
+                # Area - ...") is the same on every scene; the page's <h1>
+                # names this one.
+                _wtitle = scene_heading_over_chrome_title(
+                    page, _wtitle, _wfields.get("title_source", ""))
             except Exception:
                 _wtitle = ""
             _named = resolve_media_leaf_name(

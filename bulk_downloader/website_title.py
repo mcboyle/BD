@@ -94,6 +94,32 @@ def choose_scene_title(
     return "", ""
 
 
+_HEADING_JS = "() => { const h = document.querySelector('h1'); return h ? (h.textContent || '') : ''; }"
+
+
+def scene_heading_over_chrome_title(page, title: str, source: str) -> str:
+    """The page's <h1> when a harvested document.title is site chrome.
+
+    fx-kmm-generic-filename: members.kellymadisonmedia.com serves every scene
+    under the <title> "Members Area - Porn Fidelity : Kelly Madison : Teen
+    Fidelity"; the scene's own name is the <h1>. Only a document.title is
+    second-guessed (og:title is the site's declared name), and only by a
+    heading of two or more words that the title does not already contain -- a
+    "<scene> | <brand>" title and a one-word logo heading keep the title.
+    Never raises; any failure keeps ``title``."""
+    if source != "document.title":
+        return title
+    try:
+        heading = _clean_title(page.evaluate(_HEADING_JS))
+    except Exception:
+        return title
+    if len(heading.split()) < 2:
+        return title
+    if heading.casefold() in _clean_title(title).casefold():
+        return title
+    return heading
+
+
 def history_title_kwargs(runner, url: str) -> dict[str, str]:
     """Resolve completion kwargs without ever costing the history write.
 
