@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5645,
+  "edge_count": 5648,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3895,6 +3895,9 @@
       "bulk_downloader/captcha_relay.py",
       "bulk_downloader/takeover.py"
     ],
+    "tests/test_fx_cookie_samesite_unspecified.py": [
+      "bulk_downloader/cookies.py"
+    ],
     "tests/test_fx_dailymotion_player_alnum_scene_id_stream.py": [
       "bulk_downloader/spa_media_extract.py"
     ],
@@ -3929,6 +3932,9 @@
       "bulk_downloader/interstitial.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
+    ],
+    "tests/test_fx_xhamster_member_quality_player_hls.py": [
+      "bulk_downloader/spa_media_extract.py"
     ],
     "tests/test_fx_xnxx_preview_learned_ad_clip_is_not_the_scene.py": [
       "bulk_downloader/cloak.py",
@@ -4575,6 +4581,9 @@
     "tests/test_o1567_kmm_bare_rendition_leaf_named.py": [
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/website_title.py"
+    ],
+    "tests/test_o1567_kmm_full_scene_not_foreign.py": [
+      "bulk_downloader/detect.py"
     ],
     "tests/test_o1567_login_async_two_callers_start_one_login.py": [
       "bulk_downloader/db.py",

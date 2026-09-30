@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1731 - train159: row
+
+T159 = O1568 train of the next BOARDed rows, applied on main after T158:
+- fx-cookie-samesite-unspecified (A10-A, ESC-HIGH sentinel-A, PM ruling 00:1xZ; LIVE PASS bd2 00:43Z): imported cookies with sameSite "unspecified"/"none"-insecure are normalised to Lax (None only when secure) so non-Secure session cookies reach the browser (cookies.py normalize_stored_cookie).
+- fx-kmm-trailer-pick (bd2, GEN 2 B16-B): kellymadisonmedia/teenfidelity trailer no longer picked over the scene (detect).
+- fx-xhamster-member-quality (OP-spare12): logged-in xhamster scenes no longer fall to page-media 240p / pre-roll (spa_media_extract).
+- IA-06 toolchain/install_bdsuite.sh executable bit + link dir default.
+No VM gate (O1560); auto-merge on green PR checks.
+
+
 ## v3.66.1730 - train158: row
 
 T158 = O1568 train of the next eleven BOARDed rows: ten O1567 fix rows (FIXROWS-O1567.tsv) and one INSTALL-AUDIT row (INSTALL-AUDIT-spare8/ROWS.tsv, ORDER-BUILD-IA "integrator trains"), each at its BOARD PATCH-SHA256, applied on main after T157:
