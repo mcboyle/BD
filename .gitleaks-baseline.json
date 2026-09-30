@@ -1125,5 +1125,28 @@
     "Fingerprint": "2c1e4dd9ab851d6f00f5380e9883a11f04cd682f:toolchain/bin/bd-opv:generic-api-key:926",
     "class": "NONSECRET",
     "reason": "reviewed (KNOWN): reCAPTCHA site key (data-sitekey): public by design, served in page HTML; the secret key is not in the repo; not a credential"
+  },
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+    "StartLine": 25,
+    "EndLine": 25,
+    "StartColumn": 2,
+    "EndColumn": 30,
+    "Match": "_SECRET = \"REDACTED\"",
+    "Secret": "REDACTED",
+    "File": "tests/test_o1567_fx_takeover_autofill.py",
+    "SymlinkFile": "",
+    "Commit": "772defbf3d4745e75bf12da4b7458fa41c51e5d0",
+    "Link": "https://github.com/mcboyle/BD/blob/772defbf3d4745e75bf12da4b7458fa41c51e5d0/tests/test_o1567_fx_takeover_autofill.py#L25",
+    "Entropy": 3.5724695,
+    "Author": "bd-agy-worker-c1",
+    "Email": "bd-agy-worker-c1@boylenet.local",
+    "Date": "2026-09-30T03:09:06Z",
+    "Message": "spec: fx-takeover-autofill",
+    "Tags": [],
+    "Fingerprint": "772defbf3d4745e75bf12da4b7458fa41c51e5d0:tests/test_o1567_fx_takeover_autofill.py:generic-api-key:25",
+    "class": "synthetic-test-value",
+    "reason": "T163 fx-takeover-autofill: tests/test_o1567_fx_takeover_autofill.py _SECRET is a made-up probe password typed into a local fake login page to assert it never reaches stderr/source; not a credential."
   }
 ]
