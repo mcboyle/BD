@@ -73,11 +73,25 @@ def sqlite_async_url(db_path: str | os.PathLike[str], *,
     whose job is to REPORT on the database rather than use it asks for `ro`,
     and then cannot manufacture the state it is reporting on.
     """
+    return str(_sqlite_url(db_path, read_only=read_only))
+
+
+def _sqlite_url(db_path: str | os.PathLike[str], *, read_only: bool) -> URL:
+    """The URL OBJECT both public helpers build from.
+
+    The read-only form must be a `URL.create(...)` object, never a string:
+    SQLAlchemy's string parser (`make_url`) percent-DECODES the database part,
+    which undid `_uri_quote` -- a directory named `db?mode=rwc&z=.db` came back
+    as a raw `?` and SQLite read `mode=rwc` ahead of `mode=ro`, and a file named
+    `a%41b.db` was decoded to `aAb.db`. `URL.create` stores the escaped path as
+    given, and the sqlite dialect appends the query (`?mode=ro`) after it.
+    """
     resolved = str(Path(db_path).resolve())
     if read_only:
         escaped = _uri_quote(resolved, safe="/")
-        return f"{ASYNC_SQLITE_DRIVER}:///file:{escaped}?mode=ro&uri=true"
-    return str(URL.create(ASYNC_SQLITE_DRIVER, database=resolved))
+        return URL.create(ASYNC_SQLITE_DRIVER, database=f"file:{escaped}",
+                          query={"mode": "ro", "uri": "true"})
+    return URL.create(ASYNC_SQLITE_DRIVER, database=resolved)
 
 
 def create_async_engine_for(db_path: str | os.PathLike[str], *,
@@ -90,13 +104,7 @@ def create_async_engine_for(db_path: str | os.PathLike[str], *,
     pass through to `create_async_engine`, so a caller can set `echo` or a pool
     without this signature growing a flag per option.
     """
-    resolved = str(Path(db_path).resolve())
-    if read_only:
-        escaped = _uri_quote(resolved, safe="/")
-        url: str | URL = f"{ASYNC_SQLITE_DRIVER}:///file:{escaped}?mode=ro&uri=true"
-    else:
-        url = URL.create(ASYNC_SQLITE_DRIVER, database=resolved)
-    return create_async_engine(url, **kwargs)
+    return create_async_engine(_sqlite_url(db_path, read_only=read_only), **kwargs)
 
 
 def async_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
