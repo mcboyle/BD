@@ -16,6 +16,7 @@ _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
 # 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
 # Row771 updates gamma_kosmos selectors, so the assembled reviewed-selector corpus digest moves.
 # 95 / 565 -> 99 / 622: row 722 (2026-09-15) verified site templates -- four added (filthykings, dfxtra, brazzers, stepsiblingscaught), twelve updated in place with measured selectors (wowgirls_network gains one login and one row selector: 17 -> 19).
+# 102 / 662 -> 109 / 662: fx-templates-missing-9 (2026-09-30): 7 extractor-host templates appended (_data_extractor_hosts, no selectors; rows + sha unchanged).
 # 102 / 660 -> 102 / 662: T160 fx-vixen-member-download (2026-09-30): vixen_network gained the member DownloadButton trigger and the VideoDownloadModal 4K row selector (old selectors kept).
 # 99 / 622 -> 102 / 660: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added; pegasproductions, reptyle_teamskeet, africancasting, bang_originals gained measured login/config selectors.
 _LEGACY_ROWS_SHA256 = "307dae8ba4372f03e07abb78eb8811d196cab65c77a1a107ce2fccd938efccbf"
@@ -95,8 +96,9 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
     templates_module = importlib.import_module("bulk_downloader.site_templates")
     committed = templates_module.TEMPLATES
 
+    # 102 -> 109: fx-templates-missing-9 (2026-09-30): 7 extractor-host templates appended.
     # 99 -> 102: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added.
-    assert len(committed) == 102, "precondition: legacy template population changed"
+    assert len(committed) == 109, "precondition: legacy template population changed"
     templates = {template["id"]: template for template in committed}
     assert "wowgirls_network" in templates
     sample = api.enumerate_template_selectors(templates["wowgirls_network"])
@@ -118,7 +120,7 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
     assert hashlib.sha256(encoded).hexdigest() == _LEGACY_ROWS_SHA256
 
     audit = api.audit_committed_selector_syntax()
-    assert audit["template_count"] == 102
+    assert audit["template_count"] == 109
     assert audit["selector_count"] == 662
     assert audit["checked_count"] == 662
     assert audit["malformed_count"] == 0

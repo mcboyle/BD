@@ -13,8 +13,9 @@ from ._data_heuristics import ITEMS as __data_heuristics
 from ._data_studios_b import ITEMS as __data_studios_b
 from ._data_tubes import ITEMS as __data_tubes
 from ._data_mainstream import ITEMS as __data_mainstream
+from ._data_extractor_hosts import ITEMS as __data_extractor_hosts
 
-TEMPLATES = __data_players + __data_cms + __data_studios_a + __data_heuristics + __data_studios_b + __data_tubes + __data_mainstream
+TEMPLATES = __data_players + __data_cms + __data_studios_a + __data_heuristics + __data_studios_b + __data_tubes + __data_mainstream + __data_extractor_hosts
 
 from .accessors import get, list_templates, suggest_for_url  # noqa: E402
 
