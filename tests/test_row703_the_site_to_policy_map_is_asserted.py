@@ -108,6 +108,7 @@ POLICY_MAP: Dict[str, str] = {
     "bulk_downloader/runner_extractors.py::ExtractorsMixin._try_deep_detect_fallback": PUBLIC_ONLY,
     "bulk_downloader/runner_manual.py::_ManualDownloadSession._run": PUBLIC_ONLY,
     "bulk_downloader/runner_telemetry.py::TelemetryMixin._pick_fastest_mirror.probe": PUBLIC_ONLY,
+    "bulk_downloader/runner_transport.py::_refetch_player_config": PINNED,  # T157 fx-pornhoarder-hoster-embed: hoster frame config re-fetched by the app client
     "bulk_downloader/runner_transport.py::TransportMixin._do_direct_http_download._open_stream": PINNED,
     "bulk_downloader/runner_transport.py::TransportMixin._do_probe_fetch": PINNED,
     "bulk_downloader/runner_transport.py::TransportMixin._http_download_claimed": PINNED,

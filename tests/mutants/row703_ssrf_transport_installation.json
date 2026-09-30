@@ -265,7 +265,7 @@
     {
       "label": "unpin bulk_downloader/runner_challenge.py::_try_turnstile_solve_LEGACY #3",
       "file": "bulk_downloader/runner_challenge.py",
-      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ CapSolver\\ \u2014\\ simpler\\ /createTask\\ \\+\\ /getTaskResult\\ flow\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
+      "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\#\\ CapSolver\\ —\\ simpler\\ /createTask\\ \\+\\ /getTaskResult\\ flow\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ with\\ _httpx\\.Client\\(timeout=20,\\ transport)(?==guarded_transport\\()",
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
@@ -346,6 +346,14 @@
       "label": "unpin bulk_downloader/runner_transport.py::worker",
       "file": "bulk_downloader/runner_transport.py",
       "old_regex": "(?<=\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ resp_ctx\\ =\\ owning_stream\\(\\\n\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ httpx\\.Client\\(transport)(?==guarded_transport\\()",
+      "new": "_unpinned",
+      "direction": "regression",
+      "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
+    },
+    {
+      "label": "unpin bulk_downloader/runner_transport.py::_refetch_player_config",
+      "file": "bulk_downloader/runner_transport.py",
+      "old_regex": "(?<=with httpx\\.Client\\(transport)(?==guarded_transport\\(PINNED, proxy=proxy_url\\)\\) as client:\\n                resp = client\\.get\\(frame_url)",
       "new": "_unpinned",
       "direction": "regression",
       "catcher": "tests/test_row703_ssrf_transport_is_installed_everywhere.py::test_every_tracked_httpx_client_construction_is_pinned_through_the_seam"
