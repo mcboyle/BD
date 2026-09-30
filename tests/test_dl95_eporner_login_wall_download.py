@@ -33,6 +33,7 @@ def _fake(config, calls):
     fake._update_job = lambda url, status, msg, **k: calls.setdefault("jobs", []).append((status, msg))
     fake.login_async = lambda *a, **k: calls.__setitem__("login", calls.get("login", 0) + 1)
     fake._handle_auth_required = lambda url, why="Session expired": ra.AuthMixin._handle_auth_required(fake, url, why=why)
+    fake._hold_for_parked_takeover = lambda url, why: ra.AuthMixin._hold_for_parked_takeover(fake, url, why)
     return fake
 
 

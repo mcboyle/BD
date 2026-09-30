@@ -318,7 +318,9 @@ class AuthMixin:
             _fire(False)
             return
         # Auto-teach: skip the auto chain when nothing's learned yet
-        if self.config.get("auto_teach_first_run", True):
+        # O1567 fx-worker-relogin-no-manual: a worker re-login
+        # (allow_manual=False) never opens a manual window, this route included.
+        if allow_manual and self.config.get("auto_teach_first_run", True):
             learned = (self.config.get("learned") or {}).get("login") or {}
             has_any = any(learned.get(k) for k in ("user_field","pass_field","submit_btn"))
             if not has_any and self.config.get("login_url","").startswith("http"):
@@ -1538,6 +1540,8 @@ class AuthMixin:
         We do NOT increment the retry counter for auth-required — the URL
         was never really attempted; the cookies were just stale. (If
         login itself fails, that's handled separately and won't re-queue.)"""
+        if self._hold_for_parked_takeover(url, why):
+            return
         with self._lock:
             j=self.jobs.get(url,{}); retries=j.get("retries",0)
         max_ret=int(self.config.get("max_retries",2))
@@ -1578,7 +1582,9 @@ class AuthMixin:
             _awaited_attempt = getattr(self, "_login_attempt_seq", 0) + (
                 0 if (self._login_thread and self._login_thread.is_alive()) else 1)
             # Trigger login if not already in flight (idempotent), then wait.
-            self.login_async()
+            # O1567 fx-worker-relogin-no-manual: nobody watches a worker
+            # re-login, so it reports a failure instead of parking a takeover.
+            self.login_async(allow_manual=False)
             login_thread = self._login_thread
             if login_thread is not None:
                 # 90s — most logins take 5-15s; the upper bound covers slow
@@ -1611,7 +1617,7 @@ class AuthMixin:
                 self._update_job(url,"pending",
                                  "Session refreshed — will retry",
                                  retries=retries+1, retry_after=0)
-            else:
+            elif not self._hold_for_parked_takeover(url, why):
                 # Login failed (manual takeover required, captcha unsolved,
                 # bad credentials, etc.). Mark URL pending with a 60s backoff
                 # so _watch_done's retry path will eventually pick it up.
@@ -1633,6 +1639,21 @@ class AuthMixin:
                 requesters.discard(url)
             # Release other workers regardless of success/failure
             self._session_ok.set()
+    def _hold_for_parked_takeover(self, url, why):
+        """O1567 fx-worker-relogin-no-manual: while a manual takeover is
+        parked, login_async is a no-op until I'm Done / Cancel, so a job that
+        needs a session waits for it -- pending, retries unchanged, retried
+        after the backoff -- instead of spending its re-login retries on no-op
+        logins into dead_letter (test7 wowgirls 06:14:34Z). True if held."""
+        if not getattr(self, "_manual_login_handle", None):
+            return False
+        from . import admission as _adm
+        self._update_job(url, "pending",
+                         f"{why} — waiting for the manual login: click I'm Done "
+                         "(or Cancel) on Home › Needs attention",
+                         retry_after=_adm.next_eligible_retry(
+                             time.time()+60, self.config))
+        return True
     def _relogin_abort_reason(self):
         """dl95-cancel-relogin-1: why an in-flight re-login is no longer
         wanted ("" while it is). Consulted by do_login before site contact and
@@ -1816,6 +1837,8 @@ class AuthMixin:
         self._report_uncovered_session_scope(url)
         if self._stored_session_usable():
             return True
+        if self._hold_for_parked_takeover(url, "Cookies expired"):
+            return False
         if self.config.get("username") and self.config.get("password"):
             self._update_job(url, "running", "Cookies expired — re-logging in...")
             ev = threading.Event(); result = [False]
@@ -1823,7 +1846,7 @@ class AuthMixin:
             login_thread = getattr(self, "_login_thread", None)
             is_joining = login_thread is not None and login_thread.is_alive()
             attempt_before = (getattr(self, "_login_attempt_seq", 0) - 1) if is_joining else getattr(self, "_login_attempt_seq", 0)
-            self.login_async(on_done=_od); ev.wait(timeout=120)
+            self.login_async(on_done=_od, allow_manual=False); ev.wait(timeout=120)
             if not result[0]:
                 # dl95-naughtyamerica-2: auto re-login that takes >60 s
                 # (Turnstile + submit: ~82 s) must not report a failed login
@@ -1838,6 +1861,8 @@ class AuthMixin:
                     ei = cookies_expiry_info(self.cookies)
                     if ei["session"] != 0 or (ei["expired"] == 0 and len(self.cookies) > 0):
                         return True
+                if self._hold_for_parked_takeover(url, "Cookies expired"):
+                    return False
                 self._handle_failure(url, "Auto re-login failed"); return False
             return True
         self._handle_failure(url, "Cookies expired — re-login needed")

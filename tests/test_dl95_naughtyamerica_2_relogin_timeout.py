@@ -188,7 +188,7 @@ def test_virtual_82_second_settlement_is_accepted(monkeypatch):
             return False
 
     monkeypatch.setattr(runner_auth, "threading", SimpleNamespace(Event=Event))
-    monkeypatch.setattr(r, "login_async", lambda on_done: callback.append(on_done))
+    monkeypatch.setattr(r, "login_async", lambda on_done, **_kw: callback.append(on_done))
     assert r._check_cookies_or_relogin("https://example.com/scene/1"), "CX1_82_SECOND_SETTLEMENT_REJECTED"
 
 
@@ -252,7 +252,7 @@ def test_join_settlement_uses_current_attempt_even_when_already_running(already_
     thread = FinishingLogin()
     r._login_thread = thread
 
-    def login_async(on_done):
+    def login_async(on_done, **_kw):
         if not already_running:
             r._login_attempt_seq += 1
         on_done(False)
@@ -266,7 +266,7 @@ def test_no_current_success_remains_refused():
     r = _runner()
     r.cookies = [{"name": "sid", "value": "expired", "expires": time.time() - 3600}]
     r._login_outcome = (6, False)
-    r.login_async = lambda on_done: on_done(False)
+    r.login_async = lambda on_done, **_kw: on_done(False)
     assert r._check_cookies_or_relogin("https://example.com/scene/1") is False
 
 
