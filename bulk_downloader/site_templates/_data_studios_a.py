@@ -81,6 +81,12 @@ ITEMS = [
             },
             "download": {
                 "row_selectors": [
+                    # O1567 fx-vixen-member-download (bd4 2026-09-29): the
+                    # member modal's tier rows are <span>s around a
+                    # VideoDownloadLabel; a click starts the browser download
+                    # from cdn-download.vixen.com.
+                    "[data-test-component='VideoDownloadModal'] "
+                    "span:has(> [data-test-component='VideoDownloadLabel'])",
                     "button:has-text('4K MP4 UHD')",
                     "button:has-text('HD MP4 1080P')",
                     "a[href*='cdn-download-']",
@@ -88,6 +94,9 @@ ITEMS = [
                 "url_attribute": "href",
                 "tier_labels_seen": ["4K MP4 UHD", "HD MP4 1080P", "HD MP4 720P", "SD MP4 480P"],
                 "trigger_selectors": [
+                    # O1567: <button data-test-component="DownloadButton">,
+                    # hashed class names (no "DownloadButton" in class).
+                    "[data-test-component='DownloadButton']",
                     "a:has-text('DOWNLOAD')",
                     "[class*=DownloadButton]",
                 ],

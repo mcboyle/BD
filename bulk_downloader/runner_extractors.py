@@ -1995,6 +1995,25 @@ class ExtractorsMixin:
                 sys.stderr.write(f"  vixen: tier-probe raised {e}\n")
                 upgraded_url = result.url
 
+        # O1567 fx-vixen-member-download: the page's streaming <video src>
+        # (blacked: mp4_480) is not the member download; below min_resolution
+        # decline to the DOM path, which takes a member tier or holds
+        # "Approve to force". A forced job takes it, as on every other path.
+        min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
+        with self._lock:
+            forced = bool((self.jobs.get(url) or {}).get("force_download"))
+        if min_res > 0 and upgraded_tier and upgraded_tier < min_res and not forced:
+            self.log_event(
+                "vixen_below_min_res",
+                f"{upgraded_tier}p via {result.via} below {min_res}p "
+                f"(avail: {result.available_tiers})",
+                url=url,
+            )
+            sys.stderr.write(
+                f"  vixen: {upgraded_tier}p via {result.via} is below "
+                f"min_resolution {min_res}p -- declining to the page\n")
+            return False
+
         # Build output filename via the user's template
         dl_dir_str = (self.config.get("download_dir") or "").strip()
         if not dl_dir_str:
