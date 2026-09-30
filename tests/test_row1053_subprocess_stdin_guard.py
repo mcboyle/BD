@@ -45,7 +45,7 @@ _CALLS = {"run", "Popen", "check_output", "check_call", "call"}
 # + 2 aliased ones (ytdlp_extractor ``_subprocess.run``, app_widgets_api
 # ``_sp.run``) + 5 reached through a binding (ai_boot_observation,
 # netns_isolation x2, ollama_boot_probe, provider_resolve_impl/youtube).
-_EXPECTED_SITES = 76  # row 1046: payload_verifier ffprobe subprocess.run (stdin=DEVNULL); +1 dot95-lane tpl95-cumlouder-2 runner_transport ffprobe height probe (stdin=DEVNULL)
+_EXPECTED_SITES = 77  # T158 fx-takeover-plain-browser: +1 human_challenge plain-browser Popen (stdin=DEVNULL). row 1046: payload_verifier ffprobe subprocess.run (stdin=DEVNULL); +1 dot95-lane tpl95-cumlouder-2 runner_transport ffprobe height probe (stdin=DEVNULL)
 
 
 def _not_none(value: ast.AST) -> bool:
