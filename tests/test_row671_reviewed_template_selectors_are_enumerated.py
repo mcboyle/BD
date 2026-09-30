@@ -16,8 +16,9 @@ _REPTILE = _REPO / "templates" / "reviewed" / "app.reptyle.com.template.json"
 # 91 templates / 550 rows -> 95 / 565: PM-handoff 2026-09-06 template gap report: the corpus grew from 91 to 95 (africancasting, pegasproductions, pornpros_tiny4k, reptyle_teamskeet).
 # Row771 updates gamma_kosmos selectors, so the assembled reviewed-selector corpus digest moves.
 # 95 / 565 -> 99 / 622: row 722 (2026-09-15) verified site templates -- four added (filthykings, dfxtra, brazzers, stepsiblingscaught), twelve updated in place with measured selectors (wowgirls_network gains one login and one row selector: 17 -> 19).
+# 102 / 660 -> 102 / 662: T160 fx-vixen-member-download (2026-09-30): vixen_network gained the member DownloadButton trigger and the VideoDownloadModal 4K row selector (old selectors kept).
 # 99 / 622 -> 102 / 660: row 722 spread (2026-09-15): dorcelclub, xempire, pornone added; pegasproductions, reptyle_teamskeet, africancasting, bang_originals gained measured login/config selectors.
-_LEGACY_ROWS_SHA256 = "2c53d7ab9b048462be81296ce32bfd75bd98aeccbd3227f9741b2ca2c6277656"
+_LEGACY_ROWS_SHA256 = "307dae8ba4372f03e07abb78eb8811d196cab65c77a1a107ce2fccd938efccbf"
 _REVIEWED_DIR = _REPO / "templates" / "reviewed"
 _ROW455 = _REPO / "tests" / "test_row455_reviewed_template_against_a_live_dom.py"
 _HAZARD = _REPO / "tests" / "fixtures" / "row671" / "grouped_hazard.template.json"
@@ -113,13 +114,13 @@ def test_legacy_template_denominator_and_roles_are_byte_for_byte_unchanged():
         for row in api.enumerate_template_selectors(template)
     ]
     encoded = json.dumps(all_rows, sort_keys=True, separators=(",", ":")).encode()
-    assert len(all_rows) == 660
+    assert len(all_rows) == 662
     assert hashlib.sha256(encoded).hexdigest() == _LEGACY_ROWS_SHA256
 
     audit = api.audit_committed_selector_syntax()
     assert audit["template_count"] == 102
-    assert audit["selector_count"] == 660
-    assert audit["checked_count"] == 660
+    assert audit["selector_count"] == 662
+    assert audit["checked_count"] == 662
     assert audit["malformed_count"] == 0
     assert audit["unknown_count"] == 0
 
