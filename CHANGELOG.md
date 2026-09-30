@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1750 - train178: row
+
+T178 = O1568 one-cut train of ORDER-FIX-SWEEP-T175 Cut E (PM ORDER-CUTE-A12), applied on main after T177:
+- fx-crawler-livecam-guard (r4 bd-worker-A12-A, r1-r3 bd-worker-C2-C; lens bd-review-correctness-D2-D): test1 dfxtra discovery run 68d6b461a168 auto-queued the members-home "Live Cams" nav card /livecam/autologin as a scene, because _scene_cohort's one-thumbnail guard fired only at one thumbnail and the card showed two destinations; a cohort with no thumbnailed scene-rule row must now differ by an id or slug, a nav/utility route (a whole early path segment or script stem such as login.php, logout.php, join.php, /cams, /out, /store) is never a scene unless the product scene-URL rule accepts the URL, and partner cam subdomains (live., cams., webcam., chat.<site>) and other *.co.uk registrants are off-site; scene title slugs such as Help-Me-Step-Bro and tube /v/<slug>-<n> are kept, and playlist_extractor._NON_SCENE_HINTS is unchanged (bulk_downloader/scene_crawler.py, tests/test_fx_crawler_livecam_guard.py).
+
+
 ## v3.66.1749 - train177: row
 
 T177 = O1568 train of the ORDER-FIX-SWEEP-T175 fix cuts BOARDed at cut time, applied on main after T176:

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5694,
+  "edge_count": 5696,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3901,6 +3901,10 @@
     ],
     "tests/test_fx_cookie_samesite_unspecified.py": [
       "bulk_downloader/cookies.py"
+    ],
+    "tests/test_fx_crawler_livecam_guard.py": [
+      "bulk_downloader/playlist_extractor.py",
+      "bulk_downloader/scene_crawler.py"
     ],
     "tests/test_fx_dailymotion_player_alnum_scene_id_stream.py": [
       "bulk_downloader/spa_media_extract.py"
