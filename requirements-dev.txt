@@ -33,3 +33,7 @@ zstandard>=0.22,<1.0
 # needs a clang toolchain to build.
 markdown>=3.5,<4.0
 hypothesis>=6.100,<7.0
+# o1567 fx-remember-me-clicker: tests/test_o1567_remember_me_clicker.py runs the real pyscreeze.locate matcher
+# against a synthetic screen; pyscreeze is the dependency pyautogui (requirements.txt) pulls in, declared here
+# because the test imports it directly (test_v3_66_653_dep_freshness declaration census).
+pyscreeze>=0.1.30,<1.0
