@@ -630,20 +630,20 @@ Schema version: 2
   - L1276 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
   - L1298 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
   - L1321 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L1839 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
-  - L1880 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
-  - L1915 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L2180 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L2404 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
-  - L2426 `ExtractorsMixin._spa_option_summary` `[private]`
-  - L2431 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
-  - L2442 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-  - L2467 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
-  - L2485 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2778 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L2874 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L2940 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L3075 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+  - L1866 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
+  - L1907 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+  - L1942 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L2207 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L2431 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+  - L2453 `ExtractorsMixin._spa_option_summary` `[private]`
+  - L2458 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
+  - L2469 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
+  - L2494 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+  - L2512 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L2805 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L2901 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L2967 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L3102 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 

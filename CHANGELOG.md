@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1745 - train173: row
+
+T173 = O1568 train of the next BOARDed rows, applied on main after T172:
+- fx-harden-pornone-label-t170 (bd-cx-vm, ORDER-HARDEN-T165 spare12 pornone "720p labelled 1080p"; lens bd-worker-A10-A): when the pornone API/media download lands at a measured height different from the labelled one, the saved name and the resolution/quality template vars are re-rendered from the MEASURED height (page-title "NNNp" tokens stripped so the measured tier supplies the one suffix), renamed collision-safe through _dest_in_dir/safe_dest before the below-minimum, duration and history/db steps read the path, and the hold text leads with the measured height ("Measured 480p (below 1080p minimum); source advertised 1080p"); the matching-height path is untouched (bulk_downloader/runner_extractors.py, tests/test_harden_pornone_measured_quality_label.py, tests/test_dot95_pm2_dp13_lane_cleanup_is_said.py hold wording).
+
+
 ## v3.66.1744 - train172: row
 
 T172 = O1568 train of the next BOARDed rows, applied on main after T171:
