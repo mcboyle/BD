@@ -216,8 +216,6 @@
     "/api/sites/<sid>/hooks/test",
     "/api/sites/<sid>/keep_alive_toggle",
     "/api/sites/<sid>/load_cookies",
-    "/api/sites/<sid>/login_manual_cancel",
-    "/api/sites/<sid>/login_manual_done",
     "/api/sites/<sid>/login_verify",
     "/api/sites/<sid>/manual_login",
     "/api/sites/<sid>/queue/save_template",
@@ -247,5 +245,5 @@
     "/api/ytdlp_archive/derive",
     "/api/ytdlp_update"
   ],
-  "dark_count": 102
+  "dark_count": 100
 }
