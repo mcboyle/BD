@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1748 - train176: row
+
+T176 = O1568 train of the next BOARDed rows, applied on main after T175:
+- fx-flaky-zero-copy-cpu (bd-worker-A10-A, PM order under the operator's rule that a non-product red is fixed by the next train; lens H3-B): test_sendfile_path_uses_less_user_cpu_than_buffered_multi_gb asserted a >50% user-CPU saving that runner scheduler noise decided (T163, T174 reds; both paths read sub-millisecond user time); the test now proves the cause deterministically with call-through spies on os.sendfile/os.read/os.write, the only byte paths in file_assembler: the sendfile path moves the whole 2 GiB kernel-side with 0 bytes through userspace, the buffered control moves it in and out through userspace, and no CPU seconds are asserted (tests/test_zero_copy_assembly.py, test only).
+
+
 ## v3.66.1747 - train175: row
 
 T175 = O1568 train of the next BOARDed rows, applied on main after T174:
