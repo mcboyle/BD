@@ -5,7 +5,8 @@ Mixin: methods reference self.* only; NO __init__. Import block derived by AST
 free-name scan of the moved bodies (not the seams doc, which models module-top
 imports only). Cycle rule: imports nothing from .runner.
 """
-import collections, sys, threading, time
+import collections, re, shutil, sys, threading, time
+from pathlib import Path
 from urllib.parse import urlparse
 
 from .db import db_log
@@ -32,6 +33,28 @@ def _turnstile_one_click_enabled(config) -> bool:
 
 def _captcha_takeover_enabled(config) -> bool:
     return _truthy((config or {}).get("captcha_takeover_enabled", False))
+
+
+_CHALLENGE_WALL_PEEK = 65536
+_CHALLENGE_HTML_START_RE = re.compile(
+    rb"^\s*(?:<!--.*?-->\s*)*<(?:!doctype\s+html|html|head)\b", re.I | re.S)
+
+
+def challenge_wall_in_body(path):
+    """fx-dorcelclub-dl-challenge-wall: the challenge type when a downloaded
+    body is a captcha/security-check page instead of the media, else None.
+    Only an HTML document qualifies (dorcelclub answers /dl/<scene>/... with a
+    302 to /blocked, an hCaptcha form in the site's own chrome). Unreadable ->
+    None: the size and integrity checks still judge the file."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_CHALLENGE_WALL_PEEK)
+    except OSError:
+        return None
+    if not _CHALLENGE_HTML_START_RE.match(head):
+        return None
+    from .captcha_relay import detect_captcha_in_html
+    return detect_captcha_in_html(head.decode("utf-8", "replace"))
 
 
 class ChallengeMixin:
@@ -115,6 +138,61 @@ class ChallengeMixin:
         db_log(self.site_id, self.config.get("name","?"), url, "needs_review",
                "", 0, f"captcha challenge: {detected_type}", ss)
         return False
+    def _challenge_wall_rejects(self, url, path, page=None, file_url=""):
+        """fx-dorcelclub-dl-challenge-wall: True when the downloaded file is a
+        challenge page (challenge_wall_in_body). The body is quarantined to
+        _failed/ and the challenge is put where it can be solved: the worker
+        browser opens the file URL, and a visible challenge takes the page
+        path (_handle_captcha_check: needs_review + captcha_type + screenshot,
+        then the relay when enabled), so a take-over solve requeues the job.
+        A challenge the browser does not show is needs_review with the reason,
+        never a size-sanity failure on a blind backoff retry."""
+        path = Path(path)
+        ctype = (None if path.suffix.lower() in (".html", ".htm")
+                 else challenge_wall_in_body(path))
+        if not ctype:
+            return False
+        quarantine = path.parent / "_failed"
+        try:
+            quarantine.mkdir(exist_ok=True)
+            shutil.move(str(path), str(quarantine / path.name))
+        except OSError:
+            pass
+        _u = urlparse(file_url or "")
+        where = (_u.netloc + _u.path) if _u.netloc else "the file URL"
+        self.log_event(
+            "captcha",
+            f"download answered with a {ctype} challenge page, not the media "
+            f"({where}); moved to _failed/", url=url)
+        shown = False
+        if page is not None and file_url:
+            try:
+                page.goto(file_url, wait_until="domcontentloaded", timeout=30000)
+                shown = True
+            except Exception as e:
+                sys.stderr.write(
+                    f"  challenge wall: browser could not open {where}: "
+                    f"{str(e)[:120]}\n")
+        if shown and not self._handle_captcha_check(page, url):
+            if self.config.get("use_captcha_relay"):
+                try:
+                    from . import captcha_relay
+                    captcha_relay.check_and_handle(
+                        page, self.site_id, url,
+                        worker_idx=getattr(self, "_current_worker_idx", None))
+                except Exception as e:
+                    sys.stderr.write(
+                        f"[runner] captcha_relay.check_and_handle failed "
+                        f"(non-fatal): {e}\n")
+            return True
+        ss = self._screenshot(page, url) if shown else ""
+        msg = (f"Download blocked by a {ctype} challenge at {where} that the "
+               f"browser did not show -- open the page and solve it, then retry")
+        self._update_job(url, "needs_review", msg, screenshot=ss,
+                         captcha_type=ctype)
+        db_log(self.site_id, self.config.get("name", "?"), url, "needs_review",
+               "", 0, f"download challenge: {ctype}", ss)
+        return True
     def _has_captcha(self,page,timeout_ms=500):
         """Phase 7.2: quick check for visible captcha widgets on the page.
         Returns True if any of the CAPTCHA_SELECTORS are visible. Short

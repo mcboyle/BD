@@ -3679,6 +3679,16 @@ class TransportMixin:
             if callable(login_wall_rejects) and login_wall_rejects(page_url, final_path):
                 return
 
+            # fx-dorcelclub-dl-challenge-wall: a captcha/security-check page
+            # instead of the media is a challenge, not a bad file -- size
+            # sanity would fail it as "likely an error page" with a blind
+            # backoff retry the challenge answers again. Resolved like the
+            # login wall: a TransportMixin-only runner has no challenge half.
+            challenge_wall_rejects = getattr(self, "_challenge_wall_rejects", None)
+            if callable(challenge_wall_rejects) and challenge_wall_rejects(
+                    page_url, final_path, page=page, file_url=direct_url or ""):
+                return
+
             # ── Phase 17.20: Size sanity check ───────────────────────────────
             # If the page advertised a file size and we got back something
             # wildly smaller (under min_size_pct % of expected, default 5%),
