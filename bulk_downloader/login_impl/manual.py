@@ -102,6 +102,44 @@ def _manual_launch_kwargs(config, headless=False):
     return kwargs
 
 
+# Fills EMPTY login fields with [username, password] (passed as the evaluate
+# argument, never embedded in source) and returns which were filled -- booleans
+# only. Each field is filled at most once (data-bd-autofilled), so a value the
+# operator cleared or retyped stands. Without a visible password field only an
+# unmistakable username field qualifies: a verification page's answer box is
+# never typed into. Never submits, never clicks.
+_TAKEOVER_AUTOFILL_JS = """([u, p]) => {
+  const vis = el => el.offsetParent !== null && !el.disabled && !el.readOnly;
+  const pick = (root, sels) => {
+    for (const s of sels) for (const el of root.querySelectorAll(s)) if (vis(el)) return el;
+    return null;
+  };
+  const pf = pick(document, ['input[autocomplete="current-password"]', 'input[type="password"]',
+                             'input[name="password"]', 'input[id*="pass" i]']);
+  const root = (pf && pf.form) || document;
+  const strongU = ['input[autocomplete="username"]', 'input[autocomplete="email"]', 'input[name="username"]',
+                   'input[name="email"]', 'input[name="login"]', 'input[type="email"]'];
+  const weakU = ['input[id*="user" i]', 'input[id*="email" i]', 'input[id*="login" i]', 'input[type="text"]'];
+  const uf = pick(root, strongU) || (pf ? pick(root, weakU) : null);
+  const fill = (el, v) => {
+    if (!el || !v || el.dataset.bdAutofilled || el.value) return false;
+    el.dataset.bdAutofilled = '1';
+    el.focus(); el.value = v;
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+    el.blur();
+    return true;
+  };
+  return {username: fill(uf, u), password: fill(pf, p)};
+}"""
+
+
+def _autofilled_label(result):
+    """'credentials' / 'username' / 'password' for what the fill reported, '' for nothing."""
+    got = [k for k in ("username", "password") if isinstance(result, dict) and result.get(k)]
+    return "credentials" if len(got) == 2 else (got[0] if got else "")
+
+
 def _dispatch_cdp_input(cdp, event):
     """Translate one allowlisted takeover input event (already validated by the
     A-2 route) into a CDP Input call on the solve browser. Best-effort; a single
@@ -426,50 +464,48 @@ class ManualLoginSession:
                     "  manual_login: credential availability is UNKNOWN; "
                     "password was not autofilled. Check Settings -> Secrets.\n")
             if username or password:
-                # Build a small autofill script that finds the most-likely
-                # username/password fields and fills them. Doesn't submit
-                # (user might want to review or solve captcha first).
-                # Escape values for JS string embedding via json.dumps.
-                import json as _json
-                autofill_js = (
-                    "(() => {"
-                    f"const u={_json.dumps(username)},p={_json.dumps(password)};"
-                    "function pick(sels){for(const s of sels){const el=document.querySelector(s);"
-                    "if(el && el.offsetParent!==null && !el.disabled) return el;} return null;}"
-                    "const uf=pick([" 
-                    "'input[autocomplete=\"username\"]',"
-                    "'input[autocomplete=\"email\"]',"
-                    "'input[name=\"username\"]','input[name=\"email\"]','input[name=\"login\"]',"
-                    "'input[id*=\"user\" i]','input[id*=\"email\" i]','input[id*=\"login\" i]',"
-                    "'input[type=\"email\"]','input[type=\"text\"]:not([type=\"hidden\"])']);"
-                    "const pf=pick([" 
-                    "'input[autocomplete=\"current-password\"]',"
-                    "'input[type=\"password\"]',"
-                    "'input[name=\"password\"]','input[id*=\"pass\" i]']);"
-                    "if(uf && u){uf.focus();uf.value=u;"
-                    "uf.dispatchEvent(new Event('input',{bubbles:true}));"
-                    "uf.dispatchEvent(new Event('change',{bubbles:true}));}"
-                    "if(pf && p){pf.focus();pf.value=p;"
-                    "pf.dispatchEvent(new Event('input',{bubbles:true}));"
-                    "pf.dispatchEvent(new Event('change',{bubbles:true}));}"
-                    "if(uf)uf.blur();if(pf)pf.blur();"
-                    "})();"
-                )
-                # Run once after load; SPA sites that lazy-mount the form
-                # are out of scope for this best-effort autofill.
-                page.evaluate(autofill_js)
-                if username and password:
-                    filled = "credentials"
-                elif password:
-                    filled = "password"
+                # Doesn't submit (the user may review or solve a captcha
+                # first). fx-takeover-autofill: the window often opens on a
+                # verification page, not the form; the session thread keeps
+                # the credentials (never logged) and fills the form on its
+                # idle tick once it appears (_autofill_tick).
+                from urllib.parse import urlsplit as _urlsplit
+                self._autofill_creds = [username, password]
+                self._autofill_hosts = {
+                    h for h in (_urlsplit(url).hostname, _urlsplit(page.url).hostname) if h}
+                filled = _autofilled_label(page.evaluate(_TAKEOVER_AUTOFILL_JS, self._autofill_creds))
+                if filled:
+                    sys.stderr.write(
+                        f"  manual_login: autofilled {filled} for "
+                        f"{config.get('name','?')}\n")
                 else:
-                    filled = "username"
-                sys.stderr.write(
-                    f"  manual_login: autofilled {filled} for "
-                    f"{config.get('name','?')}\n")
+                    sys.stderr.write(
+                        "  manual_login: no login form on the page yet -- it is "
+                        "filled when it appears\n")
         except Exception as e:
             sys.stderr.write(f"  manual_login: autofill failed: {e}\n")
         return browser, ctx, page, used_pw
+
+    def _autofill_tick(self, ctx):
+        """fx-takeover-autofill: fill the login form in any page of this
+        takeover that shows one now (idle tick, session thread). Only on the
+        hosts the takeover was opened for; each field at most once."""
+        creds = getattr(self, "_autofill_creds", None)
+        if not creds:
+            return
+        from urllib.parse import urlsplit as _urlsplit
+        for pg in list(ctx.pages):
+            try:
+                if _urlsplit(pg.url).hostname not in self._autofill_hosts:
+                    continue
+                filled = _autofilled_label(pg.evaluate(_TAKEOVER_AUTOFILL_JS, creds))
+            except Exception:
+                continue
+            if filled:
+                sys.stderr.write(
+                    f"  manual_login: autofilled {filled} for "
+                    f"{self._config.get('name','?')} -- the login form appeared "
+                    f"after the window opened\n")
 
     def _run(self):
         """Worker thread main loop. Owns playwright; serves commands
@@ -530,6 +566,7 @@ class ManualLoginSession:
                             break
                     else:
                         liveness_misses = 0
+                        self._autofill_tick(ctx)
                     continue
                 liveness_misses = 0
                 if cmd == "snapshot":
