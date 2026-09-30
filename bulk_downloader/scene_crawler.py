@@ -239,9 +239,12 @@ def _clean_text(value: Any) -> str:
     return " ".join(lines).strip()
 
 
+_CARD_TITLE_KEYS = ("text", "title", "aria", "img_alt", "nearest")
+
+
 def _card_title(anchor: dict[str, Any]) -> str:
     """Apply the measured, ordered listing-card title fallback ladder."""
-    for key in ("text", "title", "aria", "img_alt", "nearest"):
+    for key in _CARD_TITLE_KEYS:
         value = _clean_text(anchor.get(key))
         if value:
             return value
@@ -493,6 +496,91 @@ def _scene_cohort(
             seen.add(row["url"])
             scenes.append(row)
     return scenes, shapes
+
+
+# fx-newsensations-discovery-scene-rule: a site may declare its scene URL
+# shape, one regex per line (not comma-split: a regex may hold "{1,3}").
+# Bounded like url_patterns (v3.46.4 F9): over 512 chars or invalid -> skipped.
+SCENE_PATTERN_MAX_LEN = 512
+
+
+def _scene_patterns(site_config: dict[str, Any]) -> list[re.Pattern[str]]:
+    raw = (site_config or {}).get("crawler_scene_patterns")
+    if not isinstance(raw, str):
+        return []
+    patterns = []
+    for line in raw.splitlines():
+        text = line.strip()
+        if not text or len(text) > SCENE_PATTERN_MAX_LEN:
+            continue
+        try:
+            patterns.append(re.compile(text, re.IGNORECASE))
+        except re.error:
+            continue
+    return patterns
+
+
+def _pattern_canonical_url(url: str, pattern: re.Pattern[str]) -> str:
+    """The declared shape is the scene's identity: when its match ends at a
+    query-parameter boundary, later parameters (newsensations' ``&catid=5``
+    category context) are dropped. A match ending in the path, or inside a
+    parameter value, leaves the URL untouched."""
+    match = pattern.search(url)
+    query_at = url.find("?")
+    if match is None or query_at < 0 or match.end() <= query_at:
+        return url
+    rest = url[match.end():]
+    if not rest.startswith("&"):
+        return url
+    return url[:match.end()]
+
+
+def _pattern_scenes(
+    anchors: Iterable[dict[str, Any]],
+    listing_url: str,
+    patterns: list[re.Pattern[str]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The site's declared scene rule replaces the thumbnail cohort heuristic.
+
+    newsensations' members home paints 22 of its 23 scene-card thumbnails as
+    CSS backgrounds, so no image-bearing scene cohort exists to find; the
+    operator-declared shape is authoritative, in page order.
+    """
+    scenes: list[dict[str, Any]] = []
+    by_destination: dict[str, dict[str, Any]] = {}
+    matched: list[str] = []
+    for anchor in anchors:
+        url = str(anchor.get("url") or "")
+        if urlsplit(url).scheme not in ("http", "https"):
+            continue
+        if not _same_site(url, listing_url):
+            continue
+        hit = next((p for p in patterns if p.search(url)), None)
+        if hit is None:
+            continue
+        url = _pattern_canonical_url(url, hit)
+        key = _destination_key(url)
+        seen_row = by_destination.get(key)
+        if seen_row is not None:
+            # One card linked twice (thumbnail + caption): keep a title.
+            if not _card_title(seen_row) and _card_title(anchor):
+                seen_row.update({k: anchor.get(k) for k in _CARD_TITLE_KEYS})
+            continue
+        row = dict(anchor)
+        row["url"] = url
+        by_destination[key] = row
+        scenes.append(row)
+        if hit.pattern not in matched:
+            matched.append(hit.pattern)
+    # A label every card repeats ("Open scene" on newsensations) is not a
+    # title: blank it so _card_title's ladder reaches the card's own heading.
+    for key in _CARD_TITLE_KEYS:
+        counts = Counter(_clean_text(row.get(key)).casefold() for row in scenes)
+        for row in scenes:
+            value = _clean_text(row.get(key)).casefold()
+            if value and counts[value] >= 2:
+                row[key] = ""
+    return scenes, [f"pattern:{pattern}" for pattern in matched]
 
 
 # dl95-reddit-1: a listing that redirects or reloads itself after
@@ -1075,7 +1163,10 @@ def _page_title(page: Any, response_status: int | None) -> tuple[str, str]:
     if _negative_auth_page(page, response_status):
         return "", ""
     try:
-        og = page.locator('meta[property="og:title" i]').first.get_attribute("content")
+        # fx-newsensations-discovery-scene-rule: an absent og:title must not
+        # wait out the locator's 30 s default on every scene page.
+        og_meta = page.locator('meta[property="og:title" i]')
+        og = og_meta.first.get_attribute("content") if og_meta.count() else ""
         if _clean_text(og):
             return _clean_text(og), "og:title"
     except Exception:
@@ -1093,6 +1184,12 @@ def _page_title(page: Any, response_status: int | None) -> tuple[str, str]:
     except Exception:
         pass
     return "", ""
+
+
+def _site_wide_titles(titles: Iterable[str]) -> set[str]:
+    """Casefolded titles that two or more distinct scene pages share verbatim."""
+    counts = Counter(str(title).casefold() for title in titles if title)
+    return {title for title, count in counts.items() if count >= 2}
 
 
 def _resolve_scene_titles(
@@ -1120,8 +1217,11 @@ def _resolve_scene_titles(
         except Exception:
             continue
     stripped = strip_repeated_title_templates(item[1] for item in fetched)
+    site_wide = _site_wide_titles(stripped)
     for (record, _raw, source), title in zip(fetched, stripped):
-        if title:
+        # fx-newsensations-discovery-scene-rule: a title every fetched scene
+        # page shares names the site; the listing card's title stands.
+        if title and title.casefold() not in site_wide:
             record["title"] = title
             record["title_source"] = source
             _update_title(record, db_path)
@@ -1255,6 +1355,7 @@ def crawl_with_page(
     max_pages = max(1, min(int(max_pages), 500))
     max_scrolls = max(0, min(int(max_scrolls), 50))
     title_fetch_limit = max(0, min(int(title_fetch_limit), 1000))
+    scene_patterns = _scene_patterns(site_config)
     control = getattr(_BOUND, "control", None)
     pacer = _Pacer(delay_s, control)
 
@@ -1314,7 +1415,10 @@ def crawl_with_page(
         scroll_late_growth_steps += absorbed
         if page_settle_state == SETTLE_UNKNOWN:
             scroll_settle_state = SETTLE_UNKNOWN
-        scenes, page_shapes = _scene_cohort(anchors, current)
+        if scene_patterns:
+            scenes, page_shapes = _pattern_scenes(anchors, current, scene_patterns)
+        else:
+            scenes, page_shapes = _scene_cohort(anchors, current)
         shapes.update(page_shapes)
         saw_scene_cohort = saw_scene_cohort or bool(scenes)
         if not scenes and not zero_page:

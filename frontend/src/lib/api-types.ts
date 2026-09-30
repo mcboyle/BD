@@ -195,6 +195,8 @@ export interface SiteConfigDraft {
   // Zero newest_n is the explicit whole-library mode; the UI defaults to 50.
   crawler_listing_url?: string;
   crawler_newest_n?: number;
+  // fx-newsensations-discovery-scene-rule: scene URL regexes, one per line.
+  crawler_scene_patterns?: string;
 }
 
 /** Canonical app_kernel.DEFAULTS values used before a site record exists. */

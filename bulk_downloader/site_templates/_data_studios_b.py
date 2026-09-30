@@ -175,6 +175,11 @@ ITEMS = [
             # Row 722 verified newsensations config (:5555, 2026-09-15).
             "login_url": "https://www.newsensations.com/members/",
             "dismiss_selectors": "a:has-text(\"TAKE ME TO MY MEMBERSHIP\")",
+            # fx-newsensations-discovery-scene-rule (measured test7 2026-09-29):
+            # the members home is the listing; 22 of 23 scene cards have CSS
+            # thumbnails, so discovery needs the declared scene shape.
+            "crawler_listing_url": "https://www.newsensations.com/members/",
+            "crawler_scene_patterns": r"/members/gallery\.php\?id=\d+&type=vids",
             "trigger_selector": "button.ex-iconbtn--download",
             "dl_selector": "#exDownloadMenu .exp-menu-item:has-text('2160p')",
             "quality_preference": "2160,1080,720",

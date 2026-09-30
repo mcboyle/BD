@@ -408,6 +408,24 @@ def validate_config(cfg: dict) -> dict:
                 f"'{url_field}' does not look like a valid URL "
                 f"(needs a scheme like https://).")
 
+    # ── Scene URL regexes (fx-newsensations-discovery-scene-rule) ──
+    patterns = cfg.get("crawler_scene_patterns")
+    if patterns is not None and not isinstance(patterns, str):
+        errors.append("'crawler_scene_patterns' must be text, one regex per line.")
+    elif patterns:
+        for line in patterns.splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            if len(text) > 512:
+                errors.append("'crawler_scene_patterns' has a line over 512 characters.")
+                continue
+            try:
+                re.compile(text)
+            except re.error as exc:
+                errors.append(
+                    f"'crawler_scene_patterns' line {text[:60]!r} is not a valid regex ({exc}).")
+
     # ── Numeric ranges ─────────────────────────────────────────────
     for field, (lo, hi) in NUMERIC_RANGES.items():
         if field not in cfg or cfg[field] in (None, ""):
@@ -831,6 +849,7 @@ _FIELD_TYPES = {
     "crawler_max_scrolls": ("integer", "Maximum infinite-scroll growth steps per page"),
     "crawler_delay_s": ("number", "Polite delay between page requests in seconds"),
     "crawler_title_fetch_limit": ("integer", "Maximum scene pages fetched for authoritative titles"),
+    "crawler_scene_patterns": ("string", "Scene URL regexes, one per line (set: discovery queues exactly the links that match)"),
 }
 
 # v3.66.468 WS4b: explicit choices for enum-typed fields. Surfaced in each

@@ -35,7 +35,7 @@ _CFG = {"sites": {"demo": {
 
 # Golden invariants captured from Slice 4 (behavior must not change in a presentation slice).
 # v3.66.468: +1 (chromium_extensions joined CFG_FIELDS as a gui-safe editable field).
-_EDITABLE_COUNT = 223  # fx-xhamster-login-verdict: +1 member_indicator (declared no-nav member check). dl95-xvideos-3: +1 auth_required (persisted public-listing override). Row 825: +1 kafka_event_streaming_enabled (opt-in LAN Kafka completion events). Row 775: +1 turnstile_one_click (opt-in local Turnstile tick). Row 374: +6 authenticated scene-crawler controls. Row 713: +3 per-site private-host opt-ins (plex_allow_private_host, jellyfin_allow_private_host, stash_allow_private_host). Row 780: +1 listing_url (bare content-URL fallback, restored to CFG_FIELDS). Row 851: +1 use_audio_normalization opt-in.
+_EDITABLE_COUNT = 224  # O1568e fx-newsensations-discovery-scene-rule: +1 crawler_scene_patterns (per-site scene URL regexes for discovery). fx-xhamster-login-verdict: +1 member_indicator (declared no-nav member check). dl95-xvideos-3: +1 auth_required (persisted public-listing override). Row 825: +1 kafka_event_streaming_enabled (opt-in LAN Kafka completion events). Row 775: +1 turnstile_one_click (opt-in local Turnstile tick). Row 374: +6 authenticated scene-crawler controls. Row 713: +3 per-site private-host opt-ins (plex_allow_private_host, jellyfin_allow_private_host, stash_allow_private_host). Row 780: +1 listing_url (bare content-URL fallback, restored to CFG_FIELDS). Row 851: +1 use_audio_normalization opt-in.
 _SAMPLE = {"max_concurrent": 999, "wait": 200, "delay": 3.5, "headless": "true",
            "skip_if_exists": "no", "password": "x", "username": "u",
            "cookie_max_age_hours": 12, "nope": 1, "chunk_size_mb": 2}

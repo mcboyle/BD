@@ -459,6 +459,9 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             "crawler_max_scrolls",
             "crawler_delay_s",
             "crawler_title_fetch_limit",
+            # fx-newsensations-discovery-scene-rule: the site's own scene URL
+            # regexes (one per line); set, they replace the thumbnail cohort.
+            "crawler_scene_patterns",
             # yt-dlp download_archive interop — read/write the archive
             # file so BD coexists with yt-dlp on the same library.
             "use_ytdlp_archive",
@@ -852,6 +855,7 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           "crawler_max_scrolls": 8,
           "crawler_delay_s": 1.0,
           "crawler_title_fetch_limit": 50,
+          "crawler_scene_patterns": "",
           # v3.43.75: yt-dlp download_archive interop. Default OFF;
           # opt-in per site with the path to the user's archive.
           "use_ytdlp_archive": False,

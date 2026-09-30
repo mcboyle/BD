@@ -214,6 +214,7 @@
     "crawler_max_scrolls": "full",
     "crawler_newest_n": "full",
     "crawler_title_fetch_limit": "full",
+    "crawler_scene_patterns": "full",
     "day_end": "full",
     "day_start": "full",
     "dedup_db_path": "full",
