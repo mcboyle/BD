@@ -11,8 +11,9 @@ from pathlib import Path
 from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials, write_login_evidence
-from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_UNREACHABLE_PREFIX,
-                                 LOGIN_VAULT_LOCKED_PREFIX, login_abort_check)
+from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_POST_CHALLENGE_STATUS,
+                                 LOGIN_UNREACHABLE_PREFIX, LOGIN_VAULT_LOCKED_PREFIX,
+                                 login_abort_check)
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
@@ -535,6 +536,9 @@ class AuthMixin:
                 # takeover window would reopen the login the operator cancelled.
                 if (not ok and allow_manual and had_template
                         and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
+                        # fx-vixen-post-challenge-fastfail: Cloudflare challenges
+                        # the login POST itself -- a takeover meets the same wall.
+                        and not str(msg).startswith(LOGIN_POST_CHALLENGE_STATUS)
                         and not str(msg).startswith(LOGIN_CANCELLED_PREFIX)
                         and not str(msg).startswith(LOGIN_VAULT_LOCKED_PREFIX)
                         and not isinstance(msg, _sk.LoginLockout)

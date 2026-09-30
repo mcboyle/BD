@@ -133,6 +133,9 @@ def _staged_password_retry(page, sb_candidates, pf_candidates, password):
 
 # dl95-kellymadisonmedia-1: do_login's verdict when the login page never loads.
 LOGIN_UNREACHABLE_PREFIX="Login page unreachable: "
+# fx-vixen-post-challenge-fastfail: Cloudflare challenged the credential POST
+# itself; passing it reloads as a GET and the credentials are never delivered.
+LOGIN_POST_CHALLENGE_STATUS="settled-challenge-post"
 LOGIN_CANCELLED_PREFIX="Login cancelled before submit: "
 # O1567 fx-relogin-vault-locked: refused before any site contact -- the vault
 # is still locked (a restart resumes workers before it unlocks).
@@ -650,7 +653,11 @@ def _trace_documents(page):
     the context -- method, origin+path, status, the Location target and
     Cloudflare's cf-mitigated header -- so a submit that lands on a challenge
     says WHICH request was challenged and what the origin answered (blacked:
-    POST, or the GET after a 302?). Never a query string, cookie or body."""
+    POST, or the GET after a 302?). Never a query string, cookie or body.
+
+    Returns the list of challenged POSTs ("POST <origin><path>") it fills in:
+    a 403 cf-mitigated=challenge on a POST (fx-vixen-post-challenge-fastfail)."""
+    challenged_posts = []
     def _on_response(response):
         try:
             request = response.request
@@ -666,6 +673,9 @@ def _trace_documents(page):
             mitigated = headers.get("cf-mitigated")
             if mitigated:
                 line += f" cf-mitigated={mitigated}"
+                if (request.method == "POST" and response.status == 403
+                        and mitigated.lower() == "challenge"):
+                    challenged_posts.append(f"POST {_origin(response.url) or ''}{parts.path}")
         except Exception:  # noqa: BLE001 -- a diagnostic line never breaks a login
             return
         sys.stderr.write(f"  {site_tag()}login trace: {line}\n")
@@ -676,6 +686,7 @@ def _trace_documents(page):
             page.on("response", _on_response)
         except (PWError, AttributeError):
             sys.stderr.write(f"  {site_tag()}login trace: not installed (page has no response events)\n")
+    return challenged_posts
 
 
 def _settled_non_success(page, config, status, why, hard_close):
@@ -2517,7 +2528,7 @@ def do_login(config, allow_manual_takeover=False):
         # success origin travels through a module slot instead.
         global _SWEEP_DECLARED_ORIGINS
         _SWEEP_DECLARED_ORIGINS={o for o in (_origin(success or ""),) if o}
-        _trace_documents(page)   # once: the re-entry and re-submit below are traced too
+        _post_challenged=_trace_documents(page)   # once: the re-entry and re-submit below are traced too
         ok,method=_submit_login(page,sb_candidates,pf_candidates)
         # Page closed mid-submit (or before) — the form likely auto-submitted
         # on a previous step. Try to read cookies; if we got any usable session
@@ -2786,6 +2797,17 @@ def do_login(config, allow_manual_takeover=False):
             sys.stderr.write(f"  {site_tag()}login: post-submit page did not redirect within {budget}s\n")
             return cur
         cur=_wait_transitional(cur)
+        # fx-vixen-post-challenge-fastfail (bd4 blacked T167 trace): Cloudflare
+        # challenged the credential POST. Clearing it reloads the URL as a GET
+        # (origin 404, credentials gone) and every re-submit is challenged
+        # again -- nothing below can log in. Stop on the first one and say what
+        # works instead.
+        if _post_challenged:
+            return _settled_non_success(
+                page, config, LOGIN_POST_CHALLENGE_STATUS,
+                f"Cloudflare challenges this site's login POST ({_post_challenged[0]} -> 403 "
+                "cf-mitigated=challenge) -- log in from a normal browser and import cookies",
+                _hard_close)
         if _is_cloudflare_challenge_page(page):
             sys.stderr.write(f"  {site_tag()}login: post-submit cloudflare challenge page\n")
             if clear_cloudflare_challenge(page):
