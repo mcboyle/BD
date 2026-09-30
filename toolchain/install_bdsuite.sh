@@ -1,10 +1,32 @@
 #!/usr/bin/env bash
 # install_bdsuite -- failure-atomic exact publication of the bd tool suite.
+#
+# Usage (from a checkout):  toolchain/install_bdsuite.sh
+#   BD_SUITE_BIN       tool generation dir            (default: $HOME/.local/bin)
+#   BD_SUITE_LINK_BIN  public bd / bd-* symlinks      (default: /usr/local/bin when
+#                      this user can write it, else $HOME/bin)
+#   BD_WORK_TREE       checkout to publish from       (default: this script's repo)
 set -u
 
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)" || exit 2
 DEST="${BD_SUITE_BIN:-$HOME/.local/bin}"
-LINK_DEST="${BD_SUITE_LINK_BIN:-/usr/local/bin}"
+# IA-06: a fresh box's ordinary user cannot write /usr/local/bin, and the
+# install died in mktemp with no hint. Unset BD_SUITE_LINK_BIN now falls back
+# to $HOME/bin -- unless /usr/local/bin already holds this suite's links,
+# which a second copy elsewhere would leave shadowing the new generation.
+if [ -n "${BD_SUITE_LINK_BIN:-}" ]; then
+  LINK_DEST="$BD_SUITE_LINK_BIN"
+elif [ -w /usr/local/bin ] || { [ ! -e /usr/local/bin ] && [ -w /usr/local ]; }; then
+  LINK_DEST=/usr/local/bin
+elif [ -e /usr/local/bin/bd ] || [ -L /usr/local/bin/bd ]; then
+  echo "ERROR: /usr/local/bin holds the bd suite's public links but is not writable by" \
+       "$(id -un); re-run as a user who can write it, or set BD_SUITE_LINK_BIN" >&2
+  exit 2
+else
+  LINK_DEST="$HOME/bin"
+  echo "NOTE: /usr/local/bin is not writable by $(id -un); public links go to" \
+       "$LINK_DEST (set BD_SUITE_LINK_BIN to choose; ~/bin joins PATH at next login)" >&2
+fi
 ENV_DEST="${BD_ENV_FILE_DEST:-$DEST/.bdenv.sh}"
 
 if [ "${BD_WORK_TREE+x}" = x ]; then
