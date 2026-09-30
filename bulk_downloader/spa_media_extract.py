@@ -491,8 +491,44 @@ def hls_variant_for(master_text: str, master_url: str,
 
 
 
+_XH_MULTI_HEIGHT_RE = re.compile(r"(?:^|,)\d{2,4}x(\d{3,4}):\d{3,4}p", re.I)
+
+
+def _xhamster_player_hls(model_id: str, hls_urls: Iterable[str]) -> list[dict[str, Any]]:
+    """fx-xhamster-member-quality: a MEMBER's scene page has no download menu
+    (spare12 Option A DOM read, 2026-09-30: Favorite/Comments/Share only), so the
+    scene's own source is the HLS master its player fetched from xhcdn, whose
+    path carries the zero-padded video id (/030/627/130/ for 30627130) and whose
+    multi= list names the heights. An ad pre-roll master (another host) or
+    another scene's master (another id) is never offered."""
+    digits = re.sub(r"\D", "", str(model_id or ""))
+    if not digits or len(digits) > 9:
+        return []
+    padded = digits.zfill(9)
+    id_path = f"/{padded[0:3]}/{padded[3:6]}/{padded[6:9]}/"
+    out: list[dict[str, Any]] = []
+    for u in list(hls_urls or [])[:64]:
+        try:
+            media = urlparse(str(u))
+        except ValueError:
+            continue
+        host = media.hostname or ""
+        if (media.scheme not in ("http", "https") or media.username or media.password
+                or not (host == "xhcdn.com" or host.endswith(".xhcdn.com"))
+                or not media.path.lower().endswith(".m3u8") or id_path not in media.path
+                or "_TPL_" not in media.path):
+            continue
+        heights = [int(h) for h in _XH_MULTI_HEIGHT_RE.findall(media.path.split("multi=", 1)[-1])]
+        if not heights or any(c["url"] == str(u) for c in out):
+            continue
+        out.append({"url": str(u), "label": f"{max(heights)}p", "height": max(heights),
+                    "size": 0, "source": "xhamster-player-hls", "filename": ""})
+    return out
+
+
 def xhamster_source_candidates(page_url: str, page) -> list[dict[str, Any]]:
-    """Read only the current scene's published MP4 download menu."""
+    """Read only the current scene's published MP4 download menu; with no menu
+    (a member's page), the scene player's own HLS master (fx-xhamster-member-quality)."""
     try:
         target = urlparse(page_url)
     except ValueError:
@@ -508,25 +544,29 @@ def xhamster_source_candidates(page_url: str, page) -> list[dict[str, Any]]:
             return []
         data = page.evaluate("""() => {
           const s = window.initials;
-          if (!s || !s.videoModel || !s.downloadDropdownComponent) return null;
+          if (!s || !s.videoModel) return null;
+          const dd = s.downloadDropdownComponent;
+          const hls = dd ? [] : performance.getEntriesByType('resource')
+              .map(e => e.name).filter(n => n.includes('.m3u8')).slice(0, 64);
           return {model: {id: s.videoModel.id, pageURL: s.videoModel.pageURL},
-                  menu: {videoId: s.downloadDropdownComponent.videoId,
-                         mp4: s.downloadDropdownComponent.sources?.mp4}};
+                  menu: dd ? {videoId: dd.videoId, mp4: dd.sources?.mp4} : null, hls};
         }""")
     except Exception:
         return []
     if not isinstance(data, dict):
         return []
     model, menu = data.get("model"), data.get("menu")
-    if not isinstance(model, dict) or not isinstance(menu, dict):
-        return []
-    if not model.get("id") or str(model["id"]) != str(menu.get("videoId")):
+    if not isinstance(model, dict) or not model.get("id"):
         return []
     try:
         scene = urlparse(str(model.get("pageURL") or ""))
     except ValueError:
         return []
     if (scene.hostname, scene.path.rstrip("/")) != (target.hostname, target.path.rstrip("/")):
+        return []
+    if menu is None:
+        return _xhamster_player_hls(str(model["id"]), data.get("hls") or [])
+    if not isinstance(menu, dict) or str(model["id"]) != str(menu.get("videoId")):
         return []
     sources = menu.get("mp4")
     if not isinstance(sources, dict):
