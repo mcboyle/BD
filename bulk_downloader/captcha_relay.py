@@ -107,6 +107,12 @@ def _takeover_idle_timeout_s() -> int:
     return num("captcha_takeover_idle_timeout_s",
                "BD_CAPTCHA_TAKEOVER_IDLE_TIMEOUT_S", 300, int)
 
+# fx-captcha-visible-takeover-idle: a "visible" take-over is a real browser on
+# the server display, worked over VNC/RDP -- its input never passes through
+# submit_takeover_input, so the idle clock above cannot see an operator who is
+# solving. Such a session is bounded by captcha_pending_timeout_s only.
+_INPUT_UNSEEN_MODES = frozenset({"visible"})
+
 # Cap on simultaneous pending captcha URLs. Defense against runaway state.
 MAX_PENDING = 64
 
@@ -640,6 +646,7 @@ def sweep_report(now: Optional[float] = None) -> dict:
                           # by the orphan-channel cross-check below
             expired = now - p.detected_at > expire_after
             idle = (p.status == "solving"
+                    and p.mode not in _INPUT_UNSEEN_MODES
                     and now - (p.last_input_at or p.detected_at) > idle_after)
             if expired or idle:
                 p.status = "dismissed"
