@@ -497,10 +497,28 @@ def _success_url_matches(success_url, final_url):
         return final_url.startswith(success_url)
 
 
+def _root_success_on_member_host(success_url, final_url, login_url):
+    """fx-wowgirls-relogin-root-success: a ROOT success URL on a host other
+    than the login host names the member host, not its front page. Row 722's
+    root-only rule guards a login page that sits on the success host
+    (bangbros); with the login elsewhere (auth.wowgirls.com -> venus.wowgirls.com)
+    any landing on that host is the member area -- wowgirls lands on
+    /search/?query=. The error-query rule still applies (read at the root)."""
+    try:
+        sx, fx, lx = urlsplit(success_url), urlsplit(final_url), urlsplit(login_url or "")
+    except ValueError:
+        return False
+    if (sx.path or "/") != "/" or not sx.netloc or not lx.netloc or lx.netloc == sx.netloc:
+        return False
+    return (fx.netloc == sx.netloc
+            and _success_url_matches(success_url, urlunsplit((fx.scheme, fx.netloc, "/", fx.query, ""))))
+
+
 def success_url_reached(success_url, final_url, login_url=""):
     """Row 722: the ONE success-URL predicate for submit.py. Structural
     match (never substring) AND never the login page itself."""
-    if not _success_url_matches(success_url, final_url):
+    if not (_success_url_matches(success_url, final_url)
+            or _root_success_on_member_host(success_url, final_url, login_url)):
         return False
     if login_url:
         try:
