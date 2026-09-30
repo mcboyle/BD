@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1744 - train172: row
+
+T172 = O1568 train of the next BOARDed rows, applied on main after T171:
+- fx-harden-na-login-settled (H4-B, ORDER-HARDEN-T165 fresh149 naughtyamerica; lens bd-cx-lens): _worker_loop refreshes the persistent context's cookies before pulling a URL, but _check_cookies_or_relogin can publish a fresh jar inside _process_one after that refresh, so the scene navigated with the stale session; _process_one now snapshots the jar publication clock before the check and calls the existing snapshot-first _refresh_worker_cookies before ctx.new_page/goto (no-op without a new jar; an injection failure is logged and navigation continues; the owned-context branch is unchanged) (bulk_downloader/runner.py, tests/test_o1567_fx_harden_na_login_settled.py).
+
+
 ## v3.66.1743 - train171: row
 
 T171 = O1568 train of the next BOARDed rows, applied on main after T170:

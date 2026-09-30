@@ -70,9 +70,9 @@
       "sha256": "bbde9019f5069570b17e8c20261dc23f8485d67fca4fcee832a34d8b8a23f2d2"
     },
     {
-      "bytes": 3008,
+      "bytes": 3006,
       "key": "tests/test_v3_43_26_qb_bridge.py::test_runner_torrent_url_marks_needs_review_on_qb_failure::src[pos:pos + 3000]::1",
-      "sha256": "dcfcf82d02a58aff7625fd0f35418fcf5f9fef6943d3dd98ad39c6676b8722f6"
+      "sha256": "331843368cae2c3d2ce22cfc05e7dcf0f040bce9b758e26eeb89eb9e650be4d9"
     },
     {
       "bytes": 1604,
