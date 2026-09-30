@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1733 - train161: row
+
+T161 = O1568 train of the row671 pin fix (first, per PM) and the next two BOARDed rows, applied on main after T160:
+- fx-row671-pin-662 (bd-integrator-A2-A, PM operator order after the T160 red): the row671 reviewed-selector census pins move 660 -> 662 with the new corpus digest for the two vixen_network selectors T160 added; T160 was landed red on the operator's ruling (landing/T160-RED-CLASSIFY.md) (tests/test_row671_reviewed_template_selectors_are_enumerated.py).
+- fx-challenge-autoreg (bd-worker-A10-A, PM operator ruling ORDER-FX-CHALLENGE-AUTOREG.md; lens bd-kimi-lens): opt-in test (BD_FX_CHALLENGE_AUTOREG_CANDIDATE) for the host-side challenge-board watcher that turns app-published parks (awaiting_manual_login / awaiting_manual_download / captcha pending on each VM in SITE-ASSIGNMENT.tsv) into NEEDS-HUMAN.tsv rows; the watcher itself is a harness candidate (bd-persist/harness-work/FIX/fx-challenge-autoreg/bd-challenge-board.py), not repo code (tests/test_fx_challenge_autoreg.py, skipped without the opt-in).
+- fx-xhamster-hls-filename-t158 (lens bd-kimi-lens): bare HLS tier leaves with an optional bitrate (`.NNNNb`), an AV1/H264/H265 codec suffix, or a doubled `.mp4` are still recognised as tier leaves so the scene title names the file, preserving the T158 4k_h264 fix, real named-scene leaves and disposition names (runner_transport.py leaf regexes).
+
+
 ## v3.66.1732 - train160: row
 
 T160 = O1568 train of the next BOARDed row, applied on main after T159:
