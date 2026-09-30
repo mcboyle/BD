@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5658,
+  "edge_count": 5659,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4578,6 +4578,9 @@
     "tests/test_o1567_fx_vixen_extractor_honours_min_resolution.py": [
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_extractors.py"
+    ],
+    "tests/test_o1567_fx_vixen_login_challenge.py": [
+      "bulk_downloader/stealth.py"
     ],
     "tests/test_o1567_fx_vixen_member_download_modal.py": [
       "bulk_downloader/runner.py",

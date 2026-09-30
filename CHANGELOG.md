@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1737 - train165: row
+
+T165 = O1568 train of the next BOARDed row, applied on main after T164:
+- fx-vixen-login-challenge bug 1 (bd-worker-A4-A, operator ORDER-FX-VIXEN-LOGIN-CHALLENGE.md; lens bd-kimi-lens): on the vixen login page the stealth library's iframe_content_window evasion pins a srcdoc iframe's contentWindow to a proxy of the top window and re-defines srcdoc non-writable before the frame attaches, so the page's FingerprintJS-style probe never loads its frame, litters the top document and never finishes; apply_to_page now also builds Stealth(iframe_content_window=False) beside the navigator_permissions switch from fx-blacked-login-blocked, measured clean on the real page with the full app stack (bulk_downloader/stealth.py). Bug 2, the unwired "I'm Done" control, is a separate UI cut for the next train.
+
+
 ## v3.66.1736 - train164: row
 
 T164 = O1568 train of the next BOARDed row, applied on main after T163:
