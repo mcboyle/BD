@@ -2714,7 +2714,7 @@ class TransportMixin:
             sys.stderr.write(f"  download: late gate pass raised {type(e).__name__}: {e}\n")
             return []
 
-    def _fallback_to_page_media(self, page, page_url, why, scene_own_only=False):
+    def _fallback_to_page_media(self, page, page_url, why, scene_own_only=False, taller_than=0):
         """dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
         link, or clicked with no download event (pussyspace: "/1080p/" and
         "cat/hd/" category links, a captcha-gated "/dl/<id>/" page) -- while
@@ -2732,7 +2732,10 @@ class TransportMixin:
         force" hold itself (dl95-porn00-3) and this returns True.
 
         scene_own_only (dl95-porn00-3-live-1): only this scene's own sources
-        answer (see ``_try_spa_api_media_extractor``)."""
+        answer (see ``_try_spa_api_media_extractor``).
+
+        taller_than (fx-xnxx-hls-720-to-sd): a clicked file of known tier that
+        is not held asks only for an option ABOVE it, and never holds."""
         extractor = getattr(self, "_try_spa_api_media_extractor", None)
         if not callable(extractor):
             return False
@@ -2765,6 +2768,9 @@ class TransportMixin:
         try:
             # dl95-porn00-3: options only below the minimum -> the named hold.
             scope = {"scene_own_only": True} if scene_own_only else {}
+            if taller_than > 0:
+                return bool(extractor(page_url, page, min_height=taller_than + 1,
+                                      hold_below=False, **scope))
             return bool(extractor(page_url, page, min_height=0 if forced else min_res,
                                   hold_below=True, **scope))
         except Exception as e:  # noqa: BLE001 -- as above
@@ -2861,20 +2867,37 @@ class TransportMixin:
         file's own name (URL leaf + suggested name; never the query, which carries
         tokens), else the label a revealed quality modal showed: below the bar -> needs_review "Approve to force", as the pre-click
         gate does, and the started download is cancelled. A name that says nothing
-        about resolution stays unknown and proceeds (unchanged). Returns True iff held."""
-        if (best.get("score",0) or 0)>0:
-            return False            # the pre-click gate already judged it
-        min_res=int(float(self.config.get("min_resolution",DEFAULT_MIN_RESOLUTION) or 0))
+        about resolution stays unknown and proceeds (unchanged). Returns True iff held.
+
+        fx-xnxx-hls-720-to-sd: Approve lifts the bar, it never lowers the tier. A
+        file of known tier that is not held here -- any forced job's (scored or
+        not), or an unscored file at or above the bar -- gives way to a taller
+        option of the scene's own media (xnxx: its 720p setVideoHLS variant over
+        the modal's 360p mp4); a taller option that cannot be fetched fails the
+        job, never a silent lower-tier save. An unforced labelled row the pre-click
+        gate passed is asked the same only when a taller (or untiered) manifest
+        was seen on the wire. Returns True iff the job was taken over."""
+        scored=(best.get("score",0) or 0)>0
         with self._lock:
-            if self.jobs.get(page_url,{}).get("force_download"):
-                return False
+            forced=bool(self.jobs.get(page_url,{}).get("force_download"))
+        min_res=int(float(self.config.get("min_resolution",DEFAULT_MIN_RESOLUTION) or 0))
         from .detect import res_score
         leaf=Path(urlsplit(dl.url or "").path).name
         got=res_score(f"{leaf} {suggested}")
         if got<=0:
             got=best.get("_revealed_score") or 0   # the revealed modal's label
-        if not 0<got<min_res:
+        if got<=0 and scored:
+            got=best.get("score") or 0             # the forced row's own label
+        if got<=0:
+            return False            # a name that says nothing: unknown, proceeds
+        if scored and not forced:
+            # the pre-click gate judged the row against the bar; only a taller
+            # adaptive stream the watcher already saw reopens it (r3)
+            if got>=min_res and self._taller_manifest_seen(got):
+                return self._file_below_own_media(page,page_url,dl,got,leaf or suggested)
             return False
+        if forced or got>=min_res:
+            return self._file_below_own_media(page,page_url,dl,got,leaf or suggested)
         avail=res_label(got)
         try: dl.cancel()
         except Exception as cancel_exc:
@@ -2893,6 +2916,47 @@ class TransportMixin:
         self._update_job(page_url,"needs_review",msg,screenshot=ss)
         db_log(self.site_id,self.config.get("name","?"),page_url,"needs_review","",0,
                f"below {min_res}p; got {avail} (file {leaf or suggested})",ss)
+        return True
+
+    def _taller_manifest_seen(self,got):
+        """fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
+        stream taller than ``got``, or one whose name gives no tier (a master).
+        The watcher's queue is the site's, not the scene's: this only decides
+        whether to ask; ``_file_below_own_media`` asks the scene's own media."""
+        from .detect import res_score
+        for e in list(getattr(self,"manifest_urls",None) or []):
+            u=e.get("url") if isinstance(e,dict) else None
+            if not u:
+                continue
+            tier=res_score(Path(urlsplit(u).path).name)
+            if tier<=0 or tier>got:
+                return True
+        return False
+
+    def _file_below_own_media(self,page,page_url,dl,got,name):
+        """fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
+        scene's own media answer (an ad or related clip is never taller "for" it).
+        The clicked download is cancelled only once it is not the one kept."""
+        self._spa_offered_height=0
+        avail=res_label(got)
+        took=self._fallback_to_page_media(page,page_url,f"file {name} is {avail}",
+                                          scene_own_only=True,taller_than=got)
+        offered=int(getattr(self,"_spa_offered_height",0) or 0)
+        if not took and offered<=got:
+            return False            # nothing of the scene's own is taller: the file proceeds
+        try: dl.cancel()
+        except Exception as cancel_exc:  # noqa: BLE001 -- a finished/aborted download
+            sys.stderr.write(f"  download: cancel of the {avail} download was a no-op "
+                             f"({type(cancel_exc).__name__})\n")
+        if took:
+            return True
+        ss=self._screenshot(page,page_url)
+        msg=(f"The scene offers {res_label(offered)} but it could not be downloaded; "
+             f"not saving the {avail} file {name} in its place.")
+        sys.stderr.write(f"  download: failed {page_url[-40:]} — {msg}\n")
+        self._update_job(page_url,"failed",msg,screenshot=ss)
+        db_log(self.site_id,self.config.get("name","?"),page_url,"failed","",0,
+               f"{res_label(offered)} offered, fetch failed; refused {avail} file {name}",ss)
         return True
 
     def _browser_save_stopped(self, job_url):

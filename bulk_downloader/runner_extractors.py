@@ -1354,6 +1354,7 @@ class ExtractorsMixin:
         page-media/API sweep, which also carries related scenes' media.
         """
         self._spa_embed_hosts = []   # never a previous job's embed hosts
+        self._spa_offered_height = 0   # fx-xnxx-hls-720-to-sd: tallest KNOWN option offered
         try:
             from . import spa_media_extract as _spa
         except Exception as e:
@@ -1489,6 +1490,8 @@ class ExtractorsMixin:
             return False
         self._spa_measure_hls_masters(page, url, cands, _spa)  # tpl95-xnxx-1
         ranked = _spa.rank_candidates(cands)
+        # fx-xnxx-hls-720-to-sd: read by a forced by-file caller whose rescue missed.
+        self._spa_offered_height = max((int(c.get("height") or 0) for c in ranked), default=0)
         min_res = int(float(self.config.get("min_resolution", DEFAULT_MIN_RESOLUTION) or 0))
         allow_av1 = bool(self.config.get("allow_av1", True))
         if not allow_av1:
