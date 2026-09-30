@@ -3788,10 +3788,13 @@ class TransportMixin:
                     elif not probed_rendered.lower().endswith(_SIZED_HREF_MEDIA_EXTS + (ext.lower(),)):
                         probed_rendered += ext
                     new_dest = dl_dir / probed_rendered
-                    if new_dest != final_path:
+                    # fx-adulttime-grant-exists: the name chosen before the
+                    # staging reservation IS the probed name when the tiers
+                    # agree; a collision suffix ("_1") is not a different name.
+                    if new_dest not in (final_path, dl_dir / rendered):
                         new_dest.parent.mkdir(parents=True, exist_ok=True)
-                        if new_dest.exists() and new_dest != final_path:
-                            new_dest = Path(safe_dest(str(new_dest)))
+                        if new_dest.exists():
+                            new_dest = safe_dest(new_dest)
                         try:
                             final_path.rename(new_dest)
                             sys.stderr.write(
