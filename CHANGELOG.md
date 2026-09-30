@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1736 - train164: row
+
+T164 = O1568 train of the next BOARDed row, applied on main after T163:
+- fx-adulttime-grant-exists (bd-worker-A3-A, ORDER-FX-ADULTTIME-GRANT-EXISTS.md; live test3 03:36Z): when a bare-leaf download's chosen name was already taken, the staging reservation appended a collision suffix and the probed-tier reconcile then treated that "_1" path as a different name, calling safe_dest with a str and crashing with "[BD-GEN-000] 'str' object has no attribute 'exists'" after the file was complete; the reconcile now treats the pre-reservation name as the probed name when the tiers agree and passes safe_dest the Path it takes by design, so an existing file yields a suffixed sibling instead of a crash (bulk_downloader/runner_transport.py).
+
+
 ## v3.66.1735 - train163: row
 
 T163 = O1568 train of the T162 dependency-census fix (first, per PM) and the rows BOARDed at cut time (ORDER-ACCEL-T163 item 3), applied on main after T162:
