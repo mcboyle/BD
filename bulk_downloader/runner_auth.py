@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .db import db_log, session_event_record
 from .login import do_login
-from .login_impl.replay import redact_url_credentials
+from .login_impl.replay import redact_url_credentials, write_login_evidence
 from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_UNREACHABLE_PREFIX,
                                  LOGIN_VAULT_LOCKED_PREFIX, login_abort_check)
 from . import cloak as _cloak
@@ -46,6 +46,25 @@ _LOGIN_WALL_PEEK = 65536
 # fx-tiny4k-relogin-loop: how long a settled-ok login disproves a URL's logged-out
 # shape (the requeued re-check follows within a minute or two on test1).
 _SHAPE_DISPROOF_WINDOW_S = 600
+# fx-auth-expired-evidence: keep an "auth" verdict's page at most once per signal per window.
+_AUTH_EVIDENCE_WINDOW_S = 600
+_SCRIPT_BODY_RE = re.compile(r"(<script\b[^>]*>).*?(</script\s*>)", re.I | re.S)
+_INPUT_VALUE_RE = re.compile(r"(<input\b[^>]*?\svalue\s*=\s*)(\"[^\"]*\"|'[^']*'|[^\s>]+)", re.I)
+
+
+class _ScrubbedPage:
+    """The page as write_login_evidence reads it, minus what a member page inlines:
+    script bodies and input values (session tokens, account data, typed text)."""
+    def __init__(self, page):
+        self._page = page
+
+    def content(self):
+        html = self._page.content()
+        html = _SCRIPT_BODY_RE.sub(r"\1/* removed */\2", html)
+        return _INPUT_VALUE_RE.sub(r'\1"<REDACTED>"', html)
+
+    def __getattr__(self, name):
+        return getattr(self._page, name)
 _HTML_START_RE = re.compile(rb"^\s*(?:<!--.*?-->\s*)*<(?:!doctype\s+html|html|head)\b", re.I | re.S)
 # The URL an HTML page declares for itself: canonical link, og:url, meta refresh.
 _SELF_URL_RE = re.compile(
@@ -1225,7 +1244,8 @@ class AuthMixin:
         try:
             cur=page.url.lower()
             if any(h in cur for h in BLOCK_HINTS): return "rl"
-            if any(h in cur for h in AUTH_HINTS): return "auth"
+            hint=next((h for h in AUTH_HINTS if h in cur),None)
+            if hint: return self._auth_verdict(page,url,"url",hint)
             try:
                 body=page.locator("body").inner_text(timeout=3000)
                 m=RL_RE.search(body[:3000])
@@ -1234,7 +1254,7 @@ class AuthMixin:
                 if m and MEMBERS_ONLY_RE.search(body[:3000]) and all(
                         RL_DENIAL_ONLY_RE.fullmatch(x.group(0))
                         for x in RL_RE.finditer(body[:3000])):
-                    return "auth"
+                    return self._auth_verdict(page,url,"members-only",m.group(0))
                 # O1567: a page that is ONLY a bare 403/denied error, on a site that
                 # has a login_url, is the logged-out wall of a member site (test4
                 # site-ma-brazzers/-bangbros: "403 Forbidden Request is denied"),
@@ -1269,17 +1289,48 @@ class AuthMixin:
                 sys.stderr.write(
                     f"  {site_tag(self.site_id)}auth: page offers a login and "
                     f"no logout -- the worker session is logged out ({url[:90]})\n")
-                return "auth"
+                return self._auth_verdict(page,url,"logged-out","login offered, no logout")
             # In-place login wall (no redirect): check the page HTML for a
             # login-form signal. Catches a session that expired mid-process
             # where the URL didn't change. Detect-side: we recover, never
             # evade.
             try:
                 html=page.content()
-                if AUTH_BODY_RE.search(html[:20000]): return "auth"
+                mb=AUTH_BODY_RE.search(html[:20000])
+                if mb: return self._auth_verdict(page,url,"body",mb.group(0))
             except Exception: pass
         except Exception: pass
         return None
+    def _auth_verdict(self,page,url,signal,detail):
+        """fx-auth-expired-evidence (O1567): an 'auth' verdict names the
+        signal that fired and the URL the worker READ, and keeps that page
+        (HTML + PNG) in login_evidence. Measured on adulttime (test3): a
+        logged-in imported session was judged "Session expired" with no
+        trace of why. Evidence is best effort and never changes the verdict.
+
+        The log line is written on every verdict; the page is kept at most once
+        per signal per _AUTH_EVIDENCE_WINDOW_S (this path runs for every job on
+        every worker and nothing prunes login_evidence), with script bodies and
+        input values blanked (a member page inlines its session data)."""
+        try: cur=redact_url_credentials(str(page.url))
+        except Exception: cur="?"
+        sys.stderr.write(
+            f"  {site_tag(getattr(self,'site_id',None))}auth: O1567-AUTH-EVIDENCE "
+            f"signal={signal} match={str(detail)[:80]!r} at {cur[:160]} "
+            f"(job {str(url)[:90]})\n")
+        kept=self.__dict__.setdefault("_auth_evidence_at",{})
+        now=time.time()
+        if now-kept.get(signal,float("-inf"))<_AUTH_EVIDENCE_WINDOW_S:
+            return "auth"
+        kept[signal]=now
+        try:
+            ev=write_login_evidence(_ScrubbedPage(page),getattr(self,"config",None) or {},cur,
+                                    f"auth-required {signal}")
+            if ev:
+                sys.stderr.write(f"  {site_tag(getattr(self,'site_id',None))}auth: evidence kept at {ev}\n")
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag(getattr(self,'site_id',None))}auth: evidence not kept: {e}\n")
+        return "auth"
     def _login_wall_rejects(self, url, path):
         """dl95-eporner-1: True when the downloaded file is the site's login
         page (login_wall_in_body). The body is quarantined to _failed/ and
