@@ -107,7 +107,8 @@ _NAV_PATH_RE = re.compile(
     # dl95-pussyspace-1: a root quality/category listing ("/1080p/", "/hd/",
     # "/cat/hd/") is a nav link, not a rendition; a resolution label alone
     # never overrides it (a media file under it still carries a strong signal).
-    r"cats?|\d{3,4}p|[48]k|u?hd|fhd)"
+    # fx-youjizz-hd-navlink: youjizz spells its HD listing /highdefinition/<page>.html.
+    r"cats?|\d{3,4}p|[48]k|u?hd|fhd|high-?definition)"
     r"(?:/|\?|#|$)", re.I)
 # A URL signal strong enough to OVERRIDE a nav-path match (real media/download).
 # Resolution-label alone is intentionally NOT strong: a nav URL can carry a

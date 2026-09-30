@@ -2311,8 +2311,10 @@ def _is_listing_filter_href(el, text, page_url=""):
 # dl95-tube8-2 / dl95-porn00-1 (live 2026-09-28/29): tube8 spells the category
 # segment /cat/ ("HD /cat/hd/" scored 720p) and KVS sites /category-name/<x>/ and
 # /categories-list/ (porn00 "4K /category-name/4k/" scored 2160p).
+# fx-youjizz-hd-navlink (spare12 live 2026-09-29): youjizz's header HD toggle is
+# page 1 of its HD listing, /highdefinition/1.html ("HD" scored 720p).
 _LISTING_PATH_RE = re.compile(
-    r"(?:^|/)(?:tags?|categor(?:y|ies)(?:-[a-z]+)?|cat|search|models?)(?:/|$|\?)", re.I)
+    r"(?:^|/)(?:tags?|categor(?:y|ies)(?:-[a-z]+)?|cat|search|models?|high-?definition)(?:/|$|\?)", re.I)
 _LISTING_FILE_PATH_RE = re.compile(
     r"\.(?:mp4|m4v|mkv|webm|mov|avi|wmv|flv|ts|m3u8|mpd|zip|rar|7z)(?:$|[?#])"
     r"|/(?:stream|download|dl)(?:/|$)", re.I)
