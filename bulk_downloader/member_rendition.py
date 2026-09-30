@@ -77,8 +77,15 @@ PROBE_LIMIT = 24
 
 
 def is_login_site(config) -> bool:
-    """A site that logs in (a login_url), as runner_auth._page_shows_logged_out asks."""
-    return str((config or {}).get("login_url") or "").startswith("http")
+    """A site that logs in (a login_url), as runner_auth._page_shows_logged_out asks.
+
+    O1567 fx-auto-approve-loginfree: a site that declares auth_required=False
+    has no members area even with an http login_url (bd3 spankbang), so there
+    is no public tier to hold -- the logged-out page's file is the scene. The
+    explicit bool wins, as in scene_crawler._site_is_public."""
+    config = config or {}
+    return (config.get("auth_required") is not False
+            and str(config.get("login_url") or "").startswith("http"))
 
 
 def normalize(value, base="") -> str:
