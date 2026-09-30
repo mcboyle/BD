@@ -63,14 +63,15 @@ def _shell_population(root: Path) -> Census:
         return Census("UNKNOWN", (), ())
     files: list[str] = []
     for rel in filter(None, listing.stdout.split("\0")):
+        # The shebang is read as bytes: a tracked binary (an image beside a
+        # helper) has no shell shebang and is excluded by that stated reason.
+        # A shell file that does not decode still reports UNKNOWN below.
         try:
-            head = (root / rel).read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError):
+            with open(root / rel, "rb") as handle:
+                first = handle.readline()
+        except OSError:
             return Census("UNKNOWN", (), ())
-        if not head:
-            continue
-        first = head[0]
-        if first.startswith("#!") and ("/sh" in first or "bash" in first):
+        if first.startswith(b"#!") and (b"/sh" in first or b"bash" in first):
             files.append(rel)
     if not files:
         # Zero is not a denominator: say so instead of reporting no findings.
@@ -156,8 +157,11 @@ def _fixture_repo(tmp_path: Path, seed: str, read_state: bool = True) -> Path:
         "OTHER_STATE=OK\n"
         'echo "$OTHER_STATE"\n',
         encoding="utf-8")
+    # Excluded by reason: a tracked binary asset, which is not UTF-8 text.
+    (tmp_path / "scripts" / "ref_frame.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\xff\xfe")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "add", "scripts/deploy.sh",
+    subprocess.run(["git", "add", "scripts/deploy.sh", "scripts/ref_frame.png",
                     "toolchain/bin/bd-tool", "toolchain/bin/bd-shell"],
                    cwd=tmp_path, check=True)
     return tmp_path
