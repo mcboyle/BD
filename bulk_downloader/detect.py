@@ -2640,6 +2640,63 @@ def child_frames(page):
     return [f for f in frames if is_rendered(f)]
 
 
+_DOM_NODE_KEY_JS = (
+    "e => { const p = []; for (let n = e; n && n.parentNode; n = n.parentNode) "
+    "p.push(Array.prototype.indexOf.call(n.parentNode.childNodes, n)); "
+    "const kind = x => x ? x.tagName + '.' + (x.getAttribute('class') || '') : ''; "
+    "return [p.join('/'), kind(e) + '|' + kind(e.parentElement)]; }")
+
+
+def _dom_node_key(candidate):
+    """``(path, kind)`` for the candidate's element, or None when unreadable.
+
+    ``path`` is its child-index path from the document root: two learned
+    selectors' locators for one element are different Locator objects, and
+    this path is what they share.  ``kind`` is the element's and its parent's
+    tag and class -- what makes two option links the same control."""
+    try:
+        key = candidate["locator"].evaluate(_DOM_NODE_KEY_JS)
+        return (key[0], key[1])
+    except Exception:
+        return None
+
+
+def _widen_quality_pinned_group(winning_group, later_groups, page_proves_affinity):
+    """fx-dfxtra-quality-pin: ``(group, excluded)`` -- the broadest later learned
+    group that is the winner with its quality pin removed, else the winner.
+
+    MEASURED test1 T175 (dfxtra 291197): the O1517 template teaches
+    ``...[href*='/1080p/']`` first and the same option links unpinned second.
+    The first in-scope group wins and only its rows reach ``_all_candidates``,
+    so quality_preference ``...,2160,...,1080`` could only pick 1080p while the
+    4K row sat in the second group.
+
+    "Pin removed" is measured, not assumed: the later group's in-scope rows
+    must STRICTLY CONTAIN the winner's elements AND every one of them must be
+    the same kind of control (element and parent tag+class) as a winner row.
+    A broader selector that also reaches a different control (a bonus or
+    trailer link elsewhere on the page) is not the pin removed and never
+    replaces the winner (lens D1-D probe G); neither does a different control
+    nor an unreadable element.  Among qualifying groups the broadest wins, so
+    quality_preference decides over every tier the page offers."""
+    win = [_dom_node_key(c) for c in winning_group[1]]
+    if None in win:
+        return winning_group, []
+    keys = {k[0] for k in win}
+    kinds = {k[1] for k in win}
+    chosen, chosen_excluded, width = winning_group, [], len(keys)
+    for sel, group in later_groups:
+        scoped, excluded = _scoped_candidates(
+            group, page_proves_affinity=page_proves_affinity)
+        later = [_dom_node_key(c) for c in scoped]
+        if None in later or any(k[1] not in kinds for k in later):
+            continue
+        later_keys = {k[0] for k in later}
+        if keys < later_keys and len(later_keys) > width:
+            chosen, chosen_excluded, width = (sel, scoped), excluded, len(later_keys)
+    return chosen, chosen_excluded
+
+
 def _learned_row_roots(page):
     """The top document, then -- lazily, only if asked -- its child frames."""
     yield page
@@ -2934,7 +2991,7 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             scored_groups = hidden_groups
         page_proves_affinity = any(
             _candidate_is_in_scope(c) for _s, g in scored_groups for c in g)
-        for sel, group in scored_groups:
+        for gi, (sel, group) in enumerate(scored_groups):
             scoped, excluded = _scoped_candidates(
                 group, page_proves_affinity=page_proves_affinity)
             # EVERY reviewed group contributes its refused evidence, the
@@ -2951,6 +3008,12 @@ def _find_best_download(page, custom, learned, runner, _page_url,
             # Retaining it as an unscoped fallback is the defect itself on the
             # learned path.  Let the next group -- and failing that the wide
             # sweep -- look at the page instead.
+        if winning_group:
+            # fx-dfxtra-quality-pin: a winner that is a strict subset of a later
+            # group's rows is a quality pin, not a different control.
+            winning_group, wider_excluded = _widen_quality_pinned_group(
+                winning_group, scored_groups[gi + 1:], page_proves_affinity)
+            learned_excluded.extend(wider_excluded)
         selected_group = winning_group
         if selected_group:
             # Work identity is global across the learned chain. The first group
