@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from playwright.sync_api import sync_playwright, Error as PWError, TimeoutError as PWTimeout
 from ..constants import STEALTH_JS
 from ..log import login_site, login_site_id, site_tag
@@ -643,6 +643,39 @@ def _watch_credential_posts(page, pf_candidates):
     except (PWError, AttributeError):
         page.on("request", _on_request)
     return posts
+
+
+def _trace_documents(page):
+    """fx-vixen-challenge-trace: journal every top-level document response of
+    the context -- method, origin+path, status, the Location target and
+    Cloudflare's cf-mitigated header -- so a submit that lands on a challenge
+    says WHICH request was challenged and what the origin answered (blacked:
+    POST, or the GET after a 302?). Never a query string, cookie or body."""
+    def _on_response(response):
+        try:
+            request = response.request
+            if request.resource_type != "document" or response.frame.parent_frame is not None:
+                return
+            parts = urlsplit(response.url)
+            line = f"{request.method} {_origin(response.url) or ''}{parts.path} -> {response.status}"
+            headers = response.headers
+            location = headers.get("location")
+            if location:
+                target = urljoin(response.url, location)
+                line += f" Location {_origin(target) or ''}{urlsplit(target).path}"
+            mitigated = headers.get("cf-mitigated")
+            if mitigated:
+                line += f" cf-mitigated={mitigated}"
+        except Exception:  # noqa: BLE001 -- a diagnostic line never breaks a login
+            return
+        sys.stderr.write(f"  {site_tag()}login trace: {line}\n")
+    try:
+        page.context.on("response", _on_response)
+    except (PWError, AttributeError):
+        try:
+            page.on("response", _on_response)
+        except (PWError, AttributeError):
+            sys.stderr.write(f"  {site_tag()}login trace: not installed (page has no response events)\n")
 
 
 def _settled_non_success(page, config, status, why, hard_close):
@@ -2484,6 +2517,7 @@ def do_login(config, allow_manual_takeover=False):
         # success origin travels through a module slot instead.
         global _SWEEP_DECLARED_ORIGINS
         _SWEEP_DECLARED_ORIGINS={o for o in (_origin(success or ""),) if o}
+        _trace_documents(page)   # once: the re-entry and re-submit below are traced too
         ok,method=_submit_login(page,sb_candidates,pf_candidates)
         # Page closed mid-submit (or before) — the form likely auto-submitted
         # on a previous step. Try to read cookies; if we got any usable session
