@@ -111,7 +111,7 @@ def test_a_mislabelled_file_that_cannot_be_removed_is_said(refused_removal, tmp_
     r = refused_removal(_mp4(tmp_path / "480.mp4", 854, 480), min_resolution=1080)
     assert r._try_spa_api_media_extractor(SCENE, _Page([LABELLED_1080])) is True
     assert r.updates[-1][0] == "needs_review" and r.updates[-1][1].startswith(
-        "Landed 480p though labelled 1080p"), r.updates
+        "Measured 480p (below 1080p minimum); source advertised 1080p"), r.updates
     said = _cleanup(r)
     assert said and "not removed" in said[-1] and "PermissionError" in said[-1], (
         f"DOT95_PM2_BEEG2_CLEANUP_SILENT: {r.events}")

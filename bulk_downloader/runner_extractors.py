@@ -1638,8 +1638,10 @@ class ExtractorsMixin:
                 fname = ""
         # API/media transfers bypass the DOM transport destination resolver.
         from .runner_transport import resolve_media_leaf_name
+        source_fname = fname
+        website_title = history_title_kwargs(self, url).get("title", "")
         fname = resolve_media_leaf_name(
-            fname, website_title=history_title_kwargs(self, url).get("title", ""),
+            source_fname, website_title=website_title,
             tier=f"{height}p" if height else "", scene_url=url,
         )
         stem = os.path.splitext(fname)[0] if fname else ""
@@ -1751,17 +1753,42 @@ class ExtractorsMixin:
             height = landed_height
             self.log_event("spa_api_height_mismatch",
                            f"labelled {labelled}p; landed {landed_height}p", url=url)
+            # The selector's tier was only a claim. Re-render the saved name
+            # and quality template variables from the probed stream height.
+            # Page-title quality can precede a site suffix; it is still a
+            # claim. Let the measured tier supply the one quality suffix.
+            measured_title = re.sub(r"(?i)(?<!\w)\d{3,4}p(?!\w)", "", website_title)
+            measured_title = " ".join(measured_title.split())
+            measured_fname = resolve_media_leaf_name(
+                source_fname, website_title=measured_title,
+                tier=f"{height}p", scene_url=url,
+            )
+            measured_stem = os.path.splitext(measured_fname)[0]
+            measured_ext = _spa.spa_file_ext(measured_fname)
+            measured_ctx = dict(ctx_vars, title=measured_stem,
+                                filename=measured_stem, stem=measured_stem,
+                                ext=measured_ext, resolution=f"{height}p",
+                                quality=f"{height}p")
+            measured_rendered = resolve_filename_template(tpl, measured_ctx)
+            if not measured_rendered:
+                measured_rendered = measured_stem + measured_ext
+            elif not os.path.splitext(measured_rendered)[1]:
+                measured_rendered += measured_ext
+            if measured_rendered != rendered:
+                measured_path, measured_filename = _dest_in_dir(dl_dir_str, measured_rendered)
+                os.replace(output_path, measured_path)
+                output_path, output_filename = measured_path, measured_filename
             if gated and height < min_res:
                 try:
                     os.remove(output_path)
                 except OSError as exc:
-                    # dot95-pm2-dp13-lane-log (DP-13): the mislabelled file stays on disk; name it.
+                    # dot95-pm2-dp13-lane-log (DP-13): the rejected file stays on disk; name it.
                     left = f"{type(exc).__name__}: {str(exc)[:120]}"
-                    self.log_event("spa_api_cleanup", f"mislabelled file not removed, left at {output_path}: {left}", url=url)
+                    self.log_event("spa_api_cleanup", f"measured-below-minimum file not removed, left at {output_path}: {left}", url=url)
                 screenshot_fn = getattr(self, "_screenshot", None)
                 ss = screenshot_fn(page, url) if callable(screenshot_fn) else None
-                msg = (f"Landed {height}p though labelled {labelled}p (below {min_res}p)"
-                       f" — Approve to force. Saw: {summary}")
+                msg = (f"Measured {height}p (below {min_res}p minimum); "
+                       f"source advertised {labelled}p — Approve to force. Saw: {summary}")
                 self._update_job(url, "needs_review", msg, screenshot=ss)
                 db_log(self.site_id, self.config.get("name", "?"), url, "needs_review", "", 0,
                        f"landed {height}p, labelled {labelled}p, below {min_res}p; saw: {summary}", ss)
