@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5659,
+  "edge_count": 5661,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4574,6 +4574,10 @@
     ],
     "tests/test_o1567_fx_tube8_aylo_free_tube.py": [
       "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1567_fx_vixen_challenge_trace.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/login.py"
     ],
     "tests/test_o1567_fx_vixen_extractor_honours_min_resolution.py": [
       "bulk_downloader/runner.py",

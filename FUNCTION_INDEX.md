@@ -1047,7 +1047,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (31 entries)
+## `bulk_downloader/login_impl/submit.py` (32 entries)
 
 ```
 - L0039 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
@@ -1067,20 +1067,21 @@ Schema version: 2
 - L0575 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
 - L0604 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
 - L0613 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
-- L0648 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0663 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0747 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0763 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L0973 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L1030 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1496 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1567 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1669 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1689 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1736 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1752 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1773 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1812 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0648 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
+- L0681 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0696 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0780 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0796 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L1006 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L1063 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1529 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1600 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1702 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1722 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1769 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1785 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1806 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1845 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -1113,4 +1114,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 937 across 22 files._
+_Total entries: 938 across 22 files._

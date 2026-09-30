@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1739 - train167: row
+
+T167 = O1568 train of the next BOARDed row, applied on main after T166:
+- fx-vixen-challenge-trace (bd-worker-A4-A, PM ruling 06:04Z option B in Q-VIXEN-CHALLENGE-ROOT-A4-A.md; lens bd-kimi-lens): a diagnostic, not a fix: T163/T165 and the operator's takeover all reach the vixen/blacked login challenge, get a Cloudflare challenge and then "Not found", and no existing record says whether the credential POST or the GET after its 302 was challenged; do_login now installs a document-response trace once before the first submit (re-entry and re-submit covered) that journals one line per top-level document response with method, origin, path, status, Location origin and path and the cf-mitigated header, never a query string, cookie or body, and a listener error never breaks the login (bulk_downloader/login_impl/submit.py).
+
+
 ## v3.66.1738 - train166: row
 
 T166 = O1568 train of the next BOARDed row, applied on main after T165:
