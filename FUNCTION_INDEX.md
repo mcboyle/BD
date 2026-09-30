@@ -1016,7 +1016,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (26 entries)
+## `bulk_downloader/login_impl/replay.py` (27 entries)
 
 ```
 - L0034 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
@@ -1037,14 +1037,15 @@ Schema version: 2
 - L0399 `anonymous_surface_check` — Row 722: does the page the run actually read still show the
 - L0418 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
 - L0430 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0500 `success_url_reached` — Row 722: the ONE success-URL predicate for submit.py. Structural
-- L0517 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0572 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0613 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0806 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
-- L0855 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0900 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0960 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0500 `_root_success_on_member_host` `[private]` — fx-wowgirls-relogin-root-success: a ROOT success URL on a host other
+- L0517 `success_url_reached` — Row 722: the ONE success-URL predicate for submit.py. Structural
+- L0535 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0590 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0631 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0824 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
+- L0873 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0918 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L0978 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
@@ -1115,4 +1116,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 939 across 22 files._
+_Total entries: 940 across 22 files._

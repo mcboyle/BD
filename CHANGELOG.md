@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1743 - train171: row
+
+T171 = O1568 train of the next BOARDed rows, applied on main after T170:
+- fx-wowgirls-relogin-root-success (bd-worker-A4-A, ORDER-HARDEN-T165 test7 wowgirls; lens bd-kimi-lens): the wowgirls re-login worked (submitted on auth.wowgirls.com, landed on the member page venus.wowgirls.com/search/), but the root success URL https://venus.wowgirls.com/ matched only "/" under the row-722 rule, so the login was judged failed, fell to manual takeover and dead-lettered; replay._root_success_on_member_host accepts any landing on the member host when the success URL is a root on a host different from the login host (the error-query rule still applies), wired into success_url_reached (bulk_downloader/login_impl/replay.py, tests/test_o1567_fx_wowgirls_relogin_root_success.py).
+
+
 ## v3.66.1742 - train170: row
 
 T170 = O1568 train of the next BOARDed rows, applied on main after T169:
