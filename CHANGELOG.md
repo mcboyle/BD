@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1734 - train162: row
+
+T162 = O1568 train of the next BOARDed row, applied on main after T161:
+- fx-remember-me-clicker (bd-worker-A1-A, PM ruling 01:48Z FINDING-fx-remember-me-clicker-label-click.md; lens bd-kimi-lens): the operator's VM-side vnc_display_sync.py helper and its vnc_ref_frame.png reference frame land byte-for-byte under scripts/ so deploy.sh / provision_test_host.sh ship them: the helper scans the VNC display for the unticked "remember me" box and clicks its centre once, parks the pointer, skips ticked or blank screens, waits without scanning when the reference is missing, and stops on SIGTERM; the row709 live-shell census now reads the shebang as bytes so a tracked binary beside a helper is excluded by the stated no-shell-shebang reason instead of turning the census UNKNOWN (scripts/vnc_display_sync.py, scripts/vnc_ref_frame.png, tests/test_row709_state_seed_is_not_a_verdict.py).
+
+
 ## v3.66.1733 - train161: row
 
 T161 = O1568 train of the row671 pin fix (first, per PM) and the next two BOARDed rows, applied on main after T160:
