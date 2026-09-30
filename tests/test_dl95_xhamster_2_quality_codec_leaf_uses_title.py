@@ -54,6 +54,13 @@ def test_real_stem_with_codec_is_preserved():
     assert resolve_media_leaf_name(leaf, website_title="Other") == leaf
 
 
+def test_scene_name_with_bitrate_codec_is_preserved():
+    leaf = "named-scene.1080p.7700b.av1.mp4"
+    assert resolve_media_leaf_name(leaf, website_title="Other", tier="1080p") == leaf
+    doubled = "named-scene.1080p.7700b.av1.mp4.mp4"
+    assert resolve_media_leaf_name(doubled, website_title="Other", tier="1080p") == doubled
+
+
 def test_real_disposition_still_wins():
     got = resolve_media_leaf_name("480p.h264.mp4", disposition_name="named-scene.mp4", website_title="Other")
     assert got == "named-scene.mp4", f"DL95_XHAMSTER_2_DISPOSITION_IGNORED: {got}"
@@ -66,6 +73,8 @@ def test_no_title_or_scene_never_invents_a_name():
 @pytest.mark.parametrize("title,leaf,expected", [
     ("A Scene Title", "720p.h264.mp4", "A Scene Title [720p].mp4"),
     ("", "720p.h264.mp4", "a-scene-xhFixture [720p].mp4"),
+    ("A Scene Title", "1080p.7700b.av1.mp4", "A Scene Title [1080p].mp4"),
+    ("A Scene Title", "1080p.7700b.av1.mp4.mp4", "A Scene Title [1080p].mp4"),
     ("A Scene Title", "named-scene.720p.h264.mp4", "named-scene.720p.h264.mp4"),
 ])
 def test_spa_api_quality_codec_leaf_gets_scene_name(tmp_path,monkeypatch,title,leaf,expected):

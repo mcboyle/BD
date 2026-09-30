@@ -221,7 +221,7 @@ _BARE_MEDIA_LEAF_RE = re.compile(
     r"^(?:mp4|m4v|webm|mov|high|low|medium|hd|sd|full|stream|download|video"
     # fx-kmm-generic-filename: kellymadisonmedia's /download/video/<id>/4k_h264
     # joins the codec with "_" -- the same rendition leaf as "4k.h264".
-    r"|file|index|(?:\d{3,4}p|4k|8k)(?:[._-]h26[45])?"
+    r"|file|index|(?:\d{3,4}p|4k|8k)(?:\.\d{3,6}b)?(?:[._-](?:h26[45]|av1))?(?:\.mp4)?"
     # tpl95-nookies-1: a numeric-only leaf (/membersarea/video/stream/3504 ->
     # "3504.mp4") is a route id, not a name.
     r"|\d+"
@@ -231,7 +231,7 @@ _BARE_MEDIA_LEAF_RE = re.compile(
     # O1567 hustlerunlimited: dacast manifests end ".../<uuid>.ism/.m3u8".
     r"|m3u8|mpd)$", re.I)
 # dl95-xhamster-2: quality/codec leaves describe the rendition, not the scene.
-_LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:[._-]h26[45])?$", re.I)
+_LEAF_TIER_RE = re.compile(r"^(\d{3,4}p|4k|8k)(?:\.\d{3,6}b)?(?:[._-](?:h26[45]|av1))?(?:\.mp4)?$", re.I)
 _FORMAT_TOKEN_RE = re.compile(r"^(?:mp4|m4v|webm|mov)$", re.I)
 # The transport's own placeholder for "nothing was suggested at all"; it is
 # not a site leaf and the existing paths (and their tests) rely on it.
