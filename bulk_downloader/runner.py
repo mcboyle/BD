@@ -757,6 +757,19 @@ def _page_not_found_reason(page):
     return _content_not_found_statement(page)
 
 
+def _landed_on_site_root(requested, landed):
+    """True when navigating to a non-root URL ended on the SAME host's root
+    ("/"): the redirect a remember-me re-authentication gives on
+    kellymadisonmedia (fx-harden-kmm-reauth-redirect). Never raises."""
+    from urllib.parse import urlparse as _up
+    try:
+        req, got = _up(str(requested or "")), _up(str(landed or ""))
+    except ValueError:
+        return False
+    return (bool(req.netloc) and req.netloc.lower() == got.netloc.lower()
+            and req.path not in ("", "/") and got.path in ("", "/"))
+
+
 def _refuse_not_found_winner(runner, page, url, best):
     """A winner nothing ties to the scene, on a page that is not the scene, is
     another scene's control: fail the job, never download. True when handled."""
@@ -5677,6 +5690,20 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             except PWError as e:
                 if "Download is starting" not in str(e): raise
                 self._accept_navigation_download(page,ctx,url,_nav_downloads); return
+            # fx-harden-kmm-reauth-redirect: a stored jar whose session cookie expired but whose
+            # remember-me cookie lives re-authenticates on this request, and the site (Laravel,
+            # kellymadisonmedia) redirects to its root, dropping the scene. The home page read as
+            # the scene parked the job "720p, no identity proof". The session is fresh now: open
+            # the scene once more (once only -- a site that sends every visit home is not looped).
+            if _landed_on_site_root(url,getattr(page,"url","")):
+                self.log_event("scene_redirect",f"scene page redirected to the site root "
+                               f"({str(page.url)[:80]}); opening the scene once more",url=url)
+                try: _nav_resp=page.goto(url,wait_until="domcontentloaded",timeout=30000)
+                except PWTimeout:
+                    self._handle_failure(url,"Page load timeout"); return
+                except PWError as e:
+                    if "Download is starting" not in str(e): raise
+                    self._accept_navigation_download(page,ctx,url,_nav_downloads); return
             # fx-pornone-gone-scene: a removed scene answers 404/410 with a "Video not found"
             # page whose promo clip page-media saved as the scene (1.6 MB 240p, status done).
             # The server said the scene is gone: fail permanent, download nothing.
