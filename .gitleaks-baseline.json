@@ -1146,7 +1146,7 @@
     "Message": "spec: fx-takeover-autofill",
     "Tags": [],
     "Fingerprint": "772defbf3d4745e75bf12da4b7458fa41c51e5d0:tests/test_o1567_fx_takeover_autofill.py:generic-api-key:25",
-    "class": "synthetic-test-value",
+    "class": "FIXTURE",
     "reason": "T163 fx-takeover-autofill: tests/test_o1567_fx_takeover_autofill.py _SECRET is a made-up probe password typed into a local fake login page to assert it never reaches stderr/source; not a credential."
   }
 ]
