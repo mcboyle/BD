@@ -601,6 +601,50 @@ def _late_rejected_landing(page, polls):
     return ""
 
 
+def _carries_password_field(body, name):
+    """True when a request body sends the named password field: a form field
+    (name=..., multipart name="..."), or a JSON key. Never reads the value."""
+    if not body or not name:
+        return False
+    n = re.escape(name)
+    return bool(re.search(rf'(?:^|&){n}=|"{n}"', body))
+
+
+def _watch_credential_posts(page, pf_candidates):
+    """O1567 fx-blacked-relogin: record every POST, from any page of the
+    context, whose body carries the password field. Returns the list the
+    listener appends to (resource type, origin, path); [] stays empty when
+    the field has no name (an unnamed field is never serialized)."""
+    posts = []
+    try:
+        info = page.evaluate(_PASSWORD_FORM_JS, pf_candidates)
+    except Exception as exc:  # noqa: BLE001 -- unmeasurable: never a hold, never a crash
+        sys.stderr.write(f"  {site_tag()}login submit: password field not readable "
+                         f"({type(exc).__name__}) -- credential POSTs not watched\n")
+        return posts
+    name = info.get("name") if isinstance(info, dict) else ""
+    if not name:
+        return posts
+
+    def _on_request(request):
+        try:
+            if request.method != "POST":
+                return
+            body = request.post_data
+        except (PWError, UnicodeDecodeError, ValueError) as exc:
+            sys.stderr.write(f"  {site_tag()}login submit: a POST body was not readable "
+                             f"({type(exc).__name__}) -- not counted as the login\n")
+            return
+        if _carries_password_field(body, name):
+            parts = urlsplit(request.url)
+            posts.append((request.resource_type, _origin(request.url), parts.path))
+    try:
+        page.context.on("request", _on_request)
+    except (PWError, AttributeError):
+        page.on("request", _on_request)
+    return posts
+
+
 def _settled_non_success(page, config, status, why, hard_close):
     """Keep the landing that made a post-submit verdict non-successful."""
     try:
@@ -895,6 +939,37 @@ _PASSWORD_FORM_JS="""(pf_sels) => {
 }"""
 
 
+# O1567 fx-blacked-relogin: how many submit controls of the login form are
+# disabled right now. A page script that takes the submit (preventDefault,
+# disable the button, await its own tokens, then form.submit()) disables them.
+_DISABLED_SUBMITS_JS="""(pf_sels) => {
+    const f = ("""+_LOGIN_FORM_JS+""")(pf_sels);
+    if (!f) return null;
+    const ctrls = [...f.querySelectorAll("button, input[type='submit'], input[type='image']")]
+        .filter(b => b.tagName !== 'BUTTON' || (b.getAttribute('type') || 'submit').toLowerCase() === 'submit');
+    return ctrls.filter(b => b.disabled || b.getAttribute('aria-disabled') === 'true').length;
+}"""
+
+# O1567 fx-blacked-relogin: count submit events whose default the page's own
+# handler prevented. A window listener runs after the form's listeners in the
+# bubble phase, so e.defaultPrevented is already set when it reads it.
+# (blacked re-enables its button after 5s, so a disabled control alone is a
+# transient signal; the prevented submit is the durable one.)
+_SUBMIT_WATCH_JS="""() => {
+    if (!window.__bdSubmitWatch) {
+        window.__bdSubmitWatch = {prevented: 0};
+        window.addEventListener('submit', e => {
+            if (e.defaultPrevented) window.__bdSubmitWatch.prevented++;
+        }, false);
+    }
+    return window.__bdSubmitWatch.prevented;
+}"""
+
+# How long a page script that took the submit gets to finish it (blacked live:
+# reCAPTCHA v3 + Castle + FingerprintJS tokens outlast the 8s per-method poll).
+_SCRIPT_SUBMIT_WAIT_S = 30
+
+
 def _guard_credential_get(page,pf_candidates):
     """dl95-txxx-2: a login form without method=POST puts its password field
     into the URL of any native submission -- a click, Enter, the page's own
@@ -1045,7 +1120,24 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
                 catch (e) { return false; } })""", pf_candidates))
         except Exception: return True   # unmeasurable: keep the old sweep
 
+    def _disabled_submits():
+        try: return page.evaluate(_DISABLED_SUBMITS_JS,pf_candidates)
+        except Exception as exc:  # noqa: BLE001 -- unmeasurable: never a hold, never a crash
+            sys.stderr.write(f"  {site_tag()}login submit: submit controls not readable "
+                             f"({type(exc).__name__})\n")
+            return None
+
+    def _prevented_submits():
+        try: return page.evaluate(_SUBMIT_WATCH_JS)
+        except Exception as exc:  # noqa: BLE001 -- unmeasurable: never a hold, never a crash
+            sys.stderr.write(f"  {site_tag()}login submit: submit events not readable "
+                             f"({type(exc).__name__})\n")
+            return None
+
     _pw_at_start=_password_visible()
+    _cred_posts=_watch_credential_posts(page,pf_candidates)
+    _disabled_at_start=_disabled_submits()
+    _prevented_submits()   # installs the watch on the login document
     methods=[]
     script_submitted=[]   # dl95-txxx-2: m2 handed a GET-attributed form to its page script
 
@@ -1277,6 +1369,9 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
                 sys.stderr.write(f"  {site_tag()}login submit: already navigated before "
                                  f"{label} — earlier method submitted\n")
             return _settle(moved, f"navigated before {label}")
+        _cred_before=len(_cred_posts)
+        _script_before=len(script_submitted)
+        _prevented_before=_prevented_submits()
         try: ok,info=fn()
         except Exception as e: ok,info=False,str(e)[:60]
         if not ok:
@@ -1325,6 +1420,53 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
             moved=_moved()
             if moved is not None: return _settle(moved,label)
             time.sleep(0.3)
+        # A navigation that lands after the poll is still this method's.
+        moved=_moved()
+        if moved is not None: return _settle(moved,label)
+        # O1567 fx-blacked-relogin (bd4 live 21:52Z): blacked's onSubmit
+        # prevents the native submit, disables the button, awaits Castle +
+        # reCAPTCHA v3 tokens, then calls form.submit() itself. The tokens
+        # outlast the 8s poll, and the next methods (requestSubmit, then a
+        # bare form.submit()) sent the form WITHOUT them: the site answers
+        # "functionality blocked by your browser" and the login dies. While
+        # the page script holds the submit (a submit control it disabled),
+        # give it time to finish; never submit over it.
+        disabled_now=_disabled_submits()
+        prevented_now=_prevented_submits()
+        held=[]
+        if (isinstance(prevented_now,int) and isinstance(_prevented_before,int)
+                and prevented_now>_prevented_before):
+            held.append("its submit handler prevented the native submit")
+        if (isinstance(disabled_now,int) and isinstance(_disabled_at_start,int)
+                and disabled_now>_disabled_at_start):
+            held.append("a submit control is disabled")
+        # dl95-txxx-2: m2's guarded GET path dispatches its OWN submit event and
+        # counts it submitted only when a handler prevented it -- that prevent
+        # is the handoff, not a hold; the GET-form verdicts below decide it.
+        if (held and len(_cred_posts)==_cred_before
+                and len(script_submitted)==_script_before
+                and not (_pw_at_start and not _password_visible())):
+            sys.stderr.write(f"  {site_tag()}login submit: {label} -- the page script holds "
+                             f"the submit ({'; '.join(held)}); waiting up to "
+                             f"{_SCRIPT_SUBMIT_WAIT_S}s for it\n")
+            end=time.time()+_SCRIPT_SUBMIT_WAIT_S
+            while time.time()<end:
+                moved=_moved()
+                if moved is not None: return _settle(moved,label)
+                if len(_cred_posts)>_cred_before: break
+                # an SPA login that took the submit removes its form: the
+                # scrolller-3 check below reads that, not the hold.
+                if _pw_at_start and not _password_visible(): break
+                try: page.wait_for_load_state("networkidle",timeout=500)
+                except Exception as e:
+                    if _page_closed_err(e):
+                        return "PAGE_CLOSED", f"page closed waiting for {label}"
+                time.sleep(0.3)
+            else:
+                sys.stderr.write(f"  {site_tag()}login submit: the page script still holds the "
+                                 f"submit after {_SCRIPT_SUBMIT_WAIT_S}s -- not submitting over it\n")
+                return False,(f"{label}: the page script held the submit for "
+                              f"{_SCRIPT_SUBMIT_WAIT_S}s without sending it")
         # dl95-scrolller-3: a SPA login that took the submit closes its modal
         # without navigating. With the password field gone, every method
         # left (requestSubmit's first-form fallback, Enter, Tab+Enter, broad
@@ -1333,6 +1475,19 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         if _pw_at_start and not _password_visible():
             return False,(f"{label} consumed the login form without "
                           "navigation (SPA login)")
+        # O1567 fx-blacked-relogin: blacked's form POSTs to its own URL (or
+        # the page script sends it), so a good click leaves page.url unchanged
+        # past the 8s poll. Once the credentials have reached the site, the
+        # remaining methods only re-POST into that login (requestSubmit,
+        # form.submit: no page-script token, stale CSRF) and the site drops
+        # the session. Stop; do_login waits out the redirect and judges it.
+        if len(_cred_posts)>_cred_before:
+            rtype,origin,path=_cred_posts[-1]
+            sys.stderr.write(f"  {site_tag()}login submit: {label} sent the credentials "
+                             f"({rtype} POST {origin}{path}) without navigating -- "
+                             "submit taken, not sweeping further\n")
+            return True,label
+        sys.stderr.write(f"  {site_tag()}login submit: {label} sent no credential POST\n")
         # No navigation? Maybe it's a SPA that just updates auth state
         # silently. Move to the next method.
     return False,"no submit method produced navigation"
