@@ -1637,7 +1637,7 @@ class ExtractorsMixin:
             except Exception:
                 fname = ""
         # API/media transfers bypass the DOM transport destination resolver.
-        from .runner_transport import resolve_media_leaf_name
+        from .runner_transport import resolve_media_leaf_name, _scene_url_stem
         source_fname = fname
         website_title = history_title_kwargs(self, url).get("title", "")
         fname = resolve_media_leaf_name(
@@ -1645,7 +1645,10 @@ class ExtractorsMixin:
             tier=f"{height}p" if height else "", scene_url=url,
         )
         stem = os.path.splitext(fname)[0] if fname else ""
-        title_root = stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+        # fx-empty-title-dotfile-name: ".../<slug>/?t175=1" leaves no last
+        # segment; an empty stem rendered "{filename}{ext}" as ".mp4.mp4".
+        title_root = (stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+                      or _scene_url_stem(url) or "download")
         ext = _spa.spa_file_ext(fname)
         now = datetime.now()
         ctx_vars = {
@@ -1763,7 +1766,7 @@ class ExtractorsMixin:
                 source_fname, website_title=measured_title,
                 tier=f"{height}p", scene_url=url,
             )
-            measured_stem = os.path.splitext(measured_fname)[0]
+            measured_stem = os.path.splitext(measured_fname)[0] or title_root
             measured_ext = _spa.spa_file_ext(measured_fname)
             measured_ctx = dict(ctx_vars, title=measured_stem,
                                 filename=measured_stem, stem=measured_stem,
