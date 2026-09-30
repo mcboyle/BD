@@ -427,7 +427,12 @@ class AuthMixin:
                 # in this run record as soon as the flow returns.
                 with _cloak.owning_site(self.site_id), \
                         login_abort_check(self._relogin_abort_reason):
-                    result=do_login(self.config,allow_manual_takeover=allow_manual,
+                    # fx-takeover-plain-browser: the login right after a human
+                    # passed the Cloudflare check carries that pass (transient,
+                    # never written into the saved site config).
+                    _hc=self.__dict__.pop("_pending_human_clearance",None)
+                    result=do_login(dict(self.config,_human_clearance=_hc) if _hc else self.config,
+                                    allow_manual_takeover=allow_manual,
                                     site_id=self.site_id)
                 _surface_login_channel_fallbacks(self)
                 # dl95-cancel-relogin-cap-1: a login withdrawn before submit
@@ -448,6 +453,14 @@ class AuthMixin:
                     sys.stderr.write(
                         f"[{self.site_id}] login_async: withdrawn login's "
                         "attempt could not be released; it stays counted\n")
+                # fx-takeover-plain-browser: a Cloudflare check goes to the
+                # plain challenge browser instead of the takeover window. Kept
+                # as its own block ahead of the takeover branch so it stays a
+                # separate hunk from fx-manual-cancel-noop's edit of that branch.
+                if (result and result[0]=="MANUAL_PENDING"
+                        and self._maybe_start_human_challenge(result[2])):
+                    _settle(False)
+                    return
                 # Manual takeover branch: store handle, set state, return
                 if result and result[0]=="MANUAL_PENDING":
                     _,reason,handle=result
@@ -1216,10 +1229,127 @@ class AuthMixin:
         verification has run for this site yet. Read by the wizard's
         status-polling endpoint."""
         return getattr(self, "_last_verify_result", None)
+    def _maybe_start_human_challenge(self, handle):
+        """fx-takeover-plain-browser: a takeover that stands on a Cloudflare
+        challenge page goes to a PLAIN browser instead (same cloak binary and
+        stealth flags, no CDP, the site's manual profile): Turnstile refused
+        even a human click in the CDP-driven window (test3 live). The human
+        ticks the box; the app reads the pass from the profile, logs in with
+        the vault credentials, syncs the profiles and resumes the queue.
+        True when the plain session took over (the handle is closed)."""
+        from . import human_challenge as _hcm
+        if not _hcm.enabled(self.config):
+            return False
+        try:
+            from .login_impl.submit import _is_cloudflare_challenge_page
+            _pw, _browser, ctx = handle
+            page = ctx.pages[-1] if ctx.pages else None
+            if page is None or not _is_cloudflare_challenge_page(page):
+                return False
+            url = page.url
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag(self.site_id)}human check: takeover page not readable ({e})\n")
+            return False
+        fp = self.config.get("fingerprint") or {}
+        session = _hcm.PlainChallengeSession(
+            url, self._manual_profile_dir(), user_agent=fp.get("user_agent") or None)
+        try:
+            session.prepare()
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag(self.site_id)}human check: no plain browser ({e}); "
+                             "keeping the takeover window\n")
+            return False
+        from .login import cancel_manual_login
+        cancel_manual_login(handle)
+        try:
+            from . import session_keeper as _sk
+            _sk.pause_site_keepers(self.site_id)  # INV-001: the manual profile is ours now
+        except Exception as e:
+            sys.stderr.write(f"  {site_tag(self.site_id)}human check: keeper pause failed ({e})\n")
+        try:
+            session.start()
+        except Exception as e:
+            self._set_login_status(f"✗ Human check: the plain browser did not start ({str(e)[:100]})")
+            return True
+        self._human_challenge_session = session
+        self._set_login_status("⏳ Human check: tick the Cloudflare box on the display -- "
+                               "the app finishes the login")
+        self.log_event("human_challenge",
+                       f"plain challenge browser open for {session.domain} (no CDP, profile manual); "
+                       "waiting for the checkbox", url=url)
+        threading.Thread(target=self._human_challenge_wait, args=(session,), daemon=True,
+                         name=f"human-check-{self.site_id}").start()
+        return True
+
+    def _human_challenge_wait(self, session):
+        from . import human_challenge as _hcm
+        try:
+            timeout = float(self.config.get("human_challenge_timeout_s", _hcm.DEFAULT_TIMEOUT_S))
+        except (TypeError, ValueError):
+            timeout = _hcm.DEFAULT_TIMEOUT_S
+        ok, why = session.wait_for_pass(timeout=timeout)
+        cdp_url = session.cdp_url if ok else None
+
+        def _release():
+            rc = session.close()
+            if getattr(self, "_human_challenge_session", None) is session:
+                self._human_challenge_session = None
+            return rc
+        if not ok:
+            _release()
+            self._set_login_status(f"✗ Human check not passed: {why}")
+            self.log_event("human_challenge", f"not passed: {why}", url=session.url)
+            return
+        if not cdp_url:
+            # The window was closed after the pass: the clearance went with it (it does not survive a relaunch).
+            _release()
+            self._set_login_status("✗ Human check passed, but its window was closed before the app could log in")
+            self.log_event("human_challenge", "passed, but the window was closed before the login", url=session.url)
+            return
+        self.log_event("human_challenge",
+                       f"passed: cf_clearance for {session.domain}; logging in inside the same browser",
+                       url=session.url)
+        self._pending_human_clearance = {"seed": session.seed, "cdp_url": cdp_url}
+
+        def _after_login(ok2):
+            # Close only now: a clean exit writes the session's cookies into the manual profile synced below.
+            _release()
+            self.__dict__.pop("_pending_human_clearance", None)
+            if not ok2:
+                self.log_event("human_challenge",
+                               "the login after the pass did not succeed; see the login status",
+                               url=session.url)
+                return
+            try:
+                from . import profile_sync
+                ensure = ["main"] + (["keepalive_0"] if self.config.get("keep_alive_enabled", False) else [])
+                summ = profile_sync.sync_manual_to_runtime(self.site_id, ensure=ensure)
+                synced = sorted(summ.get("synced", {}).keys())
+            except Exception as e:
+                synced = []
+                sys.stderr.write(f"  {site_tag(self.site_id)}human check: profile sync failed ({e})\n")
+            with self._lock:
+                waiting = any(j.get("status") in ("pending", "queued") for j in self.jobs.values())
+            self.log_event("human_challenge",
+                           f"logged in after the pass; synced {', '.join(synced) or 'no'} profile(s); "
+                           f"{'resuming the queue' if waiting else 'queue empty'}", url=session.url)
+            if waiting and getattr(self, "_state", "") != "running":
+                try:
+                    self.start()
+                except Exception as e:
+                    sys.stderr.write(f"  {site_tag(self.site_id)}human check: resume failed ({e})\n")
+        self.login_async(on_done=_after_login, allow_manual=False)
+
     def cancel_manual_login_pending(self):
         """Called by /api/sites/<sid>/login_manual_cancel. Closes the
         browser without capturing cookies."""
+        _hcs=getattr(self,"_human_challenge_session",None)
+        if _hcs is not None:
+            _hcs.cancelled.set()
         h=getattr(self,"_manual_login_handle",None)
+        if not h and _hcs is not None:
+            self._set_login_status("✗ Human check cancelled")
+            return True,"Cancelled"
         if not h: return False,"No pending manual login"
         from .login import cancel_manual_login
         if cancel_manual_login(h) is False:

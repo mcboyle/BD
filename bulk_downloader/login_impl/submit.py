@@ -1989,18 +1989,34 @@ def do_login(config, allow_manual_takeover=False):
         # system-Chrome channel survives ONLY when the site config sets
         # use_real_chrome explicitly True (key present).
         launch_args=None
+        # fx-takeover-plain-browser: a login run after a human passed the
+        # Cloudflare check in the plain challenge browser attaches to THAT
+        # browser (its clearance does not survive a relaunch, test3
+        # FINDING-cf-clearance-handoff.md) instead of launching a new one.
+        _hc=config.get("_human_clearance") or {}
         from .. import cloak as _cloak
         login_extra = {}
-        if "use_real_chrome" in config and config.get("use_real_chrome"):
+        if _hc.get("cdp_url"):
+            sys.stderr.write(f"  {site_tag()}login: attaching to the human challenge browser that passed\n")
+        elif "use_real_chrome" in config and config.get("use_real_chrome"):
             login_extra["channel"]="chrome"
             sys.stderr.write(f"  {site_tag()}login: browser profile = system chrome (use_real_chrome explicit)\n")
         else:
             sys.stderr.write(
                 f"  {site_tag()}login: browser profile = cloak default ({_cloak.resolve_backend(config)})\n")
         try:
-            browser, pw, backend = _cloak.launch_browser(
-                headless=False, args=launch_args, config=config, **login_extra)
+            if _hc.get("cdp_url"):
+                from playwright.sync_api import sync_playwright
+                pw=sync_playwright().start()
+                browser=pw.chromium.connect_over_cdp(_hc["cdp_url"]); backend="attached"
+            else:
+                browser, pw, backend = _cloak.launch_browser(
+                    headless=False, args=launch_args, config=config, **login_extra)
         except Exception as e:
+            if _hc.get("cdp_url"):
+                sys.stderr.write(f"  {site_tag()}login: attach to the challenge browser failed: {str(e)[:80]}\n")
+                _hard_close()
+                return False, f"attach to the challenge browser failed: {str(e)[:120]}", []
             if login_extra.get("channel"):
                 # Row 723: the retry is a degradation of THIS site's login
                 # (a different browser fingerprint than it asked for), so it
@@ -2041,15 +2057,19 @@ def do_login(config, allow_manual_takeover=False):
         # no_viewport=True tells Playwright to track Chrome's actual window
         # rather than fixing it to a virtual size. Critical for headed mode.
         ctx_opts["no_viewport"] = True
-        ctx=browser.new_context(**ctx_opts)
+        if _hc.get("cdp_url"):
+            # the session that passed: its own context and page, no injected scripts
+            ctx=browser.contexts[0]
+        else:
+            ctx=browser.new_context(**ctx_opts)
         # Phase 9.2: install stealth init script before any navigation
-        if config.get("use_stealth",True):
+        if config.get("use_stealth",True) and not _hc.get("cdp_url"):
             try:
                 from ..constants import STEALTH_JS
                 ctx.add_init_script(STEALTH_JS)
             except Exception as e:
                 sys.stderr.write(f"  {site_tag()}login: stealth install failed: {str(e)[:80]}\n")
-        page=ctx.new_page()
+        page=ctx.pages[-1] if _hc.get("cdp_url") and ctx.pages else ctx.new_page()
         # v3.43.56: apply playwright-stealth library if configured
         try:
             from .. import stealth as _stealth
