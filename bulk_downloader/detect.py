@@ -1080,6 +1080,16 @@ _WORK_UNKNOWN = 0
 _WORK_FOREIGN = -1
 
 
+# fx-kmm-trailer-pick (bd2 live 2026-09-29, members.kellymadisonmedia.com):
+# the episode page's own full-scene link /download/video/6023/4k_h264 was
+# stamped FOREIGN because its leaf "4k_h264" tokenized to ('4k', 'h264') -- two
+# tokens, six chars -- and read as another work's slug; the trailer won.
+# A segment made only of tier / codec / rate tokens names a rendition.
+_RENDITION_TOKEN_RE = re.compile(
+    r"^(?:\d{3,4}[pi]|\d{3,4}x\d{3,4}|[1-9]k|u?hd|fhd|qhd|sd|hq|h\.?26[45]|hevc|avc|"
+    r"x26[45]|av1|vp[89]|\d{2,3}fps|\d+k?bps)$", re.I)
+
+
 def _candidate_route_identity(value):
     """Identity tokens of the work a candidate URL NAMES, or () when it names
     none.
@@ -1103,6 +1113,10 @@ def _candidate_route_identity(value):
         return ()
     for seg in reversed([s for s in path.split("/") if s]):
         toks = work_tokens(_PAGE_EXT_RE.sub("", seg))
+        if toks and all(_RENDITION_TOKEN_RE.match(t) for t in toks):
+            # fx-kmm-trailer-pick: a rendition leaf ("4k_h264" in
+            # /download/video/6023/4k_h264) labels a FILE, not a work.
+            continue
         if any(not t.isdigit() for t in toks):
             if (len(toks) >= _WORK_MIN_TOKENS
                     and sum(len(t) for t in toks) >= _WORK_MIN_CHARS):
