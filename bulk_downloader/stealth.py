@@ -116,8 +116,13 @@ def apply_to_page(page: Any, config: dict | None = None) -> tuple[bool, str]:
             # library's evasion reads Notification.permission, which every app
             # browser removes (--disable-notifications), so a page's
             # notifications query threw and vixen/blacked's token step died.
+            # fx-vixen-login-challenge: iframe_content_window OFF too. When a
+            # page sets srcdoc before attaching an iframe (FingerprintJS's
+            # measuring frame) it pins contentWindow to a proxy of the TOP
+            # window and freezes srcdoc empty -- the frame never loads and
+            # vixen's post-Cloudflare login/challenge step dead-ends.
             try:
-                stealth = Stealth(navigator_permissions=False)
+                stealth = Stealth(navigator_permissions=False, iframe_content_window=False)
             except TypeError:
                 stealth = Stealth()
             method = getattr(stealth, "apply_stealth_sync", None)
