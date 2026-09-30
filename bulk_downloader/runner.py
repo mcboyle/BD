@@ -5527,6 +5527,9 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
         self._update_job(url,"running","Opening page...")
 
         # Cookie expiry check → auto-relogin. Extracted in v3.43.18.
+        # fx-harden-na-login-settled: the jar this worker's persistent context
+        # was last synced to; a re-login below publishes a newer one.
+        _jar_ts_before_check = self._cookies_updated_at
         if not self._check_cookies_or_relogin(url):
             return
 
@@ -5648,6 +5651,13 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             # used a "skip if name exists" filter, which left stale session
             # cookies after re-login and was the root cause of the
             # Session-expired storm.
+            # fx-harden-na-login-settled (fresh149 naughtyamerica T166): that
+            # refresh runs before the url is PULLED. A re-login made for THIS
+            # url (_check_cookies_or_relogin, above) published its jar after
+            # it, so the scene opened with the stale cookies, landed on /login
+            # and _handle_auth_required spent a second live login. Inject a
+            # jar published since then now.
+            self._refresh_worker_cookies(ctx, _jar_ts_before_check)
         else:
             ctx=browser.new_context(**self._context_options(
                 headless=bool(self.config.get("headless", True))))
