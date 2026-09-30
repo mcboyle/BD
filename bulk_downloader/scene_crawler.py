@@ -23,11 +23,11 @@ import uuid
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from . import db
 from .constants import AUTH_BODY_RE, AUTH_HINTS
-from .playlist_extractor import _LISTING_ROUTE_WORDS, _looks_like_scene_url
+from .playlist_extractor import _LISTING_ROUTE_WORDS, _NON_SCENE_HINTS, _looks_like_scene_url
 
 
 STATE_IDLE = "IDLE"
@@ -294,7 +294,11 @@ def _same_site(left: str, right: str) -> bool:
         return False
     ap = a.split(".")
     bp = b.split(".")
-    return len(ap) >= 2 and len(bp) >= 2 and ap[-2:] == bp[-2:]
+    # fx-crawler-livecam-guard OFF-SITE: a two-level public suffix (site.co.uk,
+    # site.com.au) needs the third label too, or every *.co.uk host matches.
+    n = 3 if (len(ap) >= 3 and len(ap[-1]) == 2
+              and ap[-2] in ("co", "com", "net", "org", "ac", "gov", "edu")) else 2
+    return len(ap) >= n and len(bp) >= n and ap[-n:] == bp[-n:]
 
 
 def _path_parts(url: str) -> tuple[str, ...]:
@@ -376,6 +380,74 @@ def _is_ad_tracker(url: str) -> bool:
                for part in _path_parts(url))
 
 
+# fx-crawler-livecam-guard: test1 dfxtra (T177 run 68d6b461a168) queued the
+# members home "Live Cams" card /livecam/autologin as a scene.  The product
+# rule's own non-scene routes (_NON_SCENE_HINTS, one list, unchanged) are read
+# here per ROUTE segment: the word must be the WHOLE segment (or a script stem,
+# login.php) in the first two path segments.  Scene slugs are titles
+# ("Help-Me-Step-Bro-1", "About-Last-Night"), so a word inside a slug never counts.
+# The crawler adds its own nav routes (session scripts, cam/partner hops, shop);
+# the product list stays as it is because _looks_like_scene_url matches it as
+# substrings for every site.
+_UTILITY_ROUTE_WORDS = frozenset(hint.strip("/") for hint in _NON_SCENE_HINTS
+                                 if hint.startswith("/") and hint.strip("/")) | frozenset({
+    "logout", "signin", "signout", "join", "autologin", "sso",
+    "live", "livecam", "livecams", "live-cam", "live-cams", "cam", "cams", "webcam", "webcams", "chat",
+    "out", "go", "redirect", "store", "shop", "top-rated", "most-viewed",
+})
+
+
+def _is_utility_route(url: str) -> bool:
+    """True for a nav/utility route (/en/help, /members/logout.php, /cams/enter),
+    never for a URL the product scene-URL rule accepts."""
+    parts = _path_parts(url)
+    # A locale prefix (/en/members/logout.php) is not a route segment; "/go" is.
+    route = parts[:3] if parts and len(parts[0]) == 2 and parts[0].isalpha() else parts[:2]
+    if any(part.lower().split(".", 1)[0] in _UTILITY_ROUTE_WORDS for part in route):
+        return not _looks_like_scene_url(url)
+    return False
+
+
+# fx-crawler-livecam-guard OFF-SITE (lens D2-D): a partner cam subdomain
+# (live.<site>) shares the site's registrable domain but is not the site.
+_PARTNER_HOST_LABELS = frozenset({"live", "cam", "cams", "livecam", "livecams", "webcam", "webcams", "chat"})
+
+
+def _partner_host(url: str, listing_url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower().split(".")
+    here = (urlsplit(listing_url).hostname or "").lower().split(".")
+    return (len(host) > 2 and host[0] in _PARTNER_HOST_LABELS
+            and (not here or here[0] != host[0]))
+
+
+_ID_TOKEN_SPLIT = re.compile(r"[-_.+]+")
+
+
+def _identifier_like(value: str) -> bool:
+    """A scene-identifying path value: carries a digit or is a multi-token slug."""
+    return any(ch.isdigit() for ch in value) or len(
+        [t for t in _ID_TOKEN_SPLIT.split(value) if t]) >= 2
+
+
+def _varies_by_identifier(signature, rows: list[dict[str, Any]]) -> bool:
+    """fx-crawler-livecam-guard: a scene cohort's cards differ by an id or slug.
+    A cohort whose thumbnailed cards all share one path ("/livecam/autologin"
+    on two hosts) or differ only by a bare word (/en/help, /en/vod) is nav."""
+    fixed = {index for index, _value in signature[1]}
+    shown = [row for row in rows if row.get("has_img")]
+    if any(_identifier_like(part)
+           for row in shown
+           for index, part in enumerate(row["_parts"]) if index not in fixed):
+        return True
+    # One path, cards told apart by the query (view.php?id=<n>, gallery.php?id=<n>).
+    values: dict[str, set[str]] = defaultdict(set)
+    for row in shown:
+        for key, value in parse_qsl(urlsplit(row["url"]).query):
+            values[key].add(value)
+    return any(len(seen) >= 2 and any(_identifier_like(v) for v in seen)
+               for seen in values.values())
+
+
 def _scene_cohort(
     anchors: Iterable[dict[str, Any]],
     listing_url: str,
@@ -391,7 +463,7 @@ def _scene_cohort(
         # fx-newsensations-discovery-banners: newsensations' members home
         # carries 32 thumbnailed bannerload.php?track=<n> ads against scene
         # cards with one thumbnail between them; the ads out-imaged the scenes.
-        if _is_ad_tracker(url):
+        if _is_ad_tracker(url) or _is_utility_route(url) or _partner_host(url, listing_url):
             continue
         if urlsplit(url).scheme not in ("http", "https"):
             continue
@@ -436,10 +508,16 @@ def _scene_cohort(
         # One thumbnail is weak evidence: a members-home banner such as
         # /livecam/autologin groups with unrelated nav links of the same
         # depth.  Only the product scene-URL rule may admit such a cohort.
-        if image_count == 1 and not any(
+        scene_rule = any(
             row.get("has_img") and _looks_like_scene_url(row["url"])
             for row in rows
-        ):
+        )
+        if image_count == 1 and not scene_rule:
+            continue
+        # fx-crawler-livecam-guard: two thumbnails are no better evidence when
+        # the cards do not differ by an id or slug (two /livecam/autologin
+        # banners; lens D2-D: /en/help, /cams/enter, /out/partner ...).
+        if not scene_rule and not _varies_by_identifier(signature, rows):
             continue
         # Thumbnail evidence dominates frequency.  Cohort size is the
         # tiebreaker, which lets one measured thumbnail identify sibling cards
