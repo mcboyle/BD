@@ -1773,7 +1773,12 @@ class AuthMixin:
         if not self.cookies:
             return False
         ei = cookies_expiry_info(self.cookies)
-        return ei["expired"] <= 0 or ei["session"] != 0
+        # fx-harden-kellymadisonmedia: ONE expired cookie does not kill the
+        # jar. A Laravel site's session + XSRF cookies expire in hours while
+        # its remember_web_* cookie lives a year and re-authenticates on the
+        # next request; re-logging in instead hit a reCAPTCHA puzzle. A jar
+        # the server does refuse goes through _handle_auth_required.
+        return ei["session"] != 0 or ei["expired"] < len(self.cookies)
 
     def session_for_capture(self, timeout=60.0):
         """tpl95-bang-1 (O1517): the cookie jar a template capture starts
