@@ -9,10 +9,11 @@ authoritative; this file is only a deterministic locality view.
 - `bulk_downloader/dev_suite/introspection.py:231` — `try:                                            # INV-001`
 - `bulk_downloader/runner.py:4289` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
 - `bulk_downloader/runner.py:4355` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:401` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:681` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:792` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
-- `bulk_downloader/runner_auth.py:1146` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:420` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:739` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:850` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1204` — `_sk.pause_site_keepers(self.site_id)  # INV-001`
+- `bulk_downloader/runner_auth.py:1266` — `_sk.pause_site_keepers(self.site_id)  # INV-001: the manual profile is ours now`
 - `bulk_downloader/session_keeper.py:1771` — `def pause_site_keepers(site_id: str) -> int:  # INV-001`
 
 ## INV-002 — live source tags
@@ -47,5 +48,5 @@ authoritative; this file is only a deterministic locality view.
 
 ## Inventory summary
 
-- **23 `# INV-` tag occurrences** across 12 tracked Python files.
+- **24 `# INV-` tag occurrences** across 12 tracked Python files.
 - **6 invariant IDs** observed in current source.

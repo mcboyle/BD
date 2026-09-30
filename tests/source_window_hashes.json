@@ -367,12 +367,12 @@
     {
       "bytes": 3002,
       "key": "tests/test_v3_43_52_keeper_collision.py::test_verify_continues_when_keeper_pause_raises::src[pos:pos + 3000]::1",
-      "sha256": "e42e0d704709e6a440f7691984a916336bc9801f82c04587c7c35262bff26d4a"
+      "sha256": "76e981223ec254d250ecf06be74633cf8a1fb0fdd077372ee11231f83bcbe03a"
     },
     {
       "bytes": 3002,
       "key": "tests/test_v3_43_52_keeper_collision.py::test_verify_pauses_site_keepers::src[pos:pos + 3000]::1",
-      "sha256": "e42e0d704709e6a440f7691984a916336bc9801f82c04587c7c35262bff26d4a"
+      "sha256": "76e981223ec254d250ecf06be74633cf8a1fb0fdd077372ee11231f83bcbe03a"
     },
     {
       "bytes": 3002,

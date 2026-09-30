@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5616,
+  "edge_count": 5645,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1472,6 +1472,9 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/transport_circuit.py"
     ],
+    "bulk_downloader/human_challenge.py": [
+      "bulk_downloader/registrable_domain.py"
+    ],
     "bulk_downloader/hybrid_search.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/semantic_search.py"
@@ -1928,6 +1931,7 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
       "bulk_downloader/db.py",
+      "bulk_downloader/human_challenge.py",
       "bulk_downloader/learn.py",
       "bulk_downloader/log.py",
       "bulk_downloader/login.py",
@@ -1952,6 +1956,7 @@
       "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/runner_challenge.py": [
+      "bulk_downloader/captcha_relay.py",
       "bulk_downloader/captcha_resolver.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/db.py",
@@ -3886,8 +3891,17 @@
     "tests/test_fuzz_harness_frontend.py": [
       "tools/fuzz_harness.py"
     ],
+    "tests/test_fx_captcha_visible_takeover_idle.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/takeover.py"
+    ],
     "tests/test_fx_dailymotion_player_alnum_scene_id_stream.py": [
       "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_fx_dorcelclub_dl_challenge_wall.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/runner_challenge.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_fx_dorcelclub_frame_hosted_age_wall.py": [
       "bulk_downloader/interstitial.py"
@@ -3920,6 +3934,10 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_fx_youjizz_hd_navlink_is_not_a_rendition.py": [
+      "bulk_downloader/candidate_filter.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_fx_youjizz_quality_data_encodings.py": [
       "bulk_downloader/runner_extractors.py",
@@ -4485,6 +4503,10 @@
       "bulk_downloader/learn.py",
       "bulk_downloader/stealth.py"
     ],
+    "tests/test_o1567_auth_expired_keeps_evidence.py": [
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py"
+    ],
     "tests/test_o1567_bare_403_wall_is_auth_not_rate_limit.py": [
       "bulk_downloader/runner.py"
     ],
@@ -4503,6 +4525,10 @@
       "bulk_downloader/app_state.py",
       "bulk_downloader/db.py"
     ],
+    "tests/test_o1567_fx_blacked_relogin_post_to_self_shell_is_a_submit.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/login.py"
+    ],
     "tests/test_o1567_fx_nubiles_wrong_media_custom_selector_scoped.py": [
       "bulk_downloader/detect.py",
       "bulk_downloader/runner_integrity.py"
@@ -4517,6 +4543,13 @@
     ],
     "tests/test_o1567_fx_redtube_mediadefs_relative.py": [
       "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1567_fx_takeover_plain_browser.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/human_challenge.py",
+      "bulk_downloader/profile_sync.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_o1567_fx_tiny4k_relogin_loop_shape_disproved_by_settled_login.py": [
       "bulk_downloader/runner_auth.py"
@@ -4539,6 +4572,10 @@
     "tests/test_o1567_hls_dot_leaf_name.py": [
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_o1567_kmm_bare_rendition_leaf_named.py": [
+      "bulk_downloader/runner_transport.py",
+      "bulk_downloader/website_title.py"
+    ],
     "tests/test_o1567_login_async_two_callers_start_one_login.py": [
       "bulk_downloader/db.py",
       "bulk_downloader/runner.py",
@@ -4557,6 +4594,18 @@
     ],
     "tests/test_o1567_pornhub_is_an_aylo_free_tube_with_a_1080_scene_file.py": [
       "bulk_downloader/extractors_aylo.py"
+    ],
+    "tests/test_o1567_site_scene_patterns_drive_discovery.py": [
+      "bulk_downloader/app_kernel.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/scene_crawler.py",
+      "bulk_downloader/site_editor.py"
+    ],
+    "tests/test_o1567_takeover_handle_is_thread_owned.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_auth.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_o1567_vault_locked_relogin_spends_no_attempt_and_no_retry.py": [
       "bulk_downloader/db.py",

@@ -2419,7 +2419,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1832,
+    "edge_count": 1835,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2835,6 +2835,7 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/login_impl/manual.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_challenge.py",
         "bulk_downloader/scene_crawler.py",
         "bulk_downloader/takeover_vnc.py"
       ],
@@ -3695,6 +3696,9 @@
         "bulk_downloader/deep_http.py",
         "bulk_downloader/discovery.py"
       ],
+      "bulk_downloader/human_challenge.py": [
+        "bulk_downloader/runner_auth.py"
+      ],
       "bulk_downloader/i18n.py": [
         "bulk_downloader/app_i18n.py",
         "bulk_downloader/dev_suite/housekeeping.py"
@@ -4193,6 +4197,7 @@
         "bulk_downloader/extractors_dl8.py",
         "bulk_downloader/extractors_vixen.py",
         "bulk_downloader/host_enumerator.py",
+        "bulk_downloader/human_challenge.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/login_templates_data.py",
@@ -6769,6 +6774,9 @@
         "bulk_downloader/global_config.py",
         "bulk_downloader/transport_circuit.py"
       ],
+      "bulk_downloader/human_challenge.py": [
+        "bulk_downloader/registrable_domain.py"
+      ],
       "bulk_downloader/hybrid_search.py": [
         "bulk_downloader/db.py",
         "bulk_downloader/semantic_search.py"
@@ -7225,6 +7233,7 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/human_challenge.py",
         "bulk_downloader/learn.py",
         "bulk_downloader/log.py",
         "bulk_downloader/login.py",
@@ -7249,6 +7258,7 @@
         "bulk_downloader/vpn_runtime.py"
       ],
       "bulk_downloader/runner_challenge.py": [
+        "bulk_downloader/captcha_relay.py",
         "bulk_downloader/captcha_resolver.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/db.py",

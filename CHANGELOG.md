@@ -4,6 +4,23 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1730 - train158: row
+
+T158 = O1568 train of the next eleven BOARDed rows: ten O1567 fix rows (FIXROWS-O1567.tsv) and one INSTALL-AUDIT row (INSTALL-AUDIT-spare8/ROWS.tsv, ORDER-BUILD-IA "integrator trains"), each at its BOARD PATCH-SHA256, applied on main after T157:
+- fx-auth-expired-evidence (test3, OP-bd3 fix after REFUTE): auth-expired evidence in runner_auth.
+- fx-blacked-relogin (bd4): blacked re-login in login_impl/submit; folds fx-vixen-sso-render.
+- fx-captcha-visible-takeover-idle (OP-bd1): visible captcha no longer idles the takeover (captcha_relay).
+- fx-dorcelclub-dl-challenge-wall (OP-bd1): dorcelclub download challenge wall handled (runner_challenge, runner_transport); cut on T155 main.
+- fx-kmm-generic-filename (OP-bd2): kellymadisonmedia/teenfidelity generic filename replaced by the page title (runner_transport, website_title).
+- fx-manual-cancel-noop (OP-test3, HIGH accepted by PM): manual-takeover cancel is no longer a no-op (login_impl/manual, runner_auth); cut on T155 main.
+- fx-newsensations-discovery-scene-rule (OP-test7): newsensations discovery scene rule (scene_crawler, site_editor, site_templates, app_kernel, frontend api-types, config_gui_manifest); cut on T155 main.
+- fx-row1018-readonly-url (OP-test6): read-only URL handling in orm_engine (row1018 band noise found by IA-11).
+- fx-takeover-plain-browser (B3-B): takeover in a plain browser (human_challenge, login_impl/submit, runner_auth); cut on T155 main.
+- fx-youjizz-hd-navlink (OP-spare12): youjizz header HD toggle link no longer scored as a 720p rendition (candidate_filter, detect); cut on T155 main.
+- IA-05 install_capture_service.sh start on a fresh state dir (vault-uninitialized gate).
+Overlaps (runner_auth.py x3, runner_transport.py x2, login_impl/submit.py x2) merged in place (O1319). No VM gate (O1560); auto-merge on green PR checks.
+
+
 ## v3.66.1729 - train157: row
 
 T157 = O1568 train of the next twenty-six BOARDed rows: sixteen O1567 fix rows (FIXROWS-O1567.tsv) and ten INSTALL-AUDIT rows (INSTALL-AUDIT-spare8/ROWS.tsv, ORDER-BUILD-IA "integrator trains"), each at its BOARD PATCH-SHA256, applied on main after T156:
