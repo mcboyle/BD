@@ -3,6 +3,8 @@ import json, time
 from pathlib import Path
 
 # ─── COOKIES ──────────────────────────────────────────────────────────────────
+_SAME_SITE={"strict":"Strict","lax":"Lax","none":"None","no_restriction":"None"}
+
 def normalize_stored_cookie(c):
     """One stored-form cookie dict -> BD's in-memory shape.
 
@@ -20,11 +22,20 @@ def normalize_stored_cookie(c):
     guarded the same field with `> 0`; this keeps the two directions
     symmetrical, so a jar cannot change meaning by round-tripping through
     disk.
+
+    `sameSite` follows what Chromium stores (fx-cookie-samesite-unspecified):
+    extension exporters write "unspecified", "no_restriction" and lowercase
+    values, and Chromium treats an unspecified SameSite as Lax. Anything that
+    is not strict/none therefore loads as Lax. "None" is kept only on a Secure
+    cookie: Chromium's add_cookies accepts SameSite=None without Secure and
+    then silently drops it, which lost non-Secure session cookies (SID) from
+    operator imports and landed workers on the login page.
     """
-    ss=c.get("sameSite","None")
-    if ss not in ("Strict","Lax","None"): ss="None"
+    secure=bool(c.get("secure"))
+    ss=_SAME_SITE.get(str(c.get("sameSite") or "").strip().lower(),"Lax")
+    if ss=="None" and not secure: ss="Lax"
     e={"name":c.get("name",""),"value":c.get("value",""),"domain":c.get("domain",""),
-       "path":c.get("path","/"),"sameSite":ss,"secure":bool(c.get("secure")),"httpOnly":bool(c.get("httpOnly"))}
+       "path":c.get("path","/"),"sameSite":ss,"secure":secure,"httpOnly":bool(c.get("httpOnly"))}
     exp=c.get("expirationDate")
     if exp and float(exp)>0: e["expires"]=int(exp)
     return e

@@ -20,7 +20,7 @@ _JAR = [
         "value": "zero-entropy-fixture",
         "domain": "example.invalid",
         "path": "/",
-        "sameSite": "None",
+        "sameSite": "Lax",
         "secure": False,
         "httpOnly": False,
     }
