@@ -1752,7 +1752,7 @@ class TransportMixin:
                     page_url, file_url, output_path,
                     headers=headers, proxy_url=proxy_url,
                 ):
-                    return True
+                    return not self._direct_page_body_refused(page_url, file_url, output_path)
                 if transfer_cancelled(self, page_url):
                     return False     # a cancelled leg is not "not viable": no second leg
                 # fall through to single-conn
@@ -1854,7 +1854,9 @@ class TransportMixin:
                         f"  direct_http: incomplete response ({got}/{total} bytes)\n"
                     )
                     return False
-            return True
+            # fx-txxx-premium-page-fallback E2: a 200 page body is not the media;
+            # every extractor on this leg falls through instead of saving it done.
+            return not self._direct_page_body_refused(page_url, file_url, output_path)
         except httpx.RequestError as e:
             sys.stderr.write(f"  direct_http: request error {e}\n")
             return False
@@ -2768,6 +2770,88 @@ class TransportMixin:
         except Exception as e:  # noqa: BLE001 -- as above
             sys.stderr.write(f"  download: page-media fallback raised {type(e).__name__}: {e}\n")
             return False
+
+    @staticmethod
+    def _is_page_body(head):
+        """fx-txxx-premium-page-fallback: True when the saved bytes open as a
+        page -- an HTML document, an XML error (S3 "<?xml..><Error>") or a JSON
+        body -- after a UTF-8 BOM / whitespace. Media magic wins; a DASH MPD
+        (XML) is a manifest, not a page. Anything else (MPEG-TS, ...) is not
+        evidence of a bad file."""
+        h = (head or b"")[:1024]
+        if TransportMixin._looks_like_media(None, h):
+            return False
+        h = h.lstrip(b"\xef\xbb\xbf").lstrip().lower()
+        if h.startswith((b"<!doctype html", b"<html", b"<head", b"<body")) or (
+                h.startswith(b"<") and b"<html" in h):
+            return True
+        if h.startswith(b"<?xml"):
+            return b"<mpd" not in h
+        return h.startswith((b"{", b"["))
+
+    def _direct_page_body_refused(self, page_url, file_url, output_path):
+        """fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
+        _do_direct_http_download saved a page body (a 200 text/html login or
+        premium page where media was promised). The body is moved to _failed/
+        and the transfer reports failure, so the extractor that asked falls
+        through instead of recording the page "done"."""
+        path = Path(output_path)
+        try:
+            with open(path, "rb") as f:
+                head = f.read(1024)
+        except OSError:
+            return False
+        if not self._is_page_body(head):
+            return False
+        try:
+            (path.parent / "_failed").mkdir(exist_ok=True)
+            shutil.move(str(path), str(path.parent / "_failed" / path.name))
+        except OSError as e:
+            sys.stderr.write(f"  direct_http: page body not moved ({type(e).__name__}: {e})\n")
+        _u = urlsplit(file_url or "")
+        where = (_u.netloc + _u.path) if _u.netloc else "the file URL"
+        sys.stderr.write(f"  direct_http: {where} answered with a page, not media; moved to _failed/\n")
+        self.log_event("direct_http_not_media",
+                       f"{where} answered with a page, not media; moved to _failed/", url=page_url)
+        return True
+
+    def _html_answer_rejects(self, page, page_url, path, file_url=""):
+        """fx-txxx-premium-page-fallback: True when the saved file is an HTML
+        page, not the media. txxx scene 99939: the learned row
+        a[href*='/download/'] matched the PREMIUM member download link and its
+        123 KB HTML answer failed integrity ("no moov atom", status failed)
+        while the scene's public HLS stream was never tried. The page is moved
+        to _failed/ and the scene's own media is tried; with none, the row is
+        needs_review naming the HTML answer. Login-wall and challenge pages are
+        resolved before this by their own paths."""
+        path = Path(path)
+        if path.suffix.lower() in (".html", ".htm"):
+            return False
+        try:
+            with open(path, "rb") as f:
+                head = f.read(1024)
+        except OSError:
+            return False
+        if not self._is_page_body(head):
+            return False
+        quarantine = path.parent / "_failed"
+        try:
+            quarantine.mkdir(exist_ok=True)
+            shutil.move(str(path), str(quarantine / path.name))
+        except OSError:
+            pass
+        _u = urlsplit(file_url or "")
+        where = (_u.netloc + _u.path) if _u.netloc else "the download link"
+        why = f"download link answered with an HTML/XML/JSON page ({where}), not the media"
+        self.log_event("download", f"{why}; moved to _failed/", url=page_url)
+        if self._fallback_to_page_media(page, page_url, why, scene_own_only=True):
+            return True
+        msg = (f"Download link answered with an HTML/XML/JSON page ({where}), not the media "
+               f"(moved to _failed/); the scene's own player offered no stream")
+        self._update_job(page_url, "needs_review", msg, file_size=0)
+        db_log(self.site_id, self.config.get("name", "?"), page_url, "needs_review",
+               "", 0, f"html answer: {where}")
+        return True
 
     def _below_min_resolution_by_file(self,page,page_url,dl,best,suggested):
         """dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
@@ -3695,6 +3779,12 @@ class TransportMixin:
             challenge_wall_rejects = getattr(self, "_challenge_wall_rejects", None)
             if callable(challenge_wall_rejects) and challenge_wall_rejects(
                     page_url, final_path, page=page, file_url=direct_url or ""):
+                return
+            # fx-txxx-premium-page-fallback: any other HTML document (txxx's premium
+            # member download page behind a learned /download/ link) is not the
+            # media; the scene's own stream is tried instead of failing "no moov".
+            if self._html_answer_rejects(page, page_url, final_path,
+                                         file_url=direct_url or getattr(dl, "url", "") or ""):
                 return
 
             # ── Phase 17.20: Size sanity check ───────────────────────────────
