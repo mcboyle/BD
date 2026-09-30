@@ -13,7 +13,6 @@ parts genuinely differ -- without it, a byte-for-byte compare that always
 passes would hide a real assembly defect.
 """
 import os
-import resource
 import sys
 from pathlib import Path
 
@@ -276,31 +275,30 @@ def test_failed_assembly_leaves_output_and_directory_untouched(tmp_path, monkeyp
     assert leftovers == []
 
 
-# ------------------------------------------------------- CPU-reduction
+# ------------------------------------------------------- zero-copy cost
 #
 # The buffered fallback's real extra cost vs. sendfile is the double copy
-# (kernel->user buffer on read(), user buffer->kernel on write()); on this
-# shared fleet host that cost is charged mostly to SYSTEM time and gets
-# swamped by disk-writeback contention from other concurrent jobs when the
-# fixture lives on the real (XFS, disk-backed) filesystem -- confirmed by
-# measurement: the same comparison run twice on a real-disk tmp_path
-# produced a NEGATIVE apparent reduction under host load ~50-80 on 48
-# cores, purely from I/O contention noise, not from the code under test.
-# CLAUDE.md A6 requires a formal timing run to isolate load; this fleet
-# host never goes idle, so instead the fixture and both outputs live on
-# tmpfs (/dev/shm), which removes disk I/O from the measurement entirely
-# and isolates exactly the comparison the brief asks for: the interpreter
-# and syscall overhead of the buffered read/write loop (measured as
-# ru_utime, i.e. literally "user CPU") vs. sendfile's near-zero userspace
-# involvement. Measured directly (see DONE.md): sendfile ~0.000s user-CPU
-# vs. buffered ~0.007s user-CPU on a 2 GiB fixture, reproducible across
-# repeated trials on this same contended host.
+# (kernel->user buffer on read(), user buffer->kernel on write()). Row 859
+# first measured it as user-CPU (ru_utime) and asserted a >50% reduction.
+# That instrument could not tell the two apart on shared CI runners: T163 and
+# T174 gates-named-b read 0.0007 s vs 0.0009 s over eight 2 GiB pairs, and
+# "buffered copy measured 0 user-cpu" on the re-run (landing/T174-RED.md) --
+# the copy is charged to system time, so both totals sat in scheduler noise.
+#
+# So the test counts the cost itself instead of timing it: every byte that
+# crosses into or out of userspace goes through os.read()/os.write() in
+# file_assembler, and every kernel-side byte through os.sendfile(). The
+# counts are exact, independent of host load, and prove the zero-copy claim
+# at the same literal 2 GiB scale: the sendfile path moves ALL bytes
+# kernel-side and NONE through userspace; the buffered path moves all of
+# them through userspace twice (read + write). The fixture stays on tmpfs
+# (/dev/shm) so the 2 GiB copy does not contend with disk writeback.
 _TMPFS_ROOT = Path("/dev/shm")
 
 
 def _tmpfs_dir(name):
     assert _TMPFS_ROOT.is_dir() and os.access(_TMPFS_ROOT, os.W_OK), \
-        "/dev/shm not writable -- cannot isolate the CPU measurement from disk I/O (fail closed, FR46)"
+        "/dev/shm not writable -- cannot hold the 2 GiB fixture off disk (fail closed, FR46)"
     d = _TMPFS_ROOT / f"bd-row859-{os.getpid()}-{name}"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -315,44 +313,67 @@ def _write_random_file(path, size, block=None):
             written += len(block)
 
 
-def _measure_user_cpu(fn):
-    before = resource.getrusage(resource.RUSAGE_SELF).ru_utime
-    fn()
-    return resource.getrusage(resource.RUSAGE_SELF).ru_utime - before
+def _count_copy_bytes(monkeypatch, fn):
+    """Run fn() and return the bytes file_assembler moved through each
+    syscall: {'read': userspace in, 'write': userspace out, 'sendfile': kernel-side}."""
+    moved = {"read": 0, "write": 0, "sendfile": 0}
+    real_read, real_write, real_sendfile = os.read, os.write, os.sendfile
+
+    def read(fd, n):
+        block = real_read(fd, n)
+        moved["read"] += len(block)
+        return block
+
+    def write(fd, data):
+        n = real_write(fd, data)
+        moved["write"] += n
+        return n
+
+    def sendfile(out_fd, in_fd, offset, count):
+        n = real_sendfile(out_fd, in_fd, offset, count)
+        moved["sendfile"] += n
+        return n
+
+    monkeypatch.setattr(FA.os, "read", read)
+    monkeypatch.setattr(FA.os, "write", write)
+    monkeypatch.setattr(FA.os, "sendfile", sendfile)
+    try:
+        fn()
+    finally:
+        monkeypatch.undo()
+    return moved
 
 
-def test_sendfile_path_uses_less_user_cpu_than_buffered_multi_gb():
+def test_sendfile_path_copies_no_bytes_through_userspace_multi_gb(monkeypatch):
     assert _sendfile_available(), "os.sendfile is required here: fail closed, never skip (FR46/T5)"
     """Acceptance criterion, at the literal multi-GB scale the brief names
-    (a 2 GiB fixture): sendfile user-CPU must be >50% lower than buffered.
+    (a 2 GiB fixture): the sendfile path does none of the buffered path's
+    userspace copying.
 
-    R-NEG: buffered_user > 0 is asserted first, so a zero-cost measurement
-    (an instrument that cannot say no) fails loudly instead of passing by
-    accident.
+    R-NEG: the buffered path is measured first and must show the full double
+    copy, so an instrument that cannot see userspace copying fails loudly
+    instead of letting the sendfile assertion pass by accident.
     """
     work = _tmpfs_dir("multi-gb")
     try:
         size = 2 * 1024 * 1024 * 1024  # 2 GiB
         part = work / "big.bin"
         _write_random_file(part, size)
-
         out_sendfile = work / "out_sendfile.bin"
         out_buffered = work / "out_buffered.bin"
 
-        # H622: one copy measured only 4--6 ms of user CPU on a CI worker;
-        # scheduler accounting noise could dominate the 50% comparison.
-        # Measure a fixed eight pairs (16 GiB per path), retaining EVERY
-        # observation. Alternating order balances warm-up/order effects; there
-        # is no retry, early success, sample deletion, or changed threshold.
-        totals = {True: 0.0, False: 0.0}
-        for pair in range(8):
-            for use_sendfile in ((True, False) if pair % 2 == 0 else (False, True)):
-                output = out_sendfile if use_sendfile else out_buffered
-                output.unlink(missing_ok=True)  # bound tmpfs use before timing
-                totals[use_sendfile] += _measure_user_cpu(
-                    lambda output=output, use_sendfile=use_sendfile:
-                    FA.assemble([part], output, try_sendfile=use_sendfile))
-        sendfile_user, buffered_user = totals[True], totals[False]
+        buffered = _count_copy_bytes(
+            monkeypatch, lambda: FA.assemble([part], out_buffered, try_sendfile=False))
+        assert buffered == {"read": size, "write": size, "sendfile": 0}, (
+            f"ZERO-COPY-INSTRUMENT: the buffered copy of {size} bytes was counted as {buffered}; "
+            f"the probe cannot see userspace copying")
+
+        kernel = _count_copy_bytes(
+            monkeypatch, lambda: FA.assemble([part], out_sendfile, try_sendfile=True))
+        assert kernel == {"read": 0, "write": 0, "sendfile": size}, (
+            f"ZERO-COPY: the sendfile path moved {kernel['read']} bytes in and {kernel['write']} bytes out "
+            f"through userspace (buffered copy: {buffered['read']} + {buffered['write']}); want 0 + 0 and all "
+            f"{size} bytes via sendfile, got {kernel['sendfile']}")
 
         # Exact bytes, streamed: do not allocate two extra 2 GiB Python strings
         # while the source and both outputs already occupy 6 GiB of tmpfs.
@@ -362,26 +383,10 @@ def test_sendfile_path_uses_less_user_cpu_than_buffered_multi_gb():
                 assert block == right.read(4 * 1024 * 1024)
                 if not block:
                     break
-        assert buffered_user > 0, "buffered copy measured 0 user-cpu; instrument cannot distinguish"
-        reduction = 1.0 - (sendfile_user / buffered_user)
-        assert reduction > 0.5, (
-            f"sendfile user-cpu={sendfile_user:.4f}s buffered user-cpu={buffered_user:.4f}s "
-            f"reduction={reduction:.0%} (want >50%) at size={size} bytes, 8 fixed pairs"
-        )
     finally:
         import shutil
 
         shutil.rmtree(work, ignore_errors=True)
-
-
-# A 300 MiB variant of this comparison was tried as a faster smoke test and
-# measured genuinely flaky (3 repeated runs: pass, fail, pass) even on
-# tmpfs -- at that scale the buffered loop's ~80 iterations produce too
-# little userspace overhead to clear noise reliably on this shared host.
-# The 2 GiB test above is the one that is both the brief's literal
-# acceptance scale and the one that reproduces cleanly (see DONE.md), so
-# it stays the only CPU-reduction assertion rather than adding a second,
-# noisier one that would make this gate schedule-sensitive (A5).
 
 
 # ─── FIXER (O928) controls for VERDICT-correctness E1/E2 ─────────────
