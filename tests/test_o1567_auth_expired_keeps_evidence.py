@@ -74,7 +74,12 @@ def _evidence(tmp_path):
     (_Page("https://freetour.adulttime.example/en/login", "<html></html>"), "url"),
     (_Page(SCENE, MODAL), "body"),
     (_Page(SCENE, "<html><body>Log in</body></html>", logged_out=True), "logged-out"),
-], ids=["redirect-to-login", "password-input-in-body", "logged-out-shape"])
+    (_Page(SCENE, "<html><body>ACCESS DENIED You must be a member to watch this video</body></html>",
+           text="ACCESS DENIED  You must be a member to watch this video"), "members-only"),
+    (_Page(SCENE, "<html><body>403 Forbidden Request is denied</body></html>",
+           text="403 Forbidden\nRequest is denied"), "bare-403"),
+], ids=["redirect-to-login", "password-input-in-body", "logged-out-shape", "members-only-wall",
+        "bare-403-login-wall"])
 def test_every_auth_verdict_names_its_signal_and_keeps_the_page(tmp_path, capsys, page, signal):
     r = _runner(tmp_path)
     got = SiteRunner._check_redirect(r, page, SCENE, no_candidate=(signal == "logged-out"))

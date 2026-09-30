@@ -50,9 +50,11 @@ class _Page:
         return "<html><body>" + self._t + "</body></html>"
 
 
-def _check(text, login_url=LOGIN_URL):
+def _check(text, login_url=LOGIN_URL, evidence_dir=None):
     r = object.__new__(SiteRunner)
     r.config = {"login_url": login_url} if login_url else {}
+    if evidence_dir is not None:
+        r.config["login_evidence_dir"] = str(evidence_dir)
     return SiteRunner._check_redirect(r, _Page(text), "u")
 
 
@@ -60,8 +62,8 @@ def _check(text, login_url=LOGIN_URL):
     BARE,
     "403 Forbidden\nRequest is denied",
 ])
-def test_a_bare_403_wall_on_a_login_site_is_auth_not_a_rate_limit(text):
-    got = _check(text)
+def test_a_bare_403_wall_on_a_login_site_is_auth_not_a_rate_limit(text, tmp_path):
+    got = _check(text, evidence_dir=tmp_path)
     assert got == "auth", (
         f"O1567: bare 403 wall {text!r} on a login site was classified {got!r}; "
         f"it must be 'auth' (login + requeue), not a 24 h site cooldown")

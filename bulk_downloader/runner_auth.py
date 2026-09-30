@@ -1422,7 +1422,7 @@ class AuthMixin:
                 # site-ma-brazzers/-bangbros: "403 Forbidden Request is denied"),
                 # not a throttle: login + requeue, never a 24-hour cooldown.
                 if m and self._bare_403_login_wall(body[:3000]):
-                    return "auth"
+                    return self._auth_verdict(page,url,"bare-403",m.group(0))
                 if m:
                     # Row 722s: keep the matched text so the cooldown names
                     # WHAT on the page looked like a rate limit.
