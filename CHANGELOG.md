@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1732 - train160: row
+
+T160 = O1568 train of the next BOARDed row, applied on main after T159:
+- fx-vixen-member-download (bd4 takeover, builder A2-A, lens bd-kimi-lens): on vixen-network member pages the extractor took the page's 480p video_src and closed the job, ignoring min_resolution; it now declines a stream below min_resolution unless the job is forced so the member DownloadButton / VideoDownloadModal path runs, and the vixen_network template gains the modal trigger and 4K row selectors (old selectors kept) (runner_extractors.py, site_templates/_data_studios_a.py).
+
+
 ## v3.66.1731 - train159: row
 
 T159 = O1568 train of the next BOARDed rows, applied on main after T158:
