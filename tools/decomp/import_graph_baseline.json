@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5664,
+  "edge_count": 5668,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4595,6 +4595,12 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/templates.py"
+    ],
+    "tests/test_o1567_fx_vixen_post_challenge_fastfail.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_o1567_fx_whoreshub_poster_held_before_scene_player.py": [
       "bulk_downloader/detect.py",

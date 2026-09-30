@@ -649,53 +649,53 @@ Schema version: 2
 ## `bulk_downloader/runner_auth.py` (47 entries)
 
 ```
-- L0023 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0055 `_ScrubbedPage` `[private]` — The page as write_login_evidence reads it, minus what a member page inlines:
-  - L0058 `_ScrubbedPage.__init__` `[dunder]`
-  - L0061 `_ScrubbedPage.content`
-  - L0066 `_ScrubbedPage.__getattr__` `[dunder]`
-- L0076 `login_wall_in_body` — dl95-eporner-1: why a downloaded body is a login page instead of the
-- L0101 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
-- L0123 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
-- L0135 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
-- L0146 `_truthy` `[private]`
-- L0156 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
-- L0162 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
-- L0172 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
-- L0187 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
-- L0196 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
-- L0211 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
-- L0243 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
-- L0262 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
-- L0271 `AuthMixin` `[class]`
-  - L0272 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
-  - L0277 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
-  - L0609 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
-  - L0656 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
-  - L0721 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
-  - L0789 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
-  - L0817 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
-  - L0926 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
-  - L0970 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
-  - L1175 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
-  - L1227 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
-  - L1232 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
-  - L1284 `AuthMixin._human_challenge_wait` `[private]`
-  - L1343 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
-  - L1370 `AuthMixin.is_awaiting_manual_login`
-  - L1372 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
-  - L1387 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
-  - L1398 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
-  - L1466 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
-  - L1496 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
-  - L1515 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
-  - L1632 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
-  - L1642 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
-  - L1650 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
-  - L1715 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
-  - L1770 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
-  - L1783 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
-  - L1802 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
+- L0024 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0056 `_ScrubbedPage` `[private]` — The page as write_login_evidence reads it, minus what a member page inlines:
+  - L0059 `_ScrubbedPage.__init__` `[dunder]`
+  - L0062 `_ScrubbedPage.content`
+  - L0067 `_ScrubbedPage.__getattr__` `[dunder]`
+- L0077 `login_wall_in_body` — dl95-eporner-1: why a downloaded body is a login page instead of the
+- L0102 `_auth_start_guard` `[private]` — Track auth/manual launch callers until publication or retirement.
+- L0124 `_resolve_retired_login` `[private]` — Complete the async callback contract when retirement rejects login.
+- L0136 `_resolve_takeover_mode` `[private]` — MOD-1 A-4 / C-2: resolve how a captcha solve session presents. Reads
+- L0147 `_truthy` `[private]`
+- L0157 `_takeover_enabled` `[private]` — MOD-1 A-5a KILL-SWITCH: remote takeover is OFF unless explicitly enabled
+- L0163 `_takeover_max_concurrent` `[private]` — MOD-1 A-5a concurrency cap (floor 1; bad/absent -> default 2).
+- L0173 `_remote_admitted` `[private]` — MOD-1 A-5a admission: remote (headless + screencast) takeover engages only
+- L0188 `register_vnc_probe` — MOD-1 C-2: inject the DERIVED vnc-availability probe
+- L0197 `_vnc_available` `[private]` — MOD-1 C-2: (available, reason) for the vnc takeover stack. DERIVED, not
+- L0212 `_resolve_effective_mode` `[private]` — MOD-1 C-2: the self-downgrade ladder. Returns (effective_mode, reason)
+- L0244 `_admit_takeover` `[private]` — MOD-1 C-4: the runtime entry point for the C-2 ladder. Returns
+- L0263 `_surface_login_channel_fallbacks` `[private]` — Row 723: put the real-Chrome degradation a login flow the runner owns
+- L0272 `AuthMixin` `[class]`
+  - L0273 `AuthMixin._set_login_status` `[private]` — Set operator-visible login text without retaining GET credentials.
+  - L0278 `AuthMixin.login_async` — Phase 4.4: by default, allow manual takeover when auto-login
+  - L0613 `AuthMixin._await_in_flight_login` `[private]` — v3.66.834: resolve a second caller's on_done against the login
+  - L0660 `AuthMixin.start_manual_login` — Phase 19: skip auto-login entirely and open a browser at the
+  - L0725 `AuthMixin._open_manual_window` `[private]` — Open the thread-owned manual-login window at ``login_url`` and
+  - L0793 `AuthMixin._poll_manual_cookies` `[private]` — Background poller. Every 3 seconds, asks the manual-login
+  - L0821 `AuthMixin.start_captcha_solve_session` — Open a visible browser pointed at `url` so the user can solve
+  - L0930 `AuthMixin.end_captcha_solve_session` — Close the visible browser for `url`. If resolution=='resolved',
+  - L0974 `AuthMixin.finish_manual_login` — Called by /api/sites/<sid>/login_manual_done. Reads cookies
+  - L1179 `AuthMixin.verify_login_after_wizard` — v3.43.51: post-wizard verification. Spawns a HEADLESS replay
+  - L1231 `AuthMixin.get_last_verify_result` — Return the most recent verify result, or None if no
+  - L1236 `AuthMixin._maybe_start_human_challenge` `[private]` — fx-takeover-plain-browser: a takeover that stands on a Cloudflare
+  - L1288 `AuthMixin._human_challenge_wait` `[private]`
+  - L1347 `AuthMixin.cancel_manual_login_pending` — Called by /api/sites/<sid>/login_manual_cancel. Closes the
+  - L1374 `AuthMixin.is_awaiting_manual_login`
+  - L1376 `AuthMixin._page_shows_logged_out` `[private]` — dl95-kink-1: the scene page offers a login and no logout.
+  - L1391 `AuthMixin._bare_403_login_wall` `[private]` — True when the whole visible page is a bare 403/denied error (every
+  - L1402 `AuthMixin._check_redirect` `[private]` — Inspect the current page; return 'rl' if rate-limited, 'auth' if
+  - L1470 `AuthMixin._auth_verdict` `[private]` — fx-auth-expired-evidence (O1567): an 'auth' verdict names the
+  - L1500 `AuthMixin._login_wall_rejects` `[private]` — dl95-eporner-1: True when the downloaded file is the site's login
+  - L1519 `AuthMixin._handle_auth_required` `[private]` — Cookies/session rejected by the server.
+  - L1636 `AuthMixin._relogin_abort_reason` `[private]` — dl95-cancel-relogin-1: why an in-flight re-login is no longer
+  - L1646 `AuthMixin._cookie_age_hours` `[private]` — Phase 63 (v3.38.x): age of the most recent cookie refresh in
+  - L1654 `AuthMixin.maybe_preemptive_relogin` — Phase 63: trigger a manual login BEFORE cookies expire, while
+  - L1719 `AuthMixin._report_uncovered_session_scope` `[private]` — Name the case where the jar covers NOTHING on the page's host.
+  - L1774 `AuthMixin._stored_session_usable` `[private]` — Stored cookies that can still carry a session: some unexpired,
+  - L1787 `AuthMixin.session_for_capture` — tpl95-bang-1 (O1517): the cookie jar a template capture starts
+  - L1806 `AuthMixin._check_cookies_or_relogin` `[private]` — If all stored cookies are expired and there are no session cookies,
 ```
 
 
@@ -1054,34 +1054,34 @@ Schema version: 2
 - L0051 `_same_brand_origin` `[private]` — Row 722 (G17): do the login page and the page the submit landed on
 - L0066 `_no_nav_verdict` `[private]` — Row 708: decide a login that fired NO navigation.
 - L0095 `_staged_password_retry` `[private]` — Two-step (staged) login recovery. Returns (ok, info).
-- L0149 `login_abort_check`
-- L0158 `_login_abort_reason` `[private]`
-- L0169 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
-- L0276 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
-- L0311 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
-- L0356 `_is_challenge_interstitial` `[private]` — O1567: a challenge page that stands INSTEAD of the login form --
-- L0382 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
-- L0491 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
-- L0522 `_captcha_challenge_visible` `[private]` — The captcha whose image challenge is on screen ("reCAPTCHA"), or "" -- never raises.
-- L0533 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
-- L0575 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
-- L0604 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
-- L0613 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
-- L0648 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
-- L0681 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0696 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0780 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0796 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L1006 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L1063 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1529 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1600 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1702 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1722 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1769 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1785 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1806 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1845 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0152 `login_abort_check`
+- L0161 `_login_abort_reason` `[private]`
+- L0172 `_click_turnstile_checkbox` `[private]` — Row 722 (vip4k.com): a Cloudflare Turnstile widget in CHECKBOX mode
+- L0279 `_click_human_button` `[private]` — A visible button/role=button whose whole text is an 'I am human' /
+- L0314 `_is_cloudflare_challenge_page` `[private]` — True when the page is a Cloudflare managed-challenge interstitial
+- L0359 `_is_challenge_interstitial` `[private]` — O1567: a challenge page that stands INSTEAD of the login form --
+- L0385 `clear_cloudflare_challenge` — Row 722 (adulttime): every login URL answers 307->403 with a
+- L0494 `_captcha_mount_name` `[private]` — The captcha mount on ``page`` ("reCAPTCHA", ...), or "" -- never raises.
+- L0525 `_captcha_challenge_visible` `[private]` — The captcha whose image challenge is on screen ("reCAPTCHA"), or "" -- never raises.
+- L0536 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
+- L0578 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
+- L0607 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
+- L0616 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
+- L0651 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
+- L0692 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0707 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0791 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0807 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L1017 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L1074 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1540 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1611 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1713 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1733 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1780 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1796 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1817 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1856 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 

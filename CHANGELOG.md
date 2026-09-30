@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1741 - train169: row
+
+T169 = O1568 train of the next BOARDed rows, applied on main after T168:
+- fx-test-filter-status (bd-worker-A10-A, PM ruling 07:04Z ESC-TEST-FILTER-hook-0710Z.md; lens bd-kimi-lens): opt-in test (BD_FX_TEST_FILTER_STATUS_CANDIDATE) for the seat-side test-filter hook, which reported status=PASS on a `;` command list whose last command succeeded although pytest printed failures; the candidate hook derives its verdict from the test results in the saved log (failed/error counts, FAILED lines, band receipts) and never says PASS without a test result. The hook itself is a plugin candidate outside the repo (tests/test_fx_test_filter_status.py, skipped without the opt-in).
+- fx-vixen-post-challenge-fastfail (bd-worker-A4-A, PM ruling 07:16Z part 2 in Q-VIXEN-CHALLENGE-ROOT-A4-A.md; lens bd-kimi-lens): the T167 trace showed the vixen/blacked login POST itself is answered 403 cf-mitigated=challenge and is challenged again after Turnstile clearance, so clear, re-entry, re-submit and the takeover fallback all spent minutes and could never log in; the trace now also reports challenged POSTs, do_login checks them right after the first post-submit wait and settles with the new status settled-challenge-post ("log in from a normal browser and import cookies"), keeping evidence and skipping the Turnstile clear and re-submits, and the templated-login takeover fallback skips that status while the session keeper still maps it to needs_takeover (bulk_downloader/login_impl/submit.py, runner_auth.py).
+
+
 ## v3.66.1740 - train168: row
 
 T168 = O1568 train of the next BOARDed row, applied on main after T167:
