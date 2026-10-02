@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
-import type { OkResult } from "@/lib/api-types";
+import type { OkResult, SitesV2 } from "@/lib/api-types";
 import { actionSuffixWithIdx } from "@/lib/poolPath";
 
 // GUI parity (177) — per-site no-body actions. Surfaces existing
@@ -78,6 +78,15 @@ export function SiteActions() {
   const [idx, setIdx] = useState("0");
   const [output, setOutput] = useState<unknown>(null);
   const [runNowOpen, setRunNowOpen] = useState(false);
+
+  // F011: look the site up (same cached list SiteDetail uses) so an unknown id
+  // gets a not-found state instead of the full action set with live Confirms.
+  const sites = useQuery<SitesV2>({
+    queryKey: ["sites-v2"],
+    queryFn: ({ signal }) => apiGet<SitesV2>("/api/sites/v2", signal),
+    refetchOnWindowFocus: false,
+  });
+  const siteMissing = !!sites.data && !sites.data.sites?.some((s) => s.site_id === siteId);
 
   const run = useMutation<OkResult, Error, string>({
     mutationFn: (suffix) => apiPost<OkResult>(`/api/sites/${encodeURIComponent(siteId)}/${suffix}`, {}),
@@ -173,6 +182,22 @@ export function SiteActions() {
     run.mutate(suffix);
     setPending(null);
   };
+
+  if (siteMissing) {
+    return (
+      <AppShell title="Site not found">
+        <Card className="rounded-lg border border-amber/30 bg-amber-soft p-4 text-sm text-ink" role="alert">
+          <span className="eyebrow eyebrow-warn">Site not found</span>
+          <div className="mt-1 text-ink-3">
+            We couldn't find a site with ID {siteId}. It may have been deleted.
+          </div>
+          <Link to="/sites" className="mt-3 inline-flex items-center text-sm text-muted-foreground">
+            <ArrowLeft className="mr-1 h-4 w-4" /> Back to sites
+          </Link>
+        </Card>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
