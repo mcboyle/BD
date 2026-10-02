@@ -5720,7 +5720,9 @@ def _gap_fill_builtin_download_template(sid, cfg, cfg_in):
     Applies only when the site has no download selectors and no applied
     template, and only on an UNAMBIGUOUS match (exactly one template for
     the first matching URL) -- a silent restart must not guess between
-    competing templates (spankbang.com also matches bang_originals).
+    competing templates (spankbang.com also matches bang_originals). O1638:
+    a seeded site-specific built-in beats a family built-in on a tie
+    (xnxx.com: user_b1b_xnxx_o1517 over wgcz_tubes); see unambiguous_template.
     config_defaults fill only keys absent from the persisted config, so an
     operator's explicit value (including False/0) is never overwritten.
     Mutates cfg in place; the next save persists applied_template, so the
@@ -5744,9 +5746,11 @@ def _gap_fill_builtin_download_template(sid, cfg, cfg_in):
             tids = _tpls.suggest_for_url(u) if u else []
             if tids:
                 break
-        if len(tids) != 1:
+        from .site_templates import unambiguous_template
+        tid = unambiguous_template(tids)
+        if not tid:
             return None
-        tpl = _tpls.get(tids[0]) or {}
+        tpl = _tpls.get(tid) or {}
         download = (tpl.get("learned") or {}).get("download") or {}
         if not download:
             return None
@@ -5756,9 +5760,9 @@ def _gap_fill_builtin_download_template(sid, cfg, cfg_in):
             return None
         merge_learned(cfg, json.loads(json.dumps(download)), kind="download")
         cfg.update(fill)
-        cfg["applied_template"] = tids[0]
-        sys.stderr.write(f"  template gap-fill {sid}: applied {tids[0]}\n")
-        return tids[0]
+        cfg["applied_template"] = tid
+        sys.stderr.write(f"  template gap-fill {sid}: applied {tid}\n")
+        return tid
     except Exception as e:
         sys.stderr.write(f"  ! template gap-fill {sid} failed: {e}\n")
         return None

@@ -18,6 +18,11 @@ from ._data_learned_o1517 import ITEMS as __data_learned_o1517
 
 TEMPLATES = __data_players + __data_cms + __data_studios_a + __data_heuristics + __data_studios_b + __data_tubes + __data_mainstream + __data_extractor_hosts + __data_learned_o1517
 
-from .accessors import get, list_templates, suggest_for_url  # noqa: E402
+# O1638: the built-ins seeded from a learned site template (one site each), as
+# opposed to the hand-written family/generic templates above them.
+SEEDED_BUILTIN_IDS = frozenset(t["id"] for t in __data_learned_o1517)
 
-__all__ = ["TEMPLATES", "get", "list_templates", "suggest_for_url"]
+from .accessors import get, list_templates, suggest_for_url, unambiguous_template  # noqa: E402
+
+__all__ = ["TEMPLATES", "SEEDED_BUILTIN_IDS", "get", "list_templates", "suggest_for_url",
+           "unambiguous_template"]

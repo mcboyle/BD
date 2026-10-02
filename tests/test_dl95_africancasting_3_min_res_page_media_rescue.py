@@ -13,6 +13,7 @@ Fixture pages served by page.route in a local headless chromium; no live site, n
 from __future__ import annotations
 
 import inspect
+import sys
 from contextlib import contextmanager
 
 import pytest
@@ -128,10 +129,20 @@ def _runner(tmp_path, monkeypatch):
     return type("StubRunner", (_Stub, rx.ExtractorsMixin), {})(tmp_path)
 
 
-def test_precondition_the_dom_best_is_a_720_badge_guess_below_1080():
-    """The evidence shape: the DOM scorer's best is a related card's 'HD' badge (720, size unknown)."""
+def test_precondition_the_dom_best_is_a_720_badge_guess_below_1080(monkeypatch):
+    """The evidence shape: the DOM scorer's best is a related card's 'HD' badge (720, size unknown).
+
+    Since dl95-africancasting-4 (_title_shaped_label_only) a card whose text carries a TITLE no longer
+    scores on its tier word, so the measured "HD | 27:38 | <title>" card yields no DOM candidate and
+    row 722's no-candidate arm takes the page media. A badge-only card (no title) still yields the
+    sub-min UNKNOWN guess, which is what reaches the refusal arm under test here."""
     from bulk_downloader.detect import find_best_download
 
+    with _page([OWN_1080]) as page:
+        assert not find_best_download(page), "a titled related card scored as this scene's quality"
+    badge_only = ('<a class="thumb" href="/video/other-scene-one-1001.html"><div class="badge">HD</div>'
+                  '<div class="dur">27:38</div></a>')
+    monkeypatch.setattr(sys.modules[__name__], "CARDS", badge_only)
     with _page([OWN_1080]) as page:
         best = find_best_download(page)
     assert best, (

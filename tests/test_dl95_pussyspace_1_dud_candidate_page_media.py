@@ -176,11 +176,22 @@ def test_do_download_consults_the_fallback_before_both_needs_review_exits():
     guards = [n for n in ast.walk(fn) if isinstance(n, ast.If) and isinstance(n.test, ast.BoolOp)
               and any(isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute)
                       and v.func.attr == "_fallback_to_page_media" for v in n.test.values)]
-    assert len(guards) == 2, "the nav-gate rejection and the no-download-event branch must each try the page media"
+    # fx-xnxx-preview (3aa3f7017) legitimately added a third, probe-gated guard
+    # (learned player <source> of unknown height); this row pins the two branches it
+    # owns by their reason text, and that EVERY fallback guard is probe-gated.
+    def _why(g):
+        call = next(v for v in g.test.values if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute)
+                    and v.func.attr == "_fallback_to_page_media")
+        return ast.unparse(call.args[2]) if len(call.args) > 2 else ""
+    whys = [_why(g) for g in guards]
+    assert any("winner rejected" in w for w in whys) and any("fired no download" in w for w in whys), \
+        "the nav-gate rejection and the no-download-event branch must each try the page media"
     for g in guards:
         assert any(isinstance(s, ast.Return) for s in g.body)
         assert any(isinstance(v, ast.UnaryOp) and isinstance(v.operand, ast.Name) and v.operand.id == "probe"
                    for v in g.test.values), "a GCW probe must never start a transfer"
+    guards = [g for g, w in zip(guards, whys) if "winner rejected" in w or "fired no download" in w]
+    assert len(guards) == 2
     reviews = [n.lineno for n in ast.walk(fn) if isinstance(n, ast.Constant) and n.value == "needs_review"]
     gate_line = next(n.lineno for n in ast.walk(fn) if isinstance(n, ast.Name) and n.id == "_gate_reject"
                      and isinstance(n.ctx, ast.Load))

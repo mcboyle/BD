@@ -251,16 +251,19 @@ def test_the_no_download_event_hint_names_a_manifest():
     src = (ROOT / "bulk_downloader" / "runner_transport.py").read_text(
         encoding="utf-8")
     tree = ast.parse(src)
-    hits = [n for n in ast.walk(tree)
-            if isinstance(n, ast.Constant) and isinstance(n.value, str)
-            and "no dl event" in n.value]
+    # Docstrings that QUOTE the message (dl95-porndig-1's _sized_href_download,
+    # row 384's _direct_media_route) are not the code that writes it.
+    _prose = {id(n.value) for n in ast.walk(tree)
+              if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
+
+    def _writes_msg(c):
+        return (isinstance(c, ast.Constant) and isinstance(c.value, str)
+                and "no dl event" in c.value and id(c) not in _prose)
+    hits = [n for n in ast.walk(tree) if _writes_msg(n)]
     assert hits, "the 'no dl event' message is gone -- re-derive this gate"
     fn = next((n for n in ast.walk(tree)
                if isinstance(n, ast.FunctionDef)
-               and any(isinstance(c, ast.Constant)
-                       and isinstance(c.value, str)
-                       and "no dl event" in c.value
-                       for c in ast.walk(n))), None)
+               and any(_writes_msg(c) for c in ast.walk(n))), None)
     assert fn is not None, "no function contains the 'no dl event' message"
 
     # THE HELPER MUST BE CALLED, not merely mentioned.

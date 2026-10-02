@@ -141,13 +141,17 @@ def _run(tmp_path, selector, size):
 
 def test_sized_winner_with_swallowed_click_is_fetched_over_http(tmp_path, _hermetic):
     # under 1 MB so the size-sanity gate (Phase 17.20) does not judge the 76-byte fixture file
-    runner = _run(tmp_path, "a.q1080", 700 * 1024)
+    # The download dir is NOT tmp_path: conftest chdirs into tmp_path (BD_HOME), so
+    # the history DB that dl95-wowgirls-1's _history_pages_naming opens lands there.
+    dl_dir = tmp_path / "dl"
+    dl_dir.mkdir()
+    runner = _run(dl_dir, "a.q1080", 700 * 1024)
     statuses = [s for s, _m in runner.updates]
     assert runner.fetched == [_HREF_1080], (
         f"DL95_PORNDIG_NO_HTTP_FALLBACK: the sized winner's href was never fetched; job updates={runner.updates!r}"
     )
     assert "needs_review" not in statuses and statuses[-1] == "done", runner.updates
-    saved = [p.name for p in Path(tmp_path).iterdir() if p.is_file()]
+    saved = [p.name for p in dl_dir.iterdir() if p.is_file()]
     assert saved == ["tube2.example_requested-title_1080p.mp4"], saved
     assert runner.failures == []
 

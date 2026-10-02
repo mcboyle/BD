@@ -5,7 +5,7 @@ and reads the package-level TEMPLATES list."""
 
 import logging
 
-from . import TEMPLATES
+from . import SEEDED_BUILTIN_IDS, TEMPLATES
 
 # The template maintenance log (register row 918: "warning emitted to
 # template maintenance log"): selector degradation is routed here as a
@@ -191,3 +191,39 @@ def suggest_for_url(url):
     # the slot — preserving the documented "USER TEMPLATES WIN"
     # precedence instead of silently appending a duplicate built-in.
     return list(dict.fromkeys(matches))
+
+
+
+def _is_family(tpl):
+    """A hand-written built-in whose patterns name more than one site (wgcz_tubes:
+    xvideos + xnxx), as opposed to a site-specific one (naughtyamerica)."""
+    import re as _re
+    names = set()
+    for pat in tpl.get("patterns") or []:
+        host = _re.sub(r"\\d[+*]?|[\\^$()?]", "", str(pat).lower())
+        names.add(host.split(".", 1)[0].strip("-"))
+    names.discard("")
+    return len(names) > 1
+
+
+def unambiguous_template(tids):
+    """The one template id a silent (no-operator) apply may use, or None.
+
+    One match -> that id. Several matches are a tie and apply nothing, with one
+    exception (operator ruling O1638): when exactly one match is a SEEDED built-in
+    (site_templates._data_learned_o1517, learned on that site) and every other
+    match is a hand-written FAMILY built-in (patterns naming several sites, e.g.
+    wgcz_tubes), the seeded site-specific one wins. Two seeded, family vs family,
+    a site-specific hand-written built-in, or a user-only template in the tie -> None."""
+    tids = list(dict.fromkeys(tids or []))
+    if len(tids) == 1:
+        return tids[0]
+    seeded = [t for t in tids if t in SEEDED_BUILTIN_IDS]
+    if len(seeded) != 1:
+        return None
+    builtin = {t.get("id"): t for t in TEMPLATES}
+    others = [t for t in tids if t != seeded[0]]
+    if all(t in builtin and t not in SEEDED_BUILTIN_IDS and _is_family(builtin[t])
+           for t in others):
+        return seeded[0]
+    return None

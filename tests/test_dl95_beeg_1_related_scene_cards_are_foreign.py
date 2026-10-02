@@ -66,11 +66,34 @@ def test_related_cards_on_an_id_routed_scene_are_not_admitted():
     assert not (best and best.get("locator") is not None), (
         "DL95-BEEG1: a related-scene card was admitted as this scene's download: "
         f"{(best or {}).get('text', '')[:60]!r}")
+    # dl95-africancasting-4 (_title_shaped_label_only) now drops these title-length
+    # cards before the work rule reads them, so the page yields NO candidate rather
+    # than the nothing-in-scope sentinel. Either way nothing is selected; the
+    # opaque-id FOREIGN refusal itself is pinned on badge-only cards below.
+    assert detect.no_selection(best), (
+        "DL95-BEEG1: related cards were not refused (expected no selection)")
+
+
+# Badge-only cards (channel + count, too short to read as a title) still reach
+# the work rule: every one names another opaque id, so nothing is in scope.
+_BEEG_BADGE_CARDS = _BEEG_SCENE.split('<section class="related">')[0] + (
+    '<section class="related">'
+    '<a class="card" href="/-0274086217869699"><img alt=""><div>Tiny 4K</div><div>1.2K</div></a>'
+    '<a class="card" href="/-0513167729466248"><img alt=""><div>Night</div><div>1.8K</div></a>'
+    '</section></main></body></html>')
+
+
+def test_badge_only_related_cards_are_refused_as_another_work():
+    with _page(_BEEG_BADGE_CARDS) as page:
+        best = detect.find_best_download(page)
+    assert not (best and best.get("locator") is not None), (
+        "DL95-BEEG1: a related-scene card was admitted as this scene's download: "
+        f"{(best or {}).get('text', '')[:60]!r}")
     assert best is not None and best.get("_no_in_scope_candidates"), (
         "DL95-BEEG1: related cards were not refused as another work (expected the "
         "nothing-in-scope outcome)")
     reasons = {c.get("reason") for c in best.get("_excluded_candidates") or []}
-    assert reasons, "the refusal must name why each card was refused"
+    assert reasons == {"foreign"}, "the refusal must name why each card was refused"
 
 
 @pytest.mark.parametrize("href,expected", [
@@ -102,5 +125,10 @@ def test_slug_routed_pages_are_unchanged():
     page = "https://site.example/videos/12345678/the-scene-title"
     assert detect._candidate_work_affinity(
         _El("/videos/87654321/the-scene-title"), page) == detect._WORK_IN_SCOPE
+    # The opaque-id rule does not condemn a numeric-only sibling on a slug page.
+    # dl95-youporn-1 (47e59c190, already an ancestor of this row's lane commit)
+    # does: same route, different numeric work id -> FOREIGN by that rule.
+    assert detect._names_another_opaque_id_route(page, "/videos/87654321") is False
+    assert detect._candidate_names_another_numeric_work(page, "/videos/87654321") is True
     assert detect._candidate_work_affinity(
-        _El("/videos/87654321"), page) == detect._WORK_UNKNOWN
+        _El("/videos/87654321"), page) == detect._WORK_FOREIGN
