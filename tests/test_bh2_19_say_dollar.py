@@ -87,3 +87,31 @@ def test_unquoted_unescaped_dollar_refused() -> None:
     cmd = r"bd-say target Cost\ is\ $0"
     with pytest.raises(ValueError, match="dynamic argument"):
         cli.hook(cmd)
+
+
+def test_double_quoted_escaped_backslash_before_dollar_refused() -> None:
+    cli = _get_cli_module()
+    cmd = r'bd-say target "a\\$(id)"'
+    with pytest.raises(ValueError, match="dynamic argument"):
+        cli.hook(cmd)
+
+
+def test_unquoted_escaped_backslash_before_dollar_refused() -> None:
+    cli = _get_cli_module()
+    cmd = r'bd-say target a\\$HOME'
+    with pytest.raises(ValueError, match="dynamic argument"):
+        cli.hook(cmd)
+
+
+def test_ansi_c_dollar_refused() -> None:
+    cli = _get_cli_module()
+    cmd = r"bd-say target $'\x24(id)'"
+    with pytest.raises(ValueError, match="dynamic argument"):
+        cli.hook(cmd)
+
+
+def test_double_quoted_escaped_backslash_and_escaped_dollar_allowed() -> None:
+    cli = _get_cli_module()
+    cmd = r'bd-say target "a\\\\\$(id)"'
+    res = cli.hook(cmd)
+    assert res == [{"valid": True}]
