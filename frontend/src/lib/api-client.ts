@@ -309,13 +309,27 @@ export async function apiPostDownload(
   const token = await getCsrfToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, {
+  let r = await fetch(path, {
     method: "POST",
     credentials: "same-origin",
     headers,
     body: JSON.stringify(payload),
     signal,
   });
+  // On 403, the token may have rotated — refetch once and retry.
+  if (r.status === 403) {
+    _csrfToken = null;
+    const retryToken = await getCsrfToken();
+    if (retryToken && retryToken !== token) {
+      r = await fetch(path, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { ...headers, "X-CSRF-Token": retryToken },
+        body: JSON.stringify(payload),
+        signal,
+      });
+    }
+  }
   if (!r.ok) {
     // The endpoint returns JSON (not a file) on failure.
     let body: unknown = undefined;
