@@ -101,6 +101,16 @@ def _is_muxed(fmt: dict) -> bool:
     return (vcodec not in (None, "", "none")) and (acodec not in (None, "", "none"))
 
 
+def _rank_num(value, cast):
+    """A format's ``height``/``tbr`` as a sort key. yt-dlp extractors can emit
+    non-numeric values ("720p", "n/a", lists); those rank as 0 instead of
+    raising out of the shim (O1671 r8c)."""
+    try:
+        return cast(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return cast(0)
+
+
 def info_to_extractor_result(info) -> dict:
     """Map a yt-dlp ``-j`` info dict to the plugin ``@extractor`` contract.
 
@@ -131,8 +141,8 @@ def info_to_extractor_result(info) -> dict:
             if not _is_muxed(f):
                 continue
             candidates.append((
-                int(f.get("height") or 0),
-                float(f.get("tbr") or 0.0),
+                _rank_num(f.get("height"), int),
+                _rank_num(f.get("tbr"), float),
                 u,
                 (f.get("ext") or "").strip(),
             ))
@@ -144,8 +154,8 @@ def info_to_extractor_result(info) -> dict:
             hls_url = u
         elif u and _proto_is_http(proto):
             candidates.append((
-                int(info.get("height") or 0),
-                float(info.get("tbr") or 0.0),
+                _rank_num(info.get("height"), int),
+                _rank_num(info.get("tbr"), float),
                 u,
                 top_ext,
             ))
