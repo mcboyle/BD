@@ -68,6 +68,34 @@ const pendingLabel = (p: Pending): string => {
   }
 };
 
+/** Plex backend status (plex_advanced.status_dict) as a readable line. A failed
+ *  status call says so; it is never shown as an empty, measured-looking {}. */
+function PlexStatusLine({ data, error }: { data?: Record<string, unknown>; error: Error | null }) {
+  if (error || !data) {
+    return (
+      <p className="mb-2 text-sm text-ink-3">
+        Plex status could not be read{error ? `: ${error.message}` : "."}
+      </p>
+    );
+  }
+  const importError = typeof data.import_error === "string" ? data.import_error : "";
+  const installWith = typeof data.install_with === "string" ? data.install_with : "";
+  const operations = Array.isArray(data.operations) ? data.operations.map(String) : [];
+  return (
+    <div className="mb-2 space-y-1 text-sm text-ink-3">
+      <p>
+        plexapi backend:{" "}
+        <b className="text-foreground">{data.available === true ? "available" : "not available"}</b>
+        {installWith && <> · install with <code>{installWith}</code></>}
+      </p>
+      {importError && <p>import error: {importError}</p>}
+      {operations.length > 0 && (
+        <p>operations: {operations.map((op) => op.replace(/_/g, " ")).join(", ")}</p>
+      )}
+    </div>
+  );
+}
+
 export function Integrations() {
   const [pending, setPending] = useState<Pending | null>(null);
 
@@ -228,9 +256,7 @@ export function Integrations() {
         {plexStatus.isLoading ? (
           <Skeleton className="h-8 w-full" />
         ) : (
-          <p className="mb-2 text-sm text-ink-3">
-            status: {JSON.stringify(plexStatus.data ?? {})}
-          </p>
+          <PlexStatusLine data={plexStatus.data} error={plexStatus.error} />
         )}
         <div className="flex flex-wrap items-center gap-2">
           <Input
