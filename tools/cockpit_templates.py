@@ -1762,11 +1762,21 @@ def site_readiness() -> Dict[str, Any]:
             review_pending[it["site"]] = review_pending.get(it["site"], 0) + 1
     cap_map = _site_capture_quality_map()
 
+    # Readiness only consumes corpus dates, not the per-site profile trees.
+    evidence_dates: Dict[str, List[Any]] = {}
+    try:
+        from tools.cockpit_core import _corpus, _site_of_entry
+        for entry in _corpus():
+            site = _site_of_entry(entry)
+            if site and entry.get("date"):
+                evidence_dates.setdefault(site, []).append(entry["date"])
+    except Exception:
+        evidence_dates = {}
+
     rows = []
     for cfg in sites:
         sid = _site_id(cfg); skey = _safe(sid)
         lrow = lh.get(skey, {}); vrow = vh.get(skey, {}); mrow = mat.get(skey, {})
-        intel = _site_intel(sid)
         drift_events = _site_drift_events(sid, cfg)
 
         # 1) login health
@@ -1788,7 +1798,7 @@ def site_readiness() -> Dict[str, Any]:
         recent = len(drift_events)
         drift_c = round(max(0.0, 1 - recent * 0.15), 3)
         # 4) evidence freshness
-        dates = [e.get("date") for e in intel.get("corpus_entries", []) if e.get("date")]
+        dates = evidence_dates.get(sid, [])
         newest_days = min([d for d in (_days_since(x) for x in dates) if d is not None], default=None)
         evidence_f = _freshness_from_days(newest_days)
         # 5) capture quality (per-site name match, else neutral)
