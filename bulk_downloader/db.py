@@ -1811,6 +1811,30 @@ def db_normalize_history_title(site_id: str, url: str, raw_title: str,
         return 0
 
 
+def _fts_title_terms(query: str):
+    """The plain terms of an FTS5 query, for matching ``library.title``.
+
+    Returns None when the query uses syntax a substring match cannot honour
+    (OR / NOT / NEAR, column filters, grouping, '-'/'^' prefixes): the title
+    match there would widen or invert what the operator asked for, so the
+    caller leaves those queries to the index alone. Quoted phrases stay whole;
+    AND is implicit; a trailing '*' prefix marker is dropped.
+    """
+    import re as _re
+    terms = []
+    for phrase, word in _re.findall(r'"([^"]*)"|(\S+)', query):
+        if phrase:
+            terms.append(phrase)
+            continue
+        if word in ("OR", "NOT") or word.startswith(("NEAR", "-", "^", "(", "{")) \
+                or any(c in word for c in ':()"+'):
+            return None
+        word = word.rstrip("*")
+        if word and word != "AND":
+            terms.append(word)
+    return terms or None
+
+
 def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
     """v3.43.80 Phase 92: full-text search over history via FTS5.
 
@@ -1876,6 +1900,43 @@ def db_search_fts(query: str, *, site_id=None, status=None, limit: int = 100):
             sql += " ORDER BY bm25(history_fts) LIMIT ?"
             params.append(int(limit))
             rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
+            # O1671 F003: the History tab's "Website name" is library.title,
+            # which history_fts does not index -- it is written to `library`
+            # after the FTS row, and rewritten there later, so a copy in the
+            # external-content index would go stale. Match it here instead:
+            # every term somewhere in the row, at least one in the title,
+            # ranked after the index's own hits.
+            terms = _fts_title_terms(query.strip()) if library_join else None
+            if terms and len(rows) < int(limit):
+                def _like(t):
+                    return "%" + (t.replace("\\", "\\\\").replace("%", "\\%")
+                                  .replace("_", "\\_")) + "%"
+                hay = ("(COALESCE(l.title,'') || ' ' || COALESCE(h.site_name,'')"
+                       " || ' ' || COALESCE(h.url,'') || ' ' || COALESCE(h.filename,'')"
+                       " || ' ' || COALESCE(h.message,''))")
+                tsql = (f"SELECT {projection}, h.url AS snippet_url, "
+                        f"h.filename AS snippet_filename, "
+                        f"h.message AS snippet_message "
+                        f"FROM history h{library_join} WHERE ("
+                        + " OR ".join("l.title LIKE ? ESCAPE '\\'" for _ in terms)
+                        + ")")
+                tparams = [_like(t) for t in terms]
+                for t in terms:
+                    tsql += f" AND {hay} LIKE ? ESCAPE '\\'"
+                    tparams.append(_like(t))
+                if site_id:
+                    tsql += " AND h.site_id = ?"
+                    tparams.append(site_id)
+                if status:
+                    tsql += " AND h.status = ?"
+                    tparams.append(status)
+                seen = [r["id"] for r in rows]
+                if seen:
+                    tsql += f" AND h.id NOT IN ({','.join('?' * len(seen))})"
+                    tparams += seen
+                tsql += " ORDER BY h.id DESC LIMIT ?"
+                tparams.append(int(limit) - len(rows))
+                rows += [dict(r) for r in cx.execute(tsql, tparams).fetchall()]
         for row in rows:
             for k in ("snippet_url", "snippet_filename", "snippet_message"):
                 if k in row:
