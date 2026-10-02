@@ -804,6 +804,9 @@ class SessionKeeper:
         self._page = None            # The parked tab
         self._browser_started_at = 0.0
         self._last_navigate_at = 0.0  # for the 30-min full-page navigate
+        # O1662: why the last _launch_browser() returned False, so the httpx
+        # fallback's verdict can name it instead of only "no cookies stored yet".
+        self._last_launch_failure: str | None = None
         # Account-name override (multi-account sites push per-account
         # username into top-level config; we keep the account dict here
         # to know which one to use)
@@ -1177,7 +1180,10 @@ class SessionKeeper:
         if not self._browser_alive() or self._browser_age() > 86400:
             ok = self._launch_browser()
             if not ok:
-                return self._heartbeat_httpx_fallback()
+                verdict, detail = self._heartbeat_httpx_fallback()
+                if self._last_launch_failure:
+                    detail = f"{detail} [httpx fallback: {self._last_launch_failure}]"
+                return verdict, detail
 
         # Decide between navigate or fetch this cycle
         now = _now()
@@ -1241,9 +1247,11 @@ class SessionKeeper:
         httpx fallback).
         """
         self._teardown_browser()  # ensure clean slate
+        self._last_launch_failure = None
         try:
             from playwright.sync_api import sync_playwright
         except Exception as e:
+            self._last_launch_failure = f"Playwright import failed: {e}"
             sys.stderr.write(
                 f"  keepalive[{self.site_id}/{self.account_idx}]: "
                 f"Playwright import failed ({e}); using httpx fallback\n")
@@ -1251,6 +1259,7 @@ class SessionKeeper:
         # Lock: don't fight a takeover for the profile dir
         lock = get_takeover_lock(self.site_id, self.account_idx)
         if not lock.acquire(blocking=False):
+            self._last_launch_failure = "profile locked by takeover"
             sys.stderr.write(
                 f"  keepalive[{self.site_id}/{self.account_idx}]: "
                 f"profile locked by takeover; deferring browser launch\n")
@@ -1357,6 +1366,7 @@ class SessionKeeper:
                 f"(profile={profile_dir})\n")
             return True
         except Exception as e:
+            self._last_launch_failure = f"browser launch failed: {type(e).__name__}: {e}"
             sys.stderr.write(
                 f"  keepalive[{self.site_id}/{self.account_idx}]: "
                 f"browser launch failed: {type(e).__name__}: {e}\n")
