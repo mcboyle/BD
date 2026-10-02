@@ -16,15 +16,29 @@ import bdtools_sec as sec
 import os as _oscli, sys as _syscli
 _syscli.path.insert(0, _oscli.path.dirname(_oscli.path.realpath(__file__)))
 from bdtools_cli import G, R, Y, DIM, RST
-SUBSYS=[("settings","settings|widgets_config|app_config"),("cockpit","cockpit|app_health|app_kernel"),
-        ("capture","capture|dom_|session_capture|wacz"),("plugins","plugin"),
-        ("runner","runner|download|extract"),("vpn","vpn|netns|egress|proxy"),
-        ("scheduler","schedule|cron|cadence"),("recognizer","recogniz|detect|auto_detect")]
+# O1673 M2: a subsystem is chosen by the LEADING tokens of the module's top-level
+# name (split on "_"), never by a substring anywhere in it -- spa_media_extract is a
+# parser (core), drm_detect is not the recognizer. An "app_" route-layer prefix is
+# skipped once if the full name has no anchor of its own (app_runners -> runner).
+SUBSYS=[("settings",[("settings",),("widgets","config"),("app","config")]),
+        ("cockpit",[("cockpit",),("app","health"),("app","kernel")]),
+        ("capture",[("capture",),("captures",),("dom",),("session","capture"),("wacz",)]),
+        ("plugins",[("plugin",),("plugins",)]),
+        ("runner",[("runner",),("runners",),("download",),("hls","downloader")]),
+        ("vpn",[("vpn",),("netns",),("egress",),("proxy",)]),
+        ("scheduler",[("schedule",),("schedules",),("scheduled",),("scheduler",),("cron",),("cadence",),("bg","scheduler")]),
+        ("recognizer",[("recognizer",),("detect",),("auto","detect"),("deep","detect")])]
+
+def _anchored(toks):
+    for name,prefixes in SUBSYS:
+        if any(tuple(toks[:len(p)])==p for p in prefixes): return name
+    return None
 
 def subsys_of(mod):
-    for name,pat in SUBSYS:
-        if re.search(pat,mod): return name
-    return "core"
+    toks=[t for t in mod.split(".")[0].split("_") if t]
+    hit=_anchored(toks)
+    if hit is None and toks[:1]==["app"]: hit=_anchored(toks[1:])
+    return hit or "core"
 
 def edges_from_ast(work):
     edges=[]
@@ -69,8 +83,11 @@ def edges_from_graph(db):
     return edges
 
 def measure(work, db=None):
-    edges=edges_from_graph(db) if db else edges_from_ast(work)
+    raw=edges_from_graph(db) if db else edges_from_ast(work)
     source="knowledge_graph" if db else "ast_rederive"
+    # O1673 M1: an edge is a unique (importer, imported) module pair; a second
+    # `from .log import` in one module adds nothing. `statements` keeps the raw count.
+    edges=sorted(set(raw))
     within=0; across=0; cross_edges={}
     for a,b in edges:
         sa,sb=subsys_of(a),subsys_of(b)
@@ -79,7 +96,7 @@ def measure(work, db=None):
             across+=1
             k=tuple(sorted((sa,sb))); cross_edges[k]=cross_edges.get(k,0)+1
     worst=sorted(cross_edges.items(),key=lambda kv:(-kv[1],kv[0]))[:10]
-    return {"source":source,"total_edges":len(edges),"within":within,"across":across,
+    return {"source":source,"total_edges":len(edges),"statements":len(raw),"within":within,"across":across,
             "coupling_ratio":round(across/max(1,len(edges)),3),
             "worst_cross":[{"pair":list(k),"edges":v} for k,v in worst]}
 
