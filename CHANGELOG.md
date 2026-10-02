@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1756 - train186: row
+
+T186 = train of R8a stop-run history and the O1673 t154 coupling meter, BOARDed at cut time, applied on T185:
+- R8a stop-run history (bd-worker-D2; lens bd-worker-D5 rejudge): SiteRunner.stop records each stopped job's run as finished ("stopped") and emits its lifecycle event outside the jobs lock, so stopped runs no longer stay open in history (bulk_downloader/runner.py, tests/test_dl95_ok_2_stop_run_history.py).
+- O1673 t154 coupling meter (bd-worker-C5; lens bd-worker-D2): bd-coupling-meter M1 counts unique (importer, imported) module pairs, keeping the raw count under "statements"; M2 subsystem classifier per O1673, no rebaseline (toolchain/bin/bd-coupling-meter, tests/test_o1673_coupling_meter_m1_m2.py).
+
+
 ## v3.66.1755 - train185: row
 
 T185 = train of dl95-txxx-7 r3, F044-perf, F029, F027, F058-fix (from pulled T184 #1100; F061-fix pulled: tests/test_t1_dashboard_wired.py pins 5 Dashboard tests) and F011, F031, F040, F019, F003, R8c ytdlp format parse, R8c SSE reconnect, R8c download CSRF retry and the bh2-37 test, BOARDed at cut time, applied on main after T183:

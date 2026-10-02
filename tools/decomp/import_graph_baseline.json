@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5726,
+  "edge_count": 5729,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3471,6 +3471,11 @@
     "tests/test_dl95_ok_1b_scene_player_sources.py": [
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_dl95_ok_2_stop_run_history.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/run_history.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_dl95_ok_3_page_media_playlist_body.py": [
       "bulk_downloader/hls_downloader.py",
