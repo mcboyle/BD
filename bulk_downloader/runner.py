@@ -2843,6 +2843,7 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
             try: self._url_queue.put_nowait(None)
             except Exception: pass
         stopped_urls = []
+        stopped_runs = []
         with job_status_writer(self) as mark_status_changed:
             for u,j in self.jobs.items():
                 # Corrupt/legacy queue payloads must not make lifecycle
@@ -2853,8 +2854,21 @@ class SiteRunner(TransportMixin, AuthMixin, ExtractorsMixin, QueueMixin, Telemet
                         and j.get("status") in ("pending", "running")):
                     j.update({"status":"stopped","message":"Stopped","ts":_ts()})
                     stopped_urls.append(u)
+                    rid = j.pop("_run_id", None)
+                    if rid:
+                        stopped_runs.append((u, rid))
             if stopped_urls:
                 mark_status_changed()
+        # dl95-ok-2: the generation bump above rejects the worker's own terminal
+        # write, so Stop finishes the attempts it ended. Advisory, outside the lock.
+        for url, rid in stopped_runs:
+            try:
+                from . import run_history as _rh
+                _rh.record_run_finish(rid, "stopped")
+                _rh.emit_lifecycle(self, "finish", run_id=rid, url=url,
+                                   message="stopped")
+            except Exception as e:
+                self.log.debug("stop: run history finish failed: %s", e)
         # dl95-site-ma-brazzers-2: persist the transition, as bulk_pause does
         # (outside the lock). Only memory changed before, so the queue table --
         # /queue/counts, a restart's restore -- kept the jobs "running".
