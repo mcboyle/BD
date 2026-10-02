@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1751 - train179: row
+
+T179 = O1636 one PM train of the O1634 main-fix cuts (PM bd-pm-C, FLEET-HOLD exception O1636), applied on main after T178:
+- o1634-source-pins (lens bd-review-correctness-D2-D, PATCH-SHA256 6fa8fdc4): 10 source pins tied to moved code or exact text are re-pinned to the same contract by AST name lookup or behaviour (download window, keeper pause before manual browser open, stealth on the new page, account pool, capture nav, honeypot log event, DOM visibility); tests only.
+- o1634-extractors (lens bd-review-correctness-D2-D, PATCH-SHA256 58632ae5) via o1634-xnxx-template full stack (lens bd-review-correctness-C4-C, PATCH-SHA256 3b2fb5dd, O1638): 7 stale extractor pins re-pinned (pussyspace, porndig, africancasting, beeg, xvideos_2b, manifest-not-finished); on a load-time gap-fill tie where exactly one match is a seeded built-in and every other match is a family built-in, the seeded template wins, so xnxx.com takes user_b1b_xnxx over wgcz_tubes; every other tie still applies nothing (bulk_downloader/site_templates/__init__.py, accessors.py, app.py).
+- o1634-login-submit r2 (lens bd-review-correctness-D2-D, PATCH-SHA256 c0991e7c): a prevented submit counts as a page-script hold only when its handler also disabled a submit control, and an empty password field, empty JSON value or empty multipart part is not credentials sent, so the row722 POST control and hidden duplicate form no longer stall or end the sweep; GET login fixtures now POST (bulk_downloader/login_impl/submit.py).
+- o1634-registries (lens bd-review-correctness-C4-C, PATCH-SHA256 88a96347): auth_required and member_indicator ledgered gui_exposure full in reports/config_gui_manifest.json; templates_v438, template endpoints, row127 table census, capability manifest and live telemetry pins re-pinned to the current contract.
+- o1634-flaky-isolation (lens bd-review-correctness-C4-C, PATCH-SHA256 3d00b2d3): row440_443's empty-binary helper monkeypatches ffmpeg_bin's private cache so teardown restores it (videohash x2, xnxx HLS); redtube/youporn fixtures survive the Chromium HSTS preload upgrade.
+
+
 ## v3.66.1750 - train178: row
 
 T178 = O1568 one-cut train of ORDER-FIX-SWEEP-T175 Cut E (PM ORDER-CUTE-A12), applied on main after T177:

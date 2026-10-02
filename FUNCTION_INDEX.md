@@ -160,35 +160,35 @@ Schema version: 2
 - L5469 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
 - L5519 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
 - L5716 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
-- L5767 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L5803 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5986 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L6050 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L6190 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L6215 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6419 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6432 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6459 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6479 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6512 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
-- L6557 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6625 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6767 `serve_ss` `GET /screenshots/<path:filename>`
-- L7076 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7083 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7094 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7109 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7173 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7202 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7210 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7227 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7239 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7262 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7278 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7294 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7311 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7364 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7485 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L5771 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5807 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5990 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L6054 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L6194 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L6219 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6423 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6436 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6463 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6483 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6516 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
+- L6561 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6629 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6771 `serve_ss` `GET /screenshots/<path:filename>`
+- L7080 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7087 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7098 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7113 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7177 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7206 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7214 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7231 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7243 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7266 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7282 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7298 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7315 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7368 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7489 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -1074,22 +1074,22 @@ Schema version: 2
 - L0536 `_wait_captcha_tokens` `[private]` — Detect and wait for any of the three major invisible captchas to
 - L0578 `_late_rejected_landing` `[private]` — The URL of a rejected-login landing the page reached within ``polls``
 - L0607 `_carries_password_field` `[private]` — True when a request body sends the named password field: a form field
-- L0616 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
-- L0651 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
-- L0692 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
-- L0707 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
-- L0791 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
-- L0807 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
-- L1017 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
-- L1074 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
-- L1540 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
-- L1611 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
-- L1713 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
-- L1733 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
-- L1780 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
-- L1796 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
-- L1817 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1856 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L0626 `_watch_credential_posts` `[private]` — O1567 fx-blacked-relogin: record every POST, from any page of the
+- L0661 `_trace_documents` `[private]` — fx-vixen-challenge-trace: journal every top-level document response of
+- L0702 `_settled_non_success` `[private]` — Keep the landing that made a post-submit verdict non-successful.
+- L0717 `_try_turnstile_one_click` `[private]` — Perform one operator-enabled local Turnstile checkbox click.
+- L0801 `_form_submit_is_safe` `[private]` — Whether a JS form fallback may submit this form.
+- L0817 `_build_submit_fallbacks` `[private]` — Build the ordered list of submit-button selectors. Order matters —
+- L1041 `_guard_credential_get` `[private]` — dl95-txxx-2: a login form without method=POST puts its password field
+- L1098 `_submit_login` `[private]` — Try ten independent ways to submit the login form. Each method
+- L1565 `_try_check_remember_me` `[private]` — Check the "Remember me" / "Keep me signed in" / "Stay logged in"
+- L1636 `_page_is_gone` `[private]` — True only when the page itself is gone, so a body probe cannot succeed.
+- L1738 `_checked_upsell_boxes` `[private]` — Operator (2026-09-15 13:1xZ): "no box is checked by default -- double
+- L1758 `_uncheck_upsell_boxes` `[private]` — Uncheck every VISIBLE, checked upsell/cross-sale checkbox before the
+- L1805 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
+- L1821 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
+- L1842 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
+- L1881 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 

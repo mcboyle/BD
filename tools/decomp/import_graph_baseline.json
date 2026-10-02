@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5696,
+  "edge_count": 5697,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -7256,6 +7256,7 @@
     ],
     "tests/test_v3_43_52_keeper_collision.py": [
       "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py",
       "bulk_downloader/session_keeper.py"
     ],
     "tests/test_v3_43_53_worker_feedback.py": [

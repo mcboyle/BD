@@ -1,6 +1,6 @@
 {
   "algorithm": "sha256",
-  "resolved": 98,
+  "resolved": 97,
   "schema_version": 1,
   "unresolved": [],
   "windows": [
@@ -153,11 +153,6 @@
       "bytes": 5004,
       "key": "tests/test_v3_43_34_sse_broker.py::test_stream_endpoint_uses_broker::src[pos:pos + 5000]::1",
       "sha256": "6e281498a72486ad831a7a5d777aada31fcad2f32a065f124879d413e1595dd3"
-    },
-    {
-      "bytes": 8012,
-      "key": "tests/test_v3_43_35_account_pool.py::test_app_calls_configure_pool_on_load::src[pos:pos + 8000]::1",
-      "sha256": "96f5808af33a97e8f88548d6551b02384471a40a5dceac5424055ef6adbe9696"
     },
     {
       "bytes": 888,
@@ -405,9 +400,9 @@
       "sha256": "c8bf72319dc980d9a884e03121d0ed94e68cbdbebd680457f516c5c5803a169c"
     },
     {
-      "bytes": 0,
-      "key": "tests/test_v3_43_56_stealth.py::test_login_applies_stealth_library_in_do_login::src[pos:pos + 600]::1",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "bytes": 602,
+      "key": "tests/test_v3_43_56_stealth.py::test_login_applies_stealth_library_in_do_login::fn[pos:pos + 600]::1",
+      "sha256": "58943f9844d0a4e98c54fa2d120a486661b752b25381b3867024ba6b47a1f8a9"
     },
     {
       "bytes": 600,
