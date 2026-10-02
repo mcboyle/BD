@@ -370,7 +370,7 @@ export function Dashboard() {
   // useDashboard()'s refetchInterval backs off while the stream is connected
   // (isStreamConnected), and resumes polling if it drops.
   const queryClient = useQueryClient();
-  const { dataUpdatedAt, isFetching } = useDashboard();
+  const { dataUpdatedAt, isFetching, isError, error, refetch } = useDashboard();
   useEventStream({
     dashboard: (d) => queryClient.setQueryData(["dashboard"], d),
   });
@@ -387,6 +387,26 @@ export function Dashboard() {
       }
     >
       <div className="flex flex-col gap-4">
+        {isError && (
+          <Card
+            className="flex items-center justify-between border-red bg-red-soft p-3 text-sm text-red"
+            role="alert"
+          >
+            <span>
+              Couldn’t load dashboard: {(error as Error)?.message || "Cannot reach server"}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                refetch();
+                queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+              }}
+            >
+              Retry
+            </Button>
+          </Card>
+        )}
         <CountTilesPanel />
         <Panel title="Overview" description="Queue + throughput at a glance">
           <OverviewPanel />
