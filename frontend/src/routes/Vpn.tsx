@@ -666,6 +666,10 @@ export function Vpn() {
     settingsMut.isPending;
 
   const tunnels = statusQ.data?.tunnels ?? [];
+  // F031: auto-recover and auto-blacklist act on registered tunnels; with none
+  // (confirmed by a loaded status, not a loading/failed one) they are no-ops.
+  const noTunnels = statusQ.isSuccess && tunnels.length === 0;
+  const noTunnelsHint = "No tunnels registered — register a tunnel first.";
   const killStates = statusQ.data?.kill_states ?? [];
   const providers = statusQ.data?.providers ?? [];
   const sysActive = statusQ.data?.system_killswitch_active ?? [];
@@ -980,11 +984,13 @@ export function Vpn() {
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || killStateQ.data?.auto_recover === undefined}
+            disabled={busy || noTunnels || killStateQ.data?.auto_recover === undefined}
             onClick={() => setAutoRecoverConfirm(true)}
+            title={noTunnels ? noTunnelsHint : undefined}
           >
             Toggle auto-recover
           </Button>
+          {noTunnels && <span className="text-ink-3">{noTunnelsHint}</span>}
         </div>
       </DangerZone>
         }
@@ -1164,11 +1170,13 @@ export function Vpn() {
             size="sm"
             variant="outline"
             className="mt-2"
-            disabled={autoBlacklistMut.isPending}
+            disabled={autoBlacklistMut.isPending || noTunnels}
             onClick={() => autoBlacklistMut.mutate()}
+            title={noTunnels ? noTunnelsHint : undefined}
           >
             {autoBlacklistMut.isPending ? "Recomputing…" : "Auto-blacklist now"}
           </Button>
+          {noTunnels && <p className="mt-1 text-xs text-ink-3">{noTunnelsHint}</p>}
         </div>
 
         {/* best-for lookup */}
