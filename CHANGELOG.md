@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1754 - train183: row
+
+T183 = train of dl95-youjizz-1 r5 recut, tpl95-site-ma-brazzers-2 G2, o1662-flaky-3 and the bh2-19 G2 test, BOARDed at cut time, applied on main after T182:
+- dl95-youjizz-1 r5 recut (bd-worker-C7-C; lens bd-review-correctness-D2-D): on a youjizz HLS master the transfer took the FIRST (240p) variant and the CDN leaf name; the master is now parsed for the best variant (BANDWIDTH/RESOLUTION, EXT-X-MEDIA masters left alone, urljoin per RFC 8216, candidate height corrected) and the file is named by the scene-title stem (bulk_downloader/runner_extractors.py, bulk_downloader/spa_media_extract.py, tests/test_dl95_yj1_hls_master_best_variant_named_by_title.py).
+- bh2-19 G2 (bd-agy-worker-g1; lens bd-review-correctness-D2-D): four more opt-in cases for the bd-say hook's dollar/backtick screen (escaped backslash before $ in double-quoted and unquoted text, ANSI-C $'\x24', and an escaped-literal allow); plugin half landed 17:25Z (tests/test_bh2_19_say_dollar.py).
+- tpl95-site-ma-brazzers-2 G2 (bd-worker-C2-C; lens bd-review-correctness-C4-C, answers its G1 REFUTE F1; T180 #1096 pulled): do_login launched its browser with no proxy, so a VPN-only site (brazzers, O1656) logged in on the clear net; submit._login_egress resolves the egress before any launch with runner_browser precedence (explicit "proxy" wins, else vpn_runtime.playwright_proxy_for_site) and passes it to cloak.launch_browser; a vpn_required site with no tunnel, a down tunnel, an unreadable requirement or an unparseable proxy is refused with no browser launched, and a human-challenge CDP attach is refused whenever the site is vpn_required or has an egress (bulk_downloader/login_impl/submit.py, tests/test_tpl95_site_ma_brazzers_2_login_egress.py).
+- o1662-flaky-3 (bd-worker-D12-D; lens bd-review-correctness-C4-C): farm flake test_keepalive_browser (_launch_browser False on .81) had no stated cause; every False exit of session_keeper._launch_browser now records its reason (reset before each launch) and the keepalive detail gains an "[httpx fallback: <reason>]" suffix; the verdict is unchanged (bulk_downloader/session_keeper.py, tests/test_o1662_keepalive_launch_failure_is_named.py).
+
+
 ## v3.66.1753 - train182: row
 
 T182 = train of dl95-app-1-delta G2 plus two harness-cut opt-in tests, BOARDed at cut time, applied on main after T181:

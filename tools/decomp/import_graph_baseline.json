@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5711,
+  "edge_count": 5718,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1610,7 +1610,8 @@
       "bulk_downloader/secrets_store.py",
       "bulk_downloader/session_keeper.py",
       "bulk_downloader/stealth.py",
-      "bulk_downloader/vault_sync.py"
+      "bulk_downloader/vault_sync.py",
+      "bulk_downloader/vpn_runtime.py"
     ],
     "bulk_downloader/login_templates_data.py": [
       "bulk_downloader/registrable_domain.py"
@@ -3696,6 +3697,11 @@
       "bulk_downloader/cookie_relogin.py",
       "bulk_downloader/scene_crawler.py"
     ],
+    "tests/test_dl95_yj1_hls_master_best_variant_named_by_title.py": [
+      "bulk_downloader/hls_downloader.py",
+      "bulk_downloader/runner_extractors.py",
+      "bulk_downloader/spa_media_extract.py"
+    ],
     "tests/test_dl95_youporn_1_numeric_id_tiles_are_foreign.py": [
       "bulk_downloader/detect.py"
     ],
@@ -4731,6 +4737,9 @@
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_integrity.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_o1662_keepalive_launch_failure_is_named.py": [
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
@@ -6980,6 +6989,10 @@
       "bulk_downloader/runner_extractors.py",
       "bulk_downloader/runner_transport.py",
       "bulk_downloader/spa_media_extract.py"
+    ],
+    "tests/test_tpl95_site_ma_brazzers_2_login_egress.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/vpn_runtime.py"
     ],
     "tests/test_tpl95_spankbang_1_related_card_is_another_work.py": [
       "bulk_downloader/detect.py"

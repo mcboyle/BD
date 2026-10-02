@@ -609,41 +609,41 @@ Schema version: 2
 
 ```
 - L0015 `_dest_in_dir` `[private]` — v3.66.840: collision-safe ABSOLUTE destination for a rendered name.
-- L0107 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
-- L0118 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
-- L0148 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
-- L0184 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
-- L0249 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
-- L0295 `_landed_video_seconds` `[private]` — The landed file's duration in seconds via the pinned ffprobe, or 0.0.
-- L0304 `_spa_job_is_the_file` `[private]` — True when the queued URL is itself the media file (scheme/host/path equal,
-- L0315 `_spa_logged_out_view` `[private]` — dl95-pegasproductions-2b: the logged-out view that decides public-tier
-- L0330 `_landed_video_height` `[private]` — The landed file's first video stream height via the pinned ffprobe, or 0.
-- L0339 `_landed_body_kind` `[private]` — dl95-ok-3: what a page-media direct transfer actually saved.
-- L0363 `site_untaught` — dl95-dailymotion-1: True iff the site has no applied template and no learned
-- L0372 `ExtractorsMixin` `[class]`
-  - L0373 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
-  - L0507 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
-  - L0526 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
-  - L0630 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
-  - L0986 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
-  - L1022 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
-  - L1276 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
-  - L1298 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
-  - L1321 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
-  - L1872 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
-  - L1913 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
-  - L1948 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
-  - L2213 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
-  - L2437 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
-  - L2459 `ExtractorsMixin._spa_option_summary` `[private]`
-  - L2464 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
-  - L2475 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
-  - L2500 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
-  - L2518 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
-  - L2811 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
-  - L2907 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
-  - L2973 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
-  - L3108 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
+- L0108 `_socks_remote_dns` `[private]` — Track-K (A1): rewrite a bare ``socks5://`` proxy to ``socks5h://`` so a
+- L0119 `_ssrf_guarded_http_get` `[private]` — v3.66.765 (SSRF-REM, defense-in-depth): wrap an INJECTED http_get with the
+- L0149 `_permitted_plugin_dirs` `[private]` — INTEROP-GH-1 (v3.66.655): resolve the external plugin dirs for ``kind``
+- L0185 `_build_ytdlp_cmd` `[private]` — Pure builder for the yt-dlp fallback CLI (unit-testable, no side effects).
+- L0250 `_build_gallerydl_cmd` `[private]` — Pure builder for the gallery-dl fallback CLI (unit-testable, no side
+- L0296 `_landed_video_seconds` `[private]` — The landed file's duration in seconds via the pinned ffprobe, or 0.0.
+- L0305 `_spa_job_is_the_file` `[private]` — True when the queued URL is itself the media file (scheme/host/path equal,
+- L0316 `_spa_logged_out_view` `[private]` — dl95-pegasproductions-2b: the logged-out view that decides public-tier
+- L0331 `_landed_video_height` `[private]` — The landed file's first video stream height via the pinned ffprobe, or 0.
+- L0340 `_landed_body_kind` `[private]` — dl95-ok-3: what a page-media direct transfer actually saved.
+- L0364 `site_untaught` — dl95-dailymotion-1: True iff the site has no applied template and no learned
+- L0373 `ExtractorsMixin` `[class]`
+  - L0374 `ExtractorsMixin._try_ytdlp_fallback` `[private]` — Phase 61 (v3.38.x): yt-dlp fallback layer. When the normal
+  - L0508 `ExtractorsMixin._try_ytdlp_untaught` `[private]` — dl95-dailymotion-1: the last resort before "No download button found" on an
+  - L0527 `ExtractorsMixin._try_gallerydl_fallback` `[private]` — C6 (8.4): gallery-dl fallback layer. Tried AFTER the yt-dlp fallback
+  - L0631 `ExtractorsMixin._try_deep_detect_fallback` `[private]` — v3.66.6 — Backlog #7 wiring. When the primary scrape path
+  - L0987 `ExtractorsMixin._persist_deep_detect_selectors` `[private]` — Merge deep_detect-discovered selectors into the site's
+  - L1023 `ExtractorsMixin._try_jsonapi_extractor` `[private]` — v3.43.68: extract via HereSphere/DeoVR JSON API and download.
+  - L1277 `ExtractorsMixin._spa_player_heights` `[private]` — dl95-txxx-5: a candidate of unknown height that the page's own
+  - L1299 `ExtractorsMixin._try_player_media_extractor` `[private]` — dl95-porndoe-1: start the page's player and take its FEATURE media.
+  - L1322 `ExtractorsMixin._try_spa_api_media_extractor` `[private]` — Row 722 (G5): API/media extraction fallback for SPA scene pages.
+  - L1893 `ExtractorsMixin._direct_media_url_handled` `[private]` — dl95-file-examples-1: a job URL that is itself a direct media href
+  - L1934 `ExtractorsMixin._spa_trailer_only` `[private]` — dl95-kellymadisonmedia-2: the page offers only a trailer/preview file
+  - L1969 `ExtractorsMixin._try_vixen_extractor` `[private]` — v3.43.67: extract via Vixen __NEXT_DATA__ / <video src> and
+  - L2234 `ExtractorsMixin._try_dl8_extractor` `[private]` — v3.43.69: parse <dl8-video> and download.
+  - L2458 `ExtractorsMixin._spa_hls_ranked_variant` `[private]` — dl95-beeg-2: (URL, declared height, ffmpeg program or None) for the
+  - L2480 `ExtractorsMixin._spa_option_summary` `[private]`
+  - L2485 `ExtractorsMixin._hold_below_minimum` `[private]` — The page-media arms' min_resolution hold, worded as the button path's.
+  - L2496 `ExtractorsMixin._kvs_flashvars_media` `[private]` — dl95-kvs-flashvars-1: a KVS player's own files (window.flashvars
+  - L2521 `ExtractorsMixin._spa_measure_hls_masters` `[private]` — tpl95-xnxx-1: an HLS master of unknown height is labelled by its
+  - L2539 `ExtractorsMixin._try_aylo_extractor` `[private]` — v3.43.66: extract via Aylo flashvars and download.
+  - L2832 `ExtractorsMixin._probe_for_higher_tier` `[private]` — v3.43.65: speculatively probe higher-tier variants of `url`.
+  - L2928 `ExtractorsMixin._run_pre_scrape_action` `[private]` — v3.43.65: run a per-site action BEFORE scraping the <video>
+  - L2994 `ExtractorsMixin._try_plugin_extractor` `[private]` — PLUGIN-DISPATCH (v3.66.691): run a registered plugin ``@extractor``
+  - L3129 `ExtractorsMixin._try_library_extractor` `[private]` — v3.43.63: attempt a library-extractor download for `url`.
 ```
 
 
@@ -1055,7 +1055,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (32 entries)
+## `bulk_downloader/login_impl/submit.py` (33 entries)
 
 ```
 - L0039 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
@@ -1089,7 +1089,8 @@ Schema version: 2
 - L1805 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
 - L1821 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
 - L1842 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1881 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L1880 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
+- L1934 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -1122,4 +1123,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 946 across 22 files._
+_Total entries: 947 across 22 files._
