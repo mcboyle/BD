@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1758 - train188: row
+
+T188 = the O1673 quota-probes r2 opt-in test, BOARDed at cut time, applied on main after T187:
+- O1673 quota probes r2 (bd-worker-D4; lens bd-worker-C5): opt-in test for the kimi, AGY (gemini + claude/gpt) and grok POOL_STATE.tsv row writers; skipped unless BD_O1673_QUOTA_PROBES_CANDIDATE points at the harness candidates (installed live by the PM) (tests/test_o1673_quota_probes.py).
+
+
 ## v3.66.1757 - train187: row
 
 T187 = train of the O1671 A13 capture pick cancel fix and the O1664/O1666 r2 opt-in harness tests, BOARDed at cut time, applied on T186:
