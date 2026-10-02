@@ -456,8 +456,11 @@ def _serving(handler_cls):
         httpd.server_close()
 
 
+# O1634: the login form POSTs. A password form without method=POST is refused
+# by the submit sweep since row 722s / dl95-txxx-2 (the credentials would
+# enter the URL), which is not what this file measures.
 _LOGIN_HTML = b"""<html><body><h1>Sign in</h1>
-<form method="GET" action="/interstitial">
+<form method="POST" action="/interstitial">
   <input name="username" type="text">
   <input name="password" type="password">
   <button type="submit">Log in</button>
@@ -472,6 +475,10 @@ _WALL_HTML = b"""<html><body><h1>Special offer</h1>
 _MEMBERS_HTML = b"""<html><body><h1>members area</h1></body></html>"""
 
 
+def _drain_post(handler):
+    handler.rfile.read(int(handler.headers.get("Content-Length") or 0))
+
+
 def _wall_server():
     class _H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -484,6 +491,10 @@ def _wall_server():
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self):
+            _drain_post(self)
+            self.do_GET()
 
         def log_message(self, *a):
             pass
@@ -571,6 +582,10 @@ def test_a_site_with_no_wall_is_unaffected(monkeypatch):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self):
+            _drain_post(self)
+            self.do_GET()
 
         def log_message(self, *a):
             pass

@@ -35,7 +35,13 @@ def test_js_fallback_propagates_get_password_refusal(monkeypatch):
         def is_closed(self):
             return len(self.calls) >= 2
 
-        def evaluate(self, script, _password_selectors):
+        def evaluate(self, script, *_args):
+            # O1634: the sweep also probes the page (password visibility,
+            # credential-POST watch, submit-control/hold watch) before any
+            # method runs. Only the JS form fallbacks are this seam; a probe
+            # reads "unmeasurable" (None) and is not counted.
+            if "hasPassword" not in script:
+                return None
             self.calls.append(script)
             return {
                 "submitted": False,
@@ -52,4 +58,10 @@ def test_js_fallback_propagates_get_password_refusal(monkeypatch):
     assert len(page.calls) == 2
     for script in page.calls:
         assert "hasPassword && method.toLowerCase() !== 'post'" in script
-        assert "refused password form without POST" in script
+    # m2 (requestSubmit): since dl95-txxx-2 a GET password form is never
+    # requestSubmit()ed -- only a synthetic, untrusted submit event goes to the
+    # page script, which cannot start a native GET. m3 (form.submit) refuses.
+    m2, m3 = page.calls
+    assert "guarded: true" in m2 and "f.requestSubmit()" in m2
+    assert m2.index("guarded: true") < m2.index("f.requestSubmit()")
+    assert "refused password form without POST" in m3

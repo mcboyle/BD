@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from test_row708_no_nav_login_is_not_success import _drive, _jar
+from test_row708_no_nav_login_is_not_success import _drive, _jar, _read_once_for_evidence
 
 BD_GATE_SCOPE = "module"
 
@@ -36,7 +36,7 @@ def test_handoff_keeps_the_page_it_gave_up_on(monkeypatch, tmp_path):
     body = kept[0].read_text(encoding="utf-8")
     assert "fixture members page" in body, body[:200]
     assert "https://login.example.invalid/login" in body, body[:200]
-    assert calls["content"] == 1, calls
+    assert _read_once_for_evidence(calls), calls
 
 
 def test_negative_control_a_plain_failure_without_takeover_keeps_no_handoff_evidence(

@@ -283,6 +283,18 @@ def test_the_credential_post_detector_reads_names_not_values():
     assert not _carries_password_field("event=click&page=login", "password")
     assert not _carries_password_field(None, "password")
     assert not _carries_password_field("password=x", "")
+    # O1634: an empty password field sent no credentials (row 722 hidden twin)
+    assert not _carries_password_field("username=&password=", "password")
+    assert not _carries_password_field("password=&username=a", "password")
+    assert not _carries_password_field('{"username":"a","password":""}', "password")
+    assert _carries_password_field('{"password": "x"}', "password")
+    # r2 (lens rc-D2-D): json.dumps spacing, and an empty multipart part
+    assert not _carries_password_field('{"password": ""}', "password")
+    assert not _carries_password_field('{"password" : ""}', "password")
+    assert not _carries_password_field('{"password": null}', "password")
+    part = '--b\r\nContent-Disposition: form-data; name="password"\r\n\r\n%s\r\n--b--\r\n'
+    assert not _carries_password_field(part % "", "password")
+    assert _carries_password_field(part % "x", "password")
 
 
 @pytest.mark.capture_serial

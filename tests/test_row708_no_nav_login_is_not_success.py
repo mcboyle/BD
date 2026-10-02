@@ -38,6 +38,7 @@ the SHAPE and not the branch: "ajax" (submit reported not-ok), "closed"
 after an apparently successful submit). Fixing one and leaving the other
 two is the sibling-seam escape CLAUDE.md M44 names.
 """
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -80,7 +81,7 @@ def _drive(monkeypatch, tmp_path, *, branch="ajax", before=None, after=None,
                          "post_closed": True}[branch]
 
     calls = {"submit": 0, "fill": [], "reads": [], "close": 0,
-             "content": 0, "locator": [], "handoff": 0}
+             "content": 0, "content_by": [], "locator": [], "handoff": 0}
     jar = [dict(cookie) for cookie in before]
     login_url = "https://login.example.invalid/login"
 
@@ -98,6 +99,9 @@ def _drive(monkeypatch, tmp_path, *, branch="ajax", before=None, after=None,
 
         def content(self):
             calls["content"] += 1
+            # Who read the page: the evidence writer, or another probe
+            # (dl95-site-ma-brazzers-1's rejected-landing read).
+            calls["content_by"].append(sys._getframe(1).f_code.co_name)
             if unreadable_content:
                 raise RuntimeError("fixture page content unavailable")
             return "<html><body>fixture members page</body></html>"
@@ -161,6 +165,20 @@ def _drive(monkeypatch, tmp_path, *, branch="ajax", before=None, after=None,
     assert calls["fill"] == ["username", "password"], calls
     assert calls["reads"] == ["before", "after"], calls
     return result, calls
+
+
+# The page the evidence holds is read exactly once, by the evidence writer.
+# O1634: dl95-site-ma-brazzers-1 (fdc76847d) added one more read on every
+# no-nav submit -- the rejected-landing probe, pinned by its own
+# test_other_no_nav_methods_read_the_phrase_already_on_the_page -- so a raw
+# count of 1 no longer measures this; the writer's own reads do.
+_EVIDENCE_READER = "write_login_evidence"
+_OTHER_READERS = {"_late_rejected_landing"}
+
+
+def _read_once_for_evidence(calls):
+    by = calls["content_by"]
+    return by.count(_EVIDENCE_READER) == 1 and set(by) <= {_EVIDENCE_READER} | _OTHER_READERS
 
 
 def _status(outcome):
@@ -240,7 +258,7 @@ def test_no_nav_but_success_url_matches_the_page_read_succeeds(monkeypatch, tmp_
                            success_url="/members",
                            final_url="https://login.example.invalid/members/home")
     assert result[0] is True, result[1]
-    assert calls["content"] == 1, calls
+    assert _read_once_for_evidence(calls), calls
     assert "evidence" in result[1], result[1]
 
 
@@ -321,7 +339,7 @@ def test_the_page_actually_read_is_written_to_the_run_record(monkeypatch, tmp_pa
     body = open(path, encoding="utf-8").read()
     assert "https://login.example.invalid/login?error=1" in body, body[:200]
     assert "fixture members page" in body, body[:200]
-    assert calls["content"] == 1, calls
+    assert _read_once_for_evidence(calls), calls
 
 
 def test_evidence_failure_is_not_upgraded_to_success(monkeypatch, tmp_path):

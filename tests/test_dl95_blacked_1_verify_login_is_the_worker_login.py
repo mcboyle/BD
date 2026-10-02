@@ -40,8 +40,11 @@ BD_GATE_SCOPE = "module"
 
 _GOOD_PASSWORD = "right-horse"
 
+# O1634: blacked's form POSTs (fx-blacked-relogin). A password form without
+# method=POST is refused by the submit sweep since dl95-txxx-2, which landed
+# after this fixture and is not what this file measures.
 _LOGIN_HTML = b"""<html><body><h1>Sign in</h1>
-<form method="GET" action="/submit">
+<form method="POST" action="/submit">
   <input name="username" type="text">
   <input name="password" type="password">
   <button type="submit">Log in</button>
@@ -69,16 +72,25 @@ def _site():
             self.end_headers()
             self.wfile.write(body)
 
-        def do_GET(self):
-            path, _, query = self.path.partition("?")
-            authed = "auth_token=ok" in (self.headers.get("Cookie") or "")
+        def do_POST(self):
+            path = self.path.partition("?")[0]
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
             if path == "/submit":
-                if ("password=" + _GOOD_PASSWORD) in query:
+                if ("password=" + _GOOD_PASSWORD) in body.decode("utf-8", "replace"):
                     self._send(302, headers=(
                         ("Location", "/login?circle=true"),
                         ("Set-Cookie", "auth_token=ok; Path=/")))
                 else:
                     self._send(302, headers=(("Location", "/login"),))
+            else:
+                self._send(200, _LOGIN_HTML)
+
+        def do_GET(self):
+            path, _, query = self.path.partition("?")
+            authed = "auth_token=ok" in (self.headers.get("Cookie") or "")
+            if path == "/submit":
+                # a GET never logs in: the login form POSTs
+                self._send(302, headers=(("Location", "/login"),))
             elif path == "/login" and authed and "circle=true" in query:
                 self._send(200, _SHELL_HTML)
             elif path == "/i/brand/wait-redirect.js":

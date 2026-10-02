@@ -70,7 +70,7 @@ def test_no_check_no_nav_submit_path_checks_once_and_carries_evidence(
     testing member_state_check directly, so removing submit.py's call cannot
     silently leave a settled verdict without its rendered evidence."""
     from bulk_downloader.login_impl import submit
-    from test_row708_no_nav_login_is_not_success import _drive
+    from test_row708_no_nav_login_is_not_success import _drive, _read_once_for_evidence
 
     calls = []
     real_member_state_check = submit.member_state_check
@@ -91,7 +91,7 @@ def test_no_check_no_nav_submit_path_checks_once_and_carries_evidence(
     body = Path(evidence_path).read_text(encoding="utf-8")
     assert "https://login.example.invalid/login" in body, body[:200]
     assert "fixture members page" in body, body[:200]
-    assert driven["content"] == 1, driven
+    assert _read_once_for_evidence(driven), driven
 
 
 def test_capture_failure_on_the_no_check_path_stays_falsy(tmp_path):

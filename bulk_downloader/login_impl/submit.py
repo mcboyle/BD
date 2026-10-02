@@ -606,11 +606,21 @@ def _late_rejected_landing(page, polls):
 
 def _carries_password_field(body, name):
     """True when a request body sends the named password field: a form field
-    (name=..., multipart name="..."), or a JSON key. Never reads the value."""
+    (name=..., multipart name="..."), or a JSON key. Never reads the value
+    beyond whether it is empty: O1634, an EMPTY field sent no credentials (a
+    hidden duplicate form the fill never reached, row 722), so it is not the
+    login and must not stop the sweep."""
     if not body or not name:
         return False
     n = re.escape(name)
-    return bool(re.search(rf'(?:^|&){n}=|"{n}"', body))
+    # urlencoded: a non-empty value; JSON: a key whose value is not "" / null
+    # (any spacing around the colon); multipart: a part whose body is not
+    # empty (the header block ends, then the part's line break or boundary
+    # follows at once).
+    return bool(re.search(
+        rf'(?:^|&){n}=[^&]'
+        rf'|"{n}"\s*:(?!\s*(?:""|null\b))'
+        rf'|name="{n}"(?![^\r\n]*(?:\r?\n[^\r\n]+)*\r?\n\r?\n(?:\r?\n|--|$))', body))
 
 
 def _watch_credential_posts(page, pf_candidates):
@@ -995,18 +1005,32 @@ _DISABLED_SUBMITS_JS="""(pf_sels) => {
 }"""
 
 # O1567 fx-blacked-relogin: count submit events whose default the page's own
-# handler prevented. A window listener runs after the form's listeners in the
-# bubble phase, so e.defaultPrevented is already set when it reads it.
-# (blacked re-enables its button after 5s, so a disabled control alone is a
-# transient signal; the prevented submit is the durable one.)
+# handler prevented WHILE disabling a submit control of that form -- a page
+# script taking the submit to finish it later. A window capture listener runs
+# before the form's listeners and a window bubble listener after them, so the
+# pair sees the controls before and after the handler. (blacked re-enables its
+# button after 5s, so a disabled control read after the 8s poll is a transient
+# signal; the count taken at the event is the durable one.)
+# O1634: a bare prevent is NOT a hold. A login whose handler only swallows the
+# submit (an XHR login, `onsubmit="return false"` on a dead modal) never sends
+# the form itself; reading that as a hold waited 30s and then ended the sweep,
+# so form.submit() never reached a POST form (row 722s negative control) and a
+# lone hidden form lost its "no submit method produced navigation" verdict.
 _SUBMIT_WATCH_JS="""() => {
     if (!window.__bdSubmitWatch) {
-        window.__bdSubmitWatch = {prevented: 0};
+        const w = window.__bdSubmitWatch = {held: 0};
+        const disabled = (f) => (f && f.querySelectorAll)
+            ? [...f.querySelectorAll("button, input[type='submit'], input[type='image']")]
+                .filter(b => b.disabled || b.getAttribute('aria-disabled') === 'true').length
+            : 0;
         window.addEventListener('submit', e => {
-            if (e.defaultPrevented) window.__bdSubmitWatch.prevented++;
+            w.before = disabled(e.target);
+        }, true);
+        window.addEventListener('submit', e => {
+            if (e.defaultPrevented && disabled(e.target) > (w.before || 0)) w.held++;
         }, false);
     }
-    return window.__bdSubmitWatch.prevented;
+    return window.__bdSubmitWatch.held;
 }"""
 
 # How long a page script that took the submit gets to finish it (blacked live:
@@ -1480,7 +1504,8 @@ def _submit_login(page,sb_candidates,pf_candidates,declared_origins=None):
         held=[]
         if (isinstance(prevented_now,int) and isinstance(_prevented_before,int)
                 and prevented_now>_prevented_before):
-            held.append("its submit handler prevented the native submit")
+            held.append("its submit handler prevented the native submit and disabled "
+                        "a submit control")
         if (isinstance(disabled_now,int) and isinstance(_disabled_at_start,int)
                 and disabled_now>_disabled_at_start):
             held.append("a submit control is disabled")
