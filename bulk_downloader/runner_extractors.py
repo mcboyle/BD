@@ -42,7 +42,8 @@ _RATE_RE = re.compile(r"^\d+(\.\d+)?[KMGkmg]?$")
 from .runner_util import DEFAULT_MIN_RESOLUTION, transfer_cancelled
 from .db import db_log
 from .detect import find_best_download, fmt_bytes, no_selection, safe_dest
-from .fname import resolve_filename_template, format_duration_for_filename
+from .fname import (resolve_filename_template, format_duration_for_filename,
+                    _sanitize_filename_var)
 from .website_title import history_title_kwargs
 # F5 (v3.66.689): per-capture netns isolation for the subprocess download
 # fallbacks. The engine shipped @686; this routes yt-dlp/gallery-dl launches
@@ -1467,6 +1468,20 @@ class ExtractorsMixin:
             cands = source_cands or scene_candidates or unproven
             # Named in the caller's "No download button found" when nothing is found.
             self._spa_embed_hosts = [] if cands else _spa.third_party_frame_hosts(page)
+        # dl95-youjizz-1: an HLS master's tier is its best variant, and that
+        # variant is what gets fetched -- the downloader maps the FIRST video
+        # stream of whatever it is given.  Bounded: three masters per page.
+        for cand in [c for c in cands
+                     if re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
+            try:
+                status, text = page.evaluate(_spa.FETCH_TEXT_JS, cand["url"]) or (0, "")
+            except Exception:
+                status, text = 0, ""
+            best = (_spa.best_hls_variant(_spa.hls_master_variants(text, cand["url"]))
+                    if 0 < int(status or 0) < 400 else None)
+            if best:
+                cand["url"] = best["url"]
+                cand["height"] = best["height"] or cand.get("height") or 0
         if click_miss_floor is not None:
             # tpl95-site-ma-brazzers-1: called after a scored click missed, so
             # only options that can stand in for the scored tier qualify.
@@ -1648,6 +1663,12 @@ class ExtractorsMixin:
             tier=f"{height}p" if height else "", scene_url=url,
         )
         stem = os.path.splitext(fname)[0] if fname else ""
+        # dl95-youjizz-1: a page-derived URL's leaf ("master", a CDN hash) is
+        # not a name; the scene title is.  API options keep their own names.
+        if str(chosen.get("source") or "").startswith("page-"):
+            _title = " ".join(str(website_title or "").split())
+            if _title:
+                stem = _sanitize_filename_var(_title)
         # fx-empty-title-dotfile-name: ".../<slug>/?t175=1" leaves no last
         # segment; an empty stem rendered "{filename}{ext}" as ".mp4.mp4".
         title_root = (stem or url.rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]

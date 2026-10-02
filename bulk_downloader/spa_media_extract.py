@@ -873,6 +873,42 @@ def click_miss_candidates(cands: List[Dict[str, Any]], min_height: int) -> List[
     return out
 
 
+# dl95-youjizz-1 (test2 2026-09-29): the player's page media was an HLS
+# MASTER listing 240/360/480/720p variants of the scene; its URL digits read
+# "240", and the transfer took the first variant.  A master playlist is the
+# spec's own rendition set for ONE presentation (RFC 8216 EXT-X-STREAM-INF),
+# so its variants -- not inline page JSON, which cannot be tied to the scene
+# (lens REFUTEs r1-r3) -- are where a better tier may come from.
+_STREAM_INF_RE = re.compile(r"#EXT-X-STREAM-INF:([^\r\n]*)\r?\n\s*([^\r\n#][^\r\n]*)")
+
+
+def hls_master_variants(text: str, master_url: str) -> List[Dict[str, Any]]:
+    """``[{url, height, bandwidth}]`` for each EXT-X-STREAM-INF of a master
+    playlist; [] for a media playlist or anything else.
+
+    [] also for a master with EXT-X-MEDIA renditions (lens REFUTE r4): its
+    variants may be video-only and reference a separate AUDIO/SUBTITLES group,
+    so one variant URL alone would drop the audio.  Such a master keeps
+    today's handling (the master itself goes to the transfer)."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(text, str) or not text.lstrip().startswith("#EXTM3U"):
+        return out
+    if "#EXT-X-MEDIA:" in text:
+        return out
+    for attrs, uri in _STREAM_INF_RE.findall(text):
+        res = re.search(r"RESOLUTION=(\d+)x(\d+)", attrs)
+        bw = re.search(r"(?<![-A-Z])BANDWIDTH=(\d+)", attrs)
+        out.append({"url": urljoin(master_url, uri.strip()),
+                    "height": int(res.group(2)) if res else 0,
+                    "bandwidth": int(bw.group(1)) if bw else 0})
+    return out
+
+
+def best_hls_variant(variants: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The highest variant: resolution first, then bandwidth."""
+    return max(variants, key=lambda v: (v["height"], v["bandwidth"])) if variants else None
+
+
 def rank_candidates(cands: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Highest resolution first, then size; API options before page media;
     an explicit download option before a stream; files before manifests."""
@@ -930,6 +966,16 @@ KVS_FLASHVARS_JS = """() => {
     if (typeof v === 'string' && v) out.push({url: v, text: String(fv[k + '_text'] || '')});
   }
   return out.slice(0, 12);
+}"""
+
+FETCH_TEXT_JS = """async (url) => {
+  try {
+    // Default credentials (same-origin): a CDN answering
+    // Access-Control-Allow-Origin: * refuses a credentialed read (measured
+    // live on youjizz's master), and a signed CDN URL needs no cookie.
+    const r = await fetch(url);
+    return [r.status, (await r.text()).slice(0, 200000)];
+  } catch (e) { return [0, '']; }
 }"""
 
 RESOLVE_JS = """async ([url, headers]) => {
