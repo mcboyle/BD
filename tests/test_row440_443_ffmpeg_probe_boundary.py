@@ -115,7 +115,11 @@ def _empty_binary_resolution(monkeypatch, tmp_path) -> None:
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
     monkeypatch.setattr(ffmpeg_bin, "_pinned_dir", lambda: "")
-    ffmpeg_bin.reset()
+    # A private resolver cache, restored by monkeypatch at teardown. reset() alone left the None resolved under
+    # this empty PATH in the module cache after the test, so every later ffmpeg user in the same worker saw
+    # "no ffmpeg" (O1634: dl95_app_B6_3 videohash ffmpeg_not_on_path, tpl95_xnxx_1 held at 360p).
+    monkeypatch.setattr(ffmpeg_bin, "_CACHE", {})
+    monkeypatch.setattr(ffmpeg_bin, "_HWACCEL_OVERRIDE", None)
     assert ffmpeg_bin.ffmpeg() is None
     assert ffmpeg_bin.ffprobe() is None
 

@@ -94,8 +94,14 @@ def _write_authority(root: Path, rows: list[dict], *, raw: str | None = None) ->
     _git(root, "add", ".")
 
 
+# A cold-cache scan of the whole tree (fresh HOME, as on a CI or farm runner) takes ~50-56s per scanner on an
+# idle box at v3.66.1750, so the 60s per-scan budget written for the v3.66.1174 tree expired under load (O1634:
+# TimeoutExpired at 60.08s on the farm, both runs). The tiny tmp-tree scans keep 60s.
+_FULL_TREE_SCAN_TIMEOUT_S = 180
+
+
 def _run(scanner: Path, root: Path, *, home: Path | None = None,
-         extra_env: dict[str, str] | None = None):
+         extra_env: dict[str, str] | None = None, timeout: float = 60):
     env = dict(os.environ, BDTOOLS_CACHE="1")
     if home is not None:
         home.mkdir(parents=True, exist_ok=True)
@@ -107,7 +113,7 @@ def _run(scanner: Path, root: Path, *, home: Path | None = None,
         command.append("--json")
     cp = subprocess.run(
         command,
-        text=True, capture_output=True, env=env, timeout=60,
+        text=True, capture_output=True, env=env, timeout=timeout,
     )
     payload = None
     try:
@@ -234,7 +240,7 @@ def test_canonical_authority_matches_the_exact_current_tree_findings() -> None:
     assert len(expected) == 12
 
     for scanner in SCANNERS:
-        cp, payload = _run(scanner, ROOT)
+        cp, payload = _run(scanner, ROOT, timeout=_FULL_TREE_SCAN_TIMEOUT_S)
         assert cp.returncode == 0, (scanner, cp.stderr, cp.stdout[-2000:])
         assert payload is not None
         actual = {

@@ -16,15 +16,20 @@ object, and an indirect entry would have been downloaded as a JSON document.
 Rule: on a redtube scene page the page's own mediaDefinitions are resolved through the page's session and
 the preferred-quality scene file is dispatched before the DOM scorer can pick an ad or nav link.
 
-Hermetic: a local HTTP server; real headless Chromium with --host-resolver-rules mapping the redtube /
-rdtcdn / adtng hosts to it and every other host to NOTFOUND. The runner is ExtractorsMixin with recording
+Hermetic: a local HTTPS server (a self-signed cert made at test time); real headless Chromium with
+--host-resolver-rules mapping the redtube / rdtcdn / adtng hosts to it and every other host to NOTFOUND. The scene
+is served over https like the live site: redtube.com is on Chromium's HSTS preload list (from Playwright 1.63 /
+chromium 1243), so an http:// scene URL is upgraded before the request and a plain-HTTP fixture answers it with
+ERR_SSL_PROTOCOL_ERROR (O1634: the 5 redtube + 2 youporn farm failures on the 1.63 hosts). The runner is ExtractorsMixin with recording
 stubs for its side-effect methods; the real ``_try_aylo_extractor`` runs on the real page.
 """
 from __future__ import annotations
 
 import ast
+import datetime
 import http.server
 import json
+import ssl
 import threading
 from pathlib import Path
 
@@ -34,7 +39,7 @@ from bulk_downloader import detect, extractors_aylo, runner_extractors
 
 BD_GATE_SCOPE = "module"
 
-SCENE = "http://www.redtube.com/191397851"
+SCENE = "https://www.redtube.com/191397851"
 CDN = "http://ev-ph.rdtcdn.com/videos/202411/11/460383961"
 FILE_720 = f"{CDN}/720P_4000K_460383961.mp4?validfrom=1&validto=2&hash=h720"
 FILE_480 = f"{CDN}/480P_2000K_460383961.mp4?validfrom=1&validto=2&hash=h480"
@@ -47,9 +52,9 @@ TEMPLATE_LEARNED = {"row_selectors": ["video.mgp_videoElement source[type='video
                     "url_attribute": "src"}
 
 MEDIA_DEFS = [
-    {"format": "hls", "videoUrl": "http://www.redtube.com/media/hls?s=eyJrIjoiaGxzIn0", "remote": True,
+    {"format": "hls", "videoUrl": "https://www.redtube.com/media/hls?s=eyJrIjoiaGxzIn0", "remote": True,
      "quality": [], "defaultQuality": False},
-    {"format": "mp4", "videoUrl": "http://www.redtube.com/media/mp4?s=eyJrIjoibXA0In0", "remote": True,
+    {"format": "mp4", "videoUrl": "https://www.redtube.com/media/mp4?s=eyJrIjoibXA0In0", "remote": True,
      "quality": [], "defaultQuality": False},
 ]
 MP4_LIST = [
@@ -83,8 +88,34 @@ def _scene_html(shell: str) -> bytes:
 </body></html>""".encode()
 
 
+def _self_signed_context(directory: Path) -> ssl.SSLContext:
+    """A server TLS context for the mapped hosts; the browser context ignores the self-signed issuer."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "www.redtube.com")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name)
+            .public_key(key.public_key()).serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(x509.SubjectAlternativeName([x509.DNSName(h) for h in (
+                "www.redtube.com", "ev-ph.rdtcdn.com", "a.adtng.com")]), critical=False)
+            .sign(key, hashes.SHA256()))
+    cert_path, key_path = directory / "cert.pem", directory / "key.pem"
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                           serialization.NoEncryption()))
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=str(cert_path), keyfile=str(key_path))
+    return ctx
+
+
 @pytest.fixture(scope="module")
-def server():
+def server(tmp_path_factory):
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             path = self.path
@@ -107,6 +138,7 @@ def server():
             pass
 
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.socket = _self_signed_context(tmp_path_factory.mktemp("tls")).wrap_socket(srv.socket, server_side=True)
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     try:
@@ -137,7 +169,7 @@ def browser(server):
 
 @pytest.fixture
 def page(browser):
-    ctx = browser.new_context()
+    ctx = browser.new_context(ignore_https_errors=True)
     try:
         yield ctx.new_page()
     finally:
