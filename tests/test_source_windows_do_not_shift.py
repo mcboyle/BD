@@ -71,7 +71,7 @@ sys.path.insert(0, str(ROOT))
 # switched to complete-method AST extraction.
 # Re-measured 2026-09-29 at 98 after the stash / plex / log_event / event_log
 # checks read the whole method (or run it) instead of fixed windows.
-_MAX_WINDOWS = 98
+_MAX_WINDOWS = 97
 
 # The specific TEST FUNCTIONS converted so far. Scoped to the function, not the
 # file: only one assertion in each of these files was converted, and claiming
