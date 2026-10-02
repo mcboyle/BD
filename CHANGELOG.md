@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1757 - train187: row
+
+T187 = train of the O1671 A13 capture pick cancel fix and the O1664/O1666 r2 opt-in harness tests, BOARDed at cut time, applied on T186:
+- A13 capture pick cancel (bd-worker-C1; lens bd-review-correctness-C1): the CaptureWorkflow pick-poll tick no longer acts after its effect is cleaned up; cancelling a pick stops the poll (frontend/src/routes/CaptureWorkflow.tsx, CaptureWorkflow.pickPollCancel.test.tsx).
+- O1664/O1666 r2 tests (bd-worker-D7; lens bd-worker-D4): opt-in tests for host-aware remote-seat reap (F1/F2) and the NFS shared-fs check; skipped unless BD_O1664_REMOTE_SEATS_CANDIDATE / BD_O1666_NFS_CANDIDATE point at the harness candidates (tests/test_o1664_remote_seats.py, tests/test_o1666_nfs_shared_fs.py).
+
+
 ## v3.66.1756 - train186: row
 
 T186 = train of R8a stop-run history and the O1673 t154 coupling meter, BOARDed at cut time, applied on T185:
