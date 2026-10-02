@@ -599,6 +599,9 @@ export function CaptureWorkflow() {
     };
     pollRef.current = window.setInterval(tick, 800);
     return () => {
+      // O1671 a13: a tick already awaiting its poll must not fill the field,
+      // clear armedField or toast once disarmed, re-armed or unmounted.
+      cancelled = true;
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
