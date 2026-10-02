@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1752 - train180: row
+
+T180 = train of tpl95-site-ma-brazzers-2 (O1658 P1, operator; PM bd-pm-C), BOARDed at cut time, applied on main after T179:
+- tpl95-site-ma-brazzers-2 (bd-worker-C2-C; lens bd-review-correctness-C4-C): do_login launched its browser with no proxy, reading neither the site "proxy" field nor vpn_runtime, so a VPN-only site (brazzers, O1656) logged in on the clear net; submit._login_egress resolves the egress before any launch with runner_browser precedence (explicit "proxy" wins, else vpn_runtime.playwright_proxy_for_site) and passes it to cloak.launch_browser; a vpn_required site with no tunnel, a down tunnel, an unreadable requirement, an unparseable proxy or a human-challenge CDP attach is refused with no browser launched; optional sites without proxy or tunnel log in unproxied as before (bulk_downloader/login_impl/submit.py, tests/test_tpl95_site_ma_brazzers_2_login_egress.py).
+
+
 ## v3.66.1751 - train179: row
 
 T179 = O1636 one PM train of the O1634 main-fix cuts (PM bd-pm-C, FLEET-HOLD exception O1636), applied on main after T178:

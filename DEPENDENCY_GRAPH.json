@@ -2419,7 +2419,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1835,
+    "edge_count": 1836,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -4879,6 +4879,7 @@
       ],
       "bulk_downloader/vpn_runtime.py": [
         "bulk_downloader/app.py",
+        "bulk_downloader/login_impl/submit.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_browser.py",
         "bulk_downloader/runner_extractors.py",
@@ -6912,7 +6913,8 @@
         "bulk_downloader/secrets_store.py",
         "bulk_downloader/session_keeper.py",
         "bulk_downloader/stealth.py",
-        "bulk_downloader/vault_sync.py"
+        "bulk_downloader/vault_sync.py",
+        "bulk_downloader/vpn_runtime.py"
       ],
       "bulk_downloader/login_templates_data.py": [
         "bulk_downloader/registrable_domain.py"

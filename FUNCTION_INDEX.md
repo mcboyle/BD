@@ -1055,7 +1055,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/submit.py` (32 entries)
+## `bulk_downloader/login_impl/submit.py` (33 entries)
 
 ```
 - L0039 `_brand_host` `[private]` — Lower-cased hostname of an http(s) URL, or "" when unmeasurable.
@@ -1089,7 +1089,8 @@ Schema version: 2
 - L1805 `_login_lockout_phrase` `[private]` — tpl95-evilangel-1: the lockout phrase on a page that has no login form.
 - L1821 `_login_lockout_result` `[private]` — File the lockout (opens the automatic-login hold) and stop this login.
 - L1842 `_scoped_to_the_site_being_logged_into` `[private]` — Give `do_login` its `site_id` parameter and the log scope that uses it.
-- L1881 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
+- L1880 `_login_egress` `[private]` — tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
+- L1934 `do_login` — Robust login. Tries 25 username selectors, 15 password selectors,
 ```
 
 
@@ -1122,4 +1123,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 946 across 22 files._
+_Total entries: 947 across 22 files._
