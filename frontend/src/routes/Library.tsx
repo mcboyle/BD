@@ -156,6 +156,8 @@ export function Library() {
   // a history-linked file; the result is a /stream/<token> URL the operator can
   // share. Only history-linked rows (history_id present) can be streamed.
   const [streamLink, setStreamLink] = useState<{ url: string; ttl: number } | null>(null);
+  // F019 (O1671): clicking an item title opens a read-only detail dialog.
+  const [preview, setPreview] = useState<LibraryItem | null>(null);
   const streamTokenMut = useMutation<
     { ok?: boolean; error?: string; token?: string; history_id?: number },
     Error,
@@ -365,7 +367,14 @@ export function Library() {
               >
                 <span className="text-sm">
                   <span className="text-muted-foreground">#{it.id}</span>{" "}
-                  {itemLabel(it)}
+                  <button
+                    type="button"
+                    className="text-left hover:underline focus-visible:underline"
+                    onClick={() => setPreview(it)}
+                    title="Show details"
+                  >
+                    {itemLabel(it)}
+                  </button>
                 </span>
                 <div className="flex items-center gap-2">
                   <select
@@ -783,6 +792,31 @@ export function Library() {
               Copy
             </Button>
             <Button variant="ghost" onClick={() => setStreamLink(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={preview !== null} onOpenChange={(o) => !o && setPreview(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{preview ? itemLabel(preview) : ""}</DialogTitle>
+            <DialogDescription>Library item #{preview?.id}</DialogDescription>
+          </DialogHeader>
+          {preview && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Path</dt>
+              <dd className="break-all">{preview.path || "—"}</dd>
+              <dt className="text-muted-foreground">Rating</dt>
+              <dd>{typeof preview.rating === "number" ? preview.rating : "none"}</dd>
+              <dt className="text-muted-foreground">Watched</dt>
+              <dd>{preview.watched ? "yes" : "no"}</dd>
+              <dt className="text-muted-foreground">Tags</dt>
+              <dd>{preview.tags?.length ? preview.tags.join(", ") : "none"}</dd>
+            </dl>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPreview(null)}>
               Close
             </Button>
           </DialogFooter>
