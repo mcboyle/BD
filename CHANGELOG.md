@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1755 - train184: row
+
+T184 = train of dl95-txxx-7 r3, F061-fix, F044-perf, F029, F027 and F058-fix, BOARDed at cut time, applied on main after T183:
+- dl95-txxx-7 r3 (bd-worker-D12-D; lens bd-review-correctness-C4-C, answers its r2 REFUTE): txxx member listing cards draw their thumbnail as a CSS background, not an <img>, so scene_crawler's _ANCHOR_JS saw has_img=false and the cards were not taken as scenes; a card now counts as thumbnailed when a descendant draws a background url() in a card-sized box (>= 60x40) or carries an image class on a non-icon box, nav links stay non-scenes (bulk_downloader/scene_crawler.py, tests/test_dl95_txxx_7_background_thumbnail_cards_are_scenes.py, tests/fixtures/dl95_txxx_7/member_listing.html).
+- F061-fix (bd-agy-worker-g1; lens bd-review-correctness-D2-D): /dashboard with its APIs failing (abort / HTTP 500) rendered no role=alert node; the dashboard now shows one alert with a Retry button when useDashboard() errors (retry: 0, so on the first failed GET), and none on success (frontend/src/routes/Dashboard.tsx, frontend/src/routes/Dashboard.wired.test.tsx).
+- F044-perf (bd-cx-worker1; lens bd-review-correctness-C1): the notification GET walked site_profile/rendition_profile per site through site_readiness; evidence dates now come from one corpus pass grouped by site, zero profile walks (tools/cockpit_templates.py, tests/test_f044_notification_readiness_perf.py).
+- F029 plex status (bd-worker-D1; lens bd-worker-D6): Integrations Plex per-site rendered a raw JSON status dump; PlexStatusLine now renders backend availability, install hint and import error (frontend/src/routes/Integrations.tsx, Integrations.plexStatus.test.tsx).
+- F027 retry gate (bd-agy-worker-g1; lens bd-review-correctness-C4-C): BatchOps "Execute retry" is disabled while busy or when the preview matched 0 candidates; the preview resets on status change and after a retry (frontend/src/routes/BatchOps.tsx, BatchOps.spine.test.tsx).
+- F058-fix (bd-worker-C7-C; lens bd-review-correctness-D2-D): Tools renders inside AppShell title="Tools" and drops its duplicate h1 (frontend/src/routes/Tools.tsx, Tools.shell.test.tsx).
+
+
 ## v3.66.1754 - train183: row
 
 T183 = train of dl95-youjizz-1 r5 recut, tpl95-site-ma-brazzers-2 G2, o1662-flaky-3 and the bh2-19 G2 test, BOARDed at cut time, applied on main after T182:
