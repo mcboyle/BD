@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from "react";
 // instead of each panel polling on its own interval. When the stream is
 // healthy, panels suppress their polling; on stream error we close and let
 // each panel's poll fallback carry the load (mirrors useQueueStream's
-// <=3-failure give-up).
+// <=3-failure give-up), then retry the stream with capped exponential backoff
+// while anyone is still subscribed (O1671 r8c: it used to never come back).
 //
 // Named events emitted by /api/stream (see bulk_downloader/app.py::api_stream):
 //   dashboard        — _dashboard_snapshot(), pushed initially + every 2.5s
@@ -28,6 +29,11 @@ const _subs = new Set<Sub>();
 let _es: EventSource | null = null;
 let _failures = 0;
 let _connected = false;
+// Backoff reconnect after a give-up: 2s, 4s, 8s … capped at 30s.
+const _RECONNECT_BASE_MS = 2_000;
+const _RECONNECT_MAX_MS = 30_000;
+let _reconnectAttempt = 0;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 // Event names the singleton currently has addEventListener wired for.
 const _wired = new Set<string>();
 
@@ -76,8 +82,29 @@ function _wireAll() {
   names.forEach(_ensureListener);
 }
 
+function _clearReconnect() {
+  if (_reconnectTimer !== null) {
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = null;
+  }
+}
+
+function _scheduleReconnect() {
+  if (_reconnectTimer !== null || _subs.size === 0) return;
+  const delay = Math.min(
+    _RECONNECT_BASE_MS * 2 ** _reconnectAttempt,
+    _RECONNECT_MAX_MS,
+  );
+  _reconnectAttempt++;
+  _reconnectTimer = setTimeout(() => {
+    _reconnectTimer = null;
+    if (_subs.size > 0) _connect();
+  }, delay);
+}
+
 function _connect() {
   if (_es || typeof EventSource === "undefined") return;
+  _clearReconnect();
   try {
     _es = new EventSource("/api/stream");
   } catch {
@@ -86,23 +113,28 @@ function _connect() {
   }
   _es.onopen = () => {
     _failures = 0;
+    _reconnectAttempt = 0;
     _emitConn(true);
   };
   _es.onerror = () => {
     _failures++;
     // EventSource auto-reconnects, but after several consecutive errors we
-    // give up and let each panel's polling fallback take over.
+    // give up, let each panel's polling fallback take over, and schedule a
+    // fresh stream (with a fresh error budget) after a backoff delay.
     if (_failures > 3 && _es) {
       _es.close();
       _es = null;
       _wired.clear();
+      _failures = 0;
       _emitConn(false);
+      _scheduleReconnect();
     }
   };
   _wireAll();
 }
 
 function _maybeClose() {
+  if (_subs.size === 0) _clearReconnect();
   if (_subs.size === 0 && _es) {
     _es.close();
     _es = null;
@@ -179,6 +211,8 @@ export function __resetEventStreamForTests() {
   _es = null;
   _failures = 0;
   _connected = false;
+  _clearReconnect();
+  _reconnectAttempt = 0;
   _wired.clear();
   _subs.clear();
 }
