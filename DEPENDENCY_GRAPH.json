@@ -2312,6 +2312,7 @@
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/log.py",
         "bulk_downloader/oidc.py",
+        "bulk_downloader/photo_sets.py",
         "bulk_downloader/provider_resolve_impl/_common.py",
         "bulk_downloader/provider_resolve_impl/youtube.py",
         "bulk_downloader/redaction_profile.py",
@@ -2419,7 +2420,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1835,
+    "edge_count": 1837,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3615,6 +3616,7 @@
         "bulk_downloader/lifecycle_automation.py",
         "bulk_downloader/lifecycle_drift.py",
         "bulk_downloader/oidc.py",
+        "bulk_downloader/photo_sets.py",
         "bulk_downloader/provider_resolve_impl/_common.py",
         "bulk_downloader/provider_resolve_impl/youtube.py",
         "bulk_downloader/redaction_profile.py",
@@ -4027,6 +4029,9 @@
       "bulk_downloader/phoenix_catalog.py": [
         "bulk_downloader/app.py",
         "bulk_downloader/runner.py"
+      ],
+      "bulk_downloader/photo_sets.py": [
+        "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/pillow_hardening.py": [
         "bulk_downloader/thumbnail_sheets.py"
@@ -7007,6 +7012,9 @@
       "bulk_downloader/phoenix_catalog.py": [
         "bulk_downloader/registrable_domain.py"
       ],
+      "bulk_downloader/photo_sets.py": [
+        "bulk_downloader/global_config.py"
+      ],
       "bulk_downloader/playlist_extractor.py": [
         "bulk_downloader/dataset_structural_classifier.py",
         "bulk_downloader/registrable_domain.py"
@@ -7393,6 +7401,7 @@
         "bulk_downloader/jellyfin_deep.py",
         "bulk_downloader/multi_conn.py",
         "bulk_downloader/multi_homed_egress.py",
+        "bulk_downloader/photo_sets.py",
         "bulk_downloader/pipeline_orchestrator.py",
         "bulk_downloader/plex_deep.py",
         "bulk_downloader/proxy_pool.py",

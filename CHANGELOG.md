@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1752 - train181: row
+
+T181 = train of dl95-ultrafilms-1 (O1654 re-scope, operator), BOARDed at cut time, applied on main after T179 (T180 held):
+- dl95-ultrafilms-1 (bd-worker-C7-C; lens bd-review-correctness-C4-C): ultrafilms saved a photo-set archive (the-simple-things_leona-mia_1000px.zip) as the item's download; a new "Photo sets" setting (off | zip | extract, default zip = unchanged) acts on a saved .zip whose every member is an image: off drops it and marks the item needs_review ("No video on this page -- its only download is a photo-set archive"), extract unpacks a flattened, image-only, traversal-safe copy into <zip stem>/ via a temp dir and drops the zip; global app_config photo_sets (schema choices enforced, 400 otherwise, Settings > Downloads) and per-site photo_sets inherit|off|zip|extract, site over global over zip (bulk_downloader/photo_sets.py, runner_transport.py, global_config.py, app_global_config.py, app_kernel.py, site_editor.py, frontend Settings/settingsSchema/api-types, reports/config_gui_manifest.json, tests/test_dl95_ultrafilms_1_photo_sets_setting.py).
+
+
 ## v3.66.1751 - train179: row
 
 T179 = O1636 one PM train of the O1634 main-fix cuts (PM bd-pm-C, FLEET-HOLD exception O1636), applied on main after T178:

@@ -387,7 +387,7 @@
     {
       "bytes": 12016,
       "key": "tests/test_v3_43_54_resolution.py::test_default_quality_preference_is_safe::src[pos:pos + 12000]::1",
-      "sha256": "20b77303b8793a79ef51a9fb0d8c9fd1127930beee4b373c18ed221db6f7537a"
+      "sha256": "5f0f5876f4763f51197489c1ebe38d1da62054d148db164c899f5c82bd0f4c8e"
     },
     {
       "bytes": 200,
