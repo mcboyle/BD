@@ -121,6 +121,19 @@ _ANCHOR_JS = r"""
     ? (titled.getAttribute("data-title") || titled.textContent || "")
     : "";
   const img = a.querySelector("img");
+  // dl95-txxx-7: cards with no <img> draw the thumbnail as a CSS background-image
+  // on a div (txxx a.listing-item > div.thumb > div.img), and lazy ones below the
+  // fold still hold the empty div: a card-sized (>= 60x40) background url(), or a
+  // thumbnail-classed descendant that is not an icon-sized box, counts as the
+  // thumbnail. A small box (a 16x16 sprite icon in a nav link) is never one; an
+  // unsized lazy div (no layout yet, height 0) is not small, it is unknown.
+  const box = (e) => e.getBoundingClientRect();
+  const bigBox = (e) => { const r = box(e); return r.width >= 60 && r.height >= 40; };
+  const iconBox = (e) => { const r = box(e); return r.width > 0 && r.height > 0 && !(r.width >= 60 && r.height >= 40); };
+  const thumbEl = (e) => (/url\(/.test(getComputedStyle(e).backgroundImage || "") && bigBox(e))
+    || (/(^|[\s_-])(thumb|thumbnail|poster)([\s_-]|$)|(^|\s)img(\s|$)/i.test(
+      typeof e.className === "string" ? e.className : "") && !iconBox(e));
+  if (!img && Array.from(a.querySelectorAll("*")).slice(0, 12).some(thumbEl)) cardImg = true;
   return {
     url: url,
     text: a.innerText || "",
