@@ -1877,6 +1877,59 @@ def _scoped_to_the_site_being_logged_into(fn):
     return _scoped_do_login
 
 
+def _login_egress(config, site_id):
+    """tpl95-site-ma-brazzers-2 (O1658): the login browser's egress, resolved as the
+    worker launch resolves it (runner_browser): an explicit per-site ``proxy`` wins,
+    else the site's VPN tunnel (``vpn_runtime.playwright_proxy_for_site``).
+
+    Returns ``(proxy, required, refusal)``. ``proxy`` is a Playwright proxy dict or
+    None (clear net -- the degrade-open posture of a site that is not vpn_required).
+    ``refusal`` is the reason the login must not launch at all: a vpn_required site
+    whose tunnel is unmapped, down, killed or unresolvable, a requirement that cannot
+    be read, or an explicit proxy that cannot be parsed. Before this the login
+    launched with no proxy whatever the site said, so a VPN-only site logged in from
+    the host's clear-net address (test2 2026-10-02T14:13Z, /badlogin)."""
+    explicit = (config.get("proxy") or "").strip()
+    if explicit:
+        from urllib.parse import urlparse
+        try:
+            pp = urlparse(explicit)
+            port = pp.port
+            if not (pp.scheme and pp.hostname):
+                raise ValueError("no scheme or host")
+        except ValueError as e:
+            return None, False, (f"the site proxy setting cannot be parsed ({e}); "
+                                 f"refusing to log in unproxied")
+        proxy = {"server": f"{pp.scheme}://{pp.hostname}{':' + str(port) if port else ''}"}
+        if pp.username: proxy["username"] = pp.username
+        if pp.password: proxy["password"] = pp.password
+        return proxy, False, None
+    try:
+        from .. import vpn_runtime
+    except Exception:
+        return None, False, None   # runtime unavailable: runner_browser degrades the same way
+    try:
+        required = bool(vpn_runtime.is_vpn_required_for_site(site_id))
+    except Exception as e:
+        return None, False, (f"cannot tell whether {site_id or 'this site'} requires a VPN "
+                             f"({type(e).__name__}: {e}); refusing to log in outside it")
+    try:
+        proxy = vpn_runtime.playwright_proxy_for_site(site_id)
+    except vpn_runtime.VPNRequiredError as e:
+        return None, True, f"VPN required for {site_id}: {e}; refusing to log in on the clear net"
+    except Exception as e:
+        if required:
+            return None, True, (f"VPN required for {site_id} but its tunnel could not be resolved "
+                                f"({type(e).__name__}: {e}); refusing to log in on the clear net")
+        sys.stderr.write(f"  {site_tag()}login: vpn proxy resolution raised (continuing unproxied): {e}\n")
+        return None, False, None
+    if proxy is None and required:
+        # get_socks_url_for_site returns None, not an error, when no tunnel is mapped.
+        return None, True, (f"VPN required for {site_id} but no tunnel is mapped to it; "
+                            f"refusing to log in on the clear net")
+    return proxy, required, None
+
+
 @_scoped_to_the_site_being_logged_into
 def do_login(config, allow_manual_takeover=False):
     """Robust login. Tries 25 username selectors, 15 password selectors,
@@ -2073,6 +2126,21 @@ def do_login(config, allow_manual_takeover=False):
         else:
             sys.stderr.write(
                 f"  {site_tag()}login: browser profile = cloak default ({_cloak.resolve_backend(config)})\n")
+        # tpl95-site-ma-brazzers-2: same egress as the worker browser, decided before anything launches.
+        _egress, _vpn_required, _egress_refusal = _login_egress(
+            config, login_site_id() or _cloak.ledger_site_id(config))
+        # The challenge browser is launched unproxied (human_challenge.py), so attaching to it would
+        # drop any egress this login has -- explicit proxy or tunnel -- not only a required tunnel's.
+        if _egress_refusal is None and (_vpn_required or _egress) and _hc.get("cdp_url"):
+            _egress_refusal = ("this login must leave through the site's proxy/tunnel, but the human "
+                               "challenge browser was not launched through it; refusing to attach to it")
+        if _egress_refusal:
+            sys.stderr.write(f"  {site_tag()}login: REFUSED -- {_egress_refusal}\n")
+            return False, f"Login refused: {_egress_refusal}", []
+        if _egress:
+            login_extra["proxy"] = _egress
+            sys.stderr.write(f"  {site_tag()}login: egress via {_egress['server']} "
+                             f"(creds={'yes' if _egress.get('username') else 'no'})\n")
         try:
             if _hc.get("cdp_url"):
                 from playwright.sync_api import sync_playwright
