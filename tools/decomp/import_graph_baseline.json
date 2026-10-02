@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5706,
+  "edge_count": 5711,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3233,6 +3233,13 @@
     "tests/test_dl95_africancasting_4_title_is_not_a_resolution.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_dl95_app_1_honeypot_advisory.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_health.py",
+      "bulk_downloader/app_sites_id_core.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_dl95_app_1_poll_endpoints_do_not_block.py": [
       "bulk_downloader/app.py",

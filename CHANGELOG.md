@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1753 - train182: row
+
+T182 = train of dl95-app-1-delta G2 plus two harness-cut opt-in tests, BOARDed at cut time, applied on main after T181:
+- dl95-app-1-delta-g2 (bd-worker-D11-D; lens bd-review-correctness-C4-C, answers its G1 REFUTE): /api/sites/v2 did a synchronous per-site _m2_honeypot_suggestion DB read on the poll path; the advisory is now served from a cache refreshed off the poll path, and a not-yet-known value is _POLL_HINT_UNKNOWN = (None, 0) at both seed sites (bulk_downloader/app_sites_id_core.py, tests/test_dl95_app_1_honeypot_advisory.py).
+- o1663-grok-unretire (bd-worker-C1; lens bd-review-correctness-D2-D): opt-in test for the harness launcher un-retire (O1663; harness half landed 421d7ce); skips unless BD_O1663_GROK_UNRETIRE_CANDIDATE names a launcher (tests/test_o1663_grok_unretire.py).
+- bh2-33 G2 (bd-agy-worker-c1; lens bd-review-correctness-D2-D): opt-in test that bd-launch-codex-role.sh dies 4 when the effort line is not written (harness half landed 2f1bd02); skips unless BD_BH2_33_CANDIDATE is set (tests/test_bh2_33_verify_effort_line_present.py).
+
+
 ## v3.66.1752 - train181: row
 
 T181 = train of dl95-ultrafilms-1 (O1654 re-scope, operator), BOARDed at cut time, applied on main after T179 (T180 held):
