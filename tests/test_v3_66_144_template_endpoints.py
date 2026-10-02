@@ -91,7 +91,9 @@ def test_onboard_capture_prefers_content_url_over_login(
         },
     )
 
-    def build_capture(site_id, url, display):
+    def build_capture(site_id, url, display, *, with_session=False):
+        # tpl95-bang-1 (54cf03cf5) added the keyword-only with_session flag to
+        # build_capture_command; the stub follows the real signature.
         build_calls.append((site_id, url, display))
         return dict(info)
 

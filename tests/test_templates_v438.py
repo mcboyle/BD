@@ -36,6 +36,13 @@ def test_every_template_has_required_fields():
     is the signal that the template is a stub for URL routing only and
     cannot complete a download with the standard worker pipeline.
     """
+    # fx-templates-missing-9 (10233e7dd): the extractor-host templates route a URL to the
+    # page-media/SPA extractors and DELIBERATELY carry no learned.download (the load-time
+    # gap-fill applies only a template with one; tests/test_o1567_fx_templates_missing_9.py
+    # pins its absence). Exempt exactly that module's ids; every other template still needs one.
+    from bulk_downloader.site_templates._data_extractor_hosts import ITEMS as _extractor_hosts
+    extractor_host_ids = {t["id"] for t in _extractor_hosts}
+    assert extractor_host_ids, "the extractor-host exemption must name real templates"
     for t in TEMPLATES:
         assert "id" in t, f"template missing id: {t}"
         assert "name" in t, f"template {t.get('id')} missing name"
@@ -44,6 +51,9 @@ def test_every_template_has_required_fields():
         assert isinstance(t["patterns"], list), \
             f"template {t.get('id')} patterns must be list"
         assert "learned" in t, f"template {t.get('id')} missing learned block"
+        if t["id"] in extractor_host_ids:
+            assert not t["learned"].get("download"), t["id"]
+            continue
         download = t.get("learned", {}).get("download")
         assert download is not None, \
             f"template {t.get('id')} missing learned.download"

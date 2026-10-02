@@ -1130,6 +1130,11 @@ def test_multi_worker_auto_teach_deferral_releases_claim_to_pending(monkeypatch)
         1, object(), second, run_generation=1) == runner._WORKER_CLAIM_PROCESSED
 
     assert runner.jobs[second]["status"] == "pending"
+    # dl-f4 (ea4cfb3a4): the deferred URL is PARKED, not requeued (requeueing made
+    # every worker re-claim it every 5s); the teach flow's end requeues it.
+    assert runner.jobs[second].get("auto_teach_waiting") is True
+    assert list(runner._url_queue.queue) == []
+    runner._release_teach_waiters()
     assert list(runner._url_queue.queue) == [second]
 
 

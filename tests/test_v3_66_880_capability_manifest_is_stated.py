@@ -267,12 +267,14 @@ def test_every_imported_dependency_is_declared_where_deploy_converges_it():
         "only %d imported names are declared anywhere -- the census or the "
         "alias map is broken, not the manifests" % len(required))
     # Positive controls, ONE PER CENSUS PATH. flask proves the AST path;
-    # eaf-base-api (the shared base every site extractor pulls) proves the
-    # importlib path -- without it the extractor population could drop out of
-    # `required` silently and the >= 20 floor would still hold on the AST
-    # names alone (shape-lens replay S3, 2026-09-03).
+    # phub (the pornhub _REGISTRY entry, loaded only through importlib) proves
+    # the importlib path -- without it the extractor population could drop out
+    # of `required` silently and the >= 20 floor would still hold on the AST
+    # names alone (shape-lens replay S3, 2026-09-03). The control was
+    # eaf-base-api until ia-10-redtube-module (7464dbadd) removed extractors.py's
+    # only "eaf_base_api" literal (a module name no dist ships).
     assert "flask" in c["static"] and "flask" in converged_names
-    assert "eaf-base-api" in c["dynamic"] and "eaf-base-api" in converged_names, (
+    assert "phub" in c["dynamic"] and "phub" not in c["static"] and "phub" in converged_names, (
         "the importlib harvest no longer sees the extractor libraries -- the "
         "population this gate exists for is invisible: dynamic=%s"
         % sorted(c["dynamic"]))

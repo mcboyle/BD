@@ -127,6 +127,7 @@ EXPECTED_UNMIRRORED_READ_TABLES = [
     "alert_rules",         # alerts engine, SQLite-only
     "history_fts",         # FTS5 virtual table over history
     "library",             # file library, SQLite-only
+    "site_run_intent",     # dl95-evilangel-1 per-site run intent, SQLite-only
     "sqlite_master",       # schema introspection
 ]
 
