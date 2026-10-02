@@ -81,6 +81,7 @@ export function BatchOps() {
   const [delConfirm, setDelConfirm] = useState(false);
   // v3.66.728: the other three /api/batch/* endpoints. All CONTROL-class and dark until now.
   const [resetTo, setResetTo] = useState("pending");
+  const [retryPreview, setRetryPreview] = useState<BatchDeleteResult | null>(null);
   const [targetDir, setTargetDir] = useState("");
   const [moveConfirm, setMoveConfirm] = useState(false);
   const [dedupMinMb, setDedupMinMb] = useState("50");
@@ -150,6 +151,7 @@ export function BatchOps() {
       }),
     onSuccess: (r) => {
       setOutput(r);
+      setRetryPreview(r);
       if (r.ok === false) toast.error(r.error || "preview failed");
       else toast.success(`Preview: ${r.candidates_matched ?? 0} row(s) would be retried`);
     },
@@ -165,11 +167,13 @@ export function BatchOps() {
       }),
     onSuccess: (r) => {
       setOutput(r);
+      setRetryPreview(null);
       if (r.ok === false) toast.error(r.error || "retry failed");
       else toast.success(`Requeued ${r.processed ?? 0} row(s) as ${resetTo}`);
     },
     onError: (e) => toast.error(e.message),
   });
+
 
   // MOVE. target_dir is REQUIRED -- /api/batch/move answers 400 "target_dir required"
   // without it. Sending {filter, dry_run} alone would be a DEAD CONTROL: the right route,
@@ -252,6 +256,7 @@ export function BatchOps() {
   });
 
   const previewCount = preview?.candidates_matched ?? 0;
+  const retryPreviewCount = retryPreview?.candidates_matched ?? 0;
   const thresholdOk = Number.isInteger(Number(threshold)) && Number(threshold) >= 0 && Number(threshold) <= 100;
 
   // import site: parse the pasted JSON; valid when it is a non-null object.
@@ -261,7 +266,16 @@ export function BatchOps() {
   catch { siErr = "invalid JSON"; }
   const siOk = !!siParsed && typeof siParsed === "object" && !Array.isArray(siParsed) && !siErr;
 
-  const busy = previewMut.isPending || deleteMut.isPending || reloginMut.isPending || sitesImportMut.isPending;
+  const busy =
+    previewMut.isPending ||
+    deleteMut.isPending ||
+    reloginMut.isPending ||
+    sitesImportMut.isPending ||
+    retryPreviewMut.isPending ||
+    retryMut.isPending ||
+    movePreviewMut.isPending ||
+    moveMut.isPending ||
+    dedupMut.isPending;
 
   return (
     <AppShell title="Batch operations" subtitle="Filter-scoped history delete · cookie relogin sweep · gated">
@@ -417,17 +431,25 @@ export function BatchOps() {
           <Input
             className="max-w-xs"
             value={resetTo}
-            onChange={(e) => setResetTo(e.target.value)}
+            onChange={(e) => {
+              setResetTo(e.target.value);
+              setRetryPreview(null);
+            }}
             placeholder="reset_to_status (pending)"
             aria-label="reset to status"
           />
           <Button size="sm" variant="outline" disabled={busy} onClick={() => retryPreviewMut.mutate()}>
             Preview (dry run)
           </Button>
-          <Button size="sm" disabled={busy} onClick={() => retryMut.mutate()}>
+          <Button
+            size="sm"
+            disabled={busy || retryPreviewCount === 0}
+            onClick={() => retryMut.mutate()}
+          >
             Execute retry
           </Button>
         </div>
+
       </Card>
 
       <Card className="mt-4 p-4">
