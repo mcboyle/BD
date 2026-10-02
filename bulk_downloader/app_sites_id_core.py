@@ -6,6 +6,7 @@ Handlers attach to the SHARED sites_bp (imported from .app_sites); the routing s
 from __future__ import annotations
 import os as _os
 import json
+import logging
 import os
 import re
 import sys
@@ -358,6 +359,60 @@ def api_profile_status(sid):
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
 
+# Bounded advisory refresh; poll requests never queue behind database work.
+_POLL_HINT_SLOTS = _threading.BoundedSemaphore(2)
+_POLL_HINT_LOCK = _threading.Lock()
+# Same shape as _m2_honeypot_suggestion's fail-soft answer: no threshold, zero samples.
+_POLL_HINT_UNKNOWN = (None, 0)
+
+
+def _cached_honeypot_suggestion(runner, sid):
+    """Return cached advisory data, _POLL_HINT_UNKNOWN until first refresh."""
+    from . import db
+    key = db._resolve_db_path()
+    cache = getattr(runner, "_poll_hint_cache", None)
+    value = cache["value"] if cache and cache["database"] == key else _POLL_HINT_UNKNOWN
+    if not _POLL_HINT_LOCK.acquire(blocking=False):
+        return value
+    try:
+        cache = getattr(runner, "_poll_hint_cache", None)
+        if cache is None or cache["database"] != key:
+            cache = {"database": key, "value": _POLL_HINT_UNKNOWN, "at": None, "running": False}
+            runner._poll_hint_cache = cache
+        value = cache["value"]
+        if cache["running"] or (cache["at"] is not None
+                                and time.monotonic() - cache["at"] < 30):
+            return value
+        if not _POLL_HINT_SLOTS.acquire(blocking=False):
+            return value
+        cache["running"] = True
+    finally:
+        _POLL_HINT_LOCK.release()
+
+    refresh_suggestion = _m2_honeypot_suggestion
+
+    def refresh():
+        try:
+            if db._resolve_db_path() != key:
+                return
+            measured = refresh_suggestion(sid)
+            if db._resolve_db_path() == key:
+                cache["value"] = measured
+                cache["at"] = time.monotonic()
+        except Exception:
+            logging.getLogger(__name__).exception("site poll advisory refresh failed")
+        finally:
+            cache["running"] = False
+            _POLL_HINT_SLOTS.release()
+
+    try:
+        _threading.Thread(target=refresh, name="site-poll-hint", daemon=True).start()
+    except RuntimeError:
+        cache["running"] = False
+        _POLL_HINT_SLOTS.release()
+    return value
+
+
 @sites_bp.route("/api/sites/v2")
 def api_sites_v2():
     """SPA-shaped per-site state for the Sites tab. Each entry has
@@ -402,7 +457,7 @@ def api_sites_v2():
             # F3.4 advisory: surface a learned per-site honeypot drop
             # threshold (None until enough trap evidence). Never changes
             # behaviour; fail-soft already inside the helper.
-            hp_suggested, hp_samples = _m2_honeypot_suggestion(sid)
+            hp_suggested, hp_samples = _cached_honeypot_suggestion(runner, sid)
             out.append({
                 "site_id": sid,
                 "name": name,
