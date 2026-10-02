@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1755 - train185: row
+
+T185 = train of dl95-txxx-7 r3, F044-perf, F029, F027, F058-fix (from pulled T184 #1100; F061-fix pulled: tests/test_t1_dashboard_wired.py pins 5 Dashboard tests) and F011, F031, F040, F019, F003, R8c ytdlp format parse, R8c SSE reconnect, R8c download CSRF retry and the bh2-37 test, BOARDed at cut time, applied on main after T183:
+- dl95-txxx-7 r3 (bd-worker-D12-D; lens bd-review-correctness-C4-C, answers its r2 REFUTE): txxx member listing cards draw their thumbnail as a CSS background, not an <img>, so scene_crawler's _ANCHOR_JS saw has_img=false and the cards were not taken as scenes; a card now counts as thumbnailed when a descendant draws a background url() in a card-sized box (>= 60x40) or carries an image class on a non-icon box, nav links stay non-scenes (bulk_downloader/scene_crawler.py, tests/test_dl95_txxx_7_background_thumbnail_cards_are_scenes.py, tests/fixtures/dl95_txxx_7/member_listing.html).
+- F044-perf (bd-cx-worker1; lens bd-review-correctness-C1): the notification GET walked site_profile/rendition_profile per site through site_readiness; evidence dates now come from one corpus pass grouped by site, zero profile walks (tools/cockpit_templates.py, tests/test_f044_notification_readiness_perf.py).
+- F029 plex status (bd-worker-D1; lens bd-worker-D6): Integrations Plex per-site rendered a raw JSON status dump; PlexStatusLine now renders backend availability, install hint and import error (frontend/src/routes/Integrations.tsx, Integrations.plexStatus.test.tsx).
+- F027 retry gate (bd-agy-worker-g1; lens bd-review-correctness-C4-C): BatchOps "Execute retry" is disabled while busy or when the preview matched 0 candidates; the preview resets on status change and after a retry (frontend/src/routes/BatchOps.tsx, BatchOps.spine.test.tsx).
+- F058-fix (bd-worker-C7-C; lens bd-review-correctness-D2-D): Tools renders inside AppShell title="Tools" and drops its duplicate h1 (frontend/src/routes/Tools.tsx, Tools.shell.test.tsx).
+- F011 unknown site (bd-worker-D3; lens bd-review-correctness-C1): SiteActions queries /api/sites/v2 (same "sites-v2" cache as SiteDetail) and shows a not-found state for an unknown site once the list has loaded (frontend/src/routes/SiteActions.tsx, SiteActions.notFound.test.tsx).
+- F031 VPN zero tunnels (bd-worker-D4; lens bd-worker-C3): with a loaded status and zero tunnels the VPN page disables its tunnel actions; loading/failed status does not trigger it (frontend/src/routes/Vpn.tsx, Vpn.zeroTunnels.test.tsx).
+- R8c ytdlp format parse (bd-worker-D1; lens bd-worker-C1): format ranking coerces height/tbr through _rank_num; strings like '720p', inf, lists and dicts rank 0 instead of raising (bulk_downloader/ytdlp_extractor.py, tests/test_o1671_r8c_ytdlp_format_parse.py).
+- R8c SSE reconnect (bd-worker-C4; lens bd-worker-C3): after give-up (>3 failures) useEventStream never reconnected; it now resets the failure count and reconnects on a capped exponential backoff (2s..30s) (frontend/src/hooks/useEventStream.ts, useEventStream.reconnect.test.tsx).
+- bh2-37 test (bd-worker-D12-D; lens bd-review-correctness-C4-C): opt-in test that bd-inbox-drain.sh keeps a headerless message beside cron noise (harness half landed 3e7bb2b) (tests/test_bh2_37_inbox_drain_keeps_headerless_messages.py).
+- F040 enqueue preview (bd-worker-C3; lens bd-worker-C2, 2nd bd-worker-D5): BulkEnqueue parseUrls keeps only non-blank lines that parse as http(s) URLs, first occurrence only, so the preview count matches what is enqueued (frontend/src/routes/BulkEnqueue.tsx, BulkEnqueue.ready.test.tsx).
+- F019 library preview (bd-worker-C2; lens bd-worker-C1): a Library title is a keyboard-operable button opening a read-only preview dialog (title, id, path, rating, watched, tags) (frontend/src/routes/Library.tsx, Library.preview.test.tsx).
+- F003 history search (bd-worker-C1; lens bd-worker-D2): /api/search also matches the library title joined via history.library_id, not only history_fts columns (bulk_downloader/db.py, tests/test_o1671_r8b_f003_history_search_title.py).
+- R8c download CSRF retry (bd-worker-D5; lens bd-worker-D6): the download call handles 403 like apiPost/apiDelete: drop the token, refetch, retry once iff it changed (frontend/src/lib/api-client.ts, api-client.download.test.ts).
+
+
 ## v3.66.1754 - train183: row
 
 T183 = train of dl95-youjizz-1 r5 recut, tpl95-site-ma-brazzers-2 G2, o1662-flaky-3 and the bh2-19 G2 test, BOARDed at cut time, applied on main after T182:

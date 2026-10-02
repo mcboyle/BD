@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5718,
+  "edge_count": 5726,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -3635,6 +3635,9 @@
       "bulk_downloader/cloak.py",
       "bulk_downloader/detect.py"
     ],
+    "tests/test_dl95_txxx_7_background_thumbnail_cards_are_scenes.py": [
+      "bulk_downloader/scene_crawler.py"
+    ],
     "tests/test_dl95_ultrafilms_1_photo_sets_setting.py": [
       "bulk_downloader/app_global_config.py",
       "bulk_downloader/app_kernel.py",
@@ -3862,6 +3865,12 @@
     "tests/test_extraction_core_characterization.py": [
       "bulk_downloader/capture_template.py",
       "bulk_downloader/capture_workbench.py"
+    ],
+    "tests/test_f044_notification_readiness_perf.py": [
+      "tools/autonomy_housekeeping.py",
+      "tools/cockpit_console.py",
+      "tools/cockpit_core.py",
+      "tools/cockpit_templates.py"
     ],
     "tests/test_f2_3_needs_review_wired.py": [
       "tools/spa_population.py"
@@ -4740,6 +4749,13 @@
     ],
     "tests/test_o1662_keepalive_launch_failure_is_named.py": [
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_o1671_r8b_f003_history_search_title.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/migrations.py"
+    ],
+    "tests/test_o1671_r8c_ytdlp_format_parse.py": [
+      "bulk_downloader/ytdlp_extractor.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
