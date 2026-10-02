@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1759 - train189: row
+
+T189 = the O1682 stale-gate fix sg-yj1, BOARDed at cut time, applied on main after T188:
+- sg-yj1 xhamster/xnxx (bd-worker-A2; lens bd-review-correctness-C1): youjizz-1 r5 (T183, 0f4ed6f3) applied its title override in _try_spa_api_media_extractor to every leaf, which renamed xhamster-2 quality/codec leaves and let an xnxx-1 HLS master below the minimum "rescue"; the override now applies only to the .m3u8 master/index leaf the resolver kept unchanged, keeping yj1's HLS best-variant naming (bulk_downloader/runner_extractors.py).
+
+
 ## v3.66.1758 - train188: row
 
 T188 = the O1673 quota-probes r2 opt-in test, BOARDed at cut time, applied on main after T187:
