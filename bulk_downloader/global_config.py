@@ -328,6 +328,12 @@ GLOBAL_CONFIG_SCHEMA: dict = {
     "dom_honeypot_filter": {"type": str,  "safety": False, "safe_default": "off"},
     "redact_dom_urls":     {"type": str,  "safety": False, "safe_default": "keep_structure"},
     "capture_raw":         {"type": bool, "safety": False, "safe_default": False},
+    # dl95-ultrafilms-1 (O1654): what to do with a photo-set item, one whose only download
+    # is an image archive (photo_sets.py). off | zip (default, the behaviour before the
+    # setting) | extract. A site's own "photo_sets" overrides this. "choices" is enforced
+    # by the generic /api/global_config write path.
+    "photo_sets":          {"type": str,  "safety": False, "safe_default": "zip",
+                            "choices": ("off", "zip", "extract")},
     # Phase 4.2 (v3.66.309): slow-query observability tunables, promoted from
     # their env vars (call-time getters in db.py) so a Settings write takes
     # effect on the next DB connection's tracer — no restart.

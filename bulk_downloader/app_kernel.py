@@ -185,6 +185,9 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             # Phase 72 (v3.43.16): retry once when ffprobe integrity fails
             # before quarantining. Recovers from transport hiccups.
             "retry_on_corruption",
+            # dl95-ultrafilms-1 (O1654): per-site "Photo sets" mode (photo_sets.py);
+            # inherit = use the global app-config value.
+            "photo_sets",
             # Phase 73 (v3.43.16): RSS-style URL subscriptions. List of
             # {name, url, interval_hours, last_run_ts} dicts. The
             # auto_retry loop scans listings on schedule and imports new URLs.
@@ -646,6 +649,9 @@ DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_thres
           # vs always-quarantine; user opts in if their network drops
           # often.
           "retry_on_corruption": False,
+          # dl95-ultrafilms-1 (O1654): photo-set items follow the global "photo_sets"
+          # setting unless a site picks off / zip / extract.
+          "photo_sets": "inherit",
           # Phase 73: empty subscriptions list by default.
           "subscriptions": [],
           # v3.43.21: download backend selector. "teach" = current

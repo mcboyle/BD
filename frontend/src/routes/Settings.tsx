@@ -615,6 +615,25 @@ export function Settings() {
               }
             />
             <SettingRow
+              modified={mod("photo_sets")}
+              label="Photo sets"
+              hint="A page whose only download is an image archive (no video). off = skip it (needs review); zip = save the archive (default); extract = save the images in a folder and drop the zip. Videos are always saved. A site can override this in its settings."
+              control={
+                <select
+                  aria-label="Photo sets"
+                  value={draft.photo_sets ?? "zip"}
+                  onChange={(e) => setField("photo_sets", e.target.value)}
+                  className="hairline rounded-md bg-surface px-2 py-1.5 text-sm tabular"
+                >
+                  {["off", "zip", "extract"].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+            <SettingRow
               label="Queue tab badge"
               hint="Count = red dot; Percent = live aggregate progress."
               control={

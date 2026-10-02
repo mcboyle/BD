@@ -835,6 +835,8 @@ _FIELD_TYPES = {
     # emits {"type":"string","enum":[...]}; "enum" is never used as a JSON-Schema
     # type.
     "backend": ("string", "Download backend for this site"),
+    "photo_sets": ("string", "Photo-set items (only download is an image archive): "
+                             "inherit the global setting, off, zip, or extract the images"),
     "jd_host": ("string", "JDownloader 2 Remote API host"),
     "jd_port": ("integer", "JDownloader 2 Remote API port"),
     # v3.66.702 (JD-3): supported-hosts endpoint path. Blank -> jd_bridge's
@@ -858,6 +860,8 @@ _FIELD_TYPES = {
 _FIELD_ENUMS = {
     "backend": ["teach", "jd", "qb"],
     "captcha_provider": ["2captcha", "capsolver"],
+    # dl95-ultrafilms-1 (O1654): keep in sync with photo_sets.SITE_CHOICES.
+    "photo_sets": ["inherit", "off", "zip", "extract"],
 }
 
 

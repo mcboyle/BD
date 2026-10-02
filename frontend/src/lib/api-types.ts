@@ -461,6 +461,8 @@ export interface GlobalConfigSubset {
   capture_bodies?: boolean;
   capture_wait_until?: string;
   dom_honeypot_filter?: string;
+  // dl95-ultrafilms-1 (O1654): "off" | "zip" (default) | "extract".
+  photo_sets?: string;
   redact_dom_urls?: string;
   capture_raw?: boolean;
   // v3.66.309 (Phase 4.2): slow-query diagnostics (call-time getters in db.py).

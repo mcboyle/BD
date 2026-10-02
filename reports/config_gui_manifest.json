@@ -329,6 +329,7 @@
     "parallel_min_size_mb": "full",
     "pass_field": "full",
     "password": "full",
+    "photo_sets": "full",
     "player_struct_tiebreak": "full",
     "playlist_max_pages": "full",
     "plex_allow_private_host": "full",

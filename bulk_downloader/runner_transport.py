@@ -40,6 +40,7 @@ from .download_egress import (
 )
 from . import proxy_pool
 from . import ffmpeg_bin
+from . import photo_sets
 import subprocess
 
 # httpx soft import (moved verbatim from runner.py; flat sibling).
@@ -3915,6 +3916,27 @@ class TransportMixin:
             if transfer_mode == "browser":
                 staging_claim.discard(final_path, staging_claim.job_identity(page_url))
 
+            # dl95-ultrafilms-1 (O1654): the "Photo sets" setting. Some sites give a photo set
+            # the same page shape as a movie, and its only download is an image archive
+            # (ultrafilms "<slug>_1000px.zip": 77 .jpg, no video). zip (default) keeps it as
+            # before; off refuses the item with the no-video outcome; extract unpacks the
+            # images into <archive stem>/ and drops the zip. A video, or an archive holding
+            # one, is never touched.
+            photo_set = photo_sets.apply(self.config, final_path)
+            if photo_set.action == "refuse":
+                self._update_job(page_url, "needs_review", photo_set.message)
+                sys.stderr.write(
+                    f"  download: no video on {page_url[-40:]} -- only a photo-set archive "
+                    f"({photo_set.images} images); photo_sets=off; needs_review.\n")
+                self._consec_no_btn = 0
+                db_log(self.site_id, self.config.get("name", "?"), page_url,
+                       "needs_review", "", 0, photo_set.message)
+                return
+            if photo_set.action == "extracted":
+                final_path = photo_set.path
+                filename = final_path.name
+                verify_msg += f" (photo set: {photo_set.images} images extracted)"
+
             # tpl95-cumlouder-2: bare media leaf tier must come from the
             # element's label/res or the probed height, never a default/floor.
             # If the landed file was named from a bare leaf and ffprobe measures
@@ -4005,8 +4027,9 @@ class TransportMixin:
                 )
             except Exception as e:
                 sys.stderr.write(f"  metadata (teach): {type(e).__name__}: {e}\n")
-            file_size_on_disk = self._size_on_disk_after_tagging(
-                str(final_path), downloaded_size)
+            file_size_on_disk = (photo_set.size if photo_set.action == "extracted"
+                                 else self._size_on_disk_after_tagging(
+                                     str(final_path), downloaded_size))
             self._update_job(page_url,"done",f"Saved: {filename}{verify_msg}{below}",
                              filename=filename,file_size=file_size_on_disk)
             db_log(self.site_id,self.config.get("name","?"),page_url,"done",filename,file_size_on_disk,"",
