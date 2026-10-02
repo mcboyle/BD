@@ -300,14 +300,23 @@ def test_scheduler_respects_disable_env(monkeypatch=None):
 
 # ── Runner integration ───────────────────────────────────────────────
 
+def _start_serialized_src():
+    """Source of SiteRunner._start_serialized, found by name so a widened
+    signature (dl95-evilangel-1 added _restart_resume) does not lose it."""
+    import ast
+    src = _RUNNER_PY.read_text(encoding="utf-8")
+    hits = [n for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.FunctionDef) and n.name == "_start_serialized"]
+    assert len(hits) == 1, "expected one SiteRunner._start_serialized"
+    body = ast.get_source_segment(src, hits[0])
+    assert body
+    return body
+
+
 def test_runner_start_checks_window():
     """SiteRunner.start() must consult download_window before
     proceeding past the rate-limit check."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
-    assert pos > 0
-    nxt = src.find("\n    def ", pos + 1)
-    body = src[pos:nxt]
+    body = _start_serialized_src()
     assert "download_window" in body
     assert "site_in_window" in body
     assert "window_paused" in body
@@ -317,10 +326,7 @@ def test_runner_start_logs_window_pause_only_once():
     """The pause event should only log when transitioning INTO
     window_paused, not on every start() call. Otherwise repeated
     start() attempts during the off-hours flood the log."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
-    nxt = src.find("\n    def ", pos + 1)
-    body = src[pos:nxt]
+    body = _start_serialized_src()
     assert 'self._state != "window_paused"' in body
 
 
@@ -328,10 +334,7 @@ def test_runner_window_check_failopen():
     """If the window module itself fails to import or compute, the
     runner must still attempt to start — fail-open prevents a bug
     in the new code from breaking all sites globally."""
-    src = _RUNNER_PY.read_text(encoding="utf-8")
-    pos = src.find("def _start_serialized(self, _teardown_generation=None):")
-    nxt = src.find("\n    def ", pos + 1)
-    body = src[pos:nxt]
+    body = _start_serialized_src()
     # Look for the try/except wrapping the window check
     assert "window check failed" in body
 

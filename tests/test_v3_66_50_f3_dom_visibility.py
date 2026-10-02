@@ -57,6 +57,7 @@ class _Loc:
         self._evaluate_raises = evaluate_raises
         self._visible_raises = visible_raises
         self.evaluate_calls = 0
+        self.evaluated = []   # scripts passed to evaluate(), in order
 
     def is_visible(self, timeout=None):
         if self._visible_raises:
@@ -71,6 +72,7 @@ class _Loc:
 
     def evaluate(self, js):
         self.evaluate_calls += 1
+        self.evaluated.append(js)
         if self._evaluate_raises:
             raise RuntimeError("evaluate failed")
         return self._evaluate_result
@@ -345,7 +347,7 @@ class TestF3StrictDispatch:
         # candidate text concatenates inner_text + scanned attrs, so
         # the decoy's distinctive marker is its href ("decoy").
         assert not any("decoy" in t for t in texts)
-        assert decoy.evaluate_calls >= 1
+        assert _STRICT_PROBE_JS in decoy.evaluated
 
     def test_cheap_keeps_computed_hidden(self, monkeypatch):
         from bulk_downloader.detect import find_best_download
@@ -354,6 +356,9 @@ class TestF3StrictDispatch:
         result = find_best_download(page)
         assert result is not None
         texts = [c["text"] for c in result["_all_candidates"]]
-        # cheap path never calls the probe; the decoy survives.
+        # cheap path never calls the probe; the decoy survives. Other
+        # detect checks may evaluate the element (dl95-file-examples-7's
+        # frame-element tagName read), so pin the probe script itself,
+        # not the total evaluate() count.
         assert any("decoy" in t for t in texts)
-        assert decoy.evaluate_calls == 0
+        assert _STRICT_PROBE_JS not in decoy.evaluated

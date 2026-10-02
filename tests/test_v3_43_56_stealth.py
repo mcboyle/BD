@@ -175,15 +175,19 @@ def test_runner_calls_stealth_library_on_new_pages():
 
 def test_login_applies_stealth_library_in_do_login():
     """do_login's page-creation path applies the library too."""
+    import ast
+    # do_login is located by name, not by the page-creation line's exact
+    # text: fx-takeover-plain-browser made that line reuse a CDP page
+    # (page=ctx.pages[-1] if ... else ctx.new_page()).
     src = _login_impl_src()
-    # The do_login function should call apply_to_page or import stealth
-    # in proximity to ctx.new_page()
-    pos = src.find("page=ctx.new_page()")
-    if pos == -1:
-        pos = src.find("page = ctx.new_page()")
-    assert pos > 0
-    body = src[pos:pos + 600]
-    assert "stealth" in body.lower()
+    hits = [n for n in ast.walk(ast.parse(src))
+            if isinstance(n, ast.FunctionDef) and n.name == "do_login"]
+    assert len(hits) == 1, "expected one login_impl do_login"
+    fn = ast.get_source_segment(src, hits[0])
+    pos = fn.find("ctx.new_page()")
+    assert pos > 0, "do_login no longer creates its page"
+    body = fn[pos:pos + 600]
+    assert "_stealth.apply_to_page(page" in body
 
 
 def test_manual_login_applies_stealth_library():

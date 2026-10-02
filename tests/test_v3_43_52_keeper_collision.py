@@ -162,15 +162,60 @@ def test_verify_pauses_site_keepers():
 # ── start_manual_login pauses keepers ────────────────────────────
 
 
+def _manual_window_carrier():
+    """A bare AuthMixin carrier: enough state for _open_manual_window to
+    run its keeper-pause + browser-open prologue without a full runner."""
+    from bulk_downloader.runner_auth import AuthMixin
+
+    class _Carrier(AuthMixin):
+        pass
+
+    c = _Carrier()
+    c.site_id = "keeper_collision_site"
+    c.config = {"manual_use_persistent_profile": False}
+    return c
+
+
+def _run_open_manual_window(pause_side_effect=None):
+    """Drive the manual-takeover browser open with keeper pause and the
+    browser launch both mocked; return (result, ordered call log)."""
+    calls = []
+
+    def _pause(site_id):
+        calls.append(("pause", site_id))
+        if pause_side_effect is not None:
+            raise pause_side_effect
+        return 1
+
+    def _open(cfg, manual_profile_dir=None):
+        calls.append(("open", manual_profile_dir))
+        return None   # "no handle" -> returns before the poller thread
+
+    c = _manual_window_carrier()
+    with mock.patch("bulk_downloader.session_keeper.pause_site_keepers",
+                    side_effect=_pause), \
+         mock.patch("bulk_downloader.login.open_manual_login_browser",
+                    side_effect=_open):
+        result = c._open_manual_window("https://example.test/login")
+    return result, calls
+
+
+def test_start_manual_login_routes_through_open_manual_window():
+    """fx-manual-cancel-noop moved the browser open (and the keeper pause
+    that guards it) out of start_manual_login into _open_manual_window;
+    start_manual_login must still reach it."""
+    body = _start_manual_login_src()
+    assert "self._open_manual_window(" in body
+
+
 def test_manual_login_pauses_site_keepers():
     """Starting a manual takeover also conflicts with keeper
-    Playwright contexts on the same profile."""
-    body = _start_manual_login_src()
-    pause_pos = body.find("pause_site_keepers")
-    open_pos = body.find("open_manual_login_browser(")
-    assert pause_pos > 0, "manual_login doesn't pause keepers"
-    assert open_pos > 0
-    assert pause_pos < open_pos, "pause must come before browser open"
+    Playwright contexts on the same profile: the site's keepers are
+    paused before the manual browser opens."""
+    result, calls = _run_open_manual_window()
+    assert result == (False, "Browser open returned no handle")
+    assert [k for k, _ in calls] == ["pause", "open"], calls
+    assert calls[0] == ("pause", "keeper_collision_site")
 
 
 # ── Defensive: pause errors don't crash the flow ─────────────────
@@ -189,15 +234,11 @@ def test_verify_continues_when_keeper_pause_raises():
     assert "continuing anyway" in body
 
 
-def test_manual_login_continues_when_keeper_pause_raises():
-    body = _start_manual_login_src()
-    pause_pos = body.find("pause_site_keepers")
-    # Look for the surrounding try/except
-    # Find the try BEFORE pause_pos
-    pre = body[:pause_pos]
-    try_pos = pre.rfind("try:")
-    assert try_pos > 0
-    # And an except clause AFTER pause_pos
-    post = body[pause_pos:]
-    assert "except" in post
-    assert "continuing anyway" in post or "continuing anyway" in pre
+def test_manual_login_continues_when_keeper_pause_raises(capsys):
+    """A keeper-pause failure is logged and the browser still opens."""
+    result, calls = _run_open_manual_window(
+        pause_side_effect=RuntimeError("keeper import broke"))
+    assert [k for k, _ in calls] == ["pause", "open"], calls
+    assert result == (False, "Browser open returned no handle")
+    err = capsys.readouterr().err
+    assert "keeper pause failed" in err and "continuing anyway" in err

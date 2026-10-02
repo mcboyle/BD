@@ -134,12 +134,15 @@ def test_cli_surface_unchanged():
     for expected in ("--url", "--out", "--system-chrome", "--body-cap-mib",
                      "--chunk-events", "--profile-dir", "--autofill", "--title",
                      "--url-memory-file", "--max-seconds", "--finish-file",
-                     "--no-hud"):
+                     "--no-hud", "--cookies-file"):
         assert expected in opt_strings, f"missing CLI option {expected}"
-    # exactly 12 user-facing add_argument options (+ implicit -h/--help)
+    # exactly 13 user-facing add_argument options (+ implicit -h/--help)
     # (11 -> 12 at v3.66.230: --no-hud added for the per-capture HUD toggle)
+    # (12 -> 13 at tpl95-bang-1/O1517: --cookies-file starts the capture
+    #  logged in; its contract is pinned in
+    #  test_tpl95_bang_1_capture_starts_logged_in.py)
     user_opts = {s for s in opt_strings if s.startswith("--")} - {"--help"}
-    assert len(user_opts) == 12
+    assert len(user_opts) == 13
 
 
 # ─── BD_CAPTURE_WAIT_UNTIL opt-in toggle (default-OFF) ────────────────

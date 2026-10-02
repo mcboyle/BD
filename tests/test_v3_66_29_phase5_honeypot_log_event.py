@@ -549,11 +549,18 @@ class TestModuleLoad:
         assert sig.parameters["runner"].default is None
 
     def test_runner_kwarg_position(self):
-        """runner should be the LAST parameter — adding it earlier
-        would break any positional callers that exist (and might
-        exist in third-party scripts even if not in tree)."""
+        """runner must come AFTER the pre-existing parameters — adding
+        it earlier would break any positional callers that exist (and
+        might exist in third-party scripts even if not in tree).
+        Parameters appended after it (dl95-tube8-1 added ``deadline``)
+        are fine as long as they default, so no caller has to pass them."""
         import inspect
         from bulk_downloader.detect import find_best_download
-        params = list(inspect.signature(
-            find_best_download).parameters.keys())
-        assert params[-1] == "runner"
+        sig = inspect.signature(find_best_download)
+        params = list(sig.parameters.keys())
+        assert params[:5] == ["page", "custom", "learned",
+                              "full_length_requested", "runner"]
+        for name in params[5:]:
+            assert (sig.parameters[name].default
+                    is not inspect.Parameter.empty), (
+                f"{name} follows runner without a default")

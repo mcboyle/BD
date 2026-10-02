@@ -515,12 +515,17 @@ def test_cfg_fields_has_account_cooldown_seconds():
 
 def test_app_calls_configure_pool_on_load():
     """At startup, every site with accounts gets a configured pool."""
+    import ast
     src = _APP_PY.read_text(encoding="utf-8")
-    # Must be inside _load_sites_config (the early-load path)
-    pos = src.find("def _load_sites_config")
-    assert pos > 0
-    body = src[pos:pos + 8000]
-    assert "configure_pool" in body or "account_pool" in body
+    # Must be inside _load_sites_config (the early-load path). Walk the
+    # whole function: it outgrew the old fixed 8000-char window.
+    fns = [n for n in ast.walk(ast.parse(src))
+           if isinstance(n, ast.FunctionDef) and n.name == "_load_sites_config"]
+    assert len(fns) == 1, "expected one app._load_sites_config"
+    calls = [n for n in ast.walk(fns[0])
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "configure_pool"]
+    assert calls, "_load_sites_config no longer configures account pools"
 
 
 def test_app_reconfigures_on_site_save():
