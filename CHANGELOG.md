@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1767 - train203: row
+
+T203 = two O1671 r2 cuts (PM YES 01:52Z, lens-router BOARD), applied on T202:
+- o1671-r8b-f019 library search r2 (bd-cx-worker16; lens bd-review-correctness-C1): Library search covers titles and tags. Tag objects ({id,name,color}) now match on their name; r1 crashed on them by calling toLowerCase on an object. LibraryItem.tags is typed (string|LibraryTag)[] and LibraryTag gains color (frontend/src/routes/Library.tsx, frontend/src/lib/api-types.ts, new Library.search.test.tsx).
+- o1671-a07 OIDC account binding r2 (bd-worker-D5; lens bd-worker-C5): an SSO login binds the local account to the OIDC subject. A login whose subject differs from the account's bound subject is refused. The name is taken from sub without whitespace stripping, so "dave " no longer maps to "dave" (bulk_downloader/oidc.py, bulk_downloader/user_accounts.py, tests/test_v3_66_681_oidc.py, new tests/test_o1671_a07_oidc_account_binding.py). RESIDUAL MED (pre-existing, lens C5): create_user load/check/save has no lock, so two simultaneous first logins for one name can both get a session. Fix: flock around user_accounts writers.
+
+
 ## v3.66.1766 - train202: row
 
 T202 = O1698 stale-gate sg-deadlock-tier1b (test-only), BOARDed at cut time, applied on T201:
