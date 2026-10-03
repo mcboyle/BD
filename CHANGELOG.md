@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1760 - train194: row
+
+T194 = parked O1671/O1673 product cuts BOARDed after the O1703 lens pass (PM YES 01:52Z), applied on main after T193:
+- O1673 t154-edge1 (bd-worker-D3; lens bd-cx-review-correctness1): t154 option b -- the stream/direct-media route bodies move verbatim from runner_transport into a new core module bulk_downloader/media_route.py (stream_route/direct_media_route) so detect/mime_router stop importing runner_transport (detect.py, media_route.py, mime_router.py, runner_transport.py, 2 manifest tests retargeted, mutants json, tests/test_o1673_t154_edge1_detect_core_route.py).
+- O1671 r8b F001 needs-review link (bd-worker-C4; lens bd-cx-review-correctness3): the Home NEEDS ATTENTION review row and the CountTiles review tile link to /needs-review (frontend/src/routes/Home.tsx, frontend/src/components/CountTiles.tsx + tests).
+- O1671 A13 TPDB apply hid (bd-worker-B1; lens bd-cx-review-correctness2): Integrations TPDB apply refuses when the looked-up hid differs from the pending hid, and editing the hid resets the stale lookup preview (frontend/src/routes/Integrations.tsx, Integrations.tpdbApplyHid.test.tsx).
+
+
 ## v3.66.1759 - train193: row
 
 T193 = the O1682 stale-gate fixes (Wave 1 T5: sg-yj1, sg-settings-schema-257, sg-body-contract-regen), BOARDed at cut time, applied on main after T188 (T189 #1105 closed in the O1686 halt; T189-T192 held):

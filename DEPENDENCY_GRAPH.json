@@ -2420,7 +2420,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1838,
+    "edge_count": 1840,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3660,6 +3660,7 @@
         "bulk_downloader/blob_resolver.py",
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/dev_suite/housekeeping.py",
+        "bulk_downloader/media_route.py",
         "bulk_downloader/mime_router.py",
         "bulk_downloader/runner_extractors.py",
         "bulk_downloader/runner_transport.py"
@@ -3916,6 +3917,10 @@
       "bulk_downloader/mass_import.py": [
         "bulk_downloader/app_import.py",
         "bulk_downloader/perf_lab.py"
+      ],
+      "bulk_downloader/media_route.py": [
+        "bulk_downloader/detect.py",
+        "bulk_downloader/runner_transport.py"
       ],
       "bulk_downloader/member_rendition.py": [
         "bulk_downloader/runner.py",
@@ -4314,7 +4319,6 @@
         "bulk_downloader/runner.py"
       ],
       "bulk_downloader/runner_transport.py": [
-        "bulk_downloader/detect.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/runner_extractors.py"
       ],
@@ -6452,8 +6456,8 @@
         "bulk_downloader/constants.py",
         "bulk_downloader/dom_honeypot.py",
         "bulk_downloader/global_config.py",
+        "bulk_downloader/media_route.py",
         "bulk_downloader/plugins.py",
-        "bulk_downloader/runner_transport.py",
         "bulk_downloader/runner_util.py",
         "bulk_downloader/web_dialog.py"
       ],
@@ -6941,6 +6945,9 @@
       "bulk_downloader/mass_import.py": [
         "bulk_downloader/db.py"
       ],
+      "bulk_downloader/media_route.py": [
+        "bulk_downloader/hls_downloader.py"
+      ],
       "bulk_downloader/media_server_sync.py": [
         "bulk_downloader/hooks.py"
       ],
@@ -7401,6 +7408,7 @@
         "bulk_downloader/hooks.py",
         "bulk_downloader/interstitial.py",
         "bulk_downloader/jellyfin_deep.py",
+        "bulk_downloader/media_route.py",
         "bulk_downloader/multi_conn.py",
         "bulk_downloader/multi_homed_egress.py",
         "bulk_downloader/photo_sets.py",

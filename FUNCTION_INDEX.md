@@ -704,122 +704,122 @@ Schema version: 2
 ## `bulk_downloader/runner_transport.py` (116 entries)
 
 ```
-- L0080 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
-- L0104 `RegionalGatewayRouter` `[class]` — Choose configured regional egress and quarantine failed gateways.
-  - L0113 `RegionalGatewayRouter.__init__` `[dunder]`
-  - L0128 `RegionalGatewayRouter._gateways_for` `[private]`
-  - L0134 `RegionalGatewayRouter._quarantined` `[private]`
-  - L0143 `RegionalGatewayRouter._quarantine` `[private]`
-  - L0151 `RegionalGatewayRouter._recovered` `[private]`
-  - L0156 `RegionalGatewayRouter.has_route`
-  - L0159 `RegionalGatewayRouter.resolve` — Return the next healthy configured gateway, or ``None``.
-  - L0175 `RegionalGatewayRouter.route_request` — Run ``send(gateway)`` and retry only connection-level failures.
-- L0203 `_regional_connection_errors` `[private]` — Transport errors that mean retrying the exact request is safe.
-- L0242 `_is_bare_media_leaf` `[private]` — True when ``name`` (with or without an extension) is only a token.
-- L0252 `_scene_url_stem` `[private]` — The scene URL's last path segment that is not itself a bare token.
-- L0270 `resolve_media_leaf_name` — The destination name, with a bare format/tier leaf replaced.
-- L0311 `_is_click_only_download_grant` `[private]` — Whether the browser event, rather than a static URL, issued the grant.
-- L0319 `_sized_href_download` `[private]` — A ``_DirectURLDownload`` for a sized winner whose click fired nothing.
-- L0359 `_DirectURLDownload` `[private]` — Stand-in for a Playwright ``Download`` when the URL is already known.
-  - L0362 `_DirectURLDownload.__init__` `[dunder]`
-  - L0366 `_DirectURLDownload.cancel`
-- L0397 `_resolve_popup_grant` `[private]` — The ``window.open`` argument as the browser would have resolved it.
-- L0430 `_arm_popup_grant_capture` `[private]` — Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
-- L0462 `_is_player_source_element` `[private]` — fx-xnxx-preview: True when a learned element is a media player's own
-- L0479 `_refetch_player_config` `[private]` — fx-pornhoarder-hoster-embed: the configuring frame's page fetched again by
-- L0511 `_frame_player_config_override` `[private]` — fx-pornhoarder-hoster-embed: ``(url, user_agent)`` when a learned
-- L0548 `_is_login_wall_href` `[private]` — True when a download candidate's href is the site's login page
-- L0564 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
-- L0576 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
-- L0591 `_media_owned_by_another_job` `[private]` — dl95-wowgirls-1: the page URL of ANOTHER job of this run that already
-- L0624 `_history_pages_naming` `[private]` — Page urls of this site's download history that carry an id token the
-- L0650 `_media_for_log` `[private]` — Scheme, host and path only: a signed query is a credential.
-- L0669 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
-- L0703 `_is_transient_download_error` `[private]` — Whether `exc` (an `_HTTPDownloadFailed`, wrapping the original
-- L0720 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
-  - L0723 `_ParallelDailyByteAccounting.__init__` `[dunder]`
-  - L0729 `_ParallelDailyByteAccounting.add`
-  - L0733 `_ParallelDailyByteAccounting.flush`
-  - L0737 `_ParallelDailyByteAccounting.worker_finished`
-- L0824 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
-- L0870 `_reveal_scope_id` `[private]` — GEN 3 (lens B16-B F4): the id of the hidden element a fragment
-- L0882 `_inside_element_id` `[private]` — Whether `loc` sits inside the element with id `element_id`.
-- L0892 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
-- L0906 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
-- L0950 `_dropdown_visible` `[private]`
-- L0957 `_dropdown_menu_has_links` `[private]`
-- L0964 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
-- L1023 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
-- L1034 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
-- L1114 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
-- L1266 `_unguard_reveal` `[private]`
-- L1287 `_reveal_trigger_is_the_download` `[private]` — GEN 4/5: the pre-click navigated a frame or popup (aborted, never
-- L1308 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
-- L1345 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
-- L1381 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
-- L1388 `TransportMixin` `[class]`
-  - L1389 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
-  - L1407 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
-  - L1431 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
-  - L1442 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
-  - L1459 `TransportMixin._start_daily_byte_accumulator` `[private]`
-  - L1468 `TransportMixin._finish_daily_byte_accumulator` `[private]`
-  - L1477 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
-  - L1506 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
-  - L1526 `TransportMixin._flush_after_interrupted_write` `[private]`
-  - L1534 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
-  - L1588 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
-  - L1699 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
-  - L1867 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
-  - L2070 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
-  - L2103 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
-  - L2126 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
-  - L2149 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
-  - L2183 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
-  - L2262 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
-  - L2317 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
-  - L2342 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
-  - L2351 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
-  - L2373 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
-  - L2424 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
-  - L2453 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
-  - L2596 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
-  - L2647 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
-  - L2703 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
-  - L2718 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
-  - L2782 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
-  - L2799 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
-  - L2825 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
-  - L2863 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
-  - L2922 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
-  - L2937 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
-  - L2963 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
-  - L2975 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
-  - L4207 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
-  - L4282 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
-  - L4330 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
-  - L4936 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
-  - L4986 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
-  - L5395 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
-  - L5428 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
-  - L5452 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
-  - L5477 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
-  - L5503 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
-  - L5523 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
-  - L5547 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
-  - L5572 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
-  - L5589 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
-  - L5606 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
-- L5621 `_ManifestConsumers` `[private]`
-  - L5622 `_ManifestConsumers.__init__` `[dunder]`
-  - L5625 `_ManifestConsumers.join`
-- L5632 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
-- L5680 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
-  - L5690 `HTTP3Transport.__init__` `[dunder]`
-  - L5698 `HTTP3Transport.allocate_stream_id`
-  - L5703 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
-- L5726 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
-- L5739 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
+- L0081 `_finite_config_float` `[private]` — Coerce a config-sourced value to a FINITE float, falling back to
+- L0105 `RegionalGatewayRouter` `[class]` — Choose configured regional egress and quarantine failed gateways.
+  - L0114 `RegionalGatewayRouter.__init__` `[dunder]`
+  - L0129 `RegionalGatewayRouter._gateways_for` `[private]`
+  - L0135 `RegionalGatewayRouter._quarantined` `[private]`
+  - L0144 `RegionalGatewayRouter._quarantine` `[private]`
+  - L0152 `RegionalGatewayRouter._recovered` `[private]`
+  - L0157 `RegionalGatewayRouter.has_route`
+  - L0160 `RegionalGatewayRouter.resolve` — Return the next healthy configured gateway, or ``None``.
+  - L0176 `RegionalGatewayRouter.route_request` — Run ``send(gateway)`` and retry only connection-level failures.
+- L0204 `_regional_connection_errors` `[private]` — Transport errors that mean retrying the exact request is safe.
+- L0243 `_is_bare_media_leaf` `[private]` — True when ``name`` (with or without an extension) is only a token.
+- L0253 `_scene_url_stem` `[private]` — The scene URL's last path segment that is not itself a bare token.
+- L0271 `resolve_media_leaf_name` — The destination name, with a bare format/tier leaf replaced.
+- L0312 `_is_click_only_download_grant` `[private]` — Whether the browser event, rather than a static URL, issued the grant.
+- L0320 `_sized_href_download` `[private]` — A ``_DirectURLDownload`` for a sized winner whose click fired nothing.
+- L0360 `_DirectURLDownload` `[private]` — Stand-in for a Playwright ``Download`` when the URL is already known.
+  - L0363 `_DirectURLDownload.__init__` `[dunder]`
+  - L0367 `_DirectURLDownload.cancel`
+- L0398 `_resolve_popup_grant` `[private]` — The ``window.open`` argument as the browser would have resolved it.
+- L0431 `_arm_popup_grant_capture` `[private]` — Take a ``window.open`` URL unconsumed. Returns ``(read, disarm)``.
+- L0463 `_is_player_source_element` `[private]` — fx-xnxx-preview: True when a learned element is a media player's own
+- L0480 `_refetch_player_config` `[private]` — fx-pornhoarder-hoster-embed: the configuring frame's page fetched again by
+- L0512 `_frame_player_config_override` `[private]` — fx-pornhoarder-hoster-embed: ``(url, user_agent)`` when a learned
+- L0549 `_is_login_wall_href` `[private]` — True when a download candidate's href is the site's login page
+- L0565 `_closeable_response_context` `[private]` — Turn a closeable HTTP response into a context manager.
+- L0577 `_identity_requires_refusal` `[private]` — Whether this existing path's attribution cannot self-heal.
+- L0592 `_media_owned_by_another_job` `[private]` — dl95-wowgirls-1: the page URL of ANOTHER job of this run that already
+- L0625 `_history_pages_naming` `[private]` — Page urls of this site's download history that carry an id token the
+- L0651 `_media_for_log` `[private]` — Scheme, host and path only: a signed query is a credential.
+- L0670 `_content_range_complete_length` `[private]` — Complete length N from a 416's ``Content-Range: bytes */N``, else None.
+- L0704 `_is_transient_download_error` `[private]` — Whether `exc` (an `_HTTPDownloadFailed`, wrapping the original
+- L0721 `_ParallelDailyByteAccounting` `[private]` — Shared accumulator plus exact worker-lifecycle ownership.
+  - L0724 `_ParallelDailyByteAccounting.__init__` `[dunder]`
+  - L0730 `_ParallelDailyByteAccounting.add`
+  - L0734 `_ParallelDailyByteAccounting.flush`
+  - L0738 `_ParallelDailyByteAccounting.worker_finished`
+- L0825 `_reveal_trigger_for` `[private]` — `loc` when it is a visible bare Download button/role=button with no
+- L0871 `_reveal_scope_id` `[private]` — GEN 3 (lens B16-B F4): the id of the hidden element a fragment
+- L0883 `_inside_element_id` `[private]` — Whether `loc` sits inside the element with id `element_id`.
+- L0893 `_visible_anchor_keys` `[private]` — (href, text) of every visible anchor (or, G9b, of every visible
+- L0907 `_collect_download_options` `[private]` — Candidate option dicts from visible anchors (shared by the dropdown
+- L0951 `_dropdown_visible` `[private]`
+- L0958 `_dropdown_menu_has_links` `[private]`
+- L0965 `_dropdown_toggle_for` `[private]` — The toggle that opens the menu `loc` belongs to, or None.
+- L1024 `_same_element` `[private]` — Whether two locators resolve to one DOM node (the toggle is never one
+- L1035 `_open_dropdown_download_options` `[private]` — Open the dropdown behind a score-0 winner and choose a menu item.
+- L1115 `_open_reveal_download_options` `[private]` — G20: click a bare Download button and pick among the anchors that
+- L1267 `_unguard_reveal` `[private]`
+- L1288 `_reveal_trigger_is_the_download` `[private]` — GEN 4/5: the pre-click navigated a frame or popup (aborted, never
+- L1309 `_pick_download_option` `[private]` — Choose by quality preference; video items before image/zip items.
+- L1346 `_staged_direct_download` `[private]` — dl95-cumlouder-1: stage a direct download under a claimed ``.part``.
+- L1382 `_progress_rate` `[private]` — Bytes/s over the current ~1 Hz progress window. Both transfer loops start
+- L1389 `TransportMixin` `[class]`
+  - L1390 `TransportMixin._regional_gateway_router` `[private]` — Return this runner's regional policy router, if configured.
+  - L1408 `TransportMixin._register_daily_byte_accumulator` `[private]` — Expose an active transfer's pending accounting to pause/stop.
+  - L1432 `TransportMixin._unregister_daily_byte_accumulator` `[private]`
+  - L1443 `TransportMixin._flush_daily_byte_accumulators` `[private]` — Synchronously persist pending bytes for every active transfer.
+  - L1460 `TransportMixin._start_daily_byte_accumulator` `[private]`
+  - L1469 `TransportMixin._finish_daily_byte_accumulator` `[private]`
+  - L1478 `TransportMixin._browser_download_stopped` `[private]` — dl95-porndig-3 (filthykings-1 split): Playwright's save_as blocks
+  - L1507 `TransportMixin._transfer_gate_open` `[private]` — Wait through pause and flush either side of an interrupt race.
+  - L1527 `TransportMixin._flush_after_interrupted_write` `[private]`
+  - L1535 `TransportMixin._download_proxy_url` `[private]` — Effective proxy URL for this site's in-process payload downloads.
+  - L1589 `TransportMixin._hls_download_guarded` `[private]` — Resolve egress fail-closed, then run the segmented transfer.
+  - L1700 `TransportMixin._do_direct_http_download` `[private]` — Simple httpx GET → file. Used by library extractor for non-HLS
+  - L1868 `TransportMixin._try_multi_conn_download` `[private]` — v3.43.74: probe the URL and, if viable, run a parallel
+  - L2071 `TransportMixin._looks_like_media` `[private]` — BP-VH1: True if the response is plausibly downloadable MEDIA, by
+  - L2104 `TransportMixin._is_streaming_manifest` `[private]` — Is this response a STREAM INDEX rather than a saveable file?
+  - L2127 `TransportMixin._winner_href_routes` `[private]` — True when the winner's own URL is a media file or a manifest.
+  - L2150 `TransportMixin._winner_url_value` `[private]` — The winner's URL-bearing attribute VALUE, or "".
+  - L2184 `TransportMixin._direct_media_route` `[private]` — (media_url, destination_name) if `href` IS the file, else (None, None).
+  - L2193 `TransportMixin._stream_route` `[private]` — (manifest_url, destination_name) if `href` is a stream, else (None, None).
+  - L2202 `TransportMixin._probe_outcome` `[private]` — BP-VH1: map a probe result to one of done | streaming | non_media | fail.
+  - L2227 `TransportMixin._integrity_size_ok` `[private]` — BP-INT (v3.66.284): True if the received byte count satisfies the
+  - L2236 `TransportMixin._header_dedup_bytes` `[private]` — Prefix length the header-stage dedup samples; 0 = gate off
+  - L2258 `TransportMixin._header_dedup_gate` `[private]` — Sample the staged prefix; on a perceptual match drop the staging
+  - L2309 `TransportMixin._promote_or_abort` `[private]` — BP-INT (v3.66.284): atomically promote the ``.part`` to its final
+  - L2338 `TransportMixin._do_probe_fetch` `[private]` — GCW probe mode (v3.66.274): the trigger has fired and ``dl.url`` is
+  - L2481 `TransportMixin._download_from_next_tier` `[private]` — dl95-teenmegaworld-1: the winning tier was clicked and fired no
+  - L2532 `TransportMixin._download_from_revealed_modal` `[private]` — Re-scrape after a score-0 click and take the quality label it revealed.
+  - L2588 `TransportMixin._clear_late_gates` `[private]` — dl95-porndoe-1-live-2: interstitial.clear_gates for a layer that
+  - L2603 `TransportMixin._fallback_to_page_media` `[private]` — dl95-pussyspace-1: the DOM winner was a dud -- rejected as a nav
+  - L2667 `TransportMixin._is_page_body` `[private]` — fx-txxx-premium-page-fallback: True when the saved bytes open as a
+  - L2684 `TransportMixin._direct_page_body_refused` `[private]` — fx-txxx-premium-page-fallback E2 (lens C2-C): True when a finished
+  - L2710 `TransportMixin._html_answer_rejects` `[private]` — fx-txxx-premium-page-fallback: True when the saved file is an HTML
+  - L2748 `TransportMixin._below_min_resolution_by_file` `[private]` — dl95-xnxx-1: the pre-click min_resolution gate (runner "Min-resolution
+  - L2807 `TransportMixin._taller_manifest_seen` `[private]` — fx-xnxx-hls-720-to-sd r3: True when the manifest watcher saw an adaptive
+  - L2822 `TransportMixin._file_below_own_media` `[private]` — fx-xnxx-hls-720-to-sd: see ``_below_min_resolution_by_file``. Only the
+  - L2848 `TransportMixin._browser_save_stopped` `[private]` — dl95-filthykings-1: site Stop sets the stop event; Cancel (app_queue)
+  - L2860 `TransportMixin._do_download` `[private]` — Click the download button and save the file. Tries the HTTP path
+  - L4092 `TransportMixin._http_download` `[private]` — Run one HTTP transfer inside the RAM staging ownership scope.
+  - L4167 `TransportMixin._run_http_attempts_with_resume` `[private]` — Row 903: run the mirror-attempt loop, retrying a TRANSIENT
+  - L4215 `TransportMixin._http_download_claimed` `[private]` — Stream the file URL to disk via httpx, with progress updates,
+  - L4821 `TransportMixin._probe_size` `[private]` — HEAD request to learn Content-Length + Accept-Ranges. Returns
+  - L4871 `TransportMixin._http_download_parallel` `[private]` — Download `total` bytes via N parallel HTTP Range requests.
+  - L5280 `TransportMixin._current_cap_mbps` `[private]` — Return the current effective speed cap in MB/s.
+  - L5313 `TransportMixin._recommended_chunk_bytes` `[private]` — Return a chunk size in bytes, tuned to recent observed throughput.
+  - L5337 `TransportMixin._observe_throughput` `[private]` — Update the EWMA throughput tracker after a download. Called
+  - L5362 `TransportMixin._dual_stream_fetch_concurrent` `[private]` — Run ``video_fetch()`` and ``audio_fetch()`` on two threads at the
+  - L5388 `TransportMixin._mux_streams_lossless` `[private]` — Multiplex separately-retrieved video/audio elementary streams
+  - L5408 `TransportMixin._probe_stream_duration_ms` `[private]` — ffprobe the duration of one stream (``"v:0"`` / ``"a:0"``) in
+  - L5432 `TransportMixin._probe_video_height` `[private]` — ffprobe the pixel height of the primary video stream (``"v:0"``).
+  - L5457 `TransportMixin._verify_av_sync` `[private]` — Verify a muxed container's video and audio tracks are in sync:
+  - L5474 `TransportMixin.dual_stream_mux` — Top-level pipeline: concurrently retrieve two separately-fetched
+  - L5491 `TransportMixin._run_transport_consumers` `[private]` — Transport-worker entry point for the discovery queue (row 928):
+- L5506 `_ManifestConsumers` `[private]`
+  - L5507 `_ManifestConsumers.__init__` `[dunder]`
+  - L5510 `_ManifestConsumers.join`
+- L5517 `consume_manifest_queue` — Consumer side of row 928: ``workers`` threads pull manifests from
+- L5565 `HTTP3Transport` `[class]` — HTTP/3 (QUIC) transport engine with instant TCP fallback (Row 853).
+  - L5575 `HTTP3Transport.__init__` `[dunder]`
+  - L5583 `HTTP3Transport.allocate_stream_id`
+  - L5588 `HTTP3Transport.request` — Open a request, negotiating HTTP/3 when enabled, with instant TCP fallback.
+- L5611 `_request_download_stream` `[private]` — Open a download stream, negotiating HTTP/3 when enabled with instant TCP fallback.
+- L5624 `_extract_scoped_cookies` `[private]` — Extract cookies scoped to file_url; fallback safely for mocks or closed contexts.
 ```
 
 
