@@ -4,7 +4,8 @@ Covers the acceptance points:
   (1) Cosine distance indexing (HNSW with vector_cosine_ops) and combined full-text
       (tsvector/tsquery/ts_rank) + vector proximity query in a single SQL statement.
   (2) Native SQL query execution under 10ms.
-  (3) Zero external egress (local PostgreSQL 127.0.0.1:5432 only).
+  (3) Zero external egress: loopback, or the host of the operator-declared DSN
+      (PGVECTOR_DSN / MOD3_PG_DSN -- the band declares its fresh per-run PG this way).
   (4) 0 site logins touched (Fleet Rule 21).
 
 Target: PostgreSQL 16 on 127.0.0.1:5432 with pgvector extension.
@@ -96,6 +97,45 @@ def _candidate_dsns() -> list[str]:
     return env if env else [_DEFAULT_DSN, _FALLBACK_DSN]
 
 
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def _dsn_host(dsn: str) -> str | None:
+    """Host named by a libpq DSN, URI (postgresql://u:p@host:port/db) or key=value (host=...)."""
+    from urllib.parse import urlsplit
+
+    if "://" in dsn:
+        return urlsplit(dsn).hostname
+    m = re.search(r"(?:^|\s)host\s*=\s*'?([^'\s]+)", dsn)
+    return m.group(1) if m else None
+
+
+def _is_internal_address(host: str) -> bool:
+    """True only for a LITERAL private IP (RFC 1918 / ULA). A name is never internal here: resolving it
+    to find out would itself be the egress being tested. Link-local (169.254/16 holds the cloud
+    metadata endpoint), unspecified (0.0.0.0, ::), multicast and reserved are not internal either."""
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private and not (ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip.is_reserved)
+
+
+def _egress_allowed_hosts() -> tuple[str, ...]:
+    """Loopback plus each operator-DECLARED DSN host that is an INTERNAL address, and nothing else.
+
+    sg-pg-band-host (stale gate 2026-10-03): the band provisions a fresh PG on 10.0.70.83 and
+    declares it as PGVECTOR_DSN (sg-band-pg-env R3); db_search_dsn() and _candidate_dsns() both
+    treat that variable as authoritative, so the declared band host is not egress. Declaring a
+    public address or any hostname does NOT make it admissible (r2, lens D5 BOUNCE): 8.8.8.8 stays
+    egress even when it is the declared DSN (see TestEgressHostPredicate)."""
+    declared = [(os.environ.get(k) or "").strip() for k in ("PGVECTOR_DSN", "MOD3_PG_DSN")]
+    hosts = (_dsn_host(d) for d in declared if d)
+    return _LOOPBACK + tuple(h for h in hosts if h and _is_internal_address(h))
+
+
 def _probe_pgvector_dsn() -> str | None:
     """Independent psycopg probe: first DSN that connects AND can provide pgvector, else None."""
     try:
@@ -176,10 +216,10 @@ class TestZeroExternalEgress:
     """Zero external egress and zero site login safety guarantees."""
 
     def test_zero_external_egress(self, pg_conn):
-        assert pg_conn is not None, "PostgreSQL connection on 127.0.0.1:5432 must be live"
+        assert pg_conn is not None, "PostgreSQL connection (loopback or the declared internal DSN) must be live"
         # Verify host address is strictly loopback
         host = getattr(pg_conn.info, "host", None) or getattr(pg_conn.pgconn, "host", None)
-        assert host in ("127.0.0.1", "localhost", "::1", None), f"External egress prohibited: {host}"
+        assert host in _egress_allowed_hosts() + (None,), f"External egress prohibited: {host}"
 
     def test_zero_site_logins_touched(self):
         # Fleet Rule 21 invariant: local pgvector search never touches site logins or
@@ -660,6 +700,43 @@ class TestControlledCorpusHybridSemantics:
         assert after[tsv_idx] > before[tsv_idx], f"GIN index not scanned (text CTE filter missing?): {before} -> {after}"
 
 
+class TestEgressHostPredicate:
+    """The egress allow-list stays meaningful: only loopback and a DECLARED INTERNAL DSN host pass."""
+
+    def test_undeclared_external_host_is_egress(self, monkeypatch):
+        monkeypatch.delenv("PGVECTOR_DSN", raising=False)
+        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        assert _egress_allowed_hosts() == _LOOPBACK
+        assert "10.0.70.83" not in _egress_allowed_hosts()
+
+    def test_declared_band_host_passes_and_any_other_host_still_fails(self, monkeypatch):
+        monkeypatch.setenv("PGVECTOR_DSN", "postgresql://postgres:pw@10.0.70.83:32803/bd_band_x")
+        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        allowed = _egress_allowed_hosts()
+        assert "10.0.70.83" in allowed
+        for other in ("8.8.8.8", "10.0.70.84", "example.com", "0.0.0.0"):
+            assert other not in allowed, other
+
+    def test_key_value_dsn_host_is_read(self, monkeypatch):
+        monkeypatch.delenv("PGVECTOR_DSN", raising=False)
+        monkeypatch.setenv("MOD3_PG_DSN", "dbname=x host=10.0.70.83 port=5432")
+        assert _egress_allowed_hosts() == _LOOPBACK + ("10.0.70.83",)
+
+    @pytest.mark.parametrize("dsn", [
+        "postgresql://u:p@8.8.8.8:5432/db",            # the spec's control: a public address, DECLARED
+        "postgresql://u:p@db.example.com/db",          # any name: resolving it would be the egress
+        "postgresql://u:p@10.0.70.83.nip.io/db",       # a name that merely spells the band address
+        "postgresql://u:p@169.254.169.254/db",         # link-local: the cloud metadata endpoint
+        "postgresql://u:p@0.0.0.0/db",                 # unspecified
+        "postgresql://u:p@[2001:4860:4860::8888]/db",  # public IPv6
+        "dbname=x host=8.8.4.4",                       # key=value form, public
+    ])
+    def test_declared_external_host_is_still_egress(self, monkeypatch, dsn):
+        monkeypatch.setenv("PGVECTOR_DSN", dsn)
+        monkeypatch.delenv("MOD3_PG_DSN", raising=False)
+        assert _egress_allowed_hosts() == _LOOPBACK, (dsn, _egress_allowed_hosts())
+
+
 class TestLiveConnectEntryPoint:
     """The module's own connect() (runtime entry point) against the independently-probed cluster."""
 
@@ -670,7 +747,7 @@ class TestLiveConnectEntryPoint:
         assert conn is not None, "db_search.connect() must return a live connection when Postgres is up"
         try:
             host = getattr(conn.info, "host", None)
-            assert host in ("127.0.0.1", "localhost", "::1"), f"External egress prohibited: {host}"
+            assert host in _egress_allowed_hosts(), f"External egress prohibited: {host}"
             with conn.cursor() as cur:
                 cur.execute("SELECT 1")
                 assert cur.fetchone() == (1,)

@@ -240,8 +240,29 @@ def test_an_unscoped_delete_in_one_schema_cannot_reach_another(tmp_path):
     import mod3_pg_isolation as iso
 
     base = _dsn()
-    a = iso.schema_for("test_v3_66_801_mod3_shadow_read.py")
-    b = iso.schema_for("test_v3_66_804_mod3_cutover.py")
+    # SYNTHETIC module names (sg-pg-band-host, stale gate 2026-10-03). This probe used to plant its
+    # keyless `history(site_id, url, status)` in the REAL 801/804 schemas and leave it behind; 801/804
+    # running later against the same database then hit `CREATE TABLE IF NOT EXISTS` as a no-op and
+    # every id-aligned mirror INSERT died on `column "id" does not exist` (UndefinedColumn). The real
+    # names must still map to distinct schemas -- that is pure and checked here without touching them.
+    assert iso.schema_for("test_v3_66_801_mod3_shadow_read.py") != \
+        iso.schema_for("test_v3_66_804_mod3_cutover.py")
+    a = iso.schema_for("test_v3_66_1011_isolation_probe_a.py")
+    b = iso.schema_for("test_v3_66_1011_isolation_probe_b.py")
+    # ...and the probe's schemas are NOBODY's real schema: they are dropped below, and dropping a
+    # real module's schema would wipe it under that module when the lane runs them concurrently.
+    real = {iso.schema_for(m) for m in _REAL_PG_MODULES}
+    assert not {a, b} & real, "the isolation probe must never create or drop a real module's schema"
+    try:
+        _cross_module_delete_probe(psycopg, iso, base, a, b)
+    finally:
+        with psycopg.connect(base) as c:
+            for schema in (a, b):
+                c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+            c.commit()
+
+
+def _cross_module_delete_probe(psycopg, iso, base, a, b):
     iso.ensure_schema(base, a)
     iso.ensure_schema(base, b)
 
