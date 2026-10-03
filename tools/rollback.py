@@ -249,6 +249,12 @@ def cmd_rollback(archive_dir: Path, version: str,
                       file=sys.stderr)
                 return 2
 
+            # Plan every target first and refuse the whole zip if any
+            # member would land outside app_dir (Zip Slip: "..",
+            # absolute names, drive letters, symlinks out of the tree),
+            # so a hostile zip writes nothing at all (O1671 a18).
+            app_root = app_dir.resolve()
+            plan = []
             for member in zf.infolist():
                 if member.is_dir():
                     continue
@@ -260,7 +266,17 @@ def cmd_rollback(archive_dir: Path, version: str,
                         # dir root.
                         continue
                     target_rel = target_rel[len(strip_prefix):]
-                target = app_dir / target_rel
+                target = (app_dir / target_rel).resolve()
+                if (target_rel.startswith("/")
+                        or re.match(r"^[A-Za-z]:", target_rel)
+                        or ".." in target_rel.split("/")
+                        or app_root not in target.parents):
+                    print(f"FAIL: unsafe zip member {member.filename!r} "
+                          f"resolves outside {app_root}; refusing to "
+                          f"extract (nothing written).", file=sys.stderr)
+                    return 2
+                plan.append((member, target))
+            for member, target in plan:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src, target.open("wb") as dst:
                     shutil.copyfileobj(src, dst)
