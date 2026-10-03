@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1771 - train207: row
+
+T207 = two O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T206:
+- O1713 review captures tz (bd-cx-worker20; lens bd-worker-B3): bulk_review_captures now treats a naive ISO timestamp as UTC, so comparing it with aware timestamps no longer raises TypeError (tools/bulk_review_captures.py, new tests/test_o1713_review_captures_tz.py).
+- O1713 palette site jump (bd-cx-worker22; lens bd-review-correctness-B1): the command palette URL-encodes the selected site ID in the site-detail route, so IDs with reserved characters open the right site (frontend/src/components/CommandPalette.tsx, new CommandPalette.sitejump.test.tsx).
+
+
 ## v3.66.1770 - train206: row
 
 T206 = O1698 stale-gate sg-pg-band-host r2 (test-only), BOARDed at cut time, applied on T205:
