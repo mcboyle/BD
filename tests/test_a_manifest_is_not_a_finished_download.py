@@ -306,42 +306,45 @@ def test_the_streaming_predicate_is_not_a_second_copy_of_the_extension_list():
     is_hls_content_type and is_dash_content_type. Those are the denominator.
     """
     import ast
-    path = ROOT / "bulk_downloader" / "runner_transport.py"
-    src = path.read_text(encoding="utf-8")
-    assert "hls_downloader" in src, (
-        "runner_transport.py answers the manifest question without consulting "
-        "hls_downloader, which owns the extension and content-type tables.")
+    # o1673-t154-edge1: the routing predicates' bodies moved to media_route.py;
+    # both files answer the manifest question, so both are held to this rule.
+    for path in (ROOT / "bulk_downloader" / "runner_transport.py",
+                 ROOT / "bulk_downloader" / "media_route.py"):
+        src = path.read_text(encoding="utf-8")
+        assert "hls_downloader" in src, (
+            f"{path.name} answers the manifest question without consulting "
+            "hls_downloader, which owns the extension and content-type tables.")
 
-    # AST STRING CONSTANTS, not a text search over the file. The first draft of
-    # this assertion searched the raw source for ".m3u8'" and failed on the
-    # PROSE of the comment explaining why the extension list must not be
-    # duplicated -- a gate firing on text that was not its subject, which is
-    # CLAUDE.md section 0's inverse: over-sensitivity is a soundness bug because
-    # a gate that cries wolf gets switched off. `#` comments are not in the AST
-    # at all; docstrings are, so they are excluded explicitly.
-    tree = ast.parse(src)
-    docstrings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
-                             ast.ClassDef)):
-            body = getattr(node, "body", None)
-            if (body and isinstance(body[0], ast.Expr)
-                    and isinstance(body[0].value, ast.Constant)
-                    and isinstance(body[0].value.value, str)):
-                docstrings.add(id(body[0].value))
-    offenders = []
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
-                and id(node) not in docstrings):
-            for ext in (".m3u8", ".mpd", ".m3u"):
-                if ext in node.value:
-                    offenders.append(f"line {node.lineno}: {node.value[:60]!r}")
-    assert not offenders, (
-        "runner_transport.py carries streaming extensions as its own string "
-        "constants -- a second copy of hls_downloader's table:\n  "
-        + "\n  ".join(offenders) +
-        "\nTwo copies of a denominator drift, and the one nobody updates is the "
-        "one that runs.")
+        # AST STRING CONSTANTS, not a text search over the file. The first draft of
+        # this assertion searched the raw source for ".m3u8'" and failed on the
+        # PROSE of the comment explaining why the extension list must not be
+        # duplicated -- a gate firing on text that was not its subject, which is
+        # CLAUDE.md section 0's inverse: over-sensitivity is a soundness bug because
+        # a gate that cries wolf gets switched off. `#` comments are not in the AST
+        # at all; docstrings are, so they are excluded explicitly.
+        tree = ast.parse(src)
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef)):
+                body = getattr(node, "body", None)
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        offenders = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and id(node) not in docstrings):
+                for ext in (".m3u8", ".mpd", ".m3u"):
+                    if ext in node.value:
+                        offenders.append(f"line {node.lineno}: {node.value[:60]!r}")
+        assert not offenders, (
+            f"{path.name} carries streaming extensions as its own string "
+            "constants -- a second copy of hls_downloader's table:\n  "
+            + "\n  ".join(offenders) +
+            "\nTwo copies of a denominator drift, and the one nobody updates is the "
+            "one that runs.")
 
 
 def test_hls_downloader_helpers_resolve():

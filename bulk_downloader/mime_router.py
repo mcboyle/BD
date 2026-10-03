@@ -1,7 +1,7 @@
 """Row 932: route an extensionless HTTP media stream by its response headers.
 
 Video platforms serve media from dynamic API routes with no ``.mp4`` in the
-path, so ``TransportMixin._direct_media_route`` (which judges the URL alone)
+path, so ``media_route.direct_media_route`` (which judges the URL alone)
 returns ``(None, None)`` and the download falls to the click path. The
 response headers are the definitive signal: ``Content-Type: video/*`` or
 ``audio/*``, or ``application/octet-stream`` served with

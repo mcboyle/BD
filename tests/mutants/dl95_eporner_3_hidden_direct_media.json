@@ -30,8 +30,8 @@
   {
    "label": "EP3-M3 the stream route is not asked -- a hidden manifest is zeroed",
    "file": "bulk_downloader/detect.py",
-   "old_regex": "(?<=bool\\(TransportMixin\\.)_stream_route(?=\\(href)",
-   "new": "_direct_media_route",
+   "old_regex": "(?<=bool\\()stream_route(?=\\(href)",
+   "new": "direct_media_route",
    "direction": "regression",
    "catcher": "tests/test_dl95_eporner_3_hidden_direct_media_keeps_its_tier.py::TestHiddenDirectMediaKeepsItsTier::test_a_hidden_stream_manifest_keeps_its_tier"
   },
