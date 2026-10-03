@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1768 - train204b: row
+
+T204 = O1713 autofill fixed scroll (Codex effort experiment small cut), BOARDed at cut time, applied on T203 (restaged without a07):
+- O1713 autofill fixed scroll (bd-cx-worker19; lens bd-review-correctness-C1): the extension autofill popup is fixed-positioned, so it now uses the viewport rect directly (left = r.left, top = r.bottom + 4) instead of adding the page scroll offset. On a scrolled page the popup no longer lands off the field (extension/autofill.js, new tests/test_extension_autofill_scroll.py).
+
+
 ## v3.66.1767 - train203b: row
 
 T203 = O1671 library search r2 (PM YES 01:52Z, lens-router BOARD), applied on T202. (a07 OIDC binding PULLED by PM 05:15Z pending operator ruling.)
