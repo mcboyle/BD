@@ -37,7 +37,7 @@ WRAPPERS = (
         "tests.test_t1_dashboard_wired",
         "test_t1_dashboard_runtime_contract",
         "src/routes/Dashboard.wired.test.tsx",
-        5,
+        7,
     ),
     WrapperCase(
         "tests.test_t9a_live_stream_wired",
@@ -96,7 +96,7 @@ def _isolate_non_delegate_work(monkeypatch, module) -> None:
 def test_row_281_wrapper_population_is_exact_nonzero_and_present():
     assert len(WRAPPERS) == 5, "row 281 must judge exactly five UI wrappers"
     assert len({case.module for case in WRAPPERS}) == len(WRAPPERS)
-    assert sum(case.expected_tests for case in WRAPPERS) == 26
+    assert sum(case.expected_tests for case in WRAPPERS) == 28
     for case in WRAPPERS:
         rel = Path(*case.module.split(".")).with_suffix(".py")
         assert (ROOT / rel).is_file(), f"row 281 wrapper is unavailable: {rel}"

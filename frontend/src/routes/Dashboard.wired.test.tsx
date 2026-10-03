@@ -173,4 +173,25 @@ describe("T1 dashboard runtime wiring", () => {
     await userEvent.click(screen.getByText("System Overview"));
     expect(screen.getByText("/dashboard")).toBeInTheDocument();
   });
+
+  it("renders role=alert node with retry when /api/dashboard fails (F061)", async () => {
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === "/api/dashboard") {
+        throw new Error("HTTP 500: Server error");
+      }
+      return FIXTURES[path as keyof typeof FIXTURES] ?? {};
+    });
+    renderWired(<Dashboard />, "/dashboard");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBeInTheDocument();
+    expect(alert).toHaveTextContent(/couldn’t load dashboard/i);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("does not render role=alert node when dashboard API succeeds (positive control)", async () => {
+    renderWired(<Dashboard />, "/dashboard");
+    await screen.findByRole("heading", { name: "System Overview" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
