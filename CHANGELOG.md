@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1780 - train216e: row
+
+T216 = O1671 a18 rollback Zip Slip (product, AUDIT-18 HIGH), BOARDed at cut time, applied on T215:
+- o1671-a18-rollback-zip-slip (bd-worker-D1; lens bd-review-correctness-C1): tools/rollback.py now checks that every member of a rollback zip resolves inside app_dir, including through in-tree symlinks, before extracting anything. A zip containing a traversal member is refused as a whole instead of writing outside app_dir (new tests/test_o1671_a18_rollback_zip_slip.py). Lens: Zip Slip FOUND NONE on the candidate; BASE writes outside (positive control).
+  LOW (lens, none block): L1 a file-then-same-name-directory conflict still fails mid-extract (not an escape); L2 the refusal comes after the service stop + __init__ backup, so a hostile zip leaves the service stopped; L3 an app_dir with an in-tree symlink to outside is now refused (intended).
+
+
 ## v3.66.1779 - train215e: row
 
 T215 = O1698 a07 OIDC account binding with rebind (product, HIGH SEC; operator ruling O1720 item 5), BOARDed at cut time, applied on T214:
