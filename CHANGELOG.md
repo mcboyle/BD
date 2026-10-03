@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1783 - train219e: row
+
+T219 = O1698 row300 X-state cleanup (test-only, canary seat A20), BOARDed at cut time, applied on T218:
+- o1698-row300-x-state (A20; lens bd-cx-review-correctness9): the parallel-display cleanup test's guard and assertion now accept a terminated owned display process in state X (dead) alongside Z (zombie), so a cleanup that already reaped the process is not flagged as failing (tests/test_row300_parallel_display_cleanup_owns_process.py).
+
+
 ## v3.66.1782 - train218e: row
 
 T218 = two product cuts BOARDed at cut time, applied on T217:
