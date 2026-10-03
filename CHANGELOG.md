@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1779 - train215e: row
+
+T215 = O1698 a07 OIDC account binding with rebind (product, HIGH SEC; operator ruling O1720 item 5), BOARDed at cut time, applied on T214:
+- o1698-a07-oidc-rebind (bd-worker-A3; lens bd-review-correctness-A2): an OIDC login binds the local account to the IdP issuer + subject. Later logins must match both, so another issuer, a different subject, an issuer with a path suffix, a trailing-space, homoglyph or email-form name, or a missing sub is refused and the user store is left untouched. An existing unbound account (admins included, per O1720 item 5) is bound on its first successful login against the pinned issuer and logged as OIDC_ACCOUNT_REBOUND (WARN; sub logged as sha256). Pre-fix OIDC users are not locked out. The bind is locked: two simultaneous first logins bind exactly once (was: last writer wins) (bulk_downloader/oidc.py, bulk_downloader/user_accounts.py, new tests/test_o1698_a07_oidc_rebind.py; test doubles in tests/test_v3_66_681_oidc.py and tests/test_o1698_oidc_username_exact.py, no assertion changed).
+  LOW (PM call): a partial legacy record {iss: old} with no sub and a different issuer is rebound.
+
+
 ## v3.66.1778 - train214e: row
 
 T214 = O1698 fleet-watch liveness r3 (test half; harness script installed separately), BOARDed by PM adjudication, applied on T213:
