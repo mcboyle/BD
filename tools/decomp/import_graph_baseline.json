@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5748,
+  "edge_count": 5750,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4758,6 +4758,10 @@
     ],
     "tests/test_o1662_keepalive_launch_failure_is_named.py": [
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_o1671_a16_shell_close_reaps.py": [
+      "tools/cockpit_console.py",
+      "tools/cockpit_shell.py"
     ],
     "tests/test_o1671_a16_shell_origin_guard.py": [
       "bulk_downloader/app.py",

@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1784 - train220e: row
+
+T220 = O1671 a16 r3 shell-close-reap (product), BOARDed at cut time, applied on T219:
+- o1671-a16-shell-close-reap r3 (bd-cx-worker1 r1+r2, bd-worker-A2 r3; lens bd-review-correctness-C1 r3): cockpit shell_close now reaps the killed child (SIGKILL, close fd under the session lock, waitpid WNOHANG loop up to 1 s, ShellError if not reaped) so closed shells no longer leave zombies; shell_input and shell_signal write through a dup'd fd outside the session lock, so a blocking write no longer stalls poll/close (tools/cockpit_shell.py, new tests/test_o1671_a16_shell_close_reaps.py).
+
+
 ## v3.66.1783 - train219e: row
 
 T219 = O1698 row300 X-state cleanup (test-only, canary seat A20), BOARDed at cut time, applied on T218:
