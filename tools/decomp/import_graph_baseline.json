@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5732,
+  "edge_count": 5736,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1144,8 +1144,8 @@
       "bulk_downloader/constants.py",
       "bulk_downloader/dom_honeypot.py",
       "bulk_downloader/global_config.py",
+      "bulk_downloader/media_route.py",
       "bulk_downloader/plugins.py",
-      "bulk_downloader/runner_transport.py",
       "bulk_downloader/runner_util.py",
       "bulk_downloader/web_dialog.py"
     ],
@@ -1633,6 +1633,9 @@
     "bulk_downloader/mass_import.py": [
       "bulk_downloader/db.py"
     ],
+    "bulk_downloader/media_route.py": [
+      "bulk_downloader/hls_downloader.py"
+    ],
     "bulk_downloader/media_server_sync.py": [
       "bulk_downloader/hooks.py"
     ],
@@ -2093,6 +2096,7 @@
       "bulk_downloader/hooks.py",
       "bulk_downloader/interstitial.py",
       "bulk_downloader/jellyfin_deep.py",
+      "bulk_downloader/media_route.py",
       "bulk_downloader/multi_conn.py",
       "bulk_downloader/multi_homed_egress.py",
       "bulk_downloader/photo_sets.py",
@@ -4766,6 +4770,10 @@
     ],
     "tests/test_o1671_r8c_ytdlp_format_parse.py": [
       "bulk_downloader/ytdlp_extractor.py"
+    ],
+    "tests/test_o1673_t154_edge1_detect_core_route.py": [
+      "bulk_downloader/media_route.py",
+      "bulk_downloader/runner_transport.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"

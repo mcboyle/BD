@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1762 - train198: row
+
+T198 = O1673 t154-edge1 r2 (pulled from T194 #1107 for the test_row703 line pins), BOARDed at cut time, applied on main after T197:
+- O1673 t154-edge1 r2 (bd-worker-D3; lens bd-review-correctness-A2; answers the T194 pull): t154 option b -- the stream/direct-media route bodies move verbatim from runner_transport into a new core module bulk_downloader/media_route.py (stream_route/direct_media_route) so detect/mime_router stop importing runner_transport (detect.py, media_route.py, mime_router.py, runner_transport.py, 2 manifest tests retargeted, mutants json, tests/test_row703 declared **kwargs lines -115, tests/test_o1673_t154_edge1_detect_core_route.py).
+
+
 ## v3.66.1761 - train197: row
 
 T197 = O1671 A16 shell origin guard r2 (parked O1671 cut, PM YES 01:52Z), BOARDed at cut time, applied on main after T196:
