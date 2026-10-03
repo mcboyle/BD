@@ -31,13 +31,15 @@
    "log_network",
    "login_trigger",
    "crawler_listing_url",
-   "crawler_newest_n"
+   "crawler_newest_n",
+   "crawler_scene_patterns"
   ],
   "path": "/api/sites",
   "sample": {
    "cookie_file": "x",
    "crawler_listing_url": "x",
    "crawler_newest_n": 1,
+   "crawler_scene_patterns": "x",
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
@@ -87,13 +89,15 @@
    "log_network",
    "login_trigger",
    "crawler_listing_url",
-   "crawler_newest_n"
+   "crawler_newest_n",
+   "crawler_scene_patterns"
   ],
   "path": "/api/sites/validate",
   "sample": {
    "cookie_file": "x",
    "crawler_listing_url": "x",
    "crawler_newest_n": 1,
+   "crawler_scene_patterns": "x",
    "download_dir": "x",
    "filename_template": "x",
    "log_network": false,
@@ -330,6 +334,14 @@
    "url": "x"
   },
   "unknownType": false
+ },
+ {
+  "file": "src/components/ManualLoginPending.tsx",
+  "fn": "apiPost",
+  "keys": [],
+  "path": "/api/sites/${}/login_manual_${}",
+  "sample": null,
+  "unknownType": true
  },
  {
   "file": "src/components/ProfileCard.tsx",
@@ -3211,6 +3223,7 @@
    "capture_bodies",
    "capture_wait_until",
    "dom_honeypot_filter",
+   "photo_sets",
    "redact_dom_urls",
    "capture_raw",
    "slow_query_log",
@@ -3353,6 +3366,7 @@
    "path_allowlist": [
     "x"
    ],
+   "photo_sets": "x",
    "player_struct_tiebreak": false,
    "queue_hk_abandon": false,
    "queue_hk_gc_age_days": 1,

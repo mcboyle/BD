@@ -136,7 +136,13 @@ def _secrets_store_state_is_test_owned(monkeypatch):
 # exactly this endpoint. Raising it by 1 with that attribution is the sanctioned
 # response; seeding a dead-letter fixture whose url matches the probe's generated
 # body would touch the probe's value-filling internals and is out of scope here.
-UNKNOWN_BASELINE = 137  # stalegate-body-contract-regen: +1, NAMED below
+UNKNOWN_BASELINE = 138  # sg-body-contract-regen (O1682): +1, NAMED below
+# sg-body-contract-regen (O1682, main 0c936426): +1, NAMED -- ManualLoginPending.tsx
+# apiPost /api/sites/${}/login_manual_${} (row1063, 6d799c02): the action segment is
+# a template variable (done|cancel), so the probe cannot resolve one Flask rule and
+# UNKNOWN is the honest verdict. Identified by diffing the UNKNOWN sets keyed by
+# (file, fn, path) on the base artifact (137) and the regenerated one (138):
+# exactly this identity added, none removed.
 # stalegate-body-contract-regen (O1529.1, main 41a70358): +1, NAMED -- /api/provenance/reconcile
 # (ProvenanceLedgerPanel.tsx apiPost {digest}), one of the two call sites the stale
 # BODY_CONTRACT_CALLS.json was missing. The probe fills digest with None and the route
