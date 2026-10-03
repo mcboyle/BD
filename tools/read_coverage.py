@@ -51,9 +51,8 @@ def _cited_lines(audit, path):
     lines = set()
     for coll in ("findings", "false_positive_confirmations"):
         for item in audit.get(coll, []):
-            if item.get("file") not in (path, os.path.basename(path)) and coll == "findings":
-                if item.get("file") != path:
-                    continue
+            if item.get("file") not in (path, os.path.basename(path)):
+                continue
             lr = item.get("line_range") or item.get("at") or ""
             for n in re.findall(r"\d+", str(lr)):
                 lines.add(int(n))
