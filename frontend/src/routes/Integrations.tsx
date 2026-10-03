@@ -147,6 +147,15 @@ export function Integrations() {
           toast.error("Run a lookup first — apply uses the lookup result");
           break;
         }
+        // The lookup result belongs to the row it was looked up for; never
+        // write it onto a different history id (o1671-a13).
+        const lookedUpHid = tpdbLookup.variables?.hid;
+        if (lookedUpHid !== pending.hid) {
+          toast.error(
+            `Lookup result is for history row #${lookedUpHid}, not #${pending.hid} — run the lookup again`,
+          );
+          break;
+        }
         tpdbApply.mutate(
           { hid: pending.hid, metadata },
           {
@@ -304,7 +313,11 @@ export function Integrations() {
             className="max-w-[140px]"
             placeholder="history id"
             value={hidStr}
-            onChange={(e) => setHidStr(e.target.value)}
+            onChange={(e) => {
+              setHidStr(e.target.value);
+              // A new id invalidates the previous row's lookup result.
+              tpdbLookup.reset();
+            }}
           />
           <Button
             variant="outline"
