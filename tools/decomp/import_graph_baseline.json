@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5740,
+  "edge_count": 5743,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4774,6 +4774,11 @@
     "tests/test_o1673_t154_edge1_detect_core_route.py": [
       "bulk_downloader/media_route.py",
       "bulk_downloader/runner_transport.py"
+    ],
+    "tests/test_o1698_oidc_username_exact.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/oidc.py",
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_o1713_netns_run_timeout.py": [
       "bulk_downloader/netns_isolation.py"

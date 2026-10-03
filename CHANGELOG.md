@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1774 - train210d: row
+
+T210 = O1698 OIDC username exact r3 (PRIORITY, HIGH), BOARDed at cut time, applied on T209 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
+- o1698-oidc-username-exact r3 (bd-worker-D7; lens bd-review-correctness-D1-D, Rule-17 delta): the OIDC login uses the chosen username claim (preferred_username, else email, else sub) EXACTLY. A claim with surrounding whitespace or a control character raises (sso_error) instead of being stripped, so "admin " can no longer log in as BD user "admin". r3 differs from the lensed r2 only in the test's Flask secret_key, now secrets.token_hex(16) at runtime, so gitleaks no longer flags it (bulk_downloader/oidc.py, new tests/test_o1698_oidc_username_exact.py).
+
+
 ## v3.66.1773 - train209d: row
 
 T209 = O1698 stale-gate sg-w1police load-aware margin (test-infra, MED), BOARDed at cut time, applied on T208 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
