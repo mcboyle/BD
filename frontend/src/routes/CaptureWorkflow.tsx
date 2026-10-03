@@ -360,6 +360,9 @@ export function CaptureWorkflow() {
   // `autoSuggestedRef` ensures the Test-step auto-prefill fires at most once.
   const [suggesting, setSuggesting] = useState(false);
   const autoSuggestedRef = useRef(false);
+  useEffect(() => {
+    autoSuggestedRef.current = false;
+  }, [taskId]);
 
   // Test + AI + promote.
   const [testUrl, setTestUrl] = useState("");
