@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1776 - train212d: row
+
+T212 = O1698 adapter host-placement r5 (test half; harness half installed by PM as CUT 47), BOARDed at cut time, applied on T211:
+- o1698-adapter-host-placement r5 (bd-cx-worker11; lens bd-review-correctness-A1): adds tests/test_o1698_adapter_host_placement.py, an opt-in test (BD_O1698_ADAPTER_HOST_PLACEMENT_CANDIDATE) for the installed dispatch-ops adapter (operations.py cee1bdd4, checks.py ace6128d). Skipped unless the candidate path is given. FUNCTION_INDEX.md and the import-graph baseline are regenerated in this train's release step (CUT 47 OWED-EDGES; no internal imports).
+
+
 ## v3.66.1775 - train211d: row
 
 T211 = O1713 autofill fixed scroll r2 (Codex effort experiment small cut), BOARDed at cut time, applied on T210:
