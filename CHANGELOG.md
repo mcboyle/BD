@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1776 - train212e: row
+
+T212 = O1698 launcher lensrouter role (test half; harness half installed by PM as CUT 43), BOARDed at cut time, applied on T211:
+- o1698-launcher-lensrouter-role r2 (bd-cx-worker25; lens bd-cx-review-correctness9): adds tests/test_o1698_launcher_lensrouter_role.py, an opt-in test (BD_TEST_O1698_LAUNCHER_LENSROUTER_ROLE=1 plus BD_O1698_LAUNCHER_LENSROUTER_ROLE_CANDIDATE) for the installed bd-launch-role.sh lensrouter role (2b85b382). Skipped unless both are given; stdlib imports only.
+
+
 ## v3.66.1775 - train211e: row
 
 T211 = O1698 adapter host-placement r5 (test half; harness half installed by PM as CUT 47), BOARDed at cut time, applied on T210 (restaged on main d37383ca without C2: CI process-tests pull 08:20Z):
