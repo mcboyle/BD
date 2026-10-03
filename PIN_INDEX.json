@@ -683,7 +683,7 @@
       "form": "version",
       "file": "tests/test_settings_center_slice4.py",
       "line": 202,
-      "value": "3.66.1769",
+      "value": "3.66.1770",
       "gates_what": "test_containment_routes_and_version"
     },
     {
@@ -1375,7 +1375,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1267_mod3_health_telemetry.py",
-      "line": 176,
+      "line": 179,
       "value": {
         "strftime": 7
       },
@@ -1384,7 +1384,7 @@
     {
       "form": "count_dict",
       "file": "tests/test_v3_66_1267_mod3_health_telemetry.py",
-      "line": 270,
+      "line": 273,
       "value": {
         "threshold": 20,
         "proven": 2,

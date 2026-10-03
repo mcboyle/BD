@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1770 - train206b: row
+
+T206 = O1698 stale-gate sg-pg-band-host r2 (test-only), BOARDed at cut time, applied on T205 (restaged without a07):
+- sg-pg-band-host r2 (bd-worker-C3; lens bd-review-correctness-B1): the stale-gate band points Postgres at the declared internal host. The zero-egress tests now allow loopback plus the declared PGVECTOR_DSN/MOD3_PG_DSN host, and only when that host is a literal private IP. Public, link-local, CGNAT, mapped-public and multi-host declarations are still refused (tests/test_pgvector_hybrid_search.py, tests/test_v3_66_1011_mod3_pg_isolation.py, tests/test_v3_66_1267_mod3_health_telemetry.py).
+
+
 ## v3.66.1769 - train205b: row
 
 T205 = O1713 work-stealing FIFO (Codex effort experiment small cut), BOARDed at cut time, applied on T204 (restaged without a07):
