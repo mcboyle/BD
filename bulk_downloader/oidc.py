@@ -14,6 +14,7 @@ and URL building work without it; only the live callback needs authlib).
 from __future__ import annotations
 
 import secrets
+import unicodedata
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -140,12 +141,19 @@ def verify_id_token(id_token: str, *, nonce: Optional[str] = None,
 
 def claims_to_username(claims: dict) -> str:
     """Map OIDC claims to a BD username, preferring preferred_username, then
-    email, then the opaque subject."""
+    email, then the opaque subject. The chosen claim is used EXACTLY: one with
+    surrounding whitespace or a control character raises (-> sso_error) instead
+    of being normalised, so "admin " can never log in as BD user "admin" (O1698)."""
     if not isinstance(claims, dict):
         return ""
-    return (claims.get("preferred_username")
-            or claims.get("email")
-            or claims.get("sub") or "").strip()
+    raw = (claims.get("preferred_username")
+           or claims.get("email")
+           or claims.get("sub") or "")
+    if not isinstance(raw, str):
+        raise ValueError("username claim is not a string")
+    if raw != raw.strip() or any(unicodedata.category(ch) == "Cc" for ch in raw):
+        raise ValueError("username claim is not exact (surrounding whitespace or control character)")
+    return raw
 
 
 def provision_user(claims: dict) -> str:
