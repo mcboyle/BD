@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1765 - train201: row
+
+T201 = O1713 phoenix host substring (Codex effort experiment small cut), BOARDed at cut time, applied on T200:
+- O1713 phoenix host substring (bd-cx-worker4; lens bd-worker-D1): the 0.6-confidence fallback in phoenix_catalog host matching now requires a dot-boundary suffix (host.endswith("." + pattern)) instead of any substring. awesome.company.com, notme.com, me.com.evil.test and me.computer.test no longer route to the me.com entry. Exact and eTLD+1 matches are unchanged (bulk_downloader/phoenix_catalog.py, new tests/test_o1713_phoenix_host_substring.py).
+
+
 ## v3.66.1764 - train200: row
 
 T200 = O1713 capture autosuggest reset (Codex effort experiment small cut), BOARDed at cut time, applied on main after T199:
