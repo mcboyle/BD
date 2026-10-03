@@ -623,17 +623,39 @@ async function vaultSetIdleLock(minutes) {
 // ── Message router ───────────────────────────────────────────────────
 // Content script and popup use chrome.runtime.sendMessage to reach us.
 
+// The origin a vault message may act for. The extension's own pages
+// (popup/options act for the active tab) may name the origin in the payload;
+// they are checked FIRST because options_page opens in a tab, so sender.tab
+// is set for it too. A content script's sender.url is never under our
+// chrome-extension:// root. Any other tab speaks only for the page it runs
+// in -- sender.url, never a payload claim. Anyone else: null (refused).
+function vaultSenderOrigin(sender, payload) {
+  if (!sender) return null;
+  const own = sender.id === chrome.runtime.id &&
+    String(sender.url || "").startsWith(chrome.runtime.getURL(""));
+  if (own) return payload.origin || sender.url || "";
+  if (sender.tab) return sender.url || sender.origin || "";
+  return null;
+}
+
+function vaultUntrustedSender() {
+  return Promise.resolve({ ok: false, error: "untrusted sender" });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const action = msg && msg.action;
   const payload = (msg && msg.payload) || {};
   if (!action) { sendResponse({ ok: false, error: "no action" }); return; }
   // sendResponse must be called either sync or after returning true
   let p = null;
+  const vaultOrigin = vaultSenderOrigin(sender, payload);
   switch (action) {
     case "vault_list_for_origin":
-      p = vaultListForOrigin(payload.origin || sender.url || ""); break;
+      p = vaultOrigin === null ? vaultUntrustedSender()
+        : vaultListForOrigin(vaultOrigin); break;
     case "vault_fetch_one":
-      p = vaultFetchOne(payload.id, payload.origin || sender.url || ""); break;
+      p = vaultOrigin === null ? vaultUntrustedSender()
+        : vaultFetchOne(payload.id, vaultOrigin); break;
     case "vault_pair":
       p = vaultPair(payload.pairing_token, payload.label); break;
     case "vault_unpair":
@@ -641,7 +663,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "vault_status":
       p = vaultStatus(); break;
     case "vault_set_silent_for_origin":
-      p = vaultSetSilentForOrigin(payload.origin, payload.allow); break;
+      p = vaultOrigin === null ? vaultUntrustedSender()
+        : vaultSetSilentForOrigin(vaultOrigin, payload.allow); break;
     case "vault_set_idle_lock":
       p = vaultSetIdleLock(payload.minutes); break;
     // v1.2.0: routing preview / send-to-site / sites-list / send-all
