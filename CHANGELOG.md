@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1775 - train211d: row
+
+T211 = O1713 autofill fixed scroll r2 (Codex effort experiment small cut), BOARDed at cut time, applied on T210:
+- O1713 autofill fixed scroll r2 (bd-cx-worker19; lens bd-cx-review-correctness2): the extension autofill popup is fixed-positioned, so it now uses the viewport rect directly (left = r.left, top = r.bottom + 4) instead of adding the page scroll offset (extension/autofill.js, new tests/test_extension_autofill_scroll.py). r2 adds what r1 missed (pulled from T204b on a CI census failure): the new test is a resolver-adjacent site that runs under the DNS tripwire, so tests/test_rows706_714_test_hygiene.py is re-pinned 73/42 -> 74/43 with a dated note.
+
+
 ## v3.66.1774 - train210d: row
 
 T210 = O1698 OIDC username exact r3 (PRIORITY, HIGH), BOARDed at cut time, applied on T209 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
