@@ -256,7 +256,7 @@ export function CommandPalette() {
                   // value combines name+id so cmdk's fuzzy matcher
                   // matches typed text against both
                   value={`${site.name} ${site.site_id}`}
-                  onSelect={() => go("/sites")}
+                  onSelect={() => go(`/sites/${encodeURIComponent(site.site_id)}`)}
                 >
                   <span
                     className="mr-2 grid h-4 w-4 place-items-center rounded-sm text-[9px] font-bold text-white"
