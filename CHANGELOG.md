@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1782 - train218e: row
+
+T218 = two product cuts BOARDed at cut time, applied on T217:
+- o1698-a07-legacy-rebind-log (bd-worker-A3; lens bd-review-correctness-A1; 32b fast-track): when an OIDC login rebinds a legacy account, the OIDC_ACCOUNT_REBOUND audit line now names the replaced issuer and the UTC time; bind_oidc_login gains a keyword-only prior=None that returns the replaced record's iss on "rebound" only. Admit/refuse is unchanged (bulk_downloader/oidc.py, bulk_downloader/user_accounts.py, new tests/test_o1698_a07_legacy_rebind_log.py). LOW: a repr'd legacy old_iss can embed field-like text for a naive space-split parser (still one physical line); at= is duplicative.
+- o1671-a13-batch-retry-confirm r3 (bd-worker-A1; lens bd-cx-review-correctness1): BatchOps "Execute retry" now asks for confirmation before firing a live history retry, instead of retrying on one click (frontend/src/routes/BatchOps.tsx, new BatchOps.retryConfirm.test.tsx).
+
+
 ## v3.66.1781 - train217e: row
 
 T217 = O1671 a12 vault sender origin r2 (product, AUDIT-12 HIGH), BOARDed at cut time, applied on T216:
