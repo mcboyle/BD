@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1759 - train193: row
+
+T193 = the O1682 stale-gate fixes (Wave 1 T5: sg-yj1, sg-settings-schema-257, sg-body-contract-regen), BOARDed at cut time, applied on main after T188 (T189 #1105 closed in the O1686 halt; T189-T192 held):
+- sg-yj1 xhamster/xnxx (bd-worker-A2; lens bd-review-correctness-C1): youjizz-1 r5 (T183, 0f4ed6f3) applied its title override in _try_spa_api_media_extractor to every leaf, which renamed xhamster-2 quality/codec leaves and let an xnxx-1 HLS master below the minimum "rescue"; the override now applies only to the .m3u8 master/index leaf the resolver kept unchanged, keeping yj1's HLS best-variant naming (bulk_downloader/runner_extractors.py).
+- sg-settings-schema-257 (bd-worker-B1; lens bd-worker-C4): the 257th settings field is photo_sets (dl95-ultrafilms-1, read per site by photo_sets.py), so it belongs in the authoritative schema; test_schema_is_authoritative pins 257 and names photo_sets (tests/test_settings_center_wiring.py).
+- sg-body-contract-regen (bd-worker-D1; lens bd-worker-D2; rule 32a generator `tools/body_contract.py --regen`, 275 call sites): BODY_CONTRACT_CALLS.json regenerated after row1063's ManualLoginPending call site; UNKNOWN baseline 137 -> 138 with that one identity named (tools/BODY_CONTRACT_CALLS.json, tests/test_v3_66_729_body_contract_fixtures.py).
+
+
 ## v3.66.1758 - train188: row
 
 T188 = the O1673 quota-probes r2 opt-in test, BOARDed at cut time, applied on main after T187:
