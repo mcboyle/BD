@@ -1471,8 +1471,11 @@ class ExtractorsMixin:
         # dl95-youjizz-1: an HLS master's tier is its best variant, and that
         # variant is what gets fetched -- the downloader maps the FIRST video
         # stream of whatever it is given.  Bounded: three masters per page.
-        for cand in [c for c in cands
-                     if re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
+        # sg-yj1-xhamster-xnxx: a master of UNKNOWN height stays with
+        # _spa_measure_hls_masters (tpl95-xnxx-1), which labels it, logs the
+        # measurement and lets the min_resolution hold judge it.
+        for cand in [c for c in cands if int(c.get("height") or 0)
+                     and re.search(r"\.m3u8(\?|$)", c.get("url") or "", re.IGNORECASE)][:3]:
             try:
                 status, text = page.evaluate(_spa.FETCH_TEXT_JS, cand["url"]) or (0, "")
             except Exception:
@@ -1665,7 +1668,10 @@ class ExtractorsMixin:
         stem = os.path.splitext(fname)[0] if fname else ""
         # dl95-youjizz-1: a page-derived URL's leaf ("master", a CDN hash) is
         # not a name; the scene title is.  API options keep their own names.
-        if str(chosen.get("source") or "").startswith("page-"):
+        # sg-yj1-xhamster-xnxx: only a playlist leaf the resolver kept; a bare
+        # quality leaf already got "title [tier]", a real stem keeps its name.
+        if (str(chosen.get("source") or "").startswith("page-") and fname == source_fname
+                and re.search(r"\.m3u8$", source_fname, re.IGNORECASE)):
             _title = " ".join(str(website_title or "").split())
             if _title:
                 stem = _sanitize_filename_var(_title)
