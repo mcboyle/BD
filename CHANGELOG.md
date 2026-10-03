@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1786 - train222e: row
+
+T222 = O1671 product fixes (2), BOARDed at cut time, applied on T221e (O1771 pause train per PM ruling harness-work/O1672/RULING-pm-D-pause-train.md):
+- o1671-a04-dbsearch-dsn-no-embedded-creds (bd-cx-worker2, lenses bd-review-correctness-agy1 + D3-D r1): db_search.py / pg_vector.py DSN carries no embedded credentials; tests/test_o1671_a04_dsn_no_embedded_creds.py (+ 2 existing pgvector tests updated).
+- o1671-a07-login-step-order (bd-worker-W3-4-A, lenses bd-review-correctness-C5-C + agy1 r1): login_assist.py step order; tests/test_o1671_a07_login_step_order.py.
+
+
 ## v3.66.1785 - train221e: row
 
 T221 = O1698 harness rows (7; recall-kimi bounced: gitleaks generic-api-key tests/test_recall_kimi.py:48), repo halves (regression tests), BOARDed at cut time, applied on T220e (O1756 batch: every ready BOARD):

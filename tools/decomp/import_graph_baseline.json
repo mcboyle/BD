@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5750,
+  "edge_count": 5753,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4758,6 +4758,13 @@
     ],
     "tests/test_o1662_keepalive_launch_failure_is_named.py": [
       "bulk_downloader/session_keeper.py"
+    ],
+    "tests/test_o1671_a04_dsn_no_embedded_creds.py": [
+      "bulk_downloader/db_search.py",
+      "bulk_downloader/pg_vector.py"
+    ],
+    "tests/test_o1671_a07_login_step_order.py": [
+      "bulk_downloader/login_assist.py"
     ],
     "tests/test_o1671_a16_shell_close_reaps.py": [
       "tools/cockpit_console.py",
