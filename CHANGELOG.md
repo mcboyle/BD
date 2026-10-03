@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1772 - train208d: row
+
+T208 = O1698 C2 indexed-search default (test half; harness candidate installed by PM), BOARDed at cut time, applied on T207 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
+- o1698-c2-indexed-search-default r2 (bd-cx-worker14; lens bd-cx-review-correctness3): adds tests/test_o1698_c2_indexed_search_default.py, an opt-in test (BD_O1698_C2_INDEXED_SEARCH_DEFAULT_CANDIDATE) for the harness candidate in bd-persist/harness-work/FIX/o1698-c2-indexed-search-default (bd-index-landed.sh, bd-ask-fresh.sh, index2/corpus2). Skipped unless the candidate path is given.
+
+
 ## v3.66.1771 - train207d: row
 
 T207 = three O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T206 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
