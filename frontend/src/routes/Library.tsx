@@ -100,6 +100,7 @@ export function Library() {
   // (a <ul>, not a table, so no column headers). Direction toggle governs
   // newest/oldest etc.
   const itemRows = items.data?.rows ?? [];
+  const [search, setSearch] = useState("");
   const itemsSort = useTableSort(itemRows, {
     accessors: {
       added: (r) => (typeof r.added_at === "number" ? r.added_at : null),
@@ -109,6 +110,17 @@ export function Library() {
       duration: (r) => (typeof r.duration_s === "number" ? r.duration_s : null),
     },
   });
+  const query = search.trim().toLowerCase();
+  const visibleItems = query
+    ? itemsSort.sorted.filter((item) =>
+        [
+          itemLabel(item),
+          ...(item.tags ?? []).map((tag) =>
+            typeof tag === "string" ? tag : tag.name ?? "",
+          ),
+        ].some((value) => value.toLowerCase().includes(query)),
+      )
+    : itemsSort.sorted;
 
   const delItem = useMutation<OkResult, Error, number | string>({
     mutationFn: (id) => apiDelete<OkResult>(`/api/library/${id}`),
@@ -354,13 +366,26 @@ export function Library() {
             />
           )}
         </div>
+        <label htmlFor="library-search" className="mb-1 block text-sm text-ink-3">
+          Search library
+        </label>
+        <Input
+          id="library-search"
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search titles and tags"
+          className="mb-3 max-w-sm"
+        />
         {items.isLoading ? (
           <SkeletonRows count={6} rowClassName="h-9" />
         ) : !items.data?.rows?.length ? (
           <p className="text-sm text-ink-3">No library items.</p>
+        ) : !visibleItems.length ? (
+          <p className="text-sm text-ink-3">No items match</p>
         ) : (
           <ul className="divide-y divide-border">
-            {itemsSort.sorted.map((it) => (
+            {visibleItems.map((it) => (
               <li
                 key={it.id}
                 className={`flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`}

@@ -801,7 +801,7 @@ export interface LibraryItem {
   path?: string;
   rating?: number | null;
   watched?: boolean;
-  tags?: string[];
+  tags?: (string | LibraryTag)[];
   [k: string]: unknown;
 }
 
@@ -815,6 +815,7 @@ export interface LibraryBrowse {
 export interface LibraryTag {
   id: number | string;
   name?: string;
+  color?: string | null;
   tag?: string;
   [k: string]: unknown;
 }
