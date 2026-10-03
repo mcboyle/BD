@@ -203,7 +203,7 @@ class WorkStealingCoordinator:
         self.lease_seconds = lease_seconds
 
     def push_job(self, site: str, job_id: str, payload: str = "") -> int:
-        """Enqueue a job on the site's queue as self-describing payload."""
+        """Enqueue at the left end; stealing from the right preserves FIFO."""
         data = {
             "id": job_id,
             "site": site,
@@ -211,7 +211,7 @@ class WorkStealingCoordinator:
             "ts": time.time(),
         }
         encoded = json.dumps(data).encode("utf-8")
-        return self.redis.rpush(queue_key(site), encoded)
+        return self.redis.lpush(queue_key(site), encoded)
 
     def queue_length(self, site: str) -> int:
         """Get the current depth of a site's pending queue."""
@@ -259,11 +259,11 @@ class WorkStealingCoordinator:
         self.redis.delete(lease_key(job.site, job.job_id))
 
     def abandon(self, job: StolenJob) -> None:
-        """Fail-soft return: remove from processing list, delete lease, and LPUSH to source."""
+        """Fail-soft return: remove processing/lease state and requeue at the right steal end."""
         dst = processing_key(job.site, job.worker_id)
         self.redis.lrem(dst, 1, job.raw_bytes)
         self.redis.delete(lease_key(job.site, job.job_id))
-        self.redis.lpush(job.source_queue, job.raw_bytes)
+        self.redis.rpush(job.source_queue, job.raw_bytes)
 
     def reap_expired(self, site: str, worker_id: Optional[str] = None) -> List[StolenJob]:
         """Recover abandoned jobs from a worker's processing queue whose lease expired."""
