@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1763 - train199: row
+
+T199 = O1698 Wave-1 f061 retry coverage, BOARDed at cut time, applied on T198:
+- O1698 f061 retry coverage (bd-worker-C3; lens bd-review-correctness-B2): two Dashboard.wired tests now click the F061 Retry button (outage recovery and a persistent-failure control); the pinned Vitest denominators follow, tests/test_t1_dashboard_wired.py 7 -> 9 (count + receipt) and tests/test_row281_ui_wrappers_delegate.py (frontend/src/routes/Dashboard.wired.test.tsx).
+
+
 ## v3.66.1762 - train198: row
 
 T198 = O1673 t154-edge1 r2 (pulled from T194 #1107 for the test_row703 line pins), BOARDed at cut time, applied on main after T197:
