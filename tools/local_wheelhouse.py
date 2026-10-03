@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from packaging.version import InvalidVersion, Version
+
 # Common public CDN / repository domains that must NEVER be used at runtime
 FORBIDDEN_CDN_PATTERNS = [
     r"pypi\.org",
@@ -297,8 +299,15 @@ class LocalWheelhouse:
                     return w
             return None
 
-        # Return latest / highest version (last in sorted list)
-        return wheels[-1]
+        # Compare parsed versions regardless of filename or insertion order.
+        def _version_key(wheel: WheelInfo) -> tuple[bool, Version]:
+            try:
+                return True, Version(wheel.version)
+            except InvalidVersion:
+                return False, Version("0")
+
+        latest = max(reversed(wheels), key=_version_key)
+        return latest if _version_key(latest)[0] else None
 
     def add_wheel(self, wheel_path: Union[str, Path], verify_hash: bool = True) -> WheelInfo:
         """Add an existing wheel file to the wheelhouse."""
