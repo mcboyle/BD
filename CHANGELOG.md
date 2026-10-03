@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1771 - train207d: row
+
+T207 = three O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T206 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
+- O1713 wheelhouse version sort r2 (bd-cx-worker10; lens bd-review-correctness-B2): the local wheelhouse picks the highest wheel by parsed packaging Version, not by filename or insertion order, so 1.10 beats 1.9 (tools/local_wheelhouse.py, new tests/test_o1713_wheelhouse_version_sort.py).
+- O1713 netns run timeout (bd-cx-worker21; lens bd-worker-B3): when no runner is injected, the netns isolation helper calls subprocess.run directly with its timeout, so a hung namespace command times out instead of blocking (bulk_downloader/netns_isolation.py, new tests/test_o1713_netns_run_timeout.py).
+- O1713 diagnostics bundle revoke (bd-cx-worker24; lens bd-review-correctness-B1 on the lens-fixed tree 2fd458c2, Rule-17 delta lens bd-worker-C3): the diagnostics bundle download wraps the anchor click in try/finally, so the anchor is always removed and the object URL revoked once on the next tick, even when click throws (frontend/src/hooks/useGovernance.ts, new useGovernance.bundle.test.ts).
+
+
 ## v3.66.1770 - train206d: row
 
 T206 = two O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T205 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
