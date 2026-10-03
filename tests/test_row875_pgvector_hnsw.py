@@ -28,7 +28,7 @@ except ImportError:
 
         @staticmethod
         def pg_vector_dsn():
-            return "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
+            return os.environ.get("PGVECTOR_DSN") or os.environ.get("MOD3_PG_DSN") or None
 
         @staticmethod
         def connect(*args, **kwargs):

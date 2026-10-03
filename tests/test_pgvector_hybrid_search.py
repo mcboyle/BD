@@ -35,7 +35,7 @@ except ImportError:
 
         @staticmethod
         def db_search_dsn():
-            return "postgresql://postgres:postgres@127.0.0.1:5432/ai_mesh"
+            return os.environ.get("PGVECTOR_DSN") or os.environ.get("MOD3_PG_DSN") or None
 
         @staticmethod
         def connect(*args, **kwargs):
@@ -82,11 +82,7 @@ TABLE = "hybrid_docs"
 DIM = 16
 N_DOCS = 250
 
-# Test-owned copies of the module's DSN defaults: the skip decision below must not
-# depend on the module under test (on base the stub's connect() is None, which must
-# FAIL the live tests, not skip them).
-_DEFAULT_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/ai_mesh"
-_FALLBACK_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
+# Probe only explicitly configured DSNs, independently of the module under test.
 
 
 def _candidate_dsns() -> list[str]:
@@ -94,7 +90,7 @@ def _candidate_dsns() -> list[str]:
     unreachable override must skip, never be silently replaced by the default cluster."""
     env = [(os.environ.get(k) or "").strip() for k in ("PGVECTOR_DSN", "MOD3_PG_DSN")]
     env = [d for d in env if d]
-    return env if env else [_DEFAULT_DSN, _FALLBACK_DSN]
+    return env
 
 
 _LOOPBACK = ("127.0.0.1", "localhost", "::1")
@@ -173,7 +169,9 @@ def pg_conn():
     ds.ensure_extension(conn)
     ds.drop_schema(conn, schema=SCHEMA)
     ds.ensure_schema(conn, schema=SCHEMA)
-    yield conn
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PGVECTOR_DSN", dsn)
+        yield conn
     try:
         conn.rollback()
         with conn.cursor() as cur:

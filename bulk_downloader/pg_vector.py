@@ -16,7 +16,6 @@ from typing import Sequence
 DEFAULT_M = 16
 DEFAULT_EF_CONSTRUCTION = 64
 DEFAULT_EF_SEARCH = 100
-DEFAULT_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -37,12 +36,12 @@ def _valid_ident(name: str, what: str) -> str:
     return name
 
 
-def pg_vector_dsn() -> str:
-    """Configured DSN for pgvector. Checks PGVECTOR_DSN, MOD3_PG_DSN, or falls back to DEFAULT_DSN."""
+def pg_vector_dsn() -> str | None:
+    """Configured DSN from PGVECTOR_DSN or MOD3_PG_DSN, or None when disabled."""
     return (
         (os.environ.get("PGVECTOR_DSN") or "").strip()
         or (os.environ.get("MOD3_PG_DSN") or "").strip()
-        or DEFAULT_DSN
+        or None
     )
 
 

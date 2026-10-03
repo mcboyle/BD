@@ -15,8 +15,6 @@ from typing import Any, Sequence
 DEFAULT_M = 16
 DEFAULT_EF_CONSTRUCTION = 64
 DEFAULT_EF_SEARCH = 100
-DEFAULT_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/ai_mesh"
-FALLBACK_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/postgres"
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -37,12 +35,12 @@ def _valid_ident(name: str, what: str) -> str:
     return name
 
 
-def db_search_dsn() -> str:
-    """Configured DSN for pgvector hybrid search."""
+def db_search_dsn() -> str | None:
+    """Configured DSN for pgvector hybrid search, or None when disabled."""
     return (
         (os.environ.get("PGVECTOR_DSN") or "").strip()
         or (os.environ.get("MOD3_PG_DSN") or "").strip()
-        or DEFAULT_DSN
+        or None
     )
 
 
@@ -58,9 +56,10 @@ def connect(dsn: str | None = None):
     try:
         return psycopg.connect(target_dsn, connect_timeout=5)
     except Exception:
-        if dsn is None and target_dsn != FALLBACK_DSN:
+        if dsn is None:
             try:
-                return psycopg.connect(FALLBACK_DSN, connect_timeout=5)
+                fallback_dsn = psycopg.conninfo.make_conninfo(target_dsn, dbname="postgres")
+                return psycopg.connect(fallback_dsn, connect_timeout=5)
             except Exception:
                 return None
         return None
