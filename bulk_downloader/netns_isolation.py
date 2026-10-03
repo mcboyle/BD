@@ -271,9 +271,12 @@ def is_supported() -> bool:
 
 
 def _run(runner: Optional[Runner], argv: List[str]) -> int:
-    r = runner or subprocess.run
     try:
-        cp = r(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        if runner:
+            cp = runner(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        else:
+            cp = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=30)
         return int(getattr(cp, "returncode", 1) or 0)
     except Exception:
         return 1
