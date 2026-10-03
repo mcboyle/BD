@@ -194,6 +194,11 @@ export async function downloadDiagnosticsBundle(): Promise<void> {
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } finally {
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
