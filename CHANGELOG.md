@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1760 - train196: row
+
+T196 = parked O1671 product cuts BOARDed after the O1703 lens pass (PM YES 01:52Z), applied on main after T193 (T194 #1107 pulled: O1673 t154-edge1 vs test_row703 line pins):
+- O1671 r8b F001 needs-review link (bd-worker-C4; lens bd-cx-review-correctness3): the Home NEEDS ATTENTION review row and the CountTiles review tile link to /needs-review (frontend/src/routes/Home.tsx, frontend/src/components/CountTiles.tsx + tests).
+- O1671 A13 TPDB apply hid (bd-worker-B1; lens bd-cx-review-correctness2): Integrations TPDB apply refuses when the looked-up hid differs from the pending hid, and editing the hid resets the stale lookup preview (frontend/src/routes/Integrations.tsx, Integrations.tpdbApplyHid.test.tsx).
+- F061-fix r2 (bd-worker-C3; lens bd-cx-review-correctness5): /dashboard with its APIs failing (abort / HTTP 500) rendered no role=alert node; the dashboard now shows one alert with a Retry button when useDashboard() errors and none on success. r2 updates the pinned Vitest denominators that failed T184 parity-graph: tests/test_t1_dashboard_wired.py 5 -> 7 (count + receipt) and tests/test_row281_ui_wrappers_delegate.py (frontend/src/routes/Dashboard.tsx, Dashboard.wired.test.tsx).
+- A18 read-coverage FP filter (bd-worker-A2; lens bd-cx-review-correctness7; AUDIT-18 HIGH): tools/read_coverage.py _cited_lines now applies the same path-or-basename match to both collections, so a citation is no longer dropped as uncovered on a basename/path mismatch (tools/read_coverage.py, tests/test_o1671_a18_read_coverage_fp_filter.py).
+
+
 ## v3.66.1759 - train193: row
 
 T193 = the O1682 stale-gate fixes (Wave 1 T5: sg-yj1, sg-settings-schema-257, sg-body-contract-regen), BOARDed at cut time, applied on main after T188 (T189 #1105 closed in the O1686 halt; T189-T192 held):
