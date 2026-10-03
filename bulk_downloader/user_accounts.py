@@ -17,7 +17,8 @@ creates accounts AND turns it on.
 
 Storage: ``accounts.json`` next to ``sites_config.json``::
 
-    {"users": {"<name>": {"pw_hash", "salt", "iters", "role", "created_ts"}},
+    {"users": {"<name>": {"pw_hash", "salt", "iters", "role", "created_ts",
+                          "oidc": {"iss", "sub"}}},  # "oidc": OIDC-created users only
      "signing_key": "<hex>"}
 
 All read paths never raise; passwords are never stored or returned in the clear.
@@ -98,7 +99,8 @@ def _hash_password(password: str, salt: str, iters: int) -> str:
 # ── CRUD ────────────────────────────────────────────────────────────────
 
 def create_user(username: str, password: str, role: str = "operator",
-                base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
+                base_dir: str | os.PathLike | None = None, *,
+                oidc_binding: tuple[str, str] | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not _NAME_RE.match(username):
         return False, "username must be 1-64 chars of [A-Za-z0-9_.-], no spaces"
@@ -115,6 +117,10 @@ def create_user(username: str, password: str, role: str = "operator",
         "salt": salt, "iters": _PBKDF2_ITERS, "role": role,
         "created_ts": int(time.time()),
     }
+    if oidc_binding:
+        # O1671 a07: the (iss, sub) an OIDC login must present to reuse this user.
+        iss, sub = oidc_binding
+        doc["users"][username]["oidc"] = {"iss": iss, "sub": sub}
     _signing_key(doc, base_dir)  # ensure a key exists
     if not _save(doc, base_dir):
         return False, "could not write accounts store"
@@ -141,6 +147,17 @@ def get_user(username: str,
         return None
     return {"username": (username or "").strip(), "role": rec.get("role", "operator"),
             "created_ts": rec.get("created_ts")}
+
+
+def get_oidc_binding(username: str,
+                     base_dir: str | os.PathLike | None = None) -> tuple[str, str] | None:
+    """The (iss, sub) recorded when OIDC created this user, or None (local user,
+    or created before bindings existed)."""
+    rec = _load(base_dir)["users"].get((username or "").strip())
+    oidc = rec.get("oidc") if isinstance(rec, dict) else None
+    if not isinstance(oidc, dict) or not oidc.get("iss") or not oidc.get("sub"):
+        return None
+    return str(oidc["iss"]), str(oidc["sub"])
 
 
 def list_users(base_dir: str | os.PathLike | None = None) -> list[dict]:

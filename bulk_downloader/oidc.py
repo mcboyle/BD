@@ -148,13 +148,39 @@ def claims_to_username(claims: dict) -> str:
             or claims.get("sub") or "").strip()
 
 
+def _oidc_subject(claims: dict) -> tuple[str, str]:
+    """The verified (iss, sub) pair a login is bound to. sub is kept EXACTLY as
+    the token carries it (OIDC: case-sensitive, compared as-is) -- trimming would
+    let "victim " reuse "victim"'s account. iss is compared the way
+    verify_id_token accepted it (trailing slash stripped, nothing else)."""
+    iss, sub = claims.get("iss"), claims.get("sub")
+    if not isinstance(iss, str) or not isinstance(sub, str) or not iss or not sub:
+        raise ValueError("no iss/sub claim to bind the login to")
+    return iss.rstrip("/"), sub
+
+
 def provision_user(claims: dict) -> str:
     """Ensure a BD user exists for these claims; return the username. First
-    login creates an operator with a random (unused) local password."""
+    login creates an operator with a random (unused) local password and binds
+    it to the token's (iss, sub).
+
+    O1671 a07: the username claim is self-asserted (preferred_username/email),
+    so a later login reuses a local user only when that user is bound to the
+    same (iss, sub). A collision with an unbound (local) or differently-bound
+    user is refused -- the callback turns the ValueError into sso_error --
+    instead of handing out that user's session."""
     from . import user_accounts as _ua
     username = claims_to_username(claims)
     if not username:
         raise ValueError("no username claim (preferred_username/email/sub)")
+    subject = _oidc_subject(claims)
     if _ua.get_user(username) is None:
-        _ua.create_user(username, secrets.token_urlsafe(32), role="operator")
+        ok, msg = _ua.create_user(username, secrets.token_urlsafe(32),
+                                  role="operator", oidc_binding=subject)
+        if not ok:
+            raise ValueError(f"could not provision {username!r}: {msg}")
+        return username
+    if _ua.get_oidc_binding(username) != subject:
+        raise ValueError(f"OIDC_ACCOUNT_BINDING_REFUSED: local user {username!r} "
+                         "is not bound to this OIDC subject")
     return username
