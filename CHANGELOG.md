@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1777 - train213e: row
+
+T213 = O1698 C2 indexed-search default r3 (test half; harness candidate installed by PM), BOARDed at cut time, applied on T212:
+- o1698-c2-indexed-search-default r3 (bd-cx-worker14; lens bd-review-correctness-A2): adds tests/test_o1698_c2_indexed_search_default.py, an opt-in test (BD_O1698_C2_INDEXED_SEARCH_DEFAULT_CANDIDATE) for the harness candidate in bd-persist/harness-work/FIX/o1698-c2-indexed-search-default. r3 loads the candidate modules (common2, corpus2) from the candidate path via importlib instead of importing them, so tests/test_v3_66_653_dep_freshness.py no longer reads them as undeclared third-party imports (r2 was pulled from T208d on that CI failure).
+
+
 ## v3.66.1776 - train212e: row
 
 T212 = O1698 launcher lensrouter role (test half; harness half installed by PM as CUT 43), BOARDed at cut time, applied on T211:
