@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1773 - train209: row
+
+T209 = O1698 OIDC username exact (PRIORITY, BOARDed at cut time), applied on T208 (restaged without a07):
+- o1698-oidc-username-exact (bd-worker-D7; lens bd-review-correctness-B2): the OIDC login takes the chosen username claim (preferred_username, else email, else sub) EXACTLY. A claim with surrounding whitespace or a control character raises (sso_error) instead of being stripped, so "admin " can no longer log in as BD user "admin" (bulk_downloader/oidc.py, new tests/test_o1698_oidc_username_exact.py). Lens M1 (composition with a07) does not apply: a07 was pulled from this stack.
+
+
 ## v3.66.1772 - train208b: row
 
 T208 = three O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T207 (restaged without a07):
