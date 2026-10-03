@@ -9,14 +9,16 @@ BD_GATE_SCOPE = "repo-wide"
 def test_t1_dashboard_runtime_contract():
     # 5, not 4: the endpoint set is now DERIVED from the hook rather than
     # hand-maintained, and one test guards that derivation against being vacuous.
+    # 7, not 5: F061 adds the /api/dashboard failure alert test and its
+    # no-alert positive control.
     spec = "src/routes/Dashboard.wired.test.tsx"
-    receipt = run_vitest(spec, expected_tests=5)
+    receipt = run_vitest(spec, expected_tests=7)
     expected = {
         "spec": spec,
         "files_passed": 1,
         "files_collected": 1,
-        "tests_passed": 5,
-        "tests_collected": 5,
+        "tests_passed": 7,
+        "tests_collected": 7,
     }
     assert receipt == expected, (
         "Vitest delegation evidence missing or mismatched for Dashboard: "
