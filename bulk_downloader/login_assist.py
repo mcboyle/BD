@@ -19,14 +19,21 @@ def infer_step(observation: Dict[str, Any], *, model: Optional[str] = None,
                _call=None) -> Dict[str, Any]:
     """Infer the next login step from an observation. `observation` may carry
     `fields` (list), `buttons` (list), `cross_origin` (bool), `challenge` (bool).
-    Returns {next_step, fields, buttons, requires_review, summary, advisory}."""
+    Returns {next_step, fields, buttons, requires_review, summary, advisory}.
+
+    O1671 AUDIT-07: a unified form showing both an identifier and a password
+    field starts with identifier entry (enter_email); only a password-only form
+    yields enter_password. A field naming both (e.g. "login_password") is a
+    password field, not an identifier field."""
     fields = [str(f).lower() for f in (observation.get("fields") or [])]
     buttons = [str(b).lower() for b in (observation.get("buttons") or [])]
     cross_origin = bool(observation.get("cross_origin"))
     challenge = bool(observation.get("challenge"))
 
-    has_email = any(any(k in f for k in _EMAIL_FIELDS) for f in fields)
-    has_password = any(any(k in f for k in _PASSWORD_FIELDS) for f in fields)
+    is_password = [any(k in f for k in _PASSWORD_FIELDS) for f in fields]
+    has_email = any(any(k in f for k in _EMAIL_FIELDS) and not pw
+                    for f, pw in zip(fields, is_password))
+    has_password = any(is_password)
     has_sso = any(any(h in b for h in _SSO_HINTS) for b in buttons)
 
     requires_review = False
@@ -38,12 +45,12 @@ def infer_step(observation: Dict[str, Any], *, model: Optional[str] = None,
         next_step = "sso_review"
         requires_review = True
         summary = "SSO / cross-origin login; route to review (uncertain)."
-    elif has_password:
-        next_step = "enter_password"
-        summary = "Password field present; the next step is the password entry."
     elif has_email:
         next_step = "enter_email"
         summary = "Email/username field present; the next step is identifier entry."
+    elif has_password:
+        next_step = "enter_password"
+        summary = "Password-only form; the next step is the password entry."
     else:
         next_step = "review"
         requires_review = True
