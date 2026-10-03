@@ -418,6 +418,25 @@ def _w1_warn_s(site):
     return max(_WARN_FLOOR_S, measured * _WARN_FACTOR)
 
 
+def _w1_host_contention():
+    """MEASURED oversubscription of this host: (raw ratio, evidence text).
+
+    The one-minute load average over the host's CPU count. A wait dominated by
+    real work stretches roughly in proportion to oversubscription (see the
+    note above _MEASURED_S), and load1 spans the waits it judges: every one is
+    over _POLICE_ABSOLUTE_S and under a minute. This returns the RAW ratio;
+    the floor and the cap are applied by `_w1_police`, so neither can be
+    skipped by a probe that reports something odd. COULD NOT LOOK is 0.0,
+    which that floor turns into today's exact margin -- never into headroom.
+    """
+    try:
+        load1 = os.getloadavg()[0]
+    except OSError as exc:
+        return 0.0, "load average unreadable (%s)" % exc
+    cpus = os.cpu_count() or 1
+    return load1 / cpus, "load1 %.2f / %d cpus" % (load1, cpus)
+
+
 _W1_POLICED: list = []
 
 
@@ -451,15 +470,27 @@ def _w1_police(timeout, elapsed):
     # noise; above it, a wait that exceeds its recorded baseline by the stated
     # margin is a stale table entry and says so. A restated 0.5s baseline now
     # gives 1.5s against a real 6.89s and fails.
+    #
+    # THE MARGIN SCALES WITH MEASURED HOST CONTENTION, FLOORED AT 1.0 AND
+    # CAPPED AT _CONTENTION_FACTOR. The nightly full suite (28k tests, xdist)
+    # stretched a 2.18s site to 8.50s and 24.87s while 41 idle and band-loaded
+    # samples never passed 1.46x: load, not code. The floor makes an idle host
+    # get today's exact 3x margin, so the 1226 mutant above (13.8x) still fails
+    # there; the cap keeps the margin at or under 18x however loaded the box.
     if elapsed > _POLICE_ABSOLUTE_S and measured > 0:
-        assert elapsed <= measured * _WARN_FACTOR, (
+        raw, evidence = _w1_host_contention()
+        contention = min(_CONTENTION_FACTOR, max(1.0, raw))
+        margin = _WARN_FACTOR * contention
+        assert elapsed <= measured * margin, (
             "site %r took %.2fs against a recorded baseline of %.4fs -- %.1fx, "
-            "past the %.1fx margin, on a wait long enough (>%.0fs) that "
+            "past the %.1fx margin (%.1fx x host contention %.2f [%s; floor "
+            "1.0, cap %.1f]), on a wait long enough (>%.0fs) that "
             "scheduling noise does not explain it. The TABLE is stale or wrong; "
             "re-measure the site. This check deliberately ignores the %.0fs "
             "warning floor, which exists to silence sub-second noise and "
             "otherwise hides exactly this."
-            % (site, elapsed, measured, elapsed / measured, _WARN_FACTOR,
+            % (site, elapsed, measured, elapsed / measured, margin,
+               _WARN_FACTOR, contention, evidence, _CONTENTION_FACTOR,
                _POLICE_ABSOLUTE_S, _WARN_FLOOR_S))
     assert elapsed <= limit, (
         "site %r took %.2fs against a recorded baseline of %.4fs (limit "
