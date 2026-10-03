@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1772 - train208e: row
+
+T208 = O1698 stale-gate sg-w1police load-aware margin (test-infra, MED), BOARDed at cut time, applied on T207 (restaged on main d37383ca without C2: CI process-tests pull 08:20Z):
+- sg-w1police-load-aware-margin (bd-worker-D8; lens bd-cx-review-correctness3): the reap-wait police in test_v3_66_1132 no longer uses a fixed x3 margin over the recorded baseline. The margin now scales with host load, so a completed wait over 5 s on a contended host is not falsely flagged; an unbounded wait is still caught (tests/test_v3_66_1132_the_hunt_reaps_what_it_abandons.py, new tests/test_sg_w1police_load_aware_margin.py).
+
+
 ## v3.66.1771 - train207d: row
 
 T207 = three O1713 Codex effort experiment small cuts, BOARDed at cut time, applied on T206 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
