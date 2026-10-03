@@ -117,7 +117,10 @@ def _cheap_host(wacz_path) -> str | None:
 
 def _parse_dt(s: str):
     try:
-        return datetime.fromisoformat(str(s))
+        parsed = datetime.fromisoformat(str(s))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
     except Exception:  # noqa: BLE001
         return None
 
