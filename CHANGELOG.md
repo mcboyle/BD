@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1768 - train204d: row
+
+T204 = O1713 work-stealing FIFO (Codex effort experiment small cut), BOARDed at cut time, applied on T203 (restaged on main 6a4600c5 without a07 and autofill: PM PULL 05:15Z; autofill CI census pull 06:50Z):
+- O1713 work-stealing FIFO (bd-cx-worker18; lens bd-worker-B3): enqueue now LPUSHes and the steal is an atomic RPOPLPUSH from the right end, so the oldest job is taken first (FIFO). An abandoned job is RPUSHed back to the steal end, so it is retried next instead of going behind newer work (bulk_downloader/work_stealing.py, new tests/test_o1713_work_stealing_fifo.py).
+
+
 ## v3.66.1767 - train203b: row
 
 T203 = O1671 library search r2 (PM YES 01:52Z, lens-router BOARD), applied on T202. (a07 OIDC binding PULLED by PM 05:15Z pending operator ruling.)
