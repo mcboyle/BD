@@ -146,7 +146,7 @@ export function Home() {
       rows.push({ kind: "failed", label: "Failed runs", count: failed, href: "/queue?status=failed" });
     const attn = data.attention?.length ?? 0;
     if (attn > 0)
-      rows.push({ kind: "review", label: "Needs review", count: attn, href: "/cockpit/review" });
+      rows.push({ kind: "review", label: "Needs review", count: attn, href: "/needs-review" });
     return rows;
   }, [data]);
 

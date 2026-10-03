@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils";
 
 // Cut 6.2 — read-only count tiles. Counts are computed at the call site from
 // existing hooks/endpoints and passed in; the strip is purely presentational.
-// The review tile links into the Cockpit (the operator-review surface); the
-// others link to their SPA routes.
+// Every tile links to its SPA route; review opens the /needs-review list
+// (O1671 f001: /cockpit/review had no route and bounced home).
 
 export interface TileCounts {
   queue: number;
@@ -16,7 +16,7 @@ export interface TileCounts {
 
 const TILES: { key: keyof TileCounts; label: string; to: string }[] = [
   { key: "queue", label: "Queue", to: "/queue" },
-  { key: "review", label: "Review", to: "/cockpit/review" },
+  { key: "review", label: "Review", to: "/needs-review" },
   { key: "capture", label: "Capture", to: "/capture" },
   { key: "template", label: "Templates", to: "/templates" },
 ];
