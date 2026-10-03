@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1764 - train200: row
+
+T200 = O1713 capture autosuggest reset (Codex effort experiment small cut), BOARDed at cut time, applied on main after T199:
+- O1713 capture autosuggest reset (bd-cx-worker17; lens bd-review-correctness-A1): CaptureWorkflow's taskId effect resets autoSuggestedRef before running autosuggest, so switching to another task suggests again instead of keeping the previous task's "already suggested" flag (frontend/src/routes/CaptureWorkflow.tsx, CaptureWorkflow.autosuggest.test.tsx).
+
+
 ## v3.66.1763 - train199: row
 
 T199 = O1698 Wave-1 f061 retry coverage, BOARDed at cut time, applied on T198:
