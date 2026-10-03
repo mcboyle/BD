@@ -126,15 +126,20 @@ def _reader(sid: str) -> None:
     fd = sess["fd"]
     try:
         while sess["alive"]:
-            r, _, _ = _select.select([fd], [], [], 0.4)
+            try:
+                r, _, _ = _select.select([fd], [], [], 0.4)
+            except (OSError, ValueError):
+                break
             if r:
-                try:
-                    data = os.read(fd, 65536)
-                except OSError:
-                    break
-                if not data:
-                    break
                 with sess["lock"]:
+                    if not sess["alive"] or sess["fd"] != fd:
+                        break
+                    try:
+                        data = os.read(fd, 65536)
+                    except OSError:
+                        break
+                    if not data:
+                        break
                     sess["buf"].extend(data)
                     if len(sess["buf"]) > _BUF_CAP:
                         del sess["buf"][:len(sess["buf"]) - _BUF_CAP]
@@ -142,11 +147,14 @@ def _reader(sid: str) -> None:
             if time.time() - sess.get("last", 0) > _IDLE_REAP:
                 break
     finally:
-        sess["alive"] = False
-        try:
-            os.close(fd)
-        except OSError:
-            pass
+        with sess["lock"]:
+            sess["alive"] = False
+            if sess["fd"] is not None:
+                try:
+                    os.close(sess["fd"])
+                except OSError:
+                    pass
+                sess["fd"] = None
 
 
 def shell_open() -> Dict[str, Any]:
@@ -177,11 +185,27 @@ def shell_input(sid: str, data: str) -> Dict[str, Any]:
     if not isinstance(data, str):
         raise ShellError("input must be a string")
     _audit(sid, data)
+    _write(sess, data.encode("utf-8", "replace"))
+    return {"ok": True}
+
+
+def _write(sess: Dict[str, Any], payload: bytes) -> None:
+    """Write to the PTY without holding sess["lock"] across the write: a raw-mode program that is not reading
+    stdin fills the PTY queue and the write blocks, and poll/close (which take the lock) must still return.
+    The dup()ed fd keeps the PTY open for this write if close() runs meanwhile, so a reused fd number is never written."""
+    with sess["lock"]:
+        if not sess["alive"] or sess["fd"] is None:
+            raise ShellError("no such shell session")
+        try:
+            wfd = os.dup(sess["fd"])
+        except OSError as e:
+            raise ShellError(f"write failed: {e}")
     try:
-        os.write(sess["fd"], data.encode("utf-8", "replace"))
+        os.write(wfd, payload)
     except OSError as e:
         raise ShellError(f"write failed: {e}")
-    return {"ok": True}
+    finally:
+        os.close(wfd)
 
 
 def shell_signal(sid: str, sig: str = "INT") -> Dict[str, Any]:
@@ -190,7 +214,7 @@ def shell_signal(sid: str, sig: str = "INT") -> Dict[str, Any]:
     ctrl = {"INT": b"\x03", "EOF": b"\x04", "TSTP": b"\x1a"}.get(sig.upper())
     if not ctrl:
         raise ShellError("unsupported signal")
-    os.write(sess["fd"], ctrl)
+    _write(sess, ctrl)
     return {"ok": True}
 
 
@@ -217,6 +241,26 @@ def shell_close(sid: str) -> Dict[str, Any]:
             os.kill(sess["pid"], signal.SIGKILL)
         except OSError:
             pass
+        with sess["lock"]:
+            fd = sess["fd"]
+            sess["fd"] = None
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                reaped, _ = os.waitpid(sess["pid"], os.WNOHANG)
+            except ChildProcessError:
+                break
+            if reaped == sess["pid"]:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ShellError("shell child did not exit after SIGKILL")
+            time.sleep(min(0.01, remaining))
         _audit(sid, "<session closed>")
     return {"closed": True}
 
