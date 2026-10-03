@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1781 - train217e: row
+
+T217 = O1671 a12 vault sender origin r2 (product, AUDIT-12 HIGH), BOARDed at cut time, applied on T216:
+- o1671-a12-vault-sender-origin r2 (bd-worker-D6; lens bd-review-correctness-C1): the extension's vault router (extension/background.js) takes the origin from the message sender's tab instead of the caller-supplied payload.origin, so a page can no longer ask for another site's saved password (new tests/test_o1671_a12_vault_sender_origin.py). Lens: r1 F1 HIGH closed; sender-origin leak FOUND NONE on the candidate, BASE leaks the other site's secret (positive control).
+  LOW (none block): L1 a tab sender with no url yields origin "" (lookups get nothing; refusing would be cleaner); L2 vault_pair/unpair/status/set_idle_lock stay ungated by sender (out of scope).
+
+
 ## v3.66.1780 - train216e: row
 
 T216 = O1671 a18 rollback Zip Slip (product, AUDIT-18 HIGH), BOARDed at cut time, applied on T215:
