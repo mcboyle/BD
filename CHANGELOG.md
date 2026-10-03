@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1761 - train197: row
+
+T197 = O1671 A16 shell origin guard r2 (parked O1671 cut, PM YES 01:52Z), BOARDed at cut time, applied on main after T196:
+- A16 shell origin guard r2 (bd-worker-C2; lens bd-worker-C1, answers the D5 BOUNCE of r1): tools/cockpit_console.py _shell_request_trusted for non-loopback callers always requires a valid bd_session and refuses a cross-site Sec-Fetch-Site or an Origin that is not the Host; POST and other writes also need the session's X-CSRF-Token plus a same-origin signal; GET/HEAD status/poll require a Referer naming the Host when one is sent. Residual (operator-accepted): GET /api/csrf still mints an anonymous session (tools/cockpit_console.py, tests/test_batch_b_dev_shell_authgate.py, tests/test_o1671_a16_shell_origin_guard.py).
+
+
 ## v3.66.1760 - train196: row
 
 T196 = parked O1671 product cuts BOARDed after the O1703 lens pass (PM YES 01:52Z), applied on main after T193 (T194 #1107 pulled: O1673 t154-edge1 vs test_row703 line pins):
