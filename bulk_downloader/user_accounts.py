@@ -17,20 +17,31 @@ creates accounts AND turns it on.
 
 Storage: ``accounts.json`` next to ``sites_config.json``::
 
-    {"users": {"<name>": {"pw_hash", "salt", "iters", "role", "created_ts"}},
+    {"users": {"<name>": {"pw_hash", "salt", "iters", "role", "created_ts",
+                          "oidc": {"iss", "sub"}}},  # "oidc": OIDC-bound users only
      "signing_key": "<hex>"}
 
 All read paths never raise; passwords are never stored or returned in the clear.
+Every read-modify-write runs under ``_store_lock`` (threads + processes), so a
+concurrent writer can never drop another's user or OIDC binding.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
 import os
 import re
 import secrets
+import threading
 import time
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
 
 ACCOUNTS_FILE = "user_accounts.json"
 ROLES = ("admin", "reviewer", "operator")
@@ -43,6 +54,56 @@ _SESSION_TTL = 12 * 3600  # 12h default
 def _store_path(base_dir: str | os.PathLike | None = None) -> str:
     base = str(base_dir) if base_dir else "."
     return os.path.join(base, ACCOUNTS_FILE)
+
+
+_PATH_LOCKS: dict[str, threading.RLock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+_HELD = threading.local()
+
+
+def _lock_file(fh) -> None:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return
+    fh.seek(0, os.SEEK_END)  # msvcrt locks a byte range: keep one byte to contend on
+    if fh.tell() == 0:
+        fh.write(b"\0")
+        fh.flush()
+    fh.seek(0)
+    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_file(fh) -> None:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return
+    fh.seek(0)
+    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextlib.contextmanager
+def _store_lock(base_dir=None):
+    """Serialize one load/check/save of the accounts store. The RLock covers
+    threads here, the flock on a permanent sibling ``.lock`` file covers other
+    processes (``_save`` replaces the store inode, so it can't be the lock).
+    Re-entrant per thread. Raises OSError if the lock can't be taken -- writers
+    turn that into a refusal, never an unlocked write."""
+    path = os.path.abspath(_store_path(base_dir)) + ".lock"
+    with _PATH_LOCKS_GUARD:
+        rlock = _PATH_LOCKS.setdefault(path, threading.RLock())
+    with rlock:
+        held = _HELD.__dict__.setdefault("paths", set())
+        if path in held:
+            yield
+            return
+        with open(path, "a+b") as fh:
+            _lock_file(fh)
+            held.add(path)
+            try:
+                yield
+            finally:
+                held.discard(path)
+                _unlock_file(fh)
 
 
 def _load(base_dir=None) -> dict:
@@ -81,9 +142,16 @@ def _signing_key(doc: dict, base_dir=None) -> str:
     use."""
     key = doc.get("signing_key")
     if not key:
-        key = secrets.token_hex(32)
+        try:
+            with _store_lock(base_dir):  # save a fresh load, not the caller's possibly stale doc
+                fresh = _load(base_dir)
+                key = fresh.get("signing_key")
+                if not key:
+                    key = fresh["signing_key"] = secrets.token_hex(32)
+                    _save(fresh, base_dir)
+        except OSError:
+            key = secrets.token_hex(32)  # unpersisted: tokens it signs never verify
         doc["signing_key"] = key
-        _save(doc, base_dir)
     return key
 
 
@@ -98,7 +166,8 @@ def _hash_password(password: str, salt: str, iters: int) -> str:
 # ── CRUD ────────────────────────────────────────────────────────────────
 
 def create_user(username: str, password: str, role: str = "operator",
-                base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
+                base_dir: str | os.PathLike | None = None, *,
+                oidc_binding: tuple[str, str] | None = None) -> tuple[bool, str]:
     username = (username or "").strip()
     if not _NAME_RE.match(username):
         return False, "username must be 1-64 chars of [A-Za-z0-9_.-], no spaces"
@@ -106,18 +175,27 @@ def create_user(username: str, password: str, role: str = "operator",
         return False, "password must be non-empty"
     if role not in ROLES:
         return False, f"role must be one of {ROLES}"
-    doc = _load(base_dir)
-    if username in doc["users"]:
-        return False, "user already exists"
     salt = secrets.token_hex(16)
-    doc["users"][username] = {
+    rec = {
         "pw_hash": _hash_password(password, salt, _PBKDF2_ITERS),
         "salt": salt, "iters": _PBKDF2_ITERS, "role": role,
         "created_ts": int(time.time()),
     }
-    _signing_key(doc, base_dir)  # ensure a key exists
-    if not _save(doc, base_dir):
-        return False, "could not write accounts store"
+    if oidc_binding:
+        # the (iss, sub) an OIDC login must present to reuse this user
+        iss, sub = oidc_binding
+        rec["oidc"] = {"iss": iss, "sub": sub}
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            if username in doc["users"]:
+                return False, "user already exists"
+            doc["users"][username] = rec
+            _signing_key(doc, base_dir)  # ensure a key exists
+            if not _save(doc, base_dir):
+                return False, "could not write accounts store"
+    except OSError:
+        return False, "could not lock accounts store"
     return True, "created"
 
 
@@ -143,6 +221,54 @@ def get_user(username: str,
             "created_ts": rec.get("created_ts")}
 
 
+def _binding_of(rec) -> tuple[str, str] | None:
+    oidc = rec.get("oidc") if isinstance(rec, dict) else None
+    if not isinstance(oidc, dict):
+        return None
+    iss, sub = oidc.get("iss"), oidc.get("sub")
+    if not isinstance(iss, str) or not isinstance(sub, str) or not iss or not sub:
+        return None
+    return iss, sub
+
+
+def get_oidc_binding(username: str,
+                     base_dir: str | os.PathLike | None = None) -> tuple[str, str] | None:
+    """The (iss, sub) this user is bound to, or None (local user, created before
+    bindings existed, or a legacy/partial "oidc" record)."""
+    return _binding_of(_load(base_dir)["users"].get((username or "").strip()))
+
+
+def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
+                    base_dir: str | os.PathLike | None = None, *,
+                    rebind_issuer: str = "") -> tuple[bool, str]:
+    """Admit a verified OIDC login as an EXISTING user, in one locked
+    read-check-write. ``(True, "bound")``: already bound to exactly this
+    (iss, sub), nothing written. ``(True, "rebound")``: the user had no or a
+    legacy binding, the login's iss is ``rebind_issuer`` (the configured one),
+    and the user is now bound to it -- admins included (O1720). Refused (store
+    untouched): no such user, bound to any other (iss, sub), or unbound and
+    the iss is not ``rebind_issuer``."""
+    iss, sub = oidc_binding
+    name = (username or "").strip()
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            rec = doc["users"].get(name)
+            if not isinstance(rec, dict):
+                return False, "no such user"
+            bound = _binding_of(rec)
+            if bound is not None:
+                return (True, "bound") if bound == (iss, sub) else (False, "bound to another OIDC subject")
+            if not rebind_issuer or iss != rebind_issuer:
+                return False, "unbound and the login issuer is not the configured OIDC issuer"
+            rec["oidc"] = {"iss": iss, "sub": sub}
+            if not _save(doc, base_dir):
+                return False, "write failed"
+    except OSError:
+        return False, "could not lock accounts store"
+    return True, "rebound"
+
+
 def list_users(base_dir: str | os.PathLike | None = None) -> list[dict]:
     out = []
     for name, rec in _load(base_dir)["users"].items():
@@ -156,37 +282,47 @@ def set_role(username: str, role: str,
              base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
     if role not in ROLES:
         return False, f"role must be one of {ROLES}"
-    doc = _load(base_dir)
     name = (username or "").strip()
-    if name not in doc["users"]:
-        return False, "no such user"
-    doc["users"][name]["role"] = role
-    return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            if name not in doc["users"]:
+                return False, "no such user"
+            doc["users"][name]["role"] = role
+            return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    except OSError:
+        return False, "could not lock accounts store"
 
 
 def set_password(username: str, new_password: str,
                  base_dir: str | os.PathLike | None = None) -> tuple[bool, str]:
     if not new_password:
         return False, "password must be non-empty"
-    doc = _load(base_dir)
     name = (username or "").strip()
-    if name not in doc["users"]:
-        return False, "no such user"
     salt = secrets.token_hex(16)
-    doc["users"][name].update({
-        "pw_hash": _hash_password(new_password, salt, _PBKDF2_ITERS),
-        "salt": salt, "iters": _PBKDF2_ITERS,
-    })
-    return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    pw_hash = _hash_password(new_password, salt, _PBKDF2_ITERS)
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            if name not in doc["users"]:
+                return False, "no such user"
+            doc["users"][name].update({"pw_hash": pw_hash, "salt": salt, "iters": _PBKDF2_ITERS})
+            return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    except OSError:
+        return False, "could not lock accounts store"
 
 
 def delete_user(username: str,
                 base_dir: str | os.PathLike | None = None) -> bool:
-    doc = _load(base_dir)
     name = (username or "").strip()
-    if name in doc["users"]:
-        del doc["users"][name]
-        return _save(doc, base_dir)
+    try:
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            if name in doc["users"]:
+                del doc["users"][name]
+                return _save(doc, base_dir)
+    except OSError:
+        pass
     return False
 
 

@@ -70,15 +70,18 @@ def test_provision_user_creates_then_reuses(monkeypatch):
     created = {}
     import bulk_downloader.user_accounts as ua
     monkeypatch.setattr(ua, "get_user", lambda u, *a, **k: created.get(u))
-    def _create(u, pw, role="operator", *a, **k):
-        created[u] = {"username": u, "role": role}
+    def _create(u, pw, role="operator", *a, oidc_binding=None, **k):
+        created[u] = {"username": u, "role": role, "oidc": oidc_binding}
         return True, "ok"
     monkeypatch.setattr(ua, "create_user", _create)
-    name = oidc.provision_user({"preferred_username": "carol"})
+    monkeypatch.setattr(ua, "bind_oidc_login", lambda u, subject, *a, **k:
+                        (True, "bound") if created[u]["oidc"] == subject else (False, "bound to another OIDC subject"))
+    claims = {"iss": "https://idp.example.test", "sub": "sub-carol", "preferred_username": "carol"}
+    name = oidc.provision_user(claims)
     assert name == "carol" and "carol" in created
-    # second time: get_user returns the user -> no re-create (would overwrite role)
+    # second time: get_user returns the (bound) user -> no re-create (would overwrite role)
     created["carol"]["role"] = "admin"
-    oidc.provision_user({"preferred_username": "carol"})
+    oidc.provision_user(claims)
     assert created["carol"]["role"] == "admin"
 
 

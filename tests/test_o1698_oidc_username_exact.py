@@ -35,15 +35,19 @@ def _claims(claim, value, sub="sub-other"):
 
 @pytest.fixture
 def accounts(monkeypatch):
-    """user_accounts doubles: existing BD user 'admin'; records every create / session issue."""
+    """user_accounts doubles: existing BD user 'admin' bound to (ISS, ADMIN_SUB); records every create / session issue."""
     import bulk_downloader.user_accounts as ua
     users = {"admin": {"username": "admin", "role": "admin"}}
+    bindings = {"admin": (ISS, ADMIN_SUB)}
     calls = {"create": [], "session": []}
     monkeypatch.setattr(ua, "get_user", lambda u, *a, **k: users.get(u))
+    monkeypatch.setattr(ua, "bind_oidc_login", lambda u, subject, *a, **k:
+                        (True, "bound") if bindings.get(u) == subject else (False, "bound to another OIDC subject"))
 
-    def _create(u, pw, role="operator", *a, **k):
+    def _create(u, pw, role="operator", *a, oidc_binding=None, **k):
         calls["create"].append(u)
         users[u] = {"username": u, "role": role}
+        bindings[u] = oidc_binding
         return True, "ok"
 
     def _issue(u, *a, **k):

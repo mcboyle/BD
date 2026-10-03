@@ -13,12 +13,15 @@ and URL building work without it; only the live callback needs authlib).
 """
 from __future__ import annotations
 
+import hashlib
+import logging
 import secrets
 import unicodedata
 from typing import Optional
 from urllib.parse import urlencode
 
 _DISCO_CACHE: dict = {}
+_log = logging.getLogger(__name__)
 
 
 def oidc_config() -> dict:
@@ -156,13 +159,45 @@ def claims_to_username(claims: dict) -> str:
     return raw
 
 
+def _oidc_subject(claims: dict) -> tuple[str, str]:
+    """The verified (iss, sub) pair a login is bound to. sub is kept EXACTLY as
+    the token carries it (OIDC: case-sensitive, compared as-is) -- trimming would
+    let "victim " reuse "victim"'s account. iss is compared the way
+    verify_id_token accepted it (trailing slash stripped, nothing else)."""
+    iss, sub = claims.get("iss"), claims.get("sub")
+    if not isinstance(iss, str) or not isinstance(sub, str) or not iss or not sub:
+        raise ValueError("no iss/sub claim to bind the login to")
+    return iss.rstrip("/"), sub
+
+
 def provision_user(claims: dict) -> str:
     """Ensure a BD user exists for these claims; return the username. First
-    login creates an operator with a random (unused) local password."""
+    login creates an operator with a random (unused) local password, bound to
+    the token's (iss, sub).
+
+    O1717 rebind migration (ahead of a07): an existing user is reused only when
+    bound to this exact (iss, sub). One with no or a legacy (partial) binding --
+    admins too (O1720) -- is bound to it now if iss is the configured issuer,
+    under the store lock, and logged at WARN. A user bound to any other
+    (iss, sub), or an unbound one under another issuer, is refused -- the
+    callback turns the ValueError into sso_error -- and the store is unchanged."""
     from . import user_accounts as _ua
     username = claims_to_username(claims)
     if not username:
         raise ValueError("no username claim (preferred_username/email/sub)")
+    subject = _oidc_subject(claims)
     if _ua.get_user(username) is None:
-        _ua.create_user(username, secrets.token_urlsafe(32), role="operator")
+        ok, msg = _ua.create_user(username, secrets.token_urlsafe(32),
+                                  role="operator", oidc_binding=subject)
+        if ok:
+            return username
+        if _ua.get_user(username) is None:
+            raise ValueError(f"could not provision {username!r}: {msg}")
+        # a concurrent first login created it: its binding decides below
+    ok, msg = _ua.bind_oidc_login(username, subject, rebind_issuer=oidc_config()["issuer"])
+    if not ok:
+        raise ValueError(f"OIDC_ACCOUNT_BINDING_REFUSED: local user {username!r}: {msg}")
+    if msg == "rebound":
+        _log.warning("OIDC_ACCOUNT_REBOUND user=%r iss=%r sub_sha256=%s", username,
+                     subject[0], hashlib.sha256(subject[1].encode("utf-8")).hexdigest()[:16])
     return username
