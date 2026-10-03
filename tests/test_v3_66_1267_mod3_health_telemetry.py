@@ -40,6 +40,9 @@ def _isolated_mod3_counters(monkeypatch):
     monkeypatch.setattr(pg_backend, "_shapes", {})
     monkeypatch.setattr(pg_backend, "_latency_ms", deque(maxlen=8))
     monkeypatch.setattr(pg_backend, "_reads", {"attempts": 0, "errors": 0})
+    # sg-pg-band-host: the stale gate left {"scope": 5} here from the real-PG shard and
+    # test_counter_values_come_from_pg_backend's `skip_reasons == {}` failed by run order.
+    monkeypatch.setattr(pg_backend, "_shadow_skip_reasons", {})
 
 
 @contextmanager
