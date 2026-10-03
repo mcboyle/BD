@@ -82,6 +82,7 @@ export function BatchOps() {
   // v3.66.728: the other three /api/batch/* endpoints. All CONTROL-class and dark until now.
   const [resetTo, setResetTo] = useState("pending");
   const [retryPreview, setRetryPreview] = useState<BatchDeleteResult | null>(null);
+  const [retryConfirm, setRetryConfirm] = useState(false);
   const [targetDir, setTargetDir] = useState("");
   const [moveConfirm, setMoveConfirm] = useState(false);
   const [dedupMinMb, setDedupMinMb] = useState("50");
@@ -444,7 +445,7 @@ export function BatchOps() {
           <Button
             size="sm"
             disabled={busy || retryPreviewCount === 0}
-            onClick={() => retryMut.mutate()}
+            onClick={() => setRetryConfirm(true)}
           >
             Execute retry
           </Button>
@@ -503,6 +504,28 @@ export function BatchOps() {
           </Button>
         </div>
       </Card>
+
+      <Dialog open={retryConfirm} onOpenChange={(o) => !o && setRetryConfirm(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Requeue the matched history rows?</DialogTitle>
+            <DialogDescription>
+              Resets the {retryPreviewCount} previewed history row(s) matching the filter
+              <code> {JSON.stringify(buildFilter())}</code> to status
+              <code> {resetTo || "(none)"}</code>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRetryConfirm(false)}>Cancel</Button>
+            <Button
+              disabled={busy || retryPreviewCount === 0}
+              onClick={() => { setRetryConfirm(false); retryMut.mutate(); }}
+            >
+              Requeue rows
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={moveConfirm} onOpenChange={(o) => !o && setMoveConfirm(false)}>
         <DialogContent>
