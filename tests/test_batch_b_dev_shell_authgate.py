@@ -68,8 +68,22 @@ def test_shell_blocks_remote_unauthenticated():
     assert r.status_code == 403, f"remote unauth shell request must be 403, got {r.status_code}"
 
 
-def test_shell_allows_same_origin():
+def test_shell_refuses_referer_host_only():
+    # O1671 AUDIT-16: Host and Referer are client-controlled; matching them is
+    # not a same-origin proof.
     c = _shell_client()
+    r = c.get("/cockpit/api/shell/status", environ_base=_REMOTE,
+              headers={"Host": "bd.local:5555", "Referer": "http://bd.local:5555/cockpit"})
+    assert r.status_code == 403, f"Referer==Host-only shell request must be 403, got {r.status_code}"
+
+
+def test_shell_allows_same_origin():
+    # Same-origin browser UI over plain HTTP: a valid host-app session cookie plus
+    # Referer == Host (O1671 a16 ruling B, PM r2; no Sec-Fetch-* / Origin on an HTTP GET).
+    from bulk_downloader import app as host
+    sess = host._session_create(source="csrf_bootstrap")
+    c = host.app.test_client()
+    c.set_cookie("bd_session", sess, domain="bd.local")
     r = c.get("/cockpit/api/shell/status", environ_base=_REMOTE,
               headers={"Host": "bd.local:5555", "Referer": "http://bd.local:5555/cockpit"})
     assert r.status_code != 403, f"same-origin shell request must NOT be 403, got {r.status_code}"

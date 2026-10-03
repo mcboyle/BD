@@ -1878,33 +1878,76 @@ def api_debug_log():
 # ── Interactive shell (OPT-IN, hard-gated on BD_COCKPIT_SHELL=1) ────────────
 # Imported lazily so cockpit_core / the recognition surface never depend on it.
 
+def _netloc(url: str) -> str:
+    """host[:port] of an absolute URL, default port (80/443) stripped, lowercased."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    host = (u.hostname or "").lower()
+    if u.port and not ((u.scheme == "http" and u.port == 80)
+                       or (u.scheme == "https" and u.port == 443)):
+        host = f"{host}:{u.port}"
+    return host
+
+
 def _shell_request_trusted() -> bool:
-    """F-COCKPIT03-01: self-contained origin/bind guard for the arbitrary-command
-    web-shell. Trusted = loopback (a local request / the standalone cockpit's
-    127.0.0.1 bind) or a same-origin browser request (the cockpit UI this server
-    served, Referer host:port == Host). A remote cross-origin request is refused
-    regardless of the host app's auth config, so default-on can never mean
-    reachable from an untrusted network."""
+    """F-COCKPIT03-01 / O1671 AUDIT-16: self-contained origin/bind guard for the
+    arbitrary-command web-shell. Trusted = loopback (a local request / the
+    standalone cockpit's 127.0.0.1 bind) or the cockpit UI in a browser session:
+      * a valid bd_session cookie (the host app's session store), always;
+      * a present cross-site signal refuses: Sec-Fetch-Site other than
+        same-origin, or an Origin whose host:port differs from Host;
+      * state-changing (non-GET) requests: X-CSRF-Token == the token derived
+        from the session AND a same-origin signal (Sec-Fetch-Site: same-origin,
+        or Origin == Host -- browsers send Origin on every POST);
+      * GET/HEAD (status, poll): over plain HTTP a browser sends no Sec-Fetch-*
+        and a same-origin GET no Origin (lens a16 BOUNCE), so with neither
+        present a Referer must name Host; with no Referer either, the session
+        cookie itself is the same-site proof (every mint sets SameSite=Lax, so
+        a cross-site fetch never carries it). PM order O1672 a16 r2.
+    Referer==Host WITHOUT a valid session is NOT trusted: both are client-set.
+    RESIDUAL (operator ruling, O1671 a16 option B): GET /api/csrf mints an
+    anonymous session for any caller, so a non-browser client can still assemble
+    these signals; only a credential (bearer / pairing) would close that."""
     ra = (request.remote_addr or "")
     if ra in ("127.0.0.1", "::1", "localhost"):
         return True
-    ref = request.headers.get("Referer", "")
-    host = request.headers.get("Host", "")
-    if not (ref and host):
+    host = (request.headers.get("Host", "") or "").lower()
+    if not host:
         return False
+    sfs = (request.headers.get("Sec-Fetch-Site", "") or "").lower()
+    origin = request.headers.get("Origin", "") or ""
+    referer = request.headers.get("Referer", "") or ""
     try:
-        from urllib.parse import urlparse
-        r = urlparse(ref)
-        ref_netloc = (r.hostname or "").lower()
-        if r.port:
-            ref_netloc = f"{ref_netloc}:{r.port}"
-        if r.scheme == "http" and r.port == 80:
-            ref_netloc = (r.hostname or "").lower()
-        elif r.scheme == "https" and r.port == 443:
-            ref_netloc = (r.hostname or "").lower()
-        return ref_netloc == host.lower()
+        if sfs and sfs != "same-origin":
+            return False
+        if origin and _netloc(origin) != host:
+            return False
+        same_origin = sfs == "same-origin" or bool(origin)
+        if request.method in ("GET", "HEAD"):
+            if not same_origin and referer and _netloc(referer) != host:
+                return False
+        elif not same_origin:
+            return False
     except Exception:
         return False
+    # Session + CSRF live in the host app (bulk_downloader.app). Use it only if
+    # it is already loaded (it serves this blueprint); never import it from here.
+    import sys
+    host_app = sys.modules.get("bulk_downloader.app")
+    if host_app is None:
+        return False
+    sess = request.cookies.get("bd_session", "")
+    try:
+        if not (sess and host_app._session_valid(sess)):
+            return False
+        if request.method not in ("GET", "HEAD"):
+            import hmac
+            sent = request.headers.get("X-CSRF-Token", "") or ""
+            if not (sent and hmac.compare_digest(sent, host_app._csrf_token_for(sess))):
+                return False
+    except Exception:
+        return False
+    return True
 
 
 @bp.before_request
