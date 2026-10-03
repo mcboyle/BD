@@ -55,10 +55,17 @@ class _LateDisplayPath:
         self._resolved().unlink()
 
 
+def _exact_identity_terminated(
+    identity: tuple[int, str] | None, start_ticks: int
+) -> bool:
+    """Gone, replaced, or dead: proc_pid_stat(5) Z (zombie) and X (dead)."""
+    return identity is None or identity[0] != start_ticks or identity[1] in ("Z", "X")
+
+
 def _recover_exact_process_identity(pid: int, start_ticks: int) -> None:
     """Mutation-test backstop: reap only the exact test-started identity."""
     identity = display_test._proc_identity(pid)
-    if identity is None or identity[0] != start_ticks or identity[1] == "Z":
+    if _exact_identity_terminated(identity, start_ticks):
         return
     pidfd = os.pidfd_open(pid, 0)
     try:
@@ -397,7 +404,7 @@ def test_cleanup_terminates_the_exact_display_process_this_test_started() -> Non
             "precondition: the owned-display context did not yield"
         )
         observed = display_test._proc_identity(pid)
-        assert observed is None or observed[0] != start_ticks or observed[1] == "Z", (
+        assert _exact_identity_terminated(observed, start_ticks), (
             f"cleanup left the exact owned display identity alive: pid={pid} "
             f"start={start_ticks} observed={observed}"
         )
@@ -467,3 +474,42 @@ def test_display_claim_is_atomic_and_preserves_an_existing_claim(
 def test_transform_control_imports_display_owner_without_asserting_cleanup() -> None:
     """Import-only control for the valid cleanup-confinement transform."""
     assert callable(display_test._owned_bd_start_display)
+
+
+@pytest.mark.parametrize(
+    ("identity", "live"),
+    [
+        ((4242, "X"), False),
+        ((4242, "Z"), False),
+        (None, False),
+        ((4243, "S"), False),
+        ((4242, "S"), True),
+        ((4242, "R"), True),
+        ((4242, "D"), True),
+        ((4242, "T"), True),
+    ],
+)
+def test_recovery_treats_only_a_live_exact_identity_as_alive(
+    monkeypatch: pytest.MonkeyPatch,
+    identity: tuple[int, str] | None,
+    live: bool,
+) -> None:
+    """proc_pid_stat(5): X (dead) and Z are terminated; R/S/D/T are live."""
+    bound: list[int] = []
+
+    def refuse_pidfd(pid: int, flags: int = 0) -> int:
+        bound.append(pid)
+        raise LookupError("row300-x-state: recovery bound a pidfd")
+
+    monkeypatch.setattr(display_test, "_proc_identity", lambda pid: identity)
+    monkeypatch.setattr(os, "pidfd_open", refuse_pidfd)
+    if live:
+        with pytest.raises(LookupError, match="row300-x-state"):
+            _recover_exact_process_identity(31337, 4242)
+    else:
+        _recover_exact_process_identity(31337, 4242)
+    assert bool(bound) is live, (
+        f"row300-x-state: identity={identity} treated as "
+        f"{'live' if bound else 'terminated'}, expected "
+        f"{'live' if live else 'terminated'}"
+    )
