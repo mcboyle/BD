@@ -189,6 +189,46 @@ describe("T1 dashboard runtime wiring", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
+  // F061 Retry BEHAVIOUR (o1698-f061-retry-coverage): the test above only proves the button
+  // exists -- replacing its onClick with a no-op stayed 7/7 green. These two click it.
+  const dashboardCalls = () => apiGetMock.mock.calls.filter(([p]) => p === "/api/dashboard").length;
+
+  it("Retry after an outage refetches and renders the recovered dashboard (F061)", async () => {
+    let up = false;
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === "/api/dashboard") {
+        if (!up) throw new Error("HTTP 500: Server error");
+        return { ...FIXTURES["/api/dashboard"], totals: { done: 913 } };  // OverviewPanel "Done"
+      }
+      return FIXTURES[path as keyof typeof FIXTURES] ?? {};
+    });
+    renderWired(<Dashboard />, "/dashboard");
+    await screen.findByRole("alert");
+    expect(screen.queryByText("913")).not.toBeInTheDocument();
+
+    up = true;
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(await screen.findByText("913")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("Retry during a persistent outage refetches again and keeps the error state (F061 control)", async () => {
+    apiGetMock.mockImplementation(async (path: string) => {
+      if (path === "/api/dashboard") throw new Error("HTTP 500: Server error");
+      return FIXTURES[path as keyof typeof FIXTURES] ?? {};
+    });
+    renderWired(<Dashboard />, "/dashboard");
+    await screen.findByRole("alert");
+    const before = dashboardCalls();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(dashboardCalls()).toBeGreaterThan(before));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn’t load dashboard/i);
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
   it("does not render role=alert node when dashboard API succeeds (positive control)", async () => {
     renderWired(<Dashboard />, "/dashboard");
     await screen.findByRole("heading", { name: "System Overview" });
