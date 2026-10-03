@@ -124,8 +124,8 @@
     menu.id = '__bd_autofill_menu';
     menu.setAttribute('style', [
       'position:fixed',
-      'left:' + Math.round(r.left + window.scrollX) + 'px',
-      'top:' + Math.round(r.bottom + window.scrollY + 4) + 'px',
+      'left:' + Math.round(r.left) + 'px',
+      'top:' + Math.round(r.bottom + 4) + 'px',
       'z-index:2147483647',
       'background:#1e1e26', 'color:#e6e6e9',
       'border:1px solid #4a9eff', 'border-radius:6px',
