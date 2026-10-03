@@ -789,7 +789,7 @@ def lookup_url(url: str) -> Optional[CatalogMatch]:
 
     Confidence scoring:
       - 1.0: exact host pattern match
-      - 0.6: host substring match (e.g. catalog has 'foo.com',
+      - 0.6: host suffix match (e.g. catalog has 'foo.com',
         URL is at 'cdn.foo.com')
       - +0.1 boost if a scene_url_hint matches the URL path
     """
@@ -823,7 +823,7 @@ def lookup_url(url: str) -> Optional[CatalogMatch]:
             elif _etld1(host) == _etld1(pat_low):
                 confidence = 0.95
                 matched = pat
-            elif pat_low in host:
+            elif host.endswith("." + pat_low):
                 confidence = 0.6
                 matched = pat
             else:
