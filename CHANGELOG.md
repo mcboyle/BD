@@ -4,6 +4,19 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1785 - train221e: row
+
+T221 = O1698 harness rows (7; recall-kimi bounced: gitleaks generic-api-key tests/test_recall_kimi.py:48), repo halves (regression tests), BOARDed at cut time, applied on T220e (O1756 batch: every ready BOARD):
+- o1698-clone-dhcp-r5-static r2 (lens bd-review-correctness-A2 r2): tests/test_o1698_clone_dhcp_r5_static.py.
+- o1698-guard-python-venv r2 (lens bd-review-correctness-A1 r2): tests/test_o1698_guard_python_venv.py.
+- o1698-seat-sockets-r3 r3 (lens bd-review-correctness-A1 r3): tests/test_o1698_seat_sockets.py.
+- o1698-w2-c13-context-packs-shadow r2 (lens bd-review-correctness-C1 r2): tests/test_o1698_w2_c13_context_packs_shadow.py.
+- o1698-w2-l13-dupes-shadow r3 (lens bd-cx-review-correctness5 r3): tests/test_o1698_w2_l13_dupes_shadow.py.
+- o1698-w3-p3-host-auto (bd-worker-A9, lens bd-review-correctness-A1 r1): tests/test_o1698_w3_p3_host_auto.py.
+- o1698-w3-p4-provider-receipts (bd-worker-A9, lens bd-review-correctness-agy2 r1): tests/test_o1698_w3_p4_provider_receipts.py.
+Harness halves (FIX/<row> INSTALL candidates) install separately via PM; tests skip when the harness is absent.
+
+
 ## v3.66.1784 - train220e: row
 
 T220 = O1671 a16 r3 shell-close-reap (product), BOARDed at cut time, applied on T219:
