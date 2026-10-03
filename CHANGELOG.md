@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1778 - train214e: row
+
+T214 = O1698 fleet-watch liveness r3 (test half; harness script installed separately), BOARDed by PM adjudication, applied on T213:
+- o1698-fleet-watch-liveness r3 (bd-cx-worker15; lens bd-cx-review-correctness9 r3 BOUNCE on the old prompt line only, FOUND NONE defects; PM bd-pm-C adjudicator BOARD citing RULING-pm-C-lens-contract-1100Z): adds tests/test_o1698_fleet_watch_liveness.py, an opt-in test (BD_TEST_O1698_FLEET_WATCH_LIVENESS=1) for harness/bd-fleet-watch.sh liveness and hub-streak alerting (green, breach and RED-control cases). Skipped unless opted in with the installed script present; stdlib imports only.
+
+
 ## v3.66.1777 - train213e: row
 
 T213 = O1698 C2 indexed-search default r3 (test half; harness candidate installed by PM), BOARDed at cut time, applied on T212:
