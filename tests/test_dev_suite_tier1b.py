@@ -9,6 +9,11 @@ the app.py request hook that feeds dev_metrics.
 # test, not the tree, so it is not a repo-wide CI gate.
 BD_GATE_SCOPE = "module"
 
+import json
+import os
+import subprocess
+import sys
+
 from bulk_downloader import dev_metrics as dm
 from bulk_downloader import dev_suite as ds
 
@@ -97,14 +102,79 @@ def test_thread_dump_includes_stacks():
 
 # ── D-60 deadlock detector ────────────────────────────────────────
 
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _detector_in_fresh_process(setup=""):
+    """deadlock_detector() run in a NEW interpreter after `setup`; its JSON result.
+
+    sg-deadlock-tier1b: the detector scans every thread of its process. A shared pytest
+    worker is not a clean process: xdist's execnet reader sits in a blocking read(), and an
+    earlier test can leave a thread asleep (test_challenge_circuit's abandoned
+    challenge_action, 3 s). Two such threads made the nightly band RED on b8441270 (gw9).
+    A fresh interpreter is clean by construction, whatever ran before in this worker."""
+    code = ("import json, os, sys\n"
+            f"sys.path.insert(0, {_REPO!r})\n"
+            f"{setup}\n"
+            "from bulk_downloader import dev_suite as ds\n"
+            "print(json.dumps(ds.deadlock_detector()), flush=True)\n"
+            "os._exit(0)\n")  # a deliberately deadlocked setup must not hang the exit
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                       cwd=_REPO, timeout=60, check=False)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+# A healthy process still has threads: two workers parked in intentional idle waits
+# (Event / Queue). They must not count, so the idle-wait exclusion stays under test.
+_IDLE_WORKERS = """
+import queue, threading
+threading.Thread(target=threading.Event().wait, name="idle-event", daemon=True).start()
+threading.Thread(target=queue.Queue().get, name="idle-queue", daemon=True).start()
+import time
+time.sleep(0.2)
+"""
+
+
 def test_deadlock_detector_clean_process():
-    r = ds.deadlock_detector()
-    # a healthy test process has no thread frozen at an identical
+    r = _detector_in_fresh_process(_IDLE_WORKERS)
+    assert r["live_threads_scanned"] >= 2, r  # the idle workers were there to be judged
+    # a healthy process has no thread frozen at an identical
     # non-idle frame across both snapshots; the inspecting thread is
     # excluded, so it can never flag itself
     assert r["deadlock_suspected"] is False, r["stalled_suspects"]
     assert "stalled_suspects" in r
     assert "verdict" in r
+
+
+# Positive control: two threads that each hold one lock and block on the other's.
+_LOCK_ORDER_DEADLOCK = """
+import threading
+la, lb = threading.Lock(), threading.Lock()
+held = threading.Barrier(3)
+def grab_ab():
+    with la:
+        held.wait()
+        with lb:
+            pass
+def grab_ba():
+    with lb:
+        held.wait()
+        with la:
+            pass
+for fn in (grab_ab, grab_ba):
+    threading.Thread(target=fn, name=fn.__name__, daemon=True).start()
+held.wait()
+import time
+time.sleep(0.2)
+"""
+
+
+def test_deadlock_detector_flags_a_real_deadlock():
+    r = _detector_in_fresh_process(_LOCK_ORDER_DEADLOCK)
+    assert r["deadlock_suspected"] is True, r
+    names = sorted(s["name"] for s in r["stalled_suspects"])
+    assert names == ["grab_ab", "grab_ba"], r["stalled_suspects"]
 
 
 # ── app.py request hook → dev_metrics integration ─────────────────
