@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import time
 import unicodedata
 from typing import Optional
 from urllib.parse import urlencode
@@ -194,10 +195,15 @@ def provision_user(claims: dict) -> str:
         if _ua.get_user(username) is None:
             raise ValueError(f"could not provision {username!r}: {msg}")
         # a concurrent first login created it: its binding decides below
-    ok, msg = _ua.bind_oidc_login(username, subject, rebind_issuer=oidc_config()["issuer"])
+    prior: dict = {}
+    ok, msg = _ua.bind_oidc_login(username, subject, rebind_issuer=oidc_config()["issuer"], prior=prior)
     if not ok:
         raise ValueError(f"OIDC_ACCOUNT_BINDING_REFUSED: local user {username!r}: {msg}")
     if msg == "rebound":
-        _log.warning("OIDC_ACCOUNT_REBOUND user=%r iss=%r sub_sha256=%s", username,
-                     subject[0], hashlib.sha256(subject[1].encode("utf-8")).hexdigest()[:16])
+        # one audit line per legacy rebind: the replaced iss (repr'd; "none" if the record had none) -> the new one
+        old_iss = prior.get("iss")
+        _log.warning("OIDC_ACCOUNT_REBOUND user=%r old_iss=%s iss=%r sub_sha256=%s at=%s", username,
+                     "none" if old_iss is None else repr(old_iss), subject[0],
+                     hashlib.sha256(subject[1].encode("utf-8")).hexdigest()[:16],
+                     time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     return username

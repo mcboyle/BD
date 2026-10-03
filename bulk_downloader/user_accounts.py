@@ -240,14 +240,15 @@ def get_oidc_binding(username: str,
 
 def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
                     base_dir: str | os.PathLike | None = None, *,
-                    rebind_issuer: str = "") -> tuple[bool, str]:
+                    rebind_issuer: str = "", prior: dict | None = None) -> tuple[bool, str]:
     """Admit a verified OIDC login as an EXISTING user, in one locked
     read-check-write. ``(True, "bound")``: already bound to exactly this
     (iss, sub), nothing written. ``(True, "rebound")``: the user had no or a
     legacy binding, the login's iss is ``rebind_issuer`` (the configured one),
     and the user is now bound to it -- admins included (O1720). Refused (store
     untouched): no such user, bound to any other (iss, sub), or unbound and
-    the iss is not ``rebind_issuer``."""
+    the iss is not ``rebind_issuer``. On "rebound" only, ``prior`` (if given)
+    gets ``{"iss": <the replaced record's iss, or None>}`` for the audit line."""
     iss, sub = oidc_binding
     name = (username or "").strip()
     try:
@@ -261,11 +262,15 @@ def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
                 return (True, "bound") if bound == (iss, sub) else (False, "bound to another OIDC subject")
             if not rebind_issuer or iss != rebind_issuer:
                 return False, "unbound and the login issuer is not the configured OIDC issuer"
+            old = rec.get("oidc")
+            old_iss = old.get("iss") if isinstance(old, dict) else None
             rec["oidc"] = {"iss": iss, "sub": sub}
             if not _save(doc, base_dir):
                 return False, "write failed"
     except OSError:
         return False, "could not lock accounts store"
+    if prior is not None:
+        prior["iss"] = old_iss if isinstance(old_iss, str) and old_iss else None
     return True, "rebound"
 
 
