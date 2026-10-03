@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1766 - train202: row
+
+T202 = O1698 stale-gate sg-deadlock-tier1b (test-only), BOARDed at cut time, applied on T201:
+- sg-deadlock-tier1b (bd-worker-C4; lens bd-review-correctness-B2): the clean-process deadlock-detector test in tier1b now runs ds.deadlock_detector() in a fresh `python -c` process, so it no longer counts threads left behind by earlier tests on the same xdist worker (test_challenge_circuit's 3 s thread). A new positive control (a lock-order deadlock in a fresh process) must still be flagged (tests/test_dev_suite_tier1b.py).
+
+
 ## v3.66.1765 - train201: row
 
 T201 = O1713 phoenix host substring (Codex effort experiment small cut), BOARDed at cut time, applied on T200:
