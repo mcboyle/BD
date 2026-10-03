@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1761 - train195: row
+
+T195 = O1671 F061-fix r2 (pulled from T184 #1100 for the dashboard test pin), BOARDed at cut time, applied on T194:
+- F061-fix r2 (bd-worker-C3; lens bd-cx-review-correctness5): /dashboard with its APIs failing (abort / HTTP 500) rendered no role=alert node; the dashboard now shows one alert with a Retry button when useDashboard() errors and none on success. r2 updates the pinned Vitest denominators that failed T184 parity-graph: tests/test_t1_dashboard_wired.py 5 -> 7 (count + receipt) and tests/test_row281_ui_wrappers_delegate.py (frontend/src/routes/Dashboard.tsx, Dashboard.wired.test.tsx).
+
+
 ## v3.66.1760 - train194: row
 
 T194 = parked O1671/O1673 product cuts BOARDed after the O1703 lens pass (PM YES 01:52Z), applied on main after T193:
