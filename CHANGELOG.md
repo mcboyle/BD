@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1767 - train203b: row
+
+T203 = O1671 library search r2 (PM YES 01:52Z, lens-router BOARD), applied on T202. (a07 OIDC binding PULLED by PM 05:15Z pending operator ruling.)
+- o1671-r8b-f019 library search r2 (bd-cx-worker16; lens bd-review-correctness-C1): Library search covers titles and tags. Tag objects ({id,name,color}) now match on their name; r1 crashed on them by calling toLowerCase on an object. LibraryItem.tags is typed (string|LibraryTag)[] and LibraryTag gains color (frontend/src/routes/Library.tsx, frontend/src/lib/api-types.ts, new Library.search.test.tsx).
+
+
 ## v3.66.1766 - train202: row
 
 T202 = O1698 stale-gate sg-deadlock-tier1b (test-only), BOARDed at cut time, applied on T201:
