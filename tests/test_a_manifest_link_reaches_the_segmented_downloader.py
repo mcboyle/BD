@@ -140,7 +140,17 @@ def test_the_predicate_is_hls_downloaders_and_not_a_local_copy():
     copy of a denominator drifts. Asserted over AST string constants, so the
     prose of a comment cannot trip it -- that mistake was made in #72 and caught
     by its own gate."""
-    tree = ast.parse(_RT.read_text(encoding="utf-8"))
+    # o1673-t154-edge1: the predicate's body now lives in media_route.py.
+    offenders = []
+    for path in (_RT, ROOT / "bulk_downloader" / "media_route.py"):
+        offenders += [f"{path.name} {o}" for o in _stream_ext_constants(path)]
+    assert not offenders, (
+        "runner_transport.py / media_route.py carry streaming extensions as their "
+        "own string constants:\n  " + "\n  ".join(offenders))
+
+
+def _stream_ext_constants(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     docstrings = set()
     for n in ast.walk(tree):
         body = getattr(n, "body", None)
@@ -150,13 +160,10 @@ def test_the_predicate_is_hls_downloaders_and_not_a_local_copy():
                 and isinstance(body[0].value, ast.Constant)
                 and isinstance(body[0].value.value, str)):
             docstrings.add(id(body[0].value))
-    offenders = [f"line {n.lineno}: {n.value[:50]!r}" for n in ast.walk(tree)
-                 if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                 and id(n) not in docstrings
-                 and any(e in n.value for e in (".m3u8", ".mpd", ".m3u"))]
-    assert not offenders, (
-        "runner_transport.py carries streaming extensions as its own string "
-        "constants:\n  " + "\n  ".join(offenders))
+    return [f"line {n.lineno}: {n.value[:50]!r}" for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in docstrings
+            and any(e in n.value for e in (".m3u8", ".mpd", ".m3u"))]
 
 
 # ── the wiring: skip the click, and transfer through ffmpeg ──────────────────

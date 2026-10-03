@@ -532,7 +532,7 @@ def select_quality_tier(candidates, target_resolution=None, target_codec=None):
 
 # ─── SAME-WORK IDENTITY ───────────────────────────────────────────────────────
 # v3.66.x row 388 -- THE THIRD ROUTING DECISION, AS A PURE FUNCTION, in the
-# shape of runner_transport's _stream_route / _direct_media_route: two strings
+# shape of media_route's stream_route / direct_media_route: two strings
 # in, a verdict out, nothing browser-coupled, so it can be checked directly.
 #
 # MEASURED on test6 2026-08-29 at v3.66.1346, live and read-only, on
@@ -1887,7 +1887,7 @@ def _fetched_without_click(el, page_url):
 
     dl95-eporner-3. Row 759 zeroes a hidden candidate's resolution because it
     cannot be clicked. The transport never clicks a winner whose href routes to
-    a direct fetch (``TransportMixin._stream_route`` / ``_direct_media_route``,
+    a direct fetch (``media_route.stream_route`` / ``direct_media_route``,
     rows 819 and 384), so for that winner visibility does not matter. eporner
     keeps all ten ``/dload/<id>/<h>/<file>.mp4`` anchors in a ``display:none``
     panel (tests/fixtures/eporner_dload_anchors.json); zeroed, a visible junk
@@ -1904,9 +1904,9 @@ def _fetched_without_click(el, page_url):
     if not href:
         return False
     try:
-        from .runner_transport import TransportMixin
-        return bool(TransportMixin._stream_route(href, page_url)[0]
-                    or TransportMixin._direct_media_route(href, page_url)[0])
+        from .media_route import direct_media_route, stream_route
+        return bool(stream_route(href, page_url)[0]
+                    or direct_media_route(href, page_url)[0])
     except Exception:
         return False
 
