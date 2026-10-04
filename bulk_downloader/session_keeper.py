@@ -68,6 +68,7 @@ import sqlite3
 import sys
 import threading
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
 
@@ -108,6 +109,74 @@ _LOGIN_FORM_JS = """() => {
   const t = (document.body ? document.body.textContent : '') || '';
   return /%s/i.test(t);
 }""" % _SIGNIN_WORD.replace("/", "\\/")
+
+# The fetch and httpx probes only hold raw HTML, so they need a Python twin of
+# _LOGIN_FORM_JS -- built from the same _SIGNIN_WORD, with the same conjunction.
+# Each used to carry its own `"login" in body` copy, which is the substring test
+# the header above says misses every "Sign in" page.
+#
+# A TWIN READS WHAT THE JS READS, NOT THE RAW MARKUP. The JS sees a parsed DOM:
+# body.textContent (no <head>, no attribute values, no comments, no <template>
+# content, entities decoded, "Sign<span> in" joined) and a real password
+# <input> (type matched case-insensitively, any quoting). A regex over raw HTML
+# reads "Sign-in" in a <head> meta or a hidden /users/sign_in href on a
+# logged-in change-password page as a login form -> DEAD -> _auto_relogin on
+# every beat.
+_SIGNIN_TEXT_RE = re.compile(_SIGNIN_WORD, re.I)
+
+# Elements the HTML parser keeps in <head>; any other start tag opens the body.
+_HEAD_TAGS = frozenset({"html", "head", "title", "meta", "link", "style",
+                        "script", "base", "noscript", "template"})
+
+
+class _LoginFormScan(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.in_body = False
+        self.head_text = 0      # open title/style/script/noscript in <head>
+        self.template = 0       # open <template>: inert content, not the DOM
+        self.password = False
+        self.text: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "template":
+            self.template += 1
+        if self.template:
+            return
+        if tag == "noscript":       # raw text with scripting on, as in Chromium
+            self.set_cdata_mode("noscript")
+        if tag == "body" or tag not in _HEAD_TAGS:
+            self.in_body = True
+        elif not self.in_body and tag in ("title", "style", "script",
+                                          "noscript"):
+            self.head_text += 1
+        if tag == "input" and any(
+                k == "type" and (v or "").lower() == "password"
+                for k, v in attrs):
+            self.password = True
+
+    def handle_endtag(self, tag):
+        if tag == "template":
+            self.template = max(0, self.template - 1)
+        elif not self.template and self.head_text and tag in (
+                "title", "style", "script", "noscript"):
+            self.head_text -= 1
+
+    def handle_data(self, data):
+        if self.template or self.head_text:
+            return
+        if not self.in_body:
+            if not data.strip():
+                return
+            self.in_body = True     # stray text after <head> opens the body
+        self.text.append(data)
+
+
+def _body_has_login_form(body: str) -> bool:
+    scan = _LoginFormScan()
+    scan.feed(body)
+    scan.close()
+    return scan.password and bool(_SIGNIN_TEXT_RE.search("".join(scan.text)))
 
 from . import cloak as _cloak
 from . import db
@@ -1573,8 +1642,7 @@ class SessionKeeper:
                 return DEAD, f"fetch got {status}"
             if 300 <= status < 400:
                 return DEAD, f"fetch got redirect {status}"
-            body = (result.get("body") or "").lower()
-            if "type=\"password\"" in body and "login" in body:
+            if _body_has_login_form(result.get("body") or ""):
                 return DEAD, "fetch body contains login form"
             # Row 424: an unclassified status is not an authenticated answer.
             verdict = _classify_status(status)
@@ -1620,13 +1688,12 @@ class SessionKeeper:
                 resp = cli.get(check_url)
             if 300 <= resp.status_code < 400:
                 loc = resp.headers.get("location", "")
-                if "login" in loc.lower() or "signin" in loc.lower():
+                if _LOGIN_URL_RE.search(loc):
                     return DEAD, f"redirected to login: {loc[:80]}"
             if resp.status_code in (401, 403):
                 return DEAD, f"server returned {resp.status_code}"
             if resp.status_code == 200:
-                text = resp.text[:50000].lower()
-                if 'type="password"' in text and "login" in text:
+                if _body_has_login_form(resp.text[:50000]):
                     return DEAD, "response contains login form"
             # Row 424: this is where ANY 3xx whose Location merely lacked the
             # substrings login/signin used to fall through to True, alongside
@@ -1791,17 +1858,19 @@ def pause_site_keepers(site_id: str) -> int:  # INV-001
     Returns the number of keepers whose browsers were torn down.
     Safe to call when no keepers exist (returns 0).
     """
-    paused = 0
+    # Snapshot under the lock, close outside it: a Chromium close can block for
+    # seconds, and _state_lock is the one every keeper's _set_state needs.
     with _state_lock:
-        for (kid, _aidx), keeper in list(_keepers.items()):
-            if kid == site_id:
-                try:
-                    keeper._teardown_browser()
-                    paused += 1
-                except Exception as e:
-                    sys.stderr.write(
-                        f"  keepalive[{kid}]: pause teardown failed: "
-                        f"{type(e).__name__}: {e}\n")
+        matching = [k for (kid, _aidx), k in _keepers.items() if kid == site_id]
+    paused = 0
+    for keeper in matching:
+        try:
+            keeper._teardown_browser()
+            paused += 1
+        except Exception as e:
+            sys.stderr.write(
+                f"  keepalive[{site_id}]: pause teardown failed: "
+                f"{type(e).__name__}: {e}\n")
     if paused:
         sys.stderr.write(
             f"  keepalive: paused {paused} keeper browser(s) for {site_id}\n")
