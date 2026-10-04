@@ -27,6 +27,13 @@ from .app_sites import (
     sites_bp,
 )
 
+# O1826 M020: (sid, url) -> the write token of the newest in-flight single
+# mark. Set and checked under runner._lock; a failed persist restores the job
+# only while its own token is still here, so a later mark -- even to the same
+# status -- that landed inside the persist window is never erased.
+_mark_tokens: dict = {}
+_UNSET = object()
+
 
 @sites_bp.route("/api/sites/<sid>/jd/diagnose")
 def api_jd_diagnose(sid):
@@ -566,6 +573,13 @@ def api_jobs_mark(sid):
             return jsonify({"ok": False, "error": "url not in queue"}), 404
         j = runner.jobs[url]
         prev = j.get("status", "")
+        # O1826 M020: what this route may change, so a failed persist can
+        # put the job back the way it was.
+        touched = ("status", "message", "ts", "ts_iso",
+                   "next_auto_retry_at", "auto_retry_count")
+        saved = {k: j[k] for k in touched if k in j}
+        token = object()
+        _mark_tokens[(sid, url)] = token
         j["status"] = status
         if message:
             j["message"] = message
@@ -578,11 +592,34 @@ def api_jobs_mark(sid):
         if status in ("failed", "done"):
             j["next_auto_retry_at"] = 0
             j["auto_retry_count"] = j.get("auto_retry_count", 0)
+        wrote = {k: j.get(k, _UNSET) for k in touched}
     # Persist + emit event outside the lock (Phase 42 pattern)
     try:
         queue_upsert(sid, url, status=status, message=message or j.get("message", ""))
-    except Exception:
-        pass
+    except Exception as e:
+        # The DB still holds the old status, and a restart would rehydrate
+        # it: undo the in-memory change unless another writer has since
+        # moved the job on, and say so instead of answering ok. Not only
+        # marks write the job: the worker's _update_job takes no token. So
+        # every touched key must still hold the very object this route
+        # wrote, or still be absent -- by identity, as a rewrite to equal
+        # values (same status, message and second) is still a newer write.
+        sys.stderr.write(f"  jobs/mark DB persist failed: {e}\n")
+        with runner._lock:
+            mine = _mark_tokens.get((sid, url)) is token
+            if mine:
+                del _mark_tokens[(sid, url)]
+            if (mine and runner.jobs.get(url) is j
+                    and all(j.get(k, _UNSET) is wrote[k] for k in touched)):
+                for k in touched:
+                    if k in saved:
+                        j[k] = saved[k]
+                    else:
+                        j.pop(k, None)
+        return jsonify({"ok": False, "error": f"persist failed: {e}"}), 500
+    with runner._lock:
+        if _mark_tokens.get((sid, url)) is token:
+            del _mark_tokens[(sid, url)]
     runner.log_event("manual_mark", f"Marked {prev}{status} via API", url=url)
     return jsonify({"ok": True, "status": status, "url": url})
 
@@ -613,6 +650,9 @@ def api_jobs_bulk_mark(sid):
             if u not in runner.jobs:
                 continue
             j = runner.jobs[u]
+            # O1826 M020: a write since any in-flight single mark of u --
+            # that mark's failed persist must not restore over it.
+            _mark_tokens.pop((sid, u), None)
             j["status"] = status
             if message:
                 j["message"] = message
@@ -897,12 +937,18 @@ def api_jobs_detail(sid):
         # Defensive copy — we're about to drop the lock and the runner
         # may mutate j concurrently.
         job_snapshot = dict(j)
-    # Pull prior history from the history table
+    # Pull prior history from the history table. O1826 M021: the url filter
+    # is in the SQL, before the LIMIT -- filtering the site's newest 20 rows
+    # afterwards left any job older than them with an empty history. Exact
+    # match, not db_search's LIKE, which would also return url+suffix rows.
     try:
-        from .db import db_search
-        history = db_search(site_id=sid, limit=20)
-        # Filter to just THIS url
-        history = [h for h in history if h.get("url") == url]
+        from .db import db_conn, _history_title_projection
+        with db_conn() as cx:
+            projection, library_join = _history_title_projection(cx, "h")
+            history = [dict(r) for r in cx.execute(
+                f"SELECT {projection} FROM history h{library_join} "
+                "WHERE h.site_id=? AND h.url=? ORDER BY h.id DESC LIMIT 20",
+                (sid, url)).fetchall()]
     except Exception as e:
         history = []
         sys.stderr.write(f"  job_detail history fetch failed: {e}\n")
