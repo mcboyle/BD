@@ -794,19 +794,23 @@ def _auth_facts(
     return tuple(sorted(set(matches)))
 
 
-def _call_paths(
-    call_graph: Mapping[str, JsonValue],
-    endpoint: str,
-) -> tuple[tuple[str, ...], ...]:
+@dataclass(frozen=True)
+class _CallGraphIndex:
+    adjacency: dict[str, list[str]]
+    # Nodes keyed by the text after their last "::"; a node ending in
+    # "::<endpoint>" always shares that tail with "::<endpoint>" itself.
+    tails: dict[str, list[str]]
+
+
+def _call_graph_index(call_graph: Mapping[str, JsonValue]) -> _CallGraphIndex:
     nodes = call_graph["nodes"]
     edges = call_graph["edges"]
     assert isinstance(nodes, list)
     assert isinstance(edges, list)
-    starts = sorted(
-        node
-        for node in nodes
-        if isinstance(node, str) and node.endswith(f"::{endpoint}")
-    )
+    tails: dict[str, list[str]] = defaultdict(list)
+    for node in nodes:
+        if isinstance(node, str) and "::" in node:
+            tails[node[node.rfind("::") + 2 :]].append(node)
     adjacency: dict[str, list[str]] = defaultdict(list)
     for edge in edges:
         assert isinstance(edge, Mapping)
@@ -817,6 +821,23 @@ def _call_paths(
         adjacency[source].append(target)
     for targets in adjacency.values():
         targets.sort()
+    return _CallGraphIndex(dict(adjacency), dict(tails))
+
+
+def _call_paths(
+    call_graph: Mapping[str, JsonValue],
+    endpoint: str,
+    index: _CallGraphIndex | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    if index is None:
+        index = _call_graph_index(call_graph)
+    suffix = f"::{endpoint}"
+    starts = sorted(
+        node
+        for node in index.tails.get(suffix[suffix.rfind("::") + 2 :], [])
+        if node.endswith(suffix)
+    )
+    adjacency = index.adjacency
     paths: list[tuple[str, ...]] = []
     for start in starts[:100]:
         frontier: deque[tuple[str, ...]] = deque([(start,)])
@@ -882,6 +903,7 @@ def _build_artifact(
     rows, adapter_status, operator, navigation = _validate_probe_payload(payload)
     classified: list[dict[str, JsonValue]] = []
     seen: set[tuple[str, str]] = set()
+    graph_index = _call_graph_index(call_graph.value)
     for raw_row in rows:
         if not isinstance(raw_row, Mapping) or set(raw_row) != {
             "rule",
@@ -923,7 +945,7 @@ def _build_artifact(
             auth_gate_facts=facts,
             operator_wiring=operator.get(rule),
             navigation=navigation.get(rule),
-            call_paths=_call_paths(call_graph.value, endpoint),
+            call_paths=_call_paths(call_graph.value, endpoint, graph_index),
         )
         # Producer-truth deferrals do not identify routes. Preserve the category
         # without attaching global findings to arbitrary route rows.
