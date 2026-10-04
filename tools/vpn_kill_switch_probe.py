@@ -162,7 +162,8 @@ def check_ufw() -> tuple[bool, str]:
     if r.returncode != 0:
         return False, f"ufw status exit={r.returncode}: {r.stderr.strip()}"
     first = r.stdout.splitlines()[0] if r.stdout else ""
-    if "active" not in first.lower():
+    # Exact state word: "inactive" contains "active" as a substring.
+    if first.partition(":")[2].strip().lower() != "active":
         return False, (f"ufw is installed but not active ('{first.strip()}'); "
                        f"the kill-switch must be enforced via ufw")
     return True, first.strip()
@@ -251,7 +252,9 @@ def snapshot_ufw_state() -> dict:
     matters is that `restore_ufw_state` can reproduce it. We capture
     `ufw status numbered` (the live numbered rules) AND
     `ufw show added` (the rule-creation commands, which is what
-    we'll replay on restore).
+    we'll replay on restore) AND `ufw status verbose` (its
+    `Default:` line carries the default policies, which `show added`
+    omits and `ufw reset` overwrites).
     """
     ufw = shutil.which("ufw")
     if ufw is None:
@@ -261,9 +264,11 @@ def snapshot_ufw_state() -> dict:
         "status_numbered": "",
         "show_added": "",
         "show_listening": "",
+        "status_verbose": "",
     }
     for key, args in [
         ("status_numbered", ["status", "numbered"]),
+        ("status_verbose", ["status", "verbose"]),
         ("show_added", ["show", "added"]),
         ("show_listening", ["show", "listening"]),
     ]:
@@ -275,6 +280,20 @@ def snapshot_ufw_state() -> dict:
             )
         state[key] = r.stdout
     return state
+
+
+def default_policies(status_verbose: str) -> list[tuple[str, str]]:
+    """Parse `(policy, direction)` pairs from a `ufw status verbose`
+    capture's `Default:` line. Raises RuntimeError when incoming or
+    outgoing is missing: such a snapshot cannot be restored.
+    """
+    m = re.search(r"^Default:(.*)$", status_verbose, re.MULTILINE)
+    defaults = re.findall(r"(\w+) \((incoming|outgoing|routed)\)",
+                          m.group(1)) if m else []
+    if not {"incoming", "outgoing"} <= {d for _, d in defaults}:
+        raise RuntimeError("default policies missing from snapshot — "
+                           "check `ufw status verbose` by hand")
+    return defaults
 
 
 def plan_kill_switch_rules(vpn_iface: str) -> list[list[str]]:
@@ -319,7 +338,8 @@ def apply_rule(ufw_args: list[str]) -> tuple[bool, str]:
 def restore_ufw_state(snapshot: dict) -> tuple[bool, str]:
     """Restore ufw to the snapshot state.
 
-    Strategy: `ufw reset` then replay `show added` line-by-line.
+    Strategy: `ufw reset`, replay `show added` line-by-line, then
+    re-apply the captured default policies.
     `ufw reset` is destructive but reversible — and that's exactly
     what we want: a known clean baseline followed by exactly the
     rules we captured.
@@ -373,7 +393,32 @@ def restore_ufw_state(snapshot: dict) -> tuple[bool, str]:
         else:
             restored += 1
 
-    # 3. Re-enable ufw — `reset` left it disabled.
+    # 3. Restore default policies — `show added` omits them and
+    # `ufw reset` overwrote them. The `status verbose` capture has:
+    #     Default: deny (incoming), allow (outgoing), disabled (routed)
+    # run_apply refuses such a snapshot up front; this is the backstop
+    # for --restore of a file captured elsewhere.
+    try:
+        defaults = default_policies(snapshot.get("status_verbose", ""))
+    except RuntimeError as exc:
+        failures.append(str(exc))
+        defaults = []
+    for policy, direction in defaults:
+        if policy not in ("allow", "deny", "reject"):
+            continue  # "disabled (routed)" = forwarding off; nothing to set
+        try:
+            r = subprocess.run(
+                [ufw, "default", policy, direction], capture_output=True,
+                text=True, timeout=10, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failures.append(f"default {policy} {direction}: {exc!r}")
+            continue
+        if r.returncode != 0:
+            failures.append(f"default {policy} {direction}: "
+                            f"exit={r.returncode}")
+
+    # 4. Re-enable ufw — `reset` left it disabled.
     try:
         r = subprocess.run(
             [ufw, "--force", "enable"],
@@ -517,6 +562,8 @@ def run_apply(args, repo_root: Path) -> int:
 
     try:
         snap = snapshot_ufw_state()
+        # Fail closed before any firewall change: restore needs these.
+        default_policies(snap["status_verbose"])
     except RuntimeError as exc:
         append_audit_log(repo_root, f"{now_iso()} SNAPSHOT_ERR {exc!r}")
         print(f"REFUSED: snapshot failed — {exc}", file=sys.stderr)
