@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1819 - train255f: row
+
+T255 (rebuild c) = 1 product cut (BOARDED-for-integration.md L330; T1 kimi r1 on 7c5dd797): downloader_ui.py pure move of _idle_watcher above __main__; no edges; no frontend; applied on T254f 537abd28 (O1739b):
+- o1826-c23-downloader-ui-idle-watcher r1
+
+
 ## v3.66.1818 - train254f: row
 
 T254 (rebuild c) = 7 product cuts on T253e 1f0d0b0c (origin/main), RE-STAGED after #1174 CI census bounce: o1826-c08 r3 (SEC, gates C01), c19 r1, c18 r2 (BOARDED L322-325; o1807-r6 BOUNCED -- census 1257 pin), c20 r1, c13 r3 (L326-327, were T255e never pushed), c12 r4 (L328, O1870 runtime-secret fix, supersedes r3), c24 r1 (L329). No frontend. (O1739b)
