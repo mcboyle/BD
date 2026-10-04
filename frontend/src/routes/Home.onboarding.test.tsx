@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 
 import { Home } from "./Home";
 
@@ -48,12 +48,32 @@ function mockFetch(opts: { bySite: unknown[]; history: unknown[] }) {
   });
 }
 
+// The negative case's positive signal. It observes the two queries Home's
+// onboarding gate reads (keys as in Home.tsx) and shows its marker only once
+// both hold data. Observers of a query are notified in one batch, so the render
+// that shows the marker is the render that hands Home both inputs: from then
+// on Home has decided. A renamed key leaves the marker absent and the negative
+// case fails rather than passing early.
+const GATE_SETTLED = "onboarding gate inputs settled";
+
+function GateInputsSettled() {
+  const dashboard = useQuery({ queryKey: ["dashboard-v2"], enabled: false });
+  const probe = useQuery({
+    queryKey: ["history-probe", "onboarding"],
+    enabled: false,
+  });
+  return dashboard.data !== undefined && probe.data !== undefined ? (
+    <output>{GATE_SETTLED}</output>
+  ) : null;
+}
+
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <Home />
+        <GateInputsSettled />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -83,10 +103,11 @@ describe("Home first-run onboarding (Cut 2)", () => {
       mockFetch({ bySite: [], history: [{ id: 1, status: "done" }] }),
     );
     mount();
-    // Give the queries a tick to resolve, then assert no onboarding panel.
-    await waitFor(() => {
-      // dashboard grid path renders; the dedicated onboarding heading is absent.
-      expect(screen.queryByText(/get started with your first capture/i)).toBeNull();
-    });
+    // waitFor passed on the first render, before the mocked fetches resolved,
+    // so the panel was "absent" whether or not history gated it. Wait for both
+    // gate inputs to land (same default budget as the positive findByText),
+    // then assert the dedicated onboarding heading is absent.
+    expect(await screen.findByText(GATE_SETTLED)).toBeInTheDocument();
+    expect(screen.queryByText(/get started with your first capture/i)).toBeNull();
   });
 });

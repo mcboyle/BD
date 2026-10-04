@@ -64,6 +64,10 @@ const ROUTE_HEADING = "Apprise endpoints";
 // CORRECT implementation under load (see Push.wired.test.tsx), so it is stated.
 const LAZY_ROUTE_TIMEOUT = 20000;
 
+// The negative control's positive signal: a heading of the /cluster screen
+// itself, so absence is judged only after that lazy chunk has rendered.
+const OTHER_ROUTE_HEADING = "Federation peers";
+
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
     vi.stubGlobal(
@@ -105,8 +109,15 @@ describe("T7 route reachability", () => {
       // App that renders Notifications everywhere, and the test above would say
       // nothing about the /notifications BINDING in particular.
       renderAppAt("/cluster");
-      // Give the lazy chunk the same room to arrive that the positive case has.
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Give the lazy chunk the same room to arrive that the positive case has:
+      // wait for the other screen under the same budget, then assert absence.
+      expect(
+        await screen.findByRole(
+          "heading",
+          { name: OTHER_ROUTE_HEADING },
+          { timeout: LAZY_ROUTE_TIMEOUT },
+        ),
+      ).toBeInTheDocument();
       expect(screen.queryByText(ROUTE_HEADING)).toBeNull();
     },
     LAZY_ROUTE_TIMEOUT + 5000,

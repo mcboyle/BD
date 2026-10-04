@@ -54,6 +54,10 @@ const ROUTE_TEXT = "History · Logs · Search";
 // Push.wired.test.tsx), so it is stated rather than inherited.
 const LAZY_ROUTE_TIMEOUT = 20000;
 
+// The negative control's positive signal: a heading of the /cluster screen
+// itself, so absence is judged only after that lazy chunk has rendered.
+const OTHER_ROUTE_HEADING = "Federation peers";
+
 beforeAll(() => {
   if (!("ResizeObserver" in globalThis)) {
     vi.stubGlobal(
@@ -95,7 +99,16 @@ describe("T2 route reachability", () => {
       // App that renders History everywhere, and the case above would say
       // nothing about the /history BINDING in particular.
       renderAppAt("/cluster");
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // A fixed wait judged absence while the lazy chunk could still be
+      // loading. Wait for the other screen to arrive, with the same budget the
+      // positive case has, and only then assert this one is absent.
+      expect(
+        await screen.findByRole(
+          "heading",
+          { name: OTHER_ROUTE_HEADING },
+          { timeout: LAZY_ROUTE_TIMEOUT },
+        ),
+      ).toBeInTheDocument();
       expect(screen.queryByText(ROUTE_TEXT)).toBeNull();
     },
     LAZY_ROUTE_TIMEOUT + 5000,
