@@ -79,12 +79,14 @@ class TestShellOnByDefault:
         from flask import Flask
         from tools.cockpit_console import bp
         app = Flask(__name__); app.register_blueprint(bp); c = app.test_client()
-        r = c.post("/cockpit/api/shell/open", json={})
+        # O1807 R2: loopback needs an exact same-origin Origin (test client Host: localhost).
+        h = {"Origin": "http://localhost"}
+        r = c.post("/cockpit/api/shell/open", headers=h, json={})
         assert r.status_code == 200
         sid = r.get_json().get("session")
         assert sid
-        assert c.get("/cockpit/api/shell/status").get_json()["enabled"] is True
-        c.post("/cockpit/api/shell/close", json={"session": sid})
+        assert c.get("/cockpit/api/shell/status", headers=h).get_json()["enabled"] is True
+        c.post("/cockpit/api/shell/close", headers=h, json={"session": sid})
 
 
 class TestShellOptOut:
@@ -115,8 +117,10 @@ class TestShellOptOut:
         from flask import Flask
         from tools.cockpit_console import bp
         app = Flask(__name__); app.register_blueprint(bp); c = app.test_client()
-        assert c.post("/cockpit/api/shell/open", json={}).status_code == 403
-        assert c.get("/cockpit/api/shell/status").get_json()["enabled"] is False
+        # O1807 R2: loopback needs an exact same-origin Origin (test client Host: localhost).
+        h = {"Origin": "http://localhost"}
+        assert c.post("/cockpit/api/shell/open", headers=h, json={}).status_code == 403
+        assert c.get("/cockpit/api/shell/status", headers=h).get_json()["enabled"] is False
 
 
 # ── when explicitly enabled it works and audits ─────────────────────────────

@@ -91,7 +91,8 @@ def test_shell_allows_same_origin():
 
 def test_shell_allows_loopback():
     c = _shell_client()
-    r = c.get("/cockpit/api/shell/status")  # loopback
+    # O1807 R2: loopback needs an exact same-origin Origin (test client Host: localhost).
+    r = c.get("/cockpit/api/shell/status", headers={"Origin": "http://localhost"})  # loopback
     assert r.status_code != 403, f"loopback shell request must NOT be 403, got {r.status_code}"
 
 

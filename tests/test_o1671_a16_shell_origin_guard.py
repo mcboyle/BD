@@ -57,8 +57,9 @@ def test_forged_host_referer_refused_through_host_app(opened):
 
 
 def test_loopback_still_opens_shell(opened):
-    # Positive control: the standalone cockpit's 127.0.0.1 path is unchanged.
-    r = _bp_client().post("/cockpit/api/shell/open", json={})
+    # Positive control: the standalone cockpit's 127.0.0.1 path still opens the
+    # shell for its own browser page. O1807 R2: loopback needs an exact same-origin Origin (test client Host: localhost).
+    r = _bp_client().post("/cockpit/api/shell/open", headers={"Origin": "http://localhost"}, json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     assert opened == [1]
 

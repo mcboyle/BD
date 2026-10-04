@@ -118,7 +118,9 @@ def test_input_endpoint_handles_concurrent_close(input_session, monkeypatch):
     app = Flask(__name__)
     app.register_blueprint(bp)
     with app.test_client() as client:
-        live = client.post("/cockpit/api/shell/input", json={"session": sid, "data": "\n"})
+        # O1807 R2: loopback needs an exact same-origin Origin (test client Host: localhost).
+        live = client.post("/cockpit/api/shell/input", headers={"Origin": "http://localhost"},
+                           json={"session": sid, "data": "\n"})
     assert live.status_code == 200, "SHELL-INPUT-LIVE-CONTROL"
     entered, release = threading.Event(), threading.Event()
     responses = []
@@ -134,7 +136,8 @@ def test_input_endpoint_handles_concurrent_close(input_session, monkeypatch):
 
     def input_request():
         with app.test_client() as client:
-            responses.append(client.post("/cockpit/api/shell/input", json={"session": sid, "data": "input racing close"}))
+            responses.append(client.post("/cockpit/api/shell/input", headers={"Origin": "http://localhost"},
+                                         json={"session": sid, "data": "input racing close"}))
 
     thread = threading.Thread(target=input_request)
     try:

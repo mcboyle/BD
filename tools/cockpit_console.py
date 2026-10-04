@@ -1907,10 +1907,13 @@ def _shell_request_trusted() -> bool:
     Referer==Host WITHOUT a valid session is NOT trusted: both are client-set.
     RESIDUAL (operator ruling, O1671 a16 option B): GET /api/csrf mints an
     anonymous session for any caller, so a non-browser client can still assemble
-    these signals; only a credential (bearer / pairing) would close that."""
-    ra = (request.remote_addr or "")
-    if ra in ("127.0.0.1", "::1", "localhost"):
-        return True
+    these signals; only a credential (bearer / pairing) would close that.
+    O1807 R2: Host and the cross-site signals are checked BEFORE loopback; a
+    loopback peer is trusted only when Host names loopback too (a cross-site
+    page, a DNS-rebound name or a loopback proxy otherwise rode the bypass) AND
+    the request carries a same-origin proof; a header-less loopback request is
+    refused (fail closed) unless it passes the session + CSRF checks below."""
+    _loopback = ("127.0.0.1", "::1", "localhost")
     host = (request.headers.get("Host", "") or "").lower()
     if not host:
         return False
@@ -1922,6 +1925,20 @@ def _shell_request_trusted() -> bool:
             return False
         if origin and _netloc(origin) != host:
             return False
+        from urllib.parse import urlparse
+        # r2 (codex-2 REFUTE): loopback alone never trusts. It also needs a
+        # browser same-origin proof: an Origin that is exactly this request's
+        # scheme://Host (no path), or -- GET/HEAD only, where a same-origin
+        # browser sends no Origin -- Sec-Fetch-Site: same-origin.
+        u = urlparse(origin)
+        exact_origin = bool(origin) and u.scheme == request.scheme and (
+            _netloc(origin) == host and not (u.path or u.params or u.query
+                                             or u.fragment or u.username))
+        if request.method in ("GET", "HEAD"):
+            exact_origin = exact_origin or (not origin and sfs == "same-origin")
+        if ((request.remote_addr or "") in _loopback
+                and urlparse("//" + host).hostname in _loopback and exact_origin):
+            return True
         same_origin = sfs == "same-origin" or bool(origin)
         if request.method in ("GET", "HEAD"):
             if not same_origin and referer and _netloc(referer) != host:
