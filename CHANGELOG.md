@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1810 - train246e: row
+
+T246 = 2 product cuts (BOARDED-for-integration.md L304-306; no frontend): o1807-r5-parband-nothing-ran r2 (toolchain/bin/bd-parband + cut_quality_policy.json; corr-D5 + shape-D4 r2), o1826-c03-bandwidth-hot-path r1 (bandwidth_aggregator.py; T1 corr-D7; PM NOTE: late-sample behaviour differs only via test-only API, more accurate), applied on T245e d3c6d411 (O1739b):
+- o1807-r5-parband-nothing-ran r2
+- o1826-c03-bandwidth-hot-path r1
+
+
 ## v3.66.1809 - train245e: row
 
 T245 = 1 product cut (BOARDED-for-integration.md L303; correctness D7 r1 + shape D2 r1 BOARD on 9debca2a; tools/cockpit_templates.py; no frontend), applied on T244e b07d2e2d (O1739b):

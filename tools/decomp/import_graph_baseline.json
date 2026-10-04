@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5773,
+  "edge_count": 5775,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4858,6 +4858,10 @@
     ],
     "tests/test_o1819_r18_templates_sites_config_shape.py": [
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_o1826_c03_bandwidth_hot_path.py": [
+      "bulk_downloader/bandwidth_aggregator.py",
+      "bulk_downloader/bandwidth_shape.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
