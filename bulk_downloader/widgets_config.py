@@ -81,7 +81,8 @@ VALID_WIDGET_IDS = frozenset({
 
 VALID_SIZES = frozenset({"sm", "md", "lg"})
 
-MAX_WIDGETS_PER_SCOPE = 24  # generous; defends against runaway PUT payloads
+# Every catalog widget fits in one scope; the cap still bounds runaway PUT payloads.
+MAX_WIDGETS_PER_SCOPE = len(VALID_WIDGET_IDS)
 
 
 # ─── File location ──────────────────────────────────────────────────
@@ -125,7 +126,16 @@ def load() -> dict:
             sys.stderr.write(f"[widgets-config] could not read {path}: {e}\n")
             _loaded = True
             return _snapshot()
-        _state["schema_version"] = int(data.get("schema_version", SCHEMA_VERSION))
+        if not isinstance(data, dict):
+            sys.stderr.write(f"[widgets-config] {path} is not a JSON object; using defaults\n")
+            _loaded = True
+            return _snapshot()
+        try:
+            _state["schema_version"] = int(data.get("schema_version", SCHEMA_VERSION))
+        except (TypeError, ValueError):
+            sys.stderr.write(f"[widgets-config] bad schema_version in {path}; "
+                             f"assuming {SCHEMA_VERSION}\n")
+            _state["schema_version"] = SCHEMA_VERSION
         gs = data.get("global")
         if isinstance(gs, list):
             _state["global"] = _sanitize_list(gs)
@@ -259,12 +269,15 @@ def _snapshot() -> dict:
 
 
 def _sanitize_list(raw) -> list[dict]:
-    """Validate + filter incoming widget list. Drops unknown ids/sizes, caps length."""
+    """Validate + filter incoming widget list. Drops unknown ids/sizes, caps length.
+    The cap counts accepted widgets, so junk entries never displace valid ones."""
     if not isinstance(raw, list):
         return []
     out: list[dict] = []
     seen = set()
-    for item in raw[:MAX_WIDGETS_PER_SCOPE]:
+    for item in raw:
+        if len(out) >= MAX_WIDGETS_PER_SCOPE:
+            break
         if not isinstance(item, dict):
             continue
         wid = item.get("id")

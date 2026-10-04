@@ -16,7 +16,9 @@ operator owns the legal/ToS call. Concretely this module:
     item cannot silently change on disk under an existing acknowledgment.
 
 Disk-backed JSON, stateless (every call reads/writes the file -- nothing cached, so
-concurrent workers and a fresh process both see the current state). Path:
+concurrent workers and a fresh process both see the current state). Every
+load-modify-save runs under a thread lock plus an advisory lock on a sibling
+``.lock`` file, so concurrent writers do not drop each other's updates. Path:
 ``<BD_HOME>/interop_registry.json``. Pure stdlib; no network, no Flask. Mirrors
 plugins.py's ``allow_full_access`` / ``risk_acknowledged`` model, generalized across
 interop kinds.
@@ -32,9 +34,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
 
 # The interop kinds this keystone governs. New tracks register under a new kind;
 # the gate logic (is_permitted) is identical for all.
@@ -60,16 +71,74 @@ def _load() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def _save(reg: Dict[str, Dict[str, Any]]) -> bool:
-    """Atomically write the registry (temp + os.replace). Returns False on OSError."""
+_lock = threading.Lock()
+
+
+def _lock_file(fh) -> None:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        return
+    # msvcrt locks a byte range from the current position; keep one byte in the
+    # lock file so every Windows process contends on the same range.
+    fh.seek(0, os.SEEK_END)
+    if fh.tell() == 0:
+        fh.write(b"\0")
+        fh.flush()
+    fh.seek(0)
+    msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _unlock_file(fh) -> None:
+    if fcntl is not None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        return
+    fh.seek(0)
+    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextmanager
+def _transaction():
+    """Serialize one load-modify-save. ``_lock`` covers threads in this process;
+    the sibling ``.lock`` file covers other processes (the registry itself is
+    replaced on every save, so its inode cannot carry the lock). If the lock file
+    cannot be opened the write runs under ``_lock`` alone -- the same directory
+    problem will normally make ``_save`` fail and report it."""
     p = _registry_path()
+    with _lock:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            fh = open(p.with_name(p.name + ".lock"), "a+b")
+        except OSError:
+            fh = None
+        if fh is None:
+            yield
+            return
+        with fh:
+            _lock_file(fh)
+            try:
+                yield
+            finally:
+                _unlock_file(fh)
+
+
+def _save(reg: Dict[str, Dict[str, Any]]) -> bool:
+    """Atomically write the registry (unique temp + os.replace). Returns False on
+    OSError, leaving no temp file behind."""
+    p = _registry_path()
+    tmp = None
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps(reg, indent=2, sort_keys=True), encoding="utf-8")
+        fd, tmp = tempfile.mkstemp(prefix=p.name + ".", suffix=".tmp", dir=str(p.parent))
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(reg, indent=2, sort_keys=True))
         os.replace(tmp, p)
         return True
     except OSError:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
         return False
 
 
@@ -79,53 +148,57 @@ def register(kind: str, item_id: str, *, source: str = "",
     (risk_acknowledged=False, enabled=False). Re-registering an EXISTING item
     updates source/commit and, if the ``sha256`` differs from the stored one,
     RESETS risk_acknowledged (the pin property -- a changed item must be re-acked).
-    Returns the stored record."""
-    reg = _load()
-    bucket = reg.setdefault(kind, {})
-    now = int(time.time())
-    prev = bucket.get(item_id)
-    if prev is None:
-        rec = {"source": source, "sha256": sha256, "commit": commit or None,
-               "risk_acknowledged": False, "enabled": False,
-               "registered_ts": now, "updated_ts": now}
-    else:
-        rec = dict(prev)
-        rec["source"] = source or rec.get("source", "")
-        rec["commit"] = (commit or None) if commit else rec.get("commit")
-        # Pin: a provenance change (new content hash) drops the acknowledgment.
-        if sha256 and sha256 != rec.get("sha256", ""):
-            rec["risk_acknowledged"] = False
-        if sha256:
-            rec["sha256"] = sha256
-        rec["updated_ts"] = now
-    bucket[item_id] = rec
-    _save(reg)
+    Returns the stored record; raises OSError if it could not be persisted."""
+    with _transaction():
+        reg = _load()
+        bucket = reg.setdefault(kind, {})
+        now = int(time.time())
+        prev = bucket.get(item_id)
+        if prev is None:
+            rec = {"source": source, "sha256": sha256, "commit": commit or None,
+                   "risk_acknowledged": False, "enabled": False,
+                   "registered_ts": now, "updated_ts": now}
+        else:
+            rec = dict(prev)
+            rec["source"] = source or rec.get("source", "")
+            rec["commit"] = (commit or None) if commit else rec.get("commit")
+            # Pin: a provenance change (new content hash) drops the acknowledgment.
+            if sha256 and sha256 != rec.get("sha256", ""):
+                rec["risk_acknowledged"] = False
+            if sha256:
+                rec["sha256"] = sha256
+            rec["updated_ts"] = now
+        bucket[item_id] = rec
+        if not _save(reg):
+            raise OSError(f"could not persist interop registry {_registry_path()}")
     return rec
 
 
 def acknowledge(kind: str, item_id: str) -> bool:
     """Set risk_acknowledged=True for a REGISTERED item. Returns False (no-op) if
-    the item was never registered -- ack can't conjure a permitted phantom."""
-    reg = _load()
-    rec = reg.get(kind, {}).get(item_id)
-    if rec is None:
-        return False
-    rec["risk_acknowledged"] = True
-    rec["updated_ts"] = int(time.time())
-    _save(reg)
-    return True
+    the item was never registered -- ack can't conjure a permitted phantom -- or
+    if the change could not be persisted."""
+    with _transaction():
+        reg = _load()
+        rec = reg.get(kind, {}).get(item_id)
+        if rec is None:
+            return False
+        rec["risk_acknowledged"] = True
+        rec["updated_ts"] = int(time.time())
+        return _save(reg)
 
 
 def set_enabled(kind: str, item_id: str, enabled: bool) -> bool:
-    """Set the enabled flag for a REGISTERED item. Returns False if unregistered."""
-    reg = _load()
-    rec = reg.get(kind, {}).get(item_id)
-    if rec is None:
-        return False
-    rec["enabled"] = bool(enabled)
-    rec["updated_ts"] = int(time.time())
-    _save(reg)
-    return True
+    """Set the enabled flag for a REGISTERED item. Returns False if unregistered
+    or if the change could not be persisted."""
+    with _transaction():
+        reg = _load()
+        rec = reg.get(kind, {}).get(item_id)
+        if rec is None:
+            return False
+        rec["enabled"] = bool(enabled)
+        rec["updated_ts"] = int(time.time())
+        return _save(reg)
 
 
 def is_permitted(kind: str, item_id: str, live_sha256: Optional[str] = None) -> bool:
