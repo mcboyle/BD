@@ -19,14 +19,14 @@ import os
 # ── write helpers (pure plumbing; content unchanged) ───────────────
 def write_md(path, text):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return path
 
 
 def write_json(path, obj):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, indent=2, default=str)
     return path
 
