@@ -94,7 +94,9 @@ THE CONTRACT
   control, CONTROL-ESCAPED. Exit 1 if any ESCAPED, CONTROL-CAUGHT or
   INDISCRIMINATE. Exit 2 if the battery could not be measured -- an empty
   selection, UNKNOWN/INVALID/ERROR mutant, red or unprovable baseline, missing
-  named nodeid, partial JUnit, or failed restore. Two is not a softer one: it
+  named nodeid, partial JUnit, failed restore, or a graded test that raised an
+  OS error (an exec refused with ETXTBSY, say) before reaching any assertion
+  -- that is ERROR, never CAUGHT or CONTROL-CAUGHT. Two is not a softer one: it
   means the battery has no verdict, which must never read as success.
 
 WHAT IT DELIBERATELY DOES NOT DO. It does not judge whether an escape matters,
@@ -623,7 +625,11 @@ class _PinnedSubject:
                     raise ValueError("subject parent is not a directory: %s" % path)
                 self._chain.append((owner_name, component, (
                     info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))))
-            leaf_flags = (os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            # READ-ONLY PIN (BDMUTATE-ETXTBSY). The pin lives across the band;
+            # a writable descriptor held there makes the kernel refuse to exec
+            # the subject (ETXTBSY), and a direct-exec script test then "fails"
+            # before any assertion. Writes open a transient descriptor instead.
+            leaf_flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
                           | getattr(os, "O_CLOEXEC", 0))
             parent_name = self._chain[-1][0]
             self._owned["subject leaf"] = os.open(
@@ -698,16 +704,41 @@ class _PinnedSubject:
             raise ValueError("subject leaf detached at %s: %s"
                              % (stage, self.path))
 
+    def _writer(self) -> int:
+        """Open (once) a writer by name under the pinned parent.
+
+        It must be the pinned inode, so a swapped name is refused rather than
+        written. It is an owned fd: the release and owner close settle it
+        through the one close funnel.
+        """
+        if "subject writer" not in self._owned:
+            self._owned["subject writer"] = os.open(
+                self.path.name,
+                os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=self._owned[self._chain[-1][0]])
+            info = os.fstat(self._owned["subject writer"])
+            if (not _same_descriptor(self._leaf_receipt, info)
+                    or info.st_nlink != 1):
+                problem = ValueError("subject writer is not the pinned leaf: %s"
+                                     % self.path)
+                self._release_writer(primary=problem)
+                raise problem
+        return self._owned["subject writer"]
+
+    def _release_writer(self, *, primary: BaseException | None = None) -> None:
+        _settle_owned_fds(self._owned, ("subject writer",), primary=primary)
+
     def _replace_bytes(self, payload: bytes) -> None:
-        os.ftruncate(self._owned["subject leaf"], 0)
+        writer = self._writer()
+        os.ftruncate(writer, 0)
         offset = 0
         while offset < len(payload):
-            written = os.pwrite(
-                self._owned["subject leaf"], payload[offset:], offset)
+            written = os.pwrite(writer, payload[offset:], offset)
             if written <= 0:
                 raise OSError("short subject write for %s" % self.path)
             offset += written
-        os.fsync(self._owned["subject leaf"])
+        os.fsync(writer)
         if _fd_bytes(self._owned["subject leaf"]) != payload:
             raise OSError("subject write did not verify: %s" % self.path)
 
@@ -732,7 +763,14 @@ class _PinnedSubject:
                 _attach_secondary_close_notes(
                     primary, [("subject rollback", self._owned["subject leaf"],
                                restore_error)])
+            if not restoring:
+                self._release_writer(primary=primary)
             raise
+        # A write that precedes a band releases its writer NOW: a writable fd
+        # held across the band makes exec of the subject fail ETXTBSY. A
+        # restore is the owner's last effect; close() settles its writer.
+        if not restoring:
+            self._release_writer()
 
     def close(self, *, primary: BaseException | None = None) -> None:
         names = tuple(reversed(tuple(self._owned)))
@@ -2038,11 +2076,18 @@ def _read_junit(path: Path, collected: list[str]) -> tuple[
                 part for part in (detail.get("message", ""), detail.text or "")
                 if part
             ).strip()
+        typed = {name: [] for name in (_EXCEPTION_TYPE_PROPERTY,
+                                       _EXCEPTION_OS_ERROR_PROPERTY)}
+        for prop in case.iter("property"):
+            if prop.get("name") in typed:
+                typed[prop.get("name")].append(prop.get("value", ""))
         outcomes.setdefault(nodeid, []).append(outcome)
         records.setdefault(nodeid, []).append({
             "outcome": outcome,
             "failure_text": text,
             "failure_text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "exception_type": (typed[_EXCEPTION_TYPE_PROPERTY] or [""])[-1],
+            "exception_is_os_error": "1" in typed[_EXCEPTION_OS_ERROR_PROPERTY],
         })
     if set(outcomes) != set(collected):
         missing = sorted(set(collected) - set(outcomes))
@@ -2150,12 +2195,14 @@ def _orphaned_band_pgid(heartbeat: Path) -> int:
         return -1
 
 
-def _run_owned(cmd: list[str], *, work: Path, timeout: float
+def _run_owned(cmd: list[str], *, work: Path, timeout: float,
+               env: dict | None = None
                ) -> subprocess.CompletedProcess[str]:
     """Run pytest in a private session and bound cleanup of its whole tree."""
     proc = subprocess.Popen(
         cmd, cwd=str(work), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, env=_child_env(), start_new_session=True)
+        text=True, env=env if env is not None else _child_env(),
+        start_new_session=True)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as original:
@@ -2251,12 +2298,18 @@ def _run_band(band: list[str], work: Path,
     with tempfile.TemporaryDirectory(
             prefix="bd-mutate-junit-", dir=str(junit_parent)) as td:
         junit = Path(td) / "band.xml"
+        (Path(td) / (_EXCEPTION_RECORD_PLUGIN + ".py")).write_text(
+            _EXCEPTION_RECORD_PLUGIN_SOURCE, encoding="utf-8")
+        env = _child_env()
+        env["PYTHONPATH"] = os.pathsep.join(
+            part for part in (td, env.get("PYTHONPATH", "")) if part)
         cmd = _registered_pytest_argv(
             py, "bd-mutate execution", "-q", "-p", "no:randomly",
+            "-p", _EXCEPTION_RECORD_PLUGIN,
             "--junitxml", str(junit), *band,
             repository_root=_INVOKED_REPOSITORY)
         try:
-            run = _run_owned(cmd, work=work, timeout=timeout)
+            run = _run_owned(cmd, work=work, timeout=timeout, env=env)
         except subprocess.TimeoutExpired as exc:
             return {
                 "rc": 2,
@@ -2268,6 +2321,15 @@ def _run_band(band: list[str], work: Path,
             }
         output = run.stdout + run.stderr
         outcomes, records, measurement_error = _read_junit(junit, collected)
+        if measurement_error is None:
+            untyped = sorted(
+                nodeid for nodeid, entries in records.items()
+                for entry in entries
+                if entry["outcome"] == "failed" and not entry["exception_type"])
+            if untyped:
+                measurement_error = (
+                    "JUnit failure(s) carry no exception-type record from the "
+                    f"{_EXCEPTION_RECORD_PLUGIN} plugin: {untyped}")
         junit_evidence = (
             _preserve_junit(junit, preserve_junit)
             if preserve_junit is not None else None
@@ -2329,6 +2391,70 @@ def _other_members_note(result: dict, nodeid: str) -> str:
     return f"and no other band member failed ({len(others)} other(s) ran)"
 
 
+# A test that ended on an uncaught OSError raised before reaching any
+# assertion of its own (BDMUTATE-ETXTBSY: an exec refused with ETXTBSY scored
+# CAUGHT and CONTROL-CAUGHT although no behaviour was ever compared). The
+# decision is by exception TYPE, measured inside the band's own pytest by the
+# plugin below and carried per testcase in the JUnit properties: an OSError
+# need not carry "[Errno N]" (FIX-R-174: shutil.SameFileError, errno None,
+# scored CAUGHT). The recorded type alone decides: errno-looking text in a
+# failure message is never a witness (FIX-R-179: an AssertionError whose
+# message began "[Errno 2]" scored ERROR and hid a real kill); the crash line
+# is only quoted in the diagnostic beside the type it corroborates.
+_EXCEPTION_RECORD_PLUGIN = "bd_mutate_exception_record"
+_EXCEPTION_TYPE_PROPERTY = "bd-mutate-exception-type"
+_EXCEPTION_OS_ERROR_PROPERTY = "bd-mutate-exception-is-oserror"
+_EXCEPTION_RECORD_PLUGIN_SOURCE = '''\
+"""bd-mutate: record the type of the exception that ended a failed test."""
+import pytest
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    if call.when != "call" or not report.failed:
+        return
+    if call.excinfo is None:
+        item.user_properties.append((%(type)r, "-"))
+        item.user_properties.append((%(os)r, "0"))
+        return
+    value = call.excinfo.value
+    kind = type(value)
+    item.user_properties.append(
+        (%(type)r, "%%s.%%s" %% (kind.__module__, kind.__qualname__)))
+    item.user_properties.append(
+        (%(os)r, "1" if isinstance(value, OSError) else "0"))
+''' % {"type": _EXCEPTION_TYPE_PROPERTY, "os": _EXCEPTION_OS_ERROR_PROPERTY}
+
+
+def _graded_nodeids(mutant: dict, result: dict,
+                    exact_semantics: bool) -> list[str]:
+    """The nodes whose outcomes decide this mutant's verdict."""
+    if mutant.get("direction", "regression") != "regression":
+        return [mutant.get("control"), *mutant.get("preserves", [])]
+    if not mutant.get("catcher"):
+        return sorted(result["outcomes"])
+    if exact_semantics:
+        return [mutant["catcher"], *mutant["preserves"]]
+    return [mutant["catcher"]]
+
+
+def _os_error_failures(mutant: dict, result: dict,
+                       exact_semantics: bool) -> list[str]:
+    """Graded nodes that failed on an OS error instead of an assertion."""
+    found = []
+    for nodeid in _graded_nodeids(mutant, result, exact_semantics):
+        for entry in result.get("records", {}).get(nodeid, []):
+            if entry["outcome"] != "failed":
+                continue
+            crash = entry["failure_text"].lstrip().split("\n", 1)[0]
+            if entry.get("exception_is_os_error"):
+                found.append("%s: %s [%s]" % (
+                    nodeid, crash[:160], entry["exception_type"]))
+    return found
+
+
 def _grade_mutant(mutant: dict, result: dict, *, exact_semantics: bool = False
                   ) -> tuple[str, str]:
     """Grade the named subject, never whichever unrelated test also screamed."""
@@ -2340,6 +2466,12 @@ def _grade_mutant(mutant: dict, result: dict, *, exact_semantics: bool = False
                     if values == ["error"])
     if errors:
         return INVALID, f"pytest error outcome(s), not assertion failures: {errors}"
+    os_errors = _os_error_failures(mutant, result, exact_semantics)
+    if os_errors:
+        return ERROR, (
+            "BD-MUTATE-OS-ERROR: graded test(s) raised an OS error before any "
+            "assertion; no behaviour was compared, so this is not a catch: "
+            + "; ".join(os_errors))
 
     direction = mutant.get("direction", "regression")
     if direction == "regression":
