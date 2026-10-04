@@ -354,6 +354,39 @@ def test_not_a_seat_vm_is_refused(fx: dict) -> None:
     assert r.returncode == 3 and "not one of the O1666 seat VMs" in r.stderr, (r.stdout, r.stderr)
 
 
+# ---- RULING O1821: ln -s -T in the links step; usage prints the whole help block ----------------------------------
+
+RACE_LN = r"""#!/bin/bash
+[ -n "${FAKE_RACE_LINK:-}" ] && [ "${!#}" = "$FAKE_RACE_LINK" ] && mkdir -p -- "$FAKE_RACE_LINK"
+exec "$REAL_LN" "$@"
+"""
+
+
+def test_links_dir_recreated_at_link_path_makes_ln_fail_not_nest(fx: dict) -> None:
+    vm = fx["vm"]
+    _exe(fx["tmp"] / "fakebin/ln", RACE_LN)
+    r = _prep(fx, "--apply", FAKE_RACE_LINK=str(vm / "a.sh"), REAL_LN=_real("ln"))
+    assert "links a.sh REFUSED LINK-FAILED" in r.stdout, (r.stdout, r.stderr)
+    assert "links a.sh APPLIED" not in r.stdout, r.stdout
+    assert not (vm / "a.sh/a.sh").is_symlink(), f"nested link created: {r.stdout}"
+    assert (vm / "a.sh").is_dir() and not (vm / "a.sh").is_symlink(), r.stdout
+    assert os.readlink(vm / "b.sh") == "bd-persist/harness/b.sh", r.stdout
+    assert r.returncode == 3 and "STEP links FOUND 2 APPLIED 1 REFUSED 1" in r.stdout, r.stdout
+
+
+def test_usage_prints_the_full_help_block(fx: dict) -> None:
+    cand = _cand("bd-nfs-share")
+    r = subprocess.run(["bash", str(cand)], env=fx["env"], capture_output=True, text=True, timeout=60, check=False)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    lines = cand.read_text(encoding="utf-8").splitlines(keepends=True)
+    exit_at = next((i for i, line in enumerate(lines) if line.startswith("#   Exit:")), None)
+    assert exit_at is not None and exit_at > 3, "no '#   Exit:' line after the usage entries"
+    assert r.stderr == "".join(lines[3:exit_at]), r.stderr
+    for entry in ("bd-nfs-share host-prep <host> [--apply]", "known_hosts (a stale key is REPLACED)",
+                  "bd-nfs-share rollback <host>|--hub [--apply]"):
+        assert entry in r.stderr, (entry, r.stderr)
+
+
 # ---- bd-auth-sync: KEEP-NEWER needs an answered seat (ADDENDUM 3) ------------------------------------------------
 
 # ---- R1 addenda 6+7 (r2) -------------------------------------------------------------------------------------------

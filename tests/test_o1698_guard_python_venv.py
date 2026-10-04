@@ -36,7 +36,7 @@ FAKE_SSH = r"""#!/bin/bash
 while [ $# -gt 0 ]; do case "$1" in -n) shift ;; -o) shift 2 ;; -*) shift ;; *) break ;; esac; done
 host=$1; shift
 printf '%s\n' "$host" >> "$FAKE_LOG/ssh-hosts.log"
-exec bash -c "$*" < /dev/null
+HOME="$FAKE_VMHOME" exec bash -c "$*" < /dev/null
 """
 
 
@@ -170,6 +170,13 @@ def nfs(cand: Path, tmp_path: Path, mcp_python: str, no_mcp_python: str) -> dict
         BD_SEAT="bd-o1698-guard-python-venv-test",
         FAKE_LOG=str(log),
     )
+    # The "VM" has its own home, already linked (vm-home-links), so verify's A7a order gate reaches the probe.
+    vmhome = tmp_path / "vmhome"
+    vmhome.mkdir()
+    root = env.get("BD_NFS_MOUNT_ROOT", "/mnt/bd")
+    for name in ("bd-persist", "bd-local-wt", "bd-review-wt", "bd-cuts", "bin"):
+        (vmhome / name).symlink_to(f"{root}/{name}")
+    env["FAKE_VMHOME"] = str(vmhome)
     return {"tmp": tmp_path, "env": env, "venv": venv, "manifest": manifest, "plugin": plugin, "log": log,
             "mcp_python": mcp_python, "no_mcp_python": no_mcp_python}
 
