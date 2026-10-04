@@ -111,27 +111,29 @@ def api_library_browse():
         limit = max(1, min(int(args.get("limit", "100")), 500))
     except ValueError:
         limit = 100
-    try:
-        after_id = int(args["after_id"]) if args.get("after_id") else None
-    except ValueError:
-        after_id = None
+    # Opaque next_cursor (or a legacy row id); library_browse validates it.
+    after_id = args.get("after_id") or None
     try:
         year = int(args["year"]) if args.get("year") else None
     except ValueError:
         year = None
-    rows, next_cursor = _lib.library_browse(
-        site_id=args.get("site_id") or None,
-        studio=args.get("studio") or None,
-        performer=args.get("performer") or None,
-        year=year,
-        watched=_b(args.get("watched")),
-        tag=args.get("tag") or None,
-        query=args.get("q") or None,
-        missing_only=bool(_b(args.get("missing_only"))),
-        sort=args.get("sort", "added_at_desc"),
-        limit=limit,
-        after_id=after_id,
-    )
+    try:
+        rows, next_cursor = _lib.library_browse(
+            site_id=args.get("site_id") or None,
+            studio=args.get("studio") or None,
+            performer=args.get("performer") or None,
+            year=year,
+            watched=_b(args.get("watched")),
+            tag=args.get("tag") or None,
+            query=args.get("q") or None,
+            missing_only=bool(_b(args.get("missing_only"))),
+            sort=args.get("sort", "added_at_desc"),
+            limit=limit,
+            after_id=after_id,
+        )
+    except _lib.BrowseCursorError as e:
+        # Never a silent wrong page: the client restarts its walk.
+        return jsonify({"ok": False, "error": str(e)}), 400
     return jsonify({"ok": True, "rows": rows,
                     "count": len(rows), "next_cursor": next_cursor})
 @library_bp.route("/api/library/<int:lid>")

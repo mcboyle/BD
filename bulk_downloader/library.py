@@ -40,6 +40,8 @@ row, all in one connection).
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 import threading
 import time
@@ -286,6 +288,65 @@ def _tags_for_library(cx, library_id: int) -> list[dict]:
         (library_id,)).fetchall()]
 
 
+class BrowseCursorError(ValueError):
+    """The browse cursor cannot be resumed: malformed, issued for another
+    sort, or a legacy id cursor whose row is gone. Restart the walk."""
+
+
+_SQLITE_INT = range(-2**63, 2**63)
+
+
+def _encode_cursor(sort: str, value, row_id: int) -> str:
+    """Opaque next_cursor: the sort, the last row's sort value and its id,
+    so resuming needs no server state (survives restarts and deletes).
+    URL-safe base64 without padding; never all digits."""
+    raw = json.dumps([sort, value, row_id], separators=(",", ":"))
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def _cursor_position(cx, cursor, sort: str, col: str) -> tuple[object, int]:
+    """(sort value, id) a cursor resumes after. An all-digit cursor is the
+    legacy row id, read live; a deleted one raises rather than guess."""
+    s = str(cursor)
+    if s.isdigit():
+        r = cx.execute(f"SELECT {col} FROM library WHERE id=?",
+                       (int(s),)).fetchone()
+        if r is None:
+            raise BrowseCursorError("cursor_expired")
+        return r[0], int(s)
+    try:
+        key, v, row_id = json.loads(
+            base64.urlsafe_b64decode(s + "=" * (-len(s) % 4)))
+    except (ValueError, TypeError):
+        raise BrowseCursorError("cursor_invalid") from None
+    if (key != sort or type(row_id) is not int or row_id not in _SQLITE_INT
+            or not (v is None or type(v) in (float, str)
+                    or (type(v) is int and v in _SQLITE_INT))):
+        raise BrowseCursorError("cursor_invalid")
+    return v, row_id
+
+
+def _after_cursor(v, after_id: int, col: str, col_asc: bool,
+                  id_asc: bool) -> tuple[str, list]:
+    """WHERE clause selecting rows strictly after the cursor position
+    (sort value `v`, id `after_id`) in `ORDER BY l.<col>, l.id` order.
+    `col` comes from the sort whitelist.
+
+    Comparing id alone only matched id-descending order, so every other
+    sort repeated and skipped rows across pages (O1815 R14). SQLite ranks
+    NULL lowest: NULLs trail a DESC column and lead an ASC one."""
+    id_op = ">" if id_asc else "<"
+    if v is None:
+        tie = f"(l.{col} IS NULL AND l.id {id_op} ?)"
+        if col_asc:
+            return f"(l.{col} IS NOT NULL OR {tie})", [after_id]
+        return tie, [after_id]
+    col_op = ">" if col_asc else "<"
+    nulls_after = "" if col_asc else f" OR l.{col} IS NULL"
+    return (f"(l.{col} {col_op} ? OR (l.{col} = ? AND l.id {id_op} ?)"
+            f"{nulls_after})", [v, v, after_id])
+
+
 def library_browse(*, site_id: Optional[str] = None,
                    studio: Optional[str] = None,
                    performer: Optional[str] = None,
@@ -296,11 +357,13 @@ def library_browse(*, site_id: Optional[str] = None,
                    missing_only: bool = False,
                    sort: str = "added_at_desc",
                    limit: int = 100,
-                   after_id: Optional[int] = None) -> tuple[list[dict], Optional[int]]:
+                   after_id=None) -> tuple[list[dict], Optional[str]]:
     """Browse the library. Returns (rows, next_cursor).
 
-    Cursor-based pagination via after_id (same pattern as
-    db_search_cursor in v3.48). Sort options:
+    Cursor-based pagination: pass next_cursor back as after_id with the
+    same sort. next_cursor is opaque (_encode_cursor); a bare row id is
+    still accepted. A cursor that cannot be resumed raises
+    BrowseCursorError instead of returning a wrong page. Sort options:
       - added_at_desc / added_at_asc
       - file_size_desc / file_size_asc
       - title_asc
@@ -339,38 +402,45 @@ def library_browse(*, site_id: Optional[str] = None,
             "(l.title LIKE ? OR l.file_path LIKE ? OR l.notes LIKE ?)")
         q = f"%{query}%"
         params.extend([q, q, q])
-    if after_id is not None:
-        # Cursor: for descending sorts, "after" means id less than cursor
-        # (assumes id is monotonic with added_at, which it is since both
-        # auto-increment in insertion order).
-        wheres.append("l.id < ?")
-        params.append(int(after_id))
-    sql += joins
-    if wheres:
-        sql += " WHERE " + " AND ".join(wheres)
-    # Whitelist sort keys — never f-string user input
+    # Whitelist sort keys — never f-string user input.
+    # sort -> (column, column ascending?, id tiebreak ascending?)
     SORTS = {
-        "added_at_desc":  "l.added_at DESC, l.id DESC",
-        "added_at_asc":   "l.added_at ASC, l.id ASC",
-        "file_size_desc": "l.file_size DESC, l.id DESC",
-        "file_size_asc":  "l.file_size ASC, l.id DESC",
-        "title_asc":      "l.title ASC, l.id DESC",
-        "rating_desc":    "l.rating DESC, l.id DESC",
-        "watched_at_desc": "l.watched_at DESC, l.id DESC",
+        "added_at_desc":  ("added_at", False, False),
+        "added_at_asc":   ("added_at", True, True),
+        "file_size_desc": ("file_size", False, False),
+        "file_size_asc":  ("file_size", True, False),
+        "title_asc":      ("title", True, False),
+        "rating_desc":    ("rating", False, False),
+        "watched_at_desc": ("watched_at", False, False),
     }
-    sql += " ORDER BY " + SORTS.get(sort, SORTS["added_at_desc"])
-    sql += " LIMIT ?"
-    params.append(int(limit))
+    if sort not in SORTS:
+        sort = "added_at_desc"
+    col, col_asc, id_asc = SORTS[sort]
+    order = (f" ORDER BY l.{col} {'ASC' if col_asc else 'DESC'},"
+             f" l.id {'ASC' if id_asc else 'DESC'}")
     try:
         with db_conn() as cx:
+            if after_id is not None:
+                v, cursor_id = _cursor_position(cx, after_id, sort, col)
+                clause, cursor_params = _after_cursor(
+                    v, cursor_id, col, col_asc, id_asc)
+                wheres.append(clause)
+                params.extend(cursor_params)
+            sql += joins
+            if wheres:
+                sql += " WHERE " + " AND ".join(wheres)
+            sql += order + " LIMIT ?"
+            params.append(int(limit))
             rows = [dict(r) for r in cx.execute(sql, params).fetchall()]
             # Annotate each row with its tags (one extra query per row;
             # acceptable for page-sized result sets)
             for r in rows:
                 r["tags"] = _tags_for_library(cx, r["id"])
-            next_cursor = (rows[-1]["id"]
+            next_cursor = (_encode_cursor(sort, rows[-1][col], rows[-1]["id"])
                            if len(rows) == int(limit) else None)
             return rows, next_cursor
+    except BrowseCursorError:
+        raise
     except Exception:
         return [], None
 
