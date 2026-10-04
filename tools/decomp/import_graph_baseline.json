@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5785,
+  "edge_count": 5793,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4875,8 +4875,20 @@
     "tests/test_o1826_c05_library_orphan_false_report.py": [
       "bulk_downloader/library_final.py"
     ],
+    "tests/test_o1826_c09_login_manual_sandbox_cleanup.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/interstitial.py",
+      "bulk_downloader/learn.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/stealth.py"
+    ],
     "tests/test_o1826_c10_tool_bridge_tmp_home.py": [
       "bulk_downloader/tool_bridge.py"
+    ],
+    "tests/test_o1826_c11_multi_conn_join_timeout.py": [
+      "bulk_downloader/mptcp_subflow.py",
+      "bulk_downloader/multi_conn.py",
+      "bulk_downloader/ssrf_transport.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

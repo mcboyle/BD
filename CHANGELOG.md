@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1816 - train252e: row
+
+T252 = 2 product cuts (BOARDED-for-integration.md L316-317, bd-lensrouter-A3-A; no frontend): o1826-c11-multi-conn-join-timeout r3 (multi_conn.py; T1 corr-D13-D r3 O1858 FINAL; 3 declared edges), o1826-c09-login-manual-sandbox-cleanup r3 (login_impl/manual.py; T2: codex cx5 r2 BOARD carried -- manual.py blob 5880eb00 identical r2 6f48501d -> r3 b262cdda, only +1 row723 fixture line, verified -- + kimi correctness r3 BOARD on b262cdda; 5 declared edges; FUNCTION_INDEX regen at land). Applied on T251e ca185faf (O1739b):
+- o1826-c11-multi-conn-join-timeout r3
+- o1826-c09-login-manual-sandbox-cleanup r3
+
+
 ## v3.66.1815 - train251e: row
 
 T251 = 1 product cut (BOARDED-for-integration.md L315; T1 corr-D14-D r1 on f802ff89): work_stealing.py lease (steal honours set_nx_ex; reap requeues only on LREM hit + atomic renew); no frontend; applied on T250e 17a427aa (O1739b):
