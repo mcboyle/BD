@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 // sections are hidden via CSS :has() (see index.css .settings-searching).
 export const SettingsSearchContext = createContext("");
 
-function slugify(s: string): string {
+export function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 

@@ -15,6 +15,7 @@ import {
   SettingRow,
   SettingSection,
   SettingsSearchContext,
+  slugify,
 } from "@/components/SettingSection";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,7 @@ import { OriginChip } from "@/components/ui/OriginChip";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { IntegrityZone } from "@/components/ui/IntegrityZone";
 import { ValidationSummary } from "@/components/ui/ValidationSummary";
-import { sectionForField } from "@/lib/settingsSchema";
+import { SETTINGS_SECTIONS as SCHEMA_SECTIONS, sectionForField } from "@/lib/settingsSchema";
 import { apiGet, apiPost } from "@/lib/api-client";
 import type { GlobalConfigSubset } from "@/lib/api-types";
 import { useQueueBadgeMode } from "@/hooks/useQueueBadgeMode";
@@ -104,24 +105,12 @@ interface SupervisorStatus {
   };
 }
 
-const SETTINGS_SECTIONS: { label: string; id: string }[] = [
-  { label: "Downloads", id: "downloads" },
-  { label: "AI assist", id: "ai-assist" },
-  { label: "Network", id: "network" },
-  { label: "Queue housekeeping", id: "queue-housekeeping" },
-  { label: "Capture", id: "capture" },
-  { label: "Diagnostics", id: "diagnostics" },
-  { label: "Session keep-alive", id: "session-keep-alive" },
-  { label: "System", id: "system" },
-  { label: "Tools & operations", id: "tools-operations" },
-  { label: "Supervisor throttle", id: "supervisor-throttle" },
-  { label: "Browser", id: "browser" },
-  { label: "Challenge handling", id: "challenge-handling" },
-  { label: "Advanced", id: "advanced" },
-  { label: "Security & access", id: "security-access" },
-  { label: "Environment (restart required)", id: "environment-restart-required" },
-  { label: "Import / Export", id: "import-export" },
-];
+// Nav + changed-marker sections come from settingsSchema (the single source
+// shared with the command palette); ids use SettingSection's own slug rule.
+const SETTINGS_SECTIONS: { label: string; id: string }[] = SCHEMA_SECTIONS.map((label) => ({
+  label,
+  id: slugify(label),
+}));
 
 function jumpToSection(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
