@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1820 - train256e: row
+
+T256 = 1 product cut (BOARDED-for-integration.md L331; T1 corr-D23-D r1 on a85197e4): library.py exact-basename history link, orphan tag rows deleted, causes logged; no frontend; applied on T255f fed8079c (O1739b):
+- o1826-c06-library-history r1
+
+
 ## v3.66.1819 - train255f: row
 
 T255 (rebuild c) = 1 product cut (BOARDED-for-integration.md L330; T1 kimi r1 on 7c5dd797): downloader_ui.py pure move of _idle_watcher above __main__; no edges; no frontend; applied on T254f 537abd28 (O1739b):

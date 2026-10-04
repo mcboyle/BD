@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5819,
+  "edge_count": 5820,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4874,6 +4874,9 @@
     ],
     "tests/test_o1826_c05_library_orphan_false_report.py": [
       "bulk_downloader/library_final.py"
+    ],
+    "tests/test_o1826_c06_library_history_link_and_delete.py": [
+      "bulk_downloader/library.py"
     ],
     "tests/test_o1826_c07_in_list_chunking_and_ledger.py": [
       "bulk_downloader/app_provenance.py",
