@@ -62,6 +62,29 @@ RECORDER_JS = r"""
     }
     return null;
   };
+  // O1815 R10 R2: a show-password toggle can reveal a field before any
+  // click/input touched it; take the password identity from the type
+  // attribute change itself (oldValue 'password').
+  // O1815 R10 R4: decide at READ time. The record is queued the moment
+  // the type changes, but the callback runs later (microtask); a site
+  // handler that reveals and then calls input.click() reaches the
+  // collector first. _pwSync() drains the pending records synchronously
+  // (takeRecords), so the collector never depends on the callback.
+  const _pwSync = (() => {
+    const _pwSeen = (window.__pw_secret_els = window.__pw_secret_els || new WeakSet());
+    const note = (muts) => {
+      for (const m of muts) {
+        if (String(m.oldValue || '').toLowerCase() === 'password') _pwSeen.add(m.target);
+      }
+    };
+    let obs = null;
+    try {
+      obs = new MutationObserver(note);
+      obs.observe(document, { subtree: true, attributes: true,
+                              attributeFilter: ['type'], attributeOldValue: true });
+    } catch (e) {}
+    return () => { try { if (obs) note(obs.takeRecords()); } catch (e) {} };
+  })();
   const _info = (el) => {
     const anc = _findUrlAncestor(el);
     // v3.43.49: redact password fields. el.value on a type=password
@@ -73,13 +96,20 @@ RECORDER_JS = r"""
     // below, which never gets rendered. The text channel uses a
     // sentinel for password fields so the UI shows "[pw]" instead.
     const isPw = (el.tagName === 'INPUT' && el.type === 'password');
+    // O1815 R10 R2: a show-password toggle (type password -> text) must
+    // not drop the field's secret identity. Remember every element once
+    // seen as a password (shared with TEACH_OVERLAY_JS) and key on that.
+    const _pwSeen = (window.__pw_secret_els = window.__pw_secret_els || new WeakSet());
+    if (isPw) _pwSeen.add(el);
+    _pwSync();
     // FOUND-5 (NEW-1 companion): set an explicit `secret` flag on
     // password-field records so the server-side scrub catches id-only
     // selectors (where the synthesized selector may omit type=password).
     // Mirrors secrets-side _is_secret_action: type=password OR an
     // autocomplete that names a password field.
     const _ac = (_attr(el, 'autocomplete') || '').toLowerCase();
-    const isSecret = isPw || /(?:^|[\s,])(?:current-|new-)?password\b/.test(_ac);
+    const isSecret = isPw || _pwSeen.has(el)
+      || /(?:^|[\s,])(?:current-|new-)?password\b/.test(_ac);
     return {
       tag: (el.tagName || '').toLowerCase(),
       id:  el.id || '',
@@ -87,7 +117,9 @@ RECORDER_JS = r"""
       type: el.type || '',
       secret: isSecret,
       cls:  (typeof el.className === 'string' ? el.className : '') || '',
-      text: (isPw
+      // O1815 R10 R1: mask on isSecret, not isPw -- a type=text input with
+      // password autocomplete (incl. a revealed password) holds the value.
+      text: (isSecret
               ? (el.value ? '[pw]' : '')
               : (el.innerText || el.textContent || el.value || '').slice(0, 100).trim()),
       // v3.43.49: separate channel for the raw input value. Captured
@@ -265,13 +297,29 @@ TEACH_OVERLAY_JS = r"""
   }
   function elementToRecord(el) {
     const _attr = (n) => { try { return el.getAttribute(n) || ''; } catch (e) { return ''; } };
+    // O1815 R10: same password redaction as RECORDER_JS _info. This record
+    // is rendered in the click log and mirrored into __pwrec_clicks, so a
+    // secret field's value (type=password or password autocomplete, incl.
+    // a revealed type=text password) must never land in `text`.
+    const isPw = (el.tagName === 'INPUT' && el.type === 'password');
+    // O1815 R10 R2: a revealed password (type password -> text) keeps its
+    // secret identity -- same remembered set as RECORDER_JS _info.
+    const _pwSeen = (window.__pw_secret_els = window.__pw_secret_els || new WeakSet());
+    if (isPw) _pwSeen.add(el);
+    _pwSync();
+    const _ac = _attr('autocomplete').toLowerCase();
+    const isSecret = isPw || _pwSeen.has(el)
+      || /(?:^|[\s,])(?:current-|new-)?password\b/.test(_ac);
     return {
       tag: (el.tagName || '').toLowerCase(),
       id: el.id || '',
       name: el.name || '',
       type: el.type || '',
+      secret: isSecret,
       cls: (typeof el.className === 'string' ? el.className : '') || '',
-      text: (el.innerText || el.textContent || el.value || '').slice(0, 100).trim(),
+      text: (isSecret
+              ? (el.value ? '[pw]' : '')
+              : (el.innerText || el.textContent || el.value || '').slice(0, 100).trim()),
       href: _attr('href'), role: _attr('role'),
       autocomplete: _attr('autocomplete'),
       placeholder: _attr('placeholder'),
@@ -281,6 +329,26 @@ TEACH_OVERLAY_JS = r"""
       dataSrc: _attr('data-src'), dataDownload: _attr('data-download'),
     };
   }
+  // O1815 R10 R2: as RECORDER_JS -- remember a password revealed before
+  // any hover/click touched it, from the type attribute change itself.
+  // O1815 R10 R4: as RECORDER_JS _pwSync -- elementToRecord drains the
+  // pending records itself, so a reveal-then-click in one site handler
+  // (before the observer callback ran) is still masked.
+  const _pwSync = (() => {
+    const _pwSeen = (window.__pw_secret_els = window.__pw_secret_els || new WeakSet());
+    const note = (muts) => {
+      for (const m of muts) {
+        if (String(m.oldValue || '').toLowerCase() === 'password') _pwSeen.add(m.target);
+      }
+    };
+    let obs = null;
+    try {
+      obs = new MutationObserver(note);
+      obs.observe(document, { subtree: true, attributes: true,
+                              attributeFilter: ['type'], attributeOldValue: true });
+    } catch (e) {}
+    return () => { try { if (obs) note(obs.takeRecords()); } catch (e) {} };
+  })();
   document.addEventListener('mousemove', (e) => {
     if (panel && panel.contains(e.target)) { hover.style.display = 'none'; hoverLabel.style.display='none'; return; }
     const t = e.target;
