@@ -29,6 +29,7 @@ import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _FS_UNSAFE_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
