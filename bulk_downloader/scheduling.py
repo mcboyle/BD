@@ -42,8 +42,12 @@ def hour_heatmap(site_id: str, *, days: int = 30) -> dict:
 
     Local time, so DST shifts split a single wall-clock hour across two
     UTC offsets — acceptable since we're aggregating signals, not
-    timing precise events."""
-    out = {"site_id": site_id, "window_days": days, "hours": []}
+    timing precise events.
+
+    `error` is None on success. If the history query fails it names the
+    failure, so all-zero hours are not mistaken for "no history"."""
+    out = {"site_id": site_id, "window_days": days, "hours": [],
+           "error": None}
     counts = {h: {"done": 0, "failed": 0} for h in range(24)}
     try:
         from . import db as _db
@@ -64,8 +68,8 @@ def hour_heatmap(site_id: str, *, days: int = 30) -> dict:
                 continue
             if status in counts[hour]:
                 counts[hour][status] += 1
-    except Exception:
-        pass
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
     for h in range(24):
         done = counts[h]["done"]
         failed = counts[h]["failed"]
@@ -104,31 +108,42 @@ def _holidays_path() -> Path:
         return Path.cwd() / "holidays.json"
 
 
+class HolidaysFileError(ValueError):
+    """holidays.json exists but cannot be read as a list of holidays."""
+
+
 def list_holidays() -> list:
     """Read the configured holidays. Format on disk:
       [{"date": "2025-12-25", "label": "Christmas"}, ...]
-    Returns list, empty on error or missing file."""
+    Returns [] when the file is missing. Raises HolidaysFileError when
+    it exists but is unreadable or not a JSON list, so a damaged
+    calendar is never read as an empty one."""
     p = _holidays_path()
     if not p.exists():
         return []
     try:
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, list):
-            return [d for d in data if isinstance(d, dict) and d.get("date")]
-        return []
-    except Exception:
-        return []
+    except (OSError, ValueError) as e:
+        raise HolidaysFileError(f"{p}: {type(e).__name__}: {e}") from e
+    if not isinstance(data, list):
+        raise HolidaysFileError(
+            f"{p}: expected a JSON list, got {type(data).__name__}")
+    return [d for d in data if isinstance(d, dict) and d.get("date")]
 
 
 def add_holiday(date_str: str, label: str = "") -> bool:
     """Append a holiday. `date_str` must be YYYY-MM-DD. Idempotent —
-    adding the same date again updates the label."""
+    adding the same date again updates the label. Returns False, and
+    leaves the file untouched, when the existing file is unreadable."""
     try:
         datetime.date.fromisoformat(date_str)
     except (TypeError, ValueError):
         return False
-    holidays = list_holidays()
+    try:
+        holidays = list_holidays()
+    except HolidaysFileError:
+        return False
     holidays = [h for h in holidays if h.get("date") != date_str]
     holidays.append({"date": date_str, "label": label or ""})
     p = _holidays_path()
@@ -143,7 +158,10 @@ def add_holiday(date_str: str, label: str = "") -> bool:
 
 
 def remove_holiday(date_str: str) -> bool:
-    holidays = list_holidays()
+    try:
+        holidays = list_holidays()
+    except HolidaysFileError:
+        return False
     before = len(holidays)
     holidays = [h for h in holidays if h.get("date") != date_str]
     if len(holidays) == before:
@@ -161,7 +179,8 @@ def remove_holiday(date_str: str) -> bool:
 
 def is_holiday(when: Optional[datetime.date] = None) -> dict:
     """Check whether `when` (default: today) is a configured holiday.
-    Returns {is_holiday: bool, label: str}."""
+    Returns {is_holiday: bool, label: str}. Raises HolidaysFileError
+    when the calendar file is unreadable."""
     d = when or datetime.date.today()
     iso = d.isoformat()
     for h in list_holidays():
@@ -182,7 +201,9 @@ def next_run_safe_time(
     """Find the next timestamp where all gates pass:
       • Not in a quiet window (Phase 102)
       • Not on a configured holiday
-      • Inside the configured active_window if set
+      • Inside the configured active_window if set ('HH:MM-HH:MM' or a
+        list of them, wrapping allowed; windows that do not parse are
+        ignored, as for quiet_hours)
 
     Returns a Unix epoch float, or None if no acceptable slot found
     within `max_search_days`.
@@ -194,12 +215,21 @@ def next_run_safe_time(
     from . import policy_gates as _pg
     start_ts = (now if now is not None else time.time()) + (earliest_minutes_ahead * 60)
     end_ts = start_ts + (max_search_days * 86400)
+    raw_active = (config or {}).get("active_window") or ""
+    active = [w for w in (_pg._parse_window(a) for a in
+                          ([raw_active] if isinstance(raw_active, str)
+                           else list(raw_active))) if w]
     # Walk in 60-second steps; bail fast on first acceptable
     cur = start_ts
     while cur < end_ts:
         # Check quiet hours
         q = _pg.in_quiet_hours(config, now=cur)
         if q.get("quiet"):
+            cur += 60
+            continue
+        # Check active window
+        if active and not any(_pg._in_window(_pg._now_minutes(cur), w)
+                              for w in active):
             cur += 60
             continue
         # Check holiday
