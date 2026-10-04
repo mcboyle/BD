@@ -83,6 +83,10 @@ _MANUAL_LOGIN_BANNER_JS = r"""
 """
 
 
+# How long open_manual_login_browser waits for the session thread's browser.
+_READY_WAIT_S = 45
+
+
 def _manual_launch_kwargs(config, headless=False):
     """MOD-1 A-4: build the launch kwargs (args + headless + optional channel)
     shared by .launch() / .launch_persistent_context() for the manual/takeover
@@ -215,6 +219,9 @@ class ManualLoginSession:
         self._screencast_sid = None  # set by start_screencast(sid)
         self._cmd_q = queue.Queue()
         self._error = None
+        # O1826 M110: the handles _launch has opened so far, so _run can close
+        # them if _launch raises before returning them.
+        self._launched = (None, None, None)
         self._ready = threading.Event()
         self._closed = threading.Event()
         self._thread = threading.Thread(
@@ -223,7 +230,7 @@ class ManualLoginSession:
         )
         self._thread.start()
         # Block until the browser is fully open or we hit an error
-        self._ready.wait(timeout=45)
+        self._ready.wait(timeout=_READY_WAIT_S)
 
     @property
     def ready(self):
@@ -232,6 +239,21 @@ class ManualLoginSession:
     @property
     def error(self):
         return self._error
+
+    def _close_launched(self):
+        """O1826 M110: close what _launch has opened so far (ctx, browser, pw:
+        the _run finally order) and forget it, so each handle closes once."""
+        browser, ctx, pw = self._launched
+        self._launched = (None, None, None)
+        try:
+            if ctx is not None: ctx.close()
+        except Exception: pass
+        try:
+            if browser: browser.close()
+        except Exception: pass
+        try:
+            if pw: pw.stop()
+        except Exception: pass
 
     def _launch(self):
         """Open the browser and prepare the context. Called only from
@@ -295,6 +317,7 @@ class ManualLoginSession:
                 ctx, used_pw, backend = _cloak.open_persistent_context(
                     user_data_dir=self._manual_profile_dir, headless=self._headless,
                     args=launch_args, user_agent=ua_val, config=config, **extra)
+                self._launched = (None, ctx, used_pw)
                 _cloak.log_choice("manual login", backend, "persistent manual profile")
                 sys.stderr.write(
                     f"  manual_login: using persistent profile at {self._manual_profile_dir}\n")
@@ -306,6 +329,9 @@ class ManualLoginSession:
                     # Row 723: filed under the owning site (captured at
                     # construction on the caller's thread -- this runs on
                     # the session's own thread, where no declaration exists).
+                    # O1826 M110: a context that opened before the failure is
+                    # closed here; the retry replaces it.
+                    self._close_launched()
                     sys.stderr.write(
                         f"  manual_login: persistent launch (channel=chrome) failed "
                         f"({str(e)[:80]}); retrying with bundled Chromium\n")
@@ -314,6 +340,7 @@ class ManualLoginSession:
                         ctx, used_pw, backend = _cloak.open_persistent_context(
                             user_data_dir=self._manual_profile_dir, headless=self._headless,
                             args=launch_args, user_agent=ua_val, config=config, **extra)
+                        self._launched = (None, ctx, used_pw)
                         _cloak.log_choice("manual login", backend,
                                           "persistent manual profile (bundled)")
                         _cloak.note_channel_fallback(
@@ -321,6 +348,7 @@ class ManualLoginSession:
                             channel=str(_ch), error=f"{type(e).__name__}: {e}",
                             recovered=True)
                     except Exception as e2:
+                        self._close_launched()  # O1826 M110: before non-persistent
                         sys.stderr.write(
                             f"  manual_login: persistent fallback also failed: "
                             f"{str(e2)[:80]}; reverting to non-persistent\n")
@@ -359,8 +387,10 @@ class ManualLoginSession:
                         channel=str(_ch), error=f"{type(e).__name__}: {e}",
                         recovered=True)
                 else: raise
+            self._launched = (browser, None, used_pw)
             _cloak.log_choice("manual login", backend, "non-persistent")
             ctx = browser.new_context(**ctx_opts)
+        self._launched = (browser, ctx, used_pw)
 
         if config.get("use_stealth", True):
             try: ctx.add_init_script(STEALTH_JS)
@@ -631,6 +661,10 @@ class ManualLoginSession:
             # storage state to the profile dir (cookies, extension state,
             # localStorage). Without it, the password manager extension
             # state could be lost between manual login sessions.
+            if browser is None and ctx is None and pw is None:
+                # O1826 M110: _launch raised after opening a browser/context;
+                # its handles never reached these locals.
+                browser, ctx, pw = self._launched
             try:
                 if ctx is not None: ctx.close()
             except Exception: pass
@@ -745,6 +779,10 @@ def open_manual_login_browser(config, manual_profile_dir=None, headless=False):
     if session.error:
         raise RuntimeError(f"manual login session failed to start: {session.error}")
     if not session.ready:
+        # O1826 M111: the worker may still finish launching; the queued cancel
+        # is served the moment it reaches its command loop, so nothing is left
+        # holding a browser no caller owns.
+        session.cancel(timeout=0)
         raise RuntimeError("manual login session timed out before ready")
     return session
 

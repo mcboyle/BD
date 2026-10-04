@@ -187,6 +187,7 @@ def _drive_manual_launch(monkeypatch, *, persistent, retry_also_fails=False,
     session._banner_js = ""
     session._manual_profile_dir = "/tmp/row723-manual-profile-never-opened" if persistent else None
     session._headless = True
+    session._launched = (None, None, None)
     session._owning_site = getattr(cloak, "ledger_site_id",
                                    lambda c: (c or {}).get("site_id", ""))(config)
     with pytest.raises((_Stop, RuntimeError)) as info:
