@@ -19,7 +19,7 @@ JWT_QUERY = ("https://customer-x.cloudflarestream.com/04ed100fd34e83a591c2118011
 B64_PATH = ("https://vod1.cachefly.net/"
             "ZGlybWF0Y2g9dHJ1ZTtleHBpcmV0aW1lPTE3ODA1NDUzODMvMWI0YjFiNWI3M2Zj/"
             "vod/teamskeet/dolly_paige/videos/full/VP9_ABR/VP9_1080.mp4")
-GETBEAMER = "https://backend.getbeamer.com/numberFeatures?url=app.reptyle.com&email=itdude1865%40pm.me"
+GETBEAMER = "https://backend.getbeamer.com/numberFeatures?url=app.reptyle.com&email=user%40example.invalid"
 
 NOISE = [
     "https://api2.reptyle.com/api/v1/exclusive-offers/free_account",
