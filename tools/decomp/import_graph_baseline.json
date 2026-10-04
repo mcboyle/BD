@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5771,
+  "edge_count": 5779,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1934,6 +1934,7 @@
     "bulk_downloader/runner_auth.py": [
       "bulk_downloader/admission.py",
       "bulk_downloader/app.py",
+      "bulk_downloader/captcha_relay.py",
       "bulk_downloader/cloak.py",
       "bulk_downloader/constants.py",
       "bulk_downloader/cookies.py",
@@ -3224,6 +3225,15 @@
     ],
     "tests/test_dl95_ad_frames_are_not_download_candidates.py": [
       "bulk_downloader/detect.py"
+    ],
+    "tests/test_dl95_adulttime_1_turnstile.py": [
+      "bulk_downloader/captcha_relay.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/human_challenge.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/runner.py",
+      "bulk_downloader/runner_auth.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_dl95_africancasting_2_discovery_relogin.py": [
       "bulk_downloader/app.py",

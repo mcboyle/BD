@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1806 - train242e: row
+
+T242 = 2 cuts (BOARDED-for-integration.md L294-295): o1698-mod-m7-state-line-trial r4 harness test half (correctness D2 r4, T2) + dl95-adulttime-1 r4 product T3 HIGH security login (Claude corr-D1 + kimi; O715 generated artifacts + declared edges re-derived in the release commit), applied on T241e 6d7c6e1e (O1739b):
+- o1698-mod-m7-state-line-trial-bd-worker-B3 r4
+- dl95-adulttime-1-bd-cx-worker3 r4
+
+
 ## v3.66.1805 - train241e: row
 
 T241 = 1 SECURITY T2 product cut (BOARDED-for-integration.md L293; cx-correctness2 r1 + correctness r1 BOARD on 192e8273): app_template_manager promote fail-closed, applied on T240e c2da5130 (O1739b):

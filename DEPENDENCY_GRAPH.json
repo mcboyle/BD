@@ -2420,7 +2420,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1840,
+    "edge_count": 1841,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2836,6 +2836,7 @@
         "bulk_downloader/dev_suite/capture_diag.py",
         "bulk_downloader/login_impl/manual.py",
         "bulk_downloader/runner.py",
+        "bulk_downloader/runner_auth.py",
         "bulk_downloader/runner_challenge.py",
         "bulk_downloader/scene_crawler.py",
         "bulk_downloader/takeover_vnc.py"
@@ -7246,6 +7247,7 @@
       "bulk_downloader/runner_auth.py": [
         "bulk_downloader/admission.py",
         "bulk_downloader/app.py",
+        "bulk_downloader/captcha_relay.py",
         "bulk_downloader/cloak.py",
         "bulk_downloader/constants.py",
         "bulk_downloader/cookies.py",
