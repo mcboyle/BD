@@ -132,7 +132,7 @@ export function AiTeach() {
 
   const commitM = useMutation({
     mutationFn: (dryRun: boolean) =>
-      apiPost<ApplyResult>(`/api/sites/${siteId}/learned/apply_repairs`, {
+      apiPost<ApplyResult>(`/api/sites/${encodeURIComponent(siteId)}/learned/apply_repairs`, {
         repairs: acceptedRepairs().map((r) => ({
           old_selector: r.old_selector,
           new_selector: r.new_selector,

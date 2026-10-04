@@ -245,5 +245,5 @@ export function verifyView(state: VerifyState): VerifyView {
  *  site. Read-only; existing route. Full /api literal prefix so the parity
  *  scanner credits it spa_wired. */
 export async function fetchDriftStatus(sid: string): Promise<DriftStatus> {
-  return apiGet<DriftStatus>(`/api/selector_drift/status/${sid}`);
+  return apiGet<DriftStatus>(`/api/selector_drift/status/${encodeURIComponent(sid)}`);
 }
