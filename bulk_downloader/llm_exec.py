@@ -222,8 +222,8 @@ def execute(spec: LLMCallSpec, *, _call: Optional[Callable[..., Any]] = None) ->
         try:
             from . import llm_audit
             llm_audit.record(result_metadata(res))
-        except Exception:  # pragma: no cover - audit must never break a call
-            pass
+        except Exception:  # audit must never break a call
+            _log.warning("llm audit record failed", exc_info=True)
         return res
 
     def _with_fallback(status, error="", raw_text="", latency_ms=0, attempts=0):
@@ -252,8 +252,8 @@ def execute(spec: LLMCallSpec, *, _call: Optional[Callable[..., Any]] = None) ->
             llm_cache.set(_ckey or llm_cache.cache_key(spec), value,
                           schema_version=spec.schema_version,
                           prompt_version=spec.prompt_version)
-        except Exception:  # pragma: no cover - cache must never break a call
-            pass
+        except Exception:  # cache must never break a call
+            _log.warning("llm cache write failed", exc_info=True)
 
     if not (spec.prompt_id and spec.prompt_version):
         return _with_fallback("invalid_spec",
@@ -272,7 +272,8 @@ def execute(spec: LLMCallSpec, *, _call: Optional[Callable[..., Any]] = None) ->
             from . import llm_cache
             _ckey = llm_cache.cache_key(spec)
             _hit = llm_cache.get(_ckey)
-        except Exception:  # pragma: no cover
+        except Exception:
+            _log.warning("llm cache read failed", exc_info=True)
             _hit = None
         if _hit is not None:
             cval = _hit.get("value")
@@ -362,8 +363,8 @@ def _record(task_id: str, latency_ms: int, ok: bool) -> None:
     try:
         from . import aiassist
         aiassist._record_call(task_id, int(latency_ms or 0), bool(ok))
-    except Exception:  # pragma: no cover - metrics must never break a call
-        pass
+    except Exception:  # metrics must never break a call
+        _log.warning("llm metrics record failed", exc_info=True)
 
 
 # ── 9.2 prompt-driven spec construction + result metadata ────────────────

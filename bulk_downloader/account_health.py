@@ -22,11 +22,14 @@ manual rotation if a ranking looks wrong.
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 import time
 import urllib.error
 import urllib.request
 from typing import Callable, Optional
+
+log = logging.getLogger(__name__)
 
 # Row 896: 25-minute periodic session liveness monitoring cadence
 LIVENESS_INTERVAL_SECONDS = 1500  # 25 minutes
@@ -300,7 +303,7 @@ class SessionLivenessMonitor:
             try:
                 self.run_once()
             except Exception:
-                pass
+                log.exception("session liveness check failed")
             self._stop_event.wait(self.interval_seconds)
 
 

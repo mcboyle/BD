@@ -541,6 +541,7 @@ def api_template_test_extract():
     # 154-selector list. PRESERVE-IF-PRESENT — never clobbers a manually-set or
     # teach-learned selector. Without this the /capture login pickers were
     # disconnected from do_login (which reads only config.* + learned.login).
+    login_seed_error = ""
     try:
         from .capture_login_wire import apply_draft_login_selectors
         _seeded = apply_draft_login_selectors(cfg, template.get("login"))
@@ -553,8 +554,11 @@ def api_template_test_extract():
             app.logger.info(
                 "test_extract: seeded login selectors %s for %s from draft picks",
                 _seeded, sid)
-    except Exception:
-        pass
+    except Exception as e:
+        login_seed_error = str(e)[:160]
+        app.logger.warning(
+            "test_extract: login selector seeding failed for %s: %s",
+            sid, login_seed_error, exc_info=True)
     s_meta[sid] = _build_meta(cfg)
     _save_sites_config()
 
@@ -598,10 +602,13 @@ def api_template_test_extract():
             return jsonify({"ok": False,
                             "error": f"start failed: {str(e)[:160]}"}), 500
 
-    return jsonify({"ok": True, "site_id": sid, "override_set": True,
-                    "persist": persist, "probe": probe,
-                    "force_download": force_download, "enqueued": enqueued,
-                    "started": started})
+    out = {"ok": True, "site_id": sid, "override_set": True,
+           "persist": persist, "probe": probe,
+           "force_download": force_download, "enqueued": enqueued,
+           "started": started}
+    if login_seed_error:
+        out["login_seed_error"] = login_seed_error
+    return jsonify(out)
 
 def register_routes(app) -> int:
     app.register_blueprint(template_bp)

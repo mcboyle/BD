@@ -242,7 +242,7 @@ def _looks_like_scene_url(url: str, template: Optional[dict] = None) -> bool:
     try:
         from . import playlist_extractor as _pe
         return _pe._looks_like_scene_url(url, template=template)
-    except Exception:
+    except ImportError:
         # Conservative fallback: anything with /video/, /scene/, /watch/
         url_low = (url or "").lower()
         if not url_low:

@@ -19,9 +19,12 @@ side is computed on-demand (cheap; no caching).
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 
 def _ensure_table():
@@ -68,7 +71,8 @@ def add_note(*, site_id: str = "", kind: str = "failure",
                 (site_id or "", kind, pattern.strip(),
                  resolution.strip(), time.time()))
             return cur.lastrowid
-    except Exception:
+    except Exception as e:
+        log.warning("knowledge add_note failed: %s", e)
         return None
 
 
@@ -80,7 +84,8 @@ def remove_note(note_id: int) -> bool:
             cur = cx.execute("DELETE FROM knowledge_notes WHERE id = ?",
                              (int(note_id),))
             return cur.rowcount > 0
-    except Exception:
+    except Exception as e:
+        log.warning("knowledge remove_note failed: %s", e)
         return False
 
 
@@ -113,7 +118,8 @@ def find_matching_notes(*, site_id: str = "", message: str = "") -> list:
                                   SET last_matched = ?, match_count = match_count + 1
                                   WHERE id = ?""", (now, h["id"]))
         return sorted(hits, key=lambda r: -r["match_count"])
-    except Exception:
+    except Exception as e:
+        log.warning("knowledge find_matching_notes failed: %s", e)
         return []
 
 
@@ -134,7 +140,8 @@ def list_notes(*, site_id: Optional[str] = None,
         from . import db as _db
         with _db.db_conn() as cx:
             return [dict(r) for r in cx.execute(sql, params).fetchall()]
-    except Exception:
+    except Exception as e:
+        log.warning("knowledge list_notes failed: %s", e)
         return []
 
 
@@ -202,8 +209,9 @@ def runbook(site_id: str, *, s_cfg: Optional[dict] = None,
              "count": int(r[1] if not hasattr(r, "keys") else r["n"])}
             for r in rows
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        out["error"] = f"history stats unavailable: {e}"
+        log.warning("knowledge runbook stats failed for %s: %s", site_id, e)
     out["notes"] = list_notes(site_id=site_id)
     return out
 
