@@ -381,6 +381,12 @@ def resolve_capture_token(token: str, root=None) -> Optional[Path]:
     Refuses absolute paths, ``..`` components, anything that resolves outside the
     project root, and any symlink (no escape via a symlinked capture).
     """
+    return _resolve_capture_token(token, root, None)
+
+
+def _resolve_capture_token(token: str, root, rows) -> Optional[Path]:
+    """resolve_capture_token over ``rows``: a scan_captures(root=root) result the
+    caller already holds (M054: one recursive walk per resolve), or None to scan."""
     if not token:
         return None
     norm = token.replace("\\", "/")
@@ -410,7 +416,9 @@ def resolve_capture_token(token: str, root=None) -> Optional[Path]:
         return None
     # Defense in depth: it must be one the recursive scan actually enumerates.
     # Check against the FULL two-base set (root passed through: None -> both bases).
-    if norm not in {r["rel_path"] for r in scan_captures(root=root)}:
+    if rows is None:
+        rows = scan_captures(root=root)
+    if norm not in {r["rel_path"] for r in rows}:
         return None
     return cand
 
@@ -434,9 +442,10 @@ def _resolve_capture_any(token: str, root=None) -> Optional[Path]:
         return p
     if not token:
         return None
-    matches = [r for r in scan_captures(root=root) if r.get("name") == token]
+    rows = scan_captures(root=root)
+    matches = [r for r in rows if r.get("name") == token]
     if len(matches) == 1:
-        return resolve_capture_token(matches[0]["rel_path"], root=root)
+        return _resolve_capture_token(matches[0]["rel_path"], root, rows)
     return None
 
 

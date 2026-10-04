@@ -274,13 +274,11 @@ def _configured_selectors(cfg: Dict[str, Any]) -> List[str]:
     return uniq
 
 
-def _latest_capture_for_host(host: str, *, root=None) -> Optional[Dict[str, Any]]:
-    """Newest capture (by file mtime) whose page-context host matches ``host``,
-    as a loaded capture dict. None when nothing matches. Best-effort per item."""
-    if not host:
-        return None
+def _captures_by_host(root=None) -> Dict[str, Path]:
+    """Newest capture path (by file mtime) per page-context host. Opens every
+    capture once; the first capture listed wins an mtime tie."""
     from . import dom_analyzer as _da
-    best, best_mt = None, -1.0
+    best: Dict[str, Any] = {}
     for c in _da.list_captures(root=root):
         p = _da.resolve_capture(c.get("name", ""), root=root)
         if p is None:
@@ -289,18 +287,43 @@ def _latest_capture_for_host(host: str, *, root=None) -> Optional[Dict[str, Any]
             cap = _da.load_capture(p)
         except Exception:
             continue
-        if _da.capture_host(cap) != host:
+        host = _da.capture_host(cap)
+        if not host:
             continue
         try:
             mt = p.stat().st_mtime
         except OSError:
             mt = 0.0
-        if mt > best_mt:
-            best, best_mt = cap, mt
-    return best
+        if host not in best or mt > best[host][0]:
+            best[host] = (mt, p)
+    return {host: p for host, (_mt, p) in best.items()}
 
 
-def _default_dom_provider(site_id: str, *, cfg=None, captures_root=None):
+def _latest_capture_for_host(host: str, *, root=None,
+                             index=None) -> Optional[Dict[str, Any]]:
+    """Newest capture (by file mtime) whose page-context host matches ``host``,
+    as a loaded capture dict. None when nothing matches. Best-effort per item.
+    ``index`` is a dict shared across one sweep: the capture store is indexed by
+    host once per root (M056), not re-opened in full for every stale site."""
+    if not host:
+        return None
+    from . import dom_analyzer as _da
+    if index is None:
+        index = {}
+    key = None if root is None else str(root)
+    if key not in index:
+        index[key] = _captures_by_host(root)
+    p = index[key].get(host)
+    if p is None:
+        return None
+    try:
+        return _da.load_capture(p)
+    except Exception:
+        return None
+
+
+def _default_dom_provider(site_id: str, *, cfg=None, captures_root=None,
+                          capture_index=None):
     """Stash-side integration point: build repair context for a stale site from
     the capture store as ``{dom_excerpt, page_url, host, broken_selectors,
     working_selectors}`` — or None when there's no usable captured DOM.
@@ -313,7 +336,8 @@ def _default_dom_provider(site_id: str, *, cfg=None, captures_root=None):
     html, bounded to keep the AI prompt sane. Review-only / fail-open: returns
     None (sweep skips) rather than raising on any missing piece. The ``cfg`` /
     ``captures_root`` params are keyword-only so the live ``provider(sid)`` call
-    is unchanged.
+    is unchanged. ``capture_index`` is the sweep-scoped host index (see
+    :func:`_latest_capture_for_host`).
     """
     if cfg is None:
         cfg = _site_cfg_for(site_id)
@@ -321,7 +345,7 @@ def _default_dom_provider(site_id: str, *, cfg=None, captures_root=None):
     if not host:
         return None
     selectors = _configured_selectors(cfg)
-    cap = _latest_capture_for_host(host, root=captures_root)
+    cap = _latest_capture_for_host(host, root=captures_root, index=capture_index)
     if cap is None:
         return None
     try:
@@ -376,7 +400,13 @@ def scheduled_drift_repair(
             from . import template_manager as _tm
             drafts_dir = drafts_dir or _tm.DRAFTS_DIR
             reviewed_dir = reviewed_dir or _tm.REVIEWED_DIR
-        provider = dom_provider or _default_dom_provider
+        if dom_provider is None:
+            capture_index: Dict[Any, Any] = {}
+
+            def provider(sid):
+                return _default_dom_provider(sid, capture_index=capture_index)
+        else:
+            provider = dom_provider
 
         stale = [s for s in _sd.status_all()
                  if isinstance(s, dict) and s.get("flagged_stale")]

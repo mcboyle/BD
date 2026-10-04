@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import ipaddress
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import urlparse
 
 
@@ -91,7 +93,45 @@ def _template_host_match_key(template: dict, url_host: str):
     return None
 
 
-def load_templates(template_dirs=None):
+# M178: parsed templates cached per file on a stat signature, so a lookup
+# re-lists the dir instead of re-reading and re-parsing every template JSON.
+# path -> [sig, read_ns, parsed data | _PARSE_FAILED, enabled template | None]
+_TEMPLATE_CACHE: dict = {}
+_PARSE_FAILED = object()
+# Racy-stamp window: a file stamped this close to when we read it may have been
+# rewritten in the same clock tick without moving its stamp -> re-read it.
+_RACY_NS = 2_000_000_000
+
+
+def _cached_template_entry(fp: Path):
+    try:
+        st = fp.stat()
+        sig = (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino, st.st_dev)
+    except OSError:
+        st = sig = None
+    key = str(fp)
+    entry = _TEMPLATE_CACHE.get(key)
+    if (
+        entry is not None
+        and sig is not None
+        and entry[0] == sig
+        and max(st.st_mtime_ns, st.st_ctime_ns) + _RACY_NS < entry[1]
+    ):
+        return entry
+    read_ns = time.time_ns()
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        data = _PARSE_FAILED
+    entry = [sig, read_ns, data, None]
+    if sig is not None:
+        _TEMPLATE_CACHE[key] = entry
+    return entry
+
+
+def _load_templates_shared(template_dirs=None):
+    """load_templates() over the parse cache. The dicts are SHARED with the
+    cache: internal read-only use only; anything handed to a caller is copied."""
     template_dirs = template_dirs or DEFAULT_TEMPLATE_DIRS
     out = []
 
@@ -101,29 +141,39 @@ def load_templates(template_dirs=None):
             continue
 
         for fp in sorted(d.glob("*.template.json")):
-            try:
-                data = json.loads(fp.read_text(encoding="utf-8"))
-            except Exception:
+            entry = _cached_template_entry(fp)
+            data = entry[2]
+            if data is _PARSE_FAILED:
                 continue
 
             if data.get("status") != "enabled":
                 continue
 
-            data["_template_file"] = str(fp.resolve())
-            out.append(data)
+            if entry[3] is None:
+                template = dict(data)
+                template["_template_file"] = str(fp.resolve())
+                entry[3] = template
+            out.append(entry[3])
 
     return out
 
 
+def load_templates(template_dirs=None):
+    return [copy.deepcopy(t) for t in _load_templates_shared(template_dirs)]
+
+
 def find_template_for_url(url: str, template_dirs=None, *, html=None):
+    # One template load per lookup (M178): the CAP-3 variant path below reuses it.
+    templates = _load_templates_shared(template_dirs)
+
     # CAP-3: when a page's HTML is supplied AND the host has more than one
     # matching template variant, pick the variant whose selectors actually fit
     # this page. html=None (every existing caller) keeps the original host-
     # specificity behavior exactly -> backward-compatible.
     if html:
-        variants = find_template_variants_for_url(url, template_dirs)
+        variants = _template_variants(url, templates)
         if len(variants) > 1:
-            return select_best_variant(url, html, template_dirs=template_dirs)
+            return copy.deepcopy(_best_variant(url, html, variants))
 
     try:
         host = urlparse(url).netloc
@@ -136,24 +186,29 @@ def find_template_for_url(url: str, template_dirs=None, *, html=None):
     # a site-specific template can't be shadowed by a generic parent-domain one.
     best = None
     best_key = None
-    for template in load_templates(template_dirs):
+    for template in templates:
         key = _template_host_match_key(template, host)
         if key is not None and (best_key is None or key > best_key):
             best, best_key = template, key
 
-    return best
+    return copy.deepcopy(best)
 
 
 # ── CAP-3: runtime multi-variant template selection ──────────────────
 def find_template_variants_for_url(url: str, template_dirs=None):
     """Every host-matching template for `url` (the variants), most-host-specific
     first. This is the candidate pool find_template_for_url chooses one from."""
+    variants = _template_variants(url, _load_templates_shared(template_dirs))
+    return [copy.deepcopy(t) for t in variants]
+
+
+def _template_variants(url: str, templates):
     try:
         host = urlparse(url).netloc
     except Exception:
         return []
     matches = []
-    for template in load_templates(template_dirs):
+    for template in templates:
         key = _template_host_match_key(template, host)
         if key is not None:
             matches.append((key, template))
@@ -214,7 +269,11 @@ def select_best_variant(url: str, html, template_dirs=None):
     """Among the most host-specific variants, return the best HTML fit.
     Score ties (including all-zero) keep variant discovery order. With <=1
     variant or no html, return the first discovered variant."""
-    variants = find_template_variants_for_url(url, template_dirs)
+    variants = _template_variants(url, _load_templates_shared(template_dirs))
+    return copy.deepcopy(_best_variant(url, html, variants))
+
+
+def _best_variant(url: str, html, variants):
     if not variants:
         return None
     if len(variants) == 1 or not html:
