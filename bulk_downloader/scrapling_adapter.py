@@ -509,7 +509,7 @@ def recover_selector(
         candidates.sort(key=lambda x: x[0], reverse=True)
         best_score, best_el = candidates[0]
         # Build a NEW selector from the best element's attributes
-        new_selector = _build_new_selector(best_el, tag)
+        new_selector = _build_new_selector(best_el, tag, page)
         if not new_selector:
             return RecoveryResult(
                 ok=False, error="failed_to_synthesize_new_selector",
@@ -527,9 +527,34 @@ def recover_selector(
         )
 
 
-def _build_new_selector(el, tag: str) -> str:
+def _css_ident(value: str) -> str:
+    """Serialize `value` as a CSS identifier (CSSOM "serialize an
+    identifier"), so ids/classes like ``a:b`` or ``1x`` stay literal."""
+    out = []
+    for i, ch in enumerate(value):
+        code = ord(ch)
+        if code == 0:
+            out.append("\ufffd")
+        elif (0x1 <= code <= 0x1F or code == 0x7F
+              or (i == 0 and ch.isdigit() and ch.isascii())
+              or (i == 1 and ch.isdigit() and ch.isascii() and value[0] == "-")):
+            out.append(f"\\{code:x} ")
+        elif i == 0 and ch == "-" and len(value) == 1:
+            out.append("\\-")
+        elif code >= 0x80 or ch in "-_" or (ch.isascii() and ch.isalnum()):
+            out.append(ch)
+        else:
+            out.append("\\" + ch)
+    return "".join(out)
+
+
+def _build_new_selector(el, tag: str, page=None) -> Optional[str]:
     """Synthesize a new CSS selector for an element. Prefers id, then
-    a unique class, then tag + nth-of-type fallback."""
+    a class. Ids and classes are CSS-escaped; when `page` is given a
+    candidate is only returned if it matches exactly one element.
+
+    Returns None when no id/class candidate qualifies: a bare tag can
+    match a different element, so it is never returned."""
     try:
         # Use explicit `is None` checks because an empty dict {} is
         # falsy in Python, and `getattr(el, "attrib", None) or
@@ -542,19 +567,24 @@ def _build_new_selector(el, tag: str) -> str:
             raw = getattr(el, "attrs", None)
         if raw is None:
             raw = {}
-        if hasattr(raw, "get"):
-            el_id = raw.get("id", "")
-            if el_id:
-                return f"#{el_id}"
-            el_class = raw.get("class", "")
-            if el_class:
-                # Pick the most-specific-looking class
-                classes = [c for c in el_class.split() if c and not c.startswith("hover:")]
-                if classes:
-                    return f"{tag}.{classes[0]}"
-    except Exception:
-        pass
-    return tag  # last-resort fallback: tag alone
+        if not hasattr(raw, "get"):
+            return None
+        candidates = []
+        el_id = raw.get("id", "")
+        if el_id:
+            candidates.append(f"#{_css_ident(el_id)}")
+        el_class = raw.get("class", "")
+        if el_class:
+            candidates.extend(
+                f"{tag}.{_css_ident(c)}" for c in el_class.split()
+                if c and not c.startswith("hover:")
+            )
+        for selector in candidates:
+            if page is None or len(page.css(selector) or []) == 1:
+                return selector
+    except Exception as e:
+        log.debug("scrapling: _build_new_selector raised %s", e)
+    return None
 
 
 # ─── Turnstile detection + bypass ──────────────────────────────────
@@ -606,6 +636,31 @@ class BypassResult:
     error: str = ""
 
 
+_LEGACY_TIMED_OUT = object()
+
+
+def _fetch_legacy_bounded(fetcher, url: str, timeout_s: float):
+    """Run `fetcher.fetch(url)` in a daemon thread for at most
+    `timeout_s`. Returns the page, `_LEGACY_TIMED_OUT`, or re-raises
+    the fetch's own exception."""
+    box: dict = {}
+
+    def _run():
+        try:
+            box["page"] = fetcher.fetch(url)
+        except BaseException as e:  # re-raised in the caller's thread
+            box["error"] = e
+
+    worker = threading.Thread(target=_run, name="scrapling-legacy-fetch", daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        return _LEGACY_TIMED_OUT
+    if "error" in box:
+        raise box["error"]
+    return box.get("page")
+
+
 def bypass_turnstile(
     url: str,
     *, user_agent: str = "",
@@ -647,8 +702,15 @@ def bypass_turnstile(
         try:
             page = StealthyFetcher.fetch(**kwargs)
         except TypeError:
-            # Older Scrapling: positional URL + minimal kwargs
-            page = StealthyFetcher.fetch(url)
+            # Older Scrapling: positional URL + minimal kwargs. That
+            # call takes no timeout, so bound it with a daemon thread.
+            page = _fetch_legacy_bounded(StealthyFetcher, url, timeout_s)
+            if page is _LEGACY_TIMED_OUT:
+                _bump("turnstile_failed")
+                return BypassResult(
+                    ok=False, error="legacy_fetch_timeout",
+                    elapsed_s=time.monotonic() - start,
+                )
     except Exception as e:
         _bump("turnstile_failed")
         return BypassResult(
@@ -680,6 +742,12 @@ def bypass_turnstile(
                      getattr(page, "text", "") or ""
     except Exception as e:
         log.debug("scrapling: bypass result parse raised %s", e)
+        _bump("turnstile_failed")
+        return BypassResult(
+            ok=False,
+            error=f"bypass_result_parse_failed:{type(e).__name__}:{str(e)[:120]}",
+            elapsed_s=time.monotonic() - start,
+        )
     elapsed = time.monotonic() - start
     # If we got HTML and it still looks like a
     # challenge page, the bypass didn't actually work.

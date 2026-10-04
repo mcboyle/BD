@@ -316,7 +316,7 @@ class TestBuildNewSelector:
 
     def test_falls_back_to_tag(self):
         el = self._el({})
-        assert s._build_new_selector(el, "a") == "a"
+        assert s._build_new_selector(el, "a") is None
 
     def test_skips_hover_classes(self):
         el = self._el({"class": "hover:bg-blue myclass"})
