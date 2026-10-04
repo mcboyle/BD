@@ -32,6 +32,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 # NEVER flip this. Pinned False by test_bridge_never_uses_a_shell. A True here would turn
@@ -41,11 +42,24 @@ _USES_SHELL = False
 TIMEOUT_S = 30
 MAX_OUTPUT_BYTES = 256 * 1024  # 256 KiB per stream; enough for --version / a report
 
-# Path-typed flag values must resolve UNDER one of these roots. Nothing else.
-_ALLOWED_PATH_ROOTS = (
-    os.environ.get("BD_HOME") or str(Path.home() / "BulkDownloader"),
-    "/tmp",
-)
+def _app_home() -> str:
+    return os.environ.get("BD_HOME") or str(Path.home() / "BulkDownloader")
+
+
+def _scratch_parent() -> str:
+    """O1826 C10 -- where each run's private HOME/cwd is made: the app data dir when it
+    exists, else tempfile's TMPDIR-honouring default. Never a bare world-writable /tmp
+    as the tool's HOME (M181)."""
+    home = _app_home()
+    return home if os.path.isdir(home) else tempfile.gettempdir()
+
+
+def _allowed_path_roots(scratch: str | None = None) -> tuple:
+    """Path-typed flag values must resolve UNDER one of these roots. Nothing else.
+    The app data dir, plus THIS run's private 0700 scratch when there is one -- never
+    the shared tempfile.gettempdir() parent itself (O1851: unrelated /tmp inputs are
+    refused whether or not the app dir exists)."""
+    return tuple(dict.fromkeys((_app_home(),) + ((scratch,) if scratch else ())))
 
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -111,7 +125,7 @@ class BridgeError(ValueError):
     """A validation failure -> HTTP 400. The message is safe to return."""
 
 
-def _validate_value(flag: str, spec: dict, value):
+def _validate_value(flag: str, spec: dict, value, scratch: str | None = None):
     t = spec["type"]
     if t == "bool":
         if value not in (True, False, None, "", "true", "false"):
@@ -166,16 +180,17 @@ def _validate_value(flag: str, spec: dict, value):
         # absolute escape in one check.
         rp = os.path.realpath(sv)
         if not any(rp == r or rp.startswith(r.rstrip("/") + "/")
-                   for r in _ALLOWED_PATH_ROOTS):
+                   for r in map(os.path.realpath, _allowed_path_roots(scratch))):
             raise BridgeError("flag %s path is outside the allowed roots" % flag)
         return rp
     raise BridgeError("flag %s has an unknown type in the allowlist" % flag)
 
 
-def build_argv(tool: str, flags: dict) -> list:
+def build_argv(tool: str, flags: dict, scratch: str | None = None) -> list:
     """Turn a validated (tool, flags) request into an argv LIST. Raises BridgeError on
     anything the allowlist does not explicitly permit. This function never touches a
-    shell and never reads a path from the request as argv0."""
+    shell and never reads a path from the request as argv0. `scratch` is the run's
+    private dir, an extra allowed path root."""
     entry = ALLOWLIST.get(tool)
     if entry is None:
         raise BridgeError("tool '%s' is not allowed" % tool)
@@ -185,7 +200,7 @@ def build_argv(tool: str, flags: dict) -> list:
         spec = entry["flags"].get(flag)
         if spec is None:
             raise BridgeError("flag '%s' is not allowed for %s" % (flag, tool))
-        rendered = _validate_value(flag, spec, value)
+        rendered = _validate_value(flag, spec, value, scratch)
         if spec.get("positional"):
             if rendered is not None:
                 positionals.append(rendered)
@@ -209,7 +224,16 @@ def build_argv(tool: str, flags: dict) -> list:
 def run(tool: str, flags: dict) -> dict:
     """Validate, then execute with NO shell, a hard timeout, and capped output.
     Returns {returncode, stdout, stderr, argv, timed_out}."""
-    argv = build_argv(tool, flags)  # raises BridgeError (-> 400) on any policy violation
+    # private per-run HOME/cwd: mkdtemp makes it 0700 and owned by us; removed after.
+    # Made BEFORE validation so it, not its shared parent, is the fallback path root.
+    with tempfile.TemporaryDirectory(prefix="bd-tool-bridge-",
+                                     dir=_scratch_parent()) as scratch:
+        # raises BridgeError (-> 400) on any policy violation
+        argv = build_argv(tool, flags, scratch)
+        return _run_in(argv, scratch)
+
+
+def _run_in(argv: list, scratch: str) -> dict:
     try:
         proc = subprocess.run(
             argv,
@@ -217,8 +241,8 @@ def run(tool: str, flags: dict) -> dict:
             text=True,
             shell=_USES_SHELL,  # False, pinned
             timeout=TIMEOUT_S,
-            cwd=_ALLOWED_PATH_ROOTS[0] if os.path.isdir(_ALLOWED_PATH_ROOTS[0]) else "/tmp",
-            env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"},  # minimal, no inherited secrets
+            cwd=scratch,
+            env={"PATH": "/usr/bin:/bin", "HOME": scratch},  # minimal, no inherited secrets
         )
         return {
             "returncode": proc.returncode,
