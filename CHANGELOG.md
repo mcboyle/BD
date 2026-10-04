@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1795 - train231e: row
+
+T231 = 4 O1737-recovery harness test halves (BOARDED-for-integration.md L252-255; BOARD-x2 each), applied on T230e 9bc9f178 (O1739b; train by blob, no install, O1738c/O1796):
+- o1673-breaker-remove-bd-worker-D1 r2
+- o1698-c6-hub-ram-measure-bd-worker-C5 r2
+- o1698-launcher-receipt-bd-worker-A2 r2
+- o1698-test-filter-status-bd-worker-D1 r2
+
+
 ## v3.66.1794 - train230e: row
 
 T230 = 2 product cuts (BOARDED-for-integration.md L249-251): o1634-flaky-2 (correctness-C4-C, tier<T3 single leg per H478) + o1671-a07-ssrf-validate-url-fail-closed (T2 COMPLETE: correctness-D2 + correctness-agy), applied on T229e 7975b938 (O1739b):
