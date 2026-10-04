@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1790 - train226e: row
+
+T226 = 1 O1737-recovery harness test half (BOARDED-for-integration.md L240; correctness A2 r5 + shape D9 r2), applied on T225e 2a59e1fa (O1739b; train by blob, no install, O1738c):
+- o1698-w2-c14-slices-shadow-r5-bd-worker-P-1-agy r2
+
+
 ## v3.66.1789 - train225e: row
 
 T225 = 10 O1737-recovery cuts BOARDed by bd-lensrouter-A (BOARDED-for-integration.md L228-232, L235-239), applied on T224e 9d5b136d (O1739b; harness test halves train by blob, no install, O1738c):
