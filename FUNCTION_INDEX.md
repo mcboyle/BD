@@ -1050,10 +1050,10 @@ Schema version: 2
 - L0535 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
 - L0590 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
 - L0631 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0824 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
-- L0873 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0918 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L0978 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0852 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
+- L0901 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0946 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L1006 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 

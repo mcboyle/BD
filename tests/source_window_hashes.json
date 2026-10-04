@@ -412,7 +412,7 @@
     {
       "bytes": 5012,
       "key": "tests/test_v3_43_56_stealth.py::test_verify_replay_applies_stealth_library::src[pos:pos + 5000]::1",
-      "sha256": "ce275c1163bd2b8436100c563dfc208a5eca810f67faa8bf2b4d0af8ce214659"
+      "sha256": "a5d89c60957aadb1527ce09d2a952ab3f96cadd2f4b49266b4f1e2d6f2beb2f1"
     },
     {
       "bytes": 2004,

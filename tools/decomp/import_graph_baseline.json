@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5800,
+  "edge_count": 5819,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4882,6 +4882,12 @@
       "bulk_downloader/ledger_reconcile.py",
       "bulk_downloader/ledger_sharding.py"
     ],
+    "tests/test_o1826_c08_vpn_tunnel_put_rollback.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
     "tests/test_o1826_c09_login_manual_sandbox_cleanup.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/interstitial.py",
@@ -4897,9 +4903,36 @@
       "bulk_downloader/multi_conn.py",
       "bulk_downloader/ssrf_transport.py"
     ],
+    "tests/test_o1826_c12_login_verify_no_false_success.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/login.py",
+      "bulk_downloader/stealth.py"
+    ],
+    "tests/test_o1826_c13_session_liveness_classify.py": [
+      "bulk_downloader/download_egress.py",
+      "bulk_downloader/session_keeper.py"
+    ],
     "tests/test_o1826_c17_backup_restore_paths.py": [
       "bulk_downloader/app_backup.py",
       "bulk_downloader/backup.py"
+    ],
+    "tests/test_o1826_c18_scheduling_holidays_window.py": [
+      "bulk_downloader/scheduling.py"
+    ],
+    "tests/test_o1826_c19_saved_search_export_repeat.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/saved_searches.py",
+      "bulk_downloader/scheduled_exports.py"
+    ],
+    "tests/test_o1826_c20_download_classify_honeypot_integrity.py": [
+      "bulk_downloader/honeypot_score.py",
+      "bulk_downloader/integrity.py",
+      "bulk_downloader/satellite_video.py"
+    ],
+    "tests/test_o1826_c24_config_stores_widgets_interop.py": [
+      "bulk_downloader/interop_registry.py",
+      "bulk_downloader/widgets_config.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

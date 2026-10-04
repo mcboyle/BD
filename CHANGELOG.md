@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1818 - train254f: row
+
+T254 (rebuild c) = 7 product cuts on T253e 1f0d0b0c (origin/main), RE-STAGED after #1174 CI census bounce: o1826-c08 r3 (SEC, gates C01), c19 r1, c18 r2 (BOARDED L322-325; o1807-r6 BOUNCED -- census 1257 pin), c20 r1, c13 r3 (L326-327, were T255e never pushed), c12 r4 (L328, O1870 runtime-secret fix, supersedes r3), c24 r1 (L329). No frontend. (O1739b)
+- o1826-c08-vpn-tunnel-put-rollback r3
+- o1826-c19-saved-search-export-repeat r1
+- o1826-c18-scheduling-holidays-window r2
+- o1826-c20-download-classify-honeypot-integrity r1
+- o1826-c13-session-liveness-classify r3
+- o1826-c12-login-verify-no-false-success r4
+- o1826-c24-config-stores-widgets-interop r1
+
+
 ## v3.66.1817 - train253e: row
 
 T253 (rebuild b) = 2 product cuts (BOARDED-for-integration.md L319-320; no frontend): o1826-c17-backup-restore-paths r1 (app_backup.py; T1 corr-D17-D), o1826-c07-in-list-chunking-and-ledger r2 (discovery.py, ledger_reconcile.py, ledger_sharding.py; T1 corr-D16-D r2, r1 REFUTE superseded). o1826-c12 BOUNCED (gitleaks fixture secrets; O1870 runtime fix pending). Applied on T252e c8a57ad4 (O1739b):
