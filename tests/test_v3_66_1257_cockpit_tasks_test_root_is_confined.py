@@ -145,8 +145,9 @@ def test_representative_fresh_removes_test_owned_governance(tmp_path: Path) -> N
 def test_all_measured_cockpit_cleanup_sites_use_the_guard() -> None:
     unsafe, guarded = _cleanup_call_population()
     assert unsafe == [], unsafe
-    assert len(guarded) == 18, guarded
-    assert len({location.rsplit(":", 1)[0] for location in guarded}) == 18, guarded
+    # 19th guarded site: tests/test_o1807_r6_autonomy_store_failclosed.py (_fresh).
+    assert len(guarded) == 19, guarded
+    assert len({location.rsplit(":", 1)[0] for location in guarded}) == 19, guarded
 
 
 def test_transform_control_imports_guard_without_running_cleanup() -> None:
