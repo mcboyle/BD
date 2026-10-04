@@ -282,8 +282,9 @@ def run_tests_criteria(root, scope, version):
             slow.append(f)
         if r["rc"] == 0 and not r["summary_parsed"]:
             unmeasured.append(r)
-        elif ((r["failed"] or 0) > 0
-              or (r["rc"] != 0 and (r["total"] or 0) == 0)):
+        # The summary has no Errors field: a non-zero exit after a clean count
+        # (teardown/cleanup crash) is an errored file, not a pass (O1807 R4).
+        elif (r["failed"] or 0) > 0 or r["rc"] != 0:
             (harness_fail if r["harness"] else real_fail).append(r)
     agg = {"files": len(files),
            "measured_files": sum(r["summary_parsed"] for r in results),
