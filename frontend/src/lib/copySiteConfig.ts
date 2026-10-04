@@ -14,10 +14,23 @@ import { isClipboardSecretKey } from "@/lib/secretKeys.generated";
 
 const REDACTED = "<omitted>";
 
-export function buildSiteConfigClipboard(site: Record<string, unknown>): string {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(site)) {
-    out[k] = isClipboardSecretKey(k) ? REDACTED : v;
+// o1671-a13 (AUDIT-13): the predicate applies at EVERY depth. A one-level walk left a
+// nested block under a benign key ("login", "accounts", ...) serialised verbatim, so the
+// same password/cookie/token keys that were redacted at the top level reached the
+// clipboard in plaintext one level down. Objects and arrays keep their shape; a secret
+// key's value is replaced whole, whatever it holds.
+function redactSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = isClipboardSecretKey(k) ? REDACTED : redactSecrets(v);
+    }
+    return out;
   }
-  return JSON.stringify(out, null, 2);
+  return value;
+}
+
+export function buildSiteConfigClipboard(site: Record<string, unknown>): string {
+  return JSON.stringify(redactSecrets(site), null, 2);
 }

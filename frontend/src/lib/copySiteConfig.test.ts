@@ -67,3 +67,64 @@ describe("buildSiteConfigClipboard OAuth/CSRF token class (F-FE09-01)", () => {
     }
   });
 });
+
+// o1671-a13-copysiteconfig-nested-secrets (O1671 AUDIT-13, MED, security). The copy
+// walked Object.entries(site) ONE level deep: a nested block under a benign key
+// ("login", "accounts", "profiles") was serialised verbatim, so passwords, cookies
+// and tokens inside it reached the clipboard in plaintext while the same keys at
+// the top level were redacted. Contract: the secret-key predicate applies at every
+// depth, through objects AND arrays, and the output keeps its shape.
+describe("buildSiteConfigClipboard nested secrets (o1671-a13)", () => {
+  const REDACTED = "<omitted>";
+
+  it("redacts secret keys inside a nested object under a benign key", () => {
+    const cfg = { login: { user: "bob", password: "hunter2", cookie: "session=deadbeef" } };
+    const text = buildSiteConfigClipboard(cfg);
+    expect(text).not.toContain("hunter2");
+    expect(text).not.toContain("deadbeef");
+    const out = JSON.parse(text);
+    expect(out.login.user).toBe("bob");
+    expect(out.login.password).toBe(REDACTED);
+    expect(out.login.cookie).toBe(REDACTED);
+  });
+
+  it("redacts secret keys inside objects held in arrays, keeping the array shape", () => {
+    const cfg = { accounts: [{ user: "a", api_token: "tok_a" }, { user: "b", api_token: "tok_b" }] };
+    const text = buildSiteConfigClipboard(cfg);
+    expect(text).not.toContain("tok_a");
+    expect(text).not.toContain("tok_b");
+    const out = JSON.parse(text);
+    expect(Array.isArray(out.accounts)).toBe(true);
+    expect(out.accounts.map((a: { user: string }) => a.user)).toEqual(["a", "b"]);
+    expect(out.accounts.every((a: { api_token: string }) => a.api_token === REDACTED)).toBe(true);
+  });
+
+  it("redacts at any depth", () => {
+    const cfg = { profiles: { main: { headers: [{ name: "x", bearer: "deep-secret" }] } } };
+    const text = buildSiteConfigClipboard(cfg);
+    expect(text).not.toContain("deep-secret");
+    expect(JSON.parse(text).profiles.main.headers[0]).toEqual({ name: "x", bearer: REDACTED });
+  });
+
+  it("control: the same keys at the top level were already redacted (probe can say yes)", () => {
+    const out = JSON.parse(buildSiteConfigClipboard({ password: "hunter2", cookie: "c", api_token: "t" }));
+    expect(out).toEqual({ password: REDACTED, cookie: REDACTED, api_token: REDACTED });
+  });
+
+  it("negative control: benign nested values and scalars keep their shape and value", () => {
+    const cfg = {
+      retry: { attempts: 3, backoff_ms: 250, enabled: true, tag: null },
+      formats: ["mp4", "webm"],
+      limits: [{ per_host: 2 }, { per_site: 4 }],
+      label: "x",
+    };
+    expect(JSON.parse(buildSiteConfigClipboard(cfg))).toEqual(cfg);
+  });
+
+  it("a secret key whose value is a whole block is replaced by the marker, never serialised", () => {
+    const cfg = { credentials: { user: "bob", note: "do-not-leak" } };
+    const text = buildSiteConfigClipboard(cfg);
+    expect(text).not.toContain("do-not-leak");
+    expect(JSON.parse(text).credentials).toBe(REDACTED);
+  });
+});
