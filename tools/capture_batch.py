@@ -39,6 +39,9 @@ each instance back on the same page it captured before.
 from __future__ import annotations
 
 import argparse
+import math
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -47,6 +50,7 @@ from typing import List, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 _CAPTURE_CLI = Path(__file__).resolve().parent / "capture_session.py"
+_INTERRUPT_SAVE_GRACE = 60.0
 
 
 def _parse_jobs(args) -> List[Tuple[str, str]]:
@@ -89,6 +93,13 @@ def _safe_name(name: str) -> str:
     return "".join(c if (c.isalnum() or c in "-_") else "_" for c in name)[:60] or "job"
 
 
+def _wait_timeout(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("wait timeout must be finite positive seconds")
+    return seconds
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Launch several independent capture_session.py instances in parallel")
@@ -120,6 +131,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stagger-secs", type=float, default=1.5,
                    help="Seconds between launching each instance, so N browser "
                         "windows don't all spawn in the same instant (default 1.5).")
+    p.add_argument("--wait-timeout", type=_wait_timeout, default=3600.0,
+                   help="Maximum seconds to wait for each parallel capture "
+                        "(default 3600). Timed-out captures are stopped and reported.")
     p.add_argument("--url-memory-file", default="capture_url_memory.json",
                    help="Shared title->URL memory file passed to every instance "
                         "(default ./capture_url_memory.json). Page URLs only, "
@@ -180,6 +194,54 @@ def _seed_profile_if_new(job_name: str, args) -> None:
               f"({str(e)[:80]}); it will start empty", file=sys.stderr)
 
 
+def _stop_capture(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    # The launcher may exit on TERM while its browser still lives in the group.
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        elif proc.poll() is None:
+            proc.kill()
+    except ProcessLookupError:
+        pass
+    proc.wait(timeout=5)
+
+
+def _interrupt_captures(procs) -> None:
+    # Captures run in their own sessions, so a terminal Ctrl-C reaches only this
+    # launcher: forward it so each capture saves, then stop whatever is left.
+    live = [p for _, p in procs if p.poll() is None]
+    try:
+        if os.name == "posix":
+            for p in live:
+                try:
+                    os.killpg(p.pid, signal.SIGINT)
+                except ProcessLookupError:
+                    pass
+        deadline = time.monotonic() + _INTERRUPT_SAVE_GRACE
+        for p in live:
+            try:
+                p.wait(timeout=max(0.0, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+    except KeyboardInterrupt:
+        pass  # a second Ctrl-C skips the save grace
+    for p in live:
+        _stop_capture(p)
+
+
 def run(argv=None) -> int:
     args = _build_parser().parse_args(argv)
     jobs = _expand_pairs(_parse_jobs(args), args.pairs)
@@ -213,15 +275,28 @@ def run(argv=None) -> int:
 
     # Parallel: start them all (staggered), then wait for the operator to finish each.
     procs = []
-    for name, url in jobs:
-        print(f"--- starting {name}: {url}")
-        _seed_profile_if_new(name, args)
-        p = subprocess.Popen(_cmd_for(name, url, args, out_dir))
-        procs.append((name, p))
-        time.sleep(max(0.0, args.stagger_secs))
-    print(f"\nAll {len(procs)} instances launched. Drive each browser window and "
-          f"press ENTER in it to save. Waiting for all to finish...\n")
-    results = [(name, p.wait()) for name, p in procs]
+    results = []
+    try:
+        for name, url in jobs:
+            print(f"--- starting {name}: {url}")
+            _seed_profile_if_new(name, args)
+            p = subprocess.Popen(_cmd_for(name, url, args, out_dir),
+                                 start_new_session=(os.name == "posix"))
+            procs.append((name, p))
+            time.sleep(max(0.0, args.stagger_secs))
+        print(f"\nAll {len(procs)} instances launched. Drive each browser window and "
+              f"press ENTER in it to save. Waiting for all to finish...\n")
+        for name, p in procs:
+            try:
+                rc = p.wait(timeout=args.wait_timeout)
+            except subprocess.TimeoutExpired:
+                _stop_capture(p)
+                print(f"{name}: TIMEOUT after {args.wait_timeout:g}s", file=sys.stderr)
+                rc = 124
+            results.append((name, rc))
+    except KeyboardInterrupt:
+        _interrupt_captures(procs)
+        raise
     return _report(results)
 
 
@@ -230,7 +305,7 @@ def _report(results: List[Tuple[str, int]]) -> int:
     ok = 0
     for name, rc in results:
         # capture_session.py returns 0 ok, 1 digest error, 2 setup failure
-        label = {0: "OK", 1: "DIGEST ERROR", 2: "SETUP FAILED"}.get(rc, f"rc={rc}")
+        label = {0: "OK", 1: "DIGEST ERROR", 2: "SETUP FAILED", 124: "TIMEOUT"}.get(rc, f"rc={rc}")
         print(f"  {name}: {label}")
         ok += (rc == 0)
     print(f"  {ok}/{len(results)} succeeded")
