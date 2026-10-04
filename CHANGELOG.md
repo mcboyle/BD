@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1805 - train241e: row
+
+T241 = 1 SECURITY T2 product cut (BOARDED-for-integration.md L293; cx-correctness2 r1 + correctness r1 BOARD on 192e8273): app_template_manager promote fail-closed, applied on T240e c2da5130 (O1739b):
+- o1807-r1-template-promote-failclosed r1
+
+
 ## v3.66.1804 - train240e: row
 
 T240 = 2 SECURITY T2 product cuts (BOARDED-for-integration.md L291-292; two lenses each on the current tree): o1807-r2-shell-guard-origin-first r2 (tools/cockpit_console.py; r1 REFUTE superseded) + o1815-r9-hooks r1 (bulk_downloader/hooks.py placeholder injection), applied on T239e aa552119 (O1739b):

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5768,
+  "edge_count": 5771,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4836,6 +4836,11 @@
     ],
     "tests/test_o1713_wheelhouse_version_sort.py": [
       "tools/local_wheelhouse.py"
+    ],
+    "tests/test_o1807_r1_template_promote_failclosed.py": [
+      "bulk_downloader/app_template_manager.py",
+      "bulk_downloader/template_manager.py",
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_o1807_r2_shell_guard_origin_first.py": [
       "tools/cockpit_console.py",
