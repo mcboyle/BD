@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Check,
-  GripVertical,
   Plus,
   RotateCcw,
   Settings2,
@@ -21,7 +20,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Callout } from "@/components/ui/Callout";
 import { Skeleton } from "@/components/ui/skeleton";
-import { KPICard } from "@/components/KPICard";
 import { ManualLoginPending } from "@/components/ManualLoginPending";
 import { SiteTemplateCard } from "@/components/SiteTemplateCard";
 import { ApprovalGate } from "@/components/ApprovalGate";
@@ -31,12 +29,11 @@ import { WidgetPicker } from "@/components/WidgetPicker";
 import {
   useDashboardLayout,
   LEGACY_WIDGET_IDS,
-  kpiLayoutId,
 } from "@/hooks/useDashboardLayout";
 import { useWidgetData } from "@/hooks/useWidgetData";
 import { useWidgetSelection } from "@/hooks/useWidgetSelection";
 import { apiDelete, apiGet } from "@/lib/api-client";
-import { WIDGETS_BY_ID } from "@/lib/widgetCatalog";
+import { buildKpiTiles, DashboardTile } from "@/routes/Home";
 import type { SiteEntryV2, SitesV2, TemplateStatus } from "@/lib/api-types";
 import { SiteTemplateBadge } from "@/components/SiteTemplateBadge";
 import { cn } from "@/lib/utils";
@@ -456,24 +453,7 @@ function buildWidgets(
     </div>
   ));
 
-  const kpiTiles = extraIds
-    .filter((id) => WIDGETS_BY_ID[id] !== undefined)
-    .map((id) => {
-      const def = WIDGETS_BY_ID[id];
-      const spec = def.spec(kpiData);
-      const layoutId = kpiLayoutId(id);
-      return (
-        <div key={layoutId} className="dashboard-tile-wrap h-full">
-          <DashboardTile id={layoutId} editMode={editMode}>
-            <div className="hairline h-full overflow-hidden rounded-md border bg-surface">
-              <KPICard spec={spec} pending={!kpiReady} />
-            </div>
-          </DashboardTile>
-        </div>
-      );
-    });
-
-  return [...legacyTiles, ...kpiTiles];
+  return [...legacyTiles, ...buildKpiTiles(editMode, extraIds, kpiData, kpiReady)];
 }
 
 function labelForLegacy(id: string): string {
@@ -485,34 +465,4 @@ function labelForLegacy(id: string): string {
     case "by-site": return "Site overview";
     default: return id;
   }
-}
-
-function DashboardTile({
-  id,
-  editMode,
-  children,
-}: {
-  id: string;
-  editMode: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "relative h-full overflow-hidden",
-        editMode &&
-          "rounded-md ring-2 ring-dashed ring-primary/40 transition-shadow",
-      )}
-    >
-      {editMode && (
-        <div
-          className="dashboard-tile-handle absolute right-1 top-1 z-10 grid h-6 w-6 cursor-grab place-items-center rounded-sm bg-surface/90 text-ink-3 backdrop-blur-sm transition-colors hover:bg-surface-2 hover:text-ink active:cursor-grabbing"
-          aria-label={`Drag to reorder ${id} tile`}
-        >
-          <GripVertical className="h-3.5 w-3.5" aria-hidden />
-        </div>
-      )}
-      {children}
-    </div>
-  );
 }

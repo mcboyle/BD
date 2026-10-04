@@ -66,10 +66,13 @@ type UserTemplate = {
   label?: string;
 };
 type UserTemplatesList = { ok?: boolean; templates?: UserTemplate[] };
+// One Status source: its payload, or the error that kept it from loading.
+// A failed GET stays distinguishable from an empty/null payload (A7).
+type StatusPart = { ok: true; data: unknown } | { ok: false; error: string };
 type StatusSnapshot = {
-  auth_health: unknown;
-  selector_drift: unknown;
-  daily_budget: unknown;
+  auth_health: StatusPart;
+  selector_drift: StatusPart;
+  daily_budget: StatusPart;
 };
 
 const tplId = (t: UserTemplate) => t.id ?? t.tid ?? t.template_id ?? t.name ?? "";
@@ -230,11 +233,11 @@ export function Maintenance() {
   const status = useQuery<StatusSnapshot, Error>({
     queryKey: ["maintenance", "status"],
     queryFn: async () => {
-      const grab = async (path: string): Promise<unknown> => {
+      const grab = async (path: string): Promise<StatusPart> => {
         try {
-          return await apiGet<unknown>(path);
-        } catch {
-          return null;
+          return { ok: true, data: await apiGet<unknown>(path) };
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : String(e) };
         }
       };
       const [auth_health, selector_drift, daily_budget] = await Promise.all([
@@ -1639,9 +1642,21 @@ export function Maintenance() {
         {status.isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : (
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs text-emerald-200/80">
-            {JSON.stringify(status.data, null, 2)}
-          </pre>
+          status.data &&
+          (Object.entries(status.data) as [string, StatusPart][]).map(([name, part]) => (
+            <div key={name} className="mt-2">
+              <div className="text-xs font-semibold text-ink-2">{name}</div>
+              {part.ok ? (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-black/40 p-2 text-xs text-emerald-200/80">
+                  {JSON.stringify(part.data, null, 2)}
+                </pre>
+              ) : (
+                <p role="alert" className="text-xs text-red-300">
+                  Unavailable: {part.error}
+                </p>
+              )}
+            </div>
+          ))
         )}
       </Card>
 

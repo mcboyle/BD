@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, KeyRound, Shield } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,31 @@ export interface SiteRowProps {
   onToggleSelect?: (site: SiteEntryV2) => void;
 }
 
+// ReadinessBadge issues its own GET per mounted row, so a long site list
+// would fire one readiness request per row on first paint. Rows mount the
+// badge only once they have been near the viewport; without
+// IntersectionObserver every row counts as seen (previous behaviour).
+function useSeen<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [seen, setSeen] = useState(() => typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    const el = ref.current;
+    if (seen || !el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  return [ref, seen] as const;
+}
+
 export function SiteRow({
   site,
   onClick,
@@ -44,9 +70,11 @@ export function SiteRow({
     site.auth_state === "unreachable" ||
     !!holdReason;
   const selectionMode = !!onToggleSelect;
+  const [rowRef, seen] = useSeen<HTMLButtonElement>();
 
   return (
     <button
+      ref={rowRef}
       type="button"
       className={cn(
         "hairline w-full rounded-md p-3 text-left",
@@ -119,7 +147,7 @@ export function SiteRow({
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         {/* Cut 4: composite readiness at a glance (browse mode only). */}
-        {!selectionMode && <ReadinessBadge siteId={site.site_id} />}
+        {!selectionMode && seen && <ReadinessBadge siteId={site.site_id} />}
         {site.captcha_pending && (
           <Badge variant="warning" className="gap-1">
             <Shield className="h-3 w-3" aria-hidden />

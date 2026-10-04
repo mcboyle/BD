@@ -32,7 +32,7 @@ import { useWidgetData } from "@/hooks/useWidgetData";
 import { useWidgetSelection } from "@/hooks/useWidgetSelection";
 import { apiGet } from "@/lib/api-client";
 import { adaptiveInterval } from "@/lib/polling";
-import { WIDGETS_BY_ID } from "@/lib/widgetCatalog";
+import { DEFAULT_WIDGET_IDS, WIDGETS_BY_ID } from "@/lib/widgetCatalog";
 import type { DashboardV2 } from "@/lib/api-types";
 import { cn } from "@/lib/utils";
 
@@ -247,7 +247,7 @@ export function Home() {
                   reset();
                   widgetSelection.reset();
                 }}
-                disabled={!isCustom && widgetSelection.ids.length === 4}
+                disabled={!isCustom && isDefaultSelection(widgetSelection.ids)}
                 aria-label="Reset dashboard layout and widget selection to defaults"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden />
@@ -459,9 +459,28 @@ function buildWidgets(
     </div>
   ));
 
-  // Filter extras to catalog IDs. Layout-key collisions with legacy tiles
-  // are resolved by kpiLayoutId while the selection keeps the catalog ID.
-  const kpiTiles = extraIds
+  return [...legacyTiles, ...buildKpiTiles(editMode, extraIds, kpiData, kpiReady)];
+}
+
+// The Reset button is a no-op at the default selection. Compared by
+// value against the catalog default, not by a hardcoded length.
+function isDefaultSelection(ids: string[]): boolean {
+  return (
+    ids.length === DEFAULT_WIDGET_IDS.length &&
+    ids.every((id, i) => id === DEFAULT_WIDGET_IDS[i])
+  );
+}
+
+// KPI catalog tiles, shared with the per-site dashboard (SiteDetail).
+// Filter extras to catalog IDs. Layout-key collisions with legacy tiles
+// are resolved by kpiLayoutId while the selection keeps the catalog ID.
+export function buildKpiTiles(
+  editMode: boolean,
+  extraIds: string[],
+  kpiData: import("@/lib/widgetCatalog").WidgetData,
+  kpiReady: boolean,
+) {
+  return extraIds
     .filter((id) => WIDGETS_BY_ID[id] !== undefined)
     .map((id) => {
       const def = WIDGETS_BY_ID[id];
@@ -477,14 +496,12 @@ function buildWidgets(
         </div>
       );
     });
-
-  return [...legacyTiles, ...kpiTiles];
 }
 
 // Tile wrapper. In view mode the wrapper is invisible — just renders
 // its children. In edit mode, overlays a grip icon (the drag handle —
 // matches the class in `draggableHandle`) and a subtle dashed ring.
-function DashboardTile({
+export function DashboardTile({
   id,
   editMode,
   children,
