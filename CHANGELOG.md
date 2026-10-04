@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1796 - train232e: row
+
+T232 = 4 O1737-recovery cuts (BOARDED-for-integration.md L256-259; 3 harness test halves + 1 product a15-devcap), applied on T231e 189ef7d6 (O1739b; harness by blob, no install, O1738c/O1796):
+- o1698-c4b-context-parity-bd-worker-A3 r2
+- o1671-a15-devcap-dsn-quote-bd-worker-P-6-agy r3
+- o1698-c4c-litellm-fallback-group-bd-worker-A1 r3
+- o1698-theme-default-cx46 r2
+
+
 ## v3.66.1795 - train231e: row
 
 T231 = 4 O1737-recovery harness test halves (BOARDED-for-integration.md L252-255; BOARD-x2 each), applied on T230e 9bc9f178 (O1739b; train by blob, no install, O1738c/O1796):
