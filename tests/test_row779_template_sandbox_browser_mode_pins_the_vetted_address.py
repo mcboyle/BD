@@ -244,6 +244,9 @@ def sandbox(fresh_app, monkeypatch):
         state["launch_args"].append(args)
         return _FixtureBrowser(args)
 
+    # Bind session_keeper's `from . import cloak` to the real module first:
+    # a first import under the stub keeps the fake past teardown (FLAKE-779).
+    import bulk_downloader.session_keeper  # noqa: F401
     fake_cloak = types.ModuleType("bulk_downloader.cloak")
     fake_cloak.cloaked_page = fixture_cloaked_page
     monkeypatch.setitem(sys.modules, "bulk_downloader.cloak", fake_cloak)
@@ -257,6 +260,15 @@ def sandbox(fresh_app, monkeypatch):
         )
 
     return types.SimpleNamespace(post=post, state=state)
+
+
+def test_sandbox_leaves_session_keeper_on_the_real_cloak(sandbox):
+    fake_cloak = sys.modules["bulk_downloader.cloak"]
+    from bulk_downloader import session_keeper
+    assert session_keeper._cloak is not fake_cloak, (
+        "FLAKE-779: sandbox stubbed bulk_downloader.cloak before "
+        "session_keeper was imported; session_keeper._cloak keeps the fake "
+        "after teardown and later tests fail on cloak.owning_site")
 
 
 def test_a_host_that_rebinds_at_navigation_cannot_reach_the_metadata_address(
