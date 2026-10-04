@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5778,
+  "edge_count": 5780,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4850,6 +4850,9 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py"
     ],
+    "tests/test_o1815_r15_live_recorder_state_cap.py": [
+      "bulk_downloader/live_recorder.py"
+    ],
     "tests/test_o1815_r9_hooks_placeholder_injection.py": [
       "bulk_downloader/hooks.py"
     ],
@@ -4862,6 +4865,9 @@
     "tests/test_o1826_c03_bandwidth_hot_path.py": [
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
+    ],
+    "tests/test_o1826_c05_library_orphan_false_report.py": [
+      "bulk_downloader/library_final.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

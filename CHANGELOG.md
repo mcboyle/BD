@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1813 - train249e: row
+
+T249 = 2 product cuts (BOARDED-for-integration.md L311-312; no frontend): o1815-r15-live-recorder-state-cap r3 (live_recorder.py; corr-D3 r3 + shape-D3 r3), o1826-c05-library-orphan-false-report r2 (library_final.py; T1 corr-D8 r2), applied on T248e 93766bfc (O1739b):
+- o1815-r15-live-recorder-state-cap r3
+- o1826-c05-library-orphan-false-report r2
+
+
 ## v3.66.1812 - train248e: row
 
 T248 = R19 SECURITY T2 (BOARDED-for-integration.md L310; codex cx3 r1 + correctness r1 BOARD on 98510af9): saved-key fallback bound to the saved provider/endpoint identity (aiassist.py, app_ai.py). RULING O1854: trains now, before R17 (no file overlap; R17 frontend-only). No frontend paths. Applied on T247b 500bc4ba (O1739b):
