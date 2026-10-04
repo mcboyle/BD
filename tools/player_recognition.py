@@ -21,7 +21,9 @@ _RES_RE = re.compile(
     r")p?(?![\d.])", re.I)
 
 
-def _has(pattern: str, html: str) -> bool:
+def _has(pattern: str, html: str | None) -> bool:
+    if html is None:
+        return False
     return re.search(pattern, html, re.I | re.S) is not None
 
 
