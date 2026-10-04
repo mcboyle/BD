@@ -733,12 +733,14 @@ def verify_login_replay(config, profile_dir, member_url=None,
 
         def _cookies_alone(ctx, page):
             # Step 1: navigate to login_url and see what happens.
-            # Returns (navigation error, cookies alone sufficient, probe).
+            # Returns (navigation error, cookies alone sufficient, probe,
+            # UNKNOWN reason -- set when no login form shows but nothing
+            # positive proves membership either).
             try:
                 page.goto(login_url, wait_until="domcontentloaded",
                             timeout=int(timeout * 1000))
             except Exception as e:
-                return f"navigation failed: {str(e)[:150]}", False, None
+                return f"navigation failed: {str(e)[:150]}", False, None, ""
 
             # Wait a beat for redirects / JS-driven nav
             page.wait_for_timeout(1500)
@@ -760,18 +762,42 @@ def verify_login_replay(config, profile_dir, member_url=None,
                 try:
                     pw_count = page.locator(
                         "input[type='password']").count()
-                    if pw_count == 0:
-                        # No password field on the page → likely
-                        # already logged in (or hit an error
-                        # page; we'll catch that via member probe)
-                        sufficient = True
                 except Exception:
-                    pass
+                    pw_count = None
+                if pw_count == 0:
+                    # O1826 M113: a missing form is not membership -- an
+                    # error page has none either. Pass only on a positive
+                    # member signal (row 708): the declared member
+                    # indicator on this page.
+                    marker = ((config.get("learned") or {}).get("login")
+                              or {}).get("member_indicator") or str(
+                                  config.get("member_indicator") or "").strip()
+                    marked = False
+                    if marker:
+                        try:
+                            marked = page.locator(marker).count() > 0
+                        except Exception:
+                            marked = False
+                    # O1856: the member_url probe still runs and is
+                    # reported, but it is no member signal -- a same-host
+                    # page without a form is exactly what it accepts.
+                    # The probe navigates `page`: name the page judged.
+                    landed = page.url
+                    probe = (_probe_member_url(page, member_url, timeout)
+                             if member_url else None)
+                    if marked:
+                        return "", True, probe, ""
+                    why = (f"member indicator {marker!r} is not shown"
+                           if marker else "no member indicator is declared")
+                    return "", False, probe, (
+                        f"cookies-only login state UNKNOWN: no login form "
+                        f"at {redact_url_credentials(landed)[:150]}, "
+                        f"but {why}")
             probe = (_probe_member_url(page, member_url, timeout)
                      if sufficient and member_url else None)
-            return "", sufficient, probe
+            return "", sufficient, probe, ""
 
-        nav_error, sufficient, probe = _in_profile(_cookies_alone)
+        nav_error, sufficient, probe, unknown = _in_profile(_cookies_alone)
         if nav_error:
             return _build_verify_result(
                 replay_ok=False, replay_ms=_ms_since(started),
@@ -782,6 +808,8 @@ def verify_login_replay(config, profile_dir, member_url=None,
         if sufficient:
             replay_ok = True
             replay_method = "cookies_only"
+        elif unknown:
+            replay_error = unknown
         else:
             # Step 2: cookies weren't enough -- run THE worker login.
             # dl95-blacked-1 (test2, O1513): a stripped fill+submit copy
