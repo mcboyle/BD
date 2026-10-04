@@ -95,32 +95,36 @@ def _check_disk(s_cfg: Optional[dict]) -> dict:
     # capture-store / install root (bulk_downloader/.. == PROJECT_ROOT)
     dirs.append(("capture_store",
                  os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    # Each issue carries its own severity. The text embeds site ids and paths,
+    # so searching it (the old `"only" in i`) made an "onlyfans" WARN a FAIL.
     for sid, d in dirs:
         if not d or d in seen:
             continue
         seen.add(d)
         if not os.path.isdir(d):
-            issues.append(f"{sid}: dir {d!r} does not exist")
+            issues.append((SEV_FAIL, f"{sid}: dir {d!r} does not exist"))
             continue
         paths_checked += 1
         try:
             free_bytes = shutil.disk_usage(d).free
             free_gb = free_bytes / (1024**3)
             if free_gb < 1:
-                issues.append(f"{sid}: only {free_gb:.1f} GB free at {d}")
+                issues.append((SEV_FAIL,
+                               f"{sid}: only {free_gb:.1f} GB free at {d}"))
             elif free_gb < 10:
-                issues.append(f"{sid}: {free_gb:.1f} GB free at {d} (low)")
+                issues.append((SEV_WARN,
+                               f"{sid}: {free_gb:.1f} GB free at {d} (low)"))
         except OSError as e:
-            issues.append(f"{sid}: cannot stat {d}: {e}")
+            issues.append((SEV_WARN, f"{sid}: cannot stat {d}: {e}"))
     if not issues:
         return {"severity": SEV_OK,
                 "message": f"{paths_checked} path(s) ok (incl. capture store)"}
-    severity = SEV_FAIL if any("does not exist" in i or "only" in i
-                               for i in issues) else SEV_WARN
+    severity = max(sev for sev, _ in issues)
+    texts = [text for _, text in issues]
     return {"severity": severity,
-            "message": "; ".join(issues[:3]) +
-                       (f" (+{len(issues) - 3} more)" if len(issues) > 3 else ""),
-            "details": {"issues": issues}}
+            "message": "; ".join(texts[:3]) +
+                       (f" (+{len(texts) - 3} more)" if len(texts) > 3 else ""),
+            "details": {"issues": texts}}
 
 
 def _check_playwright() -> dict:
@@ -497,6 +501,26 @@ def _check_supervisor() -> dict:
             "message": f"bandwidth supervisor active (global_bps={gbps})"}
 
 
+# The Playwright driver, the ffmpeg subprocess probes and the yt-dlp index
+# query are the expensive checks; run_checklist serves them from this cache
+# for _PROBE_TTL_S. Keyed by the probe function too, so a replaced probe is
+# never answered with the old one's result.
+_PROBE_TTL_S = 60.0
+_probe_cache: dict = {}
+
+
+def _cached_probe(name: str, fn):
+    def probe():
+        now = time.monotonic()
+        hit = _probe_cache.get(name)
+        if hit is not None and hit[0] is fn and now - hit[1] < _PROBE_TTL_S:
+            return hit[2]
+        result = fn()
+        _probe_cache[name] = (fn, now, result)
+        return result
+    return probe
+
+
 def run_checklist(s_cfg: Optional[dict] = None) -> dict:
     """Run all checks and roll up to an overall status.
 
@@ -511,9 +535,9 @@ def run_checklist(s_cfg: Optional[dict] = None) -> dict:
     results = [
         _check("database", _check_database),
         _check("disk", lambda: _check_disk(s_cfg)),
-        _check("playwright", _check_playwright),
-        _check("ytdlp", _check_ytdlp),
-        _check("ffmpeg", _check_ffmpeg),
+        _check("playwright", _cached_probe("playwright", _check_playwright)),
+        _check("ytdlp", _cached_probe("ytdlp", _check_ytdlp)),
+        _check("ffmpeg", _cached_probe("ffmpeg", _check_ffmpeg)),
         _check("recent_failures", _check_recent_failures),
         _check("circuit_breakers", _check_circuit_breakers),
         _check("account_health", lambda: _check_account_health(s_cfg)),
