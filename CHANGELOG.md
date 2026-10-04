@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1832 - train268e: row
+
+T268 on T267 6968dd0d (stacked; main dfe25d72): c40-swallow r1 (L387; T1 product; narrows the selector_chains broad except flagged DP-13 in T265). (O1739b)
+- c40-swallow r1
+
+
 ## v3.66.1831 - train267e: row
 
 T267 on main dfe25d72 (T266e #1189 merged): o1826-c48-dead-and-duplicate-code r3 FINAL (L386; T3 product frontend; corr-C2 r3 + shape-C1 r3 BOARD; PM cap RULING-pm-day-A-c48-r2-cap-2020Z). (O1739b)

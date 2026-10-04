@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5903,
+  "edge_count": 5904,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2737,6 +2737,9 @@
     "tests/test_builder_rrweb_node_recognition.py": [
       "bulk_downloader/capture_artifact_redact.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_c40_swallow_narrow.py": [
+      "bulk_downloader/selector_chains.py"
     ],
     "tests/test_c6_gallerydl_shim.py": [
       "bulk_downloader/app_kernel.py",
