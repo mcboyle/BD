@@ -43,8 +43,8 @@ authoritative; this file is only a deterministic locality view.
 ## INV-006 — live source tags
 
 - `bulk_downloader/dev_suite/introspection.py:252` — `try:                                            # INV-006`
-- `bulk_downloader/secrets_store.py:2370` — `def resolve_password(value: str | None) -> str | None:  # INV-006`
-- `bulk_downloader/vpn_config.py:497` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
+- `bulk_downloader/secrets_store.py:2445` — `def resolve_password(value: str | None) -> str | None:  # INV-006`
+- `bulk_downloader/vpn_config.py:498` — `def resolve_secrets(config: dict) -> dict:  # INV-006`
 
 ## Inventory summary
 

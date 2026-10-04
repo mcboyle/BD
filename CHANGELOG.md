@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1833 - train269e: row
+
+T269 on T268 3a394021 (stacked on #1191; main 6968dd0d after #1190): o1826-c01-secrets-backend-failclosed-r2 r4 FINAL (L388; T2 SECURITY; F4-A r4 + cx14 r4 BOARD; PM scope RULING-2147Z O1992). (O1739b)
+TRAIN NOTES: cut band 2F = generated debt (stale INV_TAGS + 4 declared test edges) -- regenerated / re-frozen in-train. RESIDUAL C01-NATIVE HIGH = separate T2 row (PM).
+- o1826-c01-secrets-backend-failclosed-r2 r4
+
+
 ## v3.66.1832 - train268e: row
 
 T268 on T267 6968dd0d (stacked; main dfe25d72): c40-swallow r1 (L387; T1 product; narrows the selector_chains broad except flagged DP-13 in T265). (O1739b)

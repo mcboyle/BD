@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5904,
+  "edge_count": 5908,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4879,6 +4879,12 @@
     ],
     "tests/test_o1819_r18_templates_sites_config_shape.py": [
       "tools/cockpit_templates.py"
+    ],
+    "tests/test_o1826_c01_secrets_backend_failclosed.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
     ],
     "tests/test_o1826_c03_bandwidth_hot_path.py": [
       "bulk_downloader/bandwidth_aggregator.py",
