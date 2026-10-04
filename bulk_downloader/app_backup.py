@@ -96,7 +96,7 @@ def api_backup_create():
     out_path = Path(tmpdir) / fname
     result = bd_backup.create_backup(
         out_path,
-        base_dir=".",
+        base_dir=_data_dir(),
         include_db=include_db,
         passphrase=passphrase,
         encrypt_scope=encrypt_scope,
@@ -140,7 +140,7 @@ def api_backup_preview():
     try:
         out_path = Path(tmpdir) / "preview.zip"
         result = bd_backup.create_backup(
-            out_path, base_dir=".", include_db=True, passphrase=None,
+            out_path, base_dir=_data_dir(), include_db=True, passphrase=None,
         )
         return jsonify(result)
     finally:
@@ -168,7 +168,7 @@ def api_backup_restore():
         tmp_path = Path(tmpdir) / "upload.zip"
         f.save(str(tmp_path))
         result = bd_backup.restore_backup(
-            tmp_path, target_dir=".", passphrase=passphrase, dry_run=dry_run,
+            tmp_path, target_dir=_data_dir(), passphrase=passphrase, dry_run=dry_run,
         )
         return jsonify(result)
     finally:
@@ -179,3 +179,18 @@ def register_routes(app) -> int:
     app.register_blueprint(backup_bp)
     return sum(1 for r in app.url_map.iter_rules()
                if r.endpoint.startswith("backup."))
+
+
+def _data_dir() -> Path:
+    """Where backup reads from and restore writes to (O1826 C17, M009; O1864).
+
+    BD_INSTALL_DIR first (app._resolve_sites_file reads sites_config.json from
+    it), else BD_HOME (app.py keeps cookies/ there), else the CWD, unchanged
+    from before. Read at call time, not import. When both are set and differ,
+    no single base covers both; that needs per-target resolution in backup.py."""
+    import os
+    for var in ("BD_INSTALL_DIR", "BD_HOME"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return Path(val).resolve()
+    return Path(".")
