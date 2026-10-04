@@ -20,6 +20,20 @@ _HLS_ATTR_RE = re.compile(
 )
 
 
+def _safe_xml_fromstring(text: str):
+    """Parse an untrusted network manifest (DASH MPD, Smooth Streaming)
+    with defusedxml: entity declarations and external references are
+    refused (entity expansion / XXE, O1671 a04). A refusal is raised as
+    ET.ParseError so callers keep their one "doesn't parse" path."""
+    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as DET
+    from defusedxml import DefusedXmlException
+    try:
+        return DET.fromstring(text)
+    except DefusedXmlException as e:
+        raise ET.ParseError(f"refused unsafe XML: {e!r}") from e
+
+
 def _parse_hls_attrs(line: str) -> dict:
     """Parse the attribute list on an HLS tag line into a dict.
 
@@ -347,7 +361,7 @@ def parse_dash_mpd(text: str, *, base_url: str = "") -> dict:
             "warnings": [...],
         }
 
-    Uses xml.etree.ElementTree from the stdlib — no extra deps.
+    Parsed via _safe_xml_fromstring (defusedxml) — untrusted XML.
     Returns kind="not_dash" if the input doesn't parse.
     """
     out = {
@@ -366,7 +380,7 @@ def parse_dash_mpd(text: str, *, base_url: str = "") -> dict:
 
     import xml.etree.ElementTree as ET
     try:
-        root = ET.fromstring(text)
+        root = _safe_xml_fromstring(text)
     except ET.ParseError as e:
         out["warnings"].append(f"MPD XML parse failed: {e}")
         return out
@@ -515,7 +529,7 @@ def parse_smooth_streaming(text: str, *, base_url: str = "") -> dict:
     POSTURE: this REPORTS QualityLevels and PlayReady/WideVine
     protection. It does not assemble Fragment URL templates into a
     playable stream, and a manifest carrying <Protection> is reported
-    as DRM, never decrypted. Uses stdlib ElementTree — no extra deps.
+    as DRM, never decrypted. Parsed via _safe_xml_fromstring (defusedxml).
     Returns kind="not_smooth" if the input doesn't parse.
     """
     out = {
@@ -532,7 +546,7 @@ def parse_smooth_streaming(text: str, *, base_url: str = "") -> dict:
 
     import xml.etree.ElementTree as ET
     try:
-        root = ET.fromstring(text)
+        root = _safe_xml_fromstring(text)
     except ET.ParseError as e:
         out["warnings"].append(f"Smooth manifest XML parse failed: {e}")
         return out

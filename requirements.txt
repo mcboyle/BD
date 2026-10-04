@@ -76,6 +76,12 @@ beautifulsoup4>=4.12,<5.0
 # platform without a wheel will need libxml2/libxslt headers to build.
 lxml>=5.0,<7.0
 
+# O1671 a04: defusedxml parses untrusted DASH / Smooth Streaming manifests
+# (bulk_downloader/deep_detect/manifests.py), refusing entity declarations and
+# external references. It was installed only transitively (via subliminal);
+# a direct import is declared directly. Pure Python.
+defusedxml>=0.7,<1.0
+
 # v3.66.848: cssselect translates CSS selectors to XPath. THREE importers over
 # the same stated 2577-file denominator (re-measured after the denominator
 # grew, and unchanged) -- the first version of this note said
