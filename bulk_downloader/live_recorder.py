@@ -289,6 +289,8 @@ class Recording:
         return d
 
 
+_TERMINAL_STATES = ("finished", "failed", "cancelled")
+
 _recordings: dict[str, Recording] = {}
 _subprocesses: dict[str, subprocess.Popen] = {}  # recording_id -> Popen
 _egress_carriers: dict[str, Any] = {}
@@ -388,9 +390,12 @@ def _load_state() -> None:
                         f"[live-recorder] dropping recording {rid!r}: bad url\n"
                     )
                     continue
-                # Recovered recordings always start as 'pending' --
-                # we'll re-spawn when the room next goes live.
-                raw["state"] = "pending"
+                # Recovered active recordings start as 'pending' --
+                # we'll re-spawn when the room next goes live. Terminal
+                # entries keep their state so a cancelled watch is not
+                # re-armed.
+                if raw.get("state") not in _TERMINAL_STATES:
+                    raw["state"] = "pending"
                 raw["pid"] = None
                 # Defensive: drop unknown keys to avoid TypeError on
                 # Recording(...) construction if schema changes.
@@ -474,7 +479,9 @@ def watch(url: str, output_dir: str,
                 "message": "URL host is not a recognized live-cam site."}
     out_path = _build_output_path(output_dir, site, room)
     with _lock:
-        if len(_recordings) >= _max_active_recordings():
+        active = sum(1 for r in _recordings.values()
+                     if r.state not in _TERMINAL_STATES)
+        if active >= _max_active_recordings():
             return {"ok": False, "error": "too_many_active",
                     "message": f"Cap reached ({_max_active_recordings()})."}
         # Dedupe -- if a recording for this (site, room) is already
