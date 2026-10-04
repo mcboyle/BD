@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1814 - train250e: row
+
+T250 = 2 product cuts (BOARDED-for-integration.md L313-314, routed by bd-lensrouter-A3-A; list column = DONE.md sha256, PATCH-SHA256 recomputed == DONE == verdict): o1815-r14-library-cursor-paging r3 (app_library.py, library.py; D10 r3 + shape D5-D r3; 4 declared edges), o1826-c10-tool-bridge-tmp-home r2 (tool_bridge.py; T2 SECURITY correctness r2 + cx1 r2, supersedes r1 REFUTE; 1 declared edge); import-graph edges re-derived in release. No frontend. Applied on T249e 3de54e89 (origin/main) (O1739b):
+- o1815-r14-library-cursor-paging r3
+- o1826-c10-tool-bridge-tmp-home r2
+
+
 ## v3.66.1813 - train249e: row
 
 T249 = 2 product cuts (BOARDED-for-integration.md L311-312; no frontend): o1815-r15-live-recorder-state-cap r3 (live_recorder.py; corr-D3 r3 + shape-D3 r3), o1826-c05-library-orphan-false-report r2 (library_final.py; T1 corr-D8 r2), applied on T248e 93766bfc (O1739b):
