@@ -4,6 +4,16 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1830 - train266e: row
+
+T266 on T265e 82236d09 (#1188; stacked): o1826-c47-frontend-route-test-controls r1 (L378; T1 test-only frontend), o1826-c27-dashboard-status-ui r2 (L379; T3 frontend, corr + shape BOARD), o1876-4-vault-key r3 FINAL (L380; T2 SECURITY; O1895 fleet key LANDED before deploy), o1826-c42-perf-db-n1-and-ddl r3 FINAL (L381; T1 data-loss class). (O1739b)
+TRAIN NOTES: vault F4-A residuals non-blocking (PM); c42 PM note N1 write lock across unlink loop (concurrent writers >10 s 'database is locked') open; c27 shape r1 F1-F3 closed by FIX-R-161. O1838 frontend build gate run in-train (c47 + c27).
+- o1826-c47-frontend-route-test-controls r1
+- o1826-c27-dashboard-status-ui r2
+- o1876-4-vault-key r3
+- o1826-c42-perf-db-n1-and-ddl r3
+
+
 ## v3.66.1829 - train265e: row
 
 T265 on main c8244802 (T264e #1187 merged): o1826-c36-paths-cwd-and-app-undefined r2 (L366; T1), o1826-c40-selector-tooling r2 (L367; T1), o1826-c33-events-node-probe r3 (L369; T1 FINAL), o1826-c30-hydration-determinism r4/C30b (L370; T1), o1826-c38-autonomy-eligibility-rollup r3 (L371; T1 FINAL), o1826-c46-small-correctness r1 (L372; T1), flake-779-804-cloak-import-first r1 (L374; T1 test-only), o1867-r20-url-redaction r3 FINAL (L375; T2 SECURITY), o1876-5-sbcap-localhost r2 (L376; T2 SECURITY), o1815-r10-teach-overlay-password-redact r5 (L377; T2 SECURITY; RULING-pm-day-A-R10-r5-findings-1908Z). (O1739b)

@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5895,
+  "edge_count": 5902,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5009,6 +5009,14 @@
       "bulk_downloader/selector_playground.py",
       "bulk_downloader/selector_versions.py"
     ],
+    "tests/test_o1826_c42_perf_db_n1_and_ddl.py": [
+      "bulk_downloader/app_data_layer.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/maintenance.py",
+      "bulk_downloader/mass_import.py",
+      "bulk_downloader/retention.py",
+      "bulk_downloader/tags.py"
+    ],
     "tests/test_o1826_c43_perf_capture_template_scans.py": [
       "bulk_downloader/dom_analyzer.py",
       "bulk_downloader/drift_repair.py",
@@ -5055,6 +5063,9 @@
     ],
     "tests/test_o1876_m108_manual_sandbox_optin.py": [
       "bulk_downloader/cloak.py"
+    ],
+    "tests/test_o1876_vault_per_install_key.py": [
+      "bulk_downloader/vault_sync.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"
