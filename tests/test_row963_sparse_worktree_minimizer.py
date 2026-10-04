@@ -119,6 +119,23 @@ def test_row963_default_scope_create_pins_the_measured_numbers(tmp_path):
         f"files that precut/mutate/fixture gates read, e.g. {missing[:3]}")
 
 
+def test_row963_share_bound_still_refuses_a_no_exclude_scope(tmp_path, monkeypatch):
+    """O1882 (T258e): MAX_WORKTREE_MB went 66 -> 72, so MAX_WORKTREE_SHARE is the ratchet.
+    With the absolute cap lifted out of the way, a scope that stops excluding the corpora
+    (~1.0 of a full checkout) is still refused -- on share, not on size."""
+    lw = _load_lens_worktree_module()
+    assert lw.MAX_WORKTREE_SHARE == 0.45
+    monkeypatch.setattr(lw, "MAX_WORKTREE_MB", float("inf"))
+    wt = tmp_path / "no_exclude_wt"
+    res = lw.create_sparse_lens_worktree(
+        repo_path=REPO_ROOT, worktree_path=wt, commit=_head(), exclude_dirs=[])
+    assert res["exclude"] == [] and res["share"] > lw.MAX_WORKTREE_SHARE, res
+    assert res["ok"] is False and "share bound" in res["error"], (
+        f"O1882: a no-exclude scope at share {res.get('share')} passed; the "
+        f"{lw.MAX_WORKTREE_SHARE} share check no longer refuses it: {res}")
+    assert wt.is_dir(), "refused worktree must be left in place (Fleet Rule 22: never deleted)"
+
+
 def test_row963_latency_is_reported_not_enforced_by_default(tmp_path, monkeypatch):
     """(3) A slow create (clock advanced 10 s) is still ok=True unless the caller
     passes a bound; with MAX_CREATION_LATENCY_MS it is refused and left in place."""
