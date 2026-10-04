@@ -155,7 +155,7 @@ class Fleet:
         r = self.home / ".codex" / "sessions" / "2026" / "10" / "03" / f"rollout-{seat}.jsonl"
         r.parent.mkdir(parents=True, exist_ok=True)
         with open(r, "w") as f:
-            f.write(json.dumps({"timestamp": "2026-10-03T18:00:00.000Z", "payload": {"text": f"Identify as seat {seat}."}}) + "\n")
+            f.write(json.dumps({"timestamp": "2026-10-03T18:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": f"Identify as seat {seat}."}]}}) + "\n")
             for i in range(pre + turns):
                 tid = f"{i:08d}-0000-0000-0000-000000000000"
                 for _ in range(3):  # several events per turn: one turn
