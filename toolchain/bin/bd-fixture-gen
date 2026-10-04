@@ -32,13 +32,35 @@ SENSITIVE_KEYS = {
 MEDIA_MIME_RE = re.compile(r"^(video|audio|application/octet-stream|application/x-mpegURL)", re.IGNORECASE)
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
+# Credential-shaped values inside free text (HTML, JSON string values, plain bodies)
+_SENSITIVE_NAME = r"[A-Za-z0-9_.-]*?(?:" + "|".join(sorted(SENSITIVE_KEYS, key=len, reverse=True)) + ")"
+KV_TEXT_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(" + _SENSITIVE_NAME + r")(\s*[\"']?\s*[:=]\s*[\"']?)"
+    r"((?:bearer|basic|digest|token)\s+)?[^\s\"'&<>,;]+",
+    re.IGNORECASE,
+)
+BEARER_RE = re.compile(r"\b(bearer\s+)[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE)
+# Credential shapes recognizable with no key label: JWT (header.payload.signature) and AWS access-key ids.
+# The header is base64url JSON: '{' then '"' or JSON whitespace encodes as ey[ABIJKL] or ew[01klop].
+# The payload is any base64url (a valid JWT payload may start '{ "' -> eyAi, or be non-JSON).
+JWT_RE = re.compile(r"e(?:y[ABIJKL]|w[01klop])[A-Za-z0-9_\-+/]*=*\.[A-Za-z0-9_\-+/]+=*\.[A-Za-z0-9_\-+/]*=*")
+AWS_KEY_ID_RE = re.compile(r"(?:AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|APKA|AROA|ASCA)[A-Z0-9]{16}")
+HTML_TAG_RE = re.compile(r"<[A-Za-z][^<>]*>")
+HTML_SENSITIVE_ATTR_RE = re.compile(
+    r"\b(?:name|id)\s*=\s*[\"']?" + _SENSITIVE_NAME + r"(?=[\"'\s/>])", re.IGNORECASE
+)
+HTML_VALUE_ATTR_RE = re.compile(r"\b(value|content)(\s*=\s*)(\"[^\"]*\"|'[^']*'|[^\s\"'>]+)", re.IGNORECASE)
+
 # Minimal valid MP4 container box header (ftyp + free + mdat)
 MOCK_MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00isommp42\x00\x00\x00\x08free\x00\x00\x00\x10mdat"
 MOCK_MP4_BASE64 = base64.b64encode(MOCK_MP4_BYTES).decode("ascii")
 
 
-def _sanitize_url(raw_url: str) -> str:
-    """Sanitize URL by removing netloc user/pass and sensitive query parameters."""
+def _sanitize_url(raw_url: str, scrub_values: bool = False) -> str:
+    """Sanitize URL by removing netloc user/pass and sensitive query parameters.
+
+    scrub_values: also run kept query values through _scrub_text (response URLs).
+    """
     if not raw_url:
         return ""
 
@@ -55,10 +77,27 @@ def _sanitize_url(raw_url: str) -> str:
         k_lower = k.lower()
         if k_lower in SENSITIVE_KEYS or any(k_lower.endswith(s) for s in ("token", "key", "secret", "sig", "auth")):
             continue  # Drop or redact sensitive query tokens
-        clean_query_pairs.append((k, v))
+        clean_query_pairs.append((k, _scrub_text(v) if scrub_values else v))
 
     clean_query = urllib.parse.urlencode(clean_query_pairs)
     return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, clean_query, ""))
+
+
+def _scrub_tag(m: re.Match[str]) -> str:
+    tag = m.group(0)
+    if not HTML_SENSITIVE_ATTR_RE.search(tag):
+        return tag
+    return HTML_VALUE_ATTR_RE.sub(r'\1\2"[REDACTED]"', tag)
+
+
+def _scrub_text(text: str) -> str:
+    """Scrub emails and credential-shaped values (input values, key=value, Bearer, JWT, AWS key id) from text."""
+    text = EMAIL_RE.sub("user@sanitized.local", text)
+    text = HTML_TAG_RE.sub(_scrub_tag, text)
+    text = KV_TEXT_RE.sub(lambda m: m.group(1) + m.group(2) + (m.group(3) or "") + "[REDACTED]", text)
+    text = BEARER_RE.sub(r"\1[REDACTED]", text)
+    text = JWT_RE.sub("[REDACTED]", text)
+    return AWS_KEY_ID_RE.sub("[REDACTED]", text)
 
 
 def _sanitize_data(data: Any) -> Any:
@@ -75,7 +114,7 @@ def _sanitize_data(data: Any) -> Any:
     elif isinstance(data, list):
         return [_sanitize_data(item) for item in data]
     elif isinstance(data, str):
-        return EMAIL_RE.sub("user@sanitized.local", data)
+        return _scrub_text(data)
     return data
 
 
@@ -94,11 +133,44 @@ def _sanitize_post_data(post_data: dict[str, Any]) -> dict[str, Any]:
                 sanitized_json = _sanitize_data(parsed_json)
                 post_data["text"] = json.dumps(sanitized_json)
             except Exception:
-                post_data["text"] = EMAIL_RE.sub("user@sanitized.local", text)
+                post_data["text"] = _scrub_text(text)
         else:
-            post_data["text"] = EMAIL_RE.sub("user@sanitized.local", text)
+            post_data["text"] = _scrub_text(text)
 
     return post_data
+
+
+def _sanitize_headers(headers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop credential-bearing headers (request or response)."""
+    clean_headers = []
+    for h in headers:
+        hname = h.get("name", "").strip().lower()
+        if hname in {"authorization", "cookie", "set-cookie", "set-cookie2", "proxy-authorization"}:
+            continue
+        if hname.startswith(("x-auth", "x-token", "x-api", "x-secret", "x-amz-security-token")):
+            continue
+        if any(hname.endswith(s) for s in ("token", "key", "secret", "auth", "cookie")):
+            continue
+        if hname in {"location", "content-location"}:
+            h = {**h, "value": _sanitize_url(h.get("value", ""), scrub_values=True)}
+        clean_headers.append(h)
+    return clean_headers
+
+
+def _sanitize_response_content(content: dict[str, Any]) -> None:
+    """Scrub a non-media response body in place (base64 text bodies decoded first)."""
+    text = content.get("text", "")
+    if not text:
+        return
+    if content.get("encoding") == "base64":
+        try:
+            decoded = base64.b64decode(text, validate=True).decode("utf-8")
+        except Exception:
+            return  # opaque binary body: nothing textual to scrub
+        body = _sanitize_post_data({"mimeType": content.get("mimeType", ""), "text": decoded})
+        content["text"] = base64.b64encode(body["text"].encode("utf-8")).decode("ascii")
+    else:
+        content["text"] = _sanitize_post_data({"mimeType": content.get("mimeType", ""), "text": text})["text"]
 
 
 def sanitize_har(trace: dict[str, Any]) -> dict[str, Any]:
@@ -111,17 +183,7 @@ def sanitize_har(trace: dict[str, Any]) -> dict[str, Any]:
         req["url"] = _sanitize_url(req.get("url", ""))
 
         # Headers sanitization
-        clean_headers = []
-        for h in req.get("headers", []):
-            hname = h.get("name", "").lower()
-            if hname in {"authorization", "cookie", "set-cookie", "proxy-authorization"}:
-                continue
-            if hname.startswith(("x-auth", "x-token", "x-api", "x-secret", "x-amz-security-token")):
-                continue
-            if any(hname.endswith(s) for s in ("token", "key", "secret", "auth", "cookie")):
-                continue
-            clean_headers.append(h)
-        req["headers"] = clean_headers
+        req["headers"] = _sanitize_headers(req.get("headers", []))
 
         # Cookies in request
         if "cookies" in req:
@@ -135,6 +197,10 @@ def sanitize_har(trace: dict[str, Any]) -> dict[str, Any]:
         resp = entry.get("response", {})
         if "cookies" in resp:
             resp["cookies"] = []
+        if "headers" in resp:
+            resp["headers"] = _sanitize_headers(resp["headers"])
+        if resp.get("redirectURL"):
+            resp["redirectURL"] = _sanitize_url(resp["redirectURL"], scrub_values=True)
         content = resp.get("content", {})
         mime = content.get("mimeType", "")
         if MEDIA_MIME_RE.match(mime):
@@ -144,6 +210,8 @@ def sanitize_har(trace: dict[str, Any]) -> dict[str, Any]:
             else:
                 content["text"] = "# Mock media playlist / stream placeholder\n"
                 content["size"] = len(content["text"])
+        else:
+            _sanitize_response_content(content)
 
     return trace
 
