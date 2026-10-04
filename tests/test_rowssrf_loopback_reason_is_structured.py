@@ -248,12 +248,25 @@ def sandbox_harness(fresh_app, monkeypatch) -> _SandboxHarness:
         counts["playwright"] += 1
         raise AssertionError("fixture browser boundary reached")
 
+    # Bind session_keeper's `from . import cloak` to the real module first:
+    # a first import under the stub keeps the fake past teardown (FLAKE-772).
+    import bulk_downloader.session_keeper  # noqa: F401
     fake_cloak = types.ModuleType("bulk_downloader.cloak")
     fake_cloak.cloaked_page = fixture_cloaked_page
     monkeypatch.setitem(sys.modules, "bulk_downloader.cloak", fake_cloak)
     import bulk_downloader
     monkeypatch.setattr(bulk_downloader, "cloak", fake_cloak, raising=False)
     return _SandboxHarness(fresh_app, counts, redirect)
+
+
+def test_sandbox_harness_leaves_session_keeper_on_the_real_cloak(
+        sandbox_harness):
+    fake_cloak = sys.modules["bulk_downloader.cloak"]
+    from bulk_downloader import session_keeper
+    assert session_keeper._cloak is not fake_cloak, (
+        "FLAKE-772: sandbox_harness stubbed bulk_downloader.cloak before "
+        "session_keeper was imported; session_keeper._cloak keeps the fake "
+        "after teardown and later tests fail on cloak.owning_site")
 
 
 def test_every_multi_answer_address_is_classified_before_loopback_exemption(
