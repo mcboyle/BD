@@ -4,6 +4,21 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1789 - train225e: row
+
+T225 = 10 O1737-recovery cuts BOARDed by bd-lensrouter-A (BOARDED-for-integration.md L228-232, L235-239), applied on T224e 9d5b136d (O1739b; harness test halves train by blob, no install, O1738c):
+- o1698-dialog-sweep-self-bd-cx-worker51 r2 (lens shape-bd-review-shape-D11-r2)
+- o1698-retire-adapter-timeout-r2-A23-A r1 (lens correctness-bd-review-correctness-D14-r1)
+- o1698-launcher-effective-effort-bd-cx-worker26 r2 (lens shape-bd-review-shape-D13-r2)
+- o1698-mod-m6-seat-beacon-bd-worker-B2 r2 (lens shape-bd-review-shape-D1-r2)
+- o1671-a15-builder-gap-report-mutable-default-bd-cx-worker11 r1 (lens correctness-bd-review-correctness-D3-r1)
+- o1698-redcheck-ast-span-bd-cx-worker27 r2 (lens shape-bd-review-shape-D10-r2)
+- o1698-redcheck-cnl-not-red-bd-cx-worker42 r2 (lens shape-bd-review-shape-D8-r2)
+- o1698-relay-pidfile-bd-worker-H-2-A r2 (lens shape-bd-review-shape-D2-r2)
+- o1698-rsync-O-cx36 r2 (lens shape-bd-review-shape-D4-r2)
+- o1698-w2-m7-facts-timer-bd-cx-worker49 r2 (lens shape-bd-review-shape-D13-r2)
+
+
 ## v3.66.1788 - train224e: row
 
 T224 = 13 O1737-recovery cuts BOARDed by bd-lensrouter-A (harness-work/O1672/BOARDED-for-integration.md lines 214-227), applied on T223e 766900de (O1737/O1739b; integrator assembles, bd-trainer-A lands):
