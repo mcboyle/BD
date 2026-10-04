@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1803 - train239e: row
+
+T239 = 1 test-only flake fix (BOARDED-for-integration.md L290; correctness D3 r1, T1): O1805/O1801 root cause of the O1794 videohash flake -- dedup._default_registry isolation in tests/test_dl95_app_B6_3_videohash_runs_on_current_pillow.py + tests/test_secret_display_never.py; applied on T238e bdc99040 (O1739b):
+- o1805-flake-dedup-D11 r1
+
+
 ## v3.66.1802 - train238e: row
 
 T238 = 3 test-only harness halves (BOARDED-for-integration.md L284-286: w2-m24-required-monitors r4, law-write-guard r5, m12-turn-watch-loop-stall r4), applied on T237e 764a0a7a (O1739b; by blob, no install):
