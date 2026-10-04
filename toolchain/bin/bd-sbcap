@@ -22,6 +22,10 @@
 #
 # Run after bd-boot:  bd-sbcap
 # Check only:         bd-sbcap --check
+# Display cmds only:  bd-sbcap --print-display-cmds  (prints the x11vnc/websockify
+#                     command lines and the VNC passfile PATH; no apt/venv/spawn)
+# Display is loopback-only: x11vnc -localhost -rfbauth <passfile>, websockify
+#   127.0.0.1:6080. --novnc-public binds websockify on all interfaces (WARNs).
 # Exit 2 + BD-SBCAP-UNRUNNABLE means checkout authority could not be resolved.
 set -u
 # --selftest: this is a bootstrap/orchestration script; a real run IS its test.
@@ -29,17 +33,25 @@ case " $* " in *" --selftest "*)
   echo "SKIP: needs the offline sbcap pack + browser"
   echo "SELFTEST PASS"; exit 0;; esac
 CHECK_ONLY=0
-case "${1:-}" in
+PRINT_DISPLAY_CMDS=0  # early-exit-ok: only --selftest/--help exit 0 above
+NOVNC_PUBLIC=0  # early-exit-ok: only --selftest/--help exit 0 above
+for _arg in "$@"; do  # early-exit-ok: only --selftest/--help exit 0 above
+  case "$_arg" in  # early-exit-ok: only --selftest/--help exit 0 above
     -h|--help)
-        sed -n '2,27p' "$0"; exit 0 ;;
+        sed -n '2,29p' "$0"; exit 0 ;;
     --check)
         CHECK_ONLY=1 ;;
+    --print-display-cmds)  # early-exit-ok: only --selftest/--help exit 0 above
+        PRINT_DISPLAY_CMDS=1 ;;  # early-exit-ok: only --selftest/--help exit 0 above
+    --novnc-public)  # early-exit-ok: only --selftest/--help exit 0 above
+        NOVNC_PUBLIC=1 ;;  # early-exit-ok: only --selftest/--help exit 0 above
     "" )
         : ;;   # no arg: full provision (documented default)
     * )
-        echo "bd-sbcap: unknown arg '${1}' (use --check or --help)" >&2
+        echo "bd-sbcap: unknown arg '${_arg}' (use --check, --print-display-cmds, --novnc-public or --help)" >&2  # early-exit-ok: only --selftest/--help exit 0 above
         exit 2 ;;
-esac
+  esac
+done
 
 _bd_sbcap_unrunnable() {
   echo "BD-SBCAP-UNRUNNABLE: $1" >&2
@@ -65,6 +77,60 @@ ok(){ printf "  \033[32mOK\033[0m  %s\n" "$1"; }
 add(){ printf "  \033[33m..\033[0m  %s\n" "$1"; }
 BAD_COUNT=0  # early-exit-ok: only --selftest/--help exit 0 above
 bad(){ BAD_COUNT=$((BAD_COUNT + 1)); printf "  \033[31mXX\033[0m  %s\n" "$1"; }
+
+# ---- display command lines (O1876-5): one place builds both, the spawn and the
+# print mode read the same arrays. x11vnc is loopback-only behind a generated
+# rfbauth passfile (never -nopw); websockify binds 127.0.0.1 unless --novnc-public.
+VNC_PASSFILE="$SBCAP/x11vnc.passwd"  # early-exit-ok: only --selftest/--help exit 0 above
+_sbcap_vnc_passfile(){
+  # Created once (random, mode 0600) and reused; only its PATH is ever printed.
+  if [ -s "$VNC_PASSFILE" ] && [ ! -L "$VNC_PASSFILE" ]; then
+    chmod 600 "$VNC_PASSFILE" && return 0
+  fi
+  command -v x11vnc >/dev/null 2>&1 || {
+    echo "bd-sbcap: x11vnc not installed -- cannot generate $VNC_PASSFILE" >&2; return 1; }
+  local _dir _pw
+  _dir="$(mktemp -d "$SBCAP/.x11vnc-passwd.XXXXXX")" || return 1
+  # The password reaches x11vnc on stdin (password, verify, confirm-write), never
+  # argv: argv is world-readable in /proc/<pid>/cmdline. printf is a builtin.
+  _pw="$(python3 -c 'import secrets; print(secrets.token_urlsafe(6))')" && [ -n "$_pw" ] &&
+    ( umask 077; printf '%s\n%s\ny\n' "$_pw" "$_pw" | x11vnc -storepasswd "$_dir/passwd" ) >/dev/null 2>&1 &&
+    [ -s "$_dir/passwd" ] && chmod 600 "$_dir/passwd" &&
+    mv -f -- "$_dir/passwd" "$VNC_PASSFILE"
+  local _rc=$?
+  rm -rf -- "${_dir:?}"
+  [ "$_rc" -eq 0 ] || echo "bd-sbcap: could not generate $VNC_PASSFILE" >&2
+  return "$_rc"
+}
+_sbcap_display_cmds(){
+  local _bind=127.0.0.1:6080 _rc=0
+  if [ "$NOVNC_PUBLIC" = 1 ]; then
+    _bind=0.0.0.0:6080
+    echo "WARN: --novnc-public: websockify binds $_bind -- the desktop is reachable from every interface" >&2
+  fi
+  _sbcap_vnc_passfile || _rc=1
+  X11VNC_CMD=(x11vnc -display :99 -forever -shared -localhost -rfbauth "$VNC_PASSFILE" -noxdamage -rfbport 5900 -quiet)
+  WEBSOCKIFY_CMD=(websockify --web=/opt/novnc "$_bind" localhost:5900)
+  return "$_rc"
+}
+_sbcap_warn_public_6080(){
+  # Report an existing :6080 listener that is not loopback-only. Never stops it.
+  local _addr
+  for _addr in $( (ss -ltn 2>/dev/null || true) | awk '{print $4}' | grep -E ':6080$'); do
+    case "$_addr" in
+      127.*:6080|"[::1]:6080") : ;;
+      *) echo "WARN: existing listener on $_addr is not loopback-only -- left running (operator's call)" >&2 ;;
+    esac
+  done
+}
+if [ "$PRINT_DISPLAY_CMDS" = 1 ]; then  # early-exit-ok: print mode stops before apt/venv/spawn
+  _sbcap_display_cmds; _print_rc=$?  # early-exit-ok: only --selftest/--help exit 0 above
+  printf 'X11VNC-CMD:'; printf ' %q' "${X11VNC_CMD[@]}"; echo  # early-exit-ok: only --selftest/--help exit 0 above
+  printf 'WEBSOCKIFY-CMD:'; printf ' %q' "${WEBSOCKIFY_CMD[@]}"; echo  # early-exit-ok: only --selftest/--help exit 0 above
+  echo "VNC-PASSFILE: $VNC_PASSFILE"  # early-exit-ok: only --selftest/--help exit 0 above
+  _sbcap_warn_public_6080  # early-exit-ok: only --selftest/--help exit 0 above
+  exit "$_print_rc"  # early-exit-ok: only --selftest/--help exit 0 above
+fi
 
 echo "== bd-sbcap: advanced sandbox capability layer =="
 
@@ -218,13 +284,15 @@ export DISPLAY=:99
 # (a re-run that backgrounds daemons can keep the calling shell attached and appear to hang).
 if curl -sS -m2 -o /dev/null "http://127.0.0.1:6080/vnc.html" 2>/dev/null; then
   echo "  display: already up (noVNC answering on :6080) -- skipping re-spawn"
+  _sbcap_warn_public_6080  # early-exit-ok: only --selftest/--help exit 0 above
   echo "== bd-sbcap done -- headed OPV checks (A11Y) + notify/soak ready. Run: DISPLAY=:99 bd-opv =="
   exit 0
 fi
 is_listening(){ (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ":$1 " || curl -sS -m2 -o /dev/null "http://127.0.0.1:$1/" 2>/dev/null; }
+_sbcap_display_cmds || { bad "VNC passfile unavailable ($VNC_PASSFILE) -- refusing to start x11vnc without auth"; exit 1; }  # early-exit-ok: only --selftest/--help exit 0 above
 pgrep -x Xvfb >/dev/null 2>&1 || { nohup Xvfb :99 -screen 0 1280x1024x24 >/tmp/sbcap/xvfb.log 2>&1 & disown; sleep 2; }
 pgrep -x fluxbox >/dev/null 2>&1 || { nohup fluxbox >/tmp/sbcap/fluxbox.log 2>&1 & disown; sleep 2; }
-pgrep -x x11vnc >/dev/null 2>&1 || { setsid bash -c 'x11vnc -display :99 -forever -shared -nopw -noxdamage -rfbport 5900 -quiet >/tmp/sbcap/x11vnc.log 2>&1' & disown; sleep 2; }
-pgrep -f websockify >/dev/null 2>&1 || { setsid bash -c 'websockify --web=/opt/novnc 6080 localhost:5900 >/tmp/sbcap/websockify.log 2>&1' & disown; sleep 2; }
-echo "  display: Xvfb=$(pgrep -x Xvfb>/dev/null&&echo up||echo DOWN) fluxbox=$(pgrep -x fluxbox>/dev/null&&echo up||echo DOWN) x11vnc=$(pgrep -x x11vnc>/dev/null&&echo up||echo DOWN) noVNC=$(curl -sS -m2 -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/vnc.html 2>/dev/null)"
+pgrep -x x11vnc >/dev/null 2>&1 || { setsid "${X11VNC_CMD[@]}" >/tmp/sbcap/x11vnc.log 2>&1 </dev/null & disown; sleep 2; }  # early-exit-ok: only --selftest/--help exit 0 above
+pgrep -f websockify >/dev/null 2>&1 || { setsid "${WEBSOCKIFY_CMD[@]}" >/tmp/sbcap/websockify.log 2>&1 </dev/null & disown; sleep 2; }  # early-exit-ok: only --selftest/--help exit 0 above
+echo "  display: Xvfb=$(pgrep -x Xvfb>/dev/null&&echo up||echo DOWN) fluxbox=$(pgrep -x fluxbox>/dev/null&&echo up||echo DOWN) x11vnc=$(pgrep -x x11vnc>/dev/null&&echo up||echo DOWN) noVNC=$(curl -sS -m2 -o /dev/null -w '%{http_code}' http://127.0.0.1:6080/vnc.html 2>/dev/null) vncpass=$VNC_PASSFILE"  # early-exit-ok: only --selftest/--help exit 0 above
 echo "== bd-sbcap done -- headed OPV checks (A11Y) + notify/soak ready. Run: DISPLAY=:99 bd-opv =="
