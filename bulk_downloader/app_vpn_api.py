@@ -27,7 +27,9 @@ resource. Failure: 4xx/5xx with {"ok": False, "error": "<message>"}.
 """
 from __future__ import annotations
 
+import contextlib
 import sys
+import threading
 
 try:
     from flask import Blueprint, request, jsonify
@@ -152,20 +154,142 @@ def vpn_tunnel_update(tunnel_id):
     if t is None:
         return _err("no such tunnel", 404)
     data = request.get_json(silent=True) or {}
-    for f in ("name", "location"):
-        if f in data:
-            setattr(t, f, data[f])
-    if "config" in data and isinstance(data["config"], dict):
-        # Merge into existing config (so PATCH-style partial updates work).
-        t.config = {**(t.config or {}), **data["config"]}
-    try:
-        vpn_config.update_tunnel_config(tunnel_id,
-            name=t.name, location=t.location,
-            config=vpn_config.store_secrets(tunnel_id, t.config),
-        )
-    except Exception as e:
-        sys.stderr.write(f"[vpn-api] update persist failed: {e}\n")
+    # O1826 C08: snapshot -> mutate -> persist -> rollback runs under one
+    # per-tunnel lock, so a failed PUT's restore cannot discard a concurrent
+    # PUT that persisted in between.
+    with _tunnel_update_lock(tunnel_id):
+        prior = (t.name, t.location, t.config)
+        new_config = t.config
+        if "config" in data and isinstance(data["config"], dict):
+            # Merge into existing config (so PATCH-style partial updates work).
+            new_config = {**(t.config or {}), **data["config"]}
+        # Every secret this PUT may overwrite is read back first; one that
+        # cannot be read could not be rolled back, so refuse before any write.
+        try:
+            backend, prior_secrets = _snapshot_tunnel_secrets(
+                vpn_config, tunnel_id, new_config)
+        except _SecretSnapshotError as e:
+            sys.stderr.write(f"[vpn-api] update refused for {tunnel_id}: {e}\n")
+            return _err("a stored secret could not be read; "
+                        "the tunnel was not changed", 503)
+        prior_saved = vpn_config.get_tunnel_config(tunnel_id)
+        for f in ("name", "location"):
+            if f in data:
+                setattr(t, f, data[f])
+        t.config = new_config
+        # Mirror the create path: a persist failure restores the live tunnel,
+        # the saved config and the secret store, and returns 500 instead of
+        # reporting an unsaved edit as ok.
+        persisting = False
+        try:
+            stored = vpn_config.store_secrets(tunnel_id, t.config)
+            persisting = True
+            vpn_config.update_tunnel_config(tunnel_id,
+                name=t.name, location=t.location, config=stored,
+            )
+        except Exception as e:
+            # Exception text can carry the secret being saved: log the type
+            # only, and answer with a fixed message.
+            sys.stderr.write(f"[vpn-api] update persist failed for {tunnel_id} "
+                             f"({type(e).__name__}); restoring tunnel\n")
+            if persisting and prior_saved is not None:
+                _restore_saved_tunnel(vpn_config, tunnel_id, prior_saved)
+            _restore_tunnel_secrets(backend, prior_secrets)
+            t.name, t.location, t.config = prior
+            return _err("persist failed; the tunnel was not changed", 500)
     return _ok({"tunnel": t.to_dict()})
+
+
+# tunnel_id -> [lock, holders]. An entry lives only while a PUT holds or
+# waits on it, so the map is bounded by in-flight PUTs, not by every id
+# ever edited (deleted tunnels leave nothing behind).
+_tunnel_update_locks: dict = {}
+_tunnel_update_locks_guard = threading.Lock()
+
+
+@contextlib.contextmanager
+def _tunnel_update_lock(tunnel_id):
+    with _tunnel_update_locks_guard:
+        entry = _tunnel_update_locks.get(tunnel_id)
+        if entry is None:
+            entry = _tunnel_update_locks[tunnel_id] = [threading.Lock(), 0]
+        entry[1] += 1
+    try:
+        with entry[0]:
+            yield
+    finally:
+        with _tunnel_update_locks_guard:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del _tunnel_update_locks[tunnel_id]
+
+
+class _SecretSnapshotError(Exception):
+    """A secret the PUT may overwrite could not be read back first."""
+
+
+def _secret_cred_keys(vpn_config, tunnel_id, config) -> list:
+    """The secrets_store keys ``vpn_config.store_secrets(tunnel_id, config)``
+    may write: same walk, same key shape."""
+    keys = []
+    for k, v in (config or {}).items():
+        if isinstance(v, dict):
+            keys += _secret_cred_keys(vpn_config, tunnel_id, v)
+        elif (isinstance(v, str) and v and not v.startswith(vpn_config._CRED_PREFIX)
+              and vpn_config._vpn_key_is_secret(k)):
+            keys.append(f"{tunnel_id}:{k}")
+    return keys
+
+
+def _snapshot_tunnel_secrets(vpn_config, tunnel_id, config):
+    """Return (backend, {key: prior value or None}) for every secret this
+    update may overwrite. No backend, or the plaintext one, means
+    store_secrets writes nothing (same checks). A backend that cannot be
+    obtained, or a key that cannot be read, raises _SecretSnapshotError:
+    the PUT is refused before any write."""
+    keys = _secret_cred_keys(vpn_config, tunnel_id, config)
+    if not keys:
+        return None, {}
+    try:
+        from . import secrets_store
+        backend = secrets_store.get_backend()
+    except Exception as e:
+        raise _SecretSnapshotError(
+            f"secret store unavailable ({type(e).__name__})") from None
+    if backend is None or getattr(backend, "name", "") == "plaintext":
+        return None, {}
+    prior = {}
+    for key in keys:
+        try:
+            prior[key] = backend.get(key)
+        except Exception as e:
+            raise _SecretSnapshotError(
+                f"could not snapshot secret {key} ({type(e).__name__})") from None
+    return backend, prior
+
+
+def _restore_tunnel_secrets(backend, prior) -> None:
+    for key, value in prior.items():
+        try:
+            if value is None:
+                backend.delete(key)
+            else:
+                backend.set(key, value)
+        except Exception as e:
+            sys.stderr.write(f"[vpn-api] secret rollback failed for {key} "
+                             f"({type(e).__name__})\n")
+
+
+def _restore_saved_tunnel(vpn_config, tunnel_id, prior_saved) -> None:
+    # update_tunnel_config assigns the fields before it validates and saves,
+    # so the in-memory config is restored even when the save fails again.
+    try:
+        vpn_config.update_tunnel_config(tunnel_id, **{
+            f: prior_saved[f] for f in ("name", "location", "config")
+            if f in prior_saved})
+    except Exception as e:
+        sys.stderr.write(f"[vpn-api] saved-config rollback for {tunnel_id} "
+                         f"incomplete ({type(e).__name__})\n")
 
 
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>", methods=["DELETE"]) if vpn_bp else (lambda f: f)
