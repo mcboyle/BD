@@ -382,6 +382,47 @@ def standard_launch_args(headless: bool = True) -> list[str]:
     return standard_launch_flags(headless=headless)
 
 
+def _apply_sandbox(args: list[str], sandbox: bool, seam: str) -> bool:
+    """O1876 M108: opt-in Chromium sandbox for one launch (``sandbox=True``).
+
+    Returns True when the launch runs sandboxed; ``args`` (the merged standard +
+    caller list) then has every ``--no-sandbox`` removed in place, and the caller
+    passes ``chromium_sandbox=True`` so Playwright does not add its own. The cloak
+    path additionally supplies cloakbrowser's stealth defaults itself, minus
+    ``--no-sandbox`` (see :func:`_cloak_sandbox_args`). ``sandbox=False`` returns
+    False without touching ``args``: the launch is byte-identical to before.
+
+    Root: Chromium refuses to start sandboxed as euid 0, so ``sandbox=True`` under
+    root FALLS BACK to the unsandboxed launch (``--no-sandbox`` kept, no
+    ``chromium_sandbox``) and writes one log line naming why. A non-root host also
+    needs unprivileged user namespaces or the setuid ``chrome-sandbox`` helper
+    (``CHROME_DEVEL_SANDBOX``); without either Chromium exits with "sandboxing
+    failed" and the launch error surfaces unchanged.
+    """
+    if not sandbox:
+        return False
+    if getattr(os, "geteuid", lambda: -1)() == 0:
+        sys.stderr.write(
+            f"[cloak] {seam}: sandbox requested but running as root (euid 0); Chromium "
+            "cannot sandbox as root -- launching with --no-sandbox\n")
+        return False
+    args[:] = [a for a in args if a != "--no-sandbox"]
+    return True
+
+
+def _cloak_sandbox_args(args: list[str], cloak_kwargs: dict[str, Any]) -> list[str]:
+    """Cloak-path args for a sandboxed launch: cloakbrowser's default stealth args
+    always include ``--no-sandbox``, so take them over (``stealth_args=False``) and
+    pass them minus that flag ahead of ``args`` (its build_args keeps the same
+    defaults-then-user precedence). A caller that passed ``stealth_args=False``
+    gets no defaults at all."""
+    if cloak_kwargs.get("stealth_args", True) is False:
+        return args
+    from cloakbrowser.config import get_default_stealth_args
+    cloak_kwargs["stealth_args"] = False
+    return [a for a in get_default_stealth_args() if a != "--no-sandbox"] + args
+
+
 def normalized_context_options(fingerprint: dict | None = None, headless: bool = True) -> dict[str, Any]:
     """Standard browser_context options ensuring standard default state reporting.
 
@@ -557,6 +598,7 @@ def open_persistent_context(
     user_agent: str | None = None,
     config: dict | None = None,
     netns: str | None = None,
+    sandbox: bool = False,
     **extra: Any,
 ):
     """Open a persistent browser context using the canonical backend.
@@ -577,6 +619,9 @@ def open_persistent_context(
     Chromium binary is unavailable on a network-restricted host), this
     logs once and transparently falls back to Playwright so the caller
     still gets a working browser.
+
+    ``sandbox=True`` runs Chromium with its sandbox on (O1876 M108; see
+    :func:`_apply_sandbox`, incl. the root fallback). Default False: unchanged.
     """
     global _WARNED_LAUNCH_FALLBACK
     args = standard_launch_flags(headless=headless, user_args=args)
@@ -587,6 +632,7 @@ def open_persistent_context(
                 args.append(_f)
     except Exception:
         pass
+    sandboxed = _apply_sandbox(args, sandbox, "open_persistent_context")
     extra = dict(extra)
     domain = extra.pop("domain", None)
     egress_ip = extra.pop("egress_ip", None)
@@ -600,11 +646,15 @@ def open_persistent_context(
             cloak_kwargs.pop("channel", None)
             if ns_env is not None:
                 cloak_kwargs["env"] = ns_env
+            cloak_args = args
+            if sandboxed:
+                cloak_args = _cloak_sandbox_args(args, cloak_kwargs)
+                cloak_kwargs["chromium_sandbox"] = True
             with _cloak_binary_override(shim):
                 context = _CLOAK_LPC(
                     user_data_dir=str(user_data_dir),
                     headless=headless,
-                    args=args,
+                    args=cloak_args,
                     user_agent=user_agent,
                     **cloak_kwargs,
                 )
@@ -629,6 +679,8 @@ def open_persistent_context(
     # fallback must not silently drop the isolation -- re-plan for this backend
     # (here ``executable_path`` is a real Playwright param, no TypeError).
     pw_extra = dict(extra)
+    if sandboxed:
+        pw_extra["chromium_sandbox"] = True
     if netns:
         pw_shim, pw_env = _netns_launch_plan(netns, PLAYWRIGHT)
         pw_extra["executable_path"] = pw_shim
@@ -673,6 +725,7 @@ def launch_browser(
     args: list[str] | None = None,
     config: dict | None = None,
     netns: str | None = None,
+    sandbox: bool = False,
     **extra: Any,
 ):
     """Launch a NON-persistent browser using the canonical backend.
@@ -688,6 +741,8 @@ def launch_browser(
     ``user_agent`` / ``viewport`` there — neither ``.launch()`` accepts them).
     ``channel`` is stripped on the cloak path (CloakBrowser supplies its own
     Chromium). Falls back to Playwright if a cloak launch raises.
+
+    ``sandbox`` as for :func:`open_persistent_context`.
     """
     global _WARNED_LAUNCH_FALLBACK
     args = standard_launch_flags(headless=headless, user_args=args)
@@ -698,6 +753,7 @@ def launch_browser(
                 args.append(_f)
     except Exception:
         pass
+    sandboxed = _apply_sandbox(args, sandbox, "launch_browser")
     backend = resolve_backend(config)
     shim, ns_env = _netns_launch_plan(netns, backend)
     _no_fallback = bool(extra.pop("_no_fallback", False))
@@ -710,8 +766,12 @@ def launch_browser(
             cloak_kwargs.pop("user_agent", None)   # set at new_context() instead
             if ns_env is not None:
                 cloak_kwargs["env"] = ns_env
+            cloak_args = args
+            if sandboxed:
+                cloak_args = _cloak_sandbox_args(args, cloak_kwargs)
+                cloak_kwargs["chromium_sandbox"] = True
             with _cloak_binary_override(shim):
-                browser = _cloak_launch(headless=headless, args=args, **cloak_kwargs)
+                browser = _cloak_launch(headless=headless, args=cloak_args, **cloak_kwargs)
             return browser, None, CLOAKBROWSER
         except Exception as e:
             if _no_fallback:
@@ -727,6 +787,8 @@ def launch_browser(
     from playwright.sync_api import sync_playwright
     launch_kwargs = dict(extra)
     launch_kwargs.pop("user_agent", None)          # .launch() takes no user_agent
+    if sandboxed:
+        launch_kwargs["chromium_sandbox"] = True
     # 701: see open_persistent_context -- a fallback must never drop isolation.
     if netns:
         pw_shim, pw_env = _netns_launch_plan(netns, PLAYWRIGHT)

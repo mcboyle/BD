@@ -92,7 +92,11 @@ def _manual_launch_kwargs(config, headless=False):
     shared by .launch() / .launch_persistent_context() for the manual/takeover
     browser. Pure + unit-testable. headless=True is the A-4 remote path (the
     solve browser is screencast to the cockpit); False is the visible default.
-    The anti-automation + autofill args are identical either way."""
+    The anti-automation + autofill args are identical either way.
+    O1876 M108: the per-site setting manual_login_chromium_sandbox (default OFF,
+    only a literal True turns it on) drops --no-sandbox and adds sandbox=True,
+    which _launch forwards to the cloak launch functions."""
+    sandbox = (config or {}).get("manual_login_chromium_sandbox", False) is True
     launch_args = ["--no-sandbox", "--disable-notifications", "--disable-popup-blocking",
                    "--disable-infobars", "--no-default-browser-check", "--no-first-run",
                    "--password-store=basic",
@@ -101,6 +105,9 @@ def _manual_launch_kwargs(config, headless=False):
                    "--disable-blink-features=AutomationControlled",
                    "--window-size=1366,800"]
     kwargs = {"headless": bool(headless), "args": launch_args}
+    if sandbox:
+        kwargs["args"] = [a for a in launch_args if a != "--no-sandbox"]
+        kwargs["sandbox"] = True
     if (config or {}).get("use_real_chrome", True):
         kwargs["channel"] = "chrome"
     return kwargs
@@ -313,6 +320,8 @@ class ManualLoginSession:
             extra = dict(ctx_extra)
             if common_kwargs.get("channel"):
                 extra["channel"] = common_kwargs["channel"]
+            if common_kwargs.get("sandbox"):
+                extra["sandbox"] = True
             try:
                 ctx, used_pw, backend = _cloak.open_persistent_context(
                     user_data_dir=self._manual_profile_dir, headless=self._headless,
@@ -366,6 +375,8 @@ class ManualLoginSession:
             extra = {}
             if common_kwargs.get("channel"):
                 extra["channel"] = common_kwargs["channel"]
+            if common_kwargs.get("sandbox"):
+                extra["sandbox"] = True
             try:
                 browser, used_pw, backend = _cloak.launch_browser(
                     headless=self._headless, args=launch_args, config=config, **extra)
