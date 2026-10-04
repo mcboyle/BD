@@ -28,6 +28,7 @@ operator can review candidates before flipping the switch.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from pathlib import Path
@@ -82,16 +83,38 @@ def mark_excluded(history_id: int, excluded: bool = True) -> bool:
         return False
 
 
-def _tagged_with_any(history_id: int, tag_list: list) -> bool:
-    """True if the row has any of the protect-tags."""
-    if not tag_list:
-        return False
-    try:
+# History ids per tags lookup; stays under SQLite's host-parameter limit.
+_TAG_LOOKUP_CHUNK = 500
+
+
+def _keep_tags(s_cfg_entry: dict) -> list:
+    keep_tags = s_cfg_entry.get("retention_keep_tagged_with") or []
+    if isinstance(keep_tags, str):
+        keep_tags = [t.strip() for t in keep_tags.split(",") if t.strip()]
+    return keep_tags
+
+
+def _ensure_tag_table(tag_list: list):
+    if tag_list:
         from . import tags as _tags
-        row_tags = set(_tags.tags_for(history_id))
-        return any(t in row_tags for t in tag_list)
-    except Exception:
-        return False
+        _tags._ensure_table()
+
+
+def _tagged_with_any(cx, history_ids: list, tag_list: list) -> set:
+    """The ids among history_ids that carry any of the protect-tags, read on cx.
+    One tags query per _TAG_LOOKUP_CHUNK ids, not one per row. A failed read
+    raises: protection that could not be read is never "no tags"."""
+    if not tag_list:
+        return set()
+    wanted = set(tag_list)
+    out = set()
+    for i in range(0, len(history_ids), _TAG_LOOKUP_CHUNK):
+        chunk = history_ids[i:i + _TAG_LOOKUP_CHUNK]
+        placeholders = ",".join("?" * len(chunk))
+        rs = cx.execute(f"""SELECT history_id, tag FROM history_tags
+            WHERE history_id IN ({placeholders})""", chunk).fetchall()
+        out.update(int(hid) for hid, tag in rs if tag in wanted)
+    return out
 
 
 def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
@@ -101,9 +124,7 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
 
     retention_days = int(s_cfg_entry.get("retention_days", 0) or 0)
     retention_max_gb = float(s_cfg_entry.get("retention_max_gb", 0) or 0)
-    keep_tags = s_cfg_entry.get("retention_keep_tagged_with") or []
-    if isinstance(keep_tags, str):
-        keep_tags = [t.strip() for t in keep_tags.split(",") if t.strip()]
+    keep_tags = _keep_tags(s_cfg_entry)
 
     if retention_days <= 0 and retention_max_gb <= 0:
         return []
@@ -113,6 +134,7 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
     cutoff_seconds = now - retention_days * 86400 if retention_days > 0 else 0
 
     try:
+        _ensure_tag_table(keep_tags)
         with _db.db_conn() as cx:
             rows = cx.execute("""
                 SELECT id, site_id, filename, file_size,
@@ -123,6 +145,8 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
                   AND filename IS NOT NULL AND filename != ''
                 ORDER BY ts_sec DESC
             """, (site_id,)).fetchall()
+            # A tag read failure selects nothing this run (fail closed).
+            protected = _tagged_with_any(cx, [r[0] for r in rows], keep_tags)
     except Exception:
         return []
 
@@ -132,7 +156,7 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
             hid, sid, fn, sz, ts_sec, excluded = r
             if excluded:
                 continue
-            if _tagged_with_any(hid, keep_tags):
+            if hid in protected:
                 continue
             if ts_sec and ts_sec < cutoff_seconds:
                 candidates.append({
@@ -152,7 +176,7 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
             hid, sid, fn, sz, ts_sec, excluded = r
             if excluded:
                 continue
-            if _tagged_with_any(hid, keep_tags):
+            if hid in protected:
                 continue
             running += sz or 0
             if running > cap_bytes and hid not in already_picked:
@@ -168,9 +192,12 @@ def find_candidates(site_id: str, s_cfg_entry: dict) -> list:
 
 
 def _record_audit(hid: int, site_id: str, file_path: str,
-                  file_size: int, reason: str, dry_run: bool):
+                  file_size: int, reason: str, dry_run: bool, cx=None):
+    """Audit one row; on ``cx`` when given (the caller's open transaction)."""
     try:
-        with _db.db_conn() as cx:
+        with contextlib.ExitStack() as stack:
+            if cx is None:
+                cx = stack.enter_context(_db.db_conn())
             cx.execute("""INSERT INTO retention_audit
                 (history_id, site_id, file_path, file_size_bytes,
                  deleted_at, reason, dry_run)
@@ -179,6 +206,24 @@ def _record_audit(hid: int, site_id: str, file_path: str,
                  time.time(), reason, 1 if dry_run else 0))
     except Exception:
         pass
+
+
+def _hold_unprotected(stack, candidates: list, keep_tags: list):
+    """Re-read protect-tags for the candidates at delete time.
+
+    find_candidates' tag read is advisory: a row tagged after it ran must
+    still survive. The re-read runs in a write transaction on a connection
+    entered into ``stack``, so no tag can commit between this check and the
+    unlinks; the caller keeps the stack open across them. Returns (cx,
+    candidates without a protect-tag). Raises when the tags cannot be read.
+    """
+    if not keep_tags or not candidates:
+        return None, candidates
+    _ensure_tag_table(keep_tags)
+    cx = stack.enter_context(_db.db_conn())
+    cx.execute("BEGIN IMMEDIATE")
+    tagged = _tagged_with_any(cx, [c["id"] for c in candidates], keep_tags)
+    return cx, [c for c in candidates if c["id"] not in tagged]
 
 
 def apply_retention(s_cfg: Optional[dict] = None, *,
@@ -228,31 +273,42 @@ def apply_retention(s_cfg: Optional[dict] = None, *,
         }
         out["total_candidates"] += len(candidates)
 
-        for c in candidates:
-            file_path = c.get("filename") or ""
-            if not file_path:
-                continue
-            if dry_run:
-                _record_audit(c["id"], site_id_k, file_path,
-                              c.get("file_size", 0),
-                              c["reason"], dry_run=True)
-                continue
-            # Actually delete
-            try:
-                p = Path(file_path)
-                if p.is_file():
-                    sz = p.stat().st_size
-                    p.unlink()
-                    site_result["deleted"] += 1
-                    site_result["bytes_freed"] += sz
-                    out["total_deleted"] += 1
-                    out["total_bytes_freed"] += sz
+        with contextlib.ExitStack() as hold:
+            cx = None
+            if not dry_run:
+                try:
+                    cx, candidates = _hold_unprotected(hold, candidates,
+                                                       _keep_tags(cfg))
+                except Exception as e:
+                    # Protection unknown: delete nothing for this site.
+                    site_result["errors"].append(
+                        f"protect-tag re-check failed: {str(e)[:80]}")
+                    candidates = []
+            for c in candidates:
+                file_path = c.get("filename") or ""
+                if not file_path:
+                    continue
+                if dry_run:
                     _record_audit(c["id"], site_id_k, file_path,
-                                  sz, c["reason"], dry_run=False)
-                # else: file already gone, treat as success but record
-            except Exception as e:
-                site_result["errors"].append(
-                    f"{file_path}: {str(e)[:80]}")
+                                  c.get("file_size", 0),
+                                  c["reason"], dry_run=True)
+                    continue
+                # Actually delete
+                try:
+                    p = Path(file_path)
+                    if p.is_file():
+                        sz = p.stat().st_size
+                        p.unlink()
+                        site_result["deleted"] += 1
+                        site_result["bytes_freed"] += sz
+                        out["total_deleted"] += 1
+                        out["total_bytes_freed"] += sz
+                        _record_audit(c["id"], site_id_k, file_path,
+                                      sz, c["reason"], dry_run=False, cx=cx)
+                    # else: file already gone, treat as success but record
+                except Exception as e:
+                    site_result["errors"].append(
+                        f"{file_path}: {str(e)[:80]}")
 
         out["sites"][site_id_k] = site_result
     return out

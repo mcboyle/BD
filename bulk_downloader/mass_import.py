@@ -25,6 +25,7 @@ Caps:
 """
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import uuid
@@ -93,8 +94,9 @@ def _ensure_table():
                     WHERE state = 'running' AND run_id != ?
                 """, (time.time(), _PROCESS_RUN_ID))
             _TABLE_READY = True
-        except Exception:
-            pass
+        except Exception as e:
+            # Not ready: the next call retries the DDL and recovery UPDATE.
+            sys.stderr.write(f"[mass_import] schema: {e}\n")
 
 
 def _running_jobs_count() -> int:

@@ -28,14 +28,33 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import sys
 import time
 from typing import Optional
 
 
+# (path, st_dev, st_ino) of the database the DDL last succeeded on. Keyed on
+# the file, not a bare bool: a different or replaced database needs the DDL
+# again, and is_action_paused must not pay two CREATE TABLEs on every check.
+_TABLES_READY_FOR = None
+
+
+def _db_identity(_db):
+    path = os.path.abspath(os.fspath(_db._resolve_db_path()))
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return path, st.st_dev, st.st_ino
+
+
 def _ensure_tables():
+    global _TABLES_READY_FOR
     try:
         from . import db as _db
+        if _TABLES_READY_FOR is not None and _db_identity(_db) == _TABLES_READY_FOR:
+            return
         with _db.db_conn() as cx:
             cx.execute("""CREATE TABLE IF NOT EXISTS maintenance_windows(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +73,7 @@ def _ensure_tables():
                 kind TEXT NOT NULL,
                 message TEXT
             )""")
+        _TABLES_READY_FOR = _db_identity(_db)
     except Exception as e:
         sys.stderr.write(f"[maintenance] schema: {e}\n")
 

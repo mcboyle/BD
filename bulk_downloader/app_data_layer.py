@@ -432,6 +432,28 @@ def collect_deploy_health():
     }
 
 
+def _session_lifetimes_by_site(_db, lookback_days):
+    """{site_id: [lifetime_sec, ...]} for every site, from ONE session_history
+    read. Same walk as db.session_lifetime_observations (all accounts, ts then
+    id order), batched so collect_site_health does not query once per site."""
+    import time as _t
+    cutoff = _t.time() - lookback_days * 86400
+    with _db.db_conn() as cx:
+        rows = cx.execute(
+            "SELECT id, site_id, ts, event_type FROM session_history "
+            "WHERE ts >= ? ORDER BY site_id, ts ASC, id ASC", (cutoff,)).fetchall()
+    out = {}
+    start = {}  # site_id -> ts of the last 'login' or 'auto_relogin_ok'
+    for r in rows:
+        sid, et, ts = r["site_id"], r["event_type"], r["ts"]
+        if et in ("login", "auto_relogin_ok"):
+            start[sid] = ts
+        elif et in ("heartbeat_fail", "auto_relogin_fail") and start.get(sid) is not None:
+            out.setdefault(sid, []).append(ts - start[sid])
+            start[sid] = None
+    return out
+
+
 def collect_site_health(lookback_days=7):
     """F2-a (F2.1 failure clustering + F2.2 per-site health) — read-only.
 
@@ -460,6 +482,10 @@ def collect_site_health(lookback_days=7):
         ah = {}
     fc = _db.db_session_failure_clusters(lookback_days=lookback_days)
     per_site = fc.get("per_site", {})
+    try:
+        lifetimes_by_site = _session_lifetimes_by_site(_db, lookback_days)
+    except Exception:
+        lifetimes_by_site = {}
 
     # union of sites seen in either source
     site_ids = set(ah.keys()) | set(per_site.keys())
@@ -475,10 +501,7 @@ def collect_site_health(lookback_days=7):
         successes = int(ps.get("successes", 0))
         denom = failures + successes
         fail_rate = (failures / denom) if denom else None
-        try:
-            lifetimes = _db.session_lifetime_observations(sid, lookback_days=lookback_days)
-        except Exception:
-            lifetimes = []
+        lifetimes = lifetimes_by_site.get(sid, [])
         median_lifetime = float(_median(lifetimes)) if lifetimes else None
         last_check_ts = a.get("last_check_ts")
         last_check_age = (now - last_check_ts) if last_check_ts else None
