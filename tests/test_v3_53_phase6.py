@@ -68,6 +68,17 @@ _SERVER_ERROR = None   # row 414: the boot diagnosis, cached. See _get_server.
 # minimum_initial_length=8 on a first unlock, so it must stay >= 8 characters.
 _VAULT_FIXTURE_PASSWORD = "phase6-fixture-vault-not-a-secret"
 
+# O1643: the unlock POST is the FIRST request the freshly imported app serves,
+# so it also carries boot_once() (app._bd_boot_before_request): sqlite
+# maintenance, the pre-migration DB backup and the migrations themselves. That
+# is fsync-bound disk work, not request work. On an idle box it takes ~0.5s; on
+# a farm host with 16 xdist workers on one disk it measured >5s (stacks taken at
+# the timeout were inside run_sqlite_maintenance / _backup_db_before_migration /
+# _close_history_conn), so the old 5s probe reported a booting app as
+# VAULT_UNREACHABLE and every node in the file failed. The budget below covers
+# boot; a server that is really wedged still fails, named, within it.
+_FIRST_REQUEST_BOOT_BUDGET_S = 60
+
 
 class ServerPreconditionError(RuntimeError):
     """A phase 6 precondition could not be established.
@@ -224,12 +235,14 @@ def _initialize_vault(base, home):
             f"the fixture only ever initializes a vault it creates itself")
     status, raw, err = _probe_http(
         base + "/api/secrets/unlock", method="POST",
-        body={"password": _VAULT_FIXTURE_PASSWORD})
+        body={"password": _VAULT_FIXTURE_PASSWORD},
+        timeout=_FIRST_REQUEST_BOOT_BUDGET_S)
     if err is not None:
         raise ServerPreconditionError(
             f"phase6 precondition VAULT_UNREACHABLE: POST /api/secrets/unlock "
-            f"never reached the app although the port accepted a connection: "
-            f"{type(err).__name__}: {err}")
+            f"(the first request, which also runs the app's boot) got no answer "
+            f"within {_FIRST_REQUEST_BOOT_BUDGET_S}s although the port accepted "
+            f"a connection: {type(err).__name__}: {err}")
     try:
         payload = json.loads(raw)
     except Exception:
@@ -439,7 +452,9 @@ def _api_post(path, body):
     req = urllib.request.Request(
         base + path, data=json.dumps(body).encode(),
         method="POST", headers={"Content-Type": "application/json"})
-    return json.loads(urllib.request.urlopen(req, timeout=5).read())
+    # O1643: a site create is a sqlite write (fsync); under farm disk contention
+    # it measured >5s on 3 of 32 stressed runs. Hang detection, not a latency pin.
+    return json.loads(urllib.request.urlopen(req, timeout=30).read())
 
 
 # ── health ──────────────────────────────────────────────────────────────
