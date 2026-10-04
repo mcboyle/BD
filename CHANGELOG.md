@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1801 - train237e: row
+
+T237 = 3 test-only cuts (BOARDED-for-integration.md L278-283): o1814-fixture-realshape (tests/test_o1760_turn_cap.py codex bootstrap -> real shape; O1814/O1804 install order: this lands FIRST, then O1799 install, then o1760), o1698-vmware-mcp-hardcoded-cred r4+r5 (supersedes r3 REFUTE; INSTALL NOTE: provision credential first), o1698-stale-gate-false-blocker r4; applied on T236e b22c07b4 (O1739b; by blob, no install). O1799 itself is harness-only (test in FIX dir) -- nothing to train.
+- o1698-vmware-mcp-hardcoded-cred-bd-worker-C1 r4+r5
+- o1814-fixture-realshape r1
+- o1698-stale-gate-false-blocker-bd-cx-worker35 r4
+
+
 ## v3.66.1800 - train236e: row
 
 T236 = 3 harness test halves (BOARDED-for-integration.md L271-277: nfs-share-ln-T first per RULING O1821, m27-worktree-guard, o1672-launch-adapter-pools), applied on T235e 8aad91d6 (O1739b; train by blob, no install, O1738c/O1796):
