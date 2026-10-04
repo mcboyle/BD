@@ -46,10 +46,12 @@ class NodeSentinel:
             return False
         try:
             target = endpoint
+            use_tls = False
             if target.startswith("http://"):
                 target = target[7:]
             elif target.startswith("https://"):
                 target = target[8:]
+                use_tls = True
             parts = target.split("/", 1)
             host_port = parts[0]
             path = "/" + parts[1] if len(parts) > 1 else "/"
@@ -59,12 +61,16 @@ class NodeSentinel:
                 port = int(port_str)
             else:
                 host = host_port
-                port = 80
+                port = 443 if use_tls else 80
 
-            conn = http.client.HTTPConnection(host, port, timeout=3.0)
-            conn.request("GET", path, headers={"User-Agent": "bd-sentinel/1.0"})
-            resp = conn.getresponse()
-            return resp.status == 200
+            conn_cls = http.client.HTTPSConnection if use_tls else http.client.HTTPConnection
+            conn = conn_cls(host, port, timeout=3.0)
+            try:
+                conn.request("GET", path, headers={"User-Agent": "bd-sentinel/1.0"})
+                resp = conn.getresponse()
+                return resp.status == 200
+            finally:
+                conn.close()
         except (OSError, TimeoutError, http.client.HTTPException):
             return False
 

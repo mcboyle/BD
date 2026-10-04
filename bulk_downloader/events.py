@@ -7,6 +7,8 @@ Enforces zero external network egress beyond cluster LAN (10.0.70.0/24).
 from __future__ import annotations
 
 import asyncio
+import atexit
+import concurrent.futures
 from dataclasses import asdict, dataclass
 import inspect
 import ipaddress
@@ -212,6 +214,127 @@ class BoundedEventPublisher:
 _publisher_singleton = BoundedEventPublisher()
 
 
+class _AsyncEventRunner:
+    """One long-lived event loop + reused async streamers for sync publishers (O1826 M059)."""
+
+    def __init__(self) -> None:
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._loop_lock = threading.Lock()
+        self._streamer_lock = threading.Lock()
+        self._streamers: dict[tuple[str, Any], "concurrent.futures.Future[AIOKafkaEventStreamer]"] = {}
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._loop_lock:
+            if self._loop is None or self._thread is None or not self._thread.is_alive():
+                loop = asyncio.new_event_loop()
+                thread = threading.Thread(target=loop.run_forever, daemon=True, name="bd-kafka-event-loop")
+                thread.start()
+                self._loop, self._thread = loop, thread
+            return self._loop
+
+    def run(self, coro: Any) -> Any:
+        """Run *coro* on the shared loop and wait, refusing (like asyncio.run) inside a running loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            coro.close()
+            raise RuntimeError("publish_download_completion cannot be called from a running event loop")
+        return asyncio.run_coroutine_threadsafe(coro, self._ensure_loop()).result()
+
+    def streamer_for(self, bootstrap_servers: str, producer_factory: Any) -> "AIOKafkaEventStreamer":
+        """Return the started streamer for this key; one start per key, never under the cache lock.
+
+        A broker outage blocks start() until bootstrap times out: concurrent publishers for the
+        key wait on the one in-flight start (~T in parallel), other keys are not held at all.
+        """
+        key = (bootstrap_servers, producer_factory)
+        with self._streamer_lock:
+            entry = self._streamers.get(key)
+            owner = entry is None
+            if owner:
+                entry = concurrent.futures.Future()
+                self._streamers[key] = entry
+        if not owner:
+            return entry.result()
+        try:
+            streamer = AIOKafkaEventStreamer(
+                bootstrap_servers=bootstrap_servers,
+                producer_factory=producer_factory,
+            )
+            self.run(streamer.start())
+        except BaseException as exc:
+            with self._streamer_lock:
+                if self._streamers.get(key) is entry:
+                    del self._streamers[key]
+            entry.set_exception(exc)
+            raise
+        entry.set_result(streamer)
+        with self._streamer_lock:
+            current = self._streamers.get(key) is entry
+        if not current:
+            # shutdown() cleared the cache during start(): nothing would ever stop this producer.
+            self._stop_streamer(streamer, self._ensure_loop())
+            raise RuntimeError("Async Kafka streamer was retired while starting")
+        return streamer
+
+    def send(self, streamer: "AIOKafkaEventStreamer", topic: str, value: bytes) -> None:
+        """Send on a cached streamer; a discarded (stopped) streamer is never restarted."""
+
+        async def _send_live() -> None:
+            # No await between this check and send()'s own is_running check: stop() runs on
+            # this same loop, so a discarded streamer cannot slip into send()'s auto-start.
+            if not streamer.is_running:
+                raise RuntimeError("Async Kafka streamer was discarded; refusing to restart it")
+            await streamer.send(topic, value)
+
+        self.run(_send_live())
+
+    def discard(self, bootstrap_servers: str, producer_factory: Any, streamer: "AIOKafkaEventStreamer") -> None:
+        """Drop and stop *streamer* only if it is still the cached one for the key (identity)."""
+        key = (bootstrap_servers, producer_factory)
+        with self._streamer_lock:
+            entry = self._streamers.get(key)
+            if entry is None or not entry.done() or entry.exception() is not None or entry.result() is not streamer:
+                return
+            del self._streamers[key]
+        self._stop_streamer(streamer, self._ensure_loop())
+
+    @staticmethod
+    def _stop_streamer(streamer: "AIOKafkaEventStreamer", loop: asyncio.AbstractEventLoop) -> None:
+        """Best-effort stop of a dropped streamer; a stop failure must not reach the download path."""
+        try:
+            asyncio.run_coroutine_threadsafe(streamer.stop(), loop).result(timeout=2.0)
+        except Exception as exc:
+            logger.debug("Async Kafka streamer stop failed: %s", exc)
+
+    def shutdown(self) -> None:
+        with self._streamer_lock:
+            streamers = [
+                entry.result()
+                for entry in self._streamers.values()
+                if entry.done() and entry.exception() is None
+            ]
+            self._streamers.clear()
+        with self._loop_lock:
+            loop, thread = self._loop, self._thread
+            self._loop = self._thread = None
+        if loop is None or thread is None or not thread.is_alive():
+            return
+        for streamer in streamers:
+            self._stop_streamer(streamer, loop)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2.0)
+        if not thread.is_alive():
+            loop.close()
+
+
+_event_runner = _AsyncEventRunner()
+atexit.register(_event_runner.shutdown)
+
+
 def publish_download_completion(
     site_config: dict[str, Any],
     *,
@@ -243,11 +366,11 @@ def publish_download_completion(
         try:
             if hasattr(streamer, "publish"):
                 # FastStreamKafkaAdapter routing
-                asyncio.run(streamer.publish(KAFKA_TOPIC, payload))
+                _event_runner.run(streamer.publish(KAFKA_TOPIC, payload))
                 return True
             if hasattr(streamer, "send"):
                 # AIOKafkaEventStreamer routing
-                asyncio.run(streamer.send(KAFKA_TOPIC, payload))
+                _event_runner.run(streamer.send(KAFKA_TOPIC, payload))
                 return True
         except Exception as exc:
             logger.debug("Modern streamer delivery failed: %s", exc)
@@ -255,14 +378,14 @@ def publish_download_completion(
 
     # Row 975: Route via modern AIOKafkaEventStreamer if configured
     if site_config.get("use_async_streamer", False) or site_config.get("kafka_streaming_mode") == "async":
+        stream_client = None
         try:
-            stream_client = AIOKafkaEventStreamer(
-                bootstrap_servers=bootstrap_env,
-                producer_factory=producer_factory,
-            )
-            asyncio.run(stream_client.send(KAFKA_TOPIC, payload))
+            stream_client = _event_runner.streamer_for(bootstrap_env, producer_factory)
+            _event_runner.send(stream_client, KAFKA_TOPIC, payload)
             return True
         except Exception as exc:
+            if stream_client is not None:
+                _event_runner.discard(bootstrap_env, producer_factory, stream_client)
             logger.debug("AIOKafka streamer execution failed: %s", exc)
             return False
 
