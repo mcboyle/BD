@@ -32,7 +32,7 @@ host=$1; shift; cmd="$*"
 printf '%s\n' "$host" >> "$FAKE_LOG/ssh-hosts.log"
 case " $FAKE_DOWN " in *" $host "*) exit 255 ;; esac
 [ -n "${FAKE_REMAP:-}" ] && { mkdir -p "$FAKE_ROOT/vm-$host$FAKE_REMAP"; cmd=${cmd//"$FAKE_REMAP"/"$FAKE_ROOT/vm-$host$FAKE_REMAP"}; }
-PATH="$FAKE_BIN:$PATH" exec bash -c "$cmd"
+HOME="$FAKE_VMHOME" PATH="$FAKE_BIN:$PATH" exec bash -c "$cmd"
 """
 SUDO = '#!/bin/bash\n[ "$1" = -n ] && shift\necho "$*" >> "$FAKE_LOG/sudo.log"\nexec "$@"\n'
 EXPORTFS = '#!/bin/sh\necho "exportfs $*" >> "$FAKE_LOG/exportfs.log"\n'
@@ -106,6 +106,13 @@ def fx(tmp_path: Path) -> dict:
         FAKE_MOUNTS=str(tmp_path / "mounts"),
         FAKE_UNIT_DIR=str(units),
     )
+    # The "VM" has its own home, already linked (vm-home-links), so verify's A7a order gate never reads the runner's ~.
+    vmhome = tmp_path / "vmhome"
+    vmhome.mkdir()
+    root = env.get("BD_NFS_MOUNT_ROOT", "/mnt/bd")
+    for name in ("bd-persist", "bd-local-wt", "bd-review-wt", "bd-cuts", "bin"):
+        (vmhome / name).symlink_to(f"{root}/{name}")
+    env["FAKE_VMHOME"] = str(vmhome)
     (tmp_path / "etc-exports.d").mkdir()
     return {"tmp": tmp_path, "env": env, "log": log, "paths": paths, "hubdirs": hubdirs, "units": units}
 

@@ -468,7 +468,7 @@ def test_every_patched_script_sources_the_lib_before_its_first_tmux_call() -> No
 
 def _auth(fx: dict, *args: str, files: list[Path]) -> subprocess.CompletedProcess:
     env = {**fx["env"], "BD_AUTH_SYNC_FILES": "\n".join(map(str, files)),
-           "BD_AUTH_SYNC_LOG": str(fx["tmp"] / "auth-sync.log")}
+           "BD_AUTH_SYNC_LOG": str(fx["tmp"] / "auth-sync.log"), "BD_AUTH_SYNC_SAY_LOG": str(fx["tmp"] / "say.log")}
     return subprocess.run(["bash", str(_cand("bd-auth-sync")), *args], env=env, capture_output=True, text=True,
                           timeout=60, check=False)
 
@@ -488,6 +488,10 @@ def test_auth_sync_copies_missing_backs_up_older_keeps_newer(fx: dict) -> None:
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(body)
         os.utime(f, (mt, mt))
+    # O1735 R1 addendum 3: a newer VM file is kept only when a seat on that host answered (rc-0 bd-say row) since
+    iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 3660))
+    (fx["tmp"] / "SEAT-HOSTS.tsv").write_text(f"# seat\thost\tat\tby\nbd-w9\t{HOST}\t2026-01-01T00:00:00Z\tt\n")
+    (fx["tmp"] / "say.log").write_text(f"{iso}\tbd-w9\tbd-pm\t0\t9\tabcd\t[from bd-w9] ok\tmode=type\n")
     r = _auth(fx, HOST, files=[new_f, old_f, newer_f, nosrc])
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert "copied=1 backed_up=1 kept_newer=1 nosrc=1 failed=0" in r.stdout, r.stdout
@@ -500,9 +504,9 @@ def test_auth_sync_copies_missing_backs_up_older_keeps_newer(fx: dict) -> None:
     assert v_newer.read_text() == "VM-REFRESHED", "a newer VM token was overwritten"
     log = (fx["tmp"] / "auth-sync.log").read_text()
     assert log.count(f"\t{HOST}\t") == 4 and "HUB-" not in log and "KEEP-NEWER" in log, log
-    # second run: everything equal-or-newer now -> nothing copied (hub mtime was preserved)
+    # second run: the two synced files are byte-identical (SAME), the answered-for newer one is kept -> nothing copied
     r2 = _auth(fx, HOST, files=[new_f, old_f, newer_f])
-    assert "copied=0 backed_up=0 kept_newer=3" in r2.stdout, r2.stdout
+    assert "copied=0 backed_up=0 kept_newer=1 nosrc=0 failed=0 same=2 hub_wins=0" in r2.stdout, r2.stdout
 
 
 def test_auth_sync_dry_run_writes_nothing_and_down_host_is_could_not_look(fx: dict) -> None:
