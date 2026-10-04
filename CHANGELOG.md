@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1817 - train253e: row
+
+T253 (rebuild b) = 2 product cuts (BOARDED-for-integration.md L319-320; no frontend): o1826-c17-backup-restore-paths r1 (app_backup.py; T1 corr-D17-D), o1826-c07-in-list-chunking-and-ledger r2 (discovery.py, ledger_reconcile.py, ledger_sharding.py; T1 corr-D16-D r2, r1 REFUTE superseded). o1826-c12 BOUNCED (gitleaks fixture secrets; O1870 runtime fix pending). Applied on T252e c8a57ad4 (O1739b):
+- o1826-c17-backup-restore-paths r1
+- o1826-c07-in-list-chunking-and-ledger r2
+
+
 ## v3.66.1816 - train252e: row
 
 T252 = 2 product cuts (BOARDED-for-integration.md L316-317, bd-lensrouter-A3-A; no frontend): o1826-c11-multi-conn-join-timeout r3 (multi_conn.py; T1 corr-D13-D r3 O1858 FINAL; 3 declared edges), o1826-c09-login-manual-sandbox-cleanup r3 (login_impl/manual.py; T2: codex cx5 r2 BOARD carried -- manual.py blob 5880eb00 identical r2 6f48501d -> r3 b262cdda, only +1 row723 fixture line, verified -- + kimi correctness r3 BOARD on b262cdda; 5 declared edges; FUNCTION_INDEX regen at land). Applied on T251e ca185faf (O1739b):
