@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1806 - train242f: row
+
+T242 (rebuild f) = 2 test-only harness halves on T241e 6d7c6e1e (origin/main): o1698-mod-m7-state-line-trial r4 (BOARDED L294) + o1698-mod-m25-big-read-guard r4 (L296). dl95-adulttime-1 DROPPED (shape-D7 r4 REFUTE; RULING O1841; TRAINER/T242e-HELD-shape-REFUTE-20261004T0830Z.md). Supersedes T242e 3f2e76db (#1160) and T243e 87d7e6d8 (#1161), never landed.
+- o1698-mod-m7-state-line-trial-bd-worker-B3 r4
+- o1698-mod-m25-big-read-guard-bd-worker-C1 r4
+
+
 ## v3.66.1805 - train241e: row
 
 T241 = 1 SECURITY T2 product cut (BOARDED-for-integration.md L293; cx-correctness2 r1 + correctness r1 BOARD on 192e8273): app_template_manager promote fail-closed, applied on T240e c2da5130 (O1739b):
