@@ -4993,7 +4993,11 @@ def _status_snapshot(light=True):
     """Build the same dict shape that /api/status would return. Extracted
     here so the SSE generator can call it without re-entering the request
     context."""
-    import time as _t, shutil as _shutil
+    import time as _t, shutil as _shutil, importlib as _il
+    # O1807 R3: api_status moved to app_status.py (P4); share its disk cache
+    # and its login_status redaction instead of the stale module-global name.
+    _as = _il.import_module("bulk_downloader.app_status")
+    api_status = _as.api_status
     out = {}
     if not hasattr(api_status, "_disk_cache"):
         api_status._disk_cache = {}
@@ -5006,6 +5010,7 @@ def _status_snapshot(light=True):
         meta = s_meta.get(sid) or {}
         st["name"] = meta.get("name", sid)
         st["config"] = meta
+        st["login_status"] = _as.redact_url_credentials(st.get("login_status", ""))
         dl_dir = (s_cfg.get(sid) or {}).get("download_dir") or ""
         if dl_dir:
             cache = api_status._disk_cache.get(dl_dir)
