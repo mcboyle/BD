@@ -76,13 +76,13 @@ _BY_DESIGN_HUMAN = ("template_logic",)
 
 # ── synthetic, realistic, serialized-node capture (cloakbrowser encoding) ────
 
-def _el(tag, attrs=None, kids=None, _c=[0]):
+def _el(tag, attrs=None, kids=None, *, _c):
     _c[0] += 1
     return {"id": _c[0], "type": 2, "tagName": tag,
             "attributes": attrs or {}, "childNodes": kids or []}
 
 
-def _txt(s, _c=[10000]):
+def _txt(s, *, _c):
     _c[0] += 1
     return {"id": _c[0], "type": 3, "textContent": str(s)}
 
@@ -93,18 +93,20 @@ def _synthetic_capture():
     a trigger button, an ant-modal dialog with repeating download rows (download
     anchors + resolution buttons), a resolution API call, and a media rendition.
     Entirely fabricated."""
+    element_ids = [0]
+    text_ids = [10000]
     rows = []
     for res in (2160, 1080, 720):
         rows.append(_el("li", {"role": "listitem"}, [
             _el("a", {"download": "",
-                      "href": "/api/v1/movie/9/download-resolution/%d" % res}),
-            _el("button", {"role": "button"}, [_txt(res)]),
-        ]))
+                      "href": "/api/v1/movie/9/download-resolution/%d" % res}, _c=element_ids),
+            _el("button", {"role": "button"}, [_txt(res, _c=text_ids)], _c=element_ids),
+        ], _c=element_ids))
     modal = _el("div", {"class": "ant-modal", "role": "dialog", "aria-modal": "true"},
-                [_el("ul", {"class": "ant-list"}, rows)])
+                [_el("ul", {"class": "ant-list"}, rows, _c=element_ids)], _c=element_ids)
     root = _el("div", {"class": "app"},
                [_el("button", {"class": "download-open", "role": "button",
-                               "data-tooltip": "Download Full Movie"}), modal])
+                               "data-tooltip": "Download Full Movie"}, _c=element_ids), modal], _c=element_ids)
     return {
         "host": "demo.example", "url": "https://demo.example/v/9", "title": "t",
         "network_log": [
