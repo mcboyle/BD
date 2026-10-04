@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5759,
+  "edge_count": 5761,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4769,9 +4769,15 @@
     "tests/test_o1671_a07_metadata_normalizer_any_import.py": [
       "bulk_downloader/metadata_normalizer.py"
     ],
+    "tests/test_o1671_a07_pgvector_bench_restore.py": [
+      "bulk_downloader/pg_vector.py"
+    ],
     "tests/test_o1671_a07_ssrf_validate_url_fail_closed.py": [
       "bulk_downloader/hooks.py",
       "bulk_downloader/media_server_sync.py"
+    ],
+    "tests/test_o1671_a16_capture_analytics_getsize.py": [
+      "tools/capture_analytics.py"
     ],
     "tests/test_o1671_a16_check_doc_drift_version_sort.py": [
       "tools/check_doc_drift.py"
