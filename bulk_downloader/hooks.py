@@ -26,6 +26,7 @@ accepts placeholders ({path}, {url}, {site}, {filename}, {size},
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -122,10 +123,16 @@ def _render_template(template, vars, shell_quote=False):
     defense-in-depth.
 
     For webhooks and non-shell sinks, shell_quote stays off so the
-    rendered string is the user's literal template + literal values."""
+    rendered string is the user's literal template + literal values.
+
+    O1815 R9: substitution is ONE pass over the template. Substituted
+    values are never rescanned, so a site-controlled {url} that contains
+    the literal text "{filename}" stays literal -- it cannot pull the
+    quoted filename inside the url's own quotes and break out of them."""
     if not template: return ""
-    out = template
-    for k, v in (vars or {}).items():
+    if not vars: return template
+    rendered = {}
+    for k, v in vars.items():
         sval = str(v if v is not None else "")
         if shell_quote and sval:
             # shlex.quote returns 'value' (single-quoted) or escapes safely.
@@ -133,8 +140,9 @@ def _render_template(template, vars, shell_quote=False):
             # template structure (e.g., `--option={key}` with empty key
             # should yield `--option=`, not `--option=''`).
             sval = shlex.quote(sval)
-        out = out.replace("{" + k + "}", sval)
-    return out
+        rendered[k] = sval
+    pattern = re.compile("{(" + "|".join(re.escape(k) for k in rendered) + ")}")
+    return pattern.sub(lambda m: rendered[m.group(1)], template)
 
 
 def build_vars(site_config, event, job, extra=None):
