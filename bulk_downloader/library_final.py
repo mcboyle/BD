@@ -129,15 +129,43 @@ _VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv",
                ".webm", ".flv", ".ts", ".mpg", ".mpeg"}
 
 
-def list_orphans(download_dir: str, *, site_id: Optional[str] = None) -> list:
-    """Find video files in `download_dir` that don't have a matching
-    history row. Useful for the operator hunting downloads from
-    pre-BD or hand-saved files.
+def _walk_files(download_dir) -> list:
+    """Every non-directory entry under `download_dir`, in os.walk order.
 
-    Returns list of {path, size_bytes}."""
+    The ONE tree walk audit() makes. list_orphans and
+    list_duplicate_candidates each walked the tree, and the two DB scans each
+    rglobbed it again for _basename_index -- four walks of a library of a few
+    thousand files per dashboard refresh. audit() walks once and hands this
+    list (and _index_files of it) to all four.
+    """
     d = Path(download_dir)
     if not d.is_dir():
         return []
+    return [os.path.join(root, f)
+            for root, _dirs, files in os.walk(str(d)) for f in files]
+
+
+def list_orphans_scan(download_dir: str, *, site_id: Optional[str] = None,
+                      files: Optional[list] = None) -> dict:
+    """``list_orphans``'s loop, reporting whether history was actually read.
+
+    An orphan is a file with no history row, so "no row" can only be claimed
+    about a history that was read. A failed query used to be swallowed with
+    `known` left empty, and every video in the library came back as an orphan.
+    Like the sibling scans, a failed read now sets ``query_failed`` and
+    reports nothing.
+
+    Returned keys:
+      rows          -- [{path, size_bytes}], exactly as list_orphans gives
+      query_failed  -- the DB read raised; `rows` is empty, not "no orphans"
+
+    `files` is _walk_files(download_dir), passed by audit() so the tree is
+    walked once; omitted, it is walked here.
+    """
+    result = {"rows": [], "query_failed": False}
+    d = Path(download_dir)
+    if not d.is_dir():
+        return result
     known: set = set()
     try:
         from . import db as _db
@@ -153,21 +181,34 @@ def list_orphans(download_dir: str, *, site_id: Optional[str] = None) -> list:
                     known.add(os.path.normpath(str(fn)))
                     known.add(os.path.basename(str(fn)))
     except Exception:
-        pass
+        result["query_failed"] = True
+        return result
     out = []
-    for root, _dirs, files in os.walk(str(d)):
-        for f in files:
-            if Path(f).suffix.lower() not in _VIDEO_EXTS:
-                continue
-            full = os.path.join(root, f)
-            if os.path.normpath(full) in known or f in known:
-                continue
-            try:
-                sz = os.path.getsize(full)
-            except OSError:
-                sz = 0
-            out.append({"path": full, "size_bytes": sz})
-    return out
+    for full in (_walk_files(d) if files is None else files):
+        f = os.path.basename(full)
+        if Path(f).suffix.lower() not in _VIDEO_EXTS:
+            continue
+        if os.path.normpath(full) in known or f in known:
+            continue
+        try:
+            sz = os.path.getsize(full)
+        except OSError:
+            sz = 0
+        out.append({"path": full, "size_bytes": sz})
+    result["rows"] = out
+    return result
+
+
+def list_orphans(download_dir: str, *, site_id: Optional[str] = None) -> list:
+    """Find video files in `download_dir` that don't have a matching
+    history row. Useful for the operator hunting downloads from
+    pre-BD or hand-saved files.
+
+    Returns list of {path, size_bytes}. A projection of
+    ``list_orphans_scan``: when history cannot be read it returns [] rather
+    than the whole library; callers that must tell the two apart want that
+    function."""
+    return list_orphans_scan(download_dir, site_id=site_id)["rows"]
 
 
 def download_roots(s_cfg) -> list:
@@ -249,6 +290,25 @@ def _basename_index(download_dir) -> dict:
     return idx
 
 
+def _index_files(download_dir, files: list) -> dict:
+    """_basename_index(download_dir), built from _walk_files(download_dir)
+    instead of a second walk. Same keys, same path sets: os.walk lists what
+    rglob yields, neither descends a symlinked directory, and the same
+    is_file() filter applies. Order inside a [paths] list differs, and
+    _resolve_recorded only reads its length or its single entry."""
+    if not _as_roots(download_dir):
+        return {}
+    idx: dict = {}
+    for full in files:
+        p = Path(full)
+        try:
+            if p.is_file():
+                idx.setdefault(p.name, []).append(p)
+        except OSError:
+            continue
+    return idx
+
+
 def _resolve_recorded(fn: str, download_dir, index: dict):
     """(path, state) for a `history.filename` value.
 
@@ -305,7 +365,8 @@ def _resolve_recorded(fn: str, download_dir, index: dict):
 
 def missing_from_disk_scan(*, site_id: Optional[str] = None,
                            limit: int = 500,
-                           download_dir: str = "") -> dict:
+                           download_dir: str = "",
+                           index: Optional[dict] = None) -> dict:
     """``list_missing_from_disk``'s loop, reporting what it EXAMINED as well.
 
     The sibling of ``size_drift_scan``, and it exists for the same reason: the
@@ -318,6 +379,8 @@ def missing_from_disk_scan(*, site_id: Optional[str] = None,
       considered    -- rows the query returned (post-LIMIT)
       limit_hit     -- considered == limit, so `rows` is a floor
       query_failed  -- the DB read raised; every other number is meaningless
+
+    `index` is audit()'s one _basename_index; omitted, it is built here.
 
     NOTE the window is NOT size_drift_scan's. This one is
     ``status='done' AND filename != ''``; that one adds ``AND file_size > 0``.
@@ -343,7 +406,8 @@ def missing_from_disk_scan(*, site_id: Optional[str] = None,
         return result
     result["considered"] = len(rows)
     result["limit_hit"] = len(rows) == int(limit)
-    index = _basename_index(download_dir)
+    if index is None:
+        index = _basename_index(download_dir)
     out = []
     for r in rows:
         d = dict(r)
@@ -376,27 +440,27 @@ def list_missing_from_disk(*, site_id: Optional[str] = None,
                                   download_dir=download_dir)["rows"]
 
 
-def list_duplicate_candidates(download_dir: str) -> list:
+def list_duplicate_candidates(download_dir: str, *,
+                              files: Optional[list] = None) -> list:
     """Video files that share an exact byte size -- likely duplicate copies (e.g.
     the same file saved under two site dirs). Stat-only + ADVISORY: a size
     collision is a candidate, not a confirmed duplicate. Returns
-    [{size_bytes, count, paths}] per colliding group, most-reclaimable first."""
+    [{size_bytes, count, paths}] per colliding group, most-reclaimable first.
+    `files` is audit()'s _walk_files; omitted, the tree is walked here."""
     d = Path(download_dir)
     if not d.is_dir():
         return []
     by_size: dict = {}
-    for root, _dirs, files in os.walk(str(d)):
-        for f in files:
-            if Path(f).suffix.lower() not in _VIDEO_EXTS:
-                continue
-            full = os.path.join(root, f)
-            try:
-                sz = os.path.getsize(full)
-            except OSError:
-                continue
-            if sz <= 0:
-                continue
-            by_size.setdefault(sz, []).append(full)
+    for full in (_walk_files(d) if files is None else files):
+        if Path(full).suffix.lower() not in _VIDEO_EXTS:
+            continue
+        try:
+            sz = os.path.getsize(full)
+        except OSError:
+            continue
+        if sz <= 0:
+            continue
+        by_size.setdefault(sz, []).append(full)
     groups = [{"size_bytes": sz, "count": len(paths), "paths": sorted(paths)[:10]}
               for sz, paths in by_size.items() if len(paths) > 1]
     # largest reclaimable space first: (count-1) redundant copies * size
@@ -406,7 +470,8 @@ def list_duplicate_candidates(download_dir: str) -> list:
 
 def size_drift_scan(download_dir: str, *, site_id: Optional[str] = None,
                     limit: int = 1000, tolerance_bytes: int = 0,
-                    collect_ids: bool = False) -> dict:
+                    collect_ids: bool = False,
+                    index: Optional[dict] = None) -> dict:
     """``list_size_drift``'s loop, reporting what it EXAMINED as well as what it found.
 
     The drift rows alone cannot answer "was this population actually checked".
@@ -462,7 +527,8 @@ def size_drift_scan(download_dir: str, *, site_id: Optional[str] = None,
         return result
     result["considered"] = len(rows)
     result["limit_hit"] = len(rows) >= int(limit)
-    index = _basename_index(download_dir)
+    if index is None:
+        index = _basename_index(download_dir)
     out = []
     for r in rows:
         d = dict(r)
@@ -584,14 +650,18 @@ def audit(*, download_dir: str, site_id: Optional[str] = None,
       sample_orphans / sample_missing / sample_duplicates /
       sample_size_drift        list  first 10 rows of each
     """
-    o = list_orphans(download_dir, site_id=site_id)
+    # One walk of the tree, shared by all four checks (it used to be four).
+    files = _walk_files(download_dir)
+    index = _index_files(download_dir, files)
+    o = list_orphans_scan(download_dir, site_id=site_id, files=files)["rows"]
     # The SCANS, not the list projections: the projections discard limit_hit,
     # which is the whole subject of the *_saturated keys below.
     mscan = missing_from_disk_scan(site_id=site_id, download_dir=download_dir,
-                                   limit=limit)
+                                   limit=limit, index=index)
     m = mscan["rows"]
-    dupes = list_duplicate_candidates(download_dir)
-    dscan = size_drift_scan(download_dir, site_id=site_id, limit=limit)
+    dupes = list_duplicate_candidates(download_dir, files=files)
+    dscan = size_drift_scan(download_dir, site_id=site_id, limit=limit,
+                            index=index)
     drift = dscan["rows"]
     total_orphan = sum(x["size_bytes"] for x in o)
     reclaimable = sum(g["size_bytes"] * (g["count"] - 1) for g in dupes)
