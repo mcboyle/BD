@@ -133,8 +133,18 @@ def _open(req: urllib.request.Request, timeout: float):
     try:
         from .hooks import _hook_urlopen  # lazy import
     except (ImportError, AttributeError):
-        from .hooks import _HookRedirectHandler  # lazy import
-        return urllib.request.build_opener(_HookRedirectHandler()).open(req, timeout=timeout)
+        ok, why = _validate_url(req.full_url)
+        if not ok:
+            raise urllib.error.HTTPError(req.full_url, 403, f"blocked URL: {why}", None, None)
+
+        class ValidatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, request, fp, code, msg, headers, newurl):
+                ok, why = _validate_url(newurl)
+                if not ok:
+                    raise urllib.error.HTTPError(newurl, code, f"blocked redirect: {why}", headers, fp)
+                return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+        return urllib.request.build_opener(ValidatedRedirectHandler()).open(req, timeout=timeout)
     return _hook_urlopen(req, timeout=timeout)
 
 
@@ -144,13 +154,9 @@ def _validate_url(url: str) -> tuple[bool, str]:
         from .hooks import _validate_webhook_url  # lazy import
 
         return _validate_webhook_url(url)
-    except (ImportError, AttributeError, ValueError):
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False, f"unsupported scheme: {parsed.scheme}"
-        if not parsed.hostname:
-            return False, "missing hostname"
-        return True, "ok"
+    except (ImportError, AttributeError, ValueError) as exc:
+        logger.warning("Media-server URL validator unavailable (%s)", type(exc).__name__)
+        return False, f"URL validator unavailable: {type(exc).__name__}"
 
 
 class BaseMediaServerClient:
