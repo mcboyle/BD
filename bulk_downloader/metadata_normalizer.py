@@ -56,21 +56,27 @@ def _fold(name: str) -> str:
     return n.strip().casefold()
 
 
-def _levenshtein(a: str, b: str) -> int:
+def _levenshtein_within(a: str, b: str, limit: int) -> int:
+    """Levenshtein distance of `a` and `b` when it is <= `limit`, else
+    limit + 1. Pairs whose lengths alone differ by more than `limit` are
+    rejected without any table, and the row loop stops as soon as every
+    cell in a row exceeds `limit` (row minima never decrease)."""
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
     if a == b:
         return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
+    if not a or not b:
+        return max(len(a), len(b))
     prev = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):
         cur = [i] + [0] * len(b)
         for j, cb in enumerate(b, 1):
             cost = 0 if ca == cb else 1
             cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+        if min(cur) > limit:
+            return limit + 1
         prev = cur
-    return prev[-1]
+    return prev[-1] if prev[-1] <= limit else limit + 1
 
 
 def to_filesystem_component(name: str) -> str:
@@ -125,7 +131,8 @@ class AliasTable:
             best_canonical: str | None = None
             best_distance = self._fuzzy_max_distance + 1
             for key, cand_canonical in self._exact.items():
-                d = _levenshtein(folded, key)
+                # Only a strictly closer key can win, so bound the search there.
+                d = _levenshtein_within(folded, key, best_distance - 1)
                 if d < best_distance:
                     best_distance = d
                     best_canonical = cand_canonical

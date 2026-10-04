@@ -87,12 +87,34 @@ _ROUTER_LINK = "nuxtlink[to], nuxt-link[to], router-link[to], routerlink[to]"
 _LINK_SELECTOR = "a[href], " + _ROUTER_LINK
 
 _ANCHOR_JS = r"""
-(anchors) => anchors.map((a) => {
+(anchors) => {
+  // Each link's URL is resolved once, and each tree (document or shadow root)
+  // is queried for links once and indexed by kind, for the whole batch --
+  // not re-queried and re-resolved per ancestor of every router link.
+  const resolved = new Map();
   const resolve = (el) => {
+    if (resolved.has(el)) return resolved.get(el);
     const raw = el.getAttribute(el.hasAttribute("href") ? "href" : "to") || "";
-    try { return new URL(raw, document.baseURI).href; } catch (e) { return ""; }
+    let u = "";
+    try { u = new URL(raw, document.baseURI).href; } catch (e) { u = ""; }
+    resolved.set(el, u);
+    return u;
   };
   const kindOf = (u) => u.replace(/[?#].*$/, "").replace(/\/[^/]*\/?$/, "");
+  const treeLinks = new Map();
+  const linksOfKind = (root, kind) => {
+    if (!treeLinks.has(root)) {
+      const byKind = new Map();
+      for (const el of root.querySelectorAll("__LINK_SELECTOR__")) {
+        const k = kindOf(resolve(el));
+        if (!byKind.has(k)) byKind.set(k, []);
+        byKind.get(k).push(el);
+      }
+      treeLinks.set(root, byKind);
+    }
+    return treeLinks.get(root).get(kind) || [];
+  };
+  return anchors.map((a) => {
   const routed = !a.hasAttribute("href");
   let url = a.href || "";
   let cardImg = false;
@@ -102,10 +124,10 @@ _ANCHOR_JS = r"""
     // is the smallest ancestor holding no rival: another link, of either
     // representation, to a different URL of the same kind (same parent path).
     const kind = kindOf(url);
-    const isRival = (other) => !other.isSameNode(a) && resolve(other) !== url
-      && kindOf(resolve(other)) === kind;
+    const rivalLinks = linksOfKind(a.getRootNode(), kind).filter(
+      (other) => !other.isSameNode(a) && resolve(other) !== url);
     for (let p = a.parentElement; p; p = p.parentElement) {
-      const rivals = Array.from(p.querySelectorAll("__LINK_SELECTOR__")).filter(isRival);
+      const rivals = rivalLinks.filter((r) => r !== p && p.contains(r));
       if (rivals.length) break;
       if (p.querySelector("img")) { cardImg = true; break; }
     }
@@ -145,7 +167,8 @@ _ANCHOR_JS = r"""
     class_name: typeof a.className === "string" ? a.className : "",
     rel: a.getAttribute("rel") || "",
   };
-})
+  });
+}
 """.replace("__LINK_SELECTOR__", _LINK_SELECTOR)
 
 

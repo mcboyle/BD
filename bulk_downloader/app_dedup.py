@@ -10,11 +10,56 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from flask import Blueprint, jsonify, request
 
 dedup_bp = Blueprint("dedup", __name__)
+
+_PLAIN_HEX_RE = re.compile(r"[0-9a-fA-F]+")
+
+
+def _hamming_candidates(hashes: list, distance: int) -> list:
+    """For each index i, the ascending indices j > i whose hash could lie
+    within `distance` bits of hashes[i]; every other pair is provably out of
+    range, so the grouping loop never has to compare it.
+
+    Pigeonhole: split an L-hex-digit hash into distance+1 disjoint bit chunks;
+    two hashes within `distance` bits agree exactly on at least one chunk, so
+    bucketing on (length, chunk index, chunk value) finds every such pair.
+    Hashes that are not plain hex (None, "0x..", odd input) are kept as
+    candidates of every row: hamming_distance decides them as before."""
+    n = len(hashes)
+    buckets: dict = {}
+    keys: list = [None] * n
+    loose: list = []
+    for i, h in enumerate(hashes):
+        if not (isinstance(h, str) and _PLAIN_HEX_RE.fullmatch(h)):
+            loose.append(i)
+            continue
+        bits = 4 * len(h)
+        if distance >= bits:
+            row_keys = [(len(h),)]
+        else:
+            v = int(h, 16)
+            k = distance + 1
+            row_keys = []
+            for c in range(k):
+                lo, hi = c * bits // k, (c + 1) * bits // k
+                row_keys.append((len(h), c, (v >> lo) & ((1 << (hi - lo)) - 1)))
+        keys[i] = row_keys
+        for key in row_keys:
+            buckets.setdefault(key, []).append(i)
+    out: list = []
+    for i in range(n):
+        if keys[i] is None:
+            out.append(list(range(i + 1, n)))
+            continue
+        cand = {j for key in keys[i] for j in buckets[key] if j > i}
+        cand.update(j for j in loose if j > i)
+        out.append(sorted(cand))
+    return out
 
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
@@ -240,8 +285,9 @@ def api_dedup_groups():
             c.close()
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
-    # For efficiency on huge libraries, bucket by exact hash first
-    # (Hamming-distance grouping is O(N²) so we cap at 5000 files).
+    # Pairs are drawn from hash-chunk buckets (_hamming_candidates), so only
+    # possibly-near hashes are compared; a library of near-identical hashes
+    # still degrades to O(N²), hence the 5000-file cap stays.
     if len(rows) > 5000:
         return jsonify({
             "ok": False,
@@ -251,6 +297,7 @@ def api_dedup_groups():
         })
     seen: set = set()
     groups: list = []
+    candidates = _hamming_candidates([r[1] for r in rows], distance)
     for i, r in enumerate(rows):
         if r[0] in seen:
             continue
@@ -261,7 +308,8 @@ def api_dedup_groups():
             "computed_at": r[3] or 0.0,
             "distance": 0,
         }]
-        for r2 in rows[i+1:]:
+        for j in candidates[i]:
+            r2 = rows[j]
             if r2[0] in seen:
                 continue
             d = _dedup.hamming_distance(r[1], r2[1])

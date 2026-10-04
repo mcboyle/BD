@@ -101,10 +101,16 @@ def _walk_for_candidates(soup) -> List[Dict[str, Any]]:
     elements = []
     for tag in _CANDIDATE_TAGS:
         elements.extend(soup.find_all(tag))
-    # Plus anything with our data-* attrs (covers tags we don't list)
+    # Plus anything with our data-* attrs (covers tags we don't list).
+    # Membership by identity: `el in elements` ran bs4's deep Tag.__eq__
+    # against every collected element (O(n^2)); a structurally equal twin
+    # it used to drop yields the same dedup key below, so it is still
+    # skipped there.
+    listed = {id(el) for el in elements}
     for attr in _CANDIDATE_ATTRS:
         for el in soup.find_all(attrs={attr: True}):
-            if el not in elements:
+            if id(el) not in listed:
+                listed.add(id(el))
                 elements.append(el)
     for el in elements:
         try:

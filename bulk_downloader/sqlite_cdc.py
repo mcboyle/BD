@@ -73,28 +73,24 @@ class WalTransaction:
     commit_size: int
 
 
-def _checksum_step(data: bytes, s0: int, s1: int, bigendian: bool) -> tuple:
+def _checksum_step(data: bytes, s0: int, s1: int, bigendian: bool,
+                   start: int = 0, end: int | None = None) -> tuple:
+    """Fold data[start:end] into the WAL checksum, reading in place (no
+    slice copy of the page)."""
     fmt = ">2I" if bigendian else "<2I"
-    for i in range(len(data) // 8):
-        x0, x1 = struct.unpack_from(fmt, data, i * 8)
+    if end is None:
+        end = len(data)
+    for i in range((end - start) // 8):
+        x0, x1 = struct.unpack_from(fmt, data, start + i * 8)
         s0 = (s0 + x0 + s1) & 0xFFFFFFFF
         s1 = (s1 + x1 + s0) & 0xFFFFFFFF
     return s0, s1
 
 
-def iter_wal_frames(wal_path: str):
-    """Yield validated ``WalFrame`` records from a WAL file, in file order.
-
-    Stops (without raising) at the first structurally short read or checksum
-    mismatch -- an incomplete trailing write is exactly what SQLite's own
-    reader ignores during recovery, so this generator never yields a frame
-    from a transaction that was not durably completed.
-    """
-    try:
-        with open(wal_path, "rb") as fh:
-            data = fh.read()
-    except FileNotFoundError:
-        return
+def _scan_wal(data: bytes):
+    """Yield ``(index, page_number, commit_size, offset, page_size)`` for each
+    validated frame of WAL bytes ``data`` -- the checks of iter_wal_frames,
+    without copying any page out of ``data``."""
     if len(data) < _WAL_HEADER_SIZE:
         return
     magic, _ver, page_size, _seq, salt1, salt2, c1, c2 = struct.unpack(
@@ -111,20 +107,55 @@ def iter_wal_frames(wal_path: str):
     frame_size = _WAL_FRAME_HEADER_SIZE + page_size
     index = 0
     while off + frame_size <= len(data):
-        pgno, commit_size, fsalt1, fsalt2, fc1, fc2 = struct.unpack(
-            ">IIIIII", data[off:off + _WAL_FRAME_HEADER_SIZE])
-        page = data[off + _WAL_FRAME_HEADER_SIZE:off + frame_size]
+        pgno, commit_size, fsalt1, fsalt2, fc1, fc2 = struct.unpack_from(
+            ">IIIIII", data, off)
         if (fsalt1, fsalt2) != (salt1, salt2):
             return  # a checkpoint recycled this WAL mid-file; stop here
-        cs0, cs1 = _checksum_step(data[off:off + 8], s0, s1, bigendian)
-        cs0, cs1 = _checksum_step(page, cs0, cs1, bigendian)
+        cs0, cs1 = _checksum_step(data, s0, s1, bigendian, off, off + 8)
+        cs0, cs1 = _checksum_step(data, cs0, cs1, bigendian,
+                                  off + _WAL_FRAME_HEADER_SIZE, off + frame_size)
         if (cs0, cs1) != (fc1, fc2):
             return  # unverified frame -- treat as a torn/in-flight write
         s0, s1 = cs0, cs1
         index += 1
-        yield WalFrame(index=index, page_number=pgno, commit_size=commit_size,
-                        offset=off, page_data=page)
+        yield index, pgno, commit_size, off, page_size
         off += frame_size
+
+
+def _read_wal(wal_path: str):
+    try:
+        with open(wal_path, "rb") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return None
+
+
+def iter_wal_frames(wal_path: str):
+    """Yield validated ``WalFrame`` records from a WAL file, in file order.
+
+    Stops (without raising) at the first structurally short read or checksum
+    mismatch -- an incomplete trailing write is exactly what SQLite's own
+    reader ignores during recovery, so this generator never yields a frame
+    from a transaction that was not durably completed.
+    """
+    data = _read_wal(wal_path)
+    if data is None:
+        return
+    for index, pgno, commit_size, off, page_size in _scan_wal(data):
+        start = off + _WAL_FRAME_HEADER_SIZE
+        yield WalFrame(index=index, page_number=pgno, commit_size=commit_size,
+                        offset=off, page_data=data[start:start + page_size])
+
+
+def count_wal_transactions(wal_path: str) -> int:
+    """``len(list(iter_wal_transactions(wal_path)))`` without building any
+    frame or copying any page: a committed transaction is exactly one
+    validated frame with a nonzero commit size."""
+    data = _read_wal(wal_path)
+    if data is None:
+        return 0
+    return sum(1 for _i, _pg, commit_size, _off, _ps in _scan_wal(data)
+               if commit_size)
 
 
 def iter_wal_transactions(wal_path: str):
@@ -365,7 +396,7 @@ class SqliteCDCStream:
         """Detect newly-committed WAL transactions and stream row-level
         diffs for the tracked tables. Returns a summary dict. Safe to call
         with an empty/absent WAL (yields zero transactions, zero events)."""
-        transactions = list(iter_wal_transactions(self.wal_path))
+        transactions = count_wal_transactions(self.wal_path)
         events_total = 0
         for table, pk in self.tables:
             old = self._snapshots.get(table, {})
@@ -389,7 +420,7 @@ class SqliteCDCStream:
                 events_total += len(events)
             self._snapshots[table] = new
         self._save_state()
-        return {"transactions": len(transactions), "events": events_total,
+        return {"transactions": transactions, "events": events_total,
                 "tables": [t for t, _ in self.tables]}
 
 

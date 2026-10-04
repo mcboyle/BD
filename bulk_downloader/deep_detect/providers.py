@@ -137,6 +137,19 @@ _URLISH_RE = re.compile(
 
 _MAX_JSON_DEPTH = 200
 
+_media_keys_lower_cache: tuple = ((), frozenset())
+
+
+def _media_keys_lower() -> frozenset:
+    """MEDIA_JSON_KEYS lowercased once, not once per dict key walked.
+    Recomputed only if the module attribute is rebound."""
+    global _media_keys_lower_cache
+    src, lowered = _media_keys_lower_cache
+    if src is not MEDIA_JSON_KEYS:
+        lowered = frozenset(m.lower() for m in MEDIA_JSON_KEYS)
+        _media_keys_lower_cache = (MEDIA_JSON_KEYS, lowered)
+    return lowered
+
 
 def _walk_json_for_media(obj, *, base_url: str = "",
                         out: Optional[list] = None,
@@ -154,10 +167,10 @@ def _walk_json_for_media(obj, *, base_url: str = "",
     if _depth > _MAX_JSON_DEPTH:
         return out          # deep-JSON guard: media lives near the top
     if isinstance(obj, dict):
+        media_keys = _media_keys_lower()
         for k, v in obj.items():
             key_lower = str(k).lower()
-            is_media_key = key_lower in (
-                m.lower() for m in MEDIA_JSON_KEYS)
+            is_media_key = key_lower in media_keys
             # Strings that look like URLs get scraped regardless of key
             if isinstance(v, str):
                 if is_media_key:
