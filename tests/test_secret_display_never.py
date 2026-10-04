@@ -209,9 +209,13 @@ def _client_seeded():
     password and a secret-named config field carry the sentinels. Yields
     (client, headers, sid)."""
     from bulk_downloader import app as A
+    from bulk_downloader import dedup
     from bulk_downloader.db import db_init
     from bulk_downloader import secrets_store as ss
     orig_cwd = os.getcwd()
+    # O1805: the scanned dedup routes pin the process-wide registry singleton
+    # to this tempdir's db; put back whatever was there before on exit.
+    orig_registry = dedup._default_registry
     with tempfile.TemporaryDirectory() as td:
         os.chdir(td)
         Path(td, "screenshots").mkdir(exist_ok=True)
@@ -236,6 +240,7 @@ def _client_seeded():
                 sid = r.get_json()["id"]
                 yield c, H, sid
         finally:
+            dedup._default_registry = orig_registry
             os.chdir(orig_cwd)
 
 

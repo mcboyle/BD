@@ -72,10 +72,14 @@ def test_compute_hash_succeeds_on_a_real_video(tmp_path):
     assert ra.duration_sec and ra.duration_sec > 3
 
 
-def test_finished_download_is_registered_not_skipped(tmp_path):
+def test_finished_download_is_registered_not_skipped(tmp_path, monkeypatch):
     from bulk_downloader import dedup
     from bulk_downloader.runner_integrity import IntegrityMixin
 
+    # O1805: get_default_registry() is a process singleton; an earlier test that
+    # drove app routes can leave it pinned to its own (deleted) db. Start empty
+    # so this test registers into, and reads back from, its own tmp_path db.
+    monkeypatch.setattr(dedup, "_default_registry", None)
     events = []
 
     class _Site(IntegrityMixin):
@@ -95,6 +99,9 @@ def test_finished_download_is_registered_not_skipped(tmp_path):
     skips = [m for k, m in events if k == "dedup_skip"]
     assert not skips, f"DL95_APP_B6_3_DEDUP_SKIP {skips}"
     reg = dedup.get_default_registry(str(tmp_path / "video_hashes.db"))
+    assert reg.db_path == str(tmp_path / "video_hashes.db"), (
+        f"DL95_APP_B6_3_FOREIGN_REGISTRY db_path={reg.db_path}"
+    )
     assert reg.find_duplicates(
         dedup.compute_hash(first).hash_hex, distance=0, exclude_path=first
     ), "the copy was not matched"
