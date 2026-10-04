@@ -7,7 +7,8 @@ CLI: --root, --json
 import argparse, json, re, sys, os
 from collections import Counter
 
-_HEAD = re.compile(r"^##\s+v(\d+\.\d+\.\d+)\s+—\s+(\d{4}-\d{2}-\d{2})?\s*(?:\((.*?)\))?",
+_HEAD = re.compile(r"^##[ \t]+v(\d+\.\d+\.\d+(?:\.\d+)*)(?![\w.])(?:[ \t]+(?:—|–|-{1,2}))?"
+                   r"(?:[ \t]+(\d{4}-\d{2}-\d{2}))?[ \t]*(?:\((.*?)\))?",
                    re.M)
 _FIX = re.compile(r"\b(fix|bug|regression|crash|broken|incorrect|wrong|leak)\b", re.I)
 _MODULE = re.compile(r"\b([a-z_]+\.py|app\.py|runner\.py|db\.py|cockpit_\w+|template_\w+)\b")
@@ -38,7 +39,12 @@ def parse(root="."):
     for r in releases:
         for k, v in r["modules"].items():
             mod_total[k] += v
+    
+    all_headings = len(re.findall(r"^##\s+v\d", text, re.M))
+    unparsed_headings = all_headings - len(heads)
+    
     return {"releases": releases, "count": len(releases),
+            "unparsed_headings": unparsed_headings,
             "totals": {"features": sum(r["features"] for r in releases),
                        "fixes": sum(r["fixes"] for r in releases),
                        "bullets": sum(r["bullets"] for r in releases)},
@@ -51,7 +57,7 @@ def main(argv=None):
     a = ap.parse_args(argv); d = parse(a.root)
     if a.json: print(json.dumps(d, indent=2))
     else:
-        print(f"releases: {d['count']} | features {d['totals']['features']} "
+        print(f"releases: {d['count']} | unparsed: {d['unparsed_headings']} | features {d['totals']['features']} "
               f"fixes {d['totals']['fixes']}")
         print("top module impact:", d["module_impact_top"])
     return 0
