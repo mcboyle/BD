@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1827 - train263e: row
+
+T263 on T262e 6ef1ad46: o1826-c34-storage-tier-async r2 (L359; delta receipt lens O1870 on r1 product BOARD; census706 fixed), flake-772-cloak-stub-order r1 (L360; T1 test-only; RULING-pm-day-A-flake-row772-1649Z.md / -flake-779-804-1731Z.md). R10 r4 dropped: gitleaks (BOUNCE-o1815-r10-gitleaks). (O1739b)
+TRAIN NOTES: flake-772 residual -> row FLAKE-779-804. c34 PM note: row706 census keyed on identifier names (pre-existing).
+- o1826-c34-storage-tier-async r2
+- flake-772-cloak-stub-order r1
+
+
 ## v3.66.1826 - train262e: row
 
 T262 on T261e 1a81e29c: o1826-c35-lan-service-defaults r1 (L350; T1), o1826-c37-cockpit-capture-batch-argv r1 (L351; T1), o1826-c44-perf-algorithms r1 (L352; T1), o1815-r12-fixture-gen-har-sanitize r6 (L355; delta receipt lens O1870 on r5 product BOARDs; gitleaks fixed), o1826-c28-settings-sections r2 (L356; T3 corr + shape; O1838 build gate). (O1739b)

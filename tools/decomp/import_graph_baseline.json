@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5850,
+  "edge_count": 5852,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4972,6 +4972,9 @@
       "bulk_downloader/lifecycle_automation.py",
       "bulk_downloader/lifecycle_drift.py"
     ],
+    "tests/test_o1826_c34_storage_tier_async.py": [
+      "bulk_downloader/storage_tier.py"
+    ],
     "tests/test_o1826_c35_lan_service_defaults.py": [
       "bulk_downloader/embeddings.py",
       "bulk_downloader/integrity.py"
@@ -6746,6 +6749,9 @@
       "bulk_downloader/app_settings_center.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/http_client.py"
+    ],
+    "tests/test_rowssrf_loopback_reason_is_structured.py": [
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_rrweb_meta_retention.py": [
       "bulk_downloader/dom_capture.py",
