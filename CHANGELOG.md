@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1804 - train240e: row
+
+T240 = 2 SECURITY T2 product cuts (BOARDED-for-integration.md L291-292; two lenses each on the current tree): o1807-r2-shell-guard-origin-first r2 (tools/cockpit_console.py; r1 REFUTE superseded) + o1815-r9-hooks r1 (bulk_downloader/hooks.py placeholder injection), applied on T239e aa552119 (O1739b):
+- o1807-r2-shell-guard-origin-first r2
+- o1815-r9-hooks r1
+
+
 ## v3.66.1803 - train239e: row
 
 T239 = 1 test-only flake fix (BOARDED-for-integration.md L290; correctness D3 r1, T1): O1805/O1801 root cause of the O1794 videohash flake -- dedup._default_registry isolation in tests/test_dl95_app_B6_3_videohash_runs_on_current_pillow.py + tests/test_secret_display_never.py; applied on T238e bdc99040 (O1739b):
