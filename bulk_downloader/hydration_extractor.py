@@ -29,10 +29,12 @@ NUXT_WINDOW_RE = re.compile(
 )
 
 # Key patterns for targeted metadata extraction
-TITLE_KEYS = {"title", "scenetitle", "release_title", "name", "headline"}
-DESC_KEYS = {"description", "summary", "desc", "overview"}
-DURATION_KEYS = {"duration", "duration_seconds", "runtime", "length"}
-THUMB_KEYS = {
+# Ordered by priority: the first key present wins. Tuples, not sets -- set
+# iteration order of str changes with PYTHONHASHSEED (O1826-C30 M068).
+TITLE_KEYS = ("title", "scenetitle", "release_title", "name", "headline")
+DESC_KEYS = ("description", "summary", "desc", "overview")
+DURATION_KEYS = ("duration", "duration_seconds", "runtime", "length")
+THUMB_KEYS = (
     "thumbnail",
     "thumbnail_url",
     "thumbnailurl",
@@ -41,8 +43,8 @@ THUMB_KEYS = {
     "poster_url",
     "image",
     "cover",
-}
-URL_KEYS = {"url", "src", "stream_url", "download_url", "downloadurl", "href", "link"}
+)
+URL_KEYS = ("url", "src", "stream_url", "download_url", "downloadurl", "href", "link")
 MEDIA_EXT_RE = re.compile(r"\.(mp4|m4v|mov|webm|mkv|m3u8|mpd)(\?|$)", re.I)
 
 
@@ -183,15 +185,27 @@ class HydrationExtractor:
                 val.startswith("http://") or val.startswith("https://")
             )
 
+        # Shallowest depth each container was walked at, by id(): devalue
+        # references let one node be reached many times, or reach itself
+        # (O1826-C30 M069). Re-walk only from a shallower depth, so the depth
+        # cap never hides a subtree and each node is walked at most 13 times.
+        visited: dict[int, int] = {}
+
         def _resolve(val: Any) -> Any:
-            if isinstance(val, int) and isinstance(data, Sequence) and not isinstance(data, (str, bytes)):
+            if (
+                isinstance(val, int)
+                and not isinstance(val, bool)
+                and isinstance(data, Sequence)
+                and not isinstance(data, (str, bytes))
+            ):
                 if 0 <= val < len(data):
                     return data[val]
             return val
 
         def _walk(node: Any, depth: int = 0) -> None:
-            if depth > 12:
+            if depth > 12 or visited.get(id(node), depth + 1) <= depth:
                 return
+            visited[id(node)] = depth
 
             if isinstance(node, Mapping):
                 # 1. Search for title
