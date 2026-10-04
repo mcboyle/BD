@@ -147,7 +147,7 @@ def main():
     if sec.emit({"leaks": res["leaks"], "summary": {
             "tested": res["tested"], "leaks": len(res["leaks"]), "error": res["error"]}},
             as_json=a.json):
-        return 1 if res["leaks"] else 0
+        return 1 if res["leaks"] or res["error"] else 0
     if res["error"]:
         print(f"{R}scrubber not loadable{RST}: {res['error']}")
         return 1
