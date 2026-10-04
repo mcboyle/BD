@@ -63,17 +63,59 @@ export class ApiError extends Error {
   }
 }
 
+// o1826-c48 M205: the ONE CSRF send for every state-changing helper. Sends
+// with the cached token; on 403 the token may have rotated -- refetch once
+// and retry with the fresh one. Returns the final Response either way.
+async function fetchWithCsrf(
+  path: string,
+  init: RequestInit & { headers: Record<string, string> },
+): Promise<Response> {
+  const token = await getCsrfToken();
+  const headers = { ...init.headers };
+  if (token) headers["X-CSRF-Token"] = token;
+  const r = await fetch(path, { ...init, credentials: "same-origin", headers });
+  if (r.status !== 403) return r;
+  _csrfToken = null;
+  const retryToken = await getCsrfToken();
+  if (!retryToken || retryToken === token) return r;
+  return fetch(path, {
+    ...init,
+    credentials: "same-origin",
+    headers: { ...headers, "X-CSRF-Token": retryToken },
+  });
+}
+
+// A failed response becomes an ApiError that carries the backend's JSON
+// body (and so its reason) -- including after a CSRF retry.
+async function throwApiError(method: string, path: string, r: Response): Promise<never> {
+  let body: unknown = undefined;
+  try {
+    body = await r.json();
+  } catch {
+    /* ignore */
+  }
+  throw new ApiError(`${method} ${path} → ${r.status}`, r.status, body);
+}
+
 export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(path, { credentials: "same-origin", signal });
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`GET ${path} → ${r.status}`, r.status, body);
-  }
+  if (!r.ok) await throwApiError("GET", path, r);
+  return r.json() as Promise<T>;
+}
+
+async function sendJson<T>(
+  method: string,
+  path: string,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const r = await fetchWithCsrf(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!r.ok) await throwApiError(method, path, r);
   return r.json() as Promise<T>;
 }
 
@@ -82,44 +124,7 @@ export async function apiPost<T>(
   payload: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const token = await getCsrfToken();
-  if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers,
-    body: JSON.stringify(payload),
-    signal,
-  });
-  // On 403, the token may have rotated — refetch once and retry.
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retryToken = await getCsrfToken();
-    if (retryToken && retryToken !== token) {
-      const r2 = await fetch(path, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { ...headers, "X-CSRF-Token": retryToken },
-        body: JSON.stringify(payload),
-        signal,
-      });
-      if (r2.ok) return r2.json() as Promise<T>;
-      throw new ApiError(`POST ${path} → ${r2.status}`, r2.status);
-    }
-  }
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`POST ${path} → ${r.status}`, r.status, body);
-  }
-  return r.json() as Promise<T>;
+  return sendJson<T>("POST", path, payload, signal);
 }
 
 // v3.64.x — added for B-2 (per-site widget config). The widgets API
@@ -133,43 +138,7 @@ export async function apiPut<T>(
   payload: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const token = await getCsrfToken();
-  if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, {
-    method: "PUT",
-    credentials: "same-origin",
-    headers,
-    body: JSON.stringify(payload),
-    signal,
-  });
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retryToken = await getCsrfToken();
-    if (retryToken && retryToken !== token) {
-      const r2 = await fetch(path, {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: { ...headers, "X-CSRF-Token": retryToken },
-        body: JSON.stringify(payload),
-        signal,
-      });
-      if (r2.ok) return r2.json() as Promise<T>;
-      throw new ApiError(`PUT ${path} → ${r2.status}`, r2.status);
-    }
-  }
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`PUT ${path} → ${r.status}`, r.status, body);
-  }
-  return r.json() as Promise<T>;
+  return sendJson<T>("PUT", path, payload, signal);
 }
 
 export async function apiPatch<T>(
@@ -177,81 +146,15 @@ export async function apiPatch<T>(
   payload: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const token = await getCsrfToken();
-  if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, {
-    method: "PATCH",
-    credentials: "same-origin",
-    headers,
-    body: JSON.stringify(payload),
-    signal,
-  });
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retryToken = await getCsrfToken();
-    if (retryToken && retryToken !== token) {
-      const r2 = await fetch(path, {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: { ...headers, "X-CSRF-Token": retryToken },
-        body: JSON.stringify(payload),
-        signal,
-      });
-      if (r2.ok) return r2.json() as Promise<T>;
-      throw new ApiError(`PATCH ${path} → ${r2.status}`, r2.status);
-    }
-  }
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`PATCH ${path} → ${r.status}`, r.status, body);
-  }
-  return r.json() as Promise<T>;
+  return sendJson<T>("PATCH", path, payload, signal);
 }
 
 export async function apiDelete<T>(
   path: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const headers: Record<string, string> = {};
-  const token = await getCsrfToken();
-  if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, {
-    method: "DELETE",
-    credentials: "same-origin",
-    headers,
-    signal,
-  });
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retryToken = await getCsrfToken();
-    if (retryToken && retryToken !== token) {
-      const r2 = await fetch(path, {
-        method: "DELETE",
-        credentials: "same-origin",
-        headers: { ...headers, "X-CSRF-Token": retryToken },
-        signal,
-      });
-      if (r2.ok) return r2.json() as Promise<T>;
-      throw new ApiError(`DELETE ${path} → ${r2.status}`, r2.status);
-    }
-  }
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`DELETE ${path} → ${r.status}`, r.status, body);
-  }
+  const r = await fetchWithCsrf(path, { method: "DELETE", headers: {}, signal });
+  if (!r.ok) await throwApiError("DELETE", path, r);
   return r.json() as Promise<T>;
 }
 
@@ -265,38 +168,8 @@ export async function apiPostForm<T>(
   signal?: AbortSignal,
 ): Promise<T> {
   // No Content-Type — the browser sets the multipart boundary.
-  const token = await getCsrfToken();
-  const headers: Record<string, string> = {};
-  if (token) headers["X-CSRF-Token"] = token;
-  let r = await fetch(path, {
-    method: "POST",
-    credentials: "same-origin",
-    headers,
-    body: form,
-    signal,
-  });
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retry = await getCsrfToken();
-    if (retry && retry !== token) {
-      r = await fetch(path, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "X-CSRF-Token": retry },
-        body: form,
-        signal,
-      });
-    }
-  }
-  if (!r.ok) {
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`POST ${path} → ${r.status}`, r.status, body);
-  }
+  const r = await fetchWithCsrf(path, { method: "POST", headers: {}, body: form, signal });
+  if (!r.ok) await throwApiError("POST", path, r);
   return r.json() as Promise<T>;
 }
 
@@ -306,40 +179,14 @@ export async function apiPostDownload(
   fallbackName: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const token = await getCsrfToken();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["X-CSRF-Token"] = token;
-  let r = await fetch(path, {
+  const r = await fetchWithCsrf(path, {
     method: "POST",
-    credentials: "same-origin",
-    headers,
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
     signal,
   });
-  // On 403, the token may have rotated — refetch once and retry.
-  if (r.status === 403) {
-    _csrfToken = null;
-    const retryToken = await getCsrfToken();
-    if (retryToken && retryToken !== token) {
-      r = await fetch(path, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { ...headers, "X-CSRF-Token": retryToken },
-        body: JSON.stringify(payload),
-        signal,
-      });
-    }
-  }
-  if (!r.ok) {
-    // The endpoint returns JSON (not a file) on failure.
-    let body: unknown = undefined;
-    try {
-      body = await r.json();
-    } catch {
-      /* ignore */
-    }
-    throw new ApiError(`POST ${path} → ${r.status}`, r.status, body);
-  }
+  // The endpoint returns JSON (not a file) on failure.
+  if (!r.ok) await throwApiError("POST", path, r);
   const blob = await r.blob();
   const cd = r.headers.get("Content-Disposition") || "";
   const m = /filename="?([^"]+)"?/.exec(cd);

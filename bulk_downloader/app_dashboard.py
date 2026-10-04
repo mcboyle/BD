@@ -338,40 +338,24 @@ def api_dashboard_v2_resolve():
             # Call the runner method directly rather than HTTP-loopback
             # back to /api/sites/<sid>/manual_login — saves a request,
             # avoids CSRF re-check, identical effect.
-            try:
-                ok, detail = runner.start_manual_login()
-                return jsonify({
+            ok, detail = runner.start_manual_login()
+            return jsonify(
+                {
                     "ok": ok,
                     "action": "manual_login_started" if ok else "manual_login_refused",
                     "detail": "Login window opened — solve the captcha there." if ok else detail,
-                })
-            except AttributeError:
-                # Older runner without start_manual_login — fall back to
-                # the HTTP loopback so we work on the current zip.
-                return jsonify({
-                    "ok": True,
-                    "action": "manual_login_url",
-                    "detail": f"POST /api/sites/{sid}/manual_login",
-                    "url": f"/api/sites/{sid}/manual_login",
-                })
+                }
+            )
         elif kind == "login_expired":
             # Trigger re-login. login_async() is the runner's
             # background-login entry point — same method the v1
             # /api/sites/<sid>/login endpoint uses internally.
-            try:
-                runner.login_async()
-                return jsonify({
-                    "ok": True,
-                    "action": "relogin_started",
-                    "detail": "Re-login triggered.",
-                })
-            except AttributeError:
-                return jsonify({
-                    "ok": True,
-                    "action": "relogin_url",
-                    "detail": f"POST /api/sites/{sid}/login",
-                    "url": f"/api/sites/{sid}/login",
-                })
+            runner.login_async()
+            return jsonify({
+                "ok": True,
+                "action": "relogin_started",
+                "detail": "Re-login triggered.",
+            })
         elif kind == "paused_no_button":
             # dl95-file-examples-2: the no-download-button auto-pause clears
             # only through resume() (which also resets the streak). resume()

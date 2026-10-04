@@ -200,20 +200,12 @@ def aria_audit(html: str) -> dict:
         eid = inp.get("id", "")
         has_label_for = bool(tree.xpath(f"//label[@for='{eid}']")) if eid else False
         has_aria = inp.get("aria-label") or inp.get("aria-labelledby")
-        has_placeholder_only = inp.get("placeholder") and not has_aria and not has_label_for
         if not has_label_for and not has_aria:
             issues.append({
                 "kind": "input_unlabeled",
                 "snippet": _lxml_html.tostring(inp, encoding="unicode")[:160],
                 "fix": ('Add <label for="this-input-id">…</label> or '
                        'aria-label="…" attribute.'),
-            })
-        elif has_placeholder_only:
-            issues.append({
-                "kind": "placeholder_only_label",
-                "snippet": _lxml_html.tostring(inp, encoding="unicode")[:160],
-                "fix": ('Placeholder isn\'t a label. Add a real <label> '
-                       'or aria-label so screen readers announce the field.'),
             })
 
     # Buttons with only an icon (no text + no aria-label)

@@ -90,41 +90,23 @@ _AUTO_TRIGGER_JS = """() => {
 }"""
 
 
-_SEARCH_INPUT_JS = """el => {
-    if ((el.type || "").toLowerCase() === "search") return true;
-    if (el.closest("[role='search']")) return true;
-    const words = [el.name, el.id, el.placeholder,
-                   el.getAttribute("aria-label")].join(" ").toLowerCase();
-    return words.includes("search");
-}"""
-
-
 def _visible_login_field(page, selectors):
     """True when a selector has a visible, positive-size match that is not
     a search box.  Generic fallbacks such as ``form input[type='text']``
-    match scrolller's header search, which is no login field."""
+    match scrolller's header search, which is no login field.
+
+    o1826-c48 M107: the search test is ``_SEARCH_FIELD_JS``, the one
+    detector ``_is_search_field`` uses, so both answer alike.  Raw
+    ``evaluate`` keeps this probe's fail-closed skip on an introspection
+    error (``_first_positive_size_match`` passes over a raising match)."""
+    def _search(match):
+        return bool(match.evaluate(_SEARCH_FIELD_JS))
+
     for raw_selector in selectors:
         selector = _selector_text(raw_selector)
-        if not selector:
-            continue
-        try:
-            matches = page.locator(selector)
-            count = matches.count()
-        except Exception:
-            continue
-        for index in range(count):
-            try:
-                match = matches.nth(index)
-                if not match.is_visible():
-                    continue
-                box = match.bounding_box()
-                if not (box and box.get("width", 0) > 0
-                        and box.get("height", 0) > 0):
-                    continue
-                if not match.evaluate(_SEARCH_INPUT_JS):
-                    return True
-            except Exception:
-                continue
+        if selector and _first_positive_size_match(
+                page, selector, skip=_search) is not None:
+            return True
     return False
 
 
