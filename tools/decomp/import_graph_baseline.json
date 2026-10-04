@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5831,
+  "edge_count": 5834,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1534,6 +1534,7 @@
       "bulk_downloader/template_normalize.py"
     ],
     "bulk_downloader/live_recorder.py": [
+      "bulk_downloader/app_state.py",
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runtime_flags.py"
     ],
@@ -4879,6 +4880,10 @@
     "tests/test_o1826_c03_bandwidth_hot_path.py": [
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
+    ],
+    "tests/test_o1826_c04_live_recorder_pipe_probe_threshold.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/live_recorder.py"
     ],
     "tests/test_o1826_c05_library_orphan_false_report.py": [
       "bulk_downloader/library_final.py"

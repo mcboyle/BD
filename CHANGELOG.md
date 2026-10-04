@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1823 - train259e: row
+
+T259 = 1 product cut (BOARDED-for-integration.md L335; T1 kimi r2 on f9e0fca6, r1 REFUTE superseded): live_recorder.py probe cap, stderr DEVNULL, per-site disk threshold; 1 declared edge (live_recorder -> app_state); no frontend; applied on T258e 20b4300c (O1739b):
+- o1826-c04-live-recorder-pipe-probe-threshold r2
+
+
 ## v3.66.1822 - train258e: row
 
 T258 = o1807-r6-autonomy-store r4 (BOARDED-for-integration.md L334): r3 product (D19-D + shape D4-D BOARD on 48117e37, O1861 FINAL) + r4 DELTA census pin test_v3_66_1257 18->19 (O1874; correctness r4 BOARD on 3d9dc093). tools/autonomy_*.py blobs identical r3->r4 (verified). Bounced from #1174 for the missing pin. 6 declared edges; no frontend. Applied on T257e 42cee834 (O1739b):
