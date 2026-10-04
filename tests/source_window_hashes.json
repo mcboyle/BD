@@ -342,7 +342,7 @@
     {
       "bytes": 2504,
       "key": "tests/test_v3_43_49_teach_credentials.py::test_recorder_js_redacts_password_in_text::src[pos:pos + 2500]::1",
-      "sha256": "7c940af6a132b47a595650f2b3e9e7148eeb93a64c7cb0866f906ffd069e0146"
+      "sha256": "86ab190bf392a2827ae24c3d1f49806d82eb9e8aa54653f8d8593031691a52fe"
     },
     {
       "bytes": 2006,
@@ -412,7 +412,7 @@
     {
       "bytes": 5012,
       "key": "tests/test_v3_43_56_stealth.py::test_verify_replay_applies_stealth_library::src[pos:pos + 5000]::1",
-      "sha256": "a5d89c60957aadb1527ce09d2a952ab3f96cadd2f4b49266b4f1e2d6f2beb2f1"
+      "sha256": "6cf5d4a6a4ba4953ea3e35cbe055a8793b675e5b54f28a2029d48bc53ddf6628"
     },
     {
       "bytes": 2004,

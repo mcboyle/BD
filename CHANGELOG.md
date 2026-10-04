@@ -4,6 +4,22 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1829 - train265e: row
+
+T265 on main c8244802 (T264e #1187 merged): o1826-c36-paths-cwd-and-app-undefined r2 (L366; T1), o1826-c40-selector-tooling r2 (L367; T1), o1826-c33-events-node-probe r3 (L369; T1 FINAL), o1826-c30-hydration-determinism r4/C30b (L370; T1), o1826-c38-autonomy-eligibility-rollup r3 (L371; T1 FINAL), o1826-c46-small-correctness r1 (L372; T1), flake-779-804-cloak-import-first r1 (L374; T1 test-only), o1867-r20-url-redaction r3 FINAL (L375; T2 SECURITY), o1876-5-sbcap-localhost r2 (L376; T2 SECURITY), o1815-r10-teach-overlay-password-redact r5 (L377; T2 SECURITY; RULING-pm-day-A-R10-r5-findings-1908Z). (O1739b)
+TRAIN NOTES: c40 PM residual LOW (playground P2/P3 mutants); c46 PM residual LOW (validate_config bool pin; M192 stale fallback); R20 rows R20b/R20c open (pre-existing seams); R10 rows R10b/R10c open (M1/M3 detached-node class); sbcap row SBCAP-TRAP held. c36: FUNCTION_INDEX + import edges regenerated in-train; R10: tests/source_window_hashes.json regenerated in-train.
+- o1826-c36-paths-cwd-and-app-undefined r2
+- o1826-c40-selector-tooling r2
+- o1826-c33-events-node-probe r3
+- o1826-c30-hydration-determinism r4
+- o1826-c38-autonomy-eligibility-rollup r3
+- o1826-c46-small-correctness r1
+- flake-779-804-cloak-import-first r1
+- o1867-r20-url-redaction r3
+- o1876-5-sbcap-localhost r2
+- o1815-r10-teach-overlay-password-redact r5
+
+
 ## v3.66.1828 - train264e: row
 
 T264 on T263e d6c60ff2: o1826-c43-perf-capture-template-scans r1 (L361; T1), o1826-c39-reachability-adjacency-once r2 (L363; T1; r1 REFUTE closed by FIX-R-155 test-only), o1826-c45-observability-swallows r1 (L364; T1; M147 propagation intended). (O1739b)

@@ -126,69 +126,69 @@ Schema version: 2
 - L3472 `_oi_flagged` `[private]` — Best-effort count of sites whose status looks problematic. Fail-soft:
 - L3498 `_oi_dir_writable` `[private]` — (exists, writable) for a candidate dir — read-only, never creates.
 - L3507 `_oi_default_download_dir` `[private]` — The directory a site downloads into when it names none of its own.
-- L3532 `_chk` `[private]`
-- L3653 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
-- L3676 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
-- L3707 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
-- L4188 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
-- L4223 `_bd_cookie_dir` `[private]`
-- L4230 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
-- L4328 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
-- L4414 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
-- L4531 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
-- L4544 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
-- L4562 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
-- L4581 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
-- L4645 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
-- L4663 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
-- L4738 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
-- L4757 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
-- L4784 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
-- L4875 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
-- L4891 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
-- L4933 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
-- L4992 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
-- L5029 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
-- L5159 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
-- L5204 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
-- L5239 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
-- L5264 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
-- L5298 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
-- L5318 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
-- L5412 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
-- L5446 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
-- L5474 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
-- L5524 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
-- L5721 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
-- L5776 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
-- L5812 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
-- L5995 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
-- L6059 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
-- L6199 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
-- L6224 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
-- L6428 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
-- L6441 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
-- L6468 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
-- L6488 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
-- L6521 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
-- L6566 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
-- L6634 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
-- L6776 `serve_ss` `GET /screenshots/<path:filename>`
-- L7085 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
-- L7092 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
-- L7103 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
-- L7118 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
-- L7182 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
-- L7211 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
-- L7219 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
-- L7236 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
-- L7248 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
-- L7271 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
-- L7287 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
-- L7303 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
-- L7320 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
-- L7373 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
-- L7494 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
+- L3533 `_chk` `[private]`
+- L3654 `_request_is_same_origin` `[private]` — True when the request's Referer host:port matches its Host -- i.e. it
+- L3677 `_dev_request_authorized` `[private]` — F-APP04-01: the /api/dev/* surface is privileged (lint / probe /
+- L3708 `_dev_mode_guard` `[private]` — Return a 404 response if dev mode is off, or a 403 if the request is not
+- L4189 `metrics_endpoint` `GET /metrics` — Prometheus text-format exposition. Scrape-friendly; no auth.
+- L4224 `_bd_cookie_dir` `[private]`
+- L4231 `_site_primary_url` `[private]` — Resolve a content URL, retaining an explicit login-first mode.
+- L4329 `stream_serve` `GET /stream/<token>` — Serve a video file with HTTP range support, gated by token.
+- L4415 `_capture_enqueue` `[private]` — Inject seam for capture_schedules.run_*: append URL(s) to a site's
+- L4532 `_m2_avatar_color` `[private]` — Deterministic name → color (one of 12 hues). Same input always
+- L4545 `_m2_site_drain_eta` `[private]` — F1.6: estimate seconds to drain one site's queue from that site's
+- L4563 `_m2_latest_login_failed` `[private]` — dl95-vip4k-2: the latest SETTLED login attempt failed and the jar has
+- L4582 `_m2_auth_state` `[private]` — Bucket the runner's auth state into ok/expired/unknown.
+- L4646 `_m2_hold_reason` `[private]` — Operator-facing cause of a runner self-hold, or "" when not held.
+- L4664 `_m2_attention_for_site` `[private]` — Return an attention-banner entry for a site, or None if it has
+- L4739 `_m2_age_human` `[private]` — Compact human age — '2h ago', '15m ago', '3d ago'. Empty if
+- L4758 `_m2_honeypot_suggestion` `[private]` — Advisory per-site honeypot drop-threshold suggestion for the
+- L4785 `_m2_activity_query_fragments` `[private]` — Build (where_clauses, params) for activity_v2 + export endpoints.
+- L4876 `_diff_parse_target` `[private]` — Parse a colon-separated 'site_id:url' from the query string.
+- L4892 `_diff_collect_one` `[private]` — Resolve one diff side. Returns a dict with keys site_id, url,
+- L4934 `_diff_lines_for` `[private]` — Render an events list as one string per event, formatted
+- L4993 `_status_snapshot` `[private]` — Build the same dict shape that /api/status would return. Extracted
+- L5030 `_dashboard_snapshot` `[private]` — Build the same dict that /api/dashboard returns.
+- L5160 `_validate_path` `[private]` — Returns (ok: bool, normalized_path_or_error_message: str).
+- L5205 `_reveal_safe_roots` `[private]` — F-APP06-01: the effective allowlist for the reveal action -- the
+- L5240 `_validate_reveal_path` `[private]` — F-APP06-01: reveal-scoped path check. Runs the standard _validate_path
+- L5265 `_validate_config_paths` `[private]` — Run _validate_path on every path-bearing field. Returns
+- L5299 `_sanitize_display_name` `[private]` — Normalize a user-facing display string. Returns the cleaned value.
+- L5319 `_create_site` `[private]` — Create one site from a config dict. Returns (sid, error).
+- L5413 `_apply_template_by_id` `[private]` — Merge a template's learned block + config_defaults into a site,
+- L5447 `_apply_login_template_by_id` `[private]` — Merge a LOGIN template's selectors into a site's learned.login.
+- L5475 `_apply_detected_selectors` `[private]` — v3.66.0: merge selectors discovered by auto_detect.detect_site_config
+- L5525 `_auto_pick_templates` `[private]` — v3.65.2: Automatically apply matching login + download templates
+- L5722 `_gap_fill_builtin_download_template` `[private]` — dl95-xvideos-2b: load-time counterpart of _auto_pick_templates'
+- L5777 `_vault_guard_for_password` `[private]` — v3.66.326: gate storing a site login password in the secrets vault.
+- L5813 `_store_site_password_in_vault` `[private]` — v3.66.326: store ``password`` for ``sid`` in the secrets vault and
+- L5996 `_lan_ip_guess` `[private]` — Best-effort detection of this host's LAN IP. Uses the "connect
+- L6060 `_teach_cors_response` `[private]` — Add CORS headers for the takeover browser. The teach overlay
+- L6200 `_require_vault_token` `[private]` — Helper that validates the Authorization: Bearer <vault_token>
+- L6225 `_reject_if_vault_token` `[private]` — B12 (v3.66.38): management routes (pair_issue / list_paired /
+- L6429 `_rate_sweep_locked` `[private]` — Drop bucket entries with no timestamps newer than the window. Caller
+- L6442 `_is_url_public` `[private]` — AUDIT FIX (v3.43.16): SSRF defence. Resolve the hostname and ensure
+- L6469 `_rate_check` `[private]` — Return True if the request should be allowed, False if rate
+- L6489 `_do_action` `[private]` — Common body for start/pause/resume/stop/clear/retry. Rate-limits
+- L6522 `_start_not_armed` `[private]` — dl95-reptyle-2: name a Start that armed no worker pool.
+- L6567 `_do_action_all` `[private]` — Apply `action` to every runner. Returns aggregate result.
+- L6635 `_validate_bulk_urls` `[private]` — Common URL list validation. Returns (ok, urls_or_error_dict).
+- L6777 `serve_ss` `GET /screenshots/<path:filename>`
+- L7086 `_global_notify_settings_path` `[private]` — Where the GLOBAL apprise settings live (not per-site).
+- L7093 `_load_global_notify_settings` `[private]` — Load global apprise settings from disk. Fail-open.
+- L7104 `_save_global_notify_settings` `[private]` — Persist global apprise settings. Fail-open. Atomic write so a
+- L7119 `_apply_global_notify_config` `[private]` — Push the saved settings into the dispatcher singleton.
+- L7183 `_tg_get_status` `[private]` — Callback for /status: build the site overview dict.
+- L7212 `_tg_get_queue` `[private]` — Callback for /queue: return the queue for a site.
+- L7220 `_tg_add_url` `[private]` — Callback for /mirror: auto-route and add.
+- L7237 `_tg_cancel_url` `[private]` — Callback for /cancel: find the matching pending job and mark it
+- L7249 `_tg_retry_site` `[private]` — Callback for /retry: reset failed→pending in one site or all.
+- L7272 `_tg_pause_site` `[private]` — Callback for /pause: pause one site or all.
+- L7288 `_tg_resume_site` `[private]` — Callback for /resume: resume one site or all.
+- L7304 `_persist_cfg` `[private]` — Helper to save s_cfg back to disk.
+- L7321 `_apply_tg_bot_config` `[private]` — Push saved settings into the bot singleton.
+- L7374 `_dedup_get_registry` `[private]` — Get/create the singleton registry. Picks DB path from any site's
+- L7495 `_serialize_search_result` `[private]` — Convert a SearchResult dataclass to a JSON-friendly dict.
 ```
 
 
@@ -1024,7 +1024,7 @@ Schema version: 2
 ```
 
 
-## `bulk_downloader/login_impl/replay.py` (27 entries)
+## `bulk_downloader/login_impl/replay.py` (29 entries)
 
 ```
 - L0034 `LoginOutcome` `[class]` — A login verdict that is deliberately not a bool.
@@ -1034,26 +1034,28 @@ Schema version: 2
   - L0065 `LoginOutcome.__hash__` `[dunder]`
   - L0068 `LoginOutcome.__repr__` `[dunder]`
 - L0073 `_login_evidence_dir` `[private]` — Where the rendered page a login verdict was read from is kept.
-- L0100 `redact_url_credentials` — Replace credential-bearing query values in every HTTP URL in *text*.
-- L0145 `redact_input_values` — Return *html* with credential-bearing ``<input>`` values redacted.
-- L0176 `_evidence_slug` `[private]` — A filename-safe, nonempty, tag-unique slug for an evidence tag.
-- L0200 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
-- L0242 `keep_pre_submit_screenshot` — Row 722 (operator): the filled form is REVIEWED before a second
-- L0272 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
-- L0360 `_read_login_surface` `[private]` — Browser boundary: what the post-submit page SHOWS. Returns
-- L0376 `_judge_login_surface` `[private]` — Pure predicate over a surface read. Returns (anonymous, why).
-- L0399 `anonymous_surface_check` — Row 722: does the page the run actually read still show the
-- L0418 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
-- L0430 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
-- L0500 `_root_success_on_member_host` `[private]` — fx-wowgirls-relogin-root-success: a ROOT success URL on a host other
-- L0517 `success_url_reached` — Row 722: the ONE success-URL predicate for submit.py. Structural
-- L0535 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
-- L0590 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
-- L0631 `verify_login_replay` — After a successful manual takeover wizard completes, replay
-- L0852 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
-- L0901 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
-- L0946 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
-- L1006 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
+- L0104 `_redact_url_params` `[private]` — Replace the value of every credential-named parameter in a query or
+- L0114 `redact_url_credentials` — Replace credentials in every HTTP URL in *text*.
+- L0144 `_redacted_error` `[private]` — O1867 R20: the text of a raised error with URL credentials redacted,
+- L0172 `redact_input_values` — Return *html* with credential-bearing ``<input>`` values redacted.
+- L0203 `_evidence_slug` `[private]` — A filename-safe, nonempty, tag-unique slug for an evidence tag.
+- L0227 `write_login_evidence` — Keep the page the run ACTUALLY read: its HTML and its final URL.
+- L0269 `keep_pre_submit_screenshot` — Row 722 (operator): the filled form is REVIEWED before a second
+- L0299 `member_state_check` — Positive member-state check on the page the run ACTUALLY read.
+- L0390 `_read_login_surface` `[private]` — Browser boundary: what the post-submit page SHOWS. Returns
+- L0406 `_judge_login_surface` `[private]` — Pure predicate over a surface read. Returns (anonymous, why).
+- L0429 `anonymous_surface_check` — Row 722: does the page the run actually read still show the
+- L0448 `_path_prefix_match` `[private]` — True if `candidate` equals `prefix` or extends it at a path-segment
+- L0460 `_success_url_matches` `[private]` — Decide whether final_url indicates we landed on the configured
+- L0530 `_root_success_on_member_host` `[private]` — fx-wowgirls-relogin-root-success: a ROOT success URL on a host other
+- L0547 `success_url_reached` — Row 722: the ONE success-URL predicate for submit.py. Structural
+- L0565 `_looks_authenticated` `[private]` — Decide whether a captured cookie jar plausibly belongs to a
+- L0620 `replay_saved_login_flow` — Drive a saved cross-origin N-step login flow for this site, if one was
+- L0661 `verify_login_replay` — After a successful manual takeover wizard completes, replay
+- L0884 `_probe_member_url` `[private]` — Step 3 of verify: open the member-only URL on `page` and check for
+- L0934 `_build_verify_result` `[private]` — Compose a user-facing summary string from the structured
+- L0979 `_compute_cookie_expiry_days` `[private]` — Read cookies/<sid>.json and return the minimum days-until-
+- L1039 `_attempt_headless_fill_submit` `[private]` — Minimal headless fill+submit using the learned selectors,
 ```
 
 
@@ -1125,4 +1127,4 @@ Schema version: 2
 ```
 
 
-_Total entries: 949 across 22 files._
+_Total entries: 951 across 22 files._

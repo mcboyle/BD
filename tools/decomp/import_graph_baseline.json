@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5867,
+  "edge_count": 5895,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4968,9 +4968,16 @@
       "bulk_downloader/healthcheck.py",
       "bulk_downloader/library_final.py"
     ],
+    "tests/test_o1826_c30_hydration_extractor_determinism.py": [
+      "bulk_downloader/hydration_extractor.py"
+    ],
     "tests/test_o1826_c31_lifecycle_drift_gate.py": [
       "bulk_downloader/lifecycle_automation.py",
       "bulk_downloader/lifecycle_drift.py"
+    ],
+    "tests/test_o1826_c33_events_and_node_probe.py": [
+      "bulk_downloader/events.py",
+      "bulk_downloader/node_sentinel.py"
     ],
     "tests/test_o1826_c34_storage_tier_async.py": [
       "bulk_downloader/storage_tier.py"
@@ -4979,8 +4986,28 @@
       "bulk_downloader/embeddings.py",
       "bulk_downloader/integrity.py"
     ],
+    "tests/test_o1826_c36_paths_cwd_and_app_undefined.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/capture_schedules.py",
+      "bulk_downloader/community_scrapers.py",
+      "bulk_downloader/global_config.py",
+      "bulk_downloader/selector_library.py"
+    ],
     "tests/test_o1826_c37_cockpit_capture_batch_argv.py": [
       "tools/cockpit_core.py"
+    ],
+    "tests/test_o1826_c38_autonomy_eligibility_rollup.py": [
+      "tools/autonomy_eligibility.py",
+      "tools/autonomy_grant.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py"
+    ],
+    "tests/test_o1826_c40_selector_tooling.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/selector_chains.py",
+      "bulk_downloader/selector_playground.py",
+      "bulk_downloader/selector_versions.py"
     ],
     "tests/test_o1826_c43_perf_capture_template_scans.py": [
       "bulk_downloader/dom_analyzer.py",
@@ -5008,10 +5035,23 @@
       "bulk_downloader/playlist_extractor.py",
       "bulk_downloader/search_extractor.py"
     ],
+    "tests/test_o1826_c46_small_correctness.py": [
+      "bulk_downloader/import_profiler.py",
+      "bulk_downloader/session_cache_service.py",
+      "bulk_downloader/shortcuts.py",
+      "bulk_downloader/site_editor.py",
+      "bulk_downloader/workload_bottleneck.py",
+      "bulk_downloader/ytdlp_updater.py"
+    ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app_ai.py"
+    ],
+    "tests/test_o1867_r20_url_redaction.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/stealth.py"
     ],
     "tests/test_o1876_m108_manual_sandbox_optin.py": [
       "bulk_downloader/cloak.py"
@@ -6418,7 +6458,8 @@
       "bulk_downloader/website_title.py"
     ],
     "tests/test_row779_template_sandbox_browser_mode_pins_the_vetted_address.py": [
-      "bulk_downloader/app_template.py"
+      "bulk_downloader/app_template.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_row780_sites_config_listing_url_round_trip.py": [
       "bulk_downloader/app.py"
@@ -6445,7 +6486,8 @@
       "bulk_downloader/dom_analyzer.py"
     ],
     "tests/test_row804_browser_redirect_bypasses_metadata_guard.py": [
-      "bulk_downloader/app_template.py"
+      "bulk_downloader/app_template.py",
+      "bulk_downloader/session_keeper.py"
     ],
     "tests/test_row805_ssrf_census_covers_every_transport.py": [
       "tools/ssrf_client_census.py"
