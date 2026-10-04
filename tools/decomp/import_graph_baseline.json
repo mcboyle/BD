@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5902,
+  "edge_count": 5903,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -5050,6 +5050,9 @@
       "bulk_downloader/site_editor.py",
       "bulk_downloader/workload_bottleneck.py",
       "bulk_downloader/ytdlp_updater.py"
+    ],
+    "tests/test_o1826_c48_dead_and_duplicate_code.py": [
+      "bulk_downloader/accessibility.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

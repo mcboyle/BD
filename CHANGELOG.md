@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1831 - train267e: row
+
+T267 on main dfe25d72 (T266e #1189 merged): o1826-c48-dead-and-duplicate-code r3 FINAL (L386; T3 product frontend; corr-C2 r3 + shape-C1 r3 BOARD; PM cap RULING-pm-day-A-c48-r2-cap-2020Z). (O1739b)
+TRAIN NOTES: c48 band 2F = function_index_in_sync (O544 regen, done in-train) + no_new_edges (declared edge accepted, baseline re-frozen in-train). O1838 frontend build gate run in-train.
+- o1826-c48-dead-and-duplicate-code r3
+
+
 ## v3.66.1830 - train266e: row
 
 T266 on T265e 82236d09 (#1188; stacked): o1826-c47-frontend-route-test-controls r1 (L378; T1 test-only frontend), o1826-c27-dashboard-status-ui r2 (L379; T3 frontend, corr + shape BOARD), o1876-4-vault-key r3 FINAL (L380; T2 SECURITY; O1895 fleet key LANDED before deploy), o1826-c42-perf-db-n1-and-ddl r3 FINAL (L381; T1 data-loss class). (O1739b)
