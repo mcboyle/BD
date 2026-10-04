@@ -120,9 +120,13 @@ def _is_s3_not_found(exc: Exception) -> bool:
     return any(tok in msg_lower for tok in ("nosuchkey", "404", "notfound", "not found"))
 
 
-def archive_to_s3(source_path: str, bucket: str, key: str, client,
-                  *, part_size: int = DEFAULT_S3_PART_SIZE) -> dict:
-    """Stream a file to an S3-compatible store and replace it with a pointer.
+def _archive_to_s3_steps(source_path: str, bucket: str, key: str,
+                         part_size: int, action: str):
+    """Shared body of archive_to_s3 and archive_to_s3_async.
+
+    A generator that yields each S3 call as ``(method_name, kwargs)`` and
+    receives its result (or has its exception thrown in); the sync and async
+    drivers differ only in how they make that call. Returns the result dict.
 
     The local media remains authoritative until the completed object reports
     the exact length, ETag, and SHA-256 recorded during upload.
@@ -157,7 +161,7 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
         # E2: a remote object already at this key is an archive that must not
         # be overwritten (unless it IS this content, byte for byte).
         try:
-            existing = client.head_object(Bucket=bucket, Key=key)
+            existing = yield "head_object", dict(Bucket=bucket, Key=key)
         except Exception as exc:
             if _is_s3_not_found(exc):
                 existing = None
@@ -176,7 +180,7 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
 
         upload_id = None
         try:
-            created = client.create_multipart_upload(
+            created = yield "create_multipart_upload", dict(
                 Bucket=bucket, Key=key, Metadata={"sha256": digest})
             upload_id = created["UploadId"]
             parts = []
@@ -186,7 +190,7 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
             while payload := handle.read(part_size):
                 uploaded_digest.update(payload)
                 local_md5 = hashlib.md5(payload)
-                uploaded = client.upload_part(
+                uploaded = yield "upload_part", dict(
                     Bucket=bucket, Key=key, UploadId=upload_id,
                     PartNumber=part_number, Body=io.BytesIO(payload))
                 # E3: S3's contract -- a part's ETag IS the MD5 of the bytes it
@@ -202,11 +206,11 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
             if uploaded_digest.hexdigest() != digest:
                 raise RuntimeError("source changed while uploading")
             expected_etag = _multipart_etag(part_md5s)
-            completed = client.complete_multipart_upload(
+            completed = yield "complete_multipart_upload", dict(
                 Bucket=bucket, Key=key, UploadId=upload_id,
                 MultipartUpload={"Parts": parts})
             completed_etag = str(completed.get("ETag", "")).strip('"')
-            remote = client.head_object(Bucket=bucket, Key=key)
+            remote = yield "head_object", dict(Bucket=bucket, Key=key)
             remote_etag = str(remote.get("ETag", "")).strip('"')
             remote_digest = (remote.get("Metadata") or {}).get("sha256")
             # E3: the assembled object's ETag is derived from the part MD5s we
@@ -220,7 +224,7 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
             abort_error = None
             if upload_id is not None:
                 try:
-                    client.abort_multipart_upload(
+                    yield "abort_multipart_upload", dict(
                         Bucket=bucket, Key=key, UploadId=upload_id)
                 except Exception as abort_exc:
                     abort_error = f"{type(abort_exc).__name__}: {abort_exc}"
@@ -255,131 +259,59 @@ def archive_to_s3(source_path: str, bucket: str, key: str, client,
             os.unlink(source_path)
         except OSError as exc:
             return {"ok": False, "error": f"pointer replacement failed: {exc}"}
-    return {"ok": True, "action": "archived_to_s3", "bytes_moved": source_size,
+    return {"ok": True, "action": action, "bytes_moved": source_size,
             "dest_path": f"s3://{bucket}/{key}", "etag": expected_etag}
+
+
+def _drive_archive_sync(steps, client) -> dict:
+    try:
+        name, kwargs = next(steps)
+        while True:
+            try:
+                result = getattr(client, name)(**kwargs)
+            except BaseException as exc:
+                name, kwargs = steps.throw(exc)
+            else:
+                name, kwargs = steps.send(result)
+    except StopIteration as done:
+        return done.value
+
+
+async def _drive_archive_async(steps, client) -> dict:
+    try:
+        name, kwargs = next(steps)
+        while True:
+            try:
+                result = await getattr(client, name)(**kwargs)
+            except BaseException as exc:
+                name, kwargs = steps.throw(exc)
+            else:
+                name, kwargs = steps.send(result)
+    except StopIteration as done:
+        return done.value
+
+
+def archive_to_s3(source_path: str, bucket: str, key: str, client,
+                  *, part_size: int = DEFAULT_S3_PART_SIZE) -> dict:
+    """Stream a file to an S3-compatible store and replace it with a pointer.
+
+    The local media remains authoritative until the completed object reports
+    the exact length, ETag, and SHA-256 recorded during upload.
+    """
+    return _drive_archive_sync(
+        _archive_to_s3_steps(source_path, bucket, key, part_size,
+                             "archived_to_s3"), client)
 
 
 async def archive_to_s3_async(source_path: str, bucket: str, key: str, client,
                               *, part_size: int = DEFAULT_S3_PART_SIZE) -> dict:
     """Asynchronously stream a file to an S3-compatible store and replace it with a pointer.
 
-    The local media remains authoritative until the completed object reports
-    the exact length, ETag, and SHA-256 recorded during upload.
+    Same contract as archive_to_s3; only the client calls are awaited.
     """
-    if not all(isinstance(value, str) and value for value in
-               (source_path, bucket, key)):
-        return {"ok": False, "error": "missing source, bucket, or key"}
-    if not isinstance(part_size, int) or part_size < MIN_S3_PART_SIZE:
-        return {"ok": False, "error": "part size must be at least 5 MiB"}
-    pointer_path = f"{source_path}{S3_POINTER_SUFFIX}"
-    if os.path.exists(pointer_path):
-        return {"ok": False, "error": f"already archived: pointer exists at {pointer_path}"}
-    try:
-        handle = open(source_path, "rb")
-    except OSError as exc:
-        return {"ok": False, "error": f"source unavailable: {exc}"}
-    with handle:
-        try:
-            identity = _file_identity(os.fstat(handle.fileno()))
-            source_size = identity[1]
-            digest = hashlib.file_digest(handle, "sha256").hexdigest()
-            handle.seek(0)
-        except OSError as exc:
-            return {"ok": False, "error": f"source unavailable: {exc}"}
-
-        try:
-            existing = await client.head_object(Bucket=bucket, Key=key)
-        except Exception as exc:
-            if _is_s3_not_found(exc):
-                existing = None
-            else:
-                return {
-                    "ok": False,
-                    "error": f"remote object existence unverifiable for s3://{bucket}/{key}: {exc}; "
-                             "archives are immutable, refusing to overwrite",
-                }
-        if existing:
-            existing_digest = (existing.get("Metadata") or {}).get("sha256")
-            if existing_digest != digest or existing.get("ContentLength") != source_size:
-                return {"ok": False,
-                        "error": f"remote object exists at s3://{bucket}/{key} with different content; "
-                                 "archives are immutable, refusing to overwrite"}
-
-        upload_id = None
-        try:
-            created = await client.create_multipart_upload(
-                Bucket=bucket, Key=key, Metadata={"sha256": digest})
-            upload_id = created["UploadId"]
-            parts = []
-            part_md5s = []
-            uploaded_digest = hashlib.sha256()
-            part_number = 1
-            while payload := handle.read(part_size):
-                uploaded_digest.update(payload)
-                local_md5 = hashlib.md5(payload)
-                uploaded = await client.upload_part(
-                    Bucket=bucket, Key=key, UploadId=upload_id,
-                    PartNumber=part_number, Body=io.BytesIO(payload))
-                part_etag = str(uploaded.get("ETag", "")).strip('"')
-                if part_etag != local_md5.hexdigest():
-                    raise RuntimeError(
-                        f"part {part_number} stored bytes differ from source "
-                        f"(etag {part_etag!r} != md5 {local_md5.hexdigest()!r})")
-                part_md5s.append(local_md5.digest())
-                parts.append({"PartNumber": part_number, "ETag": uploaded["ETag"]})
-                part_number += 1
-            if uploaded_digest.hexdigest() != digest:
-                raise RuntimeError("source changed while uploading")
-            expected_etag = _multipart_etag(part_md5s)
-            completed = await client.complete_multipart_upload(
-                Bucket=bucket, Key=key, UploadId=upload_id,
-                MultipartUpload={"Parts": parts})
-            completed_etag = str(completed.get("ETag", "")).strip('"')
-            remote = await client.head_object(Bucket=bucket, Key=key)
-            remote_etag = str(remote.get("ETag", "")).strip('"')
-            remote_digest = (remote.get("Metadata") or {}).get("sha256")
-            if (remote.get("ContentLength") != source_size
-                    or completed_etag != expected_etag or remote_etag != expected_etag
-                    or remote_digest != digest):
-                return {"ok": False, "error": "remote checksum verification failed"}
-        except Exception as exc:
-            abort_error = None
-            if upload_id is not None:
-                try:
-                    await client.abort_multipart_upload(
-                        Bucket=bucket, Key=key, UploadId=upload_id)
-                except Exception as abort_exc:
-                    abort_error = f"{type(abort_exc).__name__}: {abort_exc}"
-            error_msg = f"upload failed: {type(exc).__name__}: {exc}"
-            if abort_error:
-                error_msg += f" (abort failed: {abort_error})"
-            return {"ok": False, "error": error_msg}
-
-        try:
-            now_fd = _file_identity(os.fstat(handle.fileno()))
-            now_path = _file_identity(os.stat(source_path))
-        except OSError as exc:
-            return {"ok": False, "error": f"source changed after upload: {exc}"}
-        if now_fd != identity or now_path != identity:
-            return {"ok": False,
-                    "error": "source changed after upload (identity mismatch); local file kept, "
-                             f"archive at s3://{bucket}/{key} left in place"}
-        pointer = {"bucket": bucket, "key": key, "etag": expected_etag,
-                   "sha256": digest}
-        try:
-            with open(pointer_path, "x", encoding="utf-8") as pointer_handle:
-                json.dump(pointer, pointer_handle, sort_keys=True)
-        except OSError as exc:
-            return {"ok": False, "error": f"pointer replacement failed: {exc}"}
-        try:
-            if _file_identity(os.stat(source_path)) != identity:
-                os.unlink(pointer_path)
-                return {"ok": False, "error": "source changed after upload (identity mismatch); local file kept"}
-            os.unlink(source_path)
-        except OSError as exc:
-            return {"ok": False, "error": f"pointer replacement failed: {exc}"}
-    return {"ok": True, "action": "archived_to_s3_async", "bytes_moved": source_size,
-            "dest_path": f"s3://{bucket}/{key}", "etag": expected_etag}
+    return await _drive_archive_async(
+        _archive_to_s3_steps(source_path, bucket, key, part_size,
+                             "archived_to_s3_async"), client)
 
 
 def _file_identity(st: os.stat_result) -> tuple:
@@ -807,7 +739,9 @@ async def run_site_migration_async(site_id: str, cfg: dict, download_dir: str) -
     async_cfg = dict(cfg)
     async_cfg["storage_tier_mode"] = "s3_async"
     async_cfg["storage_tier_s3_async"] = True
-    return run_site_migration(site_id, async_cfg, download_dir)
+    # M175: the migration pass is blocking (DB query, file I/O, hashing); run it
+    # off the event loop so other tasks keep running while it works.
+    return await asyncio.to_thread(run_site_migration, site_id, async_cfg, download_dir)
 
 
 def _update_queue_filename(site_id: str, url: str,
