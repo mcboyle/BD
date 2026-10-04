@@ -197,7 +197,7 @@ def attempt_strategy(strategy, goto_fn, read_state_fn, *,
         rec["elapsed_ms"] = int((time.monotonic() - t0) * 1000)
         return rec
     if poll_ms > 0:
-        deadline = t0 + (poll_ms / 1000.0)
+        deadline = time.monotonic() + (poll_ms / 1000.0)
         step = max(poll_interval_ms, 1) / 1000.0
         while time.monotonic() < deadline:
             sleep_fn(step)
