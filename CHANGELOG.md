@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1802 - train238e: row
+
+T238 = 3 test-only harness halves (BOARDED-for-integration.md L284-286: w2-m24-required-monitors r4, law-write-guard r5, m12-turn-watch-loop-stall r4), applied on T237e 764a0a7a (O1739b; by blob, no install):
+- o1698-w2-m24-required-monitors-cx59 r4
+- o1698-law-write-guard-bd-cx-worker44 r5
+- o1698-m12-turn-watch-loop-stall-bd-worker-A3 r4
+
+
 ## v3.66.1801 - train237e: row
 
 T237 = 3 test-only cuts (BOARDED-for-integration.md L278-283): o1814-fixture-realshape (tests/test_o1760_turn_cap.py codex bootstrap -> real shape; O1814/O1804 install order: this lands FIRST, then O1799 install, then o1760), o1698-vmware-mcp-hardcoded-cred r4+r5 (supersedes r3 REFUTE; INSTALL NOTE: provision credential first), o1698-stale-gate-false-blocker r4; applied on T236e b22c07b4 (O1739b; by blob, no install). O1799 itself is harness-only (test in FIX dir) -- nothing to train.
