@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5841,
+  "edge_count": 5842,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4976,6 +4976,9 @@
       "bulk_downloader/ai_provider.py",
       "bulk_downloader/aiassist.py",
       "bulk_downloader/app_ai.py"
+    ],
+    "tests/test_o1876_m108_manual_sandbox_optin.py": [
+      "bulk_downloader/cloak.py"
     ],
     "tests/test_o5_plugin_install.py": [
       "bulk_downloader/plugins.py"

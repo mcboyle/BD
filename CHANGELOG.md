@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1825 - train261e: row
+
+T261 on T260e be43ae57: o1807-r8-sast-missing-scanner r4 (L343; SECURITY T2 O1876 reopen: tools/sast.bat fail-open closed), o1876-m108-sandbox-optin r1 (L346; T2 SEC O1876 item 3: opt-in Chromium sandbox for manual login, default OFF). c34 dropped: BOUNCE-o1826-c34-census706 (row706 census 74->75). (O1739b)
+TRAIN NOTE (RULING-pm-day-A-R8-r4-1438Z.md / O1888): R8 lands on leg B kimi r4 BOARD; leg A cx12 r4 REFUTE F1 = ACCEPTED RESIDUAL -- a repo path containing a literal %VAR% makes a HEALTHY scan fail rc2 (CALL re-expands report paths before :require_report); fails CLOSED, no false Clean. Follow-up LOW row R8b opened for F1.
+M108 follow-up LOW row per PM 1504Z: register manual_login_chromium_sandbox in CFG_FIELDS + settings toggle + root banner + userns helper docs.
+- o1807-r8-sast-missing-scanner r4
+- o1876-m108-sandbox-optin r1
+
+
 ## v3.66.1824 - train260e: row
 
 T260 (rebuild b) on T259g 0ea6c7da: o1826-c26-scrapling-failclosed r1 (L339; T1 kimi + ERRATA patch-sha), o1876-6-pii-test-email r1 (L341; T1 cx13; O1876 item 6 test-only placeholder). o1826-c32 BOUNCED (undeclared soupsieve import; dep_freshness). (O1739b)
