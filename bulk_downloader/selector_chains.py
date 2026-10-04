@@ -65,10 +65,16 @@ advance_on / abort:
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+
+from playwright._impl._errors import TargetClosedError
+from playwright.sync_api import Error as PWError
+
+logger = logging.getLogger(__name__)
 
 
 # ── Failure modes a step can encounter ──────────────────────────────
@@ -304,7 +310,11 @@ def try_step(step: SelectorStep, page, action: str, *, value=None,
 
     if pc.startswith(PC_TEXT_PREFIX):
         pattern = pc[len(PC_TEXT_PREFIX):]
-        if _text_present(page, pattern, step.timeout_ms):
+        try:
+            present = _text_present(page, pattern, step.timeout_ms)
+        except PWError as e:  # e.g. TargetClosedError: page gone
+            return _classify_failure(step, FM_THREW, f"text check error: {e}")
+        if present:
             return ("ok", f"text_appeared:{pattern}")
         return _classify_failure(
             step, FM_NO_TEXT, f"text {pattern!r} did not appear")
@@ -343,8 +353,8 @@ def _pause(page, seconds) -> None:
         try:
             wait(seconds * 1000.0)
             return
-        except Exception:
-            pass
+        except PWError as e:
+            logger.debug("wait_for_timeout failed, sleeping instead: %s", e)
     time.sleep(seconds)
 
 
@@ -365,7 +375,10 @@ def _text_present(page, pattern, timeout_ms) -> bool:
     def _check():
         try:
             content = page.content()
-        except Exception:
+        except TargetClosedError:
+            raise  # a closed page is an error, not "text not found"
+        except PWError as e:
+            logger.debug("page.content() failed, polling again: %s", e)
             return False
         if not content:
             return False
