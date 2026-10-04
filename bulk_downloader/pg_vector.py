@@ -253,29 +253,33 @@ def benchmark(
     conn.commit()
 
     # 3. Ground truth exact sequential scans (index disabled)
-    with conn.cursor() as cur:
-        cur.execute("SET enable_indexscan = off")
-        cur.execute("SET enable_bitmapscan = off")
-    conn.commit()
-
     recalls = []
-    with conn.cursor() as cur:
-        for q, hnsw_ids in zip(queries, hnsw_results):
-            q_str = "[" + ",".join(str(float(x)) for x in q) + "]"
-            cur.execute(
-                f'SELECT id FROM "{schema}"."{table}" ORDER BY embedding <-> %s::vector LIMIT %s',
-                (q_str, int(k)),
-                prepare=True,
-            )
-            exact_ids = [r[0] for r in cur.fetchall()]
-            if exact_ids:
-                recalls.append(len(set(hnsw_ids) & set(exact_ids)) / len(exact_ids))
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET enable_indexscan = off")
+            cur.execute("SET enable_bitmapscan = off")
+        conn.commit()
 
-    # Reset scan params
-    with conn.cursor() as cur:
-        cur.execute("SET enable_indexscan = on")
-        cur.execute("SET enable_bitmapscan = on")
-    conn.commit()
+        with conn.cursor() as cur:
+            for q, hnsw_ids in zip(queries, hnsw_results):
+                q_str = "[" + ",".join(str(float(x)) for x in q) + "]"
+                cur.execute(
+                    f'SELECT id FROM "{schema}"."{table}" ORDER BY embedding <-> %s::vector LIMIT %s',
+                    (q_str, int(k)),
+                    prepare=True,
+                )
+                exact_ids = [r[0] for r in cur.fetchall()]
+                if exact_ids:
+                    recalls.append(len(set(hnsw_ids) & set(exact_ids)) / len(exact_ids))
+    except BaseException:
+        # PostgreSQL rejects further SET statements until a failed transaction is rolled back.
+        conn.rollback()
+        raise
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("SET enable_indexscan = on")
+            cur.execute("SET enable_bitmapscan = on")
+        conn.commit()
 
     latencies_ms.sort()
     n = len(latencies_ms)
