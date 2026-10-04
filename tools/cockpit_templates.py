@@ -96,8 +96,10 @@ def _config_path() -> Path:
 
 
 def _load_sites_config() -> List[Dict[str, Any]]:
-    """Read sites_config.json READ-ONLY. The on-disk format is a bare list of
-    site dicts (see sites_config.example.json). Missing/malformed → []."""
+    """Read sites_config.json READ-ONLY. The app persists {site_id: cfg}
+    (app._save_sites_config; cfg carries no "id", the key is the id); a bare
+    list of site dicts (sites_config.example.json) and {"sites": [...]} are
+    accepted too. Missing/malformed → []."""
     p = _config_path()
     if not p.is_file():
         return []
@@ -105,8 +107,12 @@ def _load_sites_config() -> List[Dict[str, Any]]:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return []
-    if isinstance(data, dict):  # tolerate {"sites": [...]} too
-        data = data.get("sites", [])
+    if isinstance(data, dict):
+        if isinstance(data.get("sites"), list):
+            data = data["sites"]
+        else:  # the app's own {site_id: cfg} shape — the key is the id
+            data = [dict(cfg, id=cfg.get("id") or sid) for sid, cfg in data.items()
+                    if isinstance(cfg, dict)]
     return [s for s in data if isinstance(s, dict)] if isinstance(data, list) else []
 
 
