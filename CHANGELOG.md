@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1812 - train248e: row
+
+T248 = R19 SECURITY T2 (BOARDED-for-integration.md L310; codex cx3 r1 + correctness r1 BOARD on 98510af9): saved-key fallback bound to the saved provider/endpoint identity (aiassist.py, app_ai.py). RULING O1854: trains now, before R17 (no file overlap; R17 frontend-only). No frontend paths. Applied on T247b 500bc4ba (O1739b):
+- o1839-r19-saved-key-bind r1
+
+
 ## v3.66.1811 - train247e: row
 
 T247 (rebuild b) = 1 product cut (BOARDED-for-integration.md L308; corr-D8 r3 + shape-D1 r3 BOARD on a7af4fea; O1844 final round): tools/vpn_kill_switch_probe.py restores captured ufw defaults exactly; no frontend; applied on T246e fbf280dc (origin/main). o1815-r11-billing-consent BOUNCED (row371/row912 regression; PLAN-2040/BOUNCE-o1815-r11-billing-consent-*.md).
