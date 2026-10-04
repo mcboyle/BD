@@ -376,8 +376,14 @@ def run_one(search_id: int, *, enqueue_fn=None) -> dict:
                           last_seen_id = ?, new_since_last = ?
                           WHERE id = ?""",
                        (now, new_max, n, int(search_id)))
-    except Exception:
-        pass
+    except Exception as e:
+        # The cursor did not move: acting now would re-notify / re-enqueue the
+        # same matches on every later run. Skip this run and say why.
+        import sys
+        sys.stderr.write(f"[saved_searches] search {search_id}: cursor "
+                         f"update failed, notify/enqueue skipped: {e}\n")
+        return {"ok": False, "search": search,
+                "error": f"cursor update failed: {e}"[:200]}
     # Action lane: 'enqueue' feeds new matches into the normal pipeline
     # (gates + F1.5 dedup apply downstream); 'notify' (default) fires apprise.
     # The two are mutually exclusive — an enqueue rule does not also notify.

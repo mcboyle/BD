@@ -254,22 +254,35 @@ def run_due_exports(*, s_cfg: Optional[dict] = None) -> dict:
         return out
     for sched in due:
         out["checked"] += 1
-        result = _run_one(sched, s_cfg=s_cfg)
-        # Update state
+        # Advance next_run_ts BEFORE exporting: if that write fails the
+        # schedule stays due, so exporting anyway would repeat on every tick.
         try:
             from . import db as _db
             next_run = time.time() + (sched["cadence_hours"] * 3600)
             with _db.db_conn() as cx:
+                cx.execute("""UPDATE scheduled_exports SET next_run_ts = ?
+                              WHERE id = ?""", (next_run, sched["id"]))
+        except Exception as e:
+            sys.stderr.write(f"[scheduled_exports] schedule {sched['id']}: "
+                             f"next_run_ts update failed, export skipped: {e}\n")
+            out["results"].append({**sched, "ok": False,
+                                   "error": f"next_run_ts update failed: {e}"[:200]})
+            out["errors"] += 1
+            continue
+        result = _run_one(sched, s_cfg=s_cfg)
+        # Record the outcome
+        try:
+            with _db.db_conn() as cx:
                 cx.execute("""UPDATE scheduled_exports
                               SET last_run_ts = ?, last_run_ok = ?,
-                                  last_run_message = ?,
-                                  next_run_ts = ?
+                                  last_run_message = ?
                               WHERE id = ?""",
                            (time.time(), 1 if result.get("ok") else 0,
                             (result.get("file") or result.get("error", ""))[:300],
-                            next_run, sched["id"]))
-        except Exception:
-            pass
+                            sched["id"]))
+        except Exception as e:
+            sys.stderr.write(f"[scheduled_exports] schedule {sched['id']}: "
+                             f"last_run update failed: {e}\n")
         # Apply retention
         try:
             _apply_retention(sched)
