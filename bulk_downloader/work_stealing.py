@@ -168,6 +168,16 @@ class RedisClient:
         reply = self.command("SET", key, value, "NX", "EX", int(ex_seconds))
         return reply is not None
 
+    _EXPIRE_IF_VALUE_LUA = (
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+        "return redis.call('EXPIRE', KEYS[1], ARGV[2]) end return 0"
+    )
+
+    def expire_if_value(self, key: str, value: Any, ex_seconds: int | float) -> bool:
+        """Reset key's TTL only while it still holds value (one atomic EVAL)."""
+        reply = self.command("EVAL", self._EXPIRE_IF_VALUE_LUA, 1, key, value, int(ex_seconds))
+        return reply == 1
+
     def get(self, key: str) -> Optional[bytes]:
         return cast(Optional[bytes], self.command("GET", key))
 
@@ -221,36 +231,45 @@ class WorkStealingCoordinator:
         """Atomically steal a job from site's queue into this worker's processing queue."""
         src = queue_key(site)
         dst = processing_key(site, self.worker_id)
-        raw = self.redis.rpoplpush(src, dst)
-        if raw is None:
-            return None
+        while True:
+            raw = self.redis.rpoplpush(src, dst)
+            if raw is None:
+                return None
 
-        # Parse self-describing payload
-        job_id = ""
-        payload = ""
-        try:
-            parsed = json.loads(raw.decode("utf-8"))
-            if isinstance(parsed, dict):
-                job_id = str(parsed.get("id", ""))
-                payload = str(parsed.get("payload", ""))
-        except Exception:
-            job_id = raw.decode("utf-8", "replace")
-            payload = job_id
+            # Parse self-describing payload
+            job_id = ""
+            payload = ""
+            try:
+                parsed = json.loads(raw.decode("utf-8"))
+                if isinstance(parsed, dict):
+                    job_id = str(parsed.get("id", ""))
+                    payload = str(parsed.get("payload", ""))
+            except Exception:
+                job_id = raw.decode("utf-8", "replace")
+                payload = job_id
 
-        if not job_id:
-            job_id = uuid.uuid4().hex
+            if not job_id:
+                job_id = uuid.uuid4().hex
 
-        # Record timed lease
-        self.redis.set_nx_ex(lease_key(site, job_id), self.worker_id, self.lease_seconds)
+            # Record timed lease
+            if self.redis.set_nx_ex(lease_key(site, job_id), self.worker_id, self.lease_seconds):
+                return StolenJob(
+                    job_id=job_id,
+                    site=site,
+                    source_queue=src,
+                    worker_id=self.worker_id,
+                    payload=payload,
+                    raw_bytes=raw,
+                )
 
-        return StolenJob(
-            job_id=job_id,
-            site=site,
-            source_queue=src,
-            worker_id=self.worker_id,
-            payload=payload,
-            raw_bytes=raw,
-        )
+            # Lease already held: the holder owns this job and keeps its own
+            # processing entry (reaped if it dies), so drop this duplicate.
+            self.redis.lrem(dst, 1, raw)
+
+    def renew(self, job: StolenJob, lease_seconds: Optional[int] = None) -> bool:
+        """Extend the lease on a long-running job; False once another worker owns it."""
+        seconds = self.lease_seconds if lease_seconds is None else lease_seconds
+        return self.redis.expire_if_value(lease_key(job.site, job.job_id), job.worker_id, seconds)
 
     def complete(self, job: StolenJob) -> None:
         """Acknowledge completion: remove from processing queue and drop lease."""
@@ -294,8 +313,9 @@ class WorkStealingCoordinator:
             if rem > 0:
                 continue  # Still actively held by a live worker
 
-            # Reclaim expired job
-            self.redis.lrem(dst, 1, raw)
+            # Reclaim expired job; LREM 0 means its owner finished it after the snapshot
+            if not self.redis.lrem(dst, 1, raw):
+                continue
             self.redis.delete(lease_key(origin_site, job_id))
             self.redis.rpush(queue_key(origin_site), raw)
 
