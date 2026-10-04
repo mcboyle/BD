@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1818 - train254e: row
+
+T254 = 4 product cuts (BOARDED-for-integration.md L322-325, bd-lensrouter-A3-A; no frontend): o1826-c08-vpn-tunnel-put-rollback r3 (app_vpn_api.py; T2 SECURITY codex + kimi, O1862 FINAL; GATES C01 per O1848 -- C01 re-bases onto this; 4 edges), o1807-r6-autonomy-store r3 (tools/autonomy_*.py; D19-D + shape D4-D, O1861 FINAL; 6 edges), o1826-c19-saved-search-export-repeat r1 (T1 D17-D), o1826-c18-scheduling-holidays-window r2 (T1 kimi), applied on T253e 1f0d0b0c (O1739b):
+- o1826-c08-vpn-tunnel-put-rollback r3
+- o1807-r6-autonomy-store r3
+- o1826-c19-saved-search-export-repeat r1
+- o1826-c18-scheduling-holidays-window r2
+
+
 ## v3.66.1817 - train253e: row
 
 T253 (rebuild b) = 2 product cuts (BOARDED-for-integration.md L319-320; no frontend): o1826-c17-backup-restore-paths r1 (app_backup.py; T1 corr-D17-D), o1826-c07-in-list-chunking-and-ledger r2 (discovery.py, ledger_reconcile.py, ledger_sharding.py; T1 corr-D16-D r2, r1 REFUTE superseded). o1826-c12 BOUNCED (gitleaks fixture secrets; O1870 runtime fix pending). Applied on T252e c8a57ad4 (O1739b):

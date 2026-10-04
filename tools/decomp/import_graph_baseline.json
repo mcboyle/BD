@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5800,
+  "edge_count": 5815,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4850,6 +4850,14 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py"
     ],
+    "tests/test_o1807_r6_autonomy_store_failclosed.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_trust.py",
+      "tools/cockpit_core.py"
+    ],
     "tests/test_o1815_r14_library_cursor_paging.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
@@ -4882,6 +4890,12 @@
       "bulk_downloader/ledger_reconcile.py",
       "bulk_downloader/ledger_sharding.py"
     ],
+    "tests/test_o1826_c08_vpn_tunnel_put_rollback.py": [
+      "bulk_downloader/app_vpn_api.py",
+      "bulk_downloader/secrets_store.py",
+      "bulk_downloader/vpn.py",
+      "bulk_downloader/vpn_config.py"
+    ],
     "tests/test_o1826_c09_login_manual_sandbox_cleanup.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/interstitial.py",
@@ -4900,6 +4914,15 @@
     "tests/test_o1826_c17_backup_restore_paths.py": [
       "bulk_downloader/app_backup.py",
       "bulk_downloader/backup.py"
+    ],
+    "tests/test_o1826_c18_scheduling_holidays_window.py": [
+      "bulk_downloader/scheduling.py"
+    ],
+    "tests/test_o1826_c19_saved_search_export_repeat.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/saved_searches.py",
+      "bulk_downloader/scheduled_exports.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",
