@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1808 - train244e: row
+
+T244 = 3 product cuts (BOARDED-for-integration.md L300-302; no frontend paths): o1807-r4-release-gate-errors r4 (tools/verify_release.py; correctness + shape-D1 r4 BOARD), o1819-r16-shell-audit r1 (tools/cockpit_shell.py; two correctness), o1815-r13-fuzz-redaction-json-rc r1 (toolchain/bin/bd-fuzz-redaction; corr-D2 + shape-D5), applied on T243f abb81bba (O1739b):
+- o1807-r4-release-gate-errors r4
+- o1819-r16-shell-audit r1
+- o1815-r13-fuzz-redaction-json-rc r1
+
+
 ## v3.66.1807 - train243f: row
 
 T243 (rebuild f) = 1 harness test cut (BOARDED-for-integration.md L299; correctness D1 r4 FINAL (O1833), supersedes suspended host-prep-addenda-r2 BOARD per O1821). Its tree carries the host-prep test files that REPLACE the r2 versions on main (O1821 item 4). INSTALL ORDER: nfs-share-ln-T first, then this. Applied on T242f 1559f63e (O1739b; by blob, no install):
