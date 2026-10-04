@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1834 - train270e: row
+
+T270 on T269 172f8513 (stacked; main 6968dd0d): bdmutate-etxtbsy r3 FINAL (L389; T2 harness tool HIGH, repo cut toolchain/bin/bd-mutate + 1 test; F4-A r3 + cx12 r3 BOARD). (O1739b)
+- bdmutate-etxtbsy r3
+
+
 ## v3.66.1833 - train269e: row
 
 T269 on T268 3a394021 (stacked on #1191; main 6968dd0d after #1190): o1826-c01-secrets-backend-failclosed-r2 r4 FINAL (L388; T2 SECURITY; F4-A r4 + cx14 r4 BOARD; PM scope RULING-2147Z O1992). (O1739b)
