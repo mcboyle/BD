@@ -4,6 +4,18 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1787 - train223e: row
+
+T223 = 7 harness-row test halves (o1698 x6 + sg-band-pg-env), lens BOARD on each cut's current index tree, applied on T222e 582532ce (O1737-INT task 3, PM bd-pm-C). o1675-stale-gate held (no lens-role delta on f8148e9a; RULING-pm-D-o1675-delta); o1698-l14-heatmap bounced (gitleaks fixture).
+- o1698-31b-write-hooks-warn (bd-worker-C3; B1 r4 + C1 r4delta)
+- o1698-agy-brief-bootstrap (bd-cx-worker3; A1 r5 + A2 r6)
+- o1698-mcp-fact-cache (bd-cx-worker5; C1 r3)
+- o1698-nfs-share-r3b-race-verify (bd-cx-worker9; B2 r4)
+- o1698-tripwire-grep-deny (bd-worker-A1; B1 r2 + B2 r2delta)
+- o1698-mod-m21-say-prevalidator (bd-cx-worker8; B2 r1 + D1 r2)
+- sg-band-pg-env (bd-cx-worker1; C1 r3 + A1)
+
+
 ## v3.66.1786 - train222e: row
 
 T222 = O1671 product fixes (2), BOARDed at cut time, applied on T221e (O1771 pause train per PM ruling harness-work/O1672/RULING-pm-D-pause-train.md):
