@@ -12,18 +12,48 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 from pathlib import Path
 import socket
+import tempfile
+import threading
 import time
 from typing import Any
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+_log = logging.getLogger(__name__)
+
+# O1876-4: the key every default install used before the per-install key file.
+# Public, so it is only ever a DECRYPT fallback for entries written under it.
+LEGACY_SEED_KEY: bytes = hashlib.sha256(b"bd-vault-cluster-shared-seed").digest()
+# Per-install key, cwd-relative like config/.vault.key; state/ is gitignored.
+INSTALL_KEY_FILE: Path = Path("state") / "vault.key"
+# Legacy backups expire after 72 h (operator O1895).
+LEGACY_BACKUP_TTL_SECONDS: int = 259200
+# O1876-4: one atomic compare-and-set. KEYS[1] entry, KEYS[2] backup, ARGV[1]
+# the legacy token read, ARGV[2] its re-encryption, ARGV[3] the backup TTL.
+# Backup first; the entry keeps its remaining TTL. An entry no longer holding
+# ARGV[1] is left alone.
+_MIGRATE_LEGACY_LUA: str = (
+    "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end "
+    "local ttl = redis.call('PTTL', KEYS[1]) "
+    "if ttl ~= -1 and ttl <= 0 then return 0 end "
+    "redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[3]) "
+    "if ttl == -1 then redis.call('SET', KEYS[1], ARGV[2]) "
+    "else redis.call('SET', KEYS[1], ARGV[2], 'PX', ttl) end "
+    "return 1"
+)
+
 
 class VaultCryptoError(ValueError):
     """Raised when cryptographic verification, replay check, or host fingerprint check fails."""
+
+
+class VaultKeyFileError(RuntimeError):
+    """The per-install vault key file is unusable (loose permissions or wrong length)."""
 
 
 class SessionCrypto:
@@ -76,6 +106,18 @@ class SessionCrypto:
         enforce_ttl: bool = True,
     ) -> dict[str, Any]:
         """Decrypt token and verify integrity, authentication tag, host fingerprint, and replay window."""
+        return self.decrypt_envelope(
+            token, expected_fingerprint, validate_origin, current_host, enforce_ttl)["payload"]
+
+    def decrypt_envelope(
+        self,
+        token: str,
+        expected_fingerprint: str | None = None,
+        validate_origin: bool = True,
+        current_host: str | None = None,
+        enforce_ttl: bool = True,
+    ) -> dict[str, Any]:
+        """decrypt(), returning the whole verified envelope (payload, target, ts, ttl)."""
         try:
             raw = base64.urlsafe_b64decode(token.encode("ascii"))
         except Exception as exc:
@@ -133,7 +175,7 @@ class SessionCrypto:
         payload = envelope.get("payload")
         if not isinstance(payload, dict):
             raise InvalidTag("Decrypted payload is not a dictionary")
-        return payload
+        return envelope
 
 
 def _redis_command(
@@ -205,8 +247,13 @@ class VaultSync:
         port: int = 6379,
         fallback_local: bool = False,
         explicit_endpoint: bool = True,
+        legacy_key: bytes | None = None,
     ) -> None:
         self.crypto: SessionCrypto = SessionCrypto(secret_key)
+        # O1876-4: decrypt-only fallback for entries written under the old
+        # constant-seed key; a hit is backed up and re-encrypted (_migrate_legacy).
+        self.legacy_crypto: SessionCrypto | None = (
+            SessionCrypto(legacy_key) if legacy_key is not None else None)
         self.host: str = host
         self.port: int = port
         self.fallback_local: bool = fallback_local
@@ -214,9 +261,80 @@ class VaultSync:
         # because no Redis host/port was configured (see lookup_session).
         self.explicit_endpoint: bool = explicit_endpoint
         self._local_cache: dict[str, tuple[float, str]] = {}
+        # FIX-R-163: every fallback-cache write or eviction holds this lock, so a
+        # local migration's compare..store is one step against all of them.
+        self._local_lock = threading.Lock()
 
     def _cache_key(self, site_id: str, account_id: str) -> str:
         return f"bd:vaultsync:{site_id}:{account_id}"
+
+    def _backup_key(self, site_id: str, account_id: str) -> str:
+        return f"bd:vaultsync-legacy-backup:{site_id}:{account_id}"
+
+    def _open_token(
+        self,
+        site_id: str,
+        account_id: str,
+        token: str,
+        validate_fingerprint: bool = False,
+        current_host: str | None = None,
+        local_exp: float | None = None,
+    ) -> dict[str, Any]:
+        """Decrypt with the install key; an entry that only the legacy key opens
+        is migrated, then returned. Anything else raises as decrypt() does."""
+        fp = self.crypto.get_host_fingerprint() if validate_fingerprint else None
+        try:
+            return self.crypto.decrypt(token, expected_fingerprint=fp, current_host=current_host)
+        except InvalidTag:
+            if self.legacy_crypto is None:
+                _log_key_mismatch(site_id, account_id)
+                raise
+        legacy = self.legacy_crypto
+        legacy_fp = legacy.get_host_fingerprint() if validate_fingerprint else None
+        try:
+            envelope = legacy.decrypt_envelope(
+                token, expected_fingerprint=legacy_fp, current_host=current_host)
+        except InvalidTag:
+            _log_key_mismatch(site_id, account_id)
+            raise
+        self._migrate_legacy(site_id, account_id, token, envelope, local_exp)
+        return envelope["payload"]
+
+    def _migrate_legacy(
+        self,
+        site_id: str,
+        account_id: str,
+        token: str,
+        envelope: dict[str, Any],
+        local_exp: float | None,
+    ) -> None:
+        """Back up the legacy token (72 h TTL), then store the entry re-encrypted
+        under the install key with its remaining TTL. Only an entry that still holds the
+        token read is replaced: a concurrent set_session wins. A failed backup
+        leaves the entry as is."""
+        key = self._cache_key(site_id, account_id)
+        backup = self._backup_key(site_id, account_id)
+        remaining = float(envelope.get("ts", time.time())) + float(envelope.get("ttl", 3600.0)) - time.time()
+        new_token = self.crypto.encrypt(
+            envelope["payload"], target_host=envelope.get("target"), ttl_seconds=max(1.0, remaining))
+        if local_exp is not None:
+            with self._local_lock:
+                if self._local_cache.get(key) != (local_exp, token):
+                    return  # replaced or evicted since the read
+                self._local_cache[backup] = (time.time() + LEGACY_BACKUP_TTL_SECONDS, token)
+                self._local_cache[key] = (local_exp, new_token)
+        else:
+            try:
+                migrated = _redis_command(
+                    self.host, self.port,
+                    ["EVAL", _MIGRATE_LEGACY_LUA, "2", key, backup, token, new_token,
+                     str(LEGACY_BACKUP_TTL_SECONDS)])
+            except (OSError, RuntimeError, ValueError):
+                return
+            if migrated != b"1":
+                return  # replaced, expired or deleted since the read
+        _log.info("vault_sync: migrated legacy-key entry site=%s account=%s to the install key (backup %s)",
+                  site_id, account_id, backup)
 
     def set_session(
         self,
@@ -244,7 +362,8 @@ class VaultSync:
             saved_redis = False
 
         if not saved_redis and self.fallback_local:
-            self._local_cache[key] = (time.time() + ttl_seconds, token)
+            with self._local_lock:
+                self._local_cache[key] = (time.time() + ttl_seconds, token)
             return True
         return saved_redis
 
@@ -257,14 +376,14 @@ class VaultSync:
     ) -> dict[str, Any] | None:
         """Retrieve and decrypt session state from distributed cache."""
         key = self._cache_key(site_id, account_id)
-        fp = self.crypto.get_host_fingerprint() if validate_fingerprint else None
 
         try:
             raw = _redis_command(self.host, self.port, ["GET", key])
             if raw is not None:
-                decrypted = self.crypto.decrypt(
+                decrypted = self._open_token(
+                    site_id, account_id,
                     raw.decode("ascii"),
-                    expected_fingerprint=fp,
+                    validate_fingerprint=validate_fingerprint,
                     current_host=current_host,
                 )
                 if isinstance(decrypted, dict):
@@ -278,17 +397,19 @@ class VaultSync:
             exp, token = self._local_cache[key]
             if time.time() < exp:
                 try:
-                    decrypted = self.crypto.decrypt(
+                    decrypted = self._open_token(
+                        site_id, account_id,
                         token,
-                        expected_fingerprint=fp,
+                        validate_fingerprint=validate_fingerprint,
                         current_host=current_host,
+                        local_exp=exp,
                     )
                     if isinstance(decrypted, dict):
                         return decrypted
                 except Exception:
                     pass
                 return None
-            del self._local_cache[key]
+            self._evict_local(key, (exp, token))
         return None
 
     def lookup_session(
@@ -307,27 +428,29 @@ class VaultSync:
             raw = _redis_command(self.host, self.port, ["GET", key], require_reply=True)
         except ConnectionRefusedError:
             no_service = self.fallback_local and not self.explicit_endpoint
-            return self._local_lookup(key) or (
+            return self._local_lookup(site_id, account_id) or (
                 ("absent", None) if no_service else ("unreadable", None))
         except (OSError, RuntimeError):
-            return self._local_lookup(key) or ("unreadable", None)
+            return self._local_lookup(site_id, account_id) or ("unreadable", None)
         if raw is None:
             return ("absent", None)
         try:
-            data = self.crypto.decrypt(raw.decode("ascii"))
+            data = self._open_token(site_id, account_id, raw.decode("ascii"))
         except Exception:
             return ("unreadable", None)
         return ("found", data) if isinstance(data, dict) else ("unreadable", None)
 
-    def _local_lookup(self, key: str) -> tuple[str, dict[str, Any] | None] | None:
+    def _local_lookup(
+        self, site_id: str, account_id: str
+    ) -> tuple[str, dict[str, Any] | None] | None:
         """The fallback cache's answer, or None when it holds nothing live."""
         if not self.fallback_local:
             return None
-        entry = self._local_cache.get(key)
+        entry = self._local_cache.get(self._cache_key(site_id, account_id))
         if entry is None or time.time() >= entry[0]:
             return None
         try:
-            data = self.crypto.decrypt(entry[1])
+            data = self._open_token(site_id, account_id, entry[1], local_exp=entry[0])
         except Exception:
             return ("unreadable", None)
         return ("found", data) if isinstance(data, dict) else ("unreadable", None)
@@ -347,11 +470,11 @@ class VaultSync:
             return ttl_val
 
         if key in self._local_cache:
-            exp, _ = self._local_cache[key]
-            rem = exp - time.time()
+            entry = self._local_cache[key]
+            rem = entry[0] - time.time()
             if rem > 0:
                 return max(0, int(rem))
-            del self._local_cache[key]
+            self._evict_local(key, entry)
             return -2
         return ttl_val
 
@@ -364,8 +487,21 @@ class VaultSync:
             del_redis = res is not None and res != b"0"
         except (OSError, RuntimeError):
             del_redis = False
-        del_local = self._local_cache.pop(key, None) is not None
+        with self._local_lock:
+            del_local = self._local_cache.pop(key, None) is not None
         return del_redis or del_local
+
+    def _evict_local(self, key: str, entry: tuple[float, str]) -> None:
+        """Drop an expired fallback entry, unless a writer replaced it since it was read."""
+        with self._local_lock:
+            if self._local_cache.get(key) == entry:
+                del self._local_cache[key]
+
+
+def _log_key_mismatch(site_id: str, account_id: str) -> None:
+    """One line per entry no configured key opens; the entry itself is left as is."""
+    _log.warning("vault key mismatch: provision config/.vault.key (site=%s account=%s)",
+                 site_id, account_id)
 
 
 _VAULT_SYNC_INSTANCE: VaultSync | None = None
@@ -383,6 +519,7 @@ def get_vault_sync(
         return _VAULT_SYNC_INSTANCE
 
     resolved_key = secret_key
+    legacy_key: bytes | None = None
     if resolved_key is None:
         env_key = os.environ.get("BD_VAULT_KEY")
         if env_key:
@@ -400,9 +537,11 @@ def get_vault_sync(
                 except OSError:
                     pass
             if resolved_key is None:
-                # Deterministic cluster-wide key fallback when no operator key is supplied
-                ident = "bd-vault-cluster-shared-seed"
-                resolved_key = hashlib.sha256(ident.encode("utf-8")).digest()
+                # O1876-4: a per-install random key, never a public constant.
+                # Hosts sharing one Redis must share one key (BD_VAULT_KEY or
+                # the same key file) to read each other's sessions.
+                resolved_key = _load_or_create_install_key(INSTALL_KEY_FILE)
+                legacy_key = LEGACY_SEED_KEY
 
     resolved_host = host or os.environ.get("BD_REDIS_HOST", "127.0.0.1")
     resolved_port = int(port or os.environ.get("BD_REDIS_PORT", "6379"))
@@ -415,5 +554,65 @@ def get_vault_sync(
         explicit_endpoint=bool(
             host or port
             or os.environ.get("BD_REDIS_HOST") or os.environ.get("BD_REDIS_PORT")),
+        legacy_key=legacy_key,
     )
     return _VAULT_SYNC_INSTANCE
+
+
+_KEY_PUBLISH_ATTEMPTS = 3
+
+
+def _ensure_owner_only_dir(directory: Path) -> None:
+    """Create the key directory 0700 whatever the umask; an existing one keeps
+    its mode, with a warning when group/other have any access."""
+    try:
+        directory.mkdir(parents=True, mode=0o700)
+    except FileExistsError:
+        mode = directory.stat().st_mode & 0o777
+        if mode & 0o077:
+            _log.warning("vault_sync: key directory %s has mode %o; owner-only (0700) recommended",
+                         directory, mode)
+    else:
+        os.chmod(directory, 0o700)
+
+
+def _load_or_create_install_key(path: Path) -> bytes:
+    """The install's 32-byte vault key, created owner-only on first use.
+
+    An existing file that grants any group/other permission, or does not hold
+    exactly 32 bytes, raises VaultKeyFileError; it is never used or replaced.
+    A new key is written to a private 0600 temp file and published with
+    link(), which never replaces: a concurrent reader sees no file or all 32
+    bytes. A reader that finds no file takes the same path and reads the key
+    another process published first."""
+    for _attempt in range(_KEY_PUBLISH_ATTEMPTS):
+        try:
+            st = path.stat()
+            break
+        except FileNotFoundError:
+            pass
+        key = os.urandom(32)
+        _ensure_owner_only_dir(path.parent)
+        fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(key)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.link(tmp, str(path))
+            return key
+        except FileExistsError:
+            continue  # published first by another process: read it
+        finally:
+            os.unlink(tmp)
+    else:
+        # Still exists for link() yet never resolves: a dangling symlink.
+        raise VaultKeyFileError(f"vault key file {path} exists but does not resolve")
+    mode = st.st_mode & 0o777
+    if mode & 0o077:
+        raise VaultKeyFileError(
+            f"vault key file {path} has mode {mode:o}; it must be owner-only (chmod 600)")
+    raw = path.read_bytes()
+    if len(raw) != 32:
+        raise VaultKeyFileError(f"vault key file {path} holds {len(raw)} bytes, expected 32")
+    return raw
