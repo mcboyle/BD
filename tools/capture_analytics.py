@@ -77,21 +77,35 @@ def _artifacts(root, dirs, limit=None, budget_s=None, max_bytes=None):
                 json_paths.append(p)
         # legacy: bare *.wacz already captured above
     skipped = 0
+    vanished = 0
     if limit is not None:
         # Newest-first across ALL artifacts; process at most `limit`. Mirrors the
         # 596 capture_diagnostics/replay bound: on a large store the per-json
         # json.load walk is a multi-minute single-core hang. Unbounded
         # (limit=None) is preserved for the CLI + summaries.
-        allp = [(p, "w") for p in wacz_paths] + [(p, "j") for p in json_paths]
-        allp.sort(key=lambda t: os.path.getmtime(t[0]), reverse=True)
+        allp = []
+        for p, k in [(p, "w") for p in wacz_paths] + [(p, "j") for p in json_paths]:
+            try:
+                allp.append((os.path.getmtime(p), p, k))
+            except FileNotFoundError:
+                # AUDIT-16: the same listing->stat race as the getsize loops
+                # below, at the sort key; a ghost must not take a limit slot.
+                vanished += 1
+        allp.sort(key=lambda t: t[0], reverse=True)
         kept = allp[:limit]
         skipped = len(allp) - len(kept)
-        wacz_paths = {p for p, k in kept if k == "w"}
-        json_paths = [p for p, k in kept if k == "j"]
+        wacz_paths = {p for _, p, k in kept if k == "w"}
+        json_paths = [p for _, p, k in kept if k == "j"]
     arts = []
     # ── .wacz entries ──────────────────────────────────────────────
     for p in sorted(wacz_paths):
-        size = os.path.getsize(p)
+        try:
+            size = os.path.getsize(p)
+        except FileNotFoundError:
+            # AUDIT-16: rotated or deleted between the listing glob and this
+            # stat -- skip the ghost and count it below instead of aborting.
+            vanished += 1
+            continue
         arts.append({
             "path": os.path.relpath(p, root),
             "bytes": size,
@@ -131,7 +145,12 @@ def _artifacts(root, dirs, limit=None, budget_s=None, max_bytes=None):
                 "backend_inferred": None, "unparsed": why}
 
     for p in sorted(json_paths):
-        size = os.path.getsize(p)
+        try:
+            size = os.path.getsize(p)
+        except FileNotFoundError:
+            # AUDIT-16: same listing->stat race as the wacz loop above.
+            vanished += 1
+            continue
         if max_bytes is not None and size > max_bytes:
             arts.append(_unparsed(p, size, "max_bytes"))
             continue
@@ -194,7 +213,7 @@ def _artifacts(root, dirs, limit=None, budget_s=None, max_bytes=None):
             "backend_inferred": backend,
             "has_wacz_sibling": has_wacz,
         })
-    return arts, skipped
+    return arts, skipped + vanished
 
 
 def _yield(root):
@@ -260,7 +279,10 @@ def analyze(root=".", dirs=None, limit=None, budget_s=None, max_bytes=None):
     if limit is not None:
         result["bounded"] = True
         result["limit"] = limit
-        result["skipped_artifacts"] = skipped
+    # Always present: `skipped` counts BOTH the limit cut and files that
+    # vanished between listing and stat (AUDIT-16), so a reader can tell a
+    # lossy pass from a complete one without inspecting every row.
+    result["skipped_artifacts"] = skipped
     # Always present, so a reader can tell a bounded pass from a full
     # one without inspecting every row.
     result["unparsed_artifacts"] = unparsed
