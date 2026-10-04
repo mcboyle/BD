@@ -4,7 +4,7 @@ A store of reusable, named selectors so a template can reference a shared
 selector by name (``@lib:<name>``) instead of duplicating a brittle CSS/XPath
 string across templates. Completes the DOM-authoring loop's *reuse* half.
 
-Storage: ``selector_library.json`` next to ``user_templates.json``. Shape::
+Storage: ``selector_library.json`` under BD_HOME (else the CWD). Shape::
 
     { "<name>": {"selector": "button.download", "description": "...",
                  "tags": [...], "created_ts": <epoch>} }
@@ -30,7 +30,7 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
 
 
 def _store_path(base_dir: str | os.PathLike | None = None) -> str:
-    base = str(base_dir) if base_dir else "."
+    base = str(base_dir) if base_dir else (os.environ.get("BD_HOME") or ".")
     return os.path.join(base, LIBRARY_FILE)
 
 

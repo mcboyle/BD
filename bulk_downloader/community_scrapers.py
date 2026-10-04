@@ -131,8 +131,8 @@ class InstallResult:
 
 def _cache_dir() -> Path:
     """Where to store the index cache + manifest. Best-effort:
-    BD's working dir unless overridden."""
-    p = Path(".") / "community_scrapers_cache"
+    BD_HOME, else BD's working dir."""
+    p = Path(os.environ.get("BD_HOME") or ".") / "community_scrapers_cache"
     try:
         p.mkdir(parents=True, exist_ok=True)
     except Exception:

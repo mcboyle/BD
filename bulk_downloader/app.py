@@ -3519,7 +3519,8 @@ def _oi_default_download_dir():
     if cand:
         return cand
     try:
-        gc = _load_global_config() if "_load_global_config" in globals() else {}
+        from . import global_config as _gc
+        gc = _gc.get_config()
         if isinstance(gc, dict) and gc.get("download_dir"):
             return gc["download_dir"]
     except Exception:
@@ -6830,7 +6831,7 @@ try:
     # under data/. Push notifier reuses the existing web-push module.
     try:
         from pathlib import Path as _Path
-        _live_state_dir = str(_Path(DATA_DIR if "DATA_DIR" in globals() else ".") / "live_recordings")
+        _live_state_dir = str(_Path(os.environ.get("BD_HOME") or ".") / "live_recordings")
     except Exception:
         _live_state_dir = "./live_recordings"
     _live_push = None

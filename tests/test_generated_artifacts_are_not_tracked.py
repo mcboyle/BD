@@ -87,10 +87,26 @@ def _repo_relative_segments(node: ast.AST) -> list[str] | None:
     if not segs:
         return None
     if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Path"
-            and node.args and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)):
-        base = node.args[0].value
-        return segs if base in (".", "") else [base] + segs
+            and node.args):
+        base = _literal_or_fallback(node.args[0])
+        if base is not None:
+            return segs if base in (".", "") else [base] + segs
+    return None
+
+
+def _literal_or_fallback(node: ast.AST) -> str | None:
+    """`"<lit>"` -> lit; `<anything> or "<lit>"` -> lit; else None.
+
+    O1826-C36: `Path(os.environ.get("BD_HOME") or ".")` is the call-time
+    BD_HOME idiom. With the variable unset -- the deploy box default, where cwd
+    IS the git work tree -- the base is the trailing literal, so the directory
+    is repo-relative and stays in this denominator. Only a LITERAL fallback
+    counts: `X or Y` with a dynamic Y is still a dynamic base.
+    """
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        node = node.values[-1]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
     return None
 
 
@@ -145,6 +161,19 @@ def test_the_scan_finds_at_least_one_app_created_directory():
         "broke or the denominator is empty; either way the assertions below "
         "would certify a tree they cannot see."
     )
+
+
+@pytest.mark.parametrize("src, want", [
+    ('Path(os.environ.get("BD_HOME") or ".") / "c"', ["c"]),
+    ('Path(".") / "c"', ["c"]),
+    ('Path(os.environ.get("BD_HOME") or base) / "c"', None),
+    ('Path(os.environ.get("BD_HOME")) / "c"', None),
+])
+def test_bd_home_fallback_base_resolves_only_with_a_literal_fallback(src, want):
+    """O1826-C36: the env-or-literal base is repo-relative when the env is unset;
+    a dynamic fallback is still a dynamic base and must stay out."""
+    got = _repo_relative_segments(ast.parse(src, mode="eval").body)
+    assert got == want, f"BD_HOME-FALLBACK-PREDICATE {src!r}: got {got}, want {want}"
 
 
 # ── the defect ───────────────────────────────────────────────────────────────

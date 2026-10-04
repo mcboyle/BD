@@ -269,6 +269,11 @@ _CLASSIFIED = {
     # the variable unset the vault stays the historical relative pair. The
     # vault files themselves are guarded by the capture-vault two-key rule.
     "secrets_store.py": "NOT-A-STORE",
+    # O1826-C36 (2026-10-04): capture_schedules._adaptive_cfg_for expands the
+    # operator-DECLARED BD_SITES_CONFIG_PATH (app._resolve_sites_file's first
+    # rung) -- a caller-supplied path, never a $HOME default -- and only READS
+    # it, fail-open to disabled. It writes nothing there, so it is no store.
+    "capture_schedules.py": "NOT-A-STORE",
 }
 
 # macros is covered CONDITIONALLY, and the condition is the whole point. On this

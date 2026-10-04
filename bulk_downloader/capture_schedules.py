@@ -215,14 +215,24 @@ def run_one(sid: int, *, enqueue_fn: Callable,
 
 # ── SCH-1: self-tuning cadence from observed change-rate ─────────────
 def _adaptive_cfg_for(site_id: str) -> dict:
-    """Per-site adaptive-cadence opt-in read from sites_config.json (relative
-    path, the same file the app persists). Undeclared site keys -- not surfaced
-    in site_editor -- so invisible to the config-surface inventory. Fail-open to
-    disabled. Returns {adaptive: bool, min_h: int, max_h: int}."""
+    """Per-site adaptive-cadence opt-in read from sites_config.json, resolved
+    the way app._resolve_sites_file does (BD_SITES_CONFIG_PATH, then
+    BD_INSTALL_DIR, then the CWD) so it is the same file the app persists.
+    Undeclared site keys -- not surfaced in site_editor -- so invisible to the
+    config-surface inventory. Fail-open to disabled. Returns {adaptive: bool,
+    min_h: int, max_h: int}."""
     out = {"adaptive": False, "min_h": 1, "max_h": 168}
     try:
+        import os as _os
         from pathlib import Path as _P
-        p = _P("sites_config.json")
+        explicit = _os.environ.get("BD_SITES_CONFIG_PATH", "").strip()
+        install = _os.environ.get("BD_INSTALL_DIR", "").strip()
+        if explicit:
+            p = _P(explicit).expanduser()
+        elif install:
+            p = _P(install).resolve() / "sites_config.json"
+        else:
+            p = _P("sites_config.json")
         if not p.is_file():
             return out
         data = json.loads(p.read_text(encoding="utf-8"))
