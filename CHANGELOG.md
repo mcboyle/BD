@@ -4,6 +4,17 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1826 - train262e: row
+
+T262 on T261e 1a81e29c: o1826-c35-lan-service-defaults r1 (L350; T1), o1826-c37-cockpit-capture-batch-argv r1 (L351; T1), o1826-c44-perf-algorithms r1 (L352; T1), o1815-r12-fixture-gen-har-sanitize r6 (L355; delta receipt lens O1870 on r5 product BOARDs; gitleaks fixed), o1826-c28-settings-sections r2 (L356; T3 corr + shape; O1838 build gate). (O1739b)
+TRAIN NOTES: c44 residual LOW for PM -- DONE NOT-FIXED M168 tail per-poll table re-snapshot (outside brief). c28 PM later row -- CommandPalette sectionSlug 2nd slug regex (shape: does not block). C36 r1 bounced (BOUNCE-o1826-c36-home-census-20261004T1658Z.md).
+- o1826-c35-lan-service-defaults r1
+- o1826-c37-cockpit-capture-batch-argv r1
+- o1826-c44-perf-algorithms r1
+- o1815-r12-fixture-gen-har-sanitize r6
+- o1826-c28-settings-sections r2
+
+
 ## v3.66.1825 - train261e: row
 
 T261 on T260e be43ae57: o1807-r8-sast-missing-scanner r4 (L343; SECURITY T2 O1876 reopen: tools/sast.bat fail-open closed), o1876-m108-sandbox-optin r1 (L346; T2 SEC O1876 item 3: opt-in Chromium sandbox for manual login, default OFF). c34 dropped: BOUNCE-o1826-c34-census706 (row706 census 74->75). (O1739b)

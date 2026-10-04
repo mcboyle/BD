@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5842,
+  "edge_count": 5850,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4971,6 +4971,20 @@
     "tests/test_o1826_c31_lifecycle_drift_gate.py": [
       "bulk_downloader/lifecycle_automation.py",
       "bulk_downloader/lifecycle_drift.py"
+    ],
+    "tests/test_o1826_c35_lan_service_defaults.py": [
+      "bulk_downloader/embeddings.py",
+      "bulk_downloader/integrity.py"
+    ],
+    "tests/test_o1826_c37_cockpit_capture_batch_argv.py": [
+      "tools/cockpit_core.py"
+    ],
+    "tests/test_o1826_c44_perf_algorithms.py": [
+      "bulk_downloader/app_dedup.py",
+      "bulk_downloader/dedup.py",
+      "bulk_downloader/metadata_normalizer.py",
+      "bulk_downloader/scene_crawler.py",
+      "bulk_downloader/sqlite_cdc.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",
