@@ -118,6 +118,18 @@ def vpn_tunnels_create():
     # tunnel vanished on next restart. Now we unregister to keep the
     # two state stores consistent.
     try:
+        stored = vpn_config.store_secrets(tid, data.get("config", {}))
+    except Exception as e:
+        # O1826 C01: the secrets store refused (or the store raised): nothing
+        # is written and the registration is undone. Log the type only.
+        sys.stderr.write(f"[vpn-api] secret store refused for {tid} "
+                         f"({type(e).__name__}); rolling back register\n")
+        try:
+            vpn.unregister_tunnel(tid)
+        except Exception as e2:
+            sys.stderr.write(f"[vpn-api] rollback unregister failed: {e2}\n")
+        return _err(_secret_store_refusal(e), 503)
+    try:
         vpn_config.add_tunnel_config({
             "tunnel_id": tid,
             "name": data["name"],
@@ -125,7 +137,7 @@ def vpn_tunnels_create():
             "backend": data["backend"],
             "location": data.get("location", ""),
             "enabled": data.get("enabled", True),
-            "config": vpn_config.store_secrets(tid, data.get("config", {})),
+            "config": stored,
             "extra": data.get("extra", {}),
         })
     except Exception as e:
@@ -136,6 +148,18 @@ def vpn_tunnels_create():
             sys.stderr.write(f"[vpn-api] rollback unregister failed: {e2}\n")
         return _err(f"persist failed: {e}", 500)
     return _ok({"tunnel_id": tid, "tunnel": vpn.get_tunnel(tid).to_dict()})
+
+
+def _secret_store_refusal(e) -> str:
+    """Fixed 503 text for a refused secret write; never the exception text."""
+    from . import secrets_store
+    if not isinstance(e, secrets_store.SecretsBackendUnavailableError):
+        try:
+            if not secrets_store.get_backend().is_unlocked():
+                return "vault locked: unlock to save credentials"
+        except Exception:
+            pass
+    return "the secret store refused the write; the tunnel was not created"
 
 
 @vpn_bp.route("/api/vpn/tunnels/<tunnel_id>", methods=["GET"]) if vpn_bp else (lambda f: f)

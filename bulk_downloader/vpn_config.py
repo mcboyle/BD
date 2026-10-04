@@ -471,21 +471,22 @@ def store_secrets(tunnel_id: str, config: dict) -> dict:
         is_secret = _vpn_key_is_secret(k)
         if is_secret and isinstance(v, str) and v and not v.startswith(_CRED_PREFIX):
             cred_key = f"{tunnel_id}:{k}"
-            try:
-                from . import secrets_store
-                backend = secrets_store.get_backend()
-                # Audit 2026-05 (Phase 3): only indirect through @cred: when
-                # the backend has real storage. PlaintextBackend.set() is a
-                # no-op and get() returns None — indirecting through it would
-                # turn the password into a dangling reference that resolves
-                # to an empty string. Keep inline plaintext in that case.
-                if backend is not None and getattr(backend, "name", "") != "plaintext":
-                    backend.set(cred_key, v)
-                    out[k] = f"{_CRED_PREFIX}{cred_key}"
-                    continue
-            except Exception as e:
-                sys.stderr.write(f"[vpn-config] could not store secret {cred_key}: {e}\n")
-            # Fallback: keep plaintext (legacy behavior, same as v3.43.13 sites)
+            from . import secrets_store
+            backend = secrets_store.get_backend()
+            # Audit 2026-05 (Phase 3): only indirect through @cred: when
+            # the backend has real storage. PlaintextBackend.set() is a
+            # no-op and get() returns None — indirecting through it would
+            # turn the password into a dangling reference that resolves
+            # to an empty string. Keep inline plaintext in that case.
+            if backend is not None and getattr(backend, "name", "") != "plaintext":
+                # O1826 C01: a failed or refused write (locked vault,
+                # unavailable backend, unreadable index) propagates. Keeping
+                # the value would put the secret in plaintext tunnels.json;
+                # the caller refuses the request instead.
+                backend.set(cred_key, v)
+                out[k] = f"{_CRED_PREFIX}{cred_key}"
+                continue
+            # Plaintext backend: keep inline (legacy behavior, same as v3.43.13 sites)
             out[k] = v
         elif isinstance(v, dict):
             out[k] = store_secrets(tunnel_id, v)

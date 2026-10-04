@@ -290,13 +290,37 @@ except Exception:
 # backend has already persisted the value safely), so the writers below never
 # raise into a credential operation. Surfaced AGE-ONLY via /api/secrets/usage.
 
-def _read_meta() -> dict:
-    """Read secrets_meta.json as a dict (or {} on any problem)."""
+def _read_meta(strict: bool = False) -> dict:
+    """Read secrets_meta.json as a dict (or {} on any problem).
+
+    O1826 M148: ``strict`` is for read-merge-WRITE callers. A missing file is
+    still {}, but an unreadable or corrupt one raises SecretsUnreadableError:
+    merging into {} and writing back would replace every key the file held.
+
+    O1826 C01 r3 (cx9): read_text follows links, so a dangling symlink raised
+    FileNotFoundError and read as absent although the path is occupied and the
+    next atomic replace overwrites it. Missing now means lstat finds no entry;
+    a probe that cannot answer is not missing either."""
     try:
         d = json.loads(SECRETS_META_FILE.read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else {}
-    except Exception:
+    except Exception as e:
+        if isinstance(e, FileNotFoundError):
+            try:
+                if not _path_entry_exists(SECRETS_META_FILE):
+                    return {}
+            except OSError:
+                pass
+        if strict:
+            raise SecretsUnreadableError(
+                f"secrets_meta.json could not be read or parsed "
+                f"({type(e).__name__}); refusing to rewrite it") from e
         return {}
+    if isinstance(d, dict):
+        return d
+    if strict:
+        raise SecretsUnreadableError(
+            "secrets_meta.json is not a JSON object; refusing to rewrite it")
+    return {}
 
 
 def _write_meta(meta: dict) -> bool:
@@ -311,7 +335,7 @@ def _write_meta(meta: dict) -> bool:
         return True
     except Exception:
         try:
-            if tmp.exists(): tmp.unlink()
+            if _path_entry_exists(tmp): tmp.unlink()
         except Exception:
             pass
         return False
@@ -324,7 +348,7 @@ def _stamp_rotation(key: str) -> None:
     preserved. NEVER raises -- a metadata failure must not affect the stored
     secret, which the backend has already persisted."""
     try:
-        meta = _read_meta()
+        meta = _read_meta(strict=True)
         rot = meta.get("rotated_at")
         if not isinstance(rot, dict):
             rot = {}
@@ -338,7 +362,7 @@ def _stamp_rotation(key: str) -> None:
 def _unstamp_rotation(key: str) -> None:
     """Best-effort: drop a key's rotation timestamp (on delete). Never raises."""
     try:
-        meta = _read_meta()
+        meta = _read_meta(strict=True)
         rot = meta.get("rotated_at")
         if isinstance(rot, dict) and key in rot:
             rot.pop(key, None)
@@ -352,10 +376,12 @@ def rotation_ages(now: float | None = None) -> dict:
     """Read-only per-key last-rotated AGE. Returns
     ``{key: {rotated_at_epoch, age_seconds, age_days}}``. This reads ONLY the
     key names + timestamps from secrets_meta.json -- it never reads, returns, or
-    touches a secret value. Unknown/garbled timestamps yield None ages."""
+    touches a secret value. Unknown/garbled timestamps yield None ages. An
+    occupied secrets_meta.json that cannot be read or parsed raises
+    SecretsUnreadableError rather than reporting no rotations (r3)."""
     if now is None:
         now = time.time()
-    rot = _read_meta().get("rotated_at")
+    rot = _read_meta(strict=True).get("rotated_at")
     out: dict = {}
     if isinstance(rot, dict):
         for k, ts in rot.items():
@@ -453,12 +479,21 @@ class WindowsCredentialBackend(_BackendBase):
                 pass
 
     def _load_index(self) -> list[str]:
+        # O1826 C01 r3 (cx9): exists() follows links, so a dangling index
+        # symlink read as zero keys. Absence is confirmed by lstat, and an
+        # occupied index that cannot be read or parsed raises, as the
+        # MasterPasswordBackend inventory does (row 432).
+        # O1826 C01 r4 (cx14): the probe is lstat alone, and a probe that
+        # cannot answer (EACCES on the parent directory) is not absence:
+        # list_keys() refuses as set/delete do instead of reporting [].
         try:
-            if not SECRETS_META_FILE.exists(): return []
-            data = json.loads(SECRETS_META_FILE.read_text(encoding="utf-8"))
-            return list(data.get("keys", []))
-        except Exception:
-            return []
+            if not _path_entry_exists(SECRETS_META_FILE):
+                return []
+        except OSError as e:
+            raise SecretsUnreadableError(
+                f"secrets_meta.json could not be probed "
+                f"({type(e).__name__}); refusing to list keys") from e
+        return self._load_index_for_write()
 
     def _save_index(self, keys: list[str]) -> bool:
         # NEW-6 (v3.66.43): return a real success signal (symmetric to
@@ -470,7 +505,7 @@ class WindowsCredentialBackend(_BackendBase):
         # rotation timestamps written by _stamp_rotation.
         tmp = SECRETS_META_FILE.with_suffix(".json.tmp")
         try:
-            meta = _read_meta()
+            meta = _read_meta(strict=True)
             meta["keys"] = sorted(set(keys))
             meta["backend"] = self.name
             tmp.write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -481,14 +516,27 @@ class WindowsCredentialBackend(_BackendBase):
         except Exception as e:
             sys.stderr.write(f"  secrets index save failed: {e}\n")
             try:
-                if tmp.exists(): tmp.unlink()
+                if _path_entry_exists(tmp): tmp.unlink()
             except Exception:
                 pass
             return False
 
+    def _load_index_for_write(self) -> list[str]:
+        # O1826 M148: _load_index turns an unreadable or corrupt meta into
+        # [], and saving [key] over it dropped every other indexed key.
+        # A writer reads strictly: missing -> [], anything else it cannot
+        # trust raises before the keyring or the index is touched.
+        keys = _read_meta(strict=True).get("keys", [])
+        if not isinstance(keys, list) or not all(
+                isinstance(k, str) for k in keys):
+            raise SecretsUnreadableError(
+                "secrets_meta.json 'keys' is not a list of key names; "
+                "refusing to rewrite it")
+        return list(keys)
+
     def set(self, key: str, password: str) -> None:
+        idx = self._load_index_for_write()
         keyring.set_password(KEYRING_SERVICE, key, password)
-        idx = self._load_index()
         if key not in idx:
             idx.append(key)
             if not self._save_index(idx):
@@ -513,6 +561,9 @@ class WindowsCredentialBackend(_BackendBase):
             return None
 
     def delete(self, key: str) -> bool:
+        # O1826 C01 r3: an occupied index this writer cannot trust refuses
+        # before Credential Manager or the file is touched.
+        self._load_index_for_write()
         existed = self.get(key) is not None
         kr_err = None
         try:
@@ -908,7 +959,7 @@ class MasterPasswordBackend(_BackendBase):
             sys.stderr.write(f"  secrets save failed: {e}\n")
             # Don't leave a partial .tmp behind.
             try:
-                if tmp.exists():
+                if _path_entry_exists(tmp):
                     tmp.unlink()
             except Exception:
                 pass
@@ -2140,6 +2191,30 @@ def _maybe_wrap_audit(be: "_BackendBase") -> "_BackendBase":
     return wrapper
 
 
+class SecretsBackendUnavailableError(RuntimeError):
+    """Raised by every credential operation on _UnavailableBackend."""
+
+
+class _UnavailableBackend(_BackendBase):
+    """O1826 M150: what get_backend() returns when configure_backend() could
+    not construct the selected backend. The old fallback was a fresh
+    PlaintextBackend whose set() is a no-op, so a stored credential was
+    silently discarded. This one refuses every credential operation and
+    reports itself locked. Never cached: the next get_backend() retries."""
+    name = "unavailable"
+
+    def _refuse(self):
+        raise SecretsBackendUnavailableError(
+            "secrets backend unavailable: the configured backend could not "
+            "be constructed (see the 'backend ... unavailable' log line)")
+
+    def set(self, key, password): self._refuse()
+    def get(self, key): self._refuse()
+    def delete(self, key): self._refuse()
+    def list_keys(self): self._refuse()
+    def is_unlocked(self): return False
+
+
 def get_backend() -> _BackendBase:
     """Return the active backend, auto-configuring if not yet set.
 
@@ -2150,7 +2225,7 @@ def get_backend() -> _BackendBase:
     with _lock:
         if _backend is None:
             configure_backend(_detect_default_backend_name())
-        be = _backend or PlaintextBackend()
+        be = _backend or _UnavailableBackend()
     return _maybe_wrap_audit(be)
 
 

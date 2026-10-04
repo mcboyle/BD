@@ -268,29 +268,49 @@ def test_row576_windows_index_probe_stays_inside_its_load_boundary(
     assert meta.parent.is_dir()
     assert not meta.exists()
 
+    # O1826 C01 r4 (RULING-pm-day-A-r4-row576-2032Z): the probe is lstat,
+    # and a probe that cannot answer refuses at the load boundary as
+    # SecretsUnreadableError instead of reading as an empty index.
+    real_lstat = Path.lstat
     real_exists = Path.exists
     probe_calls = 0
+    exists_calls = 0
 
-    def refusing_exists(path: Path) -> bool:
+    def refusing_lstat(path: Path):
         nonlocal probe_calls
         if path == meta:
             probe_calls += 1
             raise PermissionError("row576 synthetic metadata probe refusal")
-        return real_exists(path)
+        return real_lstat(path)
 
-    monkeypatch.setattr(Path, "exists", refusing_exists)
+    def counting_exists(path: Path, *args, **kwargs) -> bool:
+        nonlocal exists_calls
+        exists_calls += 1
+        return real_exists(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", refusing_lstat)
+    monkeypatch.setattr(Path, "exists", counting_exists)
     try:
         loaded = backend._load_index()
+    except ss.SecretsUnreadableError as error:
+        assert "secrets_meta.json" in str(error), error
     except OSError as error:
         pytest.fail(
-            "row 576: metadata existence probe escaped its load boundary "
-            f"after {probe_calls} call(s): {type(error).__name__}: {error}"
+            "row 576: metadata probe escaped its load boundary as a raw "
+            f"{type(error).__name__}: {error}"
+        )
+    else:
+        pytest.fail(
+            "row 576: an unanswerable metadata probe read as the index "
+            f"{loaded!r} instead of SecretsUnreadableError"
         )
 
     assert probe_calls == 1, (
-        f"metadata existence branch fired {probe_calls} times, expected 1"
+        f"metadata lstat probe fired {probe_calls} times, expected 1"
     )
-    assert loaded == []
+    assert exists_calls == 0, (
+        f"Path.exists called {exists_calls} time(s); the probe is lstat"
+    )
 
 
 def test_windows_index_still_reads_a_valid_metadata_file(vault_sandbox):
