@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5825,
+  "edge_count": 5836,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -1534,6 +1534,7 @@
       "bulk_downloader/template_normalize.py"
     ],
     "bulk_downloader/live_recorder.py": [
+      "bulk_downloader/app_state.py",
       "bulk_downloader/ffmpeg_bin.py",
       "bulk_downloader/runtime_flags.py"
     ],
@@ -4850,6 +4851,14 @@
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py"
     ],
+    "tests/test_o1807_r6_autonomy_store_failclosed.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_trust.py",
+      "tools/cockpit_core.py"
+    ],
     "tests/test_o1815_r14_library_cursor_paging.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py",
@@ -4871,6 +4880,10 @@
     "tests/test_o1826_c03_bandwidth_hot_path.py": [
       "bulk_downloader/bandwidth_aggregator.py",
       "bulk_downloader/bandwidth_shape.py"
+    ],
+    "tests/test_o1826_c04_live_recorder_pipe_probe_threshold.py": [
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/live_recorder.py"
     ],
     "tests/test_o1826_c05_library_orphan_false_report.py": [
       "bulk_downloader/library_final.py"
@@ -4943,6 +4956,10 @@
     "tests/test_o1826_c24_config_stores_widgets_interop.py": [
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/widgets_config.py"
+    ],
+    "tests/test_o1826_c29_healthcheck_severity_cost.py": [
+      "bulk_downloader/healthcheck.py",
+      "bulk_downloader/library_final.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1822 - train258g: row
+
+T258 (rebuild g) on T257e 42cee834 (origin/main): (1) integrator commit bd-lens-worktree MAX_WORKTREE_MB 66 -> 72 (operator answer 14:33Z; unblocks row963 gate that bounced #1179/#1180), (2) o1807-r6-autonomy-store r4 (BOARDED L334; census pin 19), (3) o1826-c04-live-recorder-pipe-probe-threshold r2 (L335), (4) o1826-c29-healthcheck-severity-cost r1 (L336). Supersedes #1179 T258e and #1180 T259e (FF heads lacked the cap). No frontend. (O1739b)
+- o1807-r6-autonomy-store r4
+- o1826-c04-live-recorder-pipe-probe-threshold r2
+- o1826-c29-healthcheck-severity-cost r1
+
+
 ## v3.66.1821 - train257e: row
 
 T257 = 1 product cut (BOARDED-for-integration.md L333; T1 kimi r3, O1873 FINAL, on 4dc6dbdd): app_sites_queue.py exact-url history before LIMIT, failed-mark restore only on own token; 5 declared edges; no frontend; applied on T256e ea168108 (O1739b):

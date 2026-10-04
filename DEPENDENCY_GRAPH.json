@@ -2420,7 +2420,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1840,
+    "edge_count": 1841,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -2682,6 +2682,7 @@
         "bulk_downloader/app_sites_id_core.py",
         "bulk_downloader/app_template.py",
         "bulk_downloader/cookie_health.py",
+        "bulk_downloader/live_recorder.py",
         "bulk_downloader/runner.py",
         "bulk_downloader/tombstone.py"
       ],
@@ -6846,6 +6847,7 @@
         "bulk_downloader/template_normalize.py"
       ],
       "bulk_downloader/live_recorder.py": [
+        "bulk_downloader/app_state.py",
         "bulk_downloader/ffmpeg_bin.py",
         "bulk_downloader/runtime_flags.py"
       ],
