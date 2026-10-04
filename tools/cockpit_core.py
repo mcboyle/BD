@@ -414,13 +414,15 @@ def _argv_for_capture(name: str, params: Dict[str, Any], task_out: Path) -> List
             argv.append("--no-hud")
         return argv
     if name == "capture_batch":
-        # batch reads a validated targets file under the captures root
+        # batch reads a validated targets file under the captures root.
+        # capture_batch's flag for it is --jobs (one 'name|url' per line); it
+        # defines no --targets, and argparse exited 2 on every run (O1826 C37).
         targets = params.get("targets_file")
         tp = confine(targets, captures_root()) if targets else None
         if tp is None or not tp.is_file():
             raise ValidationError("targets_file must be an existing file under the approved root")
         return [_py(), str(_ROOT / "tools/capture_batch.py"),
-                "--targets", str(tp), "--out-dir", str(task_out)]
+                "--jobs", str(tp), "--out-dir", str(task_out)]
     if name == "offline_capture_analyze":
         base = params.get("baseline"); pert = params.get("perturbed")
         bp = confine(base, captures_root()) if base else None
