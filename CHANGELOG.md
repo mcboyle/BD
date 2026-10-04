@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1792 - train228e: row
+
+T228 = 2 O1737-recovery harness test halves (BOARDED-for-integration.md L242-243; BOARD-x2 each), applied on T227e da5106a2 (O1739b; train by blob, no install, O1738c):
+- o1698-m9b-hash-all-hooks-bd-worker-B4 r3
+- o1698-mod-m9-load-receipts-bd-worker-B4 r2
+
+
 ## v3.66.1791 - train227e: row
 
 T227 = 1 O1737-recovery harness test half (BOARDED-for-integration.md L241; correctness + shape D1 r2), applied on T226e d7500bd2 (O1739b; train by blob, no install, O1738c):
