@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import socket
 import urllib.parse
@@ -29,7 +30,8 @@ from bs4 import BeautifulSoup, Comment
 
 from .ai_provider import OllamaProvider
 
-DEFAULT_INFERENCE_ENDPOINT = "http://10.0.70.228:11434"
+# Unset = inference off: analyze_dom_structure() uses the rule-based parser.
+DEFAULT_INFERENCE_ENDPOINT = os.getenv("DOM_ANALYZER_ENDPOINT", "")
 DEFAULT_TIMEOUT = 5.0
 DEFAULT_MODEL = "qwen2.5:7b"
 
@@ -342,7 +344,7 @@ def analyze_dom_structure(
     - Optionally records candidate selectors into draft template lane for review.
     """
     # Acceptance (3): Zero external egress beyond LAN
-    if not is_lan_endpoint(endpoint):
+    if endpoint and not is_lan_endpoint(endpoint):
         raise ValueError(
             f"External egress forbidden: endpoint {endpoint!r} does not resolve strictly to a LAN/loopback address"
         )
@@ -354,13 +356,13 @@ def analyze_dom_structure(
     selectors: List[str] = []
     source = "inference"
 
-    # Attempt inference via local Ollama assistant
+    # Attempt inference via local Ollama assistant (skipped when no endpoint is configured)
     inference_selectors = suggest_selectors_inference(
         redacted_html=redacted,
         target_desc=target_desc,
         endpoint=endpoint,
         timeout=timeout,
-    )
+    ) if endpoint else None
 
     if inference_selectors:
         # Validate that inference selectors match the DOM

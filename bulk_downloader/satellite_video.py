@@ -12,21 +12,22 @@ from __future__ import annotations
 import base64
 import http.client
 import json
+import logging
 import os
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Union
 
-# Approved LAN hardware acceleration endpoints
-DEFAULT_ENDPOINT = os.getenv(
-    "SATELLITE_VIDEO_ENDPOINT",
-    "http://10.0.70.125:8090/api/video/validate",
-)
+log = logging.getLogger(__name__)
+
+# Offload endpoint comes from the environment; unset = offload off (local ffprobe).
+DEFAULT_ENDPOINT = os.getenv("SATELLITE_VIDEO_ENDPOINT", "")
 DEFAULT_TIMEOUT = 0.5  # Fast LAN timeout so fallback to CPU is prompt
 
 VIDEO_EXTENSIONS = frozenset({
     ".mp4", ".mkv", ".webm", ".mov", ".avi", ".wmv", ".m4v", ".ts", ".flv"
 })
+_ISO_BMFF_EXTENSIONS = frozenset({".mp4", ".m4v", ".mov"})
 
 
 def is_eligible_for_offload(path: Union[str, Path]) -> bool:
@@ -61,7 +62,7 @@ def _parse_verdict(data: object) -> tuple[bool, bool, str]:
 
 def validate_video_rpc(
     path: Union[str, Path],
-    endpoint: str = DEFAULT_ENDPOINT,
+    endpoint: str | None = None,
     timeout: float = DEFAULT_TIMEOUT,
     fallback_on_error: bool = True,
 ) -> tuple[bool, str]:
@@ -72,7 +73,9 @@ def validate_video_rpc(
     when fallback_on_error is True. Never raises.
     """
     p = Path(path)
-    if not p.exists():
+    if endpoint is None:
+        endpoint = DEFAULT_ENDPOINT
+    if not endpoint or not p.exists():
         from . import integrity
         return integrity._verify_with_ffprobe(str(p))
 
@@ -121,13 +124,20 @@ def validate_video_rpc(
 
         if valid and has_video:
             return True, ""
+        if (p.suffix.lower() in _ISO_BMFF_EXTENSIONS and b"moov" not in header_bytes
+                and file_size > len(header_bytes)):
+            # Non-faststart MP4/MOV: the moov atom is past the 64 KB head the
+            # satellite saw, so its "invalid" is inconclusive -> local ffprobe.
+            from . import integrity
+            return integrity._verify_with_ffprobe(str(p))
         if not has_video:
             return False, err or "no video stream"
         return False, err or "container invalid"
 
     except Exception as _err:
         if fallback_on_error:
-            _ = str(_err)
+            log.warning("satellite video offload to %s failed for %s (%s: %s); "
+                        "falling back to local ffprobe", endpoint, p, type(_err).__name__, _err)
             from . import integrity
             return integrity._verify_with_ffprobe(str(p))
         raise

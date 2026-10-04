@@ -23,6 +23,13 @@ BD_GATE_SCOPE = "module"
 UPSTREAM_SEAM = "bulk_downloader.ai_provider.urlopen"
 
 
+@pytest.fixture(autouse=True)
+def _configured_endpoint(monkeypatch):
+    """The offload is off unless configured (O1826 C35); these tests configure it."""
+    from bulk_downloader import embeddings_client as EC
+    monkeypatch.setattr(EC, "DEFAULT_ENDPOINT", "http://satellite.test:8081/api/embeddings")
+
+
 class _Resp:
     """Minimal urlopen() response double returning canned JSON bytes."""
 

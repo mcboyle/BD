@@ -59,11 +59,11 @@ def _restore_environment_and_modules() -> Generator[None, None, None]:
 # --- FINDING-BH-bd-agy-audit-1-004 tests ---
 
 def test_embeddings_client_default_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When EMBEDDINGS_ENDPOINT is unset, DEFAULT_ENDPOINT matches the cluster default."""
+    """When EMBEDDINGS_ENDPOINT is unset, DEFAULT_ENDPOINT is empty (offload off, O1826 C35)."""
     monkeypatch.delenv("EMBEDDINGS_ENDPOINT", raising=False)
     import bulk_downloader.embeddings_client as ec
     importlib.reload(ec)
-    assert ec.DEFAULT_ENDPOINT == EXPECTED_DEFAULT_EMBEDDINGS_ENDPOINT
+    assert ec.DEFAULT_ENDPOINT == ""
 
 
 def test_embeddings_client_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -24,7 +24,8 @@ import os
 from . import embeddings as _local
 from .ai_provider import OllamaProvider
 
-DEFAULT_ENDPOINT = os.getenv("EMBEDDINGS_ENDPOINT", "http://10.0.70.72:8081/api/embeddings")
+# Unset = offload off: embed() stays on the local CPU embedder.
+DEFAULT_ENDPOINT = os.getenv("EMBEDDINGS_ENDPOINT", "")
 DEFAULT_MODEL = "bge-m3"
 DEFAULT_TIMEOUT = 5.0
 
@@ -34,6 +35,8 @@ def embed(text: str, endpoint: str | None = None, model: str = DEFAULT_MODEL,
     """Embed ``text`` via the satellite GPU proxy; fall back to the local
     CPU embedder on connection error, timeout or a malformed reply. Never raises."""
     target_endpoint = endpoint if endpoint is not None else DEFAULT_ENDPOINT
+    if not target_endpoint:
+        return _local.embed(text, dims=dims)
     body = {"model": model, "prompt": text or ""}
     ok, _status, payload, _ms = OllamaProvider(endpoint=target_endpoint)._http_post(
         target_endpoint, body, {}, timeout)
