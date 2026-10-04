@@ -5,7 +5,7 @@ and the toggle/state substrate (sub-wave 1).
 
 The teeth ladder, every rung default-OFF:
   L1 sweep              — per enabled template: drift vs gold + selector staleness (read-only)
-  L2 validation_gate    — rc=1 if any enabled template drifted past threshold (read-only)
+  L2 validation_gate    — rc=1 if any enabled template drifted past threshold, or any is unreadable (read-only)
   L3 flag needs_review  — advisory flag; template STAYS usable (mild write)
   L4 quarantine         — status enabled->quarantined; template stops being used (write)
   L5 repair             — re-derive -> keystone diff -> swap; lands at REVIEWED, not enabled (write)
@@ -28,7 +28,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import lifecycle_automation as la
 from . import template_keystone as tk
@@ -46,19 +46,22 @@ def _host_of(path: Path) -> str:
     return path.name[:-len(_SUFFIX)]
 
 
-def _enabled_templates(reviewed_dir=None) -> List[Path]:
+def _scan_templates(reviewed_dir=None) -> Tuple[List[Tuple[Path, Dict[str, Any]]], List[Path]]:
+    """-> (enabled [(path, parsed)], unreadable [path]). An unparseable template's
+    status is unknowable, so it is reported as unreadable, never silently skipped."""
     rd = _reviewed_dir(reviewed_dir)
     if not rd.is_dir():
-        return []
-    out = []
+        return [], []
+    enabled, unreadable = [], []
     for fp in sorted(rd.glob("*" + _SUFFIX)):
         try:
             t = json.loads(fp.read_text("utf-8"))
         except Exception:
+            unreadable.append(fp)
             continue
         if t.get("status") == la.STATUS_ENABLED:
-            out.append(fp)
-    return out
+            enabled.append((fp, t))
+    return enabled, unreadable
 
 
 def _selector_stale(host: str) -> Optional[bool]:
@@ -76,13 +79,10 @@ def sweep(reviewed_dir=None) -> Dict[str, Any]:
     """Per enabled template: structural drift vs gold + runtime staleness.
     Pure read — never mutates. The connective tissue that surfaces 'which
     templates need attention' (the gap AUTOMATION_POLICY named)."""
+    enabled, unreadable = _scan_templates(reviewed_dir)
     rows = []
-    for fp in _enabled_templates(reviewed_dir):
+    for fp, cand in enabled:
         host = _host_of(fp)
-        try:
-            cand = json.loads(fp.read_text("utf-8"))
-        except Exception:
-            continue
         dr = tk.drift_against_gold(host, cand, reviewed_dir=reviewed_dir)
         rows.append({
             "host": host,
@@ -92,19 +92,20 @@ def sweep(reviewed_dir=None) -> Dict[str, Any]:
         })
     flagged = [r for r in rows if (r["drift"] or 0) > 0 or r["stale"]]
     return {"ok": True, "checked": len(rows), "needing_attention": len(flagged),
-            "rows": rows}
+            "rows": rows, "unreadable": [_host_of(fp) for fp in unreadable]}
 
 
 # ── L2: validation gate (read-only) ──────────────────────────────────────────
 
 def validation_gate(reviewed_dir=None, max_drift: int = 0) -> Dict[str, Any]:
-    """rc=1 if any enabled template drifted beyond `max_drift`. For use as an
-    optional release/CI gate. Read-only."""
+    """rc=1 if any enabled template drifted beyond `max_drift`, or any template
+    is unreadable (it could not be checked). For use as an optional release/CI
+    gate. Read-only."""
     s = sweep(reviewed_dir)
     offenders = [r for r in s["rows"] if (r["drift"] or 0) > max_drift]
-    return {"ok": True, "rc": 1 if offenders else 0,
+    return {"ok": True, "rc": 1 if offenders or s["unreadable"] else 0,
             "max_drift": max_drift, "offenders": offenders,
-            "checked": s["checked"]}
+            "unreadable": s["unreadable"], "checked": s["checked"]}
 
 
 # ── mechanisms (act unconditionally; used by operator/tests/auto wrappers) ────
@@ -498,13 +499,14 @@ def on_fresh_capture(host: str, candidate: Dict[str, Any], *,
 
 # ── sweep-driven response orchestration ──────────────────────────────────────
 
-def sweep_and_respond(reviewed_dir=None) -> Dict[str, Any]:
+def sweep_and_respond(reviewed_dir=None, *, swept=None) -> Dict[str, Any]:
     """Run the sweep and apply the toggle-gated responses per offender.
     Precedence: quarantine (strongest) over flag — never both. Refresh is NOT
     driven here (it needs a fresh capture, which the sweep does not have); it is
     triggered from the capture-ingest path via auto_refresh_if_enabled. With all
-    response toggles off this is exactly `sweep` plus no-op wrappers (read-only)."""
-    s = sweep(reviewed_dir)
+    response toggles off this is exactly `sweep` plus no-op wrappers (read-only).
+    `swept` reuses a sweep() result already taken by the caller."""
+    s = swept if swept is not None else sweep(reviewed_dir)
     responses = []
     for r in s["rows"]:
         if not ((r["drift"] or 0) > 0 or r["stale"]):
@@ -522,7 +524,7 @@ def sweep_and_respond(reviewed_dir=None) -> Dict[str, Any]:
             responses.append({"host": host, "action": "none",
                               "result": "responses disabled"})
     return {"ok": True, "swept": s["checked"], "needing_attention": s["needing_attention"],
-            "responses": responses}
+            "unreadable": s["unreadable"], "responses": responses}
 
 
 # ── A1: drift-as-a-gate (stage + route a review bundle; never auto-change) ────
@@ -608,11 +610,12 @@ def _fire_drift_detected(bundle: Dict[str, Any]) -> bool:
 
 
 def stage_drift_reviews(reviewed_dir=None, *, threshold: int = 0,
-                        fire_events: bool = True) -> Dict[str, Any]:
+                        fire_events: bool = True, swept=None) -> Dict[str, Any]:
     """For every drifted/stale enabled template, stage a review bundle and
     (optionally) fire `drift.detected`. NEVER mutates a live template — this is
-    the stage-and-route gate, distinct from sweep_and_respond's mutators."""
-    s = sweep(reviewed_dir)
+    the stage-and-route gate, distinct from sweep_and_respond's mutators.
+    `swept` reuses a sweep() result already taken by the caller."""
+    s = swept if swept is not None else sweep(reviewed_dir)
     staged: List[Dict[str, Any]] = []
     events = 0
     for r in s["rows"]:
@@ -637,8 +640,11 @@ def scheduled_sweep(reviewed_dir=None) -> Dict[str, Any]:
     bundle + fires `drift.detected` per offender (A1 stage-and-route gate)."""
     if not la.is_enabled("drift_sweep"):
         return {"ok": True, "skipped": "drift_sweep disabled"}
-    resp = sweep_and_respond(reviewed_dir=reviewed_dir)
-    gate = stage_drift_reviews(reviewed_dir=reviewed_dir)
+    # One sweep feeds both layers: a host quarantined by the responses is still
+    # an offender of this sweep, so it still gets its review bundle.
+    s = sweep(reviewed_dir)
+    resp = sweep_and_respond(reviewed_dir=reviewed_dir, swept=s)
+    gate = stage_drift_reviews(reviewed_dir=reviewed_dir, swept=s)
     resp["review_staged"] = gate["staged"]
     resp["drift_events_fired"] = gate["events_fired"]
     return resp
