@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5825,
+  "edge_count": 5831,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4849,6 +4849,14 @@
     "tests/test_o1807_r3_sse_initial_status.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_state.py"
+    ],
+    "tests/test_o1807_r6_autonomy_store_failclosed.py": [
+      "tools/autonomy_apply.py",
+      "tools/autonomy_guardrails.py",
+      "tools/autonomy_oracle.py",
+      "tools/autonomy_policy.py",
+      "tools/autonomy_trust.py",
+      "tools/cockpit_core.py"
     ],
     "tests/test_o1815_r14_library_cursor_paging.py": [
       "bulk_downloader/app.py",
