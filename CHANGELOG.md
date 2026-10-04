@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1799 - train235e: row
+
+T235 = 2 cuts (BOARDED-for-integration.md L267, L269): o1698-host-prep-addenda-r2 harness tests (correctness D8 r2) + o1807-r3-sse-initial-status product (app.py; correctness D1 r1, T1), applied on T234e 1e7020ed (O1739b; harness by blob, no install).
+- o1698-host-prep-addenda-r2-bd-worker-W3-10-C r2
+- o1807-r3-sse-initial-status r1
+
+
 ## v3.66.1798 - train234e: row
 
 T234 = 1 O1671 product fix (BOARDED-for-integration.md L265; T1 correctness D7 r2 after D5 r1 REFUTE), applied on T233e cf11ac4b (O1739b):
