@@ -43,7 +43,8 @@ def api_template_manager_promote():
     _check_csrf()
     # C7 11.1a: when multi-user is enabled, only a reviewer/admin may promote.
     # Default-no-op: with multi-user off (the single-operator default) this is
-    # byte-identical to before. Best-effort — never 500s the route on a store error.
+    # byte-identical to before. O1807: fails CLOSED -- a store/gate error refuses
+    # (403); it never skips the role check.
     try:
         from . import user_accounts as _ua
         if _ua.multi_user_enabled():
@@ -52,7 +53,8 @@ def api_template_manager_promote():
                 return jsonify({"ok": False,
                                 "error": "reviewer role required to promote"}), 403
     except Exception:
-        pass
+        return jsonify({"ok": False,
+                        "error": "promote role check failed; refusing"}), 403
     body = request.json or {}
     try:
         from .template_manager import promote_draft
