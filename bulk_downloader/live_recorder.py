@@ -52,13 +52,15 @@ On Windows we use `CTRL_BREAK_EVENT` via `CREATE_NEW_PROCESS_GROUP`.
 # Disk-pressure guard
 
 Recording 8K HEVC at multi-GB/hour can fill a disk fast. Before starting
-a new recording, we check `disk_threshold_gb` on the site config; if the
+a new recording, we check `disk_threshold_gb` on the site config whose
+login_url host matches the recording's site (5 GB when none matches); if the
 target volume has less than that free, we refuse to start and emit a
 push notification. (Reuses the same per-site setting workers already use.)
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -110,6 +112,14 @@ def _launch_timeout_s() -> int:
 
 # Where active-recording metadata persists across restarts.
 STATE_FILE_NAME = "recordings.json"
+
+# M101: pending-room probes per scheduler tick. Each probe is a blocking
+# `streamlink --json` (20 s timeout), so probing every pending room in one pass
+# delayed the next health check of active recordings by N x 20 s.
+_MAX_PROBES_PER_TICK = 3
+
+# M102: low-disk refusal floor when the site sets no usable disk_threshold_gb.
+_DEFAULT_DISK_THRESHOLD_GB = 5.0
 
 
 # ─── Backend detection ──────────────────────────────────────────────
@@ -300,6 +310,12 @@ _lock = threading.RLock()
 _scheduler_started = False
 _scheduler_stop = threading.Event()
 _scheduler_thread: Optional[threading.Thread] = None
+
+# M101: pending rid -> number of the tick that last probed it (0 = never).
+# Least recently probed goes first, so a burst of new watches cannot starve
+# rooms that have been pending for days.
+_last_probe_tick: dict[str, int] = {}
+_tick_count = 0
 
 # Path where recordings.json lives (set on init).
 _state_dir: Optional[Path] = None
@@ -631,11 +647,24 @@ def _scheduler_loop() -> None:
 
 
 def _scheduler_tick() -> None:
-    """One pass: check each pending/recording entry and update."""
+    """One pass: health-check every active recording, then probe at most
+    _MAX_PROBES_PER_TICK pending rooms, least recently probed first, so every
+    pending room is still reached within ceil(N / cap) ticks."""
+    global _tick_count
     with _lock:
-        snapshot = [(rid, rec) for rid, rec in _recordings.items()
-                    if rec.state in ("pending", "recording")]
-    for rid, rec in snapshot:
+        active = [(rid, rec) for rid, rec in _recordings.items()
+                  if rec.state == "recording"]
+        pending = [(rid, rec) for rid, rec in _recordings.items()
+                   if rec.state == "pending"]
+        pending_ids = {rid for rid, _ in pending}
+        for rid in [r for r in _last_probe_tick if r not in pending_ids]:
+            del _last_probe_tick[rid]
+        pending.sort(key=lambda item: _last_probe_tick.get(item[0], 0))
+        due = pending[:_MAX_PROBES_PER_TICK]
+        _tick_count += 1
+        for rid, _ in due:
+            _last_probe_tick[rid] = _tick_count
+    for rid, rec in active + due:
         try:
             _process_recording(rid, rec)
         except Exception as e:
@@ -775,6 +804,47 @@ def _is_room_live(site: str, room: str, url: str,
         return False
 
 
+def _config_site_id(cfg: dict) -> Optional[str]:
+    """Canonical short id of a configured site, from its `login_url` host --
+    the URL field every s_cfg entry carries (CFG_FIELDS) and the one the app
+    already treats as a site's host identity."""
+    url = cfg.get("login_url")
+    if not isinstance(url, str):
+        return None
+    m = re.match(r"^https?://([^/]+)", url.strip(), re.I)
+    if not m:
+        return None
+    return _canonical_site_id(m.group(1).lower().split(":", 1)[0])
+
+
+def _disk_threshold_gb(site: str) -> float:
+    """M102: `disk_threshold_gb` of the configured site whose login_url host
+    canonicalises to `site`. s_cfg is keyed by 8-hex site ids, never by the
+    live label, so it is matched by host. Several matching sites -> the
+    highest value (most conservative). No match or no usable value -> 5 GB.
+    A non-numeric or non-finite value is skipped -- `free < NaN` is always
+    False and would disable the gate."""
+    try:
+        from . import app_state
+        configs = list(app_state.s_cfg.values())
+    except Exception:
+        return _DEFAULT_DISK_THRESHOLD_GB
+    best: Optional[float] = None
+    for cfg in configs:
+        if not isinstance(cfg, dict) or _config_site_id(cfg) != site:
+            continue
+        try:
+            value = float(cfg.get("disk_threshold_gb",
+                                  _DEFAULT_DISK_THRESHOLD_GB))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        if best is None or value > best:
+            best = value
+    return _DEFAULT_DISK_THRESHOLD_GB if best is None else best
+
+
 def _spawn_recording(rid: str, rec: Recording,
                      prepared_egress=None) -> None:
     """Launch the recording subprocess for `rec`. Updates state to
@@ -793,18 +863,21 @@ def _spawn_recording(rid: str, rec: Recording,
         try:
             out_dir = str(Path(rec.output_path).parent)
             free_gb = _disk_check(out_dir)
-            if free_gb is not None and free_gb < 5.0:
+            threshold_gb = _disk_threshold_gb(rec.site)
+            if free_gb is not None and free_gb < threshold_gb:
                 sys.stderr.write(
-                    f"[live-recorder] {rid}: low disk ({free_gb:.1f}GB)"
-                    f" -- refusing to start\n"
+                    f"[live-recorder] {rid}: low disk ({free_gb:.1f}GB,"
+                    f" threshold {threshold_gb:g}GB) -- refusing to start\n"
                 )
                 with _lock:
                     rec.state = "failed"
-                    rec.last_error = f"low_disk: {free_gb:.1f}GB free"
+                    rec.last_error = (f"low_disk: {free_gb:.1f}GB free"
+                                      f" (threshold {threshold_gb:g}GB)")
                 _save_state()
                 _maybe_push(
                     "Live recording skipped",
-                    f"{rec.site}/{rec.room}: only {free_gb:.1f}GB free",
+                    f"{rec.site}/{rec.room}: only {free_gb:.1f}GB free"
+                    f" (threshold {threshold_gb:g}GB)",
                 )
                 if prepared_egress is not None:
                     prepared_egress.close()
@@ -835,7 +908,9 @@ def _spawn_recording(rid: str, rec: Recording,
     try:
         kwargs: dict[str, Any] = dict(
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            # M103: never an unread PIPE -- a multi-hour stream's warnings
+            # fill the 64 KiB pipe buffer and the child blocks mid-recording.
+            stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             env=prepared.subprocess_env(),
         )
@@ -1013,6 +1088,7 @@ def _reset_for_tests() -> None:
         carriers = list(_egress_carriers.values())
         _egress_carriers.clear()
         _recordings.clear()
+        _last_probe_tick.clear()
         _scheduler_started = False
         _egress_prepare = None
     for carrier in carriers:
