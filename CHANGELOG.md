@@ -4,6 +4,25 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1788 - train224e: row
+
+T224 = 13 O1737-recovery cuts BOARDed by bd-lensrouter-A (harness-work/O1672/BOARDED-for-integration.md lines 214-227), applied on T223e 766900de (O1737/O1739b; integrator assembles, bd-trainer-A lands):
+- o1671-a07-metadata-normalizer-any-import-bd-cx-worker14 r1 (lens bd-review-correctness-D2-r1)
+- o1671-a16-check-doc-drift-version-sort-bd-cx-worker9 r1 (lens bd-review-correctness-D6-r1)
+- o1671-a18-nav-probe-poll-deadline-bd-cx-worker2 r1 (lens bd-review-correctness-D7-r1)
+- o1671-a18-player-recognition-none-html-bd-cx-worker3 r1 (lens bd-review-correctness-D8-r1)
+- o1671-a18-report-core-utf8-bd-cx-worker8 r1 (lens bd-review-correctness-D9-r1)
+- recall-kimi r2 (lens VERDICT-shape-bd-review-shape-D2-r2)
+- o1671-a04-manifests-defusedxml-bd-worker-W3-3-A r2 (lens VERDICT-shape-bd-review-shape-D4-r2)
+- o1671-a13-aiteach-siteid-encode-bd-cx-worker4 r2 (lens VERDICT-shape-bd-review-shape-D6-r2)
+- o1671-a13-copysiteconfig-nested-secrets-bd-worker-W3-7-C r2 (lens VERDICT-shape-bd-review-shape-D7-r2)
+- o1671-a15-vnc-display-sync-shebang-bd-cx-worker9 r1 (lens bd-review-correctness-D4-r1)
+- o1698-band-fetchhead-race-bd-cx-worker39 r2 (lens VERDICT-shape-bd-review-shape-D9-r2)
+- o1698-fleet-watch-breach-sustained-bd-cx-worker37 r2 (lens VERDICT-shape-bd-review-shape-D12-r2)
+- o1698-m7-facts-timer-install-bd-worker-W3-1-A r1 (lens bd-review-correctness-D13-r1)
+o1671-a28-30 bounced (BD_GATE_SCOPE missing; PLAN-2040/BOUNCE-a28-30-gate-scope-20261004T0135Z.md). Harness test halves train by blob, no bd-persist install (O1738c).
+
+
 ## v3.66.1787 - train223e: row
 
 T223 = 7 harness-row test halves (o1698 x6 + sg-band-pg-env), lens BOARD on each cut's current index tree, applied on T222e 582532ce (O1737-INT task 3, PM bd-pm-C). o1675-stale-gate held (no lens-role delta on f8148e9a; RULING-pm-D-o1675-delta); o1698-l14-heatmap bounced (gitleaks fixture).
