@@ -6,7 +6,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 from ..constants import INSTALL_DIR
 from ..log import site_tag
@@ -95,30 +95,57 @@ _URL_IN_TEXT = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _CREDENTIAL_QUERY_KEY = re.compile(
     r"(?:pass(?:word|wd)?|pwd|user(?:name)?|email|login|auth|token|"
     r"secret|credential|api[_-]?key|session(?:id)?)", re.IGNORECASE)
+# O1867 R20: one name=value parameter of a query or a fragment.  A fragment
+# carries OAuth implicit-grant tokens (#access_token=...) and SPA routes
+# (#/cb?token=...), so the key stops at the route characters too.
+_URL_PARAM = re.compile(r"([^&;=?#/]+)=([^&;#]*)")
+
+
+def _redact_url_params(component):
+    """Replace the value of every credential-named parameter in a query or
+    fragment; every other byte is kept as read."""
+    def redact(match):
+        if _CREDENTIAL_QUERY_KEY.search(unquote_plus(match.group(1))):
+            return f"{match.group(1)}=<REDACTED>"
+        return match.group(0)
+    return _URL_PARAM.sub(redact, component)
 
 
 def redact_url_credentials(text):
-    """Replace credential-bearing query values in every HTTP URL in *text*.
+    """Replace credentials in every HTTP URL in *text*.
 
     Login diagnostics and evidence intentionally retain the URL that was read,
-    but a GET-style login form can place typed credentials in its query.  Keep
+    but a GET-style login form can place typed credentials in its query, a
+    URL can carry them as userinfo (https://user:pw@host) and an OAuth
+    redirect returns its token in the fragment (#access_token=...).  Keep
     noncredential parameters useful while ensuring that no sink receives those
-    values in cleartext.
+    values in cleartext.  A URL that cannot be parsed is withheld whole.
     """
     def redact(match):
         url = match.group(0)
         try:
-            parts = urlsplit(url)
-            pairs = parse_qsl(parts.query, keep_blank_values=True)
-            query = urlencode(
-                [(key, "<REDACTED>" if _CREDENTIAL_QUERY_KEY.search(key)
-                  else value) for key, value in pairs],
-                doseq=True, safe="<>")
-            return urlunsplit((parts.scheme, parts.netloc, parts.path,
-                               query, parts.fragment))
+            urlsplit(url)
         except (TypeError, ValueError):
-            return url
+            return "<REDACTED>"
+        # Split by hand, as urlsplit does: urlunsplit drops an empty '?' or
+        # '#', and every byte that is not a credential is kept as read.
+        rest, hash_mark, fragment = url.partition("#")
+        rest, question, query = rest.partition("?")
+        scheme, slashes, rest = rest.partition("://")
+        netloc, slash, path = rest.partition("/")
+        if "@" in netloc:
+            netloc = "<REDACTED>@" + netloc.rpartition("@")[2]
+        return (f"{scheme}{slashes}{netloc}{slash}{path}"
+                f"{question}{_redact_url_params(query)}"
+                f"{hash_mark}{_redact_url_params(fragment)}")
     return _URL_IN_TEXT.sub(redact, str(text))
+
+
+def _redacted_error(exc, limit=None):
+    """O1867 R20: the text of a raised error with URL credentials redacted,
+    then cut to *limit*.  A Playwright navigation error quotes the URL it was
+    given (net::ERR_UNSAFE_PORT at https://user:pw@host/?token=...)."""
+    return redact_url_credentials(exc)[:limit]
 
 
 # O1567 fx-evidence-password-redact: a manual-takeover page on test3big was
@@ -208,7 +235,7 @@ def write_login_evidence(page, config, final_url, tag):
     try:
         html = redact_input_values(redact_url_credentials(page.content()))
     except Exception as e:
-        html = f"<!-- page content unavailable: {e} -->"
+        html = f"<!-- page content unavailable: {_redacted_error(e)} -->"
     try:
         directory = _login_evidence_dir(config)
         directory.mkdir(parents=True, exist_ok=True)
@@ -224,10 +251,10 @@ def write_login_evidence(page, config, final_url, tag):
         try:
             page.screenshot(path=str(path.with_suffix(".png")))
         except Exception as e:
-            sys.stderr.write(f"  {site_tag()}login: evidence screenshot unavailable: {e}\n")
+            sys.stderr.write(f"  {site_tag()}login: evidence screenshot unavailable: {_redacted_error(e)}\n")
         return str(path)
     except Exception as e:
-        sys.stderr.write(f"  {site_tag()}login: could not keep the page read as evidence: {e}\n")
+        sys.stderr.write(f"  {site_tag()}login: could not keep the page read as evidence: {_redacted_error(e)}\n")
         return None
 
 
@@ -265,7 +292,7 @@ def keep_pre_submit_screenshot(page, config):
                 pass
         return str(path)
     except Exception as e:
-        sys.stderr.write(f"  {site_tag()}login: pre-submit screenshot unavailable: {e}\n")
+        sys.stderr.write(f"  {site_tag()}login: pre-submit screenshot unavailable: {_redacted_error(e)}\n")
         return None
 
 
@@ -292,7 +319,7 @@ def member_state_check(page, config, *, tag="login"):
     try:
         final_url = redact_url_credentials(page.url)
     except Exception as e:
-        return False, f"final URL unreadable ({e}); member state UNKNOWN", None
+        return False, f"final URL unreadable ({_redacted_error(e)}); member state UNKNOWN", None
     if not success_url and not indicator:
         evidence_path = write_login_evidence(page, config, final_url, tag)
         return (False,
@@ -301,22 +328,25 @@ def member_state_check(page, config, *, tag="login"):
     evidence_path = write_login_evidence(page, config, final_url, tag)
     if success_url and _success_url_matches(success_url, final_url):
         return (True,
-                f"success_url {success_url!r} matches the page read ({final_url})",
+                f"success_url {redact_url_credentials(success_url)!r} matches the page read ({final_url})",
                 evidence_path)
     if indicator:
+        # O1867 R20 r3: a selector can name a URL (a[href="https://..."]);
+        # the reason reaches login info and stderr.
+        shown_indicator = redact_url_credentials(indicator)
         try:
             present = page.locator(indicator).count() > 0
         except Exception as e:
             return (False,
-                    f"member indicator {indicator!r} unreadable ({e}); UNKNOWN",
+                    f"member indicator {shown_indicator!r} unreadable ({_redacted_error(e)}); UNKNOWN",
                     evidence_path)
         if present:
             return (True,
-                    f"member indicator {indicator!r} present on the page read "
+                    f"member indicator {shown_indicator!r} present on the page read "
                     f"({final_url})",
                     evidence_path)
         return (False,
-                f"member indicator {indicator!r} absent from the page read "
+                f"member indicator {shown_indicator!r} absent from the page read "
                 f"({final_url})",
                 evidence_path)
     return (False,
@@ -365,7 +395,7 @@ def _read_login_surface(page):
     try:
         surface = page.evaluate(_LOGIN_SURFACE_JS)
     except Exception as e:
-        sys.stderr.write(f"  {site_tag()}login: post-submit surface unreadable: {e}\n")
+        sys.stderr.write(f"  {site_tag()}login: post-submit surface unreadable: {_redacted_error(e)}\n")
         return None
     if not isinstance(surface, dict):
         return None
@@ -740,7 +770,7 @@ def verify_login_replay(config, profile_dir, member_url=None,
                 page.goto(login_url, wait_until="domcontentloaded",
                             timeout=int(timeout * 1000))
             except Exception as e:
-                return f"navigation failed: {str(e)[:150]}", False, None, ""
+                return f"navigation failed: {_redacted_error(e, 150)}", False, None, ""
 
             # Wait a beat for redirects / JS-driven nav
             page.wait_for_timeout(1500)
@@ -787,7 +817,9 @@ def verify_login_replay(config, profile_dir, member_url=None,
                              if member_url else None)
                     if marked:
                         return "", True, probe, ""
-                    why = (f"member indicator {marker!r} is not shown"
+                    # O1867 R20 r3: a selector can name a URL.
+                    shown_marker = redact_url_credentials(marker)
+                    why = (f"member indicator {shown_marker!r} is not shown"
                            if marker else "no member indicator is declared")
                     return "", False, probe, (
                         f"cookies-only login state UNKNOWN: no login form "
@@ -835,11 +867,11 @@ def verify_login_replay(config, profile_dir, member_url=None,
                             if member_url else None)
                 probe = _in_profile(_keep_session)
             else:
-                replay_error = str(info)[:300]
+                replay_error = _redacted_error(info, 300)
         if probe:
             member_probe_ok, member_probe_ms, member_probe_error = probe
     except Exception as e:
-        replay_error = f"verify infra error: {type(e).__name__}: {str(e)[:200]}"
+        replay_error = f"verify infra error: {type(e).__name__}: {_redacted_error(e, 200)}"
 
     return _build_verify_result(
         replay_ok=replay_ok, replay_ms=_ms_since(started),
@@ -883,7 +915,8 @@ def _probe_member_url(page, member_url, timeout):
                         member_probe_ok = False
                         member_probe_error = (
                             f"member URL redirected to a "
-                            f"different host: {actual[:150]}")
+                            f"different host: "
+                            f"{redact_url_credentials(actual)[:150]}")
                     else:
                         member_probe_ok = True
                 except Exception:
@@ -891,11 +924,11 @@ def _probe_member_url(page, member_url, timeout):
         except Exception as e:
             member_probe_ok = False
             member_probe_error = (
-                f"probe failed: {str(e)[:100]}")
+                f"probe failed: {_redacted_error(e, 100)}")
     except Exception as e:
         member_probe_ok = False
         member_probe_error = (
-            f"navigation to member URL failed: {str(e)[:150]}")
+            f"navigation to member URL failed: {_redacted_error(e, 150)}")
     return member_probe_ok, _ms_since(member_started), member_probe_error
 
 def _build_verify_result(*, replay_ok, replay_ms, replay_error,
