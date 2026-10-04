@@ -60,7 +60,7 @@ bd_mod3_env_persist(){
     echo "mod3 postgres: DSN persistence failed: cannot stage $env_path" >&2
     return 1
   }
-  if ! printf 'export MOD3_PG_TEST_DSN=%s\n' "$MOD3_DSN" > "$env_tmp"; then
+  if ! printf 'export MOD3_PG_TEST_DSN=%q\n' "$MOD3_DSN" > "$env_tmp"; then
     rm -f -- "$env_tmp" 2>/dev/null || true
     echo "mod3 postgres: DSN persistence failed: cannot write $env_tmp" >&2
     return 1
