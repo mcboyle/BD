@@ -81,6 +81,53 @@ DEFAULT_TIMEOUT_S = 30.0
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 DEFAULT_CHUNK_RETRIES = 1
 DEFAULT_BUFFER_SIZE = 64 * 1024  # 64 KiB
+_JOIN_POLL_S = 0.25
+_JOIN_STALL_SLACK_S = 1.0
+# Socket operations a healthy worker may chain between two activity marks
+# (attempt start, each response's headers, each raw body read). httpx bounds
+# each one separately by the worker client's timeout_s -- connect included,
+# the worker client is built with timeout=timeout_s: proxy connect plus a
+# SOCKS5/CONNECT handshake (up to 7), TLS handshake, request write,
+# response-header read, redirect-body read; rounded up for headroom.
+_STALL_TIMEOUT_PHASES = 12
+
+
+def _join_stall_window_s(timeout_s: float) -> float:
+    """Longest silence on the wire a healthy worker can show. Every attempt
+    and every raw read re-marks activity, so retries do not add to it."""
+    return _STALL_TIMEOUT_PHASES * timeout_s + _JOIN_STALL_SLACK_S
+
+
+def _watch_activity(client, touch: Callable) -> None:
+    """Call touch() on every response (each redirect hop) and on every raw
+    socket read of its body, so a slow but live socket is never judged
+    stalled while iter_bytes() is still filling its buffer (O1826 R1)."""
+    import httpx
+    hooks = getattr(client, "event_hooks", None)
+    if not isinstance(hooks, dict):
+        return  # not an httpx.Client
+
+    class _TouchStream(httpx.SyncByteStream):
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __iter__(self):
+            for part in self._inner:
+                touch()
+                yield part
+
+        def close(self):
+            self._inner.close()
+
+    def _on_response(response):
+        touch()
+        if isinstance(response.stream, httpx.SyncByteStream):
+            response.stream = _TouchStream(response.stream)
+
+    client.event_hooks = {
+        "request": list(hooks.get("request", [])),
+        "response": [_on_response, *hooks.get("response", [])],
+    }
 
 
 # ─── Availability ──────────────────────────────────────────────────
@@ -117,6 +164,17 @@ def _host_of(url: str) -> str:
         return urlparse(url).hostname or ""
     except (ValueError, TypeError):
         return ""
+
+
+def _port_of(url: str) -> int:
+    """The URL's TCP port: explicit, else the scheme default (0 if unknown)."""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        return parsed.port or {"https": 443, "http": 80}.get(
+            parsed.scheme.lower(), 0)
+    except (ValueError, TypeError):
+        return 0
 
 
 def _guard_url(url: str):
@@ -339,6 +397,7 @@ def _download_chunk(
     buffer_size: int = DEFAULT_BUFFER_SIZE,
     chunk_retries: int = DEFAULT_CHUNK_RETRIES,
     cancel_event: threading.Event | None = None,
+    on_activity: Callable | None = None,
 ) -> tuple:
     """Download one chunk. Returns (success: bool, bytes_written: int,
     error: str)."""
@@ -347,6 +406,8 @@ def _download_chunk(
     while attempt <= chunk_retries:
         if cancel_event is not None and cancel_event.is_set():
             return False, 0, "cancelled"
+        if on_activity is not None:
+            on_activity()  # each attempt starts a fresh stall window
         attempt += 1
         bytes_written = 0
         local_headers = dict(headers)
@@ -484,7 +545,7 @@ def download(
         mptcp_negotiator.register_connection(
             conn_id=mptcp_conn_id,
             local_addr=("0.0.0.0", 0),
-            remote_addr=(host, 443),
+            remote_addr=(host, _port_of(url)),
         )
 
     # Shared progress state
@@ -493,11 +554,17 @@ def download(
     chunk_progress = {chunk.index: 0 for chunk in chunks}
     chunk_lengths = {chunk.index: chunk.length for chunk in chunks}
     last_published = [0]
+    last_activity = [time.monotonic()]  # any worker activity, for the join
     chunk_results: dict = {}
+
+    def _touch():
+        with progress_lock:
+            last_activity[0] = time.monotonic()
 
     def _on_progress(chunk_index: int, attempt_bytes: int, delta: int):
         logical_advanced = False
         with progress_lock:
+            last_activity[0] = time.monotonic()
             prior = chunk_progress[chunk_index]
             current = min(chunk_lengths[chunk_index], max(prior, attempt_bytes))
             if current > prior:
@@ -542,10 +609,17 @@ def download(
         threading.Thread(target=_watcher, daemon=True,
                          name="multi-conn-cancel").start()
 
+    def _close_mptcp():
+        # O1849: drop the process-wide telemetry entry once download() is
+        # done with it; a late add_subflow/record_subflow_io is a no-op.
+        if mptcp_cap.state == MptcpCapabilityState.SUPPORTED:
+            mptcp_negotiator.close_connection(mptcp_conn_id)
+
     threads: list = []
     try:
         import httpx
     except ImportError:
+        _close_mptcp()
         return DownloadResult(ok=False, error="httpx_not_installed",
                               elapsed_s=time.monotonic() - start)
 
@@ -560,7 +634,7 @@ def download(
             mptcp_negotiator.add_subflow(
                 conn_id=mptcp_conn_id,
                 local_addr=("0.0.0.0", 0),
-                remote_addr=(host, 443),
+                remote_addr=(host, _port_of(url)),
                 is_backup=False,
             )
         try:
@@ -570,11 +644,13 @@ def download(
                               event_hooks={"response": [_redirect_guard_hook]},
                               transport=guarded_transport(PUBLIC_ONLY, proxy=proxy)
                               ) as client:
+                _watch_activity(client, _touch)
                 ok, bw, err = _download_chunk(
                     client, url, chunk, output_path,
                     headers=headers, on_progress=_on_progress,
                     chunk_retries=chunk_retries,
                     cancel_event=cancel_event,
+                    on_activity=_touch,
                 )
                 if mptcp_cap.state == MptcpCapabilityState.SUPPORTED and ok:
                     mptcp_negotiator.record_subflow_io(
@@ -594,17 +670,41 @@ def download(
         threads.append(t)
         t.start()
 
-    for t in threads:
-        # Use a long join timeout — content_length / 1MB/s is the
-        # absolute floor expected speed
-        t.join()
+    # O1826 M124: bounded join. A worker that stops making progress (a hung
+    # read the per-request timeout never fires on) must not block
+    # download() forever. The bound is on silence on the wire, not on total
+    # duration, so throttled or slow-but-moving transfers are not cut off.
+    stall_window_s = _join_stall_window_s(timeout_s)
+    stalled: set = set()
+    for chunk, t in zip(chunks, threads):
+        while t.is_alive():
+            t.join(_JOIN_POLL_S)
+            with progress_lock:
+                idle_s = time.monotonic() - last_activity[0]
+            if idle_s > stall_window_s:
+                stalled = {c.index for c, th in zip(chunks, threads)
+                           if th.is_alive()}
+                log.warning("multi_conn: no progress for %.1fs; failing "
+                            "stalled chunks %s", idle_s, sorted(stalled))
+                break
+        if stalled:
+            break
 
-    cancel_event.set()  # stop the watcher if still running
+    cancel_event.set()  # stop the watcher and any still-running worker
+    _close_mptcp()
+
+    # Stalled workers may still write chunk_results later; judge a snapshot
+    # under a new name so late writes cannot mutate it mid-count.
+    results = dict(chunk_results)
+    for index in stalled:
+        if index not in results:
+            results[index] = (
+                False, 0, f"chunk_{index}_stalled_{int(stall_window_s)}s")
 
     elapsed = time.monotonic() - start
-    completed = sum(1 for r in chunk_results.values() if r[0])
+    completed = sum(1 for r in results.values() if r[0])
     failed = len(chunks) - completed
-    total_bytes_written = sum(r[1] for r in chunk_results.values())
+    total_bytes_written = sum(r[1] for r in results.values())
 
     if cancel_check is not None and cancel_check():
         return DownloadResult(
@@ -621,9 +721,9 @@ def download(
 
     if failed > 0:
         err_summary = "; ".join(
-            f"{i}={chunk_results[i][2]}"
-            for i in sorted(chunk_results)
-            if not chunk_results[i][0]
+            f"{i}={results[i][2]}"
+            for i in sorted(results)
+            if not results[i][0]
         )[:300]
         return DownloadResult(
             ok=False,

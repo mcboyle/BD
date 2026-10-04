@@ -235,8 +235,18 @@ def test_multi_conn_download_exercises_mptcp_caller(tmp_path):
 
     out_file = str(tmp_path / "test_mptcp.bin")
 
+    # O1849: download() closes its entry on exit, so capture the stats at
+    # close time to prove the caller registered the connection and subflows.
+    closed_stats = {}
+    real_close = negotiator.close_connection
+
+    def _capturing_close(conn_id):
+        closed_stats[conn_id] = negotiator.get_connection_stats(conn_id)
+        return real_close(conn_id)
+
     with (
         patch.object(negotiator, "check_capability", return_value=mock_cap),
+        patch.object(negotiator, "close_connection", side_effect=_capturing_close),
         patch.object(multi_conn, "_allocate_sparse_file", return_value=True),
         patch.object(multi_conn, "_download_chunk", return_value=(True, 1024, "")),
     ):
@@ -250,10 +260,12 @@ def test_multi_conn_download_exercises_mptcp_caller(tmp_path):
         assert res.mptcp_capability == "supported"
         assert res.mptcp_conn_id.startswith("mc-")
         # Verify MPTCP connection and subflows were registered through download()
-        conn_stats = negotiator.get_connection_stats(res.mptcp_conn_id)
+        conn_stats = closed_stats.get(res.mptcp_conn_id)
         assert conn_stats is not None
         assert conn_stats.mptcp_enabled is True
         assert conn_stats.subflow_count >= 1
+        # ...and the process-wide entry does not outlive the download.
+        assert negotiator.get_connection_stats(res.mptcp_conn_id) is None
 
 
 def test_multi_conn_download_unverifiable_fails_closed(tmp_path):
