@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1797 - train233e: row
+
+T233 = 4 O1737-recovery cuts (BOARDED-for-integration.md L260, L262-264): o1760-turn-cap harness test half (T2 COMPLETE) + 3 O1671 product fixes (pgvector-bench-restore r3 after FIX-R-58, a16 capture-analytics-getsize, a16 capture-batch-wait-timeout), applied on T232e 86875309 (O1739b). o1760 INSTALL ORDER (RULING O1804): only together with O1799, O1799 FIRST; installs frozen tonight.
+- o1760-turn-cap-bd-worker-A25-A r3
+- o1671-a07-pgvector-bench-restore-bd-cx-worker9 r3
+- o1671-a16-capture-analytics-getsize-bd-worker-P-4-kimi r2
+- o1671-a16-capture-batch-wait-timeout-bd-cx-worker5 r2
+
+
 ## v3.66.1796 - train232e: row
 
 T232 = 4 O1737-recovery cuts (BOARDED-for-integration.md L256-259; 3 harness test halves + 1 product a15-devcap), applied on T231e 189ef7d6 (O1739b; harness by blob, no install, O1738c/O1796):
