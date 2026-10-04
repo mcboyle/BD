@@ -1,4 +1,6 @@
-#!/home/mboyle/BulkDownloader/venv/bin/python3
+#!/usr/bin/env python3
+# Activate a venv with pyautogui, PyScreeze and OpenCV before direct execution.
+# Python 3 is selected from PATH; an X11 display and screenshot backend are required.
 import os
 os.environ.setdefault("DISPLAY", ":99")             # headless VNC display
 os.environ.setdefault("XDG_SESSION_TYPE", "x11")    # lets pyautogui screenshot via scrot
