@@ -10,6 +10,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -69,7 +70,7 @@ class BandwidthAggregator:
         self.node_ttl_seconds = max(1.0, float(node_ttl_seconds))
 
         self._lock = threading.Lock()
-        self._samples: dict[str, list[NodeThroughputSample]] = {}
+        self._samples: dict[str, deque[NodeThroughputSample]] = {}
         self._node_last_seen: dict[str, float] = {}
         self._node_total_bytes: dict[str, int] = {}
         self._reservations: dict[str, dict[str, Any]] = {}
@@ -117,18 +118,33 @@ class BandwidthAggregator:
     def _record_sample_locked(self, sample: NodeThroughputSample, current_time: float) -> None:
         node_id = sample.node_id
         if node_id not in self._samples:
-            self._samples[node_id] = []
+            self._samples[node_id] = deque()
             self._node_total_bytes[node_id] = 0
 
-        self._samples[node_id].append(sample)
+        # Keep samples time-ordered so pruning can pop from the left; a late
+        # sample (racing recorder, historical timestamp) is slotted in from the right.
+        samples = self._samples[node_id]
+        idx = len(samples)
+        while idx and samples[idx - 1].timestamp > sample.timestamp:
+            idx -= 1
+        samples.insert(idx, sample)
         self._node_total_bytes[node_id] += sample.bytes_ingested
         self._node_last_seen[node_id] = max(self._node_last_seen.get(node_id, 0.0), current_time)
         self._prune_samples_locked(node_id, current_time)
 
     def _prune_samples_locked(self, node_id: str, current_time: float) -> None:
         cutoff = current_time - self.window_seconds
-        samples = self._samples.get(node_id, [])
-        self._samples[node_id] = [s for s in samples if s.timestamp >= cutoff]
+        samples = self._samples.setdefault(node_id, deque())
+        while samples and samples[0].timestamp < cutoff:
+            samples.popleft()
+
+    def _window_bps_locked(self, samples: deque[NodeThroughputSample], current_time: float) -> float:
+        if not samples:
+            return 0.0
+        total_bytes = sum(s.bytes_ingested for s in samples)
+        span = max(s.duration_seconds for s in samples)
+        window_span = max(span, min(self.window_seconds, current_time - samples[0].timestamp))
+        return (float(total_bytes) / window_span) if window_span > 0 else 0.0
 
     def _clean_expired_reservations_locked(self, current_time: float) -> None:
         expired = [
@@ -144,16 +160,7 @@ class BandwidthAggregator:
         current_time = time.monotonic() if now is None else now
         with self._lock:
             self._prune_samples_locked(node_id, current_time)
-            samples = self._samples.get(node_id, [])
-            if not samples:
-                return 0.0
-
-            total_bytes = sum(s.bytes_ingested for s in samples)
-            span = max(s.duration_seconds for s in samples)
-            window_span = max(span, min(self.window_seconds, current_time - samples[0].timestamp if samples else 1.0))
-            if window_span <= 0:
-                return 0.0
-            return float(total_bytes) / window_span
+            return self._window_bps_locked(self._samples[node_id], current_time)
 
     def get_node_stats(self, node_id: str, now: float | None = None) -> dict[str, Any] | None:
         """Return comprehensive telemetry statistics for a specific node."""
@@ -163,11 +170,8 @@ class BandwidthAggregator:
                 return None
 
             self._prune_samples_locked(node_id, current_time)
-            samples = self._samples.get(node_id, [])
-            total_bytes = sum(s.bytes_ingested for s in samples)
-            span = max([s.duration_seconds for s in samples], default=1.0)
-            window_span = max(span, min(self.window_seconds, current_time - samples[0].timestamp if samples else 1.0))
-            current_bps = (float(total_bytes) / window_span) if window_span > 0 else 0.0
+            samples = self._samples[node_id]
+            current_bps = self._window_bps_locked(samples, current_time)
 
             return {
                 "node_id": node_id,
@@ -194,12 +198,9 @@ class BandwidthAggregator:
 
             for nid in active_node_ids:
                 self._prune_samples_locked(nid, current_time)
-                samples = self._samples.get(nid, [])
+                samples = self._samples[nid]
                 total_samples += len(samples)
-                s_bytes = sum(s.bytes_ingested for s in samples)
-                s_span = max([s.duration_seconds for s in samples], default=1.0)
-                w_span = max(s_span, min(self.window_seconds, current_time - samples[0].timestamp if samples else 1.0))
-                n_bps = (float(s_bytes) / w_span) if w_span > 0 else 0.0
+                n_bps = self._window_bps_locked(samples, current_time)
                 total_bps += n_bps
                 node_breakdown[nid] = {
                     "current_bps": n_bps,
@@ -248,13 +249,7 @@ class BandwidthAggregator:
             total_active_bps = 0.0
             for nid, last_seen in self._node_last_seen.items():
                 if (current_time - last_seen) <= self.node_ttl_seconds:
-                    samples = self._samples.get(nid, [])
-                    if samples:
-                        s_bytes = sum(s.bytes_ingested for s in samples)
-                        s_span = max([s.duration_seconds for s in samples], default=1.0)
-                        w_span = max(s_span, min(self.window_seconds, current_time - samples[0].timestamp))
-                        if w_span > 0:
-                            total_active_bps += float(s_bytes) / w_span
+                    total_active_bps += self._window_bps_locked(self._samples.get(nid, deque()), current_time)
 
             reserved_bps = sum(res["bps"] for res in self._reservations.values())
             effective_used_bps = total_active_bps + reserved_bps
@@ -303,13 +298,7 @@ class BandwidthAggregator:
             total_active_bps = 0.0
             for nid, last_seen in self._node_last_seen.items():
                 if (current_time - last_seen) <= self.node_ttl_seconds:
-                    samples = self._samples.get(nid, [])
-                    if samples:
-                        s_bytes = sum(s.bytes_ingested for s in samples)
-                        s_span = max([s.duration_seconds for s in samples], default=1.0)
-                        w_span = max(s_span, min(self.window_seconds, current_time - samples[0].timestamp))
-                        if w_span > 0:
-                            total_active_bps += float(s_bytes) / w_span
+                    total_active_bps += self._window_bps_locked(self._samples.get(nid, deque()), current_time)
 
             reserved_bps = sum(res["bps"] for res in self._reservations.values())
             if (total_active_bps + reserved_bps + requested_bps) > self.cluster_capacity_bps:
