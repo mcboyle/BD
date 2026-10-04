@@ -66,6 +66,7 @@ advance_on / abort:
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -294,7 +295,8 @@ def try_step(step: SelectorStep, page, action: str, *, value=None,
             except Exception:
                 navigated = False
         else:
-            navigated = _safe_url(page) != url_before
+            navigated = _wait_until(
+                lambda: _safe_url(page) != url_before, step.timeout_ms, page)
         if not navigated:
             return _classify_failure(
                 step, FM_NO_NAV, "no navigation after action")
@@ -329,14 +331,46 @@ def _safe_url(page):
         return None
 
 
+_POLL_S = 0.1
+
+
+def _pause(page, seconds) -> None:
+    """Wait between polls. Sync Playwright refreshes ``page.url`` only while a
+    page call pumps its events, so wait through the page where it can;
+    time.sleep pumps nothing and a late navigation would never be seen."""
+    wait = getattr(page, "wait_for_timeout", None)
+    if callable(wait):
+        try:
+            wait(seconds * 1000.0)
+            return
+        except Exception:
+            pass
+    time.sleep(seconds)
+
+
+def _wait_until(check, timeout_ms, page=None) -> bool:
+    """Poll ``check`` until it is true or ``timeout_ms`` elapses; checks at
+    least once."""
+    deadline = time.monotonic() + max(timeout_ms or 0, 0) / 1000.0
+    while True:
+        if check():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        _pause(page, min(_POLL_S, remaining))
+
+
 def _text_present(page, pattern, timeout_ms) -> bool:
-    try:
-        content = page.content()
-    except Exception:
-        return False
-    if not content:
-        return False
-    try:
-        return re.search(pattern, content) is not None
-    except re.error:
-        return pattern in content
+    def _check():
+        try:
+            content = page.content()
+        except Exception:
+            return False
+        if not content:
+            return False
+        try:
+            return re.search(pattern, content) is not None
+        except re.error:
+            return pattern in content
+    return _wait_until(_check, timeout_ms, page)

@@ -255,14 +255,21 @@ def _fetch_playwright(url: str, *, timeout: int = 30,
 
         if headers:
             page.set_extra_http_headers(headers)
-        page.goto(url, timeout=timeout * 1000)
+        resp = page.goto(url, timeout=timeout * 1000)
         try:
             page.wait_for_load_state("networkidle", timeout=5000)
         except Exception:
             pass  # networkidle isn't required
         html = page.content()
         final_url = page.url
-        return {"ok": True, "status": 200, "html": html,
+        # Report the real navigation status: a 404/500 page is not a success.
+        # goto() returns None only for same-document navigations (no response).
+        if resp is None:
+            ok, status = True, 200
+        else:
+            status = resp.status
+            ok = 200 <= status < 400
+        return {"ok": ok, "status": status, "html": html,
                 "final_url": final_url, "error": ""}
     except Exception as e:
         return {"ok": False, "error": str(e)[:300], "html": ""}

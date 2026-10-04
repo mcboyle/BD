@@ -31,8 +31,15 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows: in-process lock only
+    fcntl = None  # type: ignore[assignment]
 
 HISTORY_FILE = "selector_history.json"
 _MAX_PER_TEMPLATE = 50  # keep the newest N versions per template; trim older
@@ -63,6 +70,33 @@ def _save(doc: dict, base_dir=None) -> bool:
         return True
     except OSError:
         return False
+
+
+_lock = threading.Lock()
+
+
+@contextmanager
+def _store_lock(base_dir=None):
+    """Serialise load-append-save across threads, and across processes where
+    flock exists, so a concurrent save can't overwrite another's version."""
+    with _lock:
+        lf = None
+        if fcntl is not None:
+            try:
+                lf = open(_store_path(base_dir) + ".lock", "a")
+                fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                # No usable flock here (e.g. NFS without lockd, ENOLCK): keep
+                # the in-process lock only, as where fcntl is missing, rather
+                # than drop the version.
+                if lf is not None:
+                    lf.close()
+                lf = None
+        try:
+            yield
+        finally:
+            if lf is not None:
+                lf.close()  # closing the fd releases the flock
 
 
 def _selectors_of(template: dict) -> dict:
@@ -98,24 +132,26 @@ def record_template_version(template: dict, *, source: str = "save",
         if not tid:
             return None
         selectors = _selectors_of(template)
-        doc = _load(base_dir)
-        hist = doc.get(str(tid))
-        if not isinstance(hist, list):
-            hist = []
-        # de-dupe: identical to the latest snapshot -> no new version
-        if hist:
-            latest = hist[-1]
-            if isinstance(latest, dict) and latest.get("selectors") == selectors:
-                return latest.get("version")
-        ts = int(time.time())
-        vid = _version_id(ts, selectors)
-        hist.append({"version": vid, "ts": ts, "source": source,
-                     "note": note or "", "selectors": selectors})
-        if len(hist) > _MAX_PER_TEMPLATE:
-            hist = hist[-_MAX_PER_TEMPLATE:]
-        doc[str(tid)] = hist
-        _save(doc, base_dir)
-        return vid
+        with _store_lock(base_dir):
+            doc = _load(base_dir)
+            hist = doc.get(str(tid))
+            if not isinstance(hist, list):
+                hist = []
+            # de-dupe: identical to the latest snapshot -> no new version
+            if hist:
+                latest = hist[-1]
+                if isinstance(latest, dict) and latest.get("selectors") == selectors:
+                    return latest.get("version")
+            ts = int(time.time())
+            vid = _version_id(ts, selectors)
+            hist.append({"version": vid, "ts": ts, "source": source,
+                         "note": note or "", "selectors": selectors})
+            if len(hist) > _MAX_PER_TEMPLATE:
+                hist = hist[-_MAX_PER_TEMPLATE:]
+            doc[str(tid)] = hist
+            if not _save(doc, base_dir):
+                return None
+            return vid
     except Exception:
         return None
 
