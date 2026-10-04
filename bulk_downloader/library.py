@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import threading
 import time
@@ -50,6 +51,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .db import db_conn
+
+log = logging.getLogger(__name__)
 
 # Lazy schema-ensure flag. The first library_* call triggers migrations
 # so unit tests and direct-API access work without an app boot.
@@ -68,10 +71,12 @@ def _ensure_schema():
         db_init()
         _mig.apply_pending()
         _SCHEMA_READY = True
-    except Exception:
+    except Exception as e:
         # Don't trap — let the original call fail with a clearer error
-        # than "no such table"
-        pass
+        # than "no such table". The flag stays unset so the next call
+        # retries; the cause is logged rather than swallowed.
+        log.warning("library schema ensure failed: %s: %s",
+                    type(e).__name__, e)
 
 
 # Video file extensions the scanner picks up. Audio-only and image
@@ -259,8 +264,22 @@ def library_record(file_path: str, *, history_id: Optional[int] = None,
                 except Exception:
                     pass
             return new_id
-    except Exception:
+    except Exception as e:
+        _record_failure.cause = f"{type(e).__name__}: {e}"
+        log.warning("library_record %s failed: %s",
+                    file_path, _record_failure.cause)
         return None
+
+
+# Cause of this thread's last failed library_record, so the scanner can
+# report WHY a record failed while library_record keeps its None contract.
+_record_failure = threading.local()
+
+
+def _take_record_failure() -> str:
+    cause = getattr(_record_failure, "cause", "")
+    _record_failure.cause = ""
+    return cause
 
 
 def library_get(library_id: int) -> Optional[dict]:
@@ -551,7 +570,10 @@ def library_delete(library_id: int, *, also_delete_file: bool = False) -> dict:
                     except Exception:
                         # Best-effort — a stuck thumb must never block the row delete.
                         pass
-            # ON DELETE CASCADE on library_tags handles tag cleanup
+            # Foreign keys are never enabled, so ON DELETE CASCADE on
+            # library_tags does not fire; drop the junction rows here.
+            cx.execute("DELETE FROM library_tags WHERE library_id=?",
+                       (int(library_id),))
             cx.execute("DELETE FROM library WHERE id=?",
                        (int(library_id),))
             # Null the history back-ref so the history row doesn't point
@@ -925,6 +947,27 @@ def _fp_under_root(fp: str, root: str) -> bool:
     return fp == root or fp.startswith(root + os.sep)
 
 
+def _done_history_by_basename() -> dict[str, int]:
+    """Exact basename -> newest done history id, built once per scan.
+    history.filename may be a bare name or a path with either separator."""
+    out: dict[str, int] = {}
+    try:
+        with db_conn() as cx:
+            rows = cx.execute(
+                "SELECT id, filename FROM history "
+                "WHERE status='done' AND filename IS NOT NULL "
+                "ORDER BY id").fetchall()
+    except Exception as e:
+        log.warning("library scan: history lookup failed, no links: %s: %s",
+                    type(e).__name__, e)
+        return out
+    for r in rows:
+        name = str(r["filename"]).replace("\\", "/").rsplit("/", 1)[-1]
+        if name:
+            out[name] = r["id"]
+    return out
+
+
 def _scan_worker(roots: list[str], state: ScanState):
     """The actual scan loop. Runs on a daemon thread."""
     # @941: BOUND to the ScanState this worker was started for, never the
@@ -953,6 +996,7 @@ def _scan_worker(roots: list[str], state: ScanState):
 
     seen_paths: set[str] = set()
     try:
+        history_by_name = _done_history_by_basename()
         for root in roots:
             with _scan_lock:
                 if state.cancelled:
@@ -983,24 +1027,14 @@ def _scan_worker(roots: list[str], state: ScanState):
                     except Exception as e:
                         _record_error(f"check {full}: {e}")
                         continue
-                    # Try to link to a history row by filename match
-                    history_id = None
-                    try:
-                        with db_conn() as cx:
-                            r = cx.execute(
-                                "SELECT id FROM history "
-                                "WHERE filename LIKE ? "
-                                "  AND status='done' "
-                                "ORDER BY id DESC LIMIT 1",
-                                ("%" + os.path.basename(full),)
-                            ).fetchone()
-                            if r:
-                                history_id = r["id"]
-                    except Exception:
-                        pass
+                    # Link to the newest done history row with this
+                    # exact basename
+                    history_id = history_by_name.get(fn)
+                    _take_record_failure()
                     rid = library_record(full, history_id=history_id)
                     if rid is None:
-                        _record_error(f"record_failed {full}")
+                        _record_error(f"record_failed {full}: "
+                                      f"{_take_record_failure() or 'no cause'}")
                     elif existed:
                         _bump("updated")
                     else:
