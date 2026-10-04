@@ -18,7 +18,9 @@ SECURITY MODEL (read before deploying):
     privileges. Whoever can reach this page can run anything that user can.
   * Therefore the cockpit MUST be bound to localhost/LAN and behind
     authentication. Do NOT expose it to an untrusted network.
-  * Every command sent is recorded to a shell audit log.
+  * Every input chunk is recorded to a shell audit log as metadata only
+    (length, keyed digest, line-break count) — never the typed text, so a
+    password entered at a sudo/ssh prompt does not land in the log.
   * F2/Phase C will revisit reachability hardening (origin/bind guard). This
     deferral is tracked as a Phase C backlog item, not left unowned.
 
@@ -28,6 +30,8 @@ recognition surface's allowlist guarantee stays intact and provable.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import re
 import secrets
@@ -56,6 +60,10 @@ _LOCK = threading.Lock()
 _BUF_CAP = 200_000          # bytes of scrollback kept per session
 _IDLE_REAP = 1800           # seconds; idle sessions are killed
 _ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[\]P^_].*?(?:\x07|\x1b\\)|\r")
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+# Per-process key: audit digests correlate repeated input within a run but cannot
+# be dictionary-attacked back to a short password typed at a prompt.
+_AUDIT_KEY = secrets.token_bytes(32)
 
 
 def _shell_pref() -> str:
@@ -101,12 +109,21 @@ def _audit_path() -> Path:
     return p
 
 
-def _audit(sid: str, text: str) -> None:
+def _audit_event(sid: str, event: str) -> None:
+    """Append a fixed session-lifecycle marker (never user input)."""
     try:
         with _audit_path().open("a", encoding="utf-8") as fh:
-            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\t{sid}\t{text!r}\n")
+            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\t{sid}\t{event!r}\n")
     except Exception:
         pass
+
+
+def _audit(sid: str, text: str) -> None:
+    """Record one input chunk as metadata only: length, keyed sha256 prefix and
+    line-break count (command boundaries). The raw text is never written."""
+    digest = hmac.new(_AUDIT_KEY, text.encode("utf-8", "replace"), hashlib.sha256).hexdigest()[:12]
+    breaks = len(_LINE_BREAK.findall(text))
+    _audit_event(sid, f"input len={len(text)} hmac-sha256={digest} breaks={breaks}")
 
 
 def _require(sid: str) -> Dict[str, Any]:
@@ -176,7 +193,7 @@ def shell_open() -> Dict[str, Any]:
     with _LOCK:
         _SESSIONS[sid] = sess
     threading.Thread(target=_reader, args=(sid,), daemon=True).start()
-    _audit(sid, "<session opened>")
+    _audit_event(sid, "<session opened>")
     return {"session": sid}
 
 
@@ -261,7 +278,7 @@ def shell_close(sid: str) -> Dict[str, Any]:
             if remaining <= 0:
                 raise ShellError("shell child did not exit after SIGKILL")
             time.sleep(min(0.01, remaining))
-        _audit(sid, "<session closed>")
+        _audit_event(sid, "<session closed>")
     return {"closed": True}
 
 
@@ -272,6 +289,7 @@ def shell_status() -> Dict[str, Any]:
             "note": ("Interactive shell is ON by default (v3.66.183); set "
                      "BD_COCKPIT_SHELL=0 to hard-disable. It runs arbitrary "
                      "commands as the cockpit user — bind the cockpit to "
-                     "localhost/LAN and put it behind auth. Every command is "
-                     "recorded to shell_audit.log. F2/Phase C will revisit "
+                     "localhost/LAN and put it behind auth. Every input chunk "
+                     "is recorded to shell_audit.log as length/digest only, "
+                     "never the typed text. F2/Phase C will revisit "
                      "reachability hardening.")}

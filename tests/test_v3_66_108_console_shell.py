@@ -129,6 +129,7 @@ class TestShellWhenEnabled:
     @pytest.mark.skipif(not sh._PTY_OK, reason="pty unavailable on this OS")
     def test_runs_command_and_audits(self, monkeypatch, tmp_path):
         monkeypatch.setenv("BD_COCKPIT_SHELL", "1")
+        monkeypatch.setenv("BD_COCKPIT_TASKS", str(tmp_path))  # fresh log: no stale raw lines
         assert sh.shell_enabled() is True
         sid = sh.shell_open()["session"]
         try:
@@ -144,7 +145,10 @@ class TestShellWhenEnabled:
             root = os.environ.get("BD_COCKPIT_TASKS") or os.environ.get("BD_HOME") or "."
             audit = Path(root) / "shell_audit.log"
             assert audit.is_file()
-            assert "echo BD_SHELL_PROOF" in audit.read_text()
+            logged = audit.read_text()
+            # O1819 R16: an input record exists, but the typed text never lands in the log.
+            assert f"{sid}\t'input len=" in logged
+            assert "BD_SHELL_PROOF" not in logged
         finally:
             sh.shell_close(sid)
 
