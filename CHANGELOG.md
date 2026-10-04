@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1807 - train243f: row
+
+T243 (rebuild f) = 1 harness test cut (BOARDED-for-integration.md L299; correctness D1 r4 FINAL (O1833), supersedes suspended host-prep-addenda-r2 BOARD per O1821). Its tree carries the host-prep test files that REPLACE the r2 versions on main (O1821 item 4). INSTALL ORDER: nfs-share-ln-T first, then this. Applied on T242f 1559f63e (O1739b; by blob, no install):
+- o1698-host-prep-addenda-r3 r4
+
+
 ## v3.66.1806 - train242f: row
 
 T242 (rebuild f) = 2 test-only harness halves on T241e 6d7c6e1e (origin/main): o1698-mod-m7-state-line-trial r4 (BOARDED L294) + o1698-mod-m25-big-read-guard r4 (L296). dl95-adulttime-1 DROPPED (shape-D7 r4 REFUTE; RULING O1841; TRAINER/T242e-HELD-shape-REFUTE-20261004T0830Z.md). Supersedes T242e 3f2e76db (#1160) and T243e 87d7e6d8 (#1161), never landed.
