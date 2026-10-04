@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1807 - train243e: row
+
+T243 = 1 test-only harness half (BOARDED-for-integration.md L296; correctness D5 r4, T2; vs LIVE plugins/bd-guard), applied on T242e 3f2e76db (O1739b; by blob, no install):
+- o1698-mod-m25-big-read-guard-bd-worker-C1 r4
+
+
 ## v3.66.1806 - train242e: row
 
 T242 = 2 cuts (BOARDED-for-integration.md L294-295): o1698-mod-m7-state-line-trial r4 harness test half (correctness D2 r4, T2) + dl95-adulttime-1 r4 product T3 HIGH security login (Claude corr-D1 + kimi; O715 generated artifacts + declared edges re-derived in the release commit), applied on T241e 6d7c6e1e (O1739b):
