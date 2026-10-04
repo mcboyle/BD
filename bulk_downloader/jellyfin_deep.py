@@ -266,8 +266,8 @@ class JellyfinClient:
         because the scan + metadata fetch is async; gives up after
         timeout_s.
 
-        Jellyfin lets us filter items by Path which is direct unlike
-        Plex's need to list-and-grep.
+        Jellyfin's /Items has no Path filter, so this pages through the
+        newest-first listing and matches paths (like Plex's list-and-grep).
 
         Returns the item dict (with Id, Name, Path, ProductionYear,
         etc.) or None."""
@@ -278,32 +278,45 @@ class JellyfinClient:
         # mount as our downloader since we're on the same host.
         from pathlib import Path
         normalized = str(Path(file_path)).replace("\\", "/")
+        page = 200
         while time.time() < deadline:
             try:
-                # Search recently-added first; faster than full
-                # library walk
-                data = self._request("GET",
-                    f"/Users/{user_id}/Items",
-                    params={
-                        "Recursive": "true",
-                        "Fields": "Path,ProductionYear",
-                        "SortBy": "DateCreated",
-                        "SortOrder": "Descending",
-                        "Limit": "50",
-                    })
-                for item in (data.get("Items") or []):
-                    item_path = (item.get("Path") or "").replace("\\", "/")
-                    if item_path == normalized or item_path.endswith(normalized):
-                        return {
-                            "id": item.get("Id"),
-                            "name": item.get("Name"),
-                            "path": item_path,
-                            "year": item.get("ProductionYear"),
-                            "type": item.get("Type"),
-                            "unmatched": not bool(item.get("ProductionYear")),
-                        }
-            except JellyfinError:
-                pass
+                # Search recently-added first, paging on: /Items has no
+                # Path filter, so a file older than one page is still found.
+                start = 0
+                while time.time() < deadline:
+                    data = self._request("GET",
+                        f"/Users/{user_id}/Items",
+                        params={
+                            "Recursive": "true",
+                            "Fields": "Path,ProductionYear",
+                            "SortBy": "DateCreated",
+                            "SortOrder": "Descending",
+                            "StartIndex": str(start),
+                            "Limit": str(page),
+                        })
+                    items = data.get("Items") or []
+                    for item in items:
+                        item_path = (item.get("Path") or "").replace("\\", "/")
+                        if item_path == normalized or item_path.endswith(normalized):
+                            return {
+                                "id": item.get("Id"),
+                                "name": item.get("Name"),
+                                "path": item_path,
+                                "year": item.get("ProductionYear"),
+                                "type": item.get("Type"),
+                                "unmatched": not bool(item.get("ProductionYear")),
+                            }
+                    start += len(items)
+                    total = data.get("TotalRecordCount")
+                    if (len(items) < page
+                            or (isinstance(total, int) and start >= total)):
+                        break
+            except JellyfinError as e:
+                # Retrying cannot fix a bad key, missing config or a
+                # refused host: stop now. Network/unknown keep polling.
+                if e.kind in ("auth", "config", "blocked"):
+                    return None
             time.sleep(2.0)
         return None
 

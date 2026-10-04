@@ -179,6 +179,10 @@ class JDClient:
         # accepts keep-alive so this saves the TCP handshake on repeat
         # submits — usually 50-200ms per call on Windows loopback.
         self._client = None
+        # addLinks job id -> {"url": submitted URL, "uuid": resolved JD
+        # link uuid}. The job id is not a link id, so poll() resolves the
+        # link once (by job filter + URL match) and then filters by uuid.
+        self._jobs: dict = {}
         if _HAS_HTTPX:
             from bulk_downloader.ssrf_transport import guarded_transport, PINNED
             self._client = httpx.Client(
@@ -377,9 +381,12 @@ class JDClient:
         # itself gets a UUID once the linkgrabber finishes parsing.
         # The job-id is what we poll on.
         job_id = data.get("data") if isinstance(data, dict) else data
+        if isinstance(job_id, dict):
+            job_id = job_id.get("id")
         if job_id is None:
             raise JDError("unknown", "no job id in response",
                           {"body": str(data)[:200]})
+        self._jobs[str(job_id)] = {"url": url, "uuid": ""}
         return str(job_id)
 
     # ── Polling ───────────────────────────────────────────────────────
@@ -389,7 +396,8 @@ class JDClient:
         normalized status dict:
 
             {
-              "status": "running" | "done" | "failed" | "pending",
+              "status": "running" | "done" | "failed" | "pending"
+                        | "unknown" (no row matched this link),
               "bytes_done": int,
               "bytes_total": int,
               "filename": str,
@@ -405,11 +413,27 @@ class JDClient:
         if not link_id:
             raise JDError("unknown", "empty link_id")
 
+        unknown = {
+            "status": "unknown",
+            "bytes_done": 0, "bytes_total": 0,
+            "filename": "", "speed": 0, "error": "",
+        }
+        # `link_id` is the addLinks job id, not a link id. A non-numeric
+        # id would send an empty filter, which JD answers with EVERY link.
+        if not str(link_id).isdigit():
+            return unknown
+        job = self._jobs.get(str(link_id)) or {}
+
         # The /downloadsV2/queryLinks endpoint gives per-link state.
-        # `linkIds` filters to just the one we care about; flags enable
-        # the fields we want (bytes done, status, filename).
+        # Filter by the resolved link uuid once known, else by the job;
+        # flags enable the fields we want (bytes done, status, filename).
+        if job.get("uuid"):
+            id_filter = {"linkIds": [int(job["uuid"])]}
+        else:
+            id_filter = {"jobUUIDs": [int(link_id)]}
         payload = {
-            "linkIds": [int(link_id)] if str(link_id).isdigit() else [],
+            **id_filter,
+            "url": True,
             "bytesTotal": True,
             "bytesLoaded": True,
             "speed": True,
@@ -454,7 +478,24 @@ class JDClient:
                 "filename": "", "speed": 0, "error": "",
             }
 
-        row = rows[0] if isinstance(rows, list) else rows
+        # Only a row that IS this link counts: the resolved uuid, or (before
+        # resolution) the URL this client submitted for the job. A filter
+        # JD ignored returns other links -- never report one of those.
+        row = None
+        for cand in (rows if isinstance(rows, list) else [rows]):
+            if not isinstance(cand, dict):
+                continue
+            if job.get("uuid"):
+                if str(cand.get("uuid")) == job["uuid"]:
+                    row = cand
+                    break
+            elif job.get("url") and cand.get("url") == job["url"]:
+                if str(cand.get("uuid") or "").isdigit():
+                    job["uuid"] = str(cand["uuid"])
+                row = cand
+                break
+        if row is None:
+            return unknown
         # JD's status enum is verbose ("FINISHED", "RUNNING",
         # "OFFLINE", "PLUGIN_DEFECT", etc.). Normalize to our 4-state.
         raw_status = (row.get("status") or "").upper()
