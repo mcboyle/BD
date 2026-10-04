@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5836,
+  "edge_count": 5840,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4957,9 +4957,17 @@
       "bulk_downloader/interop_registry.py",
       "bulk_downloader/widgets_config.py"
     ],
+    "tests/test_o1826_c25_media_server_integrations.py": [
+      "bulk_downloader/jd_bridge.py",
+      "bulk_downloader/jellyfin_deep.py"
+    ],
     "tests/test_o1826_c29_healthcheck_severity_cost.py": [
       "bulk_downloader/healthcheck.py",
       "bulk_downloader/library_final.py"
+    ],
+    "tests/test_o1826_c31_lifecycle_drift_gate.py": [
+      "bulk_downloader/lifecycle_automation.py",
+      "bulk_downloader/lifecycle_drift.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

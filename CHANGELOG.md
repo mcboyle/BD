@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1823 - train259g: row
+
+T259 (rebuild g) on T258g 91158531 (origin/main): o1826-c31-lifecycle-drift-gate r1 (L337; T1 D25-D; lifecycle_drift.py), o1826-c25-media-server r2 (L338; T1 cx11 r2, r1 REFUTE superseded by sidecar per PM; jd_bridge.py, jellyfin_deep.py), + o1882 share-guard test add-on by blob (RULING-pm-day-A-wtcap-cx11-board-1448Z.md item 2; cx11 r1 BOARD). No frontend. (O1739b)
+- o1826-c31-lifecycle-drift-gate r1
+- o1826-c25-media-server r2
+
+
 ## v3.66.1822 - train258g: row
 
 T258 (rebuild g) on T257e 42cee834 (origin/main): (1) integrator commit bd-lens-worktree MAX_WORKTREE_MB 66 -> 72 (operator answer 14:33Z; unblocks row963 gate that bounced #1179/#1180), (2) o1807-r6-autonomy-store r4 (BOARDED L334; census pin 19), (3) o1826-c04-live-recorder-pipe-probe-threshold r2 (L335), (4) o1826-c29-healthcheck-severity-cost r1 (L336). Supersedes #1179 T258e and #1180 T259e (FF heads lacked the cap). No frontend. (O1739b)
