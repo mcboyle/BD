@@ -103,9 +103,9 @@ KNOWN_TRACKER_HOSTS: frozenset = frozenset({
     "fbcdn.net" + ".tracking",  # never matches — placeholder; fbcdn carries content
 })
 
-# URL path substrings that strongly suggest the URL is a beacon/pixel,
-# not a content delivery URL. Matched case-insensitively against the
-# path portion only (NOT host, NOT query).
+# URL path segments that strongly suggest the URL is a beacon/pixel,
+# not a content delivery URL. Matched case-insensitively as whole path
+# segments (see _path_has_pixel_token) -- path only, NOT host, NOT query.
 PIXEL_PATH_TOKENS: frozenset = frozenset({
     "/pixel",
     "/track",
@@ -228,8 +228,8 @@ def score_candidate(
 
       * ``tracker_host``      : 0.95 — URL's host (or a parent
                                 domain) is on KNOWN_TRACKER_HOSTS.
-      * ``pixel_path``        : 0.85 — URL path contains a
-                                PIXEL_PATH_TOKENS substring.
+      * ``pixel_path``        : 0.85 — a URL path segment is a
+                                PIXEL_PATH_TOKENS route.
       * ``empty_path_only_qs``: 0.70 — URL has no path component
                                 (``/`` or empty) but a non-empty
                                 query string. Classic cache-buster
@@ -441,14 +441,24 @@ def _host_matches_tracker(host: str) -> bool:
 
 
 def _path_has_pixel_token(path: str) -> bool:
-    """Return True if the URL path contains a known pixel-route
-    substring. Case-insensitive (path is already lowercased by
-    score_candidate)."""
+    """Return True if a URL path SEGMENT is a known pixel route.
+    Case-insensitive (path is already lowercased by score_candidate).
+
+    O1826 M065: tokens match whole segments, not substrings -- "/collect"
+    and "/track" used to fire inside "/collections/" and "/tracks/" and
+    drop real media at 0.85. A token also matches the segment's stem
+    (text before the first "."), so "/pixel.gif" and "/track.gif" still
+    fire."""
     if not path:
         return False
-    for tok in PIXEL_PATH_TOKENS:
-        if tok in path:
-            return True
+    for seg in path.split("/"):
+        if not seg:
+            continue
+        stem = seg.split(".", 1)[0]
+        for tok in PIXEL_PATH_TOKENS:
+            name = tok[1:]
+            if seg == name or stem == name:
+                return True
     return False
 
 

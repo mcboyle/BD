@@ -1,5 +1,5 @@
 """ffprobe-based file integrity check (silent skip if not installed)."""
-import json, shutil, subprocess
+import json, logging, shutil, subprocess
 
 from .streaming_hash import (
     HashVerificationResult,
@@ -17,6 +17,8 @@ from .streaming_hash import (
 # was on PATH at startup, and an ffmpeg_path pin set afterwards could never reach
 # it. Same fail-open contract: no ffprobe -> integrity is a no-op (we would rather
 # download than refuse to run).
+log = logging.getLogger(__name__)
+
 _UNSET = object()
 _FFPROBE = _UNSET      # module-level seam: tests set this directly; None = "absent"
 
@@ -42,6 +44,9 @@ def _ffprobe():
 # images pass on a non-empty file whose magic header matches the extension.
 _FFPROBE_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".wmv", ".m4v",
                  ".mp3", ".m4a", ".ts", ".flv"}
+# O1826 M073: audio files need an AUDIO stream; requiring a video stream
+# quarantined every .mp3/.m4a without embedded cover art.
+_AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".flac", ".opus", ".wav"}
 _IMAGE_MAGIC = {
     ".jpg":  (b"\xff\xd8\xff",),
     ".jpeg": (b"\xff\xd8\xff",),
@@ -98,7 +103,8 @@ def verify_media_integrity(path):
         if satellite_video.is_eligible_for_offload(path):
             return satellite_video.validate_video_rpc(path)
     except Exception as _e:
-        _ = str(_e)
+        log.warning("satellite video offload failed for %s (%s: %s); "
+                    "falling back to local ffprobe", path, type(_e).__name__, _e)
         return _verify_with_ffprobe(path)
     return _verify_with_ffprobe(path)
 
@@ -123,8 +129,10 @@ def _verify_with_ffprobe(path):
         except Exception as e: return False,f"unparseable ffprobe output: {e}"
         streams=data.get("streams") or []
         if not streams: return False,"no streams found"
-        if not any(s.get("codec_type")=="video" for s in streams):
-            return False,"no video stream"
+        import os
+        want="audio" if os.path.splitext(str(path))[1].lower() in _AUDIO_EXTS else "video"
+        if not any(s.get("codec_type")==want for s in streams):
+            return False,f"no {want} stream"
         return True,""
     except subprocess.TimeoutExpired: return False,"ffprobe timeout"
     except Exception as e: return False,f"ffprobe error: {e}"
