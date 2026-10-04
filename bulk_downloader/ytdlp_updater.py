@@ -240,13 +240,16 @@ def _latest_state_path():
 
 
 def _read_cached_latest():
+    """(version, ts) from the disk cache; ts is 0.0 when absent, so it reads as stale."""
     try:
         with open(_latest_state_path(), "r", encoding="utf-8") as fh:
             d = json.load(fh)
         v = d.get("version")
-        return v if isinstance(v, str) and v else None
+        ts = d.get("ts")
+        ts = float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else 0.0
+        return (v if isinstance(v, str) and v else None), ts
     except Exception:
-        return None          # corrupt or absent -> UNKNOWN, never a crash
+        return None, 0.0     # corrupt or absent -> UNKNOWN, never a crash
 
 
 def _write_cached_latest(ver: str) -> None:
@@ -284,9 +287,12 @@ def latest_version(*, allow_fetch: bool = False,
     cached = _LATEST_CACHE.get("version")
     if cached and (now - _LATEST_CACHE.get("ts", 0.0)) < _LATEST_TTL:
         return cached
-    disk = _read_cached_latest()
-    if disk:
-        _LATEST_CACHE.update({"ts": now, "version": disk})
+    # O1826 C46 (M192): the disk copy keeps its own ts. It used to be returned
+    # before any fetch, even with allow_fetch=True, so once written "latest"
+    # never refreshed. A stale copy is still the answer when no fetch happens.
+    disk, disk_ts = _read_cached_latest()
+    if disk and (now - disk_ts) < _LATEST_TTL:
+        _LATEST_CACHE.update({"ts": disk_ts, "version": disk})
         return disk
     # @979: DEFAULT IS NO NETWORK. This is reached from the startup selftest,
     # and every other probe in healthcheck.py is local -- @977 broke that
@@ -295,7 +301,7 @@ def latest_version(*, allow_fetch: bool = False,
     # refresh asks for it; BD_TEST_MODE refuses regardless, so the suite is
     # hermetic even if some future caller forgets.
     if not allow_fetch or _test_mode():
-        return None
+        return disk
     try:
         body = (_fetch or _default_fetch)(_PYPI_JSON, timeout)
         ver = ((json.loads(body) or {}).get("info") or {}).get("version") or None
@@ -306,11 +312,11 @@ def latest_version(*, allow_fetch: bool = False,
         # as None, indistinguishable from an unreachable index. ast.parse was
         # clean; only importing and CALLING it showed the difference. The guard
         # is the test that asserts a parsed version comes back, not this line.
-        return None          # unknown, explicitly -- see the docstring
+        return disk          # the last real answer, or None (unknown) -- see the docstring
     if ver:
         _LATEST_CACHE.update({"ts": now, "version": ver})
         _write_cached_latest(ver)     # survive the process, or boot is always cold
-    return ver
+    return ver or disk
 
 
 def is_behind(installed, latest) -> bool:

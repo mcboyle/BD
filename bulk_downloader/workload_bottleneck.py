@@ -142,6 +142,11 @@ class _RollingMetricSeries:
 MIN_THROUGHPUT_SAMPLE_BYTES = 1 << 20
 MIN_THROUGHPUT_SAMPLE_SECONDS = 2.0
 
+# O1826 C46 (M190): detect_anomalies' "every site" default. None cannot be that
+# default because None is also a real site key (the default-site series), and
+# record_metric(site_id=None) used to sweep, and re-emit, every other site.
+_ALL_SITES: Any = object()
+
 
 class WorkloadBottleneckDetector:
     """Automated statistical bottleneck anomaly detector for download workloads."""
@@ -296,15 +301,18 @@ class WorkloadBottleneckDetector:
     def detect_anomalies(
         self,
         metric_name: Optional[str] = None,
-        site_id: Optional[str] = None,
+        site_id: Optional[str] = _ALL_SITES,
     ) -> list[AnomalyEvent]:
-        """Evaluate series statistical baselines and flag active anomaly outliers."""
+        """Evaluate series statistical baselines and flag active anomaly outliers.
+
+        Omit ``site_id`` to sweep every site; ``site_id=None`` is the default-site series only.
+        """
         with self._lock:
             anomalies: list[AnomalyEvent] = []
             for (m_name, s_id), series in self._series.items():
                 if metric_name is not None and m_name != metric_name:
                     continue
-                if site_id is not None and s_id != site_id:
+                if site_id is not _ALL_SITES and s_id != site_id:
                     continue
                 if series.count <= self.min_samples_for_baseline:
                     continue

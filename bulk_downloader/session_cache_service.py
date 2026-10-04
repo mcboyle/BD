@@ -1,8 +1,12 @@
-"""session_cache_service -- distributed session state cache replication.
+"""session_cache_service -- session state mutation detection and an in-process cache.
 
 Row 956 (v3.66.1585): intercept HTTP state mutation events (Set-Cookie,
-Authorization header changes), serialize updated session state, and
-replicate to a shared cache for cross-node coherence.
+Authorization header changes) and serialize updated session state.
+
+O1826 C46 (M158): the cache is a per-instance, in-process dict keyed by site
+only. ``node_id`` is accepted on write/read but does not partition the key, so
+every caller sharing one instance sees one session per site. Nothing here
+leaves the process: there is no shared store and no cross-node transport.
 """
 from __future__ import annotations
 

@@ -427,27 +427,10 @@ def validate_config(cfg: dict) -> dict:
                     f"'crawler_scene_patterns' line {text[:60]!r} is not a valid regex ({exc}).")
 
     # ── Numeric ranges ─────────────────────────────────────────────
-    for field, (lo, hi) in NUMERIC_RANGES.items():
-        if field not in cfg or cfg[field] in (None, ""):
-            continue
-        try:
-            n = float(cfg[field])
-        except (TypeError, ValueError):
-            errors.append(
-                f"'{field}' must be a number (got {cfg[field]!r}).")
-            continue
-        # v3.66.559 (F-COREBD06-01 / VR-P08 parity): NaN slips the range check
-        # below (NaN < lo and NaN > hi are BOTH False), so it would persist into
-        # sites_config.json via a hand-edit or import. Reject any non-finite
-        # value (NaN / +-inf) explicitly, matching validate_numeric_updates.
-        if not math.isfinite(n):
-            errors.append(
-                f"'{field}' must be a finite number (got {cfg[field]!r}).")
-            continue
-        if n < lo or n > hi:
-            errors.append(
-                f"'{field}' must be between {lo} and {hi} "
-                f"(got {n:g}).")
+    # O1826 C46 (M165): one validator for both paths. The copy that lived here
+    # drifted -- it never gained the INT_TYPED_FIELDS check, so 2.5 for an int
+    # field passed the dry run and then ValueErrored at the consumer.
+    errors.extend(validate_numeric_updates(cfg).values())
 
     # ── String-type coercion sanity ────────────────────────────────
     # Collection types in string slots corrupt sites_config.json.

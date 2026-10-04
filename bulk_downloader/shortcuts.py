@@ -57,13 +57,14 @@ CATALOG = [
      "context": "site"},
     {"keys": "Shift+L", "action": "relogin",
      "description": "Force re-login on current site", "context": "site"},
-    # Utility
-    {"keys": "Shift+R", "action": "reload_data",
+    # Utility. O1826 C46 (M164): Alt+Shift, because Shift+R and Shift+D already
+    # belong to the history row actions above and one key cannot mean both.
+    {"keys": "Alt+Shift+R", "action": "reload_data",
      "description": "Reload data without full page refresh",
      "context": "global"},
     {"keys": "Shift+H", "action": "show_health",
      "description": "Show health checklist", "context": "global"},
-    {"keys": "Shift+D", "action": "diagnostics_download",
+    {"keys": "Alt+Shift+D", "action": "diagnostics_download",
      "description": "Download diagnostics bundle", "context": "global"},
 ]
 

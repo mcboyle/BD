@@ -176,16 +176,26 @@ def check_budget(rows: List[Dict[str, Any]], budget_us: int, root: Optional[str]
     ``encodings``, the frozen importlib bootstrap) and the interpreter genuinely paid for all of
     them, so taking only the largest would quietly under-report the cold start.
     """
+    # O1826 C46 (M071): a root absent from the table is a measurement that did not
+    # happen. It used to total 0 and pass -- the "zero reads as fast" answer the
+    # module docstring forbids.
+    error = None
     if root is not None:
-        total_us = next((row["cumulative_us"] for row in rows if row["module"] == root), 0)
+        total_us = next((row["cumulative_us"] for row in rows if row["module"] == root), None)
+        if total_us is None:
+            total_us = 0
+            error = "the -X importtime table does not contain %r" % root
     else:
         total_us = sum(row["cumulative_us"] for row in rows if row["depth"] == 0)
     owned = owned_costs(rows, prefix=prefix)
-    return {
-        "ok": total_us <= budget_us,
+    report = {
+        "ok": error is None and total_us <= budget_us,
         "total_us": total_us,
         "budget_us": budget_us,
         "over_us": max(0, total_us - budget_us),
         "owned": owned,
         "worst": owned[0] if owned else None,
     }
+    if error is not None:
+        report["error"] = error
+    return report
