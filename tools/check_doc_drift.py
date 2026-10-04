@@ -76,7 +76,10 @@ def scan(root="."):
     for d in KB_SET:
         out["kb_set_in_tree"][d] = os.path.isfile(os.path.join(root, d))
     # newest KB_HANDOFF in tree, if any
-    hs = sorted(glob.glob(os.path.join(root, "KB_HANDOFF_v3_66_*.md")))
+    hs = sorted(
+        glob.glob(os.path.join(root, "KB_HANDOFF_v3_66_*.md")),
+        key=lambda path: tuple(int(v) for v in re.findall(r"\d+", os.path.basename(path))),
+    )
     out["newest_handoff_in_tree"] = os.path.basename(hs[-1]) if hs else None
     return out
 
