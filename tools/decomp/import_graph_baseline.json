@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5761,
+  "edge_count": 5762,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4778,6 +4778,9 @@
     ],
     "tests/test_o1671_a16_capture_analytics_getsize.py": [
       "tools/capture_analytics.py"
+    ],
+    "tests/test_o1671_a16_changelog_analyzer_head_regex.py": [
+      "tools/changelog_analyzer.py"
     ],
     "tests/test_o1671_a16_check_doc_drift_version_sort.py": [
       "tools/check_doc_drift.py"
