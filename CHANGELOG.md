@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1824 - train260e: row
+
+T260 (rebuild b) on T259g 0ea6c7da: o1826-c26-scrapling-failclosed r1 (L339; T1 kimi + ERRATA patch-sha), o1876-6-pii-test-email r1 (L341; T1 cx13; O1876 item 6 test-only placeholder). o1826-c32 BOUNCED (undeclared soupsieve import; dep_freshness). (O1739b)
+- o1826-c26-scrapling-failclosed r1
+- o1876-6-pii-test-email r1
+
+
 ## v3.66.1823 - train259g: row
 
 T259 (rebuild g) on T258g 91158531 (origin/main): o1826-c31-lifecycle-drift-gate r1 (L337; T1 D25-D; lifecycle_drift.py), o1826-c25-media-server r2 (L338; T1 cx11 r2, r1 REFUTE superseded by sidecar per PM; jd_bridge.py, jellyfin_deep.py), + o1882 share-guard test add-on by blob (RULING-pm-day-A-wtcap-cx11-board-1448Z.md item 2; cx11 r1 BOARD). No frontend. (O1739b)

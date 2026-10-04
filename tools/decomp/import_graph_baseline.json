@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5840,
+  "edge_count": 5841,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4960,6 +4960,9 @@
     "tests/test_o1826_c25_media_server_integrations.py": [
       "bulk_downloader/jd_bridge.py",
       "bulk_downloader/jellyfin_deep.py"
+    ],
+    "tests/test_o1826_c26_scrapling_adapter_failclosed.py": [
+      "bulk_downloader/scrapling_adapter.py"
     ],
     "tests/test_o1826_c29_healthcheck_severity_cost.py": [
       "bulk_downloader/healthcheck.py",
