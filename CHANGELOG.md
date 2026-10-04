@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1815 - train251e: row
+
+T251 = 1 product cut (BOARDED-for-integration.md L315; T1 corr-D14-D r1 on f802ff89): work_stealing.py lease (steal honours set_nx_ex; reap requeues only on LREM hit + atomic renew); no frontend; applied on T250e 17a427aa (O1739b):
+- o1826-c14-work-stealing-lease r1
+
+
 ## v3.66.1814 - train250e: row
 
 T250 = 2 product cuts (BOARDED-for-integration.md L313-314, routed by bd-lensrouter-A3-A; list column = DONE.md sha256, PATCH-SHA256 recomputed == DONE == verdict): o1815-r14-library-cursor-paging r3 (app_library.py, library.py; D10 r3 + shape D5-D r3; 4 declared edges), o1826-c10-tool-bridge-tmp-home r2 (tool_bridge.py; T2 SECURITY correctness r2 + cx1 r2, supersedes r1 REFUTE; 1 declared edge); import-graph edges re-derived in release. No frontend. Applied on T249e 3de54e89 (origin/main) (O1739b):
