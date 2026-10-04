@@ -193,9 +193,9 @@ def _extract_domain(url_or_domain: str) -> str:
         return "default"
     if "://" in url_or_domain:
         try:
-            parsed = urllib.parse.urlsplit(url_or_domain)
-            netloc = parsed.netloc.split(":")[0].strip().lower()
-            return netloc if netloc else "default"
+            # .hostname drops userinfo, port and IPv6 brackets; netloc.split(":") did not
+            host = (urllib.parse.urlsplit(url_or_domain).hostname or "").strip()
+            return host if host else "default"
         except Exception:
             return "default"
     return url_or_domain.split(":")[0].strip().lower()
@@ -319,27 +319,31 @@ class MultiTenantLedgerRouter:
         self,
         tenant_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Verify chain integrity across all or tenant-specific partition shards."""
-        with self._lock:
-            t_filter = tenant_id.strip().lower() if tenant_id else None
-            tampered = []
-            verified_count = 0
-            is_valid = True
+        """Verify chain integrity across all or tenant-specific partition shards.
 
-            for shard in self._shards.values():
-                if t_filter and shard.key.tenant_id != t_filter:
-                    continue
+        The shard list is snapshotted under the router lock and hashed after
+        releasing it, so record_entry is not blocked for the whole pass."""
+        t_filter = tenant_id.strip().lower() if tenant_id else None
+        with self._lock:
+            shards = [s for s in self._shards.values()
+                      if not t_filter or s.key.tenant_id == t_filter]
+        tampered = []
+        verified_count = 0
+        is_valid = True
+
+        for shard in shards:
+            with shard._lock:
                 ok, err = shard.verify_chain()
                 verified_count += len(shard._entries)
-                if not ok:
-                    is_valid = False
-                    tampered.append(shard.key.partition_id)
+            if not ok:
+                is_valid = False
+                tampered.append(shard.key.partition_id)
 
-            return {
-                "valid": is_valid,
-                "verified_count": verified_count,
-                "tampered_partitions": tampered,
-            }
+        return {
+            "valid": is_valid,
+            "verified_count": verified_count,
+            "tampered_partitions": tampered,
+        }
 
     def chain_heads(self, tenant_id: Optional[str] = None) -> dict[str, tuple[int, str]]:
         """partition_id -> (entry count, chain head); two routers built from

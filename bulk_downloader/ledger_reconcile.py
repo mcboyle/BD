@@ -27,6 +27,8 @@ from __future__ import annotations
 import sqlite3
 
 DEFAULT_CHECKPOINT_EVERY = 256
+MAX_PEER_CHECKPOINTS = 100_000   # validate_digest refuses a peer digest carrying more
+_IN_CHUNK = 500                  # max ids bound per IN (...) query
 
 
 class ReplicaUnavailable(RuntimeError):
@@ -70,9 +72,12 @@ def digest_from_conn(cx, *, checkpoint_every: int = DEFAULT_CHECKPOINT_EVERY,
     wanted = {int(i) for i in (want_ids or []) if int(i) > 0}
     wanted.update(range(every, head_id + 1, every))
     wanted.add(head_id)
-    rows = cx.execute(
-        "SELECT id, chain_hash FROM provenance WHERE id IN (%s) ORDER BY id ASC"
-        % ",".join("?" * len(wanted)), sorted(wanted)).fetchall()
+    ids, rows = sorted(wanted), []
+    for i in range(0, len(ids), _IN_CHUNK):   # stay under SQLite's bound-variable limit
+        chunk = ids[i:i + _IN_CHUNK]
+        rows += cx.execute(
+            "SELECT id, chain_hash FROM provenance WHERE id IN (%s) ORDER BY id ASC"
+            % ",".join("?" * len(chunk)), chunk).fetchall()
     return {"count": count, "head_id": head_id, "head_chain_hash": head_hash,
             "checkpoints": [[int(r[0]), str(r[1])] for r in rows]}
 
@@ -91,8 +96,9 @@ def digest_from_path(path: str, **kw) -> dict:
         cx.close()
 
 
-def validate_digest(d) -> dict:
-    """Coerce a peer-supplied digest; raise ValueError on any malformed field."""
+def validate_digest(d, *, max_checkpoints=MAX_PEER_CHECKPOINTS) -> dict:
+    """Coerce a peer-supplied digest; raise ValueError on any malformed field.
+    ``max_checkpoints=None`` lifts the peer cap for a digest this node built."""
     if not isinstance(d, dict):
         raise ValueError("digest must be an object")
     try:
@@ -102,8 +108,11 @@ def validate_digest(d) -> dict:
     head_hash = d.get("head_chain_hash", "")
     if not isinstance(head_hash, str) or count < 0 or head_id < 0:
         raise ValueError("head_chain_hash must be a string; counts non-negative")
+    raw = d.get("checkpoints") or []
+    if max_checkpoints is not None and len(raw) > max_checkpoints:
+        raise ValueError(f"too many checkpoints: {len(raw)} > {max_checkpoints}")
     cps = []
-    for cp in d.get("checkpoints") or []:
+    for cp in raw:
         if (not isinstance(cp, (list, tuple)) or len(cp) != 2
                 or not isinstance(cp[1], str)):
             raise ValueError(f"bad checkpoint {cp!r}")
@@ -114,7 +123,8 @@ def validate_digest(d) -> dict:
 
 
 def reconcile(local: dict, remote: dict) -> dict:
-    local, remote = validate_digest(local), validate_digest(remote)
+    # the cap guards peer input only; our own digest may exceed it (every=1)
+    local, remote = validate_digest(local, max_checkpoints=None), validate_digest(remote)
     mine = {0: ""}
     mine.update({i: h for i, h in local["checkpoints"]})
     mine[local["head_id"]] = local["head_chain_hash"]

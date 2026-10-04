@@ -108,6 +108,9 @@ def parse_sitemap(body: bytes) -> list:
 
 # ─── Seen-set management ──────────────────────────────────────────────
 
+_IN_CHUNK = 500   # max URLs bound per IN (...) query
+
+
 def _already_seen(site_id: str, urls: list) -> set:
     """Return the subset of `urls` we've already recorded."""
     _ensure_table()
@@ -115,13 +118,18 @@ def _already_seen(site_id: str, urls: list) -> set:
         return set()
     try:
         from . import db as _db
-        placeholders = ",".join("?" * len(urls))
+        seen = set()
         with _db.db_conn() as cx:
-            rows = cx.execute(
-                f"""SELECT source_url FROM discovery_seen
-                    WHERE site_id = ? AND source_url IN ({placeholders})""",
-                (site_id, *urls)).fetchall()
-        return {r[0] for r in rows}
+            # Chunked: one ? per URL would pass SQLite's bound-variable limit.
+            for i in range(0, len(urls), _IN_CHUNK):
+                chunk = urls[i:i + _IN_CHUNK]
+                placeholders = ",".join("?" * len(chunk))
+                rows = cx.execute(
+                    f"""SELECT source_url FROM discovery_seen
+                        WHERE site_id = ? AND source_url IN ({placeholders})""",
+                    (site_id, *chunk)).fetchall()
+                seen.update(r[0] for r in rows)
+        return seen
     except Exception:
         return set()
 
