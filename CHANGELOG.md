@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1800 - train236e: row
+
+T236 = 3 harness test halves (BOARDED-for-integration.md L271-277: nfs-share-ln-T first per RULING O1821, m27-worktree-guard, o1672-launch-adapter-pools), applied on T235e 8aad91d6 (O1739b; train by blob, no install, O1738c/O1796):
+- o1698-nfs-share-ln-T r2
+- o1698-mod-m27-worktree-guard-bd-worker-D2 r3
+- o1672-launch-adapter-pools-bd-worker-D1 r3
+
+
 ## v3.66.1799 - train235e: row
 
 T235 = 2 cuts (BOARDED-for-integration.md L267, L269): o1698-host-prep-addenda-r2 harness tests (correctness D8 r2) + o1807-r3-sse-initial-status product (app.py; correctness D1 r1, T1), applied on T234e 1e7020ed (O1739b; harness by blob, no install).
