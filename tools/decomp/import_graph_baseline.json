@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5852,
+  "edge_count": 5867,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4982,12 +4982,31 @@
     "tests/test_o1826_c37_cockpit_capture_batch_argv.py": [
       "tools/cockpit_core.py"
     ],
+    "tests/test_o1826_c43_perf_capture_template_scans.py": [
+      "bulk_downloader/dom_analyzer.py",
+      "bulk_downloader/drift_repair.py",
+      "bulk_downloader/selector_drift.py",
+      "bulk_downloader/template_registry.py"
+    ],
     "tests/test_o1826_c44_perf_algorithms.py": [
       "bulk_downloader/app_dedup.py",
       "bulk_downloader/dedup.py",
       "bulk_downloader/metadata_normalizer.py",
       "bulk_downloader/scene_crawler.py",
       "bulk_downloader/sqlite_cdc.py"
+    ],
+    "tests/test_o1826_c45_observability_swallows.py": [
+      "bulk_downloader/account_health.py",
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app_template.py",
+      "bulk_downloader/capture_login_wire.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/knowledge.py",
+      "bulk_downloader/llm_audit.py",
+      "bulk_downloader/llm_cache.py",
+      "bulk_downloader/llm_exec.py",
+      "bulk_downloader/playlist_extractor.py",
+      "bulk_downloader/search_extractor.py"
     ],
     "tests/test_o1839_r19_saved_key_bind.py": [
       "bulk_downloader/ai_provider.py",

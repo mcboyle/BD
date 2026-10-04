@@ -4,6 +4,15 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1828 - train264e: row
+
+T264 on T263e d6c60ff2: o1826-c43-perf-capture-template-scans r1 (L361; T1), o1826-c39-reachability-adjacency-once r2 (L363; T1; r1 REFUTE closed by FIX-R-155 test-only), o1826-c45-observability-swallows r1 (L364; T1; M147 propagation intended). (O1739b)
+TRAIN NOTES: c43 PM residual LOW -- cache isolation test covers only find(no html)+load_templates; 3 deepcopy sites partly unpinned. c45 PM follow-up LOW -- F1 eager log formatting can re-raise; F2 'break' mutant escapes.
+- o1826-c43-perf-capture-template-scans r1
+- o1826-c39-reachability-adjacency-once r2
+- o1826-c45-observability-swallows r1
+
+
 ## v3.66.1827 - train263e: row
 
 T263 on T262e 6ef1ad46: o1826-c34-storage-tier-async r2 (L359; delta receipt lens O1870 on r1 product BOARD; census706 fixed), flake-772-cloak-stub-order r1 (L360; T1 test-only; RULING-pm-day-A-flake-row772-1649Z.md / -flake-779-804-1731Z.md). R10 r4 dropped: gitleaks (BOUNCE-o1815-r10-gitleaks). (O1739b)
