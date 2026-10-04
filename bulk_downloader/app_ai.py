@@ -33,7 +33,8 @@ def api_ai_models():
 
     The api_key is optional — a blank value, or the masked sentinel
     the UI shows for an already-saved key, falls back to the stored
-    key. Read-only: never writes config."""
+    key only for the saved provider+endpoint (O1839 R19); any other
+    identity needs an explicit key. Read-only: never writes config."""
     from . import aiassist
     body = request.json or {}
     api_key = str(body.get("api_key") or "").strip()

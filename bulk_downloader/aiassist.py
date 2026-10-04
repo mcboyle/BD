@@ -432,6 +432,15 @@ def validate_endpoint(url: str, provider: Optional[str] = None) -> Tuple[bool, s
     return True, "allowed (private IP)"
 
 
+def _model_identity(ai_provider, provider, endpoint) -> Tuple[str, str]:
+    """(provider, endpoint) as the provider class would use them: blank
+    endpoint -> that provider's default, trailing slash dropped."""
+    prov = str(provider or "ollama").strip().lower()
+    info = ai_provider.provider_info(prov) or {}
+    ep = str(endpoint or "").strip() or info.get("default_endpoint") or ""
+    return prov, ep.rstrip("/")
+
+
 def list_available_models(provider: Optional[str] = None,
                           endpoint: Optional[str] = None,
                           api_key: Optional[str] = None) -> Dict[str, Any]:
@@ -457,12 +466,20 @@ def list_available_models(provider: Optional[str] = None,
     if not ok:
         return {"ok": False, "models": [], "provider": prov,
                 "error": msg}
-    key = api_key if api_key else _resolve_api_key()
     try:
         from . import ai_provider
     except Exception as e:
         return {"ok": False, "models": [], "provider": prov,
                 "error": f"ai_provider unavailable: {e}"}
+    # O1839 R19: the saved key is bound to the saved provider+endpoint.
+    # A draft identity (another host or provider) gets it only via an
+    # explicitly supplied key — never by inheriting the stored one.
+    key = api_key
+    if not key and (_model_identity(ai_provider, prov, ep)
+                    == _model_identity(ai_provider,
+                                       _config.get("provider"),
+                                       _config.get("endpoint"))):
+        key = _resolve_api_key()
     p = ai_provider.make_provider(prov, endpoint=ep, api_key=key or "")
     if p is None:
         return {"ok": False, "models": [], "provider": prov,
