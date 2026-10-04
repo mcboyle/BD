@@ -12,8 +12,8 @@ from .db import db_log, session_event_record
 from .login import do_login
 from .login_impl.replay import redact_url_credentials, write_login_evidence
 from .login_impl.submit import (LOGIN_CANCELLED_PREFIX, LOGIN_POST_CHALLENGE_STATUS,
-                                 LOGIN_UNREACHABLE_PREFIX, LOGIN_VAULT_LOCKED_PREFIX,
-                                 login_abort_check)
+                                 LOGIN_TURNSTILE_UNCLEARED_PREFIX, LOGIN_UNREACHABLE_PREFIX,
+                                 LOGIN_VAULT_LOCKED_PREFIX, login_abort_check)
 from . import cloak as _cloak
 from .log import site_tag
 from .cookies import cookies_expiry_info
@@ -438,6 +438,35 @@ class AuthMixin:
                                     allow_manual_takeover=allow_manual,
                                     site_id=self.site_id)
                 _surface_login_channel_fallbacks(self)
+                # The wait owns the page; auth owns the operator/relay result.
+                _uncleared_cf = bool(
+                    result and (result[0] is False or result[0] == "MANUAL_PENDING")
+                    and str(result[1]).startswith(LOGIN_TURNSTILE_UNCLEARED_PREFIX))
+                if _uncleared_cf:
+                    _abort = self._relogin_abort_reason()
+                    if _abort:
+                        if result[0] == "MANUAL_PENDING":
+                            from .login import cancel_manual_login
+                            cancel_manual_login(result[2])
+                        result = (False, LOGIN_CANCELLED_PREFIX + _abort, [])
+                    else:
+                        _reason = "ACTION REQUIRED: turnstile-not-cleared; " + str(result[1])
+                        if _truthy(self.config.get("use_captcha_relay", False)):
+                            from . import captcha_relay
+                            _url = (self.config.get("login_url") or "").strip()
+                            try:
+                                captcha_relay.mark_captcha_needed(
+                                    self.site_id, _url, "turnstile", title="Just a moment")
+                                _pending = captcha_relay.get_pending(_url)
+                                _registered = bool(
+                                    _pending and _pending["site_id"] == self.site_id
+                                    and _pending["status"] in ("pending", "solving"))
+                                _reason += ("; captcha relay pending" if _registered
+                                            else "; captcha relay unavailable")
+                            except (OSError, RuntimeError, ValueError) as _relay_error:
+                                _reason += ("; captcha relay unavailable ("
+                                            + type(_relay_error).__name__ + ")")
+                        result = (result[0], _reason, result[2])
                 # dl95-cancel-relogin-cap-1: a login withdrawn before submit
                 # sent no credentials -- give its day slot back.
                 # O1567 fx-relogin-vault-locked: nor did a login refused
@@ -537,6 +566,7 @@ class AuthMixin:
                 # dl95-cancel-relogin-1: a withdrawn login was never tried; a
                 # takeover window would reopen the login the operator cancelled.
                 if (not ok and allow_manual and had_template
+                        and not _uncleared_cf
                         and not str(msg).startswith(LOGIN_UNREACHABLE_PREFIX)
                         # fx-vixen-post-challenge-fastfail: Cloudflare challenges
                         # the login POST itself -- a takeover meets the same wall.
@@ -1278,7 +1308,8 @@ class AuthMixin:
             self._set_login_status(f"✗ Human check: the plain browser did not start ({str(e)[:100]})")
             return True
         self._human_challenge_session = session
-        self._set_login_status("⏳ Human check: tick the Cloudflare box on the display -- "
+        self._set_login_status("⏳ ACTION REQUIRED: turnstile-not-cleared; "
+                               "Human check: tick the Cloudflare box on the display -- "
                                "the app finishes the login")
         self.log_event("human_challenge",
                        f"plain challenge browser open for {session.domain} (no CDP, profile manual); "

@@ -137,6 +137,10 @@ LOGIN_UNREACHABLE_PREFIX="Login page unreachable: "
 # itself; passing it reloads as a GET and the credentials are never delivered.
 LOGIN_POST_CHALLENGE_STATUS="settled-challenge-post"
 LOGIN_CANCELLED_PREFIX="Login cancelled before submit: "
+# dl95-adulttime-1: do_login's verdict when the clicks leave the Cloudflare
+# interstitial up; runner_auth keys the operator action on this prefix.
+LOGIN_TURNSTILE_UNCLEARED_PREFIX=("Cloudflare 'Verify you are human' challenge "
+                                  "not cleared by the automated clicks")
 # O1567 fx-relogin-vault-locked: refused before any site contact -- the vault
 # is still locked (a restart resumes workers before it unlocks).
 LOGIN_VAULT_LOCKED_PREFIX="Credential vault locked: "
@@ -382,7 +386,7 @@ def _is_challenge_interstitial(page):
     return False
 
 
-def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
+def clear_cloudflare_challenge(page, wait=30.0, max_rounds=2):
     """Row 722 (adulttime): every login URL answers 307->403 with a
     Cloudflare managed challenge page ("Just a moment...", Turnstile
     CHECKBOX "Verify you are human" in a challenges.cloudflare.com iframe).
@@ -396,6 +400,8 @@ def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
     if not _is_cloudflare_challenge_page(page):
         return False
     for _round in range(max_rounds):
+        if _login_abort_reason():
+            return False
         try:
             # A container is only trusted as Turnstile when no OTHER captcha
             # iframe (hCaptcha / reCAPTCHA: puzzle risk) is on the page.
@@ -434,6 +440,8 @@ def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
                 end=time.time()+wait*2
                 _clicked_late=False
                 while time.time()<end:
+                    if _login_abort_reason():
+                        return False
                     if not _is_cloudflare_challenge_page(page):
                         try: cur=page.url
                         except Exception: cur="?"
@@ -469,6 +477,8 @@ def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
                              "Turnstile checkbox\n")
         end=time.time()+wait
         while time.time()<end:
+            if _login_abort_reason():
+                return False
             if not _is_cloudflare_challenge_page(page):
                 try: cur=page.url
                 except Exception: cur="?"
@@ -476,7 +486,7 @@ def clear_cloudflare_challenge(page, wait=15.0, max_rounds=2):
                 return True
             time.sleep(0.5)
     sys.stderr.write(f"  {site_tag()}login: challenge NOT cleared within {int(wait)}s "
-                     "(still 'Just a moment')\n")
+                     f"(still 'Just a moment'); turnstile-not-cleared after {max_rounds} rounds\n")
     return False
 
 
@@ -2257,8 +2267,7 @@ def do_login(config, allow_manual_takeover=False):
         # a Turnstile widget embedded in a username-first form never navigates
         # after the click and goes on to the username search as before.
         if not clear_cloudflare_challenge(page) and _is_challenge_interstitial(page):
-            _cf=("Cloudflare 'Verify you are human' challenge not cleared by the "
-                 "automated clicks")
+            _cf=LOGIN_TURNSTILE_UNCLEARED_PREFIX
             if allow_manual_takeover:
                 return _hand_off(f"{_cf} -- tick it in this window, finish "
                                  "logging in, then click I'm Done")
