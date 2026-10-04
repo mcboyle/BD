@@ -31,7 +31,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from tools import autonomy_policy as ap
 from tools import autonomy_oracle as ao
@@ -91,14 +91,28 @@ def _atomic_write_json(p: Path, obj: Any) -> None:
     tmp.replace(p)
 
 
-def _load() -> Dict[str, Any]:
+def _read() -> Tuple[Dict[str, Any], Optional[str]]:
+    """(store, error). `error` is set when the file exists but is not a readable JSON
+    object; callers then FAIL CLOSED (no trust, no overwrite) — never treat it as empty."""
     p = _trust_path()
     if not p.is_file():
-        return {}
+        return {}, None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {}, f"{type(e).__name__}: {str(e)[:120]}"
+    if not isinstance(d, dict):
+        return {}, f"not a JSON object ({type(d).__name__})"
+    return d, None
+
+
+def _load() -> Dict[str, Any]:
+    return _read()[0]
+
+
+def _refuse_unreadable(site: str, err: str) -> Dict[str, Any]:
+    return {"ok": False, "site": site, "decreased": False,
+            "error": f"trust store unreadable ({err}); refusing to overwrite {_trust_path()}"}
 
 
 def _evidence_ts_for(site: str) -> Optional[str]:
@@ -145,8 +159,12 @@ def signal_trust(site: str, *, held_out: Optional[List[Dict[str, Any]]] = None,
 # ── stored (ratcheted) trust ──────────────────────────────────────────────────
 def effective_trust(site: str) -> float:
     """The stored, ratcheted trust for `site` (defaults to BASELINE for an unseen site).
-    Read-only — never writes, never raises the value."""
-    rec = _load().get(site)
+    Read-only — never writes, never raises the value. An unreadable store yields 0.0
+    (ineligible), never BASELINE."""
+    st, err = _read()
+    if err:
+        return 0.0
+    rec = st.get(site)
     return float(rec["trust"]) if rec and "trust" in rec else BASELINE_TRUST
 
 
@@ -160,10 +178,12 @@ def decay_trust(site: str, by: str = "system", **signal_kwargs: Any) -> Dict[str
     """AUTO-DECAY: stored trust := min(stored, signal). Can only LOWER trust — an improved
     signal leaves the ratcheted floor untouched, so trust never rises here. Host-scheduled
     (cron/CLI), not a cockpit button. Returns the new value and whether it decreased."""
+    st, err = _read()
+    if err:
+        return _refuse_unreadable(site, err)
     sig = signal_trust(site, **signal_kwargs)
     cur = effective_trust(site)
     new = min(cur, sig)          # the ratchet — never raises
-    st = _load()
     prior = st.get(site, {})
     st[site] = {"trust": round(new, 3), "signal": sig, "updated_at": _now(), "by": by,
                 "raised_by": prior.get("raised_by"), "raised_at": prior.get("raised_at")}
@@ -180,7 +200,7 @@ def decay_all_trust(by: str = "system") -> Dict[str, Any]:
     out = []
     for s in ao._all_sites():
         out.append(decay_trust(s, by=by))
-    return {"ok": True, "decayed": len(out),
+    return {"ok": all(r["ok"] for r in out), "decayed": len(out),
             "decreased": [r["site"] for r in out if r["decreased"]],
             "_note": "Host-invoked. Trust only ever decreases here."}
 
@@ -192,7 +212,9 @@ def reset_trust(site: str, value: float, by: str, reason: str = "") -> Dict[str,
         return {"ok": False, "error": "identity (by) required — restoring trust is a "
                                       "human governance action"}
     v = max(0.0, min(1.0, float(value)))
-    st = _load()
+    st, err = _read()
+    if err:
+        return _refuse_unreadable(site, err)
     prior = st.get(site, {})
     st[site] = {"trust": round(v, 3), "signal": prior.get("signal"),
                 "updated_at": _now(), "by": by, "raised_by": by, "raised_at": _now(),

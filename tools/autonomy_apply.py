@@ -3,22 +3,25 @@
 A Class-C apply kind is a REGISTRATION, not a module. `register_apply_kind` records a kind's
 hooks (gate / current / proposer / applier / reverser, plus optional corroborate / validator
 / backup / unchanged / transition) and registers its reverser with the guardrail engine.
-`apply_for_kind` runs the one shared orchestration: gate -> propose -> corroborate -> before
-/after -> backup -> record_change -> apply -> register_pending -> (validate -> revert on
-miss) -> transition. Fail-closed semantics (silence->sweep revert, reject->revert,
-accept->bless) live in the guardrail chain + `review_decide`, reused verbatim — no new POST.
+`apply_for_kind` runs the one shared orchestration: freeze -> gate -> propose -> corroborate
+-> before/after -> pending-store check -> backup -> record_change -> apply -> register_pending
+(rollback on refusal) -> (validate -> revert on miss) -> transition. Fail-closed semantics
+(silence->sweep revert, reject->revert, accept->bless) live in the guardrail chain +
+`review_decide`, reused verbatim — no new POST.
 
 Authority model (unchanged): the system may auto-suspend a grant (contraction); it may never
-auto-create or auto-unsuspend (expansion). No kind applies without a registered reverser.
+auto-create or auto-unsuspend (expansion). No kind applies without a registered reverser,
+and no change stays applied without a review window.
 
-Imports only `autonomy_guardrails` + `autonomy_promotion` at module level; the read views
-lazy-import oracle/eligibility. No module-level I/O.
+Imports only `autonomy_guardrails` + `autonomy_policy` + `autonomy_promotion` at module
+level; the read views lazy-import oracle/eligibility. No module-level I/O.
 """
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
 from tools import autonomy_guardrails as agr
+from tools import autonomy_policy as ap
 from tools import autonomy_promotion as apr
 
 # belt-and-suspenders only — real enforcement is eligibility + reverser presence + oracle
@@ -95,6 +98,9 @@ def apply_for_kind(site: str, kind: str, *, by: str = "system") -> Dict[str, Any
     s = _APPLY_KINDS.get(kind)
     if s is None:
         return _skip(site, kind, "kind not registered")
+    # the kill switch binds every kind, including grant-only gates that never read it
+    if ap.is_frozen():
+        return _skip(site, kind, "automation frozen")
     g = s["gate"](site)
     if not g:
         return _skip(site, kind, "not eligible")
@@ -108,6 +114,11 @@ def apply_for_kind(site: str, kind: str, *, by: str = "system") -> Dict[str, Any
         return _skip(site, kind, "nothing to apply")
     if s["unchanged"](before, after):
         return {"ok": True, "skipped": True, "site": site, "kind": kind, "reason": "idempotent"}
+    # no review window can be recorded -> apply nothing (freeze + alert, like register_pending)
+    store_err = agr.backlog_ok().get("error")
+    if store_err:
+        agr.guardrail_failure(store_err, by)
+        return {"ok": False, "site": site, "kind": kind, "error": store_err}
     ref = s["target_ref"](site)
     bkp = s["backup"]() if s["backup"] else None
     rec = agr.record_change(kind, ref, before, after, by=by)
@@ -115,7 +126,16 @@ def apply_for_kind(site: str, kind: str, *, by: str = "system") -> Dict[str, Any
     if not cid:
         return {"ok": False, "site": site, "kind": kind, "error": rec.get("error", "record_change failed")}
     s["applier"](site, after)
-    pend = agr.register_pending(cid, s["action_class"], site, by)
+    try:
+        pend = agr.register_pending(cid, s["action_class"], site, by)
+    except Exception as e:
+        pend = {"ok": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}
+    if not pend.get("ok"):
+        # an applied change with no review window is never left in place
+        rb = agr.rollback(cid, by="system:register_pending")
+        return {"ok": False, "site": site, "kind": kind, "change_id": cid,
+                "reverted": bool(rb.get("ok")), "rollback": rb,
+                "error": f"register_pending refused: {pend.get('reason') or pend.get('error')}"}
     if s["validator"]:
         vr = s["validator"](site, after)
         if not vr.get("ok"):

@@ -31,7 +31,7 @@ import datetime as _dt
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from tools import autonomy_policy as ap
 from tools.cockpit_core import confine, tasks_root
@@ -226,43 +226,72 @@ def rollback(change_id: str, by: str) -> Dict[str, Any]:
 
 
 # ── pending review windows + backlog/blast-radius caps (doc §5.4/§5.5) ───────
-def _load_pending() -> Dict[str, Any]:
+def _read_pending() -> Tuple[Dict[str, Any], Optional[str]]:
+    """(store, error), like autonomy_trust._read. `error` is set when the file exists
+    but is not a readable {"pending": {...}} object; the caps then refuse and writers
+    refuse and keep the file — a corrupt store is never treated as an empty one."""
     p = _pending_path()
     if not p.is_file():
-        return {"pending": {}}
+        return {"pending": {}}, None
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
-        d.setdefault("pending", {})
-        return d
-    except Exception:
-        return {"pending": {}}
+    except Exception as e:
+        return {"pending": {}}, f"{type(e).__name__}: {str(e)[:120]}"
+    if not isinstance(d, dict) or not isinstance(d.setdefault("pending", {}), dict):
+        return {"pending": {}}, "not a {'pending': {...}} object"
+    return d, None
+
+
+def _load_pending() -> Dict[str, Any]:
+    return _read_pending()[0]
+
+
+def _refuse_unreadable(err: str, by: str) -> Dict[str, Any]:
+    return guardrail_failure(f"pending review store unreadable ({err}); "
+                             f"refusing to overwrite {_pending_path()}", by)
 
 
 def _save_pending(d: Dict[str, Any]) -> None:
     _atomic_write_json(_pending_path(), d)
 
 
-def outstanding_unreviewed() -> List[Dict[str, Any]]:
-    d = _load_pending()
+def _unreviewed(d: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [v for v in d["pending"].values() if not v.get("reviewed")]
 
 
+def _sites(rows: List[Dict[str, Any]]) -> List[str]:
+    return sorted({v.get("site") for v in rows if v.get("site")})
+
+
+def outstanding_unreviewed() -> List[Dict[str, Any]]:
+    return _unreviewed(_load_pending())
+
+
 def inflight_sites() -> List[str]:
-    return sorted({v.get("site") for v in outstanding_unreviewed() if v.get("site")})
+    return _sites(outstanding_unreviewed())
 
 
 def backlog_ok() -> Dict[str, Any]:
-    n = len(outstanding_unreviewed())
-    return {"ok": n < BACKLOG_CAP, "outstanding": n, "cap": BACKLOG_CAP}
+    d, err = _read_pending()
+    n = len(_unreviewed(d))
+    out = {"ok": n < BACKLOG_CAP and not err, "outstanding": n, "cap": BACKLOG_CAP}
+    if err:
+        out["error"] = f"pending review store unreadable: {err}"
+    return out
 
 
 def blast_radius_ok(site: Optional[str]) -> Dict[str, Any]:
     """One site at a time; never family-wide. A new auto-change is allowed only if no
     OTHER site currently has an unreviewed auto-change in flight."""
-    others = [s for s in inflight_sites() if s and s != site]
-    ok = len(others) < MAX_INFLIGHT_SITES
-    return {"ok": ok, "inflight_sites": inflight_sites(),
-            "max_inflight_sites": MAX_INFLIGHT_SITES, "blocking_sites": others}
+    d, err = _read_pending()
+    inflight = _sites(_unreviewed(d))
+    others = [s for s in inflight if s and s != site]
+    ok = len(others) < MAX_INFLIGHT_SITES and not err
+    out = {"ok": ok, "inflight_sites": inflight,
+           "max_inflight_sites": MAX_INFLIGHT_SITES, "blocking_sites": others}
+    if err:
+        out["error"] = f"pending review store unreadable: {err}"
+    return out
 
 
 def register_pending(change_id: str, action_class: str, site: Optional[str],
@@ -272,7 +301,9 @@ def register_pending(change_id: str, action_class: str, site: Optional[str],
     exercised by tests.)"""
     deadline = (_now_dt() + _dt.timedelta(hours=REVIEW_WINDOW_HOURS)).isoformat() \
         if action_class == "C" else None
-    d = _load_pending()
+    d, err = _read_pending()
+    if err:
+        return _refuse_unreadable(err, by)
     d["pending"][change_id] = {"change_id": change_id, "action_class": action_class,
                                "site": site, "applied_ts": _now(), "by": by,
                                "deadline": deadline, "reviewed": False,
@@ -284,7 +315,9 @@ def register_pending(change_id: str, action_class: str, site: Optional[str],
 def mark_reviewed(change_id: str, decision: str, by: str) -> Dict[str, Any]:
     if decision not in ("accept", "reject"):
         return {"ok": False, "error": "decision must be accept or reject"}
-    d = _load_pending()
+    d, err = _read_pending()
+    if err:
+        return _refuse_unreadable(err, by)
     if change_id not in d["pending"]:
         return {"ok": False, "error": "not pending"}
     d["pending"][change_id].update({"reviewed": True, "decision": decision,
@@ -300,7 +333,9 @@ def sweep_review_windows(by: str = "system") -> Dict[str, Any]:
     """FAIL-CLOSED sweep (doc §5.5): expired-unreviewed CLASS C changes auto-revert.
     Class B pending may stay provisional (fail-open). Invoked explicitly (no
     scheduler). If a rollback errors mid-sweep, the guardrail-failure branch fires."""
-    d = _load_pending()
+    d, err = _read_pending()
+    if err:
+        return _refuse_unreadable(err, by)
     now = _now_dt()
     reverted, kept_provisional = [], []
     for cid, p in list(d["pending"].items()):
