@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1811 - train247e: row
+
+T247 (rebuild b) = 1 product cut (BOARDED-for-integration.md L308; corr-D8 r3 + shape-D1 r3 BOARD on a7af4fea; O1844 final round): tools/vpn_kill_switch_probe.py restores captured ufw defaults exactly; no frontend; applied on T246e fbf280dc (origin/main). o1815-r11-billing-consent BOUNCED (row371/row912 regression; PLAN-2040/BOUNCE-o1815-r11-billing-consent-*.md).
+- o1807-r7-vpn-killswitch r3
+
+
 ## v3.66.1810 - train246e: row
 
 T246 = 2 product cuts (BOARDED-for-integration.md L304-306; no frontend): o1807-r5-parband-nothing-ran r2 (toolchain/bin/bd-parband + cut_quality_policy.json; corr-D5 + shape-D4 r2), o1826-c03-bandwidth-hot-path r1 (bandwidth_aggregator.py; T1 corr-D7; PM NOTE: late-sample behaviour differs only via test-only API, more accurate), applied on T245e d3c6d411 (O1739b):
