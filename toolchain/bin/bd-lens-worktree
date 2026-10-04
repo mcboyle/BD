@@ -34,7 +34,9 @@ from typing import Sequence
 # as the repository grows, because both sides grow together.
 # 64 -> 66 (PM ruling, row963): T154 lane growth alone scopes to 63.59 MB and the
 # merged lane 64.05 MB; a harness budget, not a product regression (O795/O805).
-MAX_WORKTREE_MB = 66.0
+# 66 -> 72 (operator O1876 session answer via integrator-A; PM ruling T258e, O1882): diffuse growth,
+# scoped 66.001 MB at 20b4300c, share 0.435 < MAX_WORKTREE_SHARE 0.45 (the share bound stays the real ratchet).
+MAX_WORKTREE_MB = 72.0
 
 # sg10: the scoped worktree must be at most this share of a FULL checkout of the
 # same commit (measured from git ls-tree, so no second checkout is needed). At
