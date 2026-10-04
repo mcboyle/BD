@@ -4,6 +4,13 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1794 - train230e: row
+
+T230 = 2 product cuts (BOARDED-for-integration.md L249-251): o1634-flaky-2 (correctness-C4-C, tier<T3 single leg per H478) + o1671-a07-ssrf-validate-url-fail-closed (T2 COMPLETE: correctness-D2 + correctness-agy), applied on T229e 7975b938 (O1739b):
+- o1634-flaky-2 r1
+- o1671-a07-ssrf-validate-url-fail-closed-bd-cx-worker12 r1
+
+
 ## v3.66.1793 - train229e: row
 
 T229 = 1 O1737-recovery harness test half (BOARDED-for-integration.md L248; BOARD-x2), applied on T228e 1ded967e (O1739b; train by blob, no install, O1738c):
