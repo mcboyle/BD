@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1809 - train245e: row
+
+T245 = 1 product cut (BOARDED-for-integration.md L303; correctness D7 r1 + shape D2 r1 BOARD on 9debca2a; tools/cockpit_templates.py; no frontend), applied on T244e b07d2e2d (O1739b):
+- o1819-r18-templates-sites-config-shape r1
+
+
 ## v3.66.1808 - train244e: row
 
 T244 = 3 product cuts (BOARDED-for-integration.md L300-302; no frontend paths): o1807-r4-release-gate-errors r4 (tools/verify_release.py; correctness + shape-D1 r4 BOARD), o1819-r16-shell-audit r1 (tools/cockpit_shell.py; two correctness), o1815-r13-fuzz-redaction-json-rc r1 (toolchain/bin/bd-fuzz-redaction; corr-D2 + shape-D5), applied on T243f abb81bba (O1739b):
