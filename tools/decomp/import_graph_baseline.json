@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5820,
+  "edge_count": 5825,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -4932,6 +4932,13 @@
       "bulk_downloader/honeypot_score.py",
       "bulk_downloader/integrity.py",
       "bulk_downloader/satellite_video.py"
+    ],
+    "tests/test_o1826_c22_queue_history_and_mark.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_queue.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/runner.py"
     ],
     "tests/test_o1826_c24_config_stores_widgets_interop.py": [
       "bulk_downloader/interop_registry.py",

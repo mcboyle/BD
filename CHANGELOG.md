@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1821 - train257e: row
+
+T257 = 1 product cut (BOARDED-for-integration.md L333; T1 kimi r3, O1873 FINAL, on 4dc6dbdd): app_sites_queue.py exact-url history before LIMIT, failed-mark restore only on own token; 5 declared edges; no frontend; applied on T256e ea168108 (O1739b):
+- o1826-c22-queue-history-and-mark r3
+
+
 ## v3.66.1820 - train256e: row
 
 T256 = 1 product cut (BOARDED-for-integration.md L331; T1 corr-D23-D r1 on a85197e4): library.py exact-basename history link, orphan tag rows deleted, causes logged; no frontend; applied on T255f fed8079c (O1739b):
