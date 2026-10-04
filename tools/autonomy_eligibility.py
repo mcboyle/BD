@@ -231,8 +231,9 @@ def can_participate(site: str, candidate: Optional[Dict[str, Any]] = None,
 
 def eligibility_overview(sites: Optional[List[str]] = None, *,
                          now: Any = None) -> Dict[str, Any]:
-    """Per-site eligibility rollup. `participation_eligible_sites` is 0 for every build
-    here. The evidence-qualified set is CAPPED at MAX_ELIGIBLE_SITES to enforce
+    """Per-site eligibility rollup. `participation_eligible_sites` counts the rows whose
+    `evaluate_site` verdict is participation-eligible (0 while dark: no grant, no apply
+    path). The evidence-qualified set is CAPPED at MAX_ELIGIBLE_SITES to enforce
     'evaluate only a small number of Tier-3-eligible sites'. Read-only."""
     sites = sites if sites is not None else ao._all_sites()
     rows = [evaluate_site(s, now=now) for s in sites]
@@ -246,13 +247,14 @@ def eligibility_overview(sites: Optional[List[str]] = None, *,
         "considered_for_experimentation": considered,
         "over_cap_excluded": over_cap,
         "max_eligible_sites": MAX_ELIGIBLE_SITES,
-        "participation_eligible_sites": 0,   # always — no grant, no apply path
+        "participation_eligible_sites": sum(1 for r in rows if r["participation_eligible"]),
         "frozen": ap.is_frozen(),
         "apply_path_exists": apply_path_exists(),
         "permanently_ineligible_actions": list(PERMANENTLY_INELIGIBLE),
-        "_note": "Read-only eligibility rollup. No site is participation-eligible "
-                 "(assessment + qualification only). The evidence-qualified set is "
-                 "capped; qualification decays with evidence staleness. No automation.",
+        "_note": "Read-only eligibility rollup. A site is participation-eligible only "
+                 "with an active per-(site, kind) grant, a registered apply path and "
+                 "tier-3 fresh evidence. The evidence-qualified set is capped; "
+                 "qualification decays with evidence staleness. No automation.",
     }
 
 
@@ -267,7 +269,7 @@ def eligibility_status() -> Dict[str, Any]:
         "site_count": ov["site_count"],
         "evidence_qualified_count": len(ov["evidence_qualified_sites"]),
         "considered_count": len(ov["considered_for_experimentation"]),
-        "participation_eligible_sites": 0,
+        "participation_eligible_sites": ov["participation_eligible_sites"],
         "evidence_fresh_days": EVIDENCE_FRESH_DAYS,
         "min_oracle_tier": MIN_ORACLE_TIER,
         "max_eligible_sites": MAX_ELIGIBLE_SITES,
