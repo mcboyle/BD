@@ -235,6 +235,59 @@ def _serve_asgi(app, host, port, debug, *, uvicorn_run=None,
     )
 
 
+def _idle_watcher():
+    """v3.56 (Phase 8, #55): poll runners; exit the process once every
+    queue is empty and nothing has been downloading for the grace
+    period.
+
+    Grace period (default 30s) guards against a false exit in the gap
+    between one job finishing and the next starting. Overridable via
+    BD_IDLE_GRACE_SECONDS.
+    """
+    import os as _os
+    import time as _time
+    try:
+        grace = float(_os.environ.get("BD_IDLE_GRACE_SECONDS", "30"))
+    except ValueError:
+        grace = 30.0
+    # Don't even start measuring idleness until the app has had a
+    # moment to load runners + restore queues.
+    _time.sleep(10.0)
+    idle_since = None
+    while True:
+        _time.sleep(5.0)
+        try:
+            from bulk_downloader import app as _app
+            runners = getattr(_app, "runners", {}) or {}
+            busy = False
+            for r in runners.values():
+                try:
+                    st = r.get_status(light=True)
+                    if (int(st.get("queued") or 0) > 0
+                            or int(st.get("active") or 0) > 0
+                            or getattr(r, "_state", "") == "running"):
+                        busy = True
+                        break
+                except Exception:
+                    # A runner we can't read — treat as busy, don't
+                    # exit on uncertain state.
+                    busy = True
+                    break
+        except Exception:
+            busy = True  # app not ready yet
+        now = _time.time()
+        if busy:
+            idle_since = None
+            continue
+        if idle_since is None:
+            idle_since = now
+            continue
+        if now - idle_since >= grace:
+            print(f"\n  All queues drained — one-shot mode exiting "
+                  f"(idle {grace:.0f}s).")
+            _os._exit(0)
+
+
 if __name__ == "__main__":
     debug = _is_debug_mode()
     log_path = _configure_logging(debug)
@@ -359,56 +412,3 @@ if __name__ == "__main__":
     # v3.66.794 (F0.4): waitress in production, werkzeug in debug. See
     # _serve_wsgi -- fail-open to the dev server if waitress is absent.
     _serve_wsgi(app, bind_host, bind_port, debug)
-
-
-def _idle_watcher():
-    """v3.56 (Phase 8, #55): poll runners; exit the process once every
-    queue is empty and nothing has been downloading for the grace
-    period.
-
-    Grace period (default 30s) guards against a false exit in the gap
-    between one job finishing and the next starting. Overridable via
-    BD_IDLE_GRACE_SECONDS.
-    """
-    import os as _os
-    import time as _time
-    try:
-        grace = float(_os.environ.get("BD_IDLE_GRACE_SECONDS", "30"))
-    except ValueError:
-        grace = 30.0
-    # Don't even start measuring idleness until the app has had a
-    # moment to load runners + restore queues.
-    _time.sleep(10.0)
-    idle_since = None
-    while True:
-        _time.sleep(5.0)
-        try:
-            from bulk_downloader import app as _app
-            runners = getattr(_app, "runners", {}) or {}
-            busy = False
-            for r in runners.values():
-                try:
-                    st = r.get_status(light=True)
-                    if (int(st.get("queued") or 0) > 0
-                            or int(st.get("active") or 0) > 0
-                            or getattr(r, "_state", "") == "running"):
-                        busy = True
-                        break
-                except Exception:
-                    # A runner we can't read — treat as busy, don't
-                    # exit on uncertain state.
-                    busy = True
-                    break
-        except Exception:
-            busy = True  # app not ready yet
-        now = _time.time()
-        if busy:
-            idle_since = None
-            continue
-        if idle_since is None:
-            idle_since = now
-            continue
-        if now - idle_since >= grace:
-            print(f"\n  All queues drained — one-shot mode exiting "
-                  f"(idle {grace:.0f}s).")
-            _os._exit(0)
