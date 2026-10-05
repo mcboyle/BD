@@ -20,13 +20,19 @@ Hermetic: a 127.0.0.1 site whose login URL answers a Cloudflare-shaped interstit
 present. As live, the pass is bound to the browser session: a persistent cf_clearance plus a session cookie that a
 relaunch drops. A human pass is stood in for by the site setting them (GET /__human_pass): nothing here clicks a
 checkbox. The plain browser is the real cloakbrowser binary (headless for the test); the login is the real do_login.
+
+cloakbrowser is optional (requirements-cloak.txt). Where it is not installed the flag builder is stood in at the
+import human_challenge makes, and the session test runs Playwright's stock chromium as the binary. Only the relaunch
+control is skipped there: measured, a relaunched stock chromium still sends the session cookie.
 """
 from __future__ import annotations
 
 import functools
 import http.server
+import sys
 import threading
 import time
+import types
 from collections import Counter
 from types import SimpleNamespace
 from urllib.parse import parse_qs
@@ -108,6 +114,44 @@ def site():
         srv.server_close()
 
 
+def _flag_builder_module(monkeypatch):
+    """The module plain_browser_argv imports build_args from. cloakbrowser is optional: ONLY where the package itself
+    is not installed (the import system finds no spec for it) a stand-in is registered under the same import name, so
+    the control runs through the same seam on every venv. An installed cloakbrowser is imported, and whatever that
+    raises propagates (a broken package, a missing dependency, a ModuleNotFoundError naming cloakbrowser raised by
+    its own __init__): it is never stood in for."""
+    from importlib.util import find_spec
+    if find_spec("cloakbrowser") is None:
+        pkg, cbb = types.ModuleType("cloakbrowser"), types.ModuleType("cloakbrowser.browser")
+        pkg.__path__, pkg.browser = [], cbb
+        cbb.build_args = lambda *a, **k: []     # what the control replaces; an installed module must bring its own
+        monkeypatch.setitem(sys.modules, "cloakbrowser", pkg)
+        monkeypatch.setitem(sys.modules, "cloakbrowser.browser", cbb)
+        return cbb
+    import cloakbrowser.browser as cbb
+    return cbb
+
+
+def _stock_chromium_without_cloak(monkeypatch, hc):
+    """Without cloakbrowser the session runs Playwright's stock chromium through hc.plain_binary: the contract under
+    test (the login attaches to the browser that passed and runs there) does not depend on the stealth build.
+    Returns the substituted path, or None when the real cloakbrowser binary is used. ONLY a cloakbrowser that is not
+    installed (the import system finds no spec for it) is substituted; an installed one is imported and whatever
+    that raises propagates."""
+    from importlib.util import find_spec
+    if find_spec("cloakbrowser") is not None:
+        import cloakbrowser  # noqa: F401
+        return None
+    from playwright.sync_api import sync_playwright
+    pw = sync_playwright().start()
+    try:
+        path = pw.chromium.executable_path
+    finally:
+        pw.stop()
+    monkeypatch.setattr(hc, "plain_binary", lambda: path)
+    return path
+
+
 def test_the_plain_browser_carries_no_automation_channel(monkeypatch, tmp_path):
     from bulk_downloader import human_challenge as hc
     prof = tmp_path / "profiles" / "at" / "manual"
@@ -124,10 +168,11 @@ def test_the_plain_browser_carries_no_automation_channel(monkeypatch, tmp_path):
     assert [a for a in argv_p if a.startswith(("--remote-debugging", "--enable-automation"))] == [
         "--remote-debugging-port=9333", "--remote-debugging-address=127.0.0.1"], argv_p
     # positive control: the filter really removes an automation channel a flag builder hands it
-    import cloakbrowser.browser as cbb
+    cbb = _flag_builder_module(monkeypatch)
     monkeypatch.setattr(cbb, "build_args", lambda *a, **k: ["--remote-debugging-pipe", "--enable-automation",
-                                                            "--fingerprint=24680"])
+                                                            "--fingerprint=24680", "--o1567-from-the-builder"])
     argv2 = hc.plain_browser_argv("/opt/cloak/chrome", prof, "https://x.test/", seed=24680)
+    assert "--o1567-from-the-builder" in argv2, f"O1567_CONTROL_BUILDER_NOT_USED: {argv2}"
     assert "--remote-debugging-pipe" not in argv2 and "--enable-automation" not in argv2, argv2
     assert hc.domain_of("https://freetour.adulttime.com/en/login") == "adulttime.com"
     assert hc.domain_of("http://127.0.0.1:8080/x") == "127.0.0.1"
@@ -150,6 +195,7 @@ def test_the_login_after_a_pass_runs_inside_the_browser_that_passed(site, tmp_pa
     from bulk_downloader.login_impl import submit
     base, hits = site
     prof = tmp_path / "profiles" / "at" / "manual"
+    _stock_chromium_without_cloak(monkeypatch, hc)
     launches = []
     real_launch = cloak.launch_browser
 
@@ -182,6 +228,8 @@ def test_the_login_after_a_pass_runs_inside_the_browser_that_passed(site, tmp_pa
     assert rc == 0, rc
 
     # control: why the login cannot move to another browser -- the same profile relaunched is challenged again
+    pytest.importorskip("cloakbrowser", reason="O1567_RELAUNCH_CONTROL_NEEDS_CLOAKBROWSER: every assertion above ran on "
+                        "the stock chromium; only the cloakbrowser binary drops the session cookie on a relaunch")
     before = hits["challenge"]
     again = hc.PlainChallengeSession(base + "/en/login", prof, headless=True)
     again.start()
