@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1836 - train273e: row
+
+T273 on main 1ca6354b: rowbh-rb-3-test r2 (L501; PRODUCT test-only, tests/test_bh_rb_3_harness.py new; cx12 DELTA + bd-agy-review-correctness-2 FULL BOARD x2; fixer FX146-C FIX-R-363). (O1739b)
+- rowbh-rb-3-test r2
+
+
 ## v3.66.1835 - train272e: row
 
 T272 on main bfa4bc81 = the "Train 227" main-red member (PM O2078-B: DEPLOY-GATING, not held for G1): o2078-mainred-o1567-plain-browser r3 (L413; PRODUCT test-only; cx14 r3 DELTA + cx11 r3 DELTA BOARD x2; fixer FX27-A FIX-R-228). Clears the H504 MAIN-RED stale gate (2 FAILED in tests/test_o1567_fx_takeover_plain_browser.py). (O1739b)
