@@ -28,6 +28,25 @@ def _load_lens_worktree_module():
     return mod
 
 
+def _deregister_worktrees_under(repo, scope):
+    """Remove from ``repo``'s registry the worktrees registered under ``scope``,
+    and nothing else. NO ``git worktree prune``: a prune is repo-wide -- it drops
+    every UNLOCKED entry whose path THIS host cannot see, and REPO_ROOT can be a
+    checkout linked to a registry shared over NFS (Fleet Rule 22, O1698 I3).
+    ``worktree remove`` already deregisters, a missing tree included."""
+    listing = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, check=False).stdout
+    # Path ANCESTRY on resolved paths, never a string prefix: /x/scope must not select /x/scope-other.
+    scope = Path(scope).resolve()
+    for line in listing.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        tree = Path(line[len("worktree "):]).resolve()
+        if tree == scope or scope in tree.parents:
+            subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", line[len("worktree "):]],
+                           capture_output=True, text=True, check=False)
+
+
 @pytest.fixture(autouse=True)
 def _deregister_test_worktrees(tmp_path):
     """E3: every worktree a test registers under tmp_path is removed from the
@@ -35,13 +54,87 @@ def _deregister_test_worktrees(tmp_path):
     without this the registrations dangle). Test fixtures only -- no fleet
     worktree lives under tmp_path (Fleet Rule 22 is about those)."""
     yield
-    listing = subprocess.run(["git", "-C", str(REPO_ROOT), "worktree", "list", "--porcelain"],
-                             capture_output=True, text=True).stdout
-    for line in listing.splitlines():
-        if line.startswith("worktree ") and line[len("worktree "):].startswith(str(tmp_path)):
-            subprocess.run(["git", "-C", str(REPO_ROOT), "worktree", "remove", "--force", line[len("worktree "):]],
-                           capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(REPO_ROOT), "worktree", "prune"], capture_output=True, text=True)
+    _deregister_worktrees_under(REPO_ROOT, tmp_path)
+
+
+def test_deregister_never_prunes_sibling_registry_entries(tmp_path):
+    """O1698 I3 / Fleet Rule 22: the cleanup deregisters the worktrees under its
+    own scope and leaves every other entry of the registry alone -- here an
+    UNLOCKED sibling whose path this host cannot see (as a tree on another
+    host looks through a shared registry). An unscoped prune removes it."""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(parent), *args], capture_output=True, text=True,
+                              check=True, env=env).stdout
+
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    git("init", "-q")
+    git("config", "gc.worktreePruneExpire", "now")
+    git("commit", "-q", "--allow-empty", "-m", "base")
+    scope = tmp_path / "scope"
+    scope.mkdir()
+    git("worktree", "add", "-q", "--detach", str(scope / "mine"))
+    git("worktree", "add", "-q", "--detach", str(tmp_path / "sibling"))
+    (tmp_path / "sibling").rename(tmp_path / "sibling.elsewhere")
+    registry = parent / ".git" / "worktrees"
+
+    def registered():  # git deletes the directory itself with its last entry
+        return sorted(p.name for p in registry.iterdir()) if registry.is_dir() else []
+
+    assert registered() == ["mine", "sibling"]
+    # Positive control: the sibling entry IS what a prune of this repo would take.
+    would_prune = subprocess.run(["git", "-C", str(parent), "worktree", "prune", "--dry-run", "--verbose"],
+                                 capture_output=True, text=True, check=True, env=env)
+    assert "worktrees/sibling" in would_prune.stdout + would_prune.stderr, would_prune
+
+    _deregister_worktrees_under(parent, scope)
+
+    left = registered()
+    assert "mine" not in left, f"RULE22-SCOPE: the in-scope worktree stayed registered: {left}"
+    assert "sibling" in left, (
+        f"RULE22-PRUNE: cleanup removed an out-of-scope UNLOCKED registry entry (unscoped prune?): {left}")
+
+
+def test_deregister_selects_by_path_ancestry_not_string_prefix(tmp_path):
+    """FIX-R-382 (cx19 F2): the cleanup removes the worktrees UNDER its scope --
+    the scope itself or a path that has it as a parent -- and never a tree
+    whose path merely starts with the same characters (<scope>-other: another
+    test's tree). That tree keeps its registration AND its directory."""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(parent), *args], capture_output=True, text=True,
+                              check=True, env=env).stdout
+
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    git("init", "-q")
+    git("commit", "-q", "--allow-empty", "-m", "base")
+    scope = tmp_path / "scope"
+    scope.mkdir()
+    other = tmp_path / "scope-other"
+    git("worktree", "add", "-q", "--detach", str(scope / "nested" / "mine"))
+    git("worktree", "add", "-q", "--detach", str(other))
+    (other / "kept.txt").write_text("another test's work\n", encoding="utf-8")
+    registry = parent / ".git" / "worktrees"
+    assert sorted(p.name for p in registry.iterdir()) == ["mine", "scope-other"]
+    # Positive control: the two paths DO share a string prefix (what the old predicate matched on).
+    assert str(other).startswith(str(scope))
+
+    _deregister_worktrees_under(parent, scope)
+
+    left = sorted(p.name for p in registry.iterdir()) if registry.is_dir() else []
+    assert "mine" not in left, f"RULE22-SCOPE: the worktree under the scope stayed registered: {left}"
+    assert "scope-other" in left, (
+        f"RULE22-PREFIX: cleanup deregistered a tree that only shares the scope's string prefix: {left}")
+    assert (other / "kept.txt").is_file() and (other / ".git").exists(), (
+        "RULE22-PREFIX: cleanup deleted a tree that only shares the scope's string prefix")
 
 
 def test_registrations_do_not_accumulate(tmp_path):
