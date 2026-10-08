@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1838 - train275: row
+
+T275 on main 887b1c1b: FIX-R-375 r4 main-red-conftest (L517; PRODUCT test-only, tests/conftest.py + tests/test_live_telemetry.py: autouse fixture restores the secrets-store backend / vault paths / module identity between tests; cx17 leg A + cx6 FULL PAIR leg B BOARD x2; fixer FX149-C; built on 3e0b4dc5, applied on 887b1c1b). Import baseline re-frozen for the one declared edge tests/test_live_telemetry.py -> bulk_downloader/secrets_store.py. (O2018)
+- FIX-R-375 r4 main-red-conftest
+
+
 ## v3.66.1837 - train274: row
 
 T274 on main 3e0b4dc5: FIX-R-378 r2 (= FIX-R-382; L513; PRODUCT test-only, tests/test_sparse_worktree.py + tests/test_row963_sparse_worktree_minimizer.py: fixtures no longer run an unscoped worktree registry prune, deregister only entries under the test's own tmp scope; cx16 + cx19 BOARD x2 on r2; fixer FX154-B). (O2234)
