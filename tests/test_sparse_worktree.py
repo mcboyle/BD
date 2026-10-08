@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 import pytest
 
@@ -268,10 +269,21 @@ def test_scoped_gates_match_full_checkout(tmp_path):
     assert rc_bad != 0
 
 
+def _own_temp_branch(repo, name=None):
+    """Create, at HEAD, a branch THIS run owns and return its name. Refs are
+    shared by every checkout linked to ``repo``: the name is unique per run and
+    the branch is created WITHOUT -f, so a ref that already exists fails the
+    caller instead of being moved (FIX-R-383, O2238)."""
+    name = name or f"test_sparse_wt_temp_branch_{os.getpid()}_{uuid.uuid4().hex[:12]}"
+    subprocess.run(["git", "-C", str(repo), "branch", name, "HEAD"], check=True, capture_output=True, text=True)
+    return name
+
+
 def test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path):
     """P2: a branch name that is checked out in the source repo must still work
     (detached at the branch tip), and the result reports the resolved sha."""
     lw = _load_lens_worktree_module()
+    created = None  # the one ref this run made; the only one it may delete
     branch = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
                             capture_output=True, text=True, check=True).stdout.strip()
     if branch == "HEAD":  # source repo itself detached: make the control meaningful anyway
@@ -281,8 +293,7 @@ def test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path):
                 branch = candidate
                 break
         else:
-            branch = "test_sparse_wt_temp_branch"
-            subprocess.run(["git", "-C", str(REPO_ROOT), "branch", "-f", branch, "HEAD"], check=True)
+            branch = created = _own_temp_branch(REPO_ROOT)
     try:
         tip = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", f"{branch}^{{commit}}"],
                              capture_output=True, text=True, check=True).stdout.strip()
@@ -298,8 +309,70 @@ def test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path):
                                              commit="no-such-ref-row866", scope_dirs=["toolchain"])
         assert bad["ok"] is False and "resolve" in bad["error"]
     finally:
-        if branch == "test_sparse_wt_temp_branch":
-            subprocess.run(["git", "-C", str(REPO_ROOT), "branch", "-D", branch], capture_output=True)
+        if created is not None:
+            subprocess.run(["git", "-C", str(REPO_ROOT), "branch", "-D", created], capture_output=True)
+
+
+def _detached_parent_with_foreign_branch(root, name):
+    """A scratch repo, detached, with no main / origin/main (the fallback path),
+    whose branch ``name`` is SOMEONE ELSE'S: it sits on a commit of its own."""
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
+
+    def git(*args):
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                              check=True, env=env).stdout.strip()
+
+    root.mkdir()
+    git("init", "-q", "-b", "scratch-seed")
+    (root / "toolchain").mkdir()
+    (root / "toolchain" / "sentinel").write_text("one", encoding="utf-8")
+    (root / "bulk_downloader").mkdir()
+    (root / "bulk_downloader" / "payload").write_bytes(b"x" * 200000)  # keeps the scoped share under the bound
+    git("add", ".")
+    git("commit", "-q", "-m", "owned base")
+    base = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-b", name)
+    (root / "bulk_downloader" / "payload").write_bytes(b"y" * 200000)
+    git("commit", "-q", "-am", "foreign existing branch")
+    foreign = git("rev-parse", "HEAD")
+    git("checkout", "-q", "--detach", base)
+    git("branch", "-D", "scratch-seed")
+    assert foreign != base and git("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads") == \
+        f"refs/heads/{name} {foreign}"
+    return git, foreign
+
+
+def test_preexisting_named_branch_collision(tmp_path, monkeypatch):
+    """FIX-R-383 (cx16 F1, O2238): the detached-source fallback of the test
+    above neither moves nor deletes a branch it did not create -- here one that
+    carries the old fixed name -- and leaves no ref of its own behind."""
+    name = "test_sparse_wt_temp_branch"
+    git, foreign = _detached_parent_with_foreign_branch(tmp_path / "collision-parent", name)
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", tmp_path / "collision-parent")
+    (tmp_path / "fixture").mkdir()
+
+    test_branch_checked_out_elsewhere_is_accepted_detached(tmp_path / "fixture")
+
+    refs = git("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+    assert f"refs/heads/{name} {foreign}" in refs.splitlines(), (
+        f"BRANCH-FOREIGN: the fallback moved or deleted a branch it did not create: {refs!r}")
+    assert refs == f"refs/heads/{name} {foreign}", f"BRANCH-LEFTOVER: the fallback left its own ref behind: {refs!r}"
+
+
+def test_own_temp_branch_never_moves_an_existing_ref(tmp_path):
+    """FIX-R-383: asked for a name that exists, the helper FAILS (the caller's
+    test fails with it) and the ref stays where it was; a fresh name is created
+    at HEAD."""
+    name = "taken-by-someone-else"
+    git, foreign = _detached_parent_with_foreign_branch(tmp_path / "parent", name)
+    with pytest.raises(subprocess.CalledProcessError):
+        _own_temp_branch(tmp_path / "parent", name)
+    assert git("rev-parse", name) == foreign, "BRANCH-FORCED: an existing ref was moved (branch -f?)"
+    one, two = _own_temp_branch(tmp_path / "parent"), _own_temp_branch(tmp_path / "parent")
+    assert one != two and one.startswith("test_sparse_wt_temp_branch_")
+    assert git("rev-parse", one) == git("rev-parse", "HEAD") != foreign
 
 
 def test_size_bound_is_enforced_without_deleting(tmp_path, monkeypatch):
