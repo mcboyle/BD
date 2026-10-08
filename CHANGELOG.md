@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1837 - train274: row
+
+T274 on main 3e0b4dc5: FIX-R-378 r2 (= FIX-R-382; L513; PRODUCT test-only, tests/test_sparse_worktree.py + tests/test_row963_sparse_worktree_minimizer.py: fixtures no longer run an unscoped worktree registry prune, deregister only entries under the test's own tmp scope; cx16 + cx19 BOARD x2 on r2; fixer FX154-B). (O2234)
+- FIX-R-378 r2 rule22-test-prune
+
+
 ## v3.66.1836 - train273e: row
 
 T273 on main 1ca6354b: rowbh-rb-3-test r2 (L501; PRODUCT test-only, tests/test_bh_rb_3_harness.py new; cx12 DELTA + bd-agy-review-correctness-2 FULL BOARD x2; fixer FX146-C FIX-R-363). (O1739b)
