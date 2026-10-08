@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1841 - train278: row974
+
+T278 on main da1ecde0: FIX-R-388 r1 row974-port-bind (L528; PRODUCT test-only, tests/test_row974_asgi_cutover.py +32/-3: the three serve_asgi fallback/injection tests no longer attempt a real bind on 127.0.0.1:5555 when a server module is importable on the host; product side of H929; cx19 BOARD, one-lens T2 shape by the router's tier call; fixer FX152-B; built on 7b914cb9, applied on da1ecde0). (O2018)
+- FIX-R-388 r1 row974-port-bind
+
+
 ## v3.66.1840 - train277: row
 
 T277 on main 7b914cb9: FIX-R-385 r1 telemetry-m4-identity (L520; PRODUCT test-only, tests/test_live_telemetry.py +41: one new test that detects a partial file-end module-table restore; M4 owed row of FIX-R-375 r4; cx17 BOARD, one-lens T2 shape by the router's tier call; fixer FX152-B; built on 98a33f52, applied on 7b914cb9). (O2018)
