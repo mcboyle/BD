@@ -4,6 +4,12 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1840 - train277: row
+
+T277 on main 7b914cb9: FIX-R-385 r1 telemetry-m4-identity (L520; PRODUCT test-only, tests/test_live_telemetry.py +41: one new test that detects a partial file-end module-table restore; M4 owed row of FIX-R-375 r4; cx17 BOARD, one-lens T2 shape by the router's tier call; fixer FX152-B; built on 98a33f52, applied on 7b914cb9). (O2018)
+- FIX-R-385 r1 telemetry-m4-identity
+
+
 ## v3.66.1839 - train276: row
 
 T276 on main 98a33f52: FIX-R-383 r1 sparse-wt-branch (L519; PRODUCT test-only, tests/test_sparse_worktree.py: the detached-source fallback makes a unique branch (pid + uuid) without force and deletes only the ref it created; owed row of FIX-R-378 F1; cx16 BOARD, one-lens T2 shape by the router's tier call; fixer FX154-B; built on 887b1c1b, applied on 98a33f52). (O2238)
