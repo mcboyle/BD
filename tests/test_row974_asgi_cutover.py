@@ -11,6 +11,7 @@ import asyncio
 import importlib
 import json
 import pathlib
+import socket
 import sys
 from typing import Any, Dict, List
 
@@ -36,6 +37,22 @@ except ImportError:
     get_asgi_app = None
     get_gateway_info = None
     serve_asgi = None
+
+
+def _refuse_every_bind(monkeypatch):
+    """FIX-R-388: uvicorn_run=None / hypercorn_run=None are serve_asgi's
+    DEFAULTS, not "no such server": it then asks UVICORN_AVAILABLE /
+    HYPERCORN_AVAILABLE and runs the imported server on the real host:port. A
+    test that means "absent" turns those flags off; this makes any bind that
+    still happens fail the test instead of opening a listener."""
+    attempts = []
+
+    def refuse(sock, address):
+        attempts.append(address)
+        raise AssertionError(f"the test tried to bind a real socket on {address!r}")
+
+    monkeypatch.setattr(socket.socket, "bind", refuse)
+    return attempts
 
 
 def test_asgi_gateway_module_implemented():
@@ -166,9 +183,12 @@ def test_serve_asgi_with_injected_uvicorn():
     assert kw["port"] == 5555
 
 
-def test_serve_asgi_fallback_when_server_missing():
+def test_serve_asgi_fallback_when_server_missing(monkeypatch):
     """When no ASGI server is available, serve_asgi falls back gracefully."""
     assert asgi_gateway is not None, "bulk_downloader.asgi_gateway not implemented"
+    monkeypatch.setattr(asgi_gateway, "UVICORN_AVAILABLE", False)
+    monkeypatch.setattr(asgi_gateway, "HYPERCORN_AVAILABLE", False)
+    binds = _refuse_every_bind(monkeypatch)
     calls = []
     fake_app = object()
 
@@ -184,6 +204,7 @@ def test_serve_asgi_fallback_when_server_missing():
     assert name == "fallback_wsgi"
     assert len(calls) == 1
     assert calls[0] == (fake_app, "127.0.0.1", 5555, False)
+    assert binds == []
 
 
 def test_downloader_ui_has_serve_asgi():
@@ -211,13 +232,16 @@ def test_create_modern_asgi_app():
     assert callable(asgi_app)
 
 
-def test_serve_asgi_fallback_unwraps_app_for_wsgi():
+def test_serve_asgi_fallback_unwraps_app_for_wsgi(monkeypatch):
     """R1: Verify fallback_wsgi receives an unwrapped WSGI callable, not ASGIGateway.
 
     If ASGIGateway is passed to fallback_wsgi, calling it with (environ, start_response)
     fails with: TypeError: ASGIGateway.__call__() missing 1 required positional argument: 'send'
     """
     assert asgi_gateway is not None, "bulk_downloader.asgi_gateway not implemented"
+    monkeypatch.setattr(asgi_gateway, "UVICORN_AVAILABLE", False)
+    monkeypatch.setattr(asgi_gateway, "HYPERCORN_AVAILABLE", False)
+    binds = _refuse_every_bind(monkeypatch)
     calls = []
 
     def mock_wsgi_app(environ, start_response):
@@ -240,6 +264,7 @@ def test_serve_asgi_fallback_unwraps_app_for_wsgi():
     assert len(calls) == 1
     passed_app, body = calls[0]
     assert body == [b"ok"], "WSGI app must execute and return response body"
+    assert binds == []
 
 
 def test_asgi_path_info_preserves_encoded_segments():
@@ -430,9 +455,12 @@ def test_asgi_http_non_200_status_and_body_and_query():
     assert body == b'{"created": true}'
 
 
-def test_serve_asgi_with_injected_hypercorn():
+def test_serve_asgi_with_injected_hypercorn(monkeypatch):
     """M6: Verify hypercorn_run is invoked with app, host, and port."""
     assert asgi_gateway is not None, "bulk_downloader.asgi_gateway not implemented"
+    # An importable uvicorn is asked BEFORE the injected hypercorn runner.
+    monkeypatch.setattr(asgi_gateway, "UVICORN_AVAILABLE", False)
+    binds = _refuse_every_bind(monkeypatch)
     calls = []
     fake_asgi_app = object()
 
@@ -447,4 +475,5 @@ def test_serve_asgi_with_injected_hypercorn():
     assert name == "hypercorn"
     assert len(calls) == 1
     assert calls[0] == (fake_asgi_app, "0.0.0.0", 8000)
+    assert binds == []
 
