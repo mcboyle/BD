@@ -209,6 +209,47 @@ def test_the_next_test_inherits_no_vault_backend_after_a_cold_reimport(
     _assert_no_inherited_vault_backend(clean_workdir)
 
 
+def test_the_file_end_restore_puts_back_the_exact_module_it_found(
+    _loaded_secrets_store,
+):
+    """FIX-R-385 (adjC 2214Z M4, cx17 LOW-M4): the file-end fixture's own
+    restore, driven here past its finally. Nothing else pins it -- the conftest
+    puts the setup object back after every test, so the pairs above pass with
+    the restore line gone."""
+    import sys
+
+    def entries():
+        return {
+            name: mod for name, mod in sys.modules.items() if name == _SECRETS_MODULE
+        }
+
+    def run_to_the_file_end():
+        file_end = _secrets_store_restored_when_the_file_ends.__wrapped__()
+        next(file_end)
+        # What the cold builder does under it: another object under the name.
+        sys.modules[_SECRETS_MODULE] = types.ModuleType(_SECRETS_MODULE)
+        with pytest.raises(StopIteration):
+            next(file_end)
+
+    found = entries()
+    assert found[_SECRETS_MODULE] is _loaded_secrets_store
+    try:
+        run_to_the_file_end()
+        after = entries()
+        assert set(after) == set(found) and all(
+            after[name] is mod for name, mod in found.items()
+        ), "the file-end fixture failed to restore its exact setup module table"
+
+        # Found none at setup: it leaves none.
+        del sys.modules[_SECRETS_MODULE]
+        run_to_the_file_end()
+        assert entries() == {}, "the file-end fixture left a module it never found"
+    finally:
+        # Spelled per entry: the module-wipe census reads a bulk update of the
+        # table as this FILE's restore, and must keep reading the fixture's.
+        sys.modules[_SECRETS_MODULE] = _loaded_secrets_store
+
+
 def test_byte_advance_refreshes_only_mapped_worker_heartbeat(monkeypatch):
     from bulk_downloader import runner as runner_mod
 
