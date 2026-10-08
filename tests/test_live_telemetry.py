@@ -50,17 +50,163 @@ class _RunnerWithStatus:
         return self._status
 
 
-def test_health_uses_current_and_legacy_runner_count_schemas(fresh_app):
+# FIX-R-370/371 (adjC 0444Z F1, 0924Z, 1156Z; cx19 F1, cx2): no vault state may
+# outlive the test that built it -- not on the module already loaded, not on a
+# module the test imported cold, and not on the FIRST import of a test that
+# found none: the conftest isolation must hold for the module the NEXT test
+# imports by name. Each builder below leaves its state behind on purpose and
+# the check after it must find none; they run in file order. The first-import
+# pair comes first and this file imports secrets_store at no module level, so
+# when the file runs alone the builder meets no loaded module. Alone, every
+# check passes on any tree; after its builder the loaded pair was red on BASE,
+# the cold pair on 702ec705 and the first-import pair on 4721f061.
+_SECRETS_MODULE = "bulk_downloader.secrets_store"
+_COLD_MODULES_HELD: list = []
+
+
+def _assert_no_inherited_vault_backend(tmp_dir):
+    import importlib
+    import sys
+
+    ss = importlib.import_module(_SECRETS_MODULE)
+    assert ss._backend is None, (
+        f"a vault backend over {ss.SECRETS_FILE} outlived the test that built it"
+    )
+    assert sys.modules["bulk_downloader"].secrets_store is ss
+    ss.get_backend()
+    assert ss.SECRETS_FILE.parent == tmp_dir
+
+
+def test_a_first_imported_vault_module_writes_its_own_metadata(clean_workdir):
+    import importlib
+
+    first = importlib.import_module(_SECRETS_MODULE)
+    # A no-op on a true first import; when collection already loaded the
+    # module, point its pair at this test (the conftest puts it back).
+    first.refresh_vault_paths()
+    backend = first.MasterPasswordBackend()
+    assert backend.unlock("first-import-pw")
+    backend.set("first-import-key", "value")
+
+    assert "first-import-key" in first.rotation_ages()
+    assert first.SECRETS_META_FILE.parent == clean_workdir
+
+
+def test_the_next_test_reads_no_metadata_left_by_a_first_import(clean_workdir):
+    import sys
+
+    # Through the package, as a module-level import resolves it, and metadata
+    # first: rotation_ages() reads the published pair as it stands.
+    from bulk_downloader import secrets_store as ss
+
+    assert sys.modules.get(_SECRETS_MODULE) is ss, (
+        "the package attribute names a module the table no longer holds"
+    )
+    assert ss.SECRETS_META_FILE is not None, (
+        "a module left under the name had its vault paths cleared"
+    )
+    assert ss.rotation_ages() == {}, "the first import's vault metadata outlived it"
+    _assert_no_inherited_vault_backend(clean_workdir)
+
+
+def test_health_uses_current_and_legacy_runner_count_schemas(fresh_app, monkeypatch):
     """The v1 health probe sums nested counts without dropping legacy ones."""
+    from bulk_downloader import secrets_store as ss
     from bulk_downloader.app_state import runners
 
-    runners["current"] = _RunnerWithStatus({"counts": {"pending": 7, "running": 1}})
-    runners["legacy"] = _RunnerWithStatus({"queued": 3, "active": 2})
+    # FIX-R-370: /api/health reaches ss.get_backend(), which builds the
+    # module-global vault backend and republishes the vault pair over this
+    # test's tmp dir. Restore both, and the runners this test plants, so none
+    # of it outlives the test on a shared xdist worker.
+    for name in ("_backend", "_backend_pref", "_audited_cache"):
+        monkeypatch.setattr(ss, name, getattr(ss, name))
+    for name in ("SECRETS_FILE", "SECRETS_META_FILE"):
+        monkeypatch.setattr(ss, name, getattr(ss, name))
+    monkeypatch.setitem(
+        runners, "current", _RunnerWithStatus({"counts": {"pending": 7, "running": 1}})
+    )
+    monkeypatch.setitem(
+        runners, "legacy", _RunnerWithStatus({"queued": 3, "active": 2})
+    )
 
     body = fresh_app.get("/api/health").get_json()
 
     assert body["queue_depth"] == 10
     assert body["active_downloads"] == 3
+
+
+@pytest.fixture(scope="module")
+def _loaded_secrets_store():
+    """secrets_store loaded BEFORE each requesting test's own fixtures."""
+    import importlib
+
+    return importlib.import_module(_SECRETS_MODULE)
+
+
+def test_a_vault_backend_built_on_the_loaded_module_is_left_behind(
+    _loaded_secrets_store, clean_workdir
+):
+    _loaded_secrets_store.get_backend()
+
+    assert _loaded_secrets_store._backend is not None
+    assert _loaded_secrets_store.SECRETS_FILE.parent == clean_workdir
+
+
+def test_the_next_test_inherits_no_vault_backend_from_the_loaded_module(clean_workdir):
+    _assert_no_inherited_vault_backend(clean_workdir)
+
+
+@pytest.fixture(scope="module")
+def _secrets_store_restored_when_the_file_ends():
+    """The cold builder below pops secrets_store on purpose; the conftest puts
+    the setup object back after every test. This file also puts back what it
+    found once it ENDS -- the module-wipe census's own remedy (as
+    test_v3_66_1034 did at @1069) -- so its wipe stops at this file even if the
+    per-test restore regresses. It runs after the check, so it masks nothing."""
+    import sys
+
+    saved_modules = {
+        name: mod for name, mod in sys.modules.items() if name == _SECRETS_MODULE
+    }
+    try:
+        yield
+    finally:
+        sys.modules.pop(_SECRETS_MODULE, None)
+        sys.modules.update(saved_modules)
+
+
+def test_a_cold_reimported_vault_backend_is_left_behind(
+    _loaded_secrets_store, _secrets_store_restored_when_the_file_ends, clean_workdir
+):
+    import importlib
+    import sys
+
+    sys.modules.pop(_SECRETS_MODULE, None)
+    fresh = importlib.import_module(_SECRETS_MODULE)
+    fresh.get_backend()
+    # Kept the way a module imported during this test would keep it.
+    _COLD_MODULES_HELD.append(fresh)
+
+    assert fresh._backend is not None
+    assert fresh.SECRETS_FILE.parent == clean_workdir
+
+
+def test_the_next_test_inherits_no_vault_backend_after_a_cold_reimport(
+    _loaded_secrets_store, clean_workdir
+):
+    import sys
+
+    for held in _COLD_MODULES_HELD:
+        state = (held._backend, held.SECRETS_FILE, held.SECRETS_META_FILE)
+        assert state == (None, None, None), (
+            "a held cold-imported module kept its vault state"
+        )
+    # One secrets_store per process: a replacement left under the name would
+    # split the process in two.
+    assert sys.modules[_SECRETS_MODULE] is _loaded_secrets_store, (
+        "the cold-imported module replaced the one the process already holds"
+    )
+    _assert_no_inherited_vault_backend(clean_workdir)
 
 
 def test_byte_advance_refreshes_only_mapped_worker_heartbeat(monkeypatch):

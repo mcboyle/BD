@@ -1161,6 +1161,65 @@ def _aiassist_config_is_never_inherited():
     yield
 
 
+# ── FIX-R-370: the credential vault backend never outlives the test that built it
+#
+# secrets_store keeps ONE module-global backend, built over the vault pair of
+# whichever test first reached get_backend() (a GET /api/health is enough), and
+# refresh_vault_paths() deliberately REFUSES to re-point a live backend when
+# BD_INSTALL_DIR changes. Nothing restored it, so every later test on the same
+# xdist worker read and unlocked the FIRST test's tmp vault: MAIN-RED-STALE-GATE
+# 2026-10-07 at 3e0b4dc5, three tests green alone and red after
+# test_live_telemetry on gw9. The product guard is right (adjC 0444Z); the
+# tests must contain what they build. So the backend and the published vault
+# pair are saved before EVERY test and put back after it -- a fixture rather
+# than one leaker's teardown, because the next leaker would bring this back.
+#
+# It must NOT request monkeypatch: an autouse request instantiates it before
+# the test does, which moves every undo behind the later autouse teardowns.
+# test_o1671_a16_shell_close_reaps patches the global time.monotonic with a
+# two-tick iterator, and those teardowns then raised StopIteration (measured
+# 5 of 5). Restoring by hand here, set up before the test's own fixtures, also
+# runs AFTER the test's monkeypatch undo, so the saved values win over a
+# backend the test built and then patched over.
+_SECRETS_BACKEND_STATE = ("_backend", "_backend_pref", "_audited_cache")
+_SECRETS_VAULT_PAIR = ("SECRETS_FILE", "SECRETS_META_FILE")
+_SECRETS_MODULE = "bulk_downloader.secrets_store"
+
+
+@pytest.fixture(autouse=True)
+def _secrets_backend_is_never_inherited():
+    ss = sys.modules.get(_SECRETS_MODULE)
+    saved = {}
+    if ss is not None:
+        saved = {
+            name: getattr(ss, name)
+            for name in _SECRETS_BACKEND_STATE + _SECRETS_VAULT_PAIR
+        }
+    yield
+    for name, value in saved.items():
+        setattr(ss, name, value)
+    # The next test imports the module by NAME, not the object held here
+    # (adjC 0924Z, 1156Z). Any OTHER module object under that name was made
+    # by this test -- a cold re-import, or the first import when there was
+    # none at setup -- and holds this test's backend and absolute vault pair:
+    # clear both, since anything imported during the test may still hold it.
+    live = sys.modules.get(_SECRETS_MODULE)
+    if live is not None and live is not ss:
+        for name in _SECRETS_BACKEND_STATE + _SECRETS_VAULT_PAIR:
+            setattr(live, name, None)
+    # Then restore the setup state by name, in the table and on the package;
+    # isolated_bd_home's teardown canonicalizes both the same way.
+    package = sys.modules.get("bulk_downloader")
+    if ss is not None:
+        sys.modules[_SECRETS_MODULE] = ss
+        if package is not None:
+            package.secrets_store = ss
+    else:
+        sys.modules.pop(_SECRETS_MODULE, None)
+        if package is not None and "secrets_store" in vars(package):
+            del package.secrets_store
+
+
 # ── v3.66.945: BD_INSTALL_DIR must never survive a test with a RELATIVE value
 #
 # Register item 34 spent three readings being called "four order-dependent
