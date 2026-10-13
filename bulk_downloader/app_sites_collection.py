@@ -36,6 +36,7 @@ from .app_sites import (
     _create_site,
     _sanitize_display_name,
     _save_sites_config,
+    _validate_config_paths,
     sites_bp,
 )
 
@@ -187,6 +188,14 @@ def api_sites_import():
     # Create the site via the same path as api_add — but inline here so
     # we don't double-handle the request body.
     cfg_in = result["config"]
+    # q-import-export M3: the same download_dir / cookie_file / spillover_dirs
+    # allowlist POST /api/sites applies (api_add -> _validate_config_paths),
+    # before any site identity is allocated. Import used to skip it.
+    paths_ok, paths_err = _validate_config_paths(cfg_in)
+    if not paths_ok:
+        return jsonify({"ok": False,
+                        "errors": [paths_err],
+                        "warnings": result["warnings"]}), 400
     # Row 395: this route historically inlined creation and therefore does not
     # pass through _create_site.  Apply the same one-shot paid-egress gate before
     # allocating any site identity.

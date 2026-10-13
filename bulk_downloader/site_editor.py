@@ -661,10 +661,15 @@ def import_config(payload: Any, *, known_fields: set | None = None) -> dict:
 
     # If the export stripped secrets, surface that the operator must
     # re-enter them.
-    if payload.get("_had_secrets"):
+    # q-import-export L8: export_config writes a list of field names; any
+    # other shape (true, a number) used to crash the join -> 500.
+    had = payload.get("_had_secrets")
+    if had:
+        names = ([str(x) for x in had] if isinstance(had, (list, tuple))
+                 else [])
         warnings.append(
             "This export had secrets removed: "
-            + ", ".join(payload["_had_secrets"])
+            + (", ".join(names) or "unspecified fields")
             + ". Re-enter them after import.")
 
     # Run full validation on the cleaned config

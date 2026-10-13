@@ -205,6 +205,8 @@ def api_site_queue_url(sid):
         return jsonify({"ok": False, "error": "Not found"}), 404
     body = request.get_json(silent=True) or {}
     urls = body.get("urls")
+    if urls is not None and not isinstance(urls, list):
+        return jsonify({"ok": False, "error": "urls must be a list"}), 400
     if not urls:
         single = body.get("url")
         urls = [single] if single else []
@@ -310,6 +312,8 @@ def api_bulk_retry(sid):
 
 @sites_bp.route("/api/sites/<sid>/queue/search")
 def api_queue_search(sid):
+    # q-import-export L6: an unknown site is a 404, as on queue/export.
+    if sid not in _app_runners(): return jsonify({"error": "Not found"}), 404
     from .db import queue_search as _qs
     q = (request.args.get("q") or "").strip() or None
     status = (request.args.get("status") or "").strip() or None
@@ -393,6 +397,26 @@ def api_queue_export(sid):
     })
 
 
+# Statuses a queue import restores as-is (the settled ones; see
+# app_queue._QUEUE_V2_TERMINAL_STATUSES). Anything else imports as pending.
+_IMPORT_RESTORED_STATUSES = frozenset({
+    "done", "skipped_duplicate", "failed", "error", "cancelled",
+    "needs_review", "stopped", "dead_letter",
+})
+
+
+def _import_flag(v) -> bool:
+    """q-import-export L3: a JSON flag from an imported row. "false"/"0"/""
+    are off; only true, a non-zero number, or "1"/"true"/"yes"/"on" are on."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes", "on")
+    return False
+
+
 @sites_bp.route("/api/sites/<sid>/queue/import", methods=["POST"])
 def api_queue_import(sid):
     """v3.49 (#63): import a queue snapshot. Body: {"rows": [...], "mode":
@@ -421,13 +445,25 @@ def api_queue_import(sid):
             runner.urls.clear()
     added = 0
     new_urls = []
+    # q-import-export M2: a row exported in a settled status (cancelled ->
+    # "stopped", done, failed, ...) comes back in that status. It used to come
+    # back "pending" and download again. running -> pending: no worker holds it.
+    restore = {}
     for row in rows:
         url = (row.get("url") or "").strip()
         if not url: continue
         if url in runner.jobs: continue  # already queued — skip
         new_urls.append(url)
+        status = row.get("status")
+        if isinstance(status, str) and status in _IMPORT_RESTORED_STATUSES:
+            message = row.get("message")
+            restore[url] = (status, message if isinstance(message, str) and message
+                            else "Restored by queue import")
     if new_urls:
-        result = runner.load_urls(new_urls, folder_scan=False)
+        # restore_status only when there is something to restore: a plain
+        # import keeps the long-standing load_urls(urls, folder_scan) call.
+        extra = {"restore_status": restore} if restore else {}
+        result = runner.load_urls(new_urls, folder_scan=False, **extra)
         # load_urls returns (added, dupes) or (added, dupes, skipped)
         added = result[0] if isinstance(result, tuple) else len(new_urls)
         # Apply priority + force_download after load (load_urls is generic)
@@ -444,7 +480,7 @@ def api_queue_import(sid):
                 if priority and isinstance(priority, str):
                     runner.jobs[url]["priority"] = priority
                     fields["priority"] = priority
-                if row.get("force_download"):
+                if _import_flag(row.get("force_download")):
                     runner.jobs[url]["force_download"] = True
                     fields["force_download"] = 1
                 if fields:

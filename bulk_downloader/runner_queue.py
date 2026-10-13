@@ -135,7 +135,7 @@ class QueueMixin:
         sys.stderr.write(f"[{self.site_id}] restored {len(rows)} queue entries"
                          + (f" ({len(crash_recovered_urls)} mid-download)"
                             if crash_recovered_urls else "") + "\n")
-    def load_urls(self,urls,dedupe=True,folder_scan=False):
+    def load_urls(self,urls,dedupe=True,folder_scan=False,restore_status=None):
         """Phase 7.4: when folder_scan=True, walk the configured download_dir
         and pre-mark URLs as `done — already on disk` if a file with a
         matching basename exists. Saves wasted page visits when re-running
@@ -148,7 +148,14 @@ class QueueMixin:
         separated `header=value` pairs after the URL:
             https://example.com/v.mp4\\tReferer=https://example.com/page\\tCookie=session=abc
         These get stored on the job and applied at request time. Handles
-        sites where a specific Referer or one-shot cookie is required."""
+        sites where a specific Referer or one-shot cookie is required.
+
+        restore_status: optional {url: (status, message)} for a queue import
+        (q-import-export M2). A NEW job for such a url is created already in
+        that status, inside the same transaction, so a cancelled/done row from
+        an export never exists as claimable "pending" on its way back in."""
+        restore_status = restore_status or {}
+        restored_urls=set()
         added=dupes=skipped_on_disk=0
         new_urls=[]
         rearmed=[]  # dl95-africancasting-1: stopped jobs re-armed by this add
@@ -331,6 +338,9 @@ class QueueMixin:
                 except Exception: pass
             status="done" if pre_done else "pending"
             msg="Already on disk (folder scan)" if pre_done else ""
+            if not pre_done and u in restore_status:
+                status, msg = restore_status[u]
+                restored_urls.add(u)
             prepared.append((u, hdrs, pre_done, status, msg))
 
         # Publish the prepared intake as one lifecycle/job transaction. Slow
@@ -359,10 +369,10 @@ class QueueMixin:
                     else:
                         dupes+=1
                     continue
-                self.jobs[u]={"status":status,"message":msg,"ts":_ts() if pre_done else "",
+                self.jobs[u]={"status":status,"message":msg,"ts":_ts() if status!="pending" else "",
                               # CUT #41: a pre_done job is already "done"; without
                               # ts_iso no day-window consumer can ever count it.
-                              "ts_iso":_ts_iso() if pre_done else "",
+                              "ts_iso":_ts_iso() if status!="pending" else "",
                               "priority":url_priorities.get(u, "normal"),"retries":0,"retry_after":0,
                               "filename":"","file_size":0,
                               # v3.43.23: stamp creation time so a newly-added URL doesn't
@@ -397,10 +407,20 @@ class QueueMixin:
                     },
                 )
             except Exception as e: self.log.error("bulk persist failed: %s", e)
+            # Persist restored import statuses, one bulk update per (status, message).
+            restored={}
+            for u in new_urls:
+                if u in restored_urls:
+                    restored.setdefault(restore_status[u], []).append(u)
+            for (r_status, r_msg), r_urls in restored.items():
+                try:
+                    queue_bulk_update(self.site_id, r_urls, status=r_status, message=r_msg)
+                except sqlite3.Error as e:
+                    self.log.warning("queue_bulk_update (restored) failed: %s", e)
             # Persist done-state for folder-scan pre-marked URLs in ONE
             # bulk update (they all carry the same "already on disk"
             # message) — previously a per-URL queue_upsert loop.
-            done_urls=[u for u in new_urls
+            done_urls=[u for u in new_urls if u not in restored_urls
                        if self.jobs.get(u,{}).get("status")=="done"]
             if done_urls:
                 try:
