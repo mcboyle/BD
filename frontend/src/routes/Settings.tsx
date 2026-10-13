@@ -69,6 +69,8 @@ import { cn } from "@/lib/utils";
 const KILL_KEY = "automation.master_off_switch" as const;
 
 const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
+// Quiet period after the last AI provider/endpoint edit before POST /api/ai/models.
+const AI_DETECT_DEBOUNCE_MS = 800;
 
 // Cut 5 (B1.4): GET /api/global_config/origins response. Provenance only —
 // never a field value. `restart` apply-timing is currently empty server-side
@@ -170,12 +172,20 @@ export function Settings() {
   const detectModels = aiModels.mutate;
   const aiProvider = draft.ai_provider;
   const aiEndpoint = draft.ai_endpoint;
+  // scs-fix F2: each detect makes the SERVER call the endpoint, so only probe
+  // when AI is enabled, and only once the endpoint stops changing (no call per
+  // keystroke / per partial URL; the page-open draft settle is one call too).
+  const aiEnabled = !!draft.ai_enabled;
   useEffect(() => {
-    detectModels({
-      provider: aiProvider || undefined,
-      endpoint: aiEndpoint || undefined,
-    });
-  }, [detectModels, aiProvider, aiEndpoint]);
+    if (!aiEnabled) return;
+    const t = window.setTimeout(() => {
+      detectModels({
+        provider: aiProvider || undefined,
+        endpoint: aiEndpoint || undefined,
+      });
+    }, AI_DETECT_DEBOUNCE_MS);
+    return () => window.clearTimeout(t);
+  }, [detectModels, aiEnabled, aiProvider, aiEndpoint]);
   const modelOptions: string[] = (() => {
     const m = (aiModels.data as { models?: unknown[] } | undefined)?.models;
     return Array.isArray(m) ? m.map((x) => String(x)).filter(Boolean) : [];

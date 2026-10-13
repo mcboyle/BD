@@ -125,8 +125,17 @@ export default function Notifications() {
         testApprise.mutate(
           { title: "BulkDownloader test", body: "Test notification." },
           {
-            onSuccess: (r) =>
-              toast.success(`Test sent (${r.sent ?? 0} ok, ${r.failed ?? 0} failed)`),
+            onSuccess: (r) => {
+              const sent = r.sent_count ?? r.sent ?? 0;
+              const failed = r.failed_count ?? r.failed ?? 0;
+              // ok:false (nothing delivered, or no URLs) is a failure, not a success toast.
+              if (r.ok === false)
+                toast.error(
+                  `Test failed (${sent} ok, ${failed} failed)` +
+                    (r.error || r.errors?.[0]?.error ? `: ${r.error || r.errors?.[0]?.error}` : ""),
+                );
+              else toast.success(`Test sent (${sent} ok, ${failed} failed)`);
+            },
             onError: (e) => toast.error(String((e as Error).message)),
           },
         );
@@ -148,7 +157,15 @@ export default function Notifications() {
       }
       case "testTg":
         testTg.mutate(undefined, {
-          onSuccess: (r) => toast.success(`TG test: ${r.sent ?? 0} sent`),
+          onSuccess: (r) => {
+            const sent = r.sent_count ?? r.sent ?? 0;
+            if (r.ok === false)
+              toast.error(
+                `TG test failed (${sent} sent, ${r.failed_count ?? 0} failed)` +
+                  (r.error || r.errors?.[0]?.error ? `: ${r.error || r.errors?.[0]?.error}` : ""),
+              );
+            else toast.success(`TG test: ${sent} sent`);
+          },
           onError: (e) => toast.error(String((e as Error).message)),
         });
         break;
@@ -261,6 +278,11 @@ export default function Notifications() {
         <h2 className="section-head">Active alerts</h2>
         {alerts.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : alerts.isError ? (
+          // na-fix F11: a 503 (alert store unreadable) is UNKNOWN, never "No active alerts".
+          <p role="alert" className="text-sm text-danger">
+            Could not read active alerts: {String((alerts.error as Error)?.message || "request failed")}
+          </p>
         ) : !alerts.data?.alerts?.length ? (
           <p className="text-sm text-muted-foreground">No active alerts.</p>
         ) : (

@@ -35,7 +35,8 @@ function stubFetch(modelsBody: unknown) {
     vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/api/csrf")) return Promise.resolve(jsonResponse({ csrf_token: "t" }));
-      if (url.includes("/api/global_config")) return Promise.resolve(jsonResponse({}));
+      // scs-fix F2: detection only runs with AI enabled.
+      if (url.includes("/api/global_config")) return Promise.resolve(jsonResponse({ ai_enabled: true }));
       if (url.includes("/api/ai/models")) return Promise.resolve(jsonResponse(modelsBody));
       return new Promise<Response>(() => {});
     }),
@@ -63,7 +64,7 @@ describe("Settings model picker (Cut 7 / 7.1)", () => {
       );
       expect(opts).toContain("qwen2.5:7b");
       expect(opts).toContain("qwen2.5vl:7b");
-    });
+    }, { timeout: 3000 }); // detection is debounced (scs-fix F2)
   });
 
   it("keeps the model field editable when detection fails open", async () => {

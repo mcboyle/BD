@@ -13,6 +13,8 @@ from flask import Blueprint, jsonify, request
 
 alerts_bp = Blueprint("alerts", __name__)
 
+_MAX_LOOKBACK_HOURS = 24 * 366
+
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
     import importlib
@@ -30,8 +32,20 @@ def api_alerts_active():
     UI's bell-icon badge reads this for the unread count."""
     try:
         hours = int(request.args.get("hours", 24) or 24)
+    except (TypeError, ValueError):
+        hours = 0
+    if not 1 <= hours <= _MAX_LOOKBACK_HOURS:
+        return jsonify({"error": "hours must be a whole number from 1 to "
+                                 f"{_MAX_LOOKBACK_HOURS}"}), 400
+    try:
         from . import alerts_engine as _ae
-        return jsonify({"alerts": _ae.active_alerts(lookback_hours=hours)})
+        try:
+            return jsonify({"alerts": _ae.active_alerts(lookback_hours=hours)})
+        except _ae.AlertEventStoreUnavailable as e:
+            # UNKNOWN, not "nothing firing": the badge must not read 0 off a
+            # store that could not be read.
+            return jsonify({"error": str(e)[:200],
+                            "store_unavailable": True}), 503
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -42,7 +56,12 @@ def api_alerts_rules():
     s_cfg = _app_s_cfg()
     try:
         from . import alerts_engine as _ae
-        return jsonify({"rules": _ae.list_rules(s_cfg=s_cfg)})
+        rules, store_error = _ae.rules_report(s_cfg=s_cfg)
+        body = {"rules": rules}
+        if store_error:
+            # The built-in rules are still listed; saved rules are UNKNOWN.
+            body["store_error"] = store_error
+        return jsonify(body)
     except Exception as e:
         return jsonify({"error": str(e)[:200]}), 500
 
@@ -71,8 +90,10 @@ def api_alerts_rule_save():
         rid = _ae.save_rule(body)
         if rid is None:
             return jsonify({"ok": False,
-                            "error": "invalid rule (need id, a known metric, "
-                                     "op in >=/<=/>/</==, numeric threshold)"}), 400
+                            "error": "invalid rule (need an id without '/', a known metric, "
+                                     "op in >=/<=/>/</==, finite numeric threshold, "
+                                     "whole non-negative duration_minutes / "
+                                     "cooldown_minutes)"}), 400
         return jsonify({"ok": True, "id": rid})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

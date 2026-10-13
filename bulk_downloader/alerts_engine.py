@@ -30,6 +30,7 @@ Built-in metrics evaluated:
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import sys
 import time
@@ -118,12 +119,19 @@ def _evaluate_metric(name: str, *, s_cfg: Optional[dict] = None) -> Optional[flo
     computable."""
     try:
         if name == "bd_failure_rate_1h":
+            # history.ts is TEXT `YYYY-MM-DDTHH:MM:SS`, compared as text. A bare
+            # datetime('now', ...) renders `YYYY-MM-DD HH:MM:SS`; 'T' sorts
+            # after ' ', so that bound admitted every row of the same UTC date
+            # and "last hour" measured the whole day. The bound is rendered in
+            # the stored format (here and in bd_job_failures_1h).
             from . import db as _db
             with _db.db_conn() as cx:
                 r = cx.execute("""SELECT
                       SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS d,
                       SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS f
-                    FROM history WHERE ts >= datetime('now', '-1 hour')""").fetchone()
+                    FROM history
+                    WHERE ts >= strftime('%Y-%m-%dT%H:%M:%S',
+                                         datetime('now', '-1 hour'))""").fetchone()
             d, f = int(r[0] or 0), int(r[1] or 0)
             if d + f == 0:
                 return 0.0
@@ -136,12 +144,15 @@ def _evaluate_metric(name: str, *, s_cfg: Optional[dict] = None) -> Optional[flo
             with _db.db_conn() as cx:
                 r = cx.execute("""SELECT COUNT(*) FROM history
                     WHERE status='failed'
-                      AND ts >= datetime('now', '-1 hour')""").fetchone()
+                      AND ts >= strftime('%Y-%m-%dT%H:%M:%S',
+                                         datetime('now', '-1 hour'))""").fetchone()
             return float(r[0] or 0)
         if name == "bd_pending_count":
             from . import db as _db
             with _db.db_conn() as cx:
-                r = cx.execute("""SELECT COUNT(*) FROM history
+                # Pending jobs live in `queue`; `history` only ever holds
+                # finished rows, so counting it there read 0 forever.
+                r = cx.execute("""SELECT COUNT(*) FROM queue
                                    WHERE status = 'pending'""").fetchone()
             return float(r[0] or 0)
         if name == "bd_disk_free_gb":
@@ -179,16 +190,51 @@ def _evaluate_metric(name: str, *, s_cfg: Optional[dict] = None) -> Optional[flo
                 # 'now' is read here, not in SQL: a clock read inside the
                 # statement can never be shadow-compared (row 127).
                 r = cx.execute("""SELECT
-                  CAST(strftime('%s', MIN(ts)) AS INTEGER)
-                  FROM history WHERE status = 'pending'""").fetchone()
+                  CAST(strftime('%s', MIN(ts_added)) AS INTEGER)
+                  FROM queue WHERE status = 'pending'""").fetchone()
             return ((time.time() - r[0]) / 3600.0
                     if r and r[0] is not None else 0.0)
     except Exception as e:
-        if type(e).__name__ == "OperationalError" and "no such table: history" in str(e).lower():
+        if type(e).__name__ == "OperationalError" and (
+                "no such table: history" in str(e).lower()
+                or "no such table: queue" in str(e).lower()):
             return 0.0
         sys.stderr.write(f"[alerts] metric {name}: {e}\n")
         return None
     return None
+
+
+_OFF_WORDS = {"0", "false", "off", "no", "disabled"}
+
+
+def _rule_enabled(rule: dict) -> bool:
+    """False when the operator switched the rule off (JSON key `enabled`, or
+    the alert_rules.enabled column, which _merged_rules folds into the key)."""
+    v = rule.get("enabled", True)
+    if isinstance(v, str):
+        return v.strip().lower() not in _OFF_WORDS
+    return v is None or bool(v)
+
+
+def _minutes(rule: dict, key: str, default: int) -> int:
+    """A rule's whole, finite, non-negative minute count. Raises ValueError."""
+    v = rule.get(key, default)
+    if isinstance(v, bool) or v is None:
+        raise ValueError(f"bad {key}: {v!r}")
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"bad {key}: {v!r}") from None
+    if not math.isfinite(f) or f < 0:
+        raise ValueError(f"bad {key}: {v!r}")
+    return int(f)
+
+
+def _json_safe(rule: dict) -> dict:
+    """`rule` with non-finite floats replaced by None: NaN / Infinity are not
+    JSON, and one such stored value made every rules response unparseable."""
+    return {k: (None if isinstance(v, float) and not math.isfinite(v) else v)
+            for k, v in rule.items()}
 
 
 _OPS = {
@@ -279,7 +325,7 @@ def _record_event(rule_id: str, kind: str, value: Optional[float],
             cx.execute("""INSERT INTO alert_events(
                 rule_id, ts, metric_value, kind, message
             ) VALUES (?,?,?,?,?)""",
-                (rule_id, time.time(), value, kind, message[:300]))
+                (rule_id, time.time(), value, kind, str(message)[:300]))
     except Exception as e:
         raise AlertEventStoreUnavailable(
             f"alert_events unwritable for {rule_id} ({kind}): "
@@ -318,12 +364,32 @@ def evaluate(s_cfg: Optional[dict] = None,
                                    "tripping": False, "fired": False,
                                    "error": store_error})
     for rule in rules:
-        out["evaluated"] += 1
         metric = rule.get("metric", "")
+        if not _rule_enabled(rule):
+            # Switched off by the operator: not evaluated, never fires.
+            out["results"].append({"rule_id": rule.get("id"), "metric": metric,
+                                   "value": None, "threshold": None,
+                                   "tripping": False, "fired": False,
+                                   "enabled": False})
+            continue
+        out["evaluated"] += 1
         value = _evaluate_metric(metric, s_cfg=s_cfg)
-        result: dict = {"rule_id": rule["id"], "metric": metric,
-                       "value": value, "threshold": rule["threshold"],
+        result: dict = {"rule_id": rule.get("id"), "metric": metric,
+                       "value": value,
+                       "threshold": _json_safe(rule).get("threshold"),
                        "tripping": False, "fired": False}
+        try:
+            # Parsed per RULE and before any state is touched: one stored rule
+            # with a bad field used to raise out of the whole pass, so no rule
+            # after it was evaluated on any 60 s tick.
+            rule_id = rule["id"]
+            duration = _minutes(rule, "duration_minutes", 1)
+            cooldown = _minutes(rule, "cooldown_minutes", 60)
+        except (KeyError, ValueError) as e:
+            result["error"] = (str(e) if isinstance(e, ValueError)
+                               else "rule has no id")
+            out["results"].append(result)
+            continue
         if value is None:
             result["error"] = "metric unavailable"
             out["results"].append(result)
@@ -335,6 +401,8 @@ def evaluate(s_cfg: Optional[dict] = None,
             continue
         try:
             threshold = float(rule["threshold"])
+            if not math.isfinite(threshold):
+                raise ValueError("not finite")
         except (KeyError, TypeError, ValueError):
             result["error"] = f"bad threshold: {rule.get('threshold')!r}"
             out["results"].append(result)
@@ -349,17 +417,17 @@ def evaluate(s_cfg: Optional[dict] = None,
                 if not _condition_was_held(rule["id"],
                                            duration_minutes=0):
                     _record_event(rule["id"], "tripped", value,
-                                 f"{metric}={value} {rule['op']} {rule['threshold']}")
+                                 f"{metric}={value} {rule.get('op', '>=')} {threshold}")
                 # Has it been tripping long enough?
                 if _condition_was_held(
                         rule["id"],
-                        duration_minutes=int(rule.get("duration_minutes", 1))):
+                        duration_minutes=duration):
                     # Cooldown gate
                     last_fire = _last_fire_age(rule["id"])
-                    cool = int(rule.get("cooldown_minutes", 60)) * 60
+                    cool = cooldown * 60
                     if last_fire is None or last_fire >= cool:
                         _record_event(rule["id"], "fired", value,
-                                     rule.get("name", rule["id"]))
+                                     str(rule.get("name") or rule_id))
                         result["fired"] = True
                         out["fired"] += 1
                         # Fire side effects
@@ -402,7 +470,11 @@ def _fire_actions(rule: dict, value: float):
 
 
 def active_alerts(*, lookback_hours: int = 24) -> list:
-    """All alerts that fired in the last `lookback_hours`."""
+    """All alerts that fired in the last `lookback_hours`.
+
+    Raises AlertEventStoreUnavailable when alert_events cannot be read. It
+    used to answer [] -- "nothing is firing" -- for a locked or broken store,
+    the row 421 fail-open shape evaluate() no longer has."""
     _ensure_tables()
     cutoff = time.time() - lookback_hours * 3600
     try:
@@ -412,8 +484,9 @@ def active_alerts(*, lookback_hours: int = 24) -> list:
                                   WHERE ts >= ? AND kind = 'fired'
                                   ORDER BY id DESC""", (cutoff,)).fetchall()
         return [dict(r) for r in rows]
-    except Exception:
-        return []
+    except Exception as e:
+        raise AlertEventStoreUnavailable(
+            f"alert_events unreadable: {type(e).__name__}: {e}") from e
 
 
 def _merged_rules() -> tuple:
@@ -425,8 +498,16 @@ def _merged_rules() -> tuple:
         _ensure_tables()
         from . import db as _db
         with _db.db_conn() as cx:
-            rows = cx.execute("SELECT rule_id, rule_json FROM alert_rules").fetchall()
-        custom = {r[0]: json.loads(r[1]) for r in rows}
+            rows = cx.execute(
+                "SELECT rule_id, rule_json, enabled FROM alert_rules").fetchall()
+        custom = {}
+        for r in rows:
+            rule = json.loads(r[1])
+            if not isinstance(rule, dict):
+                raise ValueError(f"rule {r[0]!r} is not an object")
+            if r[2] is not None and not r[2]:
+                rule = {**rule, "enabled": False}   # column says off
+            custom[r[0]] = rule
     except Exception as e:
         return list(DEFAULT_RULES), f"alert_rules store unavailable: {type(e).__name__}"
     out = []
@@ -437,35 +518,32 @@ def _merged_rules() -> tuple:
     return out, None
 
 
+def rules_report(*, s_cfg: Optional[dict] = None) -> tuple:
+    """(all known rules with current metric values, store error or None).
+
+    A store that cannot be read yields the built-in rules AND the error, so a
+    caller can say "custom rules unknown" instead of showing only defaults as
+    if no custom rule existed."""
+    rules, store_error = _merged_rules()
+    out = []
+    default_by_id = {rule["id"]: rule for rule in DEFAULT_RULES}
+    for rule in rules:
+        # scs-fix F5a: builtin = a default with no saved override. delete_rule
+        # cannot remove it (no row), so the SPA hides Remove; an overridden
+        # default keeps Remove, which drops the override. _merged_rules hands an
+        # un-overridden default back as the DEFAULT_RULES object itself and an
+        # overridden one as a new dict, so identity (not equality: an override
+        # may repeat the default's values) tells them apart.
+        builtin = default_by_id.get(rule.get("id")) is rule
+        value = _evaluate_metric(rule.get("metric", ""), s_cfg=s_cfg)
+        out.append({**_json_safe(rule), "enabled": _rule_enabled(rule),
+                    "current_value": value, "builtin": builtin})
+    return out, store_error
+
+
 def list_rules(*, s_cfg: Optional[dict] = None) -> list:
     """All known rules, with their current metric values + state."""
-    _ensure_tables()
-    try:
-        from . import db as _db
-        with _db.db_conn() as cx:
-            rows = cx.execute("SELECT * FROM alert_rules").fetchall()
-        custom = {r[0] if not hasattr(r, "keys") else r["rule_id"]:
-                  json.loads(r[1] if not hasattr(r, "keys") else r["rule_json"])
-                  for r in rows}
-    except Exception:
-        custom = {}
-    # Merge with defaults
-    out = []
-    default_ids = set()
-    for rule in DEFAULT_RULES:
-        default_ids.add(rule["id"])
-        if rule["id"] in custom:
-            rule = {**rule, **custom[rule["id"]]}
-        value = _evaluate_metric(rule.get("metric", ""), s_cfg=s_cfg)
-        out.append({**rule, "current_value": value})
-    # Cut 8: surface custom-only rules (e.g. operator-created job-lifecycle
-    # rules) whose id is not one of the built-ins.
-    for rid, rule in custom.items():
-        if rid in default_ids:
-            continue
-        value = _evaluate_metric(rule.get("metric", ""), s_cfg=s_cfg)
-        out.append({**rule, "id": rid, "current_value": value})
-    return out
+    return rules_report(s_cfg=s_cfg)[0]
 
 
 # ─── Cut 8: rule write API (job-lifecycle rule type rides this) ───────
@@ -481,7 +559,8 @@ _VALID_OPS = {">=", "<=", ">", "<", "=="}
 
 def save_rule(rule: dict) -> Optional[str]:
     """Upsert a user rule into alert_rules. Validates id (non-empty),
-    metric (must be evaluable), op, and a numeric threshold. Returns the
+    metric (must be evaluable), op, a finite numeric threshold and, when
+    present, duration_minutes / cooldown_minutes. Returns the
     rule_id on success or None on invalid input. Idempotent by rule_id."""
     _ensure_tables()
     if not isinstance(rule, dict):
@@ -491,20 +570,48 @@ def save_rule(rule: dict) -> Optional[str]:
     op = str(rule.get("op") or "").strip()
     if not rid or metric not in _KNOWN_METRICS or op not in _VALID_OPS:
         return None
+    # scs-fix F4: the id is a path segment of POST /api/alerts/rules/<rule_id>/remove;
+    # a "/" in it (even sent as %2F) never routes there, so the rule could never be removed.
+    if "/" in rid:
+        return None
     try:
         threshold = float(rule.get("threshold"))
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(threshold):
+        return None     # NaN / Infinity: never trips, and is not JSON
     stored = {**rule, "id": rid, "metric": metric, "op": op,
               "threshold": threshold}
+    # Every field evaluate() parses is checked here, so a rule that would
+    # break the evaluation pass is refused instead of stored.
+    try:
+        for key in ("duration_minutes", "cooldown_minutes"):
+            if key in stored:
+                stored[key] = _minutes(stored, key, 0)
+    except ValueError:
+        return None
+    if "name" in stored:
+        stored["name"] = str(stored["name"] if stored["name"] is not None else "")
+    if "enabled" in stored:
+        stored["enabled"] = _rule_enabled(stored)
     try:
         from . import db as _db
         with _db.db_conn() as cx:
-            cx.execute(
-                """INSERT INTO alert_rules(rule_id, rule_json, enabled)
-                   VALUES (?,?,1)
-                   ON CONFLICT(rule_id) DO UPDATE SET rule_json=excluded.rule_json""",
-                (rid, json.dumps(stored)))
+            if "enabled" in stored:
+                # An explicit on/off also sets the column, so a rule switched
+                # off there can be switched back on through the API.
+                cx.execute(
+                    """INSERT INTO alert_rules(rule_id, rule_json, enabled)
+                       VALUES (?,?,?)
+                       ON CONFLICT(rule_id) DO UPDATE SET
+                         rule_json=excluded.rule_json, enabled=excluded.enabled""",
+                    (rid, json.dumps(stored), 1 if stored["enabled"] else 0))
+            else:
+                cx.execute(
+                    """INSERT INTO alert_rules(rule_id, rule_json, enabled)
+                       VALUES (?,?,1)
+                       ON CONFLICT(rule_id) DO UPDATE SET rule_json=excluded.rule_json""",
+                    (rid, json.dumps(stored)))
         return rid
     except Exception:
         return None

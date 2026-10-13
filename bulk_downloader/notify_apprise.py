@@ -74,6 +74,7 @@ of return value.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -390,6 +391,19 @@ DEFAULT_POLICY: dict = {
 }
 
 
+# Caps for an event switched to "batched" with none of its own.
+_BATCHED_FALLBACK = (10, 120.0)
+
+
+def _can_flush(size, max_wait) -> bool:
+    """True when a batch under this policy is released by its size cap or by
+    its timer. False = it would only ever grow."""
+    try:
+        return size > 0 or (max_wait > 0 and math.isfinite(max_wait))
+    except TypeError:
+        return False
+
+
 # ─── Batching dispatcher ────────────────────────────────────────────
 
 
@@ -441,6 +455,9 @@ class NotificationDispatcher:
                 self._urls = list(urls)
             if enabled is not None:
                 self._enabled = bool(enabled)
+                if not self._enabled:
+                    # Switched off: what is still buffered is not sent later.
+                    self._pending.clear()
             if policy_overrides:
                 for k, v in policy_overrides.items():
                     if k in self._policy and isinstance(v, tuple) and len(v) == 3:
@@ -476,11 +493,13 @@ class NotificationDispatcher:
         to_flush: list = []
         with self._lock:
             for et, batch in list(self._pending.items()):
-                _mode, _size, max_wait = self._policy.get(
+                _mode, size, max_wait = self._policy.get(
                     et, ("per_event", 0, 0.0))
-                if max_wait <= 0:
-                    continue
-                if (now - batch.started_at) >= max_wait:
+                if not _can_flush(size, max_wait):
+                    # Neither cap can ever release this batch: send it now
+                    # rather than hold it (and grow it) forever.
+                    to_flush.append(et)
+                elif max_wait > 0 and (now - batch.started_at) >= max_wait:
                     to_flush.append(et)
         for et in to_flush:
             self._flush_batch(et)
@@ -508,9 +527,11 @@ class NotificationDispatcher:
         with self._lock:
             if not self._enabled or not self._urls:
                 return
-            mode, size, _max_wait = self._policy.get(
+            mode, size, max_wait = self._policy.get(
                 event_type, ("per_event", 0, 0.0))
-        if mode == "per_event":
+        if mode == "per_event" or not _can_flush(size, max_wait):
+            # A "batched" policy with no size cap and no usable timer would
+            # buffer every event and never send one.
             self._fire(title, body, tag=event_type)
             return
         # Batched
@@ -533,8 +554,11 @@ class NotificationDispatcher:
         """Render accumulated batch into one combined notification."""
         with self._lock:
             batch = self._pending.pop(event_type, None)
+            enabled = self._enabled
         if batch is None or not batch.items:
             return
+        if not enabled:
+            return      # disabled since these were buffered: dropped, not sent
         # Coalesced title: "BD: 10 download_done"
         n = len(batch.items)
         et_short = event_type.replace("_", " ")
@@ -618,6 +642,13 @@ def parse_urls_text(text: str) -> list:
     """
     if not text:
         return []
+    if isinstance(text, (list, tuple)):
+        # A stored list of URLs (one per item) reads like one per line.
+        text = "\n".join(t for t in text if isinstance(t, str))
+    elif not isinstance(text, str):
+        # A number / object is not a URL list. Raising here took the whole
+        # settings apply down with it, at startup included.
+        return []
     out: list = []
     for line in text.splitlines():
         line = line.strip()
@@ -651,7 +682,14 @@ def policy_from_config(cfg: dict) -> dict:
                 wait = float(cfg.get(wait_key, default[2]) or 0.0)
             except (ValueError, TypeError):
                 wait = default[2]
-            overrides[et] = (mode, max(0, size), max(0.0, wait))
+            if not math.isfinite(wait):
+                wait = default[2]       # "inf" / "nan" is not a wait
+            size, wait = max(0, size), max(0.0, wait)
+            if mode == "batched" and not _can_flush(size, wait):
+                # Batching was asked for without a cap that can release the
+                # batch (the per_event defaults carry 0 / 0.0).
+                size, wait = _BATCHED_FALLBACK
+            overrides[et] = (mode, size, wait)
     return overrides
 
 
