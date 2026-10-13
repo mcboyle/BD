@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, Link2, List, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { DensityToggle } from "@/components/ui/DensityToggle";
 import { SkeletonRows } from "@/components/ui/SkeletonRows";
 import { SortSelect } from "@/components/ui/SortSelect";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDensity } from "@/hooks/useDensity";
 import { useTableSort } from "@/hooks/useTableSort";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
@@ -83,6 +84,7 @@ type Pending =
 // the literal "grid" reads back as "list".
 type ItemView = "list" | "grid";
 const ITEM_VIEW_KEY = "bd-library-view";
+const BROWSE = "/api/library/browse?limit=200";
 const ITEM_VIEW_OPTS: ReadonlyArray<{ value: ItemView; label: string; Icon: typeof List }> = [
   { value: "list", label: "List", Icon: List },
   { value: "grid", label: "Grid", Icon: LayoutGrid },
@@ -110,9 +112,19 @@ export function Library() {
   };
   const isGrid = itemView === "grid";
 
-  const items = useQuery<LibraryBrowse, Error>({
+  // sltm-fix F1: the list is paged (next_cursor). Only the newest page used to
+  // load, and search/sort ran over it alone, so older items were unfindable.
+  // Pages now load on demand, and a search also asks the server (below).
+  const items = useInfiniteQuery<LibraryBrowse, Error>({
     queryKey: ["library", "browse"],
-    queryFn: () => apiGet<LibraryBrowse>("/api/library/browse?limit=200"),
+    queryFn: ({ pageParam }) =>
+      apiGet<LibraryBrowse>(
+        pageParam
+          ? `${BROWSE}&after_id=${encodeURIComponent(String(pageParam))}`
+          : BROWSE,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor || undefined,
   });
   const tags = useQuery<LibraryTagList, Error>({
     queryKey: ["library", "tags"],
@@ -127,8 +139,38 @@ export function Library() {
   // P6-1 — sort the fetched library page client-side via the SortSelect control
   // (a <ul>, not a table, so no column headers). Direction toggle governs
   // newest/oldest etc.
-  const itemRows = items.data?.rows ?? [];
+  const loadedRows = items.data?.pages.flatMap((pg) => pg.rows ?? []) ?? [];
+  const partial = !!items.hasNextPage;
   const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
+  // While pages remain unloaded, a search also runs server-side: q= matches
+  // title/path/notes and tag= an exact tag name across the whole library.
+  const remoteTerm = useDebouncedValue(search.trim(), 300);
+  const remote = useQuery<LibraryItem[], Error>({
+    queryKey: ["library", "browse", "search", remoteTerm],
+    queryFn: async () => {
+      const enc = encodeURIComponent(remoteTerm);
+      const [byText, byTag] = await Promise.all([
+        apiGet<LibraryBrowse>(`${BROWSE}&q=${enc}`),
+        apiGet<LibraryBrowse>(`${BROWSE}&tag=${enc}`),
+      ]);
+      return [...(byText?.rows ?? []), ...(byTag?.rows ?? [])];
+    },
+    enabled: partial && remoteTerm.length > 0,
+  });
+  const remoteIds = new Set(
+    query && partial ? (remote.data ?? []).map((r) => r.id) : [],
+  );
+  const itemRows = [...loadedRows];
+  if (remoteIds.size) {
+    const seen = new Set(loadedRows.map((r) => r.id));
+    for (const r of remote.data ?? []) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        itemRows.push(r);
+      }
+    }
+  }
   const itemsSort = useTableSort(itemRows, {
     accessors: {
       added: (r) => (typeof r.added_at === "number" ? r.added_at : null),
@@ -138,11 +180,14 @@ export function Library() {
       duration: (r) => (typeof r.duration_s === "number" ? r.duration_s : null),
     },
   });
-  const query = search.trim().toLowerCase();
   const visibleItems = query
     ? itemsSort.sorted.filter((item) =>
         [
           itemLabel(item),
+          // cx166 R1: the same fields the server search matches (title,
+          // path, notes; tags), so a match survives once every page loads.
+          typeof item.file_path === "string" ? item.file_path : item.path ?? "",
+          typeof item.notes === "string" ? item.notes : "",
           ...(item.tags ?? []).map((tag) =>
             typeof tag === "string" ? tag : tag.name ?? "",
           ),
@@ -409,7 +454,7 @@ export function Library() {
               </button>
             ))}
           </div>
-          {!!items.data?.rows?.length && (
+          {!!loadedRows.length && (
             <SortSelect
               options={ITEM_SORT_OPTS}
               sortKey={itemsSort.sortKey}
@@ -429,12 +474,41 @@ export function Library() {
           placeholder="Search titles and tags"
           className="mb-3 max-w-sm"
         />
+        {partial && (
+          <p className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
+            <span>
+              Showing the newest {loadedRows.length} items; sort covers these only
+              {query ? ", search also checks the full library by title, path, notes and exact tag" : ""}.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void items.fetchNextPage()}
+              disabled={items.isFetchingNextPage}
+            >
+              {items.isFetchingNextPage ? "Loading…" : "Load more"}
+            </Button>
+          </p>
+        )}
+        {(items.isFetchNextPageError || (query && partial && remote.isError)) && (
+          <Card className="mb-2 border-red bg-red-soft p-3 text-sm text-red" role="alert">
+            {items.isFetchNextPageError
+              ? `Couldn’t load more library items: ${items.error?.message ?? "request failed"}`
+              : `Couldn’t search the full library: ${remote.error?.message ?? "request failed"}`}
+          </Card>
+        )}
         {items.isLoading ? (
           <SkeletonRows count={6} rowClassName="h-9" />
-        ) : !items.data?.rows?.length ? (
+        ) : items.isError && !loadedRows.length ? (
+          <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+            Couldn’t load library items: {items.error?.message ?? "request failed"}
+          </Card>
+        ) : !loadedRows.length ? (
           <p className="text-sm text-ink-3">No library items.</p>
         ) : !visibleItems.length ? (
-          <p className="text-sm text-ink-3">No items match</p>
+          <p className="text-sm text-ink-3">
+            {query && partial && remote.isFetching ? "Searching the full library…" : "No items match"}
+          </p>
         ) : (
           <ul
             data-view={itemView}
@@ -449,11 +523,11 @@ export function Library() {
                     : `flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`
                 }
               >
-                <span className="text-sm">
+                <span className="min-w-0 text-sm">
                   <span className="text-muted-foreground">#{it.id}</span>{" "}
                   <button
                     type="button"
-                    className="text-left hover:underline focus-visible:underline"
+                    className="text-left [overflow-wrap:anywhere] hover:underline focus-visible:underline"
                     onClick={() => setPreview(it)}
                     title="Show details"
                   >
@@ -809,7 +883,7 @@ export function Library() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm action</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="[overflow-wrap:anywhere]">
               {pending?.kind === "item" &&
                 `Delete library item "${pending.label}" (id ${pending.id}). This cannot be undone.`}
               {pending?.kind === "tag" &&
@@ -884,7 +958,7 @@ export function Library() {
       <Dialog open={preview !== null} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{preview ? itemLabel(preview) : ""}</DialogTitle>
+            <DialogTitle className="[overflow-wrap:anywhere]">{preview ? itemLabel(preview) : ""}</DialogTitle>
             <DialogDescription>Library item #{preview?.id}</DialogDescription>
           </DialogHeader>
           {preview && (

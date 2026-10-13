@@ -104,7 +104,7 @@ function TemplateRow({
 export function TemplateManager() {
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery<TemplateManagerList>({
+  const { data, isLoading, isError, error } = useQuery<TemplateManagerList>({
     queryKey: ["template-manager"],
     queryFn: ({ signal }) =>
       apiGet<TemplateManagerList>("/api/template_manager", signal),
@@ -214,6 +214,12 @@ export function TemplateManager() {
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-20 w-full" />
         </div>
+      ) : isError ? (
+        // sltm-fix F4: a failed load used to fall through to "Reviewed (0)",
+        // which reads as "templates gone".
+        <Card className="border-red bg-red-soft p-3 text-sm text-red" role="alert">
+          Couldn’t load templates: {error?.message ?? "request failed"}
+        </Card>
       ) : (
         <div className="space-y-5">
           {/* Slice helper card (UI convergence #4) — what this page manages +
