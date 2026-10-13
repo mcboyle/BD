@@ -11,12 +11,28 @@ from flask import Blueprint, Response, jsonify, request
 export_bp = Blueprint("export", __name__)
 
 
+def _limit_arg():
+    """?limit= as an int, or None when it is not one (q-import-export L8: a bad
+    limit was a 500 whose body carried the ValueError text)."""
+    try:
+        return int(request.args.get("limit", 10000))
+    except (TypeError, ValueError):
+        return None
+
+
+def _bad_limit():
+    return jsonify({"error": "limit must be an integer"}), 400
+
+
 @export_bp.route("/api/export/csv")
 def api_export_csv():
     try:
         from . import exports as _exp
         # Accept simple filter via query params
-        fdict = {"limit": int(request.args.get("limit", 10000))}
+        limit = _limit_arg()
+        if limit is None:
+            return _bad_limit()
+        fdict = {"limit": limit}
         for k in ("site_id", "status", "message_contains"):
             v = request.args.get(k)
             if v:
@@ -32,7 +48,10 @@ def api_export_csv():
 def api_export_json():
     try:
         from . import exports as _exp
-        fdict = {"limit": int(request.args.get("limit", 10000))}
+        limit = _limit_arg()
+        if limit is None:
+            return _bad_limit()
+        fdict = {"limit": limit}
         for k in ("site_id", "status"):
             v = request.args.get(k)
             if v:
@@ -46,7 +65,10 @@ def api_export_json():
 def api_export_m3u():
     try:
         from . import exports as _exp
-        fdict = {"limit": int(request.args.get("limit", 10000))}
+        limit = _limit_arg()
+        if limit is None:
+            return _bad_limit()
+        fdict = {"limit": limit}
         v = request.args.get("site_id")
         if v:
             fdict["site_id"] = v
