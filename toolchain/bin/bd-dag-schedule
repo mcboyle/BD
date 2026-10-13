@@ -22,9 +22,17 @@ except ImportError:
     alt_path = Path("/home/mboyle/teamwork_projects/frontier_blueprint_integration/src")
     if alt_path.exists():
         sys.path.insert(0, str(alt_path))
-    from dag_task_compiler.compiler import DAGCompiler
-    from dag_task_compiler.models import TaskDAG, TaskNode
-    from dag_task_compiler.scheduler import LeafDispatcher
+    try:
+        from dag_task_compiler.compiler import DAGCompiler
+        from dag_task_compiler.models import TaskDAG, TaskNode
+        from dag_task_compiler.scheduler import LeafDispatcher
+    except ImportError as exc:
+        # HUB-ONLY: the package ships outside this repo. Say so instead of a
+        # traceback; 69 = EX_UNAVAILABLE, not a usage error and not a verdict.
+        sys.stderr.write(
+            f"bd-dag-schedule: HUB-ONLY tool, unavailable on this host: {exc}. "
+            f"Package dag_task_compiler is not in this repo; expected under {alt_path}.\n")
+        sys.exit(69)
 
 
 def load_dag_from_dict(data: dict[str, Any]) -> TaskDAG:

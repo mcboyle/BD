@@ -31,7 +31,8 @@ import sys
 import time
 from typing import Optional
 
-from bulk_downloader.terminal_dashboard import TerminalDashboardController, terminal_key_reader
+from bulk_downloader.terminal_dashboard import (
+    TerminalDashboardController, _finite_or_none, terminal_key_reader)
 
 
 _HAS_RICH = False
@@ -52,6 +53,21 @@ def is_available() -> bool:
     return _HAS_RICH
 
 
+def _is_2xx(response) -> bool:
+    """True only for a 2xx answer. requests' Response.ok is "below 400", so a
+    300/302 that was not followed would count as a successful read.
+
+    A reply object that carries no status code at all (a response stand-in
+    exposing only `.ok`) is judged by `.ok`; requests always sets the code."""
+    code = getattr(response, "status_code", None)
+    if code is None:
+        return bool(getattr(response, "ok", False))
+    try:
+        return 200 <= int(code) < 300
+    except (TypeError, ValueError):
+        return False
+
+
 # ─── Data fetch ───────────────────────────────────────────────────────
 
 def _fetch_status(api_base: str) -> dict:
@@ -63,19 +79,25 @@ def _fetch_status(api_base: str) -> dict:
         import requests
         r = requests.get(api_base.rstrip("/") + "/api/status",
                          params={"light": "1"}, timeout=5)
-        if r.ok:
+        if _is_2xx(r):
             sites = r.json()
-            return {"sites": sites if isinstance(sites, dict) else {}}
+            if not isinstance(sites, dict):
+                # A list / string / null is not a status map: not "no sites".
+                return {"error": "unexpected /api/status payload "
+                                 f"({type(sites).__name__})"}
+            return {"sites": sites}
+        # A refusal or an unfollowed redirect (300, 302, 401, 500, ...) is
+        # not "no sites": say what BD answered.
+        return {"error": f"HTTP {r.status_code}"}
     except Exception as e:
-        return {"error": str(e)[:200]}
-    return {}
+        return {"error": str(e)[:200] or type(e).__name__}
 
 
 def _fetch_capacity(api_base: str) -> dict:
     try:
         import requests
         r = requests.get(api_base.rstrip("/") + "/api/capacity", timeout=5)
-        if r.ok:
+        if _is_2xx(r):
             return r.json() or {}
     except Exception:
         pass
@@ -93,7 +115,7 @@ def _fetch_events(api_base: str, *, limit: int = 8) -> list:
         import requests
         r = requests.get(api_base.rstrip("/") + "/api/events_all",
                         params={"limit": 500}, timeout=5)
-        if r.ok:
+        if _is_2xx(r):
             events = (r.json() or {}).get("events")
             return events[::-1][:limit] if isinstance(events, list) else []
     except Exception:
@@ -135,6 +157,12 @@ def _build_site_table(status: dict) -> "Table":
     table.add_column("Failed", justify="right", style="red")
     table.add_column("Review", justify="right", style="magenta")
     sites = (status or {}).get("sites") or {}
+    err = _status_error(status)
+    if err:
+        # BD down or refusing must not read as an empty install.
+        table.add_row(Text(f"(BD unreachable: {err})"[:120], style="red"),
+                      "-", "-", "-", "-", "-")
+        return table
     if not sites:
         table.add_row("(no sites configured)", "-", "-", "-", "-", "-")
         return table
@@ -177,25 +205,57 @@ def _build_events_table(events: list) -> "Table":
     return table
 
 
+def _status_error(status: dict) -> str:
+    """The reason /api/status could not be read, or "" when it was."""
+    err = (status or {}).get("error") if isinstance(status, dict) else None
+    return str(err) if err else ""
+
+
+def _capacity_facts(cap: dict) -> dict:
+    """The figures both renderers show, read from capacity.capacity_report():
+    disk {free_gb, runway_days} (free_gb is null when no download dir is known
+    or disk_usage failed), queue {eta_hours} (null = rate unknown) and
+    bottleneck {bottleneck, detail, severity}. A figure BD did not measure is
+    None here, never 0."""
+    cap = cap if isinstance(cap, dict) else {}
+
+    def _d(key):
+        v = cap.get(key)
+        return v if isinstance(v, dict) else {}
+
+    disk, queue, bot = _d("disk"), _d("queue"), _d("bottleneck")
+    eta_hours = _finite_or_none(queue.get("eta_hours"))
+    eta_min = (eta_hours * 60.0 if eta_hours is not None
+               else _finite_or_none(queue.get("eta_minutes")))
+    kind = bot.get("bottleneck") or bot.get("kind") or ""
+    return {
+        "has_disk": bool(disk),
+        "free_gb": _finite_or_none(disk.get("free_gb")),
+        "runway_days": _finite_or_none(disk.get("runway_days")),
+        "eta_minutes": eta_min,
+        # "idle" is capacity.bottleneck_hint's "no active load": not a bottleneck.
+        "bottleneck": "" if kind == "idle" else str(kind),
+    }
+
+
 def _build_capacity_panel(cap: dict) -> "Panel":
-    disk = cap.get("disk", {})
-    queue = cap.get("queue", {})
-    bot = cap.get("bottleneck", {})
+    facts = _capacity_facts(cap)
     parts = []
-    if disk:
-        free_gb = disk.get("free_gb", 0)
-        runway = disk.get("runway_days")
-        parts.append(f"Disk: [bold]{free_gb:.0f} GB free[/]" +
-                     (f" ({runway:.1f}d runway)" if runway else ""))
-    if queue:
-        eta_min = queue.get("eta_minutes")
-        if eta_min is not None:
-            if eta_min < 60:
-                parts.append(f"Queue ETA: [bold]{int(eta_min)}m[/]")
-            else:
-                parts.append(f"Queue ETA: [bold]{eta_min/60:.1f}h[/]")
-    if bot.get("kind"):
-        parts.append(f"Bottleneck: [yellow]{bot['kind']}[/]")
+    if facts["has_disk"]:
+        free_gb, runway = facts["free_gb"], facts["runway_days"]
+        if free_gb is None:
+            parts.append("Disk: free space unknown")
+        else:
+            parts.append(f"Disk: [bold]{free_gb:.0f} GB free[/]" +
+                         (f" ({runway:.1f}d runway)" if runway else ""))
+    eta_min = facts["eta_minutes"]
+    if eta_min is not None:
+        if eta_min < 60:
+            parts.append(f"Queue ETA: [bold]{int(eta_min)}m[/]")
+        else:
+            parts.append(f"Queue ETA: [bold]{eta_min/60:.1f}h[/]")
+    if facts["bottleneck"]:
+        parts.append(f"Bottleneck: [yellow]{facts['bottleneck']}[/]")
     if not parts:
         return Panel("(capacity data unavailable)", title="Capacity")
     return Panel("  ·  ".join(parts), title="Capacity")
@@ -213,8 +273,11 @@ def _build_layout(status: dict, cap: dict, events: list) -> "Layout":
 
 # ─── Public entry ─────────────────────────────────────────────────────
 
-def run_once(*, api_base: str = "http://127.0.0.1:5000"):
-    """Print one snapshot and exit. Useful for scripts / cron."""
+def run_once(*, api_base: str = "http://127.0.0.1:5000") -> int:
+    """Print one snapshot and exit. Useful for scripts / cron.
+
+    Returns 0 when /api/status was read, 1 when BD was down or refused -- the
+    exit code of `--once`, so a script can tell "no sites" from "no BD"."""
     if not _HAS_RICH:
         return _run_once_plain(api_base)
     console = Console()
@@ -222,10 +285,11 @@ def run_once(*, api_base: str = "http://127.0.0.1:5000"):
     cap = _fetch_capacity(api_base)
     events = _fetch_events(api_base)
     console.print(_build_layout(status, cap, events))
+    return 1 if _status_error(status) else 0
 
 
-def _run_once_plain(api_base: str):
-    """Plain-text fallback when rich isn't installed."""
+def _run_once_plain(api_base: str) -> int:
+    """Plain-text fallback when rich isn't installed. Returns run_once's code."""
     status = _fetch_status(api_base)
     cap = _fetch_capacity(api_base)
     sites = (status or {}).get("sites") or {}
@@ -243,16 +307,23 @@ def _run_once_plain(api_base: str):
         out.write(line + "\n")
 
     emit(f"BulkDownloader status @ {time.strftime('%H:%M:%S')}")
-    emit(f"  Sites: {len(sites)}")
+    err = _status_error(status)
+    if err:
+        emit(f"  BD unreachable: {err}")
+    else:
+        emit(f"  Sites: {len(sites)}")
     for sid, st in sorted(sites.items()):
         c = _summarize_site(st)
         emit(
             f"    {sid:20} run={c['running']:3} queue={c['queued']:3} "
             f"done={c['done']:5} fail={c['failed']:3} "
             f"review={c['needs_review']:3}")
-    disk = cap.get("disk", {})
-    if disk:
-        emit(f"  Disk: {disk.get('free_gb', 0):.0f} GB free")
+    facts = _capacity_facts(cap)
+    if facts["has_disk"]:
+        if facts["free_gb"] is None:
+            emit("  Disk: free space unknown")
+        else:
+            emit(f"  Disk: {facts['free_gb']:.0f} GB free")
     out.flush()
     # Row 988: stdout keeps the frame byte-for-byte (scripts parse it); what
     # would corrupt the operator's terminal -- e.g. a site id carrying an
@@ -260,6 +331,7 @@ def _run_once_plain(api_base: str):
     for anomaly in inspect_dashboard_frame("\n".join(frame)).anomalies:
         sys.stderr.write(f"dashboard render anomaly: {anomaly.anomaly_type}: "
                          f"{anomaly.description}\n")
+    return 1 if err else 0
 
 
 def run_live(*, api_base: str = "http://127.0.0.1:5000",
@@ -313,6 +385,6 @@ if __name__ == "__main__":
                   help="Refresh interval seconds (default: 2.0)")
     args = p.parse_args()
     if args.once:
-        run_once(api_base=args.api)
+        sys.exit(run_once(api_base=args.api))
     else:
         run_live(api_base=args.api, refresh_seconds=args.refresh)

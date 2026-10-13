@@ -20,8 +20,16 @@ except ImportError:
     alt_path = Path("/home/mboyle/teamwork_projects/frontier_blueprint_integration/src")
     if alt_path.exists():
         sys.path.insert(0, str(alt_path))
-    from axtree_distill.distiller import distill_axtree, serialize_axtree
-    from axtree_distill.models import AXNode
+    try:
+        from axtree_distill.distiller import distill_axtree, serialize_axtree
+        from axtree_distill.models import AXNode
+    except ImportError as exc:
+        # HUB-ONLY: the package ships outside this repo. Say so instead of a
+        # traceback; 69 = EX_UNAVAILABLE, not a usage error and not a verdict.
+        sys.stderr.write(
+            f"bd-axtree-distill: HUB-ONLY tool, unavailable on this host: {exc}. "
+            f"Package axtree_distill is not in this repo; expected under {alt_path}.\n")
+        sys.exit(69)
 
 
 def filter_interactive(nodes: list[AXNode]) -> list[AXNode]:
