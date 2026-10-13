@@ -8,8 +8,10 @@ titles, and direct stream URLs directly without scraping DOM nodes.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -45,7 +47,21 @@ THUMB_KEYS = (
     "cover",
 )
 URL_KEYS = ("url", "src", "stream_url", "download_url", "downloadurl", "href", "link")
+# O1789 dax-pages H1/H2: "url"/"href"/"link" also name ordinary PAGE links
+# ({url: "/videos/about"}). From those keys a URL is a stream only with a media
+# extension or beside stream descriptor keys; the media-specific keys keep the
+# looser keyword test. Every key is tried, so a page "url" no longer hides "src".
+GENERIC_URL_KEYS = frozenset({"url", "href", "link"})
+STREAM_DESCRIPTOR_KEYS = ("quality", "bitrate", "resolution", "format")
+# H4: the unquoted-key rewrite must skip string literals ("Ep 2, time: 10").
+_JS_STRING = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+_JS_KEY_RE = re.compile(r"(" + _JS_STRING + r")|([{\s,])([a-zA-Z_][a-zA-Z0-9_]*)\s*:")
+_JS_TRAILING_COMMA_RE = re.compile(r"(" + _JS_STRING + r")|,\s*([}\]])")
 MEDIA_EXT_RE = re.compile(r"\.(mp4|m4v|mov|webm|mkv|m3u8|mpd)(\?|$)", re.I)
+# H8: a protocol-relative URL is taken only when "//" is followed by a DNS host
+# name (optional port) and the rest has no whitespace: "///etc/x", "// x" -> "".
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_PROTO_REL_RE = re.compile(r"//" + _LABEL + r"(?:\." + _LABEL + r")*(?::\d{1,5})?(?:[/?#]\S*)?\Z")
 
 
 @dataclass
@@ -123,9 +139,18 @@ def _safe_json_loads(payload_raw: str) -> dict[str, Any] | list[Any]:
         return json.loads(payload)
     except (json.JSONDecodeError, ValueError):
         # Handle unquoted JavaScript object keys: { state: ... } -> { "state": ... }
-        clean = re.sub(r"([{\s,])([a-zA-Z_][a-zA-Z0-9_]*)\s*:", r'\1"\2":', payload)
-        clean = re.sub(r",\s*([}\]])", r"\1", clean)
+        # String literals are matched first and kept verbatim (H4).
+        clean = _JS_KEY_RE.sub(
+            lambda m: m.group(1) or f'{m.group(2)}"{m.group(3)}":', payload)
+        clean = _JS_TRAILING_COMMA_RE.sub(lambda m: m.group(1) or m.group(2), clean)
         return json.loads(clean)
+
+
+def _title_ok(text: str) -> bool:
+    """H9: a title is longer than 2 characters, or written in wide (CJK) script,
+    where one or two characters are a whole word ("愛")."""
+    return len(text) > 2 or any(
+        unicodedata.east_asian_width(ch) in ("W", "F") for ch in text)
 
 
 class HydrationExtractor:
@@ -144,7 +169,7 @@ class HydrationExtractor:
                 meta = self._parse_state(data, framework="nextjs")
                 meta.extraction_time_ms = (time.perf_counter() - t0) * 1000.0
                 return meta
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
 
         # 2. Check Nuxt 3 JSON (__NUXT_DATA__)
@@ -156,7 +181,7 @@ class HydrationExtractor:
                 meta = self._parse_state(data, framework="nuxt")
                 meta.extraction_time_ms = (time.perf_counter() - t0) * 1000.0
                 return meta
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
 
         # 3. Check Nuxt 2 Window state (window.__NUXT__)
@@ -168,7 +193,7 @@ class HydrationExtractor:
                 meta = self._parse_state(data, framework="nuxt")
                 meta.extraction_time_ms = (time.perf_counter() - t0) * 1000.0
                 return meta
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
 
         return None
@@ -180,10 +205,21 @@ class HydrationExtractor:
         meta = HydratedMediaMetadata(framework=framework, raw_state=data)
         seen_urls: set[str] = set()
 
-        def _is_url(val: Any) -> bool:
-            return isinstance(val, str) and (
-                val.startswith("http://") or val.startswith("https://")
-            )
+        def _abs_url(val: Any) -> str:
+            """``val`` as an absolute http(s) URL, or "". H8: protocol-relative
+            ``//cdn/x.m3u8`` is https; without a valid host it is "" (r2)."""
+            if not isinstance(val, str):
+                return ""
+            if val.startswith("//"):
+                return "https:" + val if _PROTO_REL_RE.match(val) else ""
+            return val if val.startswith(("http://", "https://")) else ""
+
+        def _is_stream(key: str, url: str, node: Mapping) -> bool:
+            if MEDIA_EXT_RE.search(url) or any(sk in node for sk in STREAM_DESCRIPTOR_KEYS):
+                return True
+            if key in GENERIC_URL_KEYS:  # H2: a page link is not a stream
+                return False
+            return "stream" in url or "hls" in url or "video" in url
 
         # Shallowest depth each container was walked at, by id(): devalue
         # references let one node be reached many times, or reach itself
@@ -212,7 +248,7 @@ class HydrationExtractor:
                 if not meta.title:
                     for k in TITLE_KEYS:
                         v = _resolve(node.get(k))
-                        if isinstance(v, str) and len(v.strip()) > 2:
+                        if isinstance(v, str) and _title_ok(v.strip()):
                             meta.title = v.strip()
                             break
 
@@ -228,36 +264,29 @@ class HydrationExtractor:
                 if meta.duration is None:
                     for k in DURATION_KEYS:
                         v = _resolve(node.get(k))
-                        if isinstance(v, (int, float)) and v > 0:
+                        # H6: a bool is not a duration, nor is inf/nan.
+                        if (isinstance(v, (int, float)) and not isinstance(v, bool)
+                                and math.isfinite(v) and v > 0):
                             meta.duration = float(v)
                             break
 
                 # 4. Search for thumbnail
                 if not meta.thumbnail_url:
                     for k in THUMB_KEYS:
-                        v = _resolve(node.get(k))
-                        if _is_url(v):
+                        v = _abs_url(_resolve(node.get(k)))
+                        if v:
                             meta.thumbnail_url = v
                             break
 
                 # 5. Check if current dict is a stream descriptor
                 url_candidate = None
                 for uk in URL_KEYS:
-                    candidate = _resolve(node.get(uk))
-                    if _is_url(candidate):
+                    candidate = _abs_url(_resolve(node.get(uk)))
+                    if candidate and _is_stream(uk, candidate, node):
                         url_candidate = candidate
                         break
 
-                if url_candidate and (
-                    MEDIA_EXT_RE.search(url_candidate)
-                    or "stream" in url_candidate
-                    or "hls" in url_candidate
-                    or "video" in url_candidate
-                    or any(
-                        sk in node
-                        for sk in ("quality", "bitrate", "resolution", "format")
-                    )
-                ):
+                if url_candidate:
                     if url_candidate not in seen_urls:
                         seen_urls.add(url_candidate)
                         meta.stream_urls.append(url_candidate)
