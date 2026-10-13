@@ -12,14 +12,15 @@ def test_t1_dashboard_runtime_contract():
     # 7, not 5: F061 adds the /api/dashboard failure alert test and its
     # no-alert positive control.
     # 9, not 7: o1698-f061-retry-coverage clicks Retry (outage recovery + persistent-failure control).
+    # 12, not 9: F002 Stats time-range filter (default range, 7d swap, every option's window).
     spec = "src/routes/Dashboard.wired.test.tsx"
-    receipt = run_vitest(spec, expected_tests=9)
+    receipt = run_vitest(spec, expected_tests=12)
     expected = {
         "spec": spec,
         "files_passed": 1,
         "files_collected": 1,
-        "tests_passed": 9,
-        "tests_collected": 9,
+        "tests_passed": 12,
+        "tests_collected": 12,
     }
     assert receipt == expected, (
         "Vitest delegation evidence missing or mismatched for Dashboard: "

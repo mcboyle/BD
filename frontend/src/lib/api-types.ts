@@ -900,13 +900,23 @@ export interface StatsBandwidth {
   [k: string]: unknown;
 }
 
+// /api/stats/timeline: per-day buckets over the last `days` days.
 export interface StatsTimeline {
-  points?: Array<{ t?: number | string; [k: string]: unknown }>;
+  days?: number;
+  buckets?: Array<{
+    day?: string; done?: number; failed?: number; review?: number; bytes?: number;
+    [k: string]: unknown;
+  }>;
   [k: string]: unknown;
 }
 
+// /api/hourly_stats: 24 hour-of-day rows over the last `since_days` days.
 export interface HourlyStats {
-  hours?: Array<{ hour?: number | string; count?: number; [k: string]: unknown }>;
+  since_days?: number;
+  rows?: Array<{
+    hour?: number; total?: number; done?: number; failed?: number; rate?: number | null;
+    [k: string]: unknown;
+  }>;
   [k: string]: unknown;
 }
 
