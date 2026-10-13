@@ -365,7 +365,10 @@ def api_global_config():
             # v3.43.43: if the UI didn't touch the field, it sends
             # back the masking sentinel "<configured>". Treat that
             # as "no change" — keep whatever's on disk.
-            if new_key == "<configured>":
+            # BD-AIKEY-1: a blank value keeps it too (write-only, as
+            # Settings.tsx promises: "a blank field never clears it").
+            # Clearing the key = edit app_config.json / the env.
+            if new_key == "<configured>" or not new_key.strip():
                 pass  # keep existing
             else:
                 _app_cfg["ai_api_key"] = new_key
