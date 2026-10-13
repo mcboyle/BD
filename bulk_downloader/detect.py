@@ -2060,6 +2060,55 @@ def _has_navigation_ancestor(el):
         return False
 
 
+_SEGMENT_FAMILY_RE = re.compile(r"[a-z]+")
+
+
+def _is_other_scene_link(el, text, page_url=""):
+    """dl95-xvideos-2: a plain link to ANOTHER scene page of the same site.
+
+    Tube scene pages carry related-video grids whose cards read "1440p" or
+    "..., 4K"; ranked as downloads they fire no download event (xvideos,
+    hqporner on test2).  The link is another scene when it is same-host, its
+    first path segment is of the current page's family (``video.<id>``,
+    ``hdporn``), and it shares none of the current page's id-bearing segments
+    (three or more digits; a route segment like ``/0/`` is not an id).
+    Anything download-shaped, cross-host, or on a page without an id segment
+    fails open (kept).
+    """
+    try:
+        href = (el.get_attribute("href") or "").strip()
+        if not href or el.get_attribute("download") is not None:
+            return False
+    except Exception:
+        return False
+    visible_text = (text or "").replace(href, " ")
+    if parse_size_bytes(visible_text) > 0 or _DL_WORD_RE.search(visible_text):
+        return False
+    try:
+        target = urlparse(urljoin(page_url, href))
+        current = urlparse(page_url)
+    except (TypeError, ValueError):
+        return False
+    host = lambda u: (u.hostname or "").lower().removeprefix("www.")
+    if not host(current) or host(target) != host(current):
+        return False
+    lowered = target.path.lower()
+    if _MEDIA_EXT_ANYWHERE_RE.search(lowered) or "download" in lowered or "/dl/" in lowered:
+        return False
+    tp = [seg for seg in target.path.split("/") if seg]
+    cp = [seg for seg in current.path.split("/") if seg]
+    if not tp or not cp or tp == cp:
+        return False
+    family = lambda seg: (_SEGMENT_FAMILY_RE.match(seg.lower()) or [""])[0]
+    if not family(cp[0]) or family(tp[0]) != family(cp[0]):
+        return False
+    # A scene id carries at least three digits. A bare route segment such as
+    # xvideos' "/0/" is shared by every scene URL of the site and must not make
+    # a related video look like this one.
+    current_ids = {seg for seg in cp if sum(ch.isdigit() for ch in seg) >= 3}
+    return bool(current_ids) and not (current_ids & set(tp))
+
+
 def _is_navigation_resolution_ghost(el, text, page_url=""):
     """Whether ``el`` is a resolution-only plain link in proven site chrome.
 
@@ -2443,6 +2492,8 @@ def _candidate_admission(el, text, page_url="", require_signal=True,
         return "rating_control"
     if _is_collection_action(el, visible):
         return "collection_action"
+    if _is_other_scene_link(el, t, page_url):
+        return "other_scene"
     if _is_navigation_resolution_ghost(el, t, page_url):
         return "chrome_ghost"
     if _is_player_control(el, visible, t):
@@ -2529,7 +2580,7 @@ def find_best_download(page,custom="",learned=None,full_length_requested=None,ru
                           "listing_filter": 0, "short_preview": 0,
                           "navigation_url": 0, "media_without_url": 0,
                           "collection_action": 0, "player_control": 0,
-                          "rating_control": 0}
+                          "rating_control": 0, "other_scene": 0}
     _admission_seen = set()
 
     def _note_admission_drop(reason, key=None):
