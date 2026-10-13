@@ -31,10 +31,30 @@ def _held_by_live_battery():
     return True
 
 
+def _asks_for_help(args):
+    """True when the entry point was asked only for its usage text.
+
+    Reads the argv the entry point will parse (its first positional argument,
+    else sys.argv) up to a literal "--": what follows that belongs to the
+    wrapped test command, and a "-h" there must still take a slot."""
+    argv = args[0] if args and args[0] is not None else sys.argv[1:]
+    for arg in argv:
+        if arg == "--":
+            return False
+        if arg in ("-h", "--help"):
+            return True
+    return False
+
+
 def battery_limited(main):
     """Hold one non-inherited flock until the entry point exits, even on error."""
     @wraps(main)
     def run(*args, **kwargs):
+        # Usage text runs no battery: it needs no slot, must not be refused
+        # while the slots are busy or BD_BATTERY_MAX is wrong, and must not
+        # occupy a slot another battery is waiting for.
+        if _asks_for_help(args):
+            return main(*args, **kwargs)
         if _held_by_live_battery():
             return main(*args, **kwargs)
         raw = os.environ.get("BD_BATTERY_MAX", "2")

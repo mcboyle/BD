@@ -345,14 +345,19 @@ def test_plain_dashboard_clean_frame_writes_nothing_to_stderr(monkeypatch, capsy
 
 def test_plain_dashboard_rows_reach_stdout_before_a_later_line_fails(monkeypatch, capsys):
     """Base behaviour kept: each line is written as it is built, so when a later line fails
-    (capacity reports free_gb null -> TypeError on the Disk line) the header and site rows are
-    already on stdout, as on base; the inspection runs only on a finished frame."""
+    the header and site rows are already on stdout, as on base; the inspection runs only on a
+    finished frame. (The failing line used to be the Disk line on free_gb null; that crash is
+    fixed -- tests/test_bughunt_ct_fix.py -- so the capacity read is made to fail directly.)"""
     from bulk_downloader import cli_dashboard
+
+    def _capacity_read_fails(_cap):
+        raise TypeError("capacity line failed")
 
     monkeypatch.setattr(cli_dashboard, "_HAS_RICH", False)
     monkeypatch.setattr(cli_dashboard, "_fetch_status",
                         lambda _api: {"sites": {"blacked": _DASH_SITES["blacked"]}})
     monkeypatch.setattr(cli_dashboard, "_fetch_capacity", lambda _api: {"disk": {"free_gb": None}})
+    monkeypatch.setattr(cli_dashboard, "_capacity_facts", _capacity_read_fails)
     with pytest.raises(TypeError):
         cli_dashboard.run_once()
     out, err = capsys.readouterr()

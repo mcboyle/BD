@@ -22,10 +22,21 @@ def main():
     import sys as _s
     if "--selftest" in _s.argv: return selftest()
     argv=sys.argv[1:]; label=None
-    if argv and argv[0]=="--label": label=argv[1]; argv=argv[2:]
+    usage="usage: bd-timeit [--label L] -- <command ...>"
+    if argv and argv[0] in ("-h","--help"): print(__doc__.strip()); return 0
+    if argv and argv[0]=="--label":
+        if len(argv)<2: print(usage+"\nbd-timeit: --label needs a value", file=sys.stderr); return 2
+        label=argv[1]; argv=argv[2:]
     if argv and argv[0]=="--": argv=argv[1:]
-    if not argv: print("usage: bd-timeit [--label L] -- <command ...>"); return 2
-    t0=time.time(); r=subprocess.run(argv); dt=time.time()-t0
+    elif argv and argv[0].startswith("-"):
+        # An option of ours we do not know; a command that starts with "-" goes after "--".
+        print(usage+f"\nbd-timeit: unknown option {argv[0]!r}", file=sys.stderr); return 2
+    if not argv: print(usage); return 2
+    t0=time.time()
+    try: r=subprocess.run(argv)
+    except (FileNotFoundError, PermissionError) as exc:
+        print(f"bd-timeit: cannot run {argv[0]!r}: {exc.strerror}", file=sys.stderr); return 127
+    dt=time.time()-t0
     tag=(G if r.returncode==0 else R)+f"{dt:.2f}s"+RST
     print(f"{DIM}---{RST} {label or argv[0]}: {tag} (exit {r.returncode})")
     return r.returncode
