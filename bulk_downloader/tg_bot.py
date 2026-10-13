@@ -248,20 +248,27 @@ def parse_allowlist(text: str) -> list:
     """Parse a multi-line allowlist string into a list of int chat IDs.
 
     Skips blanks and comments. Bad lines are silently dropped (logged
-    at debug level). Returns int chat IDs only.
+    at debug level). Returns int chat IDs only. A line may also hold a
+    comma-separated list ("111,222") -- the SPA's single-line field says
+    "comma-separated", and whole-line parsing dropped it to zero IDs
+    (scs-fix F5c).
     """
     out: list = []
     for line in (text or "").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Accept both bare ints and lines with names: "12345  Matt"
-        first = line.split()[0]
-        try:
-            cid = int(first)
-            out.append(cid)
-        except ValueError:
-            log.debug("tg_bot: skipping non-numeric allowlist entry: %r", line)
+        for entry in line.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            # Accept both bare ints and entries with names: "12345  Matt"
+            first = entry.split()[0]
+            try:
+                cid = int(first)
+                out.append(cid)
+            except ValueError:
+                log.debug("tg_bot: skipping non-numeric allowlist entry: %r", entry)
     return out
 
 

@@ -30,7 +30,9 @@ export function useAlertRules() {
   });
 
   const remove = useMutation<{ ok: boolean }, Error, string>({
-    mutationFn: (id) => apiPost<{ ok: boolean }>(`/api/alerts/rules/${id}/remove`, {}),
+    // scs-fix F4: encode the id -- a raw "/" or "?" in it routed to a 404 / a query string.
+    mutationFn: (id) =>
+      apiPost<{ ok: boolean }>(`/api/alerts/rules/${encodeURIComponent(id)}/remove`, {}),
     onSuccess: invalidate,
   });
 

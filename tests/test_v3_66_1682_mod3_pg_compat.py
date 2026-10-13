@@ -374,8 +374,9 @@ def test_oldest_pending_metric_reads_now_in_python_and_is_compared(
     from bulk_downloader import alerts_engine, db
     _seed(pg)
     with db.db_conn() as cx:            # dual-write: both stores move
-        cx.execute("UPDATE history SET ts = '2026-01-01T00:00:00' "
-                   "WHERE status = 'pending'")
+        # na-fix: pending jobs are `queue` rows; the metric reads them there
+        cx.execute("UPDATE queue SET status = 'pending', "
+                   "ts_added = '2026-01-01T00:00:00' WHERE url = 'u1'")
     monkeypatch.setenv("MOD3_SHADOW_READ", "1")
     _zero_shadow(monkeypatch)
     monkeypatch.setattr(time, "time", lambda: 1767225600.0 + 36 * 3600)

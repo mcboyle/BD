@@ -5,6 +5,7 @@
 // immediate evaluation pass ("test-send") instead of waiting for the 60s cron.
 
 import * as React from "react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -132,6 +133,12 @@ export default function AlertRules() {
             Could not load rules.
           </p>
         )}
+        {/* na-fix F11: saved rules unreadable -- the built-ins below are not the whole set. */}
+        {query.data?.store_error && (
+          <p role="alert" className="text-sm text-danger" data-testid="alert-rules-store-error">
+            Saved rules could not be read ({query.data.store_error}); only the built-in rules are listed.
+          </p>
+        )}
 
         {rules.length > 0 && (
           <table className="bd-table w-full text-sm" data-testid="alert-rules-table">
@@ -162,7 +169,14 @@ export default function AlertRules() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => remove.mutate(r.id)}
+                        onClick={() =>
+                          remove.mutate(r.id, {
+                            // ok:false = nothing deleted; say so instead of leaving the row silently.
+                            onSuccess: (res) => {
+                              if (res.ok === false) toast.error(`Rule ${r.id} was not removed`);
+                            },
+                          })
+                        }
                         disabled={remove.isPending}
                       >
                         Remove

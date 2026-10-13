@@ -9,6 +9,7 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import math
 import re
 
 from flask import Blueprint, jsonify, request
@@ -42,6 +43,27 @@ def _public_notify_settings(cfg: dict) -> dict:
     out["notify_apprise_urls_set"] = bool(url_list)
     out["notify_apprise_urls_count"] = len(url_list)
     return out
+
+def _notify_setting_problem(key: str, value):
+    """Why `value` is not storable under apprise settings `key`, or None."""
+    if key == "notify_apprise_urls":
+        return None if isinstance(value, str) else "expected a string, one URL per line"
+    if key == "notify_apprise_enabled":
+        return None if isinstance(value, bool) or value in (0, 1) else "expected true or false"
+    if key.endswith("_mode"):
+        return None if value in ("per_event", "batched") else "expected per_event or batched"
+    if isinstance(value, bool):
+        return "expected a number"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "expected a number"
+    if not math.isfinite(number) or number < 0:
+        return "expected a finite number, 0 or more"
+    if key.endswith("_batch") and number != int(number):
+        return "expected a whole number"
+    return None
+
 
 def _apply_global_notify_config(*_a, **_k):
     """Delegate to app._apply_global_notify_config at call time (lazy; avoids an import cycle)."""
@@ -169,6 +191,11 @@ def api_notify_apprise_settings_post():
     }
     for k, v in body.items():
         if k in allowed_keys:
+            problem = _notify_setting_problem(k, v)
+            if problem:
+                # Refused BEFORE the save: a stored value of the wrong type
+                # made every later settings POST and the startup apply fail.
+                return jsonify({"ok": False, "error": f"{k}: {problem}"}), 400
             cfg[k] = v
     ok = _save_global_notify_settings(cfg)
     if ok:

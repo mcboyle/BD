@@ -1618,11 +1618,17 @@ export interface AppriseValidateResult {
   results?: { url?: string; ok?: boolean; schema?: string; error?: string }[];
   error?: string;
 }
+// The server (app_notify.api_notify_apprise_test / app_tg.api_tg_test) answers
+// sent_count / failed_count with ok = sent_count > 0; sent / failed are legacy.
 export interface AppriseTestResult {
   ok?: boolean;
   available?: boolean;
   sent?: number;
   failed?: number;
+  sent_count?: number;
+  failed_count?: number;
+  skipped_count?: number;
+  errors?: { url?: string; error?: string }[];
   error?: string;
 }
 export interface TgStatusResponse {
@@ -1655,6 +1661,9 @@ export interface TgSettingsPatch {
 export interface TgTestResult {
   ok?: boolean;
   sent?: number;
+  sent_count?: number;
+  failed_count?: number;
+  errors?: { chat_id?: string | number; error?: string }[];
   error?: string;
 }
 export interface ActiveAlert {
@@ -2068,7 +2077,7 @@ export interface AlertRule {
   enabled?: boolean;
   builtin?: boolean;
 }
-export interface AlertRulesResponse { rules: AlertRule[]; error?: string }
+export interface AlertRulesResponse { rules: AlertRule[]; error?: string; store_error?: string }
 export interface AlertRuleSaveResult { ok: boolean; id?: string; error?: string }
 
 // 380 — bulk enqueue
