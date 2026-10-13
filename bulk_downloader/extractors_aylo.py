@@ -126,6 +126,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -332,7 +333,7 @@ def extract_flashvars(html: str) -> Optional[dict]:
         blob = html[brace_start:brace_end]
         try:
             obj = json.loads(blob)
-        except json.JSONDecodeError as e:
+        except (ValueError, RecursionError) as e:
             log.debug("aylo: flashvars_%s JSON parse failed: %s",
                       m.group(1), e)
             continue
@@ -349,7 +350,7 @@ def extract_flashvars(html: str) -> Optional[dict]:
         # back to the first if none better is found.
         max_q = _max_numeric_quality(mediadefs)
         if max_q >= 1080:
-            return obj
+            return _with_block_id(obj, m.group(1))
         # Stash the candidate and keep looking
         # (handled by falling through; we'll return last seen in fallback)
         candidate = obj
@@ -362,11 +363,20 @@ def extract_flashvars(html: str) -> Optional[dict]:
             continue
         try:
             obj = json.loads(html[brace_start:brace_end])
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             continue
-        if isinstance(obj, dict) and obj.get("mediaDefinitions"):
-            return obj
+        mediadefs = obj.get("mediaDefinitions") if isinstance(obj, dict) else None
+        if mediadefs and isinstance(mediadefs, list):
+            return _with_block_id(obj, m.group(1))
     return None
+
+
+def _with_block_id(obj: dict, block_id: str) -> dict:
+    """`flashvars_<id>` names the video: when the block itself carries no
+    `video_id`, the id in its variable name is the embed id."""
+    if not obj.get("video_id") and block_id:
+        obj["video_id"] = block_id
+    return obj
 
 
 # tpl95-redtube-1: redtube's player config is not a `flashvars_<id>`
@@ -420,7 +430,7 @@ def extract_media_definitions(html: str) -> Optional[dict]:
             continue
         try:
             arr = json.loads(html[m.start(1):end])
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             continue
         if isinstance(arr, list) and any(isinstance(md, dict) for md in arr):
             return _enclosing_config(html, m.start(), end) or {"mediaDefinitions": arr}
@@ -442,11 +452,74 @@ def _enclosing_config(html: str, key_idx: int, arr_end: int) -> Optional[dict]:
             break
     try:
         obj = json.loads(html[p:end])
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
     if isinstance(obj, dict) and isinstance(obj.get("mediaDefinitions"), list):
         return obj
     return None
+
+
+def _md_url(md: dict) -> str:
+    """The entry's video URL, or "" when it has none or it is not a string
+    (one malformed entry must not sink the page's good ones)."""
+    for key in ("videoUrl", "video_url"):
+        value = md.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+_QUALITY_RE = re.compile(r"\s*(\d{3,4})\s*(?:[pP]\s*\d{0,3})?\s*")
+
+
+def _quality_int(q) -> int:
+    """One quality value as a pixel height: 1080, "1080", "1080p", "1080P",
+    "1080p60" (height 1080 at 60 fps). Anything else -> 0."""
+    if isinstance(q, bool):
+        return 0
+    if isinstance(q, (int, float)):
+        return int(q) if math.isfinite(q) and q > 0 else 0
+    if not isinstance(q, str):
+        return 0
+    m = _QUALITY_RE.fullmatch(q)
+    return int(m.group(1)) if m else 0
+
+
+def _media_format(url: str) -> str:
+    """"hls" / "mp4" from the URL's PATH (a signed URL carries a query), else ""."""
+    try:
+        path = (urlparse(url).path or "").lower()
+    except ValueError:
+        path = url.split("?", 1)[0].lower()
+    if path.endswith(".m3u8"):
+        return "hls"
+    if path.endswith(".mp4"):
+        return "mp4"
+    return ""
+
+
+def _duration_seconds(v) -> int:
+    """`video_duration` as whole seconds: a number, a numeric string, or a
+    clock string ("30:20", "1:02:03"). NaN, inf and anything else -> 0."""
+    if isinstance(v, bool) or v is None:
+        return 0
+    if isinstance(v, (int, float)):
+        return max(0, int(v)) if math.isfinite(v) else 0
+    if not isinstance(v, str):
+        return 0
+    text = v.strip()
+    try:
+        number = float(text)
+        return max(0, int(number)) if math.isfinite(number) else 0
+    except ValueError:
+        pass
+    parts = text.split(":")
+    if 2 <= len(parts) <= 3 and all(p.isascii() and p.isdigit() for p in parts):
+        total = 0
+        for p in parts:
+            total = total * 60 + int(p)
+        return total
+    return 0
 
 
 def is_indirect_definition(md) -> bool:
@@ -456,7 +529,7 @@ def is_indirect_definition(md) -> bool:
     nor .m3u8. Downloading one of these writes a JSON document."""
     if not isinstance(md, dict):
         return False
-    url = (md.get("videoUrl") or md.get("video_url") or "").strip()
+    url = _md_url(md)
     if not url:
         return False
     try:
@@ -467,7 +540,7 @@ def is_indirect_definition(md) -> bool:
         return False
     q = md.get("quality", "")
     qs = q if isinstance(q, list) else [q]
-    return not any(str(x).rstrip("p").isdigit() for x in qs)
+    return not any(_quality_int(x) > 0 for x in qs)
 
 
 _FETCH_JSON_JS = """async (u) => {
@@ -487,7 +560,7 @@ def resolve_indirect_definitions(page, mediadefs: list, page_url: str = "") -> l
         page_rd = ""
     out: list = []
     for md in [m for m in (mediadefs or []) if is_indirect_definition(m)][:4]:
-        u = (md.get("videoUrl") or md.get("video_url") or "").strip()
+        u = _md_url(md)
         # O1567 fx-redtube-mediadefs-relative: live redtube writes these as
         # relative paths ("/media/mp4?s=.."); resolve against the page.
         if page_url:
@@ -513,21 +586,8 @@ def _max_numeric_quality(mediadefs: list) -> int:
         if not isinstance(md, dict):
             continue
         q = md.get("quality", "")
-        if isinstance(q, list):
-            for qx in q:
-                try:
-                    n = int(str(qx).rstrip("p"))
-                    if n > best:
-                        best = n
-                except (ValueError, TypeError):
-                    pass
-        elif isinstance(q, (str, int)):
-            try:
-                n = int(str(q).rstrip("p"))
-                if n > best:
-                    best = n
-            except (ValueError, TypeError):
-                pass
+        for qx in (q if isinstance(q, list) else [q]):
+            best = max(best, _quality_int(qx))
     return best
 
 
@@ -566,36 +626,28 @@ def _normalize_variant(md: dict) -> Optional[AyloVariant]:
     if the entry isn't usable (missing URL, unknown format, etc.)."""
     if not isinstance(md, dict):
         return None
-    url = (md.get("videoUrl") or md.get("video_url") or "").strip()
+    url = _md_url(md)
     if not url:
-        return None  # Premium-locked or other reason
-    fmt = (md.get("format") or "").lower()
+        return None  # Premium-locked, missing, or not a string
+    fmt = md.get("format")
+    fmt = fmt.lower() if isinstance(fmt, str) else ""
     if fmt not in ("hls", "mp4"):
-        # Some entries have no format key; infer from URL extension
-        if url.endswith(".m3u8") or "/master.m3u8" in url:
-            fmt = "hls"
-        elif url.endswith(".mp4") or ".mp4?" in url:
-            fmt = "mp4"
-        else:
+        # Some entries have no format key; infer from the URL PATH's
+        # extension (a signed manifest is `.../index.m3u8?t=..`)
+        fmt = _media_format(url) or ("hls" if "/master.m3u8" in url else "")
+        if not fmt:
             return None
     raw_q = md.get("quality", "")
     quality = 0
     quality_list: list = []
     if isinstance(raw_q, list):
-        for qx in raw_q:
-            try:
-                quality_list.append(int(str(qx).rstrip("p")))
-            except (ValueError, TypeError):
-                pass
+        quality_list = [n for n in (_quality_int(qx) for qx in raw_q) if n > 0]
         # For HLS the per-variant `quality` is a LIST of tiers in the
         # manifest; we use max for sorting purposes
         if quality_list:
             quality = max(quality_list)
-    elif isinstance(raw_q, (str, int)):
-        try:
-            quality = int(str(raw_q).rstrip("p"))
-        except (ValueError, TypeError):
-            quality = 0
+    else:
+        quality = _quality_int(raw_q)
     return AyloVariant(
         format=fmt,
         url=url,
@@ -651,9 +703,8 @@ def pick_best_variant(
     for pref in quality_pref:
         if isinstance(pref, str) and pref.lower() in ("best", "highest", "max"):
             return variants[0]
-        try:
-            target = int(str(pref).rstrip("p"))
-        except (ValueError, TypeError):
+        target = _quality_int(pref)   # 1080, 1080.0, "1080p", "1080P"
+        if target <= 0:
             continue
         tolerance = max(50, int(target * 0.05))  # Match runner's logic
         # Exact-or-within-tolerance match
@@ -697,6 +748,7 @@ def _result_from_config(
     *,
     quality_pref: Optional[list] = None,
     force_format: str = "",
+    page_url: str = "",
 ) -> AyloResult:
     # tpl95-redtube-1: an indirect entry is a JSON endpoint, never a file.
     mediadefs = [md for md in (mediadefs or [])
@@ -721,11 +773,14 @@ def _result_from_config(
             continue
         seen_q.add(key)
         avail.append(f"{v.quality}p/{v.format}")
+    if page_url:
+        # a direct entry may be page-relative ("/v/scene_720p.mp4")
+        variant.url = urljoin(page_url, variant.url)
     return AyloResult(
         ok=True,
         variant=variant,
         title=str(fv.get("video_title", "") or ""),
-        duration_sec=int(fv.get("video_duration", 0) or 0),
+        duration_sec=_duration_seconds(fv.get("video_duration")),
         thumbnail_url=str(fv.get("image_url", "") or ""),
         embed_id=str(fv.get("video_id", "") or ""),
         available_qualities=avail,
@@ -766,7 +821,7 @@ def extract_from_page(
         page_url = ""
     mediadefs += resolve_indirect_definitions(page, mediadefs, page_url)
     return _result_from_config(fv, mediadefs, quality_pref=quality_pref,
-                               force_format=force_format)
+                               force_format=force_format, page_url=page_url)
 
 
 __all__ = [
