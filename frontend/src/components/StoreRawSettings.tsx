@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -58,21 +58,54 @@ export function StoreRawSettings() {
   const [newId, setNewId] = useState("");
   const [rekeying, setRekeying] = useState(false);
 
+  // Only the NEWEST load may write the editor. A slow reply for the store the
+  // operator has already switched away from used to land under the other
+  // store's label, and Save then posted one store's JSON into the other file.
+  const loadSeq = useRef(0);
+  // ...and only for the store that is open NOW. Save and Rename reload the
+  // store they were clicked on when their POST settles; if the operator has
+  // switched tab meanwhile that reload is the newest load, so the sequence
+  // alone let it through. Set in switchStore, ahead of the re-render.
+  const storeRef = useRef<StoreName>("vpn");
+
   async function loadStore(s: StoreName) {
+    if (s !== storeRef.current) return;
+    const seq = ++loadSeq.current;
     setLoading(true);
     setError("");
     try {
       const data = await apiGet<StoreRawState>(
         `/api/settings/store-raw?store=${s}`,
       );
+      if (seq !== loadSeq.current) return;
       setPath(data.path);
       setText(data.text);
       setDirty(false);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError(errOf(e));
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
+  }
+
+  function switchStore(next: StoreName) {
+    if (next === store) return;
+    if (
+      dirty &&
+      !window.confirm(
+        `Discard your unsaved edits to the ${store} store and open ${next}?`,
+      )
+    ) {
+      return;
+    }
+    // The old store's text and path must not sit under the new label while
+    // the new file loads.
+    setText("");
+    setPath("");
+    setDirty(false);
+    storeRef.current = next;
+    setStore(next);
   }
 
   useEffect(() => {
@@ -114,12 +147,21 @@ export function StoreRawSettings() {
     try {
       await apiPost(`/api/settings/store-raw`, { store, text });
       toast.success(`Saved ${store} store + reloaded.`);
-      setDirty(false);
       qc.invalidateQueries();
-      void loadStore(store);
+      // The editor may show another store by now: its unsaved edits are not
+      // what was just saved, and it is not the store to reload.
+      if (store === storeRef.current) {
+        setDirty(false);
+        void loadStore(store);
+      }
     } catch (e) {
-      setError(errOf(e));
-      toast.error("Save rejected — nothing was written.");
+      if (store === storeRef.current) {
+        setError(errOf(e));
+        toast.error("Save rejected — nothing was written.");
+      } else {
+        // the error line belongs to the open store; say which save failed
+        toast.error(`Save of the ${store} store rejected — nothing was written: ${errOf(e)}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -150,8 +192,12 @@ export function StoreRawSettings() {
       qc.invalidateQueries();
       void loadStore(store);
     } catch (e) {
-      setError(errOf(e));
-      toast.error("Rename failed.");
+      if (store === storeRef.current) {
+        setError(errOf(e));
+        toast.error("Rename failed.");
+      } else {
+        toast.error(`Rename failed: ${errOf(e)}`);
+      }
     } finally {
       setRekeying(false);
     }
@@ -181,7 +227,7 @@ export function StoreRawSettings() {
           <button
             key={s}
             type="button"
-            onClick={() => setStore(s)}
+            onClick={() => switchStore(s)}
             aria-pressed={store === s}
             className={
               "rounded-md px-3 py-1 text-sm " +

@@ -456,6 +456,14 @@ export function Settings() {
     }
   }
 
+  // The payload below reads this box with parseInt, which stops at the first
+  // non-digit: "1.5e6" would go out as a 1 B/s cap and "-5" as 0, which the
+  // supervisor reads as "uncapped". Anything but plain digits blocks Apply.
+  // A blank box is still the deliberate clear (sends 0), as v3.66.1240 pins.
+  const supGlobalBpsErr = /^\d*$/.test(supGlobalBps.trim())
+    ? null
+    : "whole bytes/sec only: digits, no sign, decimal or exponent";
+
   const supMut = useMutation<{ ok: boolean; error?: string }, Error, void>({
     mutationFn: () =>
       apiPost<{ ok: boolean; error?: string }>("/api/supervisor/configure", {
@@ -1329,13 +1337,21 @@ export function Settings() {
               label="Global bytes/sec"
               hint="Total throughput cap across all sites. 0 = uncapped."
               control={
-                <Input
-                  type="number"
-                  min={0}
-                  value={supGlobalBps}
-                  onChange={(e) => setSupGlobalBpsEdit(e.target.value)}
-                  className="w-32 text-right tabular"
-                />
+                <div className="space-y-1 text-right">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={supGlobalBps}
+                    onChange={(e) => setSupGlobalBpsEdit(e.target.value)}
+                    aria-invalid={!!supGlobalBpsErr}
+                    className="w-32 text-right tabular"
+                  />
+                  {supGlobalBpsErr ? (
+                    <div role="alert" className="text-[11px] text-red">
+                      {supGlobalBpsErr}
+                    </div>
+                  ) : null}
+                </div>
               }
             />
             <SettingRow
@@ -1367,7 +1383,7 @@ export function Settings() {
               control={
                 <Button
                   size="sm"
-                  disabled={!!supPerSiteErr || supMut.isPending}
+                  disabled={!!supPerSiteErr || !!supGlobalBpsErr || supMut.isPending}
                   onClick={() => {
                     setSupConfirm(true);
                   }}
