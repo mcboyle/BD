@@ -752,7 +752,13 @@ def _blast_radius(draft: "DetectorDraft") -> Dict[str, Any]:
 def _generalization(draft: "DetectorDraft") -> Dict[str, Any]:
     framework: List[Dict[str, str]] = []   # transfers to other detectors as-is
     site_specific: List[Dict[str, str]] = []  # holds only for this capture/host
-    reusable_classes: List[Dict[str, str]] = []  # the rule-class transfers, instances local
+    # the rule-class transfers, instances local. Each entry carries the COUNT
+    # ("instances") and, beside it, WHICH instances ("instance_ids": one id per
+    # counted instance, sorted) so a cross-site comparison can tell "the same
+    # class with different instances" from "the same instances again". Ids are
+    # names already present in this output (assumption node, signing-marker
+    # NAME, goal host) -- never a value.
+    reusable_classes: List[Dict[str, Any]] = []
 
     stab = draft.assumption_stability or {}
     for a in stab.get("assumptions", []):
@@ -771,22 +777,27 @@ def _generalization(draft: "DetectorDraft") -> Dict[str, Any]:
     # The reusable *class* for the source-unknown telemetry block (recorded once,
     # not per-param), so it shows as transferable knowledge without inflating
     # the framework list with dozens of local instances.
-    n_src = sum(1 for a in stab.get("assumptions", [])
-                if a.get("basis") == "negative_observation")
+    src_ids = sorted(str(a["node"]) for a in stab.get("assumptions", [])
+                     if a.get("basis") == "negative_observation")
+    n_src = len(src_ids)
     if n_src:
         reusable_classes.append({
             "class": "client_computed_telemetry_is_unrecoverable",
             "instances": n_src,
+            "instance_ids": src_ids,
             "why": ("the RULE generalizes (telemetry computed client-side can't "
                     "be recovered by observation); the specific params are "
                     "local to this player/site")})
 
     # Findings / patterns.
-    n_signing = sum(1 for s in draft.slots if s.verdict == SIGNING)
+    signing_ids = sorted(str(s.param) for s in draft.slots
+                         if s.verdict == SIGNING)
+    n_signing = len(signing_ids)
     if n_signing:
         reusable_classes.append({
             "class": "signing_marker_policy",
             "instances": n_signing,
+            "instance_ids": signing_ids,
             "why": ("the signing-marker recognition is structural and reusable "
                     "across detectors; the specific tokens are local")})
     sk = draft.skeleton or {}
@@ -806,6 +817,9 @@ def _generalization(draft: "DetectorDraft") -> Dict[str, Any]:
         reusable_classes.append({
             "class": f"classify_url:{gc['type']}",
             "instances": 1,
+            # the one instance is this capture's goal host; no host recorded
+            # -> no id, and a comparison stays undecidable for this site
+            "instance_ids": [str(sk["host"])] if sk.get("host") else [],
             "why": "the classifier rule is framework-level"})
         site_specific.append({
             "node": "impact:goal_host",

@@ -37,6 +37,13 @@ def _load(path):
 
 def _cmd_run(args):
     pairs = {}
+    names = [spec[0] for spec in args.site]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        # pairs is keyed by name: a repeated name would silently replace the
+        # earlier capture pair and the run would cover fewer sites than given
+        raise SystemExit(f"duplicate --site name(s) {repeated}: "
+                         f"{len(names)} sites given, each needs its own name")
     for spec in args.site:
         name, a, b = spec[0], spec[1], spec[2]
         pairs[name] = (_load(a), _load(b))
@@ -51,8 +58,14 @@ def _cmd_run(args):
               f"rendition_slots={p['rendition_slot_count']}")
         print(f"     reusable_classes={p['reusable_classes']}  "
               f"robust={p['sensitivity_robust']}")
-    print("\n  CONFIRMED reusable (reproduced >=2 sites):",
-          c["reusable_classes_reproduced"])
+    print("\n  CONFIRMED reusable (reproduced >=2 sites, different instances):",
+          c["reusable_classes_confirmed"])
+    if c["reusable_classes_same_instances"]:
+        print("  reproduced with the SAME instances (not confirmed):",
+              c["reusable_classes_same_instances"])
+    if c["reusable_classes_undecidable"]:
+        print("  reproduced, instances not named (undecidable):",
+              c["reusable_classes_undecidable"])
     print("  CONFIRMED framework-level (robust all sites):",
           c["sensitivity_robust_across_all"])
     print("  CONFIRMED site-specific (outcome varies):",

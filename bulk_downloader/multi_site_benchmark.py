@@ -58,10 +58,33 @@ def site_profile(wb_dict: Dict[str, Any]) -> Dict[str, Any]:
                                     if s.get("role") == "rendition"),
         "reusable_classes": [c.get("class") for c in
                              gen.get("reusable_classes", [])],
+        # which instances each class was seen with on this site; None when the
+        # workbench output carries only the count (no "instance_ids")
+        "reusable_class_instances": {
+            c.get("class"): _instance_ids(c.get("instance_ids"))
+            for c in gen.get("reusable_classes", [])},
         "framework_level_count": len(gen.get("framework_level", [])),
         "site_specific_count": len(gen.get("site_specific", [])),
         "sensitivity_robust": list(sens.get("robust_conclusions") or []),
     }
+
+
+def _instance_ids(raw: Any) -> Any:
+    """A sorted list of instance-id strings, or None when ``raw`` is not a list
+    of ids (absent, a bare count, anything else)."""
+    if not isinstance(raw, list):
+        return None
+    return sorted(str(i) for i in raw)
+
+
+def _instance_decision(by_site: Dict[str, Any]) -> str:
+    """For one class seen on >=2 sites: do its instances DIFFER across sites?
+    'undecidable' when any of those sites names no instances (count-only
+    output, or an empty id list) -- the count alone cannot tell; 'same' when
+    every site shows the identical instances; else 'different'."""
+    if any(not ids for ids in by_site.values()):
+        return "undecidable"
+    return "different" if len({tuple(ids) for ids in by_site.values()}) > 1 else "same"
 
 
 def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
@@ -76,6 +99,18 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
             cls_count[c] += 1
     reproduced = sorted(c for c, n in cls_count.items() if n >= 2)
     site_local = sorted(c for c, n in cls_count.items() if n == 1)
+    # a reproduced class is CONFIRMED only "with DIFFERENT instances" (module
+    # docstring): decide that from the instance ids, never from the count
+    cls_instances: Dict[str, Dict[str, Any]] = {}
+    for c in reproduced:
+        by_site = {n: _instance_ids((p.get("reusable_class_instances") or {}).get(c))
+                   for n, p in profiles.items() if c in p["reusable_classes"]}
+        cls_instances[c] = {"decision": _instance_decision(by_site),
+                            "instances_by_site": by_site}
+    confirmed = [c for c in reproduced if cls_instances[c]["decision"] == "different"]
+    same_instances = [c for c in reproduced if cls_instances[c]["decision"] == "same"]
+    undecidable = [c for c in reproduced
+                   if cls_instances[c]["decision"] == "undecidable"]
 
     # framework-level method property: robust on ALL sites (set intersection)
     robust_sets = [set(p["sensitivity_robust"]) for p in profiles.values()]
@@ -85,25 +120,36 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     seg = {n: {"identity": p["identity_slot_count"],
                "rendition": p["rendition_slot_count"]}
            for n, p in profiles.items()}
-    role_reproduced_all = all(p["identity_slot_count"] >= 1
-                              for p in profiles.values())
+    # "reproduced on all sites" needs a site: all() of nothing is not a result
+    role_reproduced_all = bool(profiles) and all(
+        p["identity_slot_count"] >= 1 for p in profiles.values())
     over_split = {n: p["identity_slot_count"] for n, p in profiles.items()
                   if p["identity_slot_count"] > _OVER_SPLIT_THRESHOLD}
 
     # goal classification: site-specific OUTCOME (varies => the local label held)
     classification = {n: p["goal_classification"] for n, p in profiles.items()}
-    classification_varies = len(set(classification.values())) > 1
+    # a site with NO classification (None) has no outcome to differ by; the
+    # string "unknown" is an outcome, a missing one is not
+    classification_varies = len({c for c in classification.values()
+                                 if c is not None}) > 1
 
     # signing schemes by site — if all distinct, signing-opacity was tested
     # across genuinely different schemes
     signing = {n: p["signing_params"] for n, p in profiles.items()}
-    distinct_schemes = len({tuple(sorted(s)) for s in signing.values()})
+    # an unsigned site (no signing params) is not a signing scheme
+    distinct_schemes = len({tuple(sorted(s)) for s in signing.values() if s})
 
     return {
         "sites": names,
-        # CONFIRMED reusable (rule reproduced, instances differ)
+        # reproduced = the class was seen on >=2 sites (count level, as before)
         "reusable_classes_reproduced": reproduced,
         "reusable_classes_site_local": site_local,
+        # CONFIRMED reusable (rule reproduced, instances differ) / reproduced
+        # with the same instances / instances not named by >=1 site
+        "reusable_classes_confirmed": confirmed,
+        "reusable_classes_same_instances": same_instances,
+        "reusable_classes_undecidable": undecidable,
+        "reusable_class_instances": cls_instances,
         # CONFIRMED framework-level method property
         "sensitivity_robust_across_all": robust_across,
         # segment-role rule
@@ -117,8 +163,10 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         "signing_schemes_by_site": signing,
         "distinct_signing_schemes": distinct_schemes,
         "verdict": {
-            "confirmed_reusable": reproduced + (
+            "confirmed_reusable": confirmed + (
                 ["sensitivity:" + r for r in robust_across]),
+            "undecidable_reusable": undecidable,
+            "reproduced_same_instances": same_instances,
             "confirmed_site_specific": (
                 ["goal_classification"] if classification_varies else []),
             "anomalies": ([f"segment_role over-split on {n} "
@@ -127,7 +175,9 @@ def compare_sites(profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
             "signing_opacity_tested_across_schemes": distinct_schemes,
         },
         "note": ("a confirmed reusable class reproduces on >=2 sites with "
-                 "different instances; a confirmed framework-level property is "
+                 "different instances (decided from instance ids; a class whose "
+                 "instances a site does not name is undecidable, not confirmed); "
+                 "a confirmed framework-level property is "
                  "robust on ALL sites; a confirmed site_specific label has an "
                  "outcome that VARIES across sites (it correctly did not "
                  "over-generalize); an anomaly is a rule that reproduced but "
