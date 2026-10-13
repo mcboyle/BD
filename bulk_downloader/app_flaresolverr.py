@@ -9,9 +9,14 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import math
+
 from flask import Blueprint, jsonify, request
 
 flaresolverr_bp = Blueprint("flaresolverr", __name__)
+
+# Upper bound for the Test button's solve timeout (seconds).
+_MAX_TEST_TIMEOUT_S = 600.0
 
 def _check_csrf(*_a, **_k):
     """Delegate to app._check_csrf at call time (lazy; avoids an import cycle)."""
@@ -70,7 +75,12 @@ def api_flaresolverr_test():
     if not (_FLARE_AVAILABLE and _flare_client is not None):
         return jsonify({"ok": False, "error": "flaresolverr module unavailable"})
     body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    url = body.get("url") or ""
+    if not isinstance(url, str):
+        return jsonify({"ok": False, "error": "'url' must be a string"}), 400
+    url = url.strip()
     if not url:
         return jsonify({"ok": False, "error": "missing 'url'"})
     # SSRF guard (v3.66.781): a USER-SUPPLIED endpoint controls the fetch
@@ -79,7 +89,10 @@ def api_flaresolverr_test():
     # CGNAT/reserved) BEFORE solve_cloudflare. Mirrors the multi_conn guard.
     # The hardcoded DEFAULT_ENDPOINT (localhost) is operator config, not
     # attacker-controlled, and stays exempt.
-    raw_endpoint = (body.get("endpoint", "") or "").strip()
+    raw_endpoint = body.get("endpoint", "") or ""
+    if not isinstance(raw_endpoint, str):
+        return jsonify({"ok": False, "error": "'endpoint' must be a string"}), 400
+    raw_endpoint = raw_endpoint.strip()
     if raw_endpoint:
         from urllib.parse import urlparse
         from .provider_resolve_impl._common import _is_safe_public_host
@@ -92,6 +105,9 @@ def api_flaresolverr_test():
     try:
         timeout_s = float(body.get("timeout_s", 60.0) or 60.0)
     except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid 'timeout_s'"}), 400
+    # float() accepts "nan", "inf" and negatives; none is a usable timeout.
+    if not (math.isfinite(timeout_s) and 0 < timeout_s <= _MAX_TEST_TIMEOUT_S):
         return jsonify({"ok": False, "error": "invalid 'timeout_s'"}), 400
     sr = _flare_client.solve_cloudflare(
         url, endpoint=endpoint, timeout_s=timeout_s,

@@ -62,6 +62,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import logging
+import math
 import re
 import sys
 import threading
@@ -213,6 +214,11 @@ _stats = ScraplingStats()
 _stats_lock = threading.Lock()
 
 
+def _turnstile_seen(counters: "ScraplingStats") -> int:
+    return max(counters.turnstile_detected,
+               counters.turnstile_bypassed + counters.turnstile_failed)
+
+
 def stats() -> dict:
     """Return a snapshot of the counters."""
     with _stats_lock:
@@ -227,9 +233,13 @@ def stats() -> dict:
             "turnstile_detected": _stats.turnstile_detected,
             "turnstile_bypassed": _stats.turnstile_bypassed,
             "turnstile_failed": _stats.turnstile_failed,
+            # Of the challenges seen: `turnstile_detected` is bumped by the
+            # dispatcher only, so a bypass run without it (a direct caller)
+            # used to read as a 0% success rate. The denominator is whichever
+            # is larger -- challenges detected, or bypasses that finished.
             "turnstile_success_rate": (
-                _stats.turnstile_bypassed / _stats.turnstile_detected
-                if _stats.turnstile_detected > 0 else 0.0
+                _stats.turnstile_bypassed / _turnstile_seen(_stats)
+                if _turnstile_seen(_stats) > 0 else 0.0
             ),
         }
 
@@ -434,6 +444,44 @@ def _candidate_score(el, fingerprint: dict) -> float:
     return score / supplied_weight if supplied_weight else 0.0
 
 
+_LINK_ATTRS = ("href", "src")
+
+
+def _link_target(el) -> tuple:
+    """(href, src) of an element; "" for an attribute it does not carry."""
+    try:
+        raw = getattr(el, "attrib", None) or getattr(el, "attrs", None) or {}
+        if not hasattr(raw, "get"):
+            return ("",) * len(_LINK_ATTRS)
+        return tuple(v if isinstance(v, str) else "" for v in (raw.get(k) for k in _LINK_ATTRS))
+    except Exception:
+        return ("",) * len(_LINK_ATTRS)
+
+
+def _settle_tie(tied: list, fingerprint: dict):
+    """Pick among equally scored candidates, or return None when they are
+    genuinely different targets.
+
+    1. A candidate whose href/src equals what the fingerprint stored is the
+       element that was fingerprinted (or a copy of it): take the first such.
+    2. Otherwise the candidates are one target only if they all point at the
+       same non-empty href/src.
+    Anything else -- different targets, or nothing to compare -- is ambiguous.
+    """
+    stored = fingerprint.get("attrs")
+    stored = stored if isinstance(stored, dict) else {}
+    wanted = tuple(v if isinstance(v, str) else "" for v in (stored.get(k) for k in _LINK_ATTRS))
+    if any(wanted):
+        for el in tied:
+            target = _link_target(el)
+            if all(target[i] == w for i, w in enumerate(wanted) if w):
+                return el
+    targets = {_link_target(el) for el in tied}
+    if len(targets) == 1 and any(next(iter(targets))):
+        return tied[0]
+    return None
+
+
 @dataclass
 class RecoveryResult:
     """Outcome of recover_selector."""
@@ -467,7 +515,11 @@ def recover_selector(
     tag = fingerprint.get("tag", "")
     if not tag:
         return RecoveryResult(ok=False, error="fingerprint_missing_tag")
-    _bump("recoveries_attempted")
+    # A confidence threshold outside [0, 1] is not a threshold: -1 accepts
+    # every element, nan rejects every element.
+    if isinstance(min_score, bool) or not isinstance(min_score, (int, float)) \
+            or not (math.isfinite(min_score) and 0.0 <= min_score <= 1.0):
+        return RecoveryResult(ok=False, error="invalid_min_score")
     try:
         selector_module = importlib.import_module("scrapling")
         Adaptor = _adaptive_selector_from_module(selector_module)
@@ -480,13 +532,15 @@ def recover_selector(
                 if el is not None:
                     score = _candidate_score(el, fingerprint)
                     if score >= min_score:
-                        _bump("recoveries_succeeded")
+                        # The stored selector still works: nothing was
+                        # recovered, so neither recovery counter moves.
                         return RecoveryResult(
                             ok=True, selector=orig_sel, score=score,
                             candidates_considered=1,
                         )
             except Exception:
                 pass
+        _bump("recoveries_attempted")
         # Fallback: enumerate by tag, score each
         candidates: list = []
         try:
@@ -508,6 +562,21 @@ def recover_selector(
         # Sort descending by score
         candidates.sort(key=lambda x: x[0], reverse=True)
         best_score, best_el = candidates[0]
+        # A fingerprint whose only evidence is the tag (a <video src> with no
+        # id/class/text) scores EVERY same-tag element 1.0; returning the
+        # first of them picked whatever came first in the document. So a tie
+        # at the top is settled by where the candidates POINT (href/src),
+        # which the score does not read -- and refused only when that cannot
+        # settle it. Two copies of one button (header + footer, same href)
+        # are the same target, not an ambiguity.
+        tied = [el for s, el in candidates if s == best_score]
+        if len(tied) > 1:
+            best_el = _settle_tie(tied, fingerprint)
+            if best_el is None:
+                return RecoveryResult(
+                    ok=False, error="ambiguous_candidates", score=best_score,
+                    candidates_considered=len(tag_matches),
+                )
         # Build a NEW selector from the best element's attributes
         new_selector = _build_new_selector(best_el, tag, page)
         if not new_selector:
@@ -590,11 +659,12 @@ def _build_new_selector(el, tag: str, page=None) -> Optional[str]:
 # ─── Turnstile detection + bypass ──────────────────────────────────
 
 
+# `data-sitekey=` is not in this list: reCAPTCHA and hCaptcha widgets carry
+# the same attribute, and neither is a Turnstile challenge.
 _TURNSTILE_SIGNALS = [
     "challenges.cloudflare.com",
     "cf-turnstile",
     "cf-clearance-required",
-    "data-sitekey=",
     "turnstile-wrapper",
 ]
 
@@ -749,6 +819,13 @@ def bypass_turnstile(
             elapsed_s=time.monotonic() - start,
         )
     elapsed = time.monotonic() - start
+    # A fetch that returned nothing usable (None, or an object with neither
+    # cookies nor HTML) cleared nothing.
+    if page is None or (not cookies and not final_html):
+        _bump("turnstile_failed")
+        return BypassResult(
+            ok=False, error="bypass_returned_nothing", elapsed_s=elapsed,
+        )
     # If we got HTML and it still looks like a
     # challenge page, the bypass didn't actually work.
     if final_html and is_turnstile_page(final_html):

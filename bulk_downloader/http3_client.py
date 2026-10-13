@@ -27,6 +27,7 @@ import importlib
 import importlib.util
 import logging
 import os
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,7 +86,10 @@ def _atomic_destination(dest_path: Path) -> Iterator[BinaryIO]:
     with ``os.replace`` only if the body completes. On any failure the temp
     file is removed and an existing completed ``dest_path`` is untouched."""
     dest_path = Path(dest_path)
-    tmp = dest_path.with_name(f".{dest_path.name}.part-{os.getpid()}")
+    # Unique per TRANSFER, not per process: two transfers to one destination
+    # in one process used to share `.name.part-<pid>`, interleave their bytes
+    # and unlink each other's file.
+    tmp = dest_path.with_name(f".{dest_path.name}.part-{os.getpid()}-{uuid.uuid4().hex}")
     try:
         with open(tmp, "wb") as fh:
             yield fh
@@ -236,6 +240,11 @@ async def _quic_fetch(url: httpx.URL, dest_path: Path, timeout: float) -> tuple[
     Returns (total_bytes, sha256). Raises on any failure (the caller falls
     back to TCP); ``dest_path`` is only written on completion (E4).
     """
+    # HTTP/3 is https-only: an http:// URL fetched here would silently become
+    # an https request on UDP 443 (or on the URL's own port). Refusing lets
+    # ``download`` fall back to TCP, which honours the scheme.
+    if url.scheme != "https":
+        raise Http3TransportError(f"HTTP/3 needs an https URL, not {url.scheme}://")
     host, port = url.host, url.port or 443
     _guard_quic_destination(host)  # E2: before any UDP is sent
 
@@ -256,7 +265,9 @@ async def _quic_fetch(url: httpx.URL, dest_path: Path, timeout: float) -> tuple[
         await asyncio.wait_for(protocol.wait_connected(), max(0.0, deadline - loop.time()))
 
         status, body = await protocol.get(url)
-        if status >= 400:
+        # Only a 2xx body is the media. A redirect body, or a response with
+        # no :status at all (0), must not be published as the file.
+        if not 200 <= status < 300:
             raise Http3TransportError(f"HTTP/3 status {status} for {url}")
         digest = _Digest()
         with _atomic_destination(dest_path) as fh:

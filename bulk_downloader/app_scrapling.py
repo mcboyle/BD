@@ -9,6 +9,8 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import math
+
 from flask import Blueprint, jsonify, request
 
 scrapling_bp = Blueprint("scrapling", __name__)
@@ -62,8 +64,12 @@ def api_scrapling_fingerprint():
     if not (_SCRAP_AVAILABLE and _scrap_adapter is not None):
         return jsonify({"ok": False, "error": "scrapling_adapter unavailable"})
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
     html = body.get("html", "") or ""
     selector = body.get("selector", "") or ""
+    if not isinstance(html, str) or not isinstance(selector, str):
+        return jsonify({"ok": False, "error": "'html' and 'selector' must be strings"}), 400
     if not html or not selector:
         return jsonify({
             "ok": False,
@@ -90,9 +96,19 @@ def api_scrapling_recover():
     if not (_SCRAP_AVAILABLE and _scrap_adapter is not None):
         return jsonify({"ok": False, "error": "scrapling_adapter unavailable"})
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
     html = body.get("html", "") or ""
     fingerprint = body.get("fingerprint")
-    min_score = float(body.get("min_score", 0.6))
+    if not isinstance(html, str):
+        return jsonify({"ok": False, "error": "'html' must be a string"}), 400
+    # min_score is a confidence in [0, 1]: "high", null, nan and -1 are not.
+    raw_min = body.get("min_score", 0.6)
+    if isinstance(raw_min, bool) or not isinstance(raw_min, (int, float)) \
+            or not (math.isfinite(raw_min) and 0.0 <= raw_min <= 1.0):
+        return jsonify({"ok": False,
+                        "error": "'min_score' must be a number between 0 and 1"}), 400
+    min_score = float(raw_min)
     if not html or not isinstance(fingerprint, dict):
         return jsonify({
             "ok": False,
@@ -119,6 +135,8 @@ def api_scrapling_turnstile_check():
     if not (_SCRAP_AVAILABLE and _scrap_adapter is not None):
         return jsonify({"ok": False, "error": "scrapling_adapter unavailable"})
     body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
     html = body.get("html", "") or ""
     return jsonify({
         "ok": True,
