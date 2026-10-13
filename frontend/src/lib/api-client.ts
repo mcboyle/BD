@@ -63,6 +63,31 @@ export class ApiError extends Error {
   }
 }
 
+// dsw-fix F10: a write whose request never completed (connection reset, DNS,
+// offline) rejected with the browser's bare "Failed to fetch", so the toast
+// named no action. It now names method + path like an HTTP failure does. Not an
+// ApiError: there is no status and no server reason. Aborts pass through as-is.
+export class NetworkError extends Error {
+  constructor(
+    method: string,
+    path: string,
+    public original: unknown,
+  ) {
+    const why = original instanceof Error && original.message ? original.message : String(original);
+    super(`${method} ${path}: request did not complete (${why})`);
+    this.name = "NetworkError";
+  }
+}
+
+async function sendOnce(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (e) {
+    if ((e as { name?: unknown } | null)?.name === "AbortError") throw e;
+    throw new NetworkError(init.method ?? "GET", path, e);
+  }
+}
+
 // o1826-c48 M205: the ONE CSRF send for every state-changing helper. Sends
 // with the cached token; on 403 the token may have rotated -- refetch once
 // and retry with the fresh one. Returns the final Response either way.
@@ -73,12 +98,12 @@ async function fetchWithCsrf(
   const token = await getCsrfToken();
   const headers = { ...init.headers };
   if (token) headers["X-CSRF-Token"] = token;
-  const r = await fetch(path, { ...init, credentials: "same-origin", headers });
+  const r = await sendOnce(path, { ...init, credentials: "same-origin", headers });
   if (r.status !== 403) return r;
   _csrfToken = null;
   const retryToken = await getCsrfToken();
   if (!retryToken || retryToken === token) return r;
-  return fetch(path, {
+  return sendOnce(path, {
     ...init,
     credentials: "same-origin",
     headers: { ...headers, "X-CSRF-Token": retryToken },

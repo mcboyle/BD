@@ -89,23 +89,34 @@ def add_tag(history_ids: Iterable[int], tag: str) -> dict:
         return {"ok": True, "tag": norm, "added": 0, "already_had": 0}
     added = 0
     already = 0
+    unknown = []
     now = time.time()
     try:
         with _db.db_conn() as cx:
             for hid in ids:
                 try:
-                    cx.execute("""
+                    # dsw-fix F1: only a history row that exists gets the tag;
+                    # an unknown id inserts nothing (no orphan tag row for a
+                    # later row to inherit).
+                    cur = cx.execute("""
                         INSERT INTO history_tags (history_id, tag, ts_assigned)
-                        VALUES (?, ?, ?)
-                    """, (hid, norm, now))
-                    added += 1
+                        SELECT id, ?, ? FROM history WHERE id = ?
+                    """, (norm, now, hid))
                 except Exception:
                     # UNIQUE violation = already had this tag
                     already += 1
+                    continue
+                if cur.rowcount == 1:
+                    added += 1
+                else:
+                    unknown.append(hid)
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
-    return {"ok": True, "tag": norm, "added": added,
-            "already_had": already}
+    out = {"ok": True, "tag": norm, "added": added,
+           "already_had": already, "unknown": len(unknown)}
+    if unknown and not added and not already:
+        out.update(ok=False, error=f"no such history row(s): {unknown[:5]}")
+    return out
 
 
 def remove_tag(history_ids: Iterable[int], tag: str) -> dict:
@@ -252,8 +263,13 @@ def rename_tag(old: str, new: str) -> dict:
                 UPDATE history_tags SET tag = ? WHERE tag = ?
             """, (new_norm, old_norm))
             renamed = cx.execute("SELECT changes()").fetchone()[0]
-        return {"ok": True, "renamed": int(renamed or 0),
-                "merged": int(merged or 0)}
+        renamed, merged = int(renamed or 0), int(merged or 0)
+        if not renamed and not merged:
+            # dsw-fix F6: nothing carried the old tag -- say so instead of a
+            # success the SPA reports as "Tag renamed".
+            return {"ok": False, "renamed": 0, "merged": 0,
+                    "error": f"no rows carry tag: {old_norm}"}
+        return {"ok": True, "renamed": renamed, "merged": merged}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
