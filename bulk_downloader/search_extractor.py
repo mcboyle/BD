@@ -74,7 +74,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import quote_plus, urlparse, urlunparse
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ def build_search_url(template: dict, query: str) -> str:
     """
     if not isinstance(template, dict):
         return ""
-    if not query or not isinstance(query, str):
+    if not query or not isinstance(query, str) or not query.strip():  # S4: "   " is empty
         return ""
     pattern = template.get("search_url_pattern", "")
     if not pattern or not isinstance(pattern, str):
@@ -255,6 +255,22 @@ def _looks_like_scene_url(url: str, template: Optional[dict] = None) -> bool:
 # ─── search_site (single site) ───────────────────────────────────
 
 
+_TRACKING_PARAMS = ("utm_", "fbclid", "gclid")
+
+
+def _hit_key(url: str) -> str:
+    """Identity of a search hit: the URL without its #fragment and tracking
+    parameters (S7), so ``/video/1``, ``/video/1#c`` and ``/video/1?utm_x=a`` are
+    one result while real query ids (``/watch?v=``) stay distinct."""
+    try:
+        parsed = urlparse(url)
+        query = "&".join(part for part in (parsed.query or "").split("&")
+                         if part and not part.lower().startswith(_TRACKING_PARAMS))
+        return urlunparse(parsed._replace(query=query, fragment=""))
+    except Exception:
+        return url
+
+
 def search_site(
     page,
     site_id: str,
@@ -285,8 +301,8 @@ def search_site(
         return SearchResult(ok=False, site_id=site_id, query=query,
                             error="build_search_url_failed")
     try:
-        page.goto(search_url, wait_until="domcontentloaded",
-                  timeout=page_load_timeout_ms)
+        response = page.goto(search_url, wait_until="domcontentloaded",
+                             timeout=page_load_timeout_ms)
     except Exception as e:
         return SearchResult(
             ok=False, site_id=site_id, query=query,
@@ -294,6 +310,22 @@ def search_site(
             error=f"navigate_failed:{type(e).__name__}",
             elapsed_s=time.monotonic() - start,
         )
+    # O1789 dax-pages S1: a 4xx/5xx search page (429 rate limit, 503) is a failed
+    # search, not "no results".
+    status = getattr(response, "status", None)
+    if isinstance(status, int) and status >= 400:
+        return SearchResult(ok=False, site_id=site_id, query=query,
+                            search_url=search_url, error=f"http_{status}",
+                            elapsed_s=time.monotonic() - start)
+    # S6: a search that lands on another site has no results for THIS site --
+    # say so instead of filtering every hit away as off-site.
+    landed = getattr(page, "url", "") or ""
+    if isinstance(landed, str) and landed.startswith(("http://", "https://")) \
+            and not _is_same_etld1(landed, search_url):
+        return SearchResult(ok=False, site_id=site_id, query=query,
+                            search_url=search_url,
+                            error=f"redirected_off_site:{urlparse(landed).hostname or ''}",
+                            elapsed_s=time.monotonic() - start)
     # Extract results
     selector = template.get("search_result_selector", "") or None
     raw = _extract_link_metadata(page, search_url, selector)
@@ -301,21 +333,21 @@ def search_site(
     seen: set = set()
     hits: list = []
     for r in raw:
+        if len(hits) >= max_results:  # S2: max_results=0 collects nothing
+            break
         url = r.get("url", "")
-        if not url or url in seen:
+        if not url or _hit_key(url) in seen:  # S7: #fragment / utm_* copies are one hit
             continue
         if not _is_same_etld1(url, search_url):
             continue
         if not _looks_like_scene_url(url, template=template):
             continue
-        seen.add(url)
+        seen.add(_hit_key(url))
         hits.append(SearchHit(
             url=url,
             title=r.get("title", "")[:200],
             thumbnail_url=r.get("thumb", ""),
         ))
-        if len(hits) >= max_results:
-            break
     return SearchResult(
         ok=True, site_id=site_id, query=query,
         search_url=search_url, hits=hits,
@@ -354,7 +386,8 @@ def search_all_sites(
         return {}
     results: dict = {}
     for site_id, template in sites.items():
-        if sites_filter and site_id not in sites_filter:
+        # S9: an EMPTY filter selects no site; only None means "all sites".
+        if sites_filter is not None and site_id not in sites_filter:
             continue
         if not is_site_searchable(template):
             results[site_id] = SearchResult(

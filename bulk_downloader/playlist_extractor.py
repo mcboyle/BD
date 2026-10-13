@@ -173,6 +173,45 @@ def _is_same_etld1(url1: str, url2: str) -> bool:
     return same_site(url1, url2)
 
 
+# O1789 dax-pages P3/P4: route words are matched against whole PATH segments, never
+# as substrings of the URL. "/2257" must not refuse "/video/225731", "/help" not
+# "/video/helping-hand", "/search" not "/video/searching-for-love", and a query value
+# ("?ref=/category/a") is not the page's route. A segment counts when it IS the word
+# or the word plus a file extension ("login.php").
+_NON_SCENE_ANYWHERE = tuple(h for h in _NON_SCENE_HINTS if not h.startswith("/"))
+_NON_SCENE_ROUTE_WORDS = tuple(h.strip("/") for h in _NON_SCENE_HINTS if h.startswith("/"))
+_LISTING_ROUTE_KEYWORDS = tuple(k.strip("/") for k in _LISTING_KEYWORDS)
+# Never navigated during collection expansion: utility routes plus the routes that
+# END the operator's session (P4: a logout GET signs the operator out).
+_SESSION_ROUTE_WORDS = ("logout", "log-out", "log_out", "signout", "sign-out",
+                        "sign_out", "logoff", "log-off")
+
+
+def _has_route_word(url: str, words) -> bool:
+    try:
+        segments = [seg for seg in urlparse(url).path.lower().split("/") if seg]
+    except Exception:
+        return False
+    return any(seg == word or seg.startswith(word + ".")
+               for seg in segments for word in words)
+
+
+def _is_utility_route(url: str) -> bool:
+    """Account/billing/auth/legal routes and session-ending routes (P4)."""
+    return _has_route_word(url, _NON_SCENE_ROUTE_WORDS + _SESSION_ROUTE_WORDS)
+
+
+def _page_number(url: str) -> int:
+    """The page a listing URL shows: ``?page=N`` or ``/page/N/``, else 1 (P1)."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return 1
+    m = (re.search(r"(?:^|&)page=(\d+)(?:&|$)", parsed.query or "")
+         or re.search(r"/page/(\d+)/?$", parsed.path or ""))
+    return max(1, int(m.group(1))) if m else 1
+
+
 def _looks_like_scene_url(
     url: str, *,
     template: Optional[dict] = None,
@@ -189,14 +228,16 @@ def _looks_like_scene_url(
     if not url or not isinstance(url, str):
         return False
     url_low = url.lower()
-    # Negative filters first
-    for skip in _NON_SCENE_HINTS:
+    # Negative filters first: schemes and in-page anchors anywhere, route words
+    # only as whole path segments (P3).
+    for skip in _NON_SCENE_ANYWHERE:
         if url_low.startswith(skip) or skip in url_low:
             return False
+    if _has_route_word(url, _NON_SCENE_ROUTE_WORDS):
+        return False
     # Don't fan out into more listings
-    for kw in _LISTING_KEYWORDS:
-        if kw in url_low:
-            return False
+    if _has_route_word(url, _LISTING_ROUTE_KEYWORDS):
+        return False
     listing_words = set(_LISTING_ROUTE_WORDS)
     if template is not None:
         listing_words.update(str(word).lower().strip("/")
@@ -383,6 +424,14 @@ def extract_playlist_urls(
         if sel and isinstance(sel, str):
             scene_selector = sel
 
+    # P2: one normalised int, so the loop bound and the stop test agree ("3" -> 3).
+    try:
+        max_pages = max(1, int(max_pages))
+    except (TypeError, ValueError):
+        return PlaylistResult(ok=False, base_url=listing_url, error="bad_max_pages")
+    # P1: pages continue from the listing's own page (?page=5 -> 6, 7), not from 2.
+    first_page = _page_number(listing_url)
+
     all_urls: list = []
     all_titles: dict = {}
     page_count = 0
@@ -390,7 +439,7 @@ def extract_playlist_urls(
     truncated = False
     pagination_error = ""
 
-    for page_idx in range(max(1, int(max_pages))):
+    for page_idx in range(max_pages):
         try:
             page.goto(current_url, wait_until="domcontentloaded",
                       timeout=page_load_timeout_ms)
@@ -426,7 +475,7 @@ def extract_playlist_urls(
         if page_idx + 1 >= max_pages:
             break
         # Heuristic next-page URL
-        next_url = _guess_next_page_url(current_url, page_idx + 2)
+        next_url = _guess_next_page_url(current_url, first_page + page_idx + 1)
         if not next_url or next_url == current_url:
             break
         current_url = next_url
@@ -459,8 +508,10 @@ def _guess_next_page_url(current_url: str, page_num: int) -> str:
         parsed = urlparse(current_url)
         # If query already contains page=X, replace it
         q = parsed.query or ""
-        if re.search(r"(^|&)page=\d+", q):
-            new_q = re.sub(r"(^|&)page=\d+", lambda m: f"{m.group(1)}page={page_num}", q)
+        # P9: any existing page= value is replaced (?page=abc -> ?page=2), never
+        # left beside an appended second page= parameter.
+        if re.search(r"(^|&)page=[^&]*", q):
+            new_q = re.sub(r"(^|&)page=[^&]*", lambda m: f"{m.group(1)}page={page_num}", q)
             return urlunparse(parsed._replace(query=new_q))
         # If path contains /page/N/
         if re.search(r"/page/\d+/?$", parsed.path):
@@ -639,6 +690,8 @@ def _expand_collection(
         if not _is_same_etld1(child, url):
             continue
         if _looks_like_scene_url(child, template=template):
+            continue
+        if _is_utility_route(child):  # P4: never goto() /logout, /account/billing, /upgrade
             continue
         ordered.append(child)
     ordered.sort(key=lambda c: 0 if is_likely_listing_url(c, template=template) else 1)

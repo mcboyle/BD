@@ -36,6 +36,10 @@ _VERSION_CACHE: dict = {"ts": 0.0, "version": None, "path": None}
 # per 24h regardless of how many site configs trigger it.
 _LAST_UPDATE_CHECK: dict = {}
 
+# O1789 dax-pages G5: a FAILED forced update (network down, pip error) must not
+# lock the operator out for 24h; it may be retried after this back-off.
+_FAILED_UPDATE_RETRY_S = 300
+
 _CACHE_TTL = 3600  # 1 hour
 
 
@@ -54,8 +58,10 @@ def current_version(executable: Optional[str] = None) -> Optional[str]:
                            text=True, timeout=10)
         if r.returncode != 0:
             return None
-        ver = (r.stdout or "").strip().splitlines()[0] if r.stdout else None
-    except (subprocess.TimeoutExpired, OSError):
+        # O1789 dax-pages G1: blank output is "unknown", not an IndexError.
+        lines = (r.stdout or "").strip().splitlines()
+        ver = lines[0].strip() if lines else None
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError):  # G2: non-UTF-8 output
         return None
     _VERSION_CACHE.update({"ts": now, "version": ver, "path": exe})
     return ver
@@ -97,14 +103,20 @@ def maybe_update(*, force: bool = False, threshold_days: int = 30) -> Tuple[bool
     py = sys.executable or "python"
     cmd = [py, "-m", "pip", "install", "--upgrade", "--quiet", "gallery-dl"]
     _LAST_UPDATE_CHECK[exe] = now
+    # On failure, move the stamp back so the next attempt is allowed after
+    # _FAILED_UPDATE_RETRY_S instead of 24h (G5).
+    retry_stamp = now - 86400 + _FAILED_UPDATE_RETRY_S
     try:
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
+            _LAST_UPDATE_CHECK[exe] = retry_stamp
             tail = (r.stderr or r.stdout or "")[-300:]
             return (False, f"pip install --upgrade gallery-dl failed: {tail}")
     except subprocess.TimeoutExpired:
+        _LAST_UPDATE_CHECK[exe] = retry_stamp
         return (False, "pip install --upgrade timed out after 2min")
     except Exception as e:
+        _LAST_UPDATE_CHECK[exe] = retry_stamp
         return (False, f"pip install --upgrade raised: {e}")
     _VERSION_CACHE.update({"ts": 0.0, "version": None, "path": None})
     new_ver = current_version()
