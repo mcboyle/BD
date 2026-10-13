@@ -127,8 +127,12 @@ def ping(endpoint: str, timeout_s: float = 5.0) -> dict:
                 "userAgent": str(data.get("userAgent", "")),
                 "msg": str(data.get("msg", "")),
             }
-        # Some versions return text only; treat 200 as live
-        return {"ok": True, "version": "", "userAgent": ""}
+        # Some versions return text only ("FlareSolverr is ready!"). Any other
+        # 200 -- a default web-server page on a wrong endpoint -- is not a
+        # FlareSolverr, and must not show as healthy.
+        if "flaresolverr" in (r.text or "")[:4096].lower():
+            return {"ok": True, "version": "", "userAgent": ""}
+        return {"ok": False, "error": "not_flaresolverr"}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}:{str(e)[:120]}"}
 
@@ -238,7 +242,7 @@ def _translate_cookies_to_playwright(
         if not name or value is None:
             continue
         domain = c.get("domain") or default_domain
-        if not domain:
+        if not domain or not isinstance(domain, str):
             continue
         out_c = {
             "name": str(name),
@@ -263,7 +267,9 @@ def _translate_cookies_to_playwright(
                 out_c["sameSite"] = "None"
         # Expiry: FlareSolverr may return as int ms or float seconds
         exp = c.get("expires") or c.get("expiry")
-        if isinstance(exp, (int, float)):
+        # bool is an int: `expires: true` is not a timestamp (it would read
+        # as 1.0, an already-expired cookie).
+        if isinstance(exp, (int, float)) and not isinstance(exp, bool):
             # Heuristic: values > 1e11 are clearly milliseconds (year ~5000)
             # so divide; otherwise treat as seconds. Real Unix epoch
             # seconds for "year 2030" is ~1.9e9.
@@ -275,6 +281,16 @@ def _translate_cookies_to_playwright(
 
 
 # ─── solve_cloudflare ──────────────────────────────────────────────
+
+
+_CHALLENGE_STATUSES = (403, 503)
+_CF_INTERSTITIAL_MARKERS = ("just a moment", "cf-chl-", "challenge-platform",
+                            "checking your browser")
+
+
+def _looks_like_cf_interstitial(html: str) -> bool:
+    head = (html or "")[:20000].lower()
+    return any(marker in head for marker in _CF_INTERSTITIAL_MARKERS)
 
 
 @dataclass
@@ -392,11 +408,24 @@ def solve_cloudflare(
         _bump_failure(err)
         return SolveResult(ok=False, error=err, elapsed_s=elapsed)
 
-    sol = data.get("solution") or {}
-    if not isinstance(sol, dict):
+    sol = data.get("solution")
+    if not isinstance(sol, dict) or not sol:
         err = "no_solution_block"
         _bump_failure(err)
         return SolveResult(ok=False, error=err, elapsed_s=elapsed)
+    # Everything the result is built from is read BEFORE success is counted:
+    # a malformed block is a failed solve, not an exception out of a
+    # fail-open entry point.
+    raw_status = sol.get("status", 0) or 0
+    if isinstance(raw_status, bool) or not isinstance(raw_status, (int, float, str)):
+        raw_status = None
+    try:
+        solution_status = int(raw_status)
+    except (TypeError, ValueError, OverflowError):
+        err = "bad_solution_status"
+        _bump_failure(err)
+        return SolveResult(ok=False, error=err, elapsed_s=elapsed)
+    html = str(sol.get("response", "") or "")
 
     # Extract a default domain for cookie translation from the URL
     default_domain = ""
@@ -409,13 +438,24 @@ def solve_cloudflare(
     cookies_pw = _translate_cookies_to_playwright(
         sol.get("cookies") or [], default_domain=default_domain)
 
+    # FlareSolverr answers "ok" when its browser finished, not when the
+    # challenge was passed: a 403/503 that is still the interstitial and
+    # carries no clearance cookie is an unsolved challenge.
+    if (solution_status in _CHALLENGE_STATUSES
+            and _looks_like_cf_interstitial(html)
+            and not any(c.get("name") == "cf_clearance" for c in cookies_pw)):
+        err = f"still_challenged:http_{solution_status}"
+        _bump_failure(err)
+        return SolveResult(ok=False, error=err, html=html,
+                           status_code=solution_status, elapsed_s=elapsed)
+
     _bump_success()
     return SolveResult(
         ok=True,
         cookies=cookies_pw,
-        html=str(sol.get("response", "") or ""),
+        html=html,
         user_agent=str(sol.get("userAgent", "") or ""),
-        status_code=int(sol.get("status", 0) or 0),
+        status_code=solution_status,
         elapsed_s=elapsed,
     )
 

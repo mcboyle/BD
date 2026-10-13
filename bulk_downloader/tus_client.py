@@ -112,11 +112,17 @@ class TusClient:
         stat = source.stat()
         size, identity = stat.st_size, (stat.st_size, stat.st_mtime_ns)
         resource_url = resource_url or await self._create(size)
-        offset = await self._offset(resource_url)
+        offset, declared = await self._offset_and_length(resource_url)
         if offset < 0 or offset > size:
             raise TusUploadError(f"invalid server upload offset: {offset}")
+        if declared is not None and declared != size:
+            # resuming into an upload created for a different file: sending
+            # all of ours would still leave the server waiting (or overflow it)
+            raise TusUploadError(
+                f"server upload length {declared} does not match the source size {size}")
 
         retries = 0
+        chunk_retries = 0                  # failures since the last confirmed byte
         digest = hashlib.sha256()          # of the bytes the SERVER holds: local prefix + chunks sent
         with source.open("rb") as fileobj:
             hashed = 0
@@ -133,7 +139,9 @@ class TusClient:
                 if current < size:
                     raise TusUploadError(f"source truncated to {current} bytes during upload (expected {size})")
                 fileobj.seek(offset)
-                chunk = fileobj.read(self.chunk_size)
+                # never past the declared length: a file that GREW is caught
+                # by the identity check below, not sent as an oversized PATCH
+                chunk = fileobj.read(min(self.chunk_size, size - offset))
                 if not chunk:
                     raise TusUploadError(f"source truncated to {offset} bytes during upload (expected {size})")
                 try:
@@ -143,9 +151,10 @@ class TusClient:
                     # server's offset, itself retried with the same bounded backoff
                     recovered = None
                     while recovered is None:
-                        if retries >= self.max_retries:
+                        if chunk_retries >= self.max_retries:
                             raise TusUploadError("retry limit exhausted") from None
-                        await self.sleep(self.retry_delay_s * (2 ** retries))
+                        await self.sleep(self.retry_delay_s * (2 ** chunk_retries))
+                        chunk_retries += 1
                         retries += 1
                         try:
                             recovered = await self._offset(resource_url)
@@ -154,10 +163,14 @@ class TusClient:
                     if recovered < offset or recovered > offset + len(chunk):
                         raise TusUploadError(f"invalid server upload offset: {recovered}")
                     digest.update(chunk[: recovered - offset])
+                    if recovered > offset:
+                        chunk_retries = 0  # progress: the next failure gets a full budget
                     offset = recovered
                     continue
-                digest.update(chunk)
+                # the server may confirm only part of a chunk; carry on from there
+                digest.update(chunk[: confirmed - offset])
                 offset = confirmed
+                chunk_retries = 0
             # the source must be the file we hashed: a rewrite during the
             # upload makes the local file and the remote object different things
             after = source.stat()
@@ -184,6 +197,11 @@ class TusClient:
         return resolved
 
     async def _offset(self, resource_url: str) -> int:
+        return (await self._offset_and_length(resource_url))[0]
+
+    async def _offset_and_length(self, resource_url: str) -> tuple[int, int | None]:
+        """HEAD the upload: (Upload-Offset, Upload-Length or None when the
+        server does not state one -- deferred length, or an older server)."""
         response = await self.transport.request("HEAD", resource_url, {
             "Tus-Resumable": TUS_VERSION,
         })
@@ -192,7 +210,8 @@ class TusClient:
         raw_offset = _header(response.headers, "Upload-Offset")
         if response.status not in (200, 204) or not raw_offset.isdecimal():
             raise TusUploadError("offset response lacks a valid Upload-Offset")
-        return int(raw_offset)
+        raw_length = _header(response.headers, "Upload-Length")
+        return int(raw_offset), (int(raw_length) if raw_length.isdecimal() else None)
 
     async def _patch(self, resource_url: str, offset: int, chunk: bytes) -> int:
         response = await self.transport.request("PATCH", resource_url, {
@@ -204,9 +223,13 @@ class TusClient:
             raise _RetryableTusResponse()
         raw_offset = _header(response.headers, "Upload-Offset")
         expected = offset + len(chunk)
-        if response.status != 204 or not raw_offset.isdecimal() or int(raw_offset) != expected:
+        # A 204 may confirm only part of the chunk: any offset that moved
+        # forward and stays inside what was sent is progress. No movement, or
+        # an offset outside the chunk, cannot be continued from.
+        if (response.status != 204 or not raw_offset.isdecimal()
+                or not offset < int(raw_offset) <= expected):
             raise TusUploadError("patch response did not confirm the expected offset")
-        return expected
+        return int(raw_offset)
 
 
 class _RetryableTusResponse(Exception):
