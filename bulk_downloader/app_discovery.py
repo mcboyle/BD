@@ -59,9 +59,15 @@ def api_discovery_run():
         n = 0
         for url in urls[:1000]:  # safety cap
             try:
-                runners[site_id].load_urls([url])  # type: ignore  # SiteRunner enqueue is load_urls, not add_url (v3.66.245)
-                n += 1
+                result = runners[site_id].load_urls([url])  # type: ignore  # SiteRunner enqueue is load_urls, not add_url (v3.66.245)
             except Exception:
+                continue
+            # load_urls answers (added, dupes, skipped_on_disk). Count what was
+            # added: a URL it refused as a duplicate was not enqueued, and
+            # counting the call reported it as new work on every run.
+            try:
+                n += max(0, int(result[0]))
+            except (TypeError, ValueError, IndexError, KeyError):
                 pass
         return n
     try:
