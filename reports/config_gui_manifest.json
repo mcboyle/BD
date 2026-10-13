@@ -396,6 +396,7 @@
     "speculative_mirror_select": "full",
     "spillover_dirs": "full",
     "spillover_threshold_pct": "full",
+    "start_url": "full",
     "stash_allow_private_host": "full",
     "stash_api_key": "full",
     "stash_auto_studio": "full",

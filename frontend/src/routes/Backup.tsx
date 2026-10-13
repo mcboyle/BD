@@ -84,7 +84,12 @@ export function Backup() {
     mutationFn: (p) => apiPost<OkResult>("/api/backup/smoke_restore", { path: p }),
     onSuccess: (res) => {
       pump(res);
-      toast.success("Smoke-restore done");
+      // svam-fix F8: the endpoint answers 200 with ok:false for a failed restore.
+      if (res?.ok === false) {
+        toast.error(`Smoke-restore failed: ${String(res.error ?? res.reason ?? "see output")}`);
+      } else {
+        toast.success("Smoke-restore done");
+      }
     },
     onError: (e) => toast.error(e.message),
   });

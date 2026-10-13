@@ -18,6 +18,8 @@ export interface WhoamiResult {
   ok: boolean;
   user: AuthUser | null;
   multi_user: boolean;
+  /** true while no account exists (the first one becomes the admin). */
+  bootstrap?: boolean;
 }
 
 export interface UsersResult {

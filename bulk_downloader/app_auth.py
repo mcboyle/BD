@@ -64,8 +64,11 @@ def api_auth_logout():
 @auth_bp.route("/api/auth/whoami", methods=["GET"])
 def api_auth_whoami():
     from . import user_accounts as _ua
+    # bootstrap: no account exists yet, so the SPA offers "create the first admin".
+    # Keyed on the account count, never on the multi_user flag (svam-fix F2).
     return jsonify({"ok": True, "user": _caller(),
-                    "multi_user": _ua.multi_user_enabled()})
+                    "multi_user": _ua.multi_user_enabled(),
+                    "bootstrap": _ua.count() == 0})
 
 
 @auth_bp.route("/api/auth/users", methods=["POST"])
@@ -81,6 +84,10 @@ def api_auth_users_create():
         who = _caller()
         if not (who and who.get("role") == "admin"):
             return jsonify({"ok": False, "error": "admin role required"}), 403
+    else:
+        # The bootstrap account IS the initial admin: any other role would leave no
+        # admin to create the rest (svam-fix F1).
+        role = "admin"
     ok, msg = _ua.create_user(username, password, role=role)
     return (jsonify({"ok": True, "user": _ua.get_user(username)}), 200) if ok \
         else (jsonify({"ok": False, "error": msg}), 400)

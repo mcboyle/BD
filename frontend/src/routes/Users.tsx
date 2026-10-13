@@ -39,6 +39,9 @@ const ROLES = ["admin", "operator", "reviewer", "viewer"];
 export function Users() {
   const qc = useQueryClient();
   const who = useQuery({ queryKey: ["auth", "whoami"], queryFn: whoami });
+  // svam-fix F2: bootstrap = "no account exists yet" (server-reported), not the
+  // multi_user flag -- an admin with accounts on the default config is not bootstrapping.
+  const bootstrap = who.data?.bootstrap === true;
   const users = useQuery({
     queryKey: ["auth", "users"],
     queryFn: listUsers,
@@ -58,7 +61,8 @@ export function Users() {
   };
 
   const create = useMutation({
-    mutationFn: () => createUser(newName.trim(), newPass, newRole),
+    // svam-fix F1: the bootstrap form shows (and the server enforces) "admin".
+    mutationFn: () => createUser(newName.trim(), newPass, bootstrap ? "admin" : newRole),
     onSuccess: () => {
       toast.success(`Created ${newName.trim()}`);
       setNewName("");
@@ -101,7 +105,6 @@ export function Users() {
 
   const me = who.data?.user ?? null;
   const isAdmin = me?.role === "admin";
-  const bootstrap = who.data ? !who.data.multi_user : false;
 
   return (
     <AppShell title="Users" subtitle="Multi-user identity · roles · access">

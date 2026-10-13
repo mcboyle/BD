@@ -136,11 +136,20 @@ def api_backup_preview():
     commits to creating + downloading."""
     from bulk_downloader import backup as bd_backup
     import tempfile, shutil
+    # svam-fix F6: preview the archive the same body would CREATE (include_db,
+    # passphrase, encrypt_scope read exactly as api_backup_create reads them).
+    data = request.get_json(silent=True) or {}
+    passphrase = data.get("passphrase") or None
+    include_db = data.get("include_db", True)
+    encrypt_scope = data.get("encrypt_scope") or "all"
+    if encrypt_scope not in ("all", "sensitive"):
+        encrypt_scope = "all"
     tmpdir = tempfile.mkdtemp(prefix="bdback_preview_")
     try:
         out_path = Path(tmpdir) / "preview.zip"
         result = bd_backup.create_backup(
-            out_path, base_dir=_data_dir(), include_db=True, passphrase=None,
+            out_path, base_dir=_data_dir(), include_db=include_db,
+            passphrase=passphrase, encrypt_scope=encrypt_scope,
         )
         return jsonify(result)
     finally:
