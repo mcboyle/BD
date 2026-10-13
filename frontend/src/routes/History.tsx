@@ -598,8 +598,8 @@ export default function History() {
       </GatedWriteBanner>
 
       <Tabs defaultValue="history" className="mt-4">
-        <div className="flex items-center justify-between">
-          <TabsList>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="history">History &amp; Search</TabsTrigger>
             <TabsTrigger value="events">Events</TabsTrigger>
             <TabsTrigger value="logs">Logs</TabsTrigger>

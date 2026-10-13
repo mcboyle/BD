@@ -82,10 +82,10 @@ export function SemanticSearchPanel() {
         </p>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
           type="text"
-          className="flex-1 rounded border px-2 py-1 text-sm bg-background"
+          className="min-w-0 flex-1 rounded border px-2 py-1 text-sm bg-background"
           placeholder="Semantic search…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

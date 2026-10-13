@@ -93,10 +93,10 @@ export function SiteSearchPanel() {
         </p>
       )}
 
-      <div className="flex gap-2 items-center">
+      <div className="flex flex-wrap gap-2 items-center">
         <input
           type="text"
-          className="flex-1 rounded border px-2 py-1 text-sm bg-background"
+          className="min-w-0 flex-1 rounded border px-2 py-1 text-sm bg-background"
           placeholder="Search your sites…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -107,7 +107,7 @@ export function SiteSearchPanel() {
         </label>
         <select
           id="site-search-site"
-          className="rounded border px-2 py-1 text-sm bg-background"
+          className="min-w-0 max-w-full rounded border px-2 py-1 text-sm bg-background"
           value={siteId}
           onChange={(e) => setSiteId(e.target.value)}
           disabled={unavailable}
