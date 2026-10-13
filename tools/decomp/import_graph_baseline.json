@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5910,
+  "edge_count": 5920,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2647,8 +2647,22 @@
       "bulk_downloader/app.py",
       "tools/cockpit_console.py"
     ],
+    "tests/test_bd_aikey_1_blank_key_keeps_stored.py": [
+      "bulk_downloader/aiassist.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_bd_decomp.py": [
       "tools/bd_decomp_lib.py"
+    ],
+    "tests/test_bd_sec_1_config_secrets_never_echoed.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_bd_watch_archive_default.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_global_config.py",
+      "bulk_downloader/app_kernel.py"
     ],
     "tests/test_best_must_not_pick_a_page_link_over_4k.py": [
       "bulk_downloader/detect.py",
@@ -3702,6 +3716,10 @@
     "tests/test_dl95_xvideos_1_public_site_discovery.py": [
       "bulk_downloader/cloak.py",
       "bulk_downloader/scene_crawler.py"
+    ],
+    "tests/test_dl95_xvideos_2_related_scene_links.py": [
+      "bulk_downloader/cloak.py",
+      "bulk_downloader/detect.py"
     ],
     "tests/test_dl95_xvideos_2b_builtin_template_gap_fill_on_load.py": [
       "bulk_downloader/app.py",
