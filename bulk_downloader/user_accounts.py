@@ -106,26 +106,62 @@ def _store_lock(base_dir=None):
                 _unlock_file(fh)
 
 
+class AccountsStoreError(OSError):
+    """The accounts file exists but cannot be read as an accounts store.
+
+    An OSError so every writer's existing ``except OSError`` refuses instead of
+    writing. It is never turned into an empty store: "no accounts" reopens the
+    unauthenticated first-admin bootstrap, and the next save would replace the
+    file with only the new user."""
+
+
 def _load(base_dir=None) -> dict:
+    """The accounts store. A MISSING file is an empty store (first run); a file
+    that is present but unreadable, not JSON, or not shaped like a store raises
+    AccountsStoreError and is left on disk untouched."""
+    path = _store_path(base_dir)
     try:
-        with open(_store_path(base_dir), "r") as fh:
+        with open(path, "r") as fh:
             doc = json.load(fh)
-        if not isinstance(doc, dict):
-            return {"users": {}, "signing_key": ""}
-        doc.setdefault("users", {})
-        doc.setdefault("signing_key", "")
-        if not isinstance(doc["users"], dict):
-            doc["users"] = {}
-        return doc
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {"users": {}, "signing_key": ""}
+    except (OSError, ValueError) as exc:
+        raise AccountsStoreError(
+            f"accounts store unreadable ({type(exc).__name__}): {path}") from exc
+    if not isinstance(doc, dict):
+        raise AccountsStoreError(f"accounts store is not a JSON object: {path}")
+    doc.setdefault("users", {})
+    doc.setdefault("signing_key", "")
+    if not isinstance(doc["users"], dict):
+        raise AccountsStoreError(f"accounts store has no user map: {path}")
+    return doc
+
+
+_UNREADABLE = "accounts store unreadable (file kept; repair or remove it)"
+
+
+def _load_users_or_none(base_dir=None) -> dict | None:
+    """The user map for a READ path, or None when the store is unreadable.
+    Readers fail closed on None: no user, no session, wrong password."""
+    try:
+        return _load(base_dir)["users"]
+    except AccountsStoreError:
+        return None
 
 
 def _save(doc: dict, base_dir=None) -> bool:
     path = _store_path(base_dir)
     try:
         tmp = path + ".tmp"
-        with open(tmp, "w") as fh:
+        # Owner-only BEFORE the first byte: the file holds salts, hashes and
+        # the session signing key. O_CREAT's mode does not apply to a leftover
+        # tmp, so the descriptor is chmod-ed as well.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            try:
+                os.fchmod(fh.fileno(), 0o600)
+            except (AttributeError, OSError):  # no fchmod on Windows
+                pass
             json.dump(doc, fh, indent=1)
         os.replace(tmp, path)
         try:
@@ -155,6 +191,27 @@ def _signing_key(doc: dict, base_dir=None) -> str:
     return key
 
 
+_DUMMY_SALT = "00" * 16
+_BAD_RECORD = "user record is corrupt (not an object)"
+
+
+def _new_session_stamp() -> str:
+    return secrets.token_hex(8)
+
+
+def _session_stamp(rec) -> str:
+    """The per-user session stamp, or "" for a record written before stamps."""
+    stamp = rec.get("sess") if isinstance(rec, dict) else None
+    return stamp if isinstance(stamp, str) else ""
+
+
+def _session_message(username: str, exp, stamp: str) -> bytes:
+    """What a session signature covers. "|" cannot occur in a username or an
+    expiry, so a stamped message can never equal an unstamped one."""
+    msg = f"{username}.{exp}"
+    return (f"{msg}|{stamp}" if stamp else msg).encode("utf-8")
+
+
 # ── password hashing (PBKDF2) ───────────────────────────────────────────
 
 def _hash_password(password: str, salt: str, iters: int) -> str:
@@ -180,6 +237,7 @@ def create_user(username: str, password: str, role: str = "operator",
         "pw_hash": _hash_password(password, salt, _PBKDF2_ITERS),
         "salt": salt, "iters": _PBKDF2_ITERS, "role": role,
         "created_ts": int(time.time()),
+        "sess": _new_session_stamp(),
     }
     if oidc_binding:
         # the (iss, sub) an OIDC login must present to reuse this user
@@ -194,6 +252,8 @@ def create_user(username: str, password: str, role: str = "operator",
             _signing_key(doc, base_dir)  # ensure a key exists
             if not _save(doc, base_dir):
                 return False, "could not write accounts store"
+    except AccountsStoreError:
+        return False, _UNREADABLE
     except OSError:
         return False, "could not lock accounts store"
     return True, "created"
@@ -201,8 +261,15 @@ def create_user(username: str, password: str, role: str = "operator",
 
 def verify_password(username: str, password: str,
                     base_dir: str | os.PathLike | None = None) -> bool:
-    rec = _load(base_dir)["users"].get((username or "").strip())
+    users = _load_users_or_none(base_dir)
+    rec = users.get((username or "").strip()) if users is not None else None
     if not isinstance(rec, dict):
+        # Spend the same PBKDF2 an existing user costs, so the answer time
+        # does not say whether the username exists.
+        try:
+            _hash_password(password or "", _DUMMY_SALT, _PBKDF2_ITERS)
+        except Exception:
+            pass
         return False
     try:
         got = _hash_password(password or "", rec.get("salt", ""),
@@ -214,7 +281,8 @@ def verify_password(username: str, password: str,
 
 def get_user(username: str,
              base_dir: str | os.PathLike | None = None) -> dict | None:
-    rec = _load(base_dir)["users"].get((username or "").strip())
+    users = _load_users_or_none(base_dir)
+    rec = users.get((username or "").strip()) if users is not None else None
     if not isinstance(rec, dict):
         return None
     return {"username": (username or "").strip(), "role": rec.get("role", "operator"),
@@ -235,7 +303,8 @@ def get_oidc_binding(username: str,
                      base_dir: str | os.PathLike | None = None) -> tuple[str, str] | None:
     """The (iss, sub) this user is bound to, or None (local user, created before
     bindings existed, or a legacy/partial "oidc" record)."""
-    return _binding_of(_load(base_dir)["users"].get((username or "").strip()))
+    users = _load_users_or_none(base_dir)
+    return _binding_of(users.get((username or "").strip()) if users is not None else None)
 
 
 def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
@@ -267,6 +336,8 @@ def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
             rec["oidc"] = {"iss": iss, "sub": sub}
             if not _save(doc, base_dir):
                 return False, "write failed"
+    except AccountsStoreError:
+        return False, _UNREADABLE
     except OSError:
         return False, "could not lock accounts store"
     if prior is not None:
@@ -276,7 +347,7 @@ def bind_oidc_login(username: str, oidc_binding: tuple[str, str],
 
 def list_users(base_dir: str | os.PathLike | None = None) -> list[dict]:
     out = []
-    for name, rec in _load(base_dir)["users"].items():
+    for name, rec in (_load_users_or_none(base_dir) or {}).items():
         if isinstance(rec, dict):
             out.append({"username": name, "role": rec.get("role", "operator"),
                         "created_ts": rec.get("created_ts")})
@@ -293,8 +364,12 @@ def set_role(username: str, role: str,
             doc = _load(base_dir)
             if name not in doc["users"]:
                 return False, "no such user"
+            if not isinstance(doc["users"][name], dict):
+                return False, _BAD_RECORD
             doc["users"][name]["role"] = role
             return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    except AccountsStoreError:
+        return False, _UNREADABLE
     except OSError:
         return False, "could not lock accounts store"
 
@@ -311,8 +386,15 @@ def set_password(username: str, new_password: str,
             doc = _load(base_dir)
             if name not in doc["users"]:
                 return False, "no such user"
-            doc["users"][name].update({"pw_hash": pw_hash, "salt": salt, "iters": _PBKDF2_ITERS})
+            if not isinstance(doc["users"][name], dict):
+                return False, _BAD_RECORD
+            # A new stamp with the new password: every session issued under
+            # the old password stops verifying.
+            doc["users"][name].update({"pw_hash": pw_hash, "salt": salt, "iters": _PBKDF2_ITERS,
+                                       "sess": _new_session_stamp()})
             return (True, "updated") if _save(doc, base_dir) else (False, "write failed")
+    except AccountsStoreError:
+        return False, _UNREADABLE
     except OSError:
         return False, "could not lock accounts store"
 
@@ -332,6 +414,9 @@ def delete_user(username: str,
 
 
 def count(base_dir: str | os.PathLike | None = None) -> int:
+    """Number of accounts. Raises AccountsStoreError when the store exists but
+    cannot be read: callers gate the first-admin bootstrap on ``count() == 0``,
+    and an unreadable store must never look like an empty one."""
     return len(_load(base_dir)["users"])
 
 
@@ -353,12 +438,20 @@ def issue_session(username: str, ttl_seconds: int = _SESSION_TTL,
                   base_dir: str | os.PathLike | None = None) -> str:
     """Return a signed session token ``<username>.<exp>.<sig>`` for the browser's
     ``bd_user`` cookie. Never raises."""
-    doc = _load(base_dir)
-    key = _signing_key(doc, base_dir)
+    try:
+        doc = _load(base_dir)
+        key = _signing_key(doc, base_dir)
+    except AccountsStoreError:
+        doc = {"users": {}}
+        key = secrets.token_hex(32)  # unpersisted: this token never verifies
     exp = int(time.time()) + int(ttl_seconds)
-    msg = f"{username}.{exp}"
-    sig = hmac.new(bytes.fromhex(key), msg.encode("utf-8"), hashlib.sha256).hexdigest()
-    return f"{msg}.{sig}"
+    # Bound to the user's current stamp: a password reset, or a delete and
+    # re-create of the same name, gives the record a new stamp and this token
+    # stops verifying.
+    stamp = _session_stamp(doc["users"].get(username))
+    sig = hmac.new(bytes.fromhex(key), _session_message(username, exp, stamp),
+                   hashlib.sha256).hexdigest()
+    return f"{username}.{exp}.{sig}"
 
 
 def verify_session(token: str,
@@ -374,13 +467,14 @@ def verify_session(token: str,
         key = doc.get("signing_key")
         if not key:
             return None
-        expected = hmac.new(bytes.fromhex(key), f"{username}.{exp_s}".encode("utf-8"),
+        rec = doc["users"].get(username)
+        expected = hmac.new(bytes.fromhex(key),
+                            _session_message(username, exp_s, _session_stamp(rec)),
                             hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
         if int(exp_s) < int(time.time()):
             return None
-        rec = doc["users"].get(username)
         if not isinstance(rec, dict):
             return None
         return {"username": username, "role": rec.get("role", "operator")}
