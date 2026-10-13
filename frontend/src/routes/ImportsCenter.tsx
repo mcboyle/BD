@@ -52,6 +52,9 @@ type UtPreviewItem = {
   name?: string;
   status: "new" | "changed" | "conflict" | "invalid";
   secrets_omitted: string[];
+  // BD-SEC-5: config_defaults keys outside the template allowlist (commands,
+  // hooks, paths) -- dropped by the import, never applied to a site.
+  refused?: string[];
   error?: string;
 };
 type UtPreview = {
@@ -64,6 +67,7 @@ type UtPreview = {
     invalid: number;
     destructive: number;
     secrets_omitted: number;
+    refused?: number;
   };
   items: UtPreviewItem[];
   destructive: { id?: string; name?: string }[];
@@ -113,6 +117,7 @@ function UtPreviewPanel({ p }: { p: UtPreview }) {
         {c.new} new · {c.changed} changed · {c.conflict} conflict · {c.invalid} invalid
         {c.destructive ? ` · ${c.destructive} removed` : ""}
         {c.secrets_omitted ? ` · ${c.secrets_omitted} with secrets omitted` : ""}
+        {c.refused ? ` · ${c.refused} with REFUSED settings` : ""}
       </p>
       {p.items.length > 0 && (
         <ul className="mt-2 max-h-40 divide-y divide-border overflow-auto rounded border border-border bg-black/20 text-xs">
@@ -122,6 +127,9 @@ function UtPreviewPanel({ p }: { p: UtPreview }) {
               <span className="text-ink-3">{it.status}</span>
               {it.secrets_omitted.length > 0 && (
                 <span className="text-amber-300">secrets omitted: {it.secrets_omitted.join(", ")}</span>
+              )}
+              {(it.refused ?? []).length > 0 && (
+                <span className="text-red-300">REFUSED (never applied): {(it.refused ?? []).join(", ")}</span>
               )}
               {it.error && <span className="text-red-300">{it.error}</span>}
             </li>

@@ -74,7 +74,9 @@ def _load() -> list[dict]:
     if not isinstance(templates, list):
         return []
     # Defensive filter — drop any non-dict entries
-    return [t for t in templates if isinstance(t, dict) and "id" in t]
+    # BD-SEC-5 H1: config_defaults are cut to the safe allowlist on read too, so a
+    # template stored before the import filter can never apply a command/path key.
+    return [_safe_config(t) for t in templates if isinstance(t, dict) and "id" in t]
 
 
 def _save(templates: list[dict]) -> None:
@@ -210,6 +212,7 @@ def save_user_template(
     }
     if config_defaults:
         template["config_defaults"] = config_defaults
+    template = _safe_config(template)  # BD-SEC-5 H1: allowlisted keys only
 
     ok, err = _validate_template(template)
     if not ok: return False, err
@@ -345,7 +348,7 @@ def import_user_templates(payload: dict, merge: bool = True) -> tuple[int, int, 
         errors = []
         for i, t in enumerate(incoming):
             ok, err = _validate_template(t)
-            if ok: valid.append(_strip_secrets(t))
+            if ok: valid.append(_safe_config(_strip_secrets(t)))
             else: errors.append(f"#{i} ({t.get('name','<unnamed>')}): {err}")
         # v3.65.2: don't silently wipe the existing template set when a
         # restore-from-backup payload has entries but none validate.
@@ -377,12 +380,50 @@ def import_user_templates(payload: dict, merge: bool = True) -> tuple[int, int, 
         if t.get("id") in existing_ids:
             skipped += 1
             continue
-        existing.append(_strip_secrets(t))
+        existing.append(_safe_config(_strip_secrets(t)))
         existing_ids.add(t.get("id"))
         added += 1
     if added:
         _save(existing)
     return added, skipped, errors
+
+
+# BD-SEC-5 H1: a user template's config_defaults may only carry these keys -- the
+# selector / login-URL / quality / fetch-toggle keys the built-in catalog ships.
+# Anything else (post_download_cmd and every *_cmd / hook key, download_dir and
+# the other path keys, ...) is REFUSED: dropped on import and on read, listed in
+# the import preview, never applied to a site. hooks.py runs post_download_cmd
+# with shell=True, so a shared template file must not be able to set it.
+TEMPLATE_CONFIG_KEYS = frozenset({
+    "quality_preference", "min_resolution", "login_url", "success_url",
+    "login_trigger", "user_field", "pass_field", "submit_btn",
+    "trigger_selector", "dl_selector", "dismiss_selectors",
+    "dismiss_selectors_login", "crawler_listing_url", "crawler_scene_patterns",
+    "use_curl_cffi", "use_persistent_profile", "use_real_chrome",
+    "use_live_recorder", "use_library_extractor", "_limitation",
+})
+
+
+def _refused_config_keys(t) -> list[str]:
+    """config_defaults keys of ``t`` outside TEMPLATE_CONFIG_KEYS (a non-object
+    config_defaults is refused whole, reported as "config_defaults")."""
+    if not isinstance(t, dict) or t.get("config_defaults") in (None, {}):
+        return []
+    cd = t["config_defaults"]
+    if not isinstance(cd, dict):
+        return ["config_defaults"]
+    return sorted(str(k) for k in cd if k not in TEMPLATE_CONFIG_KEYS)
+
+
+def _safe_config(t):
+    """Copy of template ``t`` whose config_defaults hold only allowlisted keys."""
+    if not isinstance(t, dict) or "config_defaults" not in t:
+        return t
+    cd = t["config_defaults"]
+    out = dict(t)
+    out["config_defaults"] = ({k: v for k, v in cd.items() if k in TEMPLATE_CONFIG_KEYS}
+                              if isinstance(cd, dict) else {})
+    return out
 
 
 # Secret-like fields a portable user template should never carry. The import
@@ -467,14 +508,17 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
 
     Returns:
         {ok, mode, counts:{new,changed,conflict,invalid,destructive,
-        secrets_omitted}, items:[{id,name,status,secrets_omitted,[error]}],
+        secrets_omitted,refused}, items:[{id,name,status,secrets_omitted,
+        refused,[error]}] (refused = config_defaults keys outside
+        TEMPLATE_CONFIG_KEYS that the import drops, BD-SEC-5),
         destructive:[{id,name}], errors:[str]}
     """
     out = {
         "ok": True,
         "mode": "merge" if merge else "replace",
         "counts": {"new": 0, "changed": 0, "conflict": 0,
-                   "invalid": 0, "destructive": 0, "secrets_omitted": 0},
+                   "invalid": 0, "destructive": 0, "secrets_omitted": 0,
+                   "refused": 0},
         "items": [],
         "destructive": [],
         "errors": [],
@@ -493,8 +537,9 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
         name = t.get("name", "<unnamed>") if isinstance(t, dict) else "<unnamed>"
         tid = t.get("id") if isinstance(t, dict) else None
         secret_keys = _secret_keys_in(t)
+        refused = _refused_config_keys(t)
         item = {"id": tid, "name": name, "status": None,
-                "secrets_omitted": secret_keys}
+                "secrets_omitted": secret_keys, "refused": refused}
         ok, err = _validate_template(t)
         if not ok:
             item["status"] = "invalid"
@@ -517,6 +562,8 @@ def preview_user_templates_import(payload: dict, merge: bool = True) -> dict:
                 out["counts"]["new"] += 1
         if secret_keys:
             out["counts"]["secrets_omitted"] += 1
+        if refused:
+            out["counts"]["refused"] += 1
         out["items"].append(item)
 
     if not merge:
