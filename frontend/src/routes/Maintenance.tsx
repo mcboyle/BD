@@ -78,6 +78,20 @@ type StatusSnapshot = {
 const tplId = (t: UserTemplate) => t.id ?? t.tid ?? t.template_id ?? t.name ?? "";
 const tplLabel = (t: UserTemplate) => t.label || t.name || String(tplId(t));
 
+// svam-fix F5: list rows carry last_run_ts / last_run_ok / last_run_message
+// (scheduled_exports.py); last_status is read only as a legacy fallback.
+function schedLastRun(s: {
+  last_run_ts?: number;
+  last_run_ok?: number | boolean | null;
+  last_run_message?: string;
+  last_status?: string;
+}): string {
+  if (!s.last_run_ts) return s.last_status ?? "never run";
+  const when = new Date(s.last_run_ts * 1000).toLocaleString();
+  if (s.last_run_ok) return `ok ${when}`;
+  return `failed ${when}${s.last_run_message ? `: ${s.last_run_message}` : ""}`;
+}
+
 type PluginDraft = {
   disabled: string[];
   allow_full_access: boolean;
@@ -1472,7 +1486,7 @@ export function Maintenance() {
                     {s.destination}
                   </td>
                   <td className="py-1.5 pr-3 text-xs text-ink-3">
-                    every {s.cadence_hours ?? "?"}h · {s.last_status ?? "never run"}
+                    every {s.cadence_hours ?? "?"}h · {schedLastRun(s)}
                   </td>
                   <td className="py-1.5 text-right">
                     <Button

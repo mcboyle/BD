@@ -1448,6 +1448,10 @@ export interface SchedExport {
   retention_count?: number;
   last_run_at?: number;
   last_status?: string;
+  // What GET /api/scheduled_exports/list rows actually carry (scheduled_exports.py).
+  last_run_ts?: number;
+  last_run_ok?: number | boolean | null;
+  last_run_message?: string;
   [k: string]: unknown;
 }
 export interface SchedExportsList {

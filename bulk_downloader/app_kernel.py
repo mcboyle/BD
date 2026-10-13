@@ -521,6 +521,10 @@ CFG_FIELDS=["name","login_url","username","password","user_field","pass_field","
             "use_subtitles", "subtitle_languages",
             "use_priority_scoring",
             "dedup_hash_on_done",
+            # svam-fix F4: the add-site wizard's Start URL. Read by app.py
+            # (_site_primary_url login-first, the login fallback) and the runner;
+            # in CFG_FIELDS so POST /api/sites and the reload keep it.
+            "start_url",
             ]
 DEFAULTS={"wait":4,"delay":3,"max_concurrent":2,"max_retries":2,"no_button_threshold":5,"disk_threshold_gb":2.0,
           "sched_enabled":False,"sched_time":"","sched_repeat":"once",

@@ -307,12 +307,20 @@ export function Vpn() {
   const [sysKillConfirm, setSysKillConfirm] = useState<
     { tid: string; verb: "apply" | "commit" | "revert" } | null
   >(null);
+  // svam-fix F3: plan/apply need the VPN server endpoint (app_vpn_api.py vpn_sysks_plan /
+  // vpn_sysks_apply answer 400 "vpn_endpoint required" without it), one value per tunnel.
+  const [sysKillEndpoint, setSysKillEndpoint] = useState<Record<string, string>>({});
+  const sysKillEp = (tid: string) => (sysKillEndpoint[tid] ?? "").trim();
   // The endpoint is spelled out PER VERB rather than interpolated
   // (`.../${verb}`). A templated verb is invisible to any static reachability scan:
   // the string "/commit" never appears, so the ledger cannot prove a control reaches
   // it -- and a control whose target is not legible is one nobody can audit. Same
   // reason the automation KILL_KEY is spelled exactly once, literally.
-  const sysKillMut = useMutation<unknown, Error, { tid: string; verb: string }>({
+  const sysKillMut = useMutation<
+    { ok?: boolean; error?: string } | undefined,
+    Error,
+    { tid: string; verb: string; endpoint?: string }
+  >({
     mutationFn: (v) => {
       const id = encodeURIComponent(v.tid);
       const url =
@@ -323,10 +331,20 @@ export function Vpn() {
             : v.verb === "commit"
               ? `/api/vpn/system_killswitch/${id}/commit`
               : `/api/vpn/system_killswitch/${id}/revert`;
-      return apiPost(url, {});
+      // Apply is the confirm-gated INSTALL step (plan is the dry run), so it sends
+      // dry_run:false; the backend defaults apply to a dry run.
+      const body =
+        v.verb === "plan"
+          ? { vpn_endpoint: v.endpoint ?? "" }
+          : v.verb === "apply"
+            ? { vpn_endpoint: v.endpoint ?? "", dry_run: false }
+            : {};
+      return apiPost(url, body);
     },
     onSuccess: (data, v) => {
-      if (v.verb === "plan") {
+      if (data?.ok === false) {
+        toast.error(`Kill switch ${v.verb} failed: ${data.error ?? "see the server log"}`);
+      } else if (v.verb === "plan") {
         setSysKillPlan(JSON.stringify(data, null, 2));
         toast.success("Kill-switch plan computed (nothing applied)");
       } else {
@@ -883,11 +901,26 @@ export function Vpn() {
             {tunnels.map((t) => (
               <div key={t.tunnel_id} className="flex flex-wrap items-center gap-2 py-1">
                 <span className="text-xs tabular">{t.tunnel_id}</span>
+                <Input
+                  className="h-8 w-48 text-xs"
+                  aria-label={`VPN server endpoint for ${t.tunnel_id}`}
+                  placeholder="VPN server IP (required)"
+                  value={sysKillEndpoint[t.tunnel_id] ?? ""}
+                  onChange={(e) =>
+                    setSysKillEndpoint((prev) => ({ ...prev, [t.tunnel_id]: e.target.value }))
+                  }
+                />
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={sysKillMut.isPending}
-                  onClick={() => sysKillMut.mutate({ tid: t.tunnel_id, verb: "plan" })}
+                  disabled={sysKillMut.isPending || !sysKillEp(t.tunnel_id)}
+                  onClick={() =>
+                    sysKillMut.mutate({
+                      tid: t.tunnel_id,
+                      verb: "plan",
+                      endpoint: sysKillEp(t.tunnel_id),
+                    })
+                  }
                 >
                   Plan
                 </Button>
@@ -896,7 +929,7 @@ export function Vpn() {
                     key={verb}
                     size="sm"
                     variant="outline"
-                    disabled={sysKillMut.isPending}
+                    disabled={sysKillMut.isPending || (verb === "apply" && !sysKillEp(t.tunnel_id))}
                     onClick={() => setSysKillConfirm({ tid: t.tunnel_id, verb })}
                   >
                     {verb[0].toUpperCase() + verb.slice(1)}
@@ -1408,6 +1441,7 @@ export function Vpn() {
                   sysKillMut.mutate({
                     tid: sysKillConfirm.tid,
                     verb: sysKillConfirm.verb,
+                    endpoint: sysKillEp(sysKillConfirm.tid),
                   });
                 }
                 setSysKillConfirm(null);
