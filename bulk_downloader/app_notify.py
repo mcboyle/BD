@@ -9,9 +9,39 @@ via _app_<name>() accessors (getattr, fresh per call -- same object by reference
 """
 from __future__ import annotations
 
+import re
+
 from flask import Blueprint, jsonify, request
 
 notify_bp = Blueprint("notify", __name__)
+
+# BD-SEC-1: the global notify settings file also holds tg_bot_token (written by
+# app_tg). The apprise GET popped only the URLs, so the bot token went out raw,
+# and the POST echoed the whole file, URLs included. Every secret-named key is
+# now replaced by "<key>_set" (the tg_bot_token_set pattern from /api/tg/settings).
+_NOTIFY_SECRET_NAME_RE = re.compile(
+    r"(?:^|_)(?:secret|token|password|passwd|api_key|private_key|key)$", re.I)
+
+
+def _public_notify_settings(cfg: dict) -> dict:
+    out = {}
+    for k, v in cfg.items():
+        if k == "notify_apprise_urls":
+            continue
+        if isinstance(k, str) and _NOTIFY_SECRET_NAME_RE.search(k):
+            out[k + "_set"] = bool(str(v or "").strip())
+            continue
+        out[k] = v
+    raw_urls = cfg.get("notify_apprise_urls", "")
+    if isinstance(raw_urls, str):
+        url_list = [u for u in raw_urls.splitlines() if u.strip()]
+    elif isinstance(raw_urls, (list, tuple)):
+        url_list = [u for u in raw_urls if str(u).strip()]
+    else:
+        url_list = []
+    out["notify_apprise_urls_set"] = bool(url_list)
+    out["notify_apprise_urls_count"] = len(url_list)
+    return out
 
 def _apply_global_notify_config(*_a, **_k):
     """Delegate to app._apply_global_notify_config at call time (lazy; avoids an import cycle)."""
@@ -107,16 +137,7 @@ def api_notify_apprise_settings_get():
     """
     _NOTIFY_APPRISE_AVAILABLE = _app__NOTIFY_APPRISE_AVAILABLE()
     _notify_apprise = _app__notify_apprise()
-    cfg = dict(_load_global_notify_settings())
-    raw_urls = cfg.pop("notify_apprise_urls", "")
-    if isinstance(raw_urls, str):
-        url_list = [u for u in raw_urls.splitlines() if u.strip()]
-    elif isinstance(raw_urls, (list, tuple)):
-        url_list = [u for u in raw_urls if str(u).strip()]
-    else:
-        url_list = []
-    cfg["notify_apprise_urls_set"] = bool(url_list)
-    cfg["notify_apprise_urls_count"] = len(url_list)
+    cfg = _public_notify_settings(_load_global_notify_settings())
     avail = _NOTIFY_APPRISE_AVAILABLE and (
         _notify_apprise.is_available() if _notify_apprise else False)
     return jsonify({
@@ -152,7 +173,7 @@ def api_notify_apprise_settings_post():
     ok = _save_global_notify_settings(cfg)
     if ok:
         _apply_global_notify_config()
-    return jsonify({"ok": ok, "settings": cfg})
+    return jsonify({"ok": ok, "settings": _public_notify_settings(cfg)})
 
 
 @notify_bp.route("/api/notify/apprise/validate", methods=["POST"])
