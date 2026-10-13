@@ -505,9 +505,10 @@
       "providers": [
         "bulk_downloader/daily_budget.py"
       ],
-      "route_count": 3,
+      "route_count": 4,
       "routes": [
-        "ROUTE /api/daily_budget/history/<sid>",
+        "ROUTE /api/daily_budget/history",
+        "ROUTE /api/daily_budget/history/<path:sid>",
         "ROUTE /api/daily_budget/reset/<sid>",
         "ROUTE /api/daily_budget/status"
       ],
@@ -1845,6 +1846,7 @@
     "stream": {
       "module": "app_stream.py",
       "providers": [
+        "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
@@ -2298,6 +2300,7 @@
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/daily_digest.py",
         "bulk_downloader/db.py",
+        "bulk_downloader/db_replication.py",
         "bulk_downloader/detect.py",
         "bulk_downloader/dev_tools.py",
         "bulk_downloader/dom_analyzer.py",
@@ -2420,7 +2423,7 @@
   },
   "graph_version": "1",
   "package": {
-    "edge_count": 1841,
+    "edge_count": 1843,
     "in": {
       "bulk_downloader/__init__.py": [
         "bulk_downloader/app_data_layer.py",
@@ -3170,6 +3173,7 @@
         "bulk_downloader/app_sites_queue.py",
         "bulk_downloader/app_sites_teach.py",
         "bulk_downloader/app_stats.py",
+        "bulk_downloader/app_stream.py",
         "bulk_downloader/app_subtitles.py",
         "bulk_downloader/app_thumbnail_sheets.py",
         "bulk_downloader/app_tpdb.py",
@@ -3195,6 +3199,7 @@
         "bulk_downloader/crash_recovery.py",
         "bulk_downloader/daily_budget.py",
         "bulk_downloader/db_maintenance.py",
+        "bulk_downloader/db_replication.py",
         "bulk_downloader/deployment_timeline.py",
         "bulk_downloader/dev_suite/db_tools.py",
         "bulk_downloader/dev_suite/introspection.py",
@@ -6028,6 +6033,7 @@
         "bulk_downloader/widgets_config.py"
       ],
       "bulk_downloader/app_stream.py": [
+        "bulk_downloader/db.py",
         "bulk_downloader/global_config.py",
         "bulk_downloader/sse_broker.py",
         "bulk_downloader/stream_relay.py"
@@ -6424,7 +6430,8 @@
         "bulk_downloader/sqlite_freelist_vacuum.py"
       ],
       "bulk_downloader/db_replication.py": [
-        "bulk_downloader/backup_verify.py"
+        "bulk_downloader/backup_verify.py",
+        "bulk_downloader/db.py"
       ],
       "bulk_downloader/deadline.py": [
         "bulk_downloader/run_budget.py"

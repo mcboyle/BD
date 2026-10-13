@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5928,
+  "edge_count": 5989,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -715,6 +715,7 @@
       "bulk_downloader/widgets_config.py"
     ],
     "bulk_downloader/app_stream.py": [
+      "bulk_downloader/db.py",
       "bulk_downloader/global_config.py",
       "bulk_downloader/sse_broker.py",
       "bulk_downloader/stream_relay.py"
@@ -1111,7 +1112,8 @@
       "bulk_downloader/sqlite_freelist_vacuum.py"
     ],
     "bulk_downloader/db_replication.py": [
-      "bulk_downloader/backup_verify.py"
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/db.py"
     ],
     "bulk_downloader/deadline.py": [
       "bulk_downloader/run_budget.py"
@@ -2502,6 +2504,12 @@
       "bulk_downloader/runner.py",
       "bulk_downloader/runner_transport.py"
     ],
+    "tests/test_aac_fix_cookie_auth.py": [
+      "bulk_downloader/account_pool.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/cookie_clipboard.py",
+      "bulk_downloader/cookies.py"
+    ],
     "tests/test_adaptive_chunk_sizing.py": [
       "bulk_downloader/buffer_ring_pool.py",
       "bulk_downloader/chunked_transfer.py",
@@ -2563,6 +2571,16 @@
     ],
     "tests/test_app_semantic_search.py": [
       "bulk_downloader/app_semantic_search.py"
+    ],
+    "tests/test_at_fix_adapters_transport.py": [
+      "bulk_downloader/app_flaresolverr.py",
+      "bulk_downloader/app_scrapling.py",
+      "bulk_downloader/flaresolverr_client.py",
+      "bulk_downloader/http3_client.py",
+      "bulk_downloader/rate_adapter.py",
+      "bulk_downloader/scrapling_adapter.py",
+      "bulk_downloader/ssrf_transport.py",
+      "bulk_downloader/tus_client.py"
     ],
     "tests/test_audit_f2_p13a.py": [
       "bulk_downloader/template_manager.py",
@@ -2670,6 +2688,10 @@
       "bulk_downloader/db.py",
       "bulk_downloader/user_templates.py"
     ],
+    "tests/test_bd_sec_6_token_auth_needs_token_or_login.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_state.py"
+    ],
     "tests/test_bd_watch_archive_default.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_global_config.py",
@@ -2686,6 +2708,15 @@
     ],
     "tests/test_blob_resolver.py": [
       "bulk_downloader/blob_resolver.py"
+    ],
+    "tests/test_br_f4_rehearsal_finds_only_real_backups.py": [
+      "bulk_downloader/backup_verify.py",
+      "bulk_downloader/db.py"
+    ],
+    "tests/test_br_f7_replication_root.py": [
+      "bulk_downloader/db.py",
+      "bulk_downloader/db_replication.py",
+      "bulk_downloader/global_config.py"
     ],
     "tests/test_breadcrumb_extractor.py": [
       "bulk_downloader/breadcrumb_extractor.py"
@@ -2729,6 +2760,17 @@
       "bulk_downloader/app_data_layer.py",
       "tools/capture_diagnostics.py",
       "tools/replay_validator.py"
+    ],
+    "tests/test_bughunt_ct_fix.py": [
+      "bulk_downloader/capacity.py",
+      "bulk_downloader/cli_dashboard.py"
+    ],
+    "tests/test_bughunt_ddr_fix.py": [
+      "bulk_downloader/app_discovery.py",
+      "bulk_downloader/discovery.py"
+    ],
+    "tests/test_bughunt_dva_accounts.py": [
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_build_identity_is_current.py": [
       "bulk_downloader/app_health.py"
@@ -3842,6 +3884,17 @@
       "bulk_downloader/global_config.py",
       "bulk_downloader/selector_drift.py"
     ],
+    "tests/test_dsw_fix_tags_stream.py": [
+      "bulk_downloader/app_stream.py",
+      "bulk_downloader/app_tags.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/tags.py"
+    ],
+    "tests/test_dtr_fix_user_template_builtin_id.py": [
+      "bulk_downloader/app_user_templates.py",
+      "bulk_downloader/templates.py",
+      "bulk_downloader/user_templates.py"
+    ],
     "tests/test_duration_filter.py": [
       "bulk_downloader/detect.py"
     ],
@@ -4581,6 +4634,13 @@
     "tests/test_multi_conn_ssrf.py": [
       "bulk_downloader/multi_conn.py"
     ],
+    "tests/test_na_fix_notifications_alerts.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/notify_apprise.py",
+      "bulk_downloader/webhooks.py"
+    ],
     "tests/test_nav_probe.py": [
       "tools/nav_probe.py"
     ],
@@ -4870,6 +4930,24 @@
     ],
     "tests/test_o1713_wheelhouse_version_sort.py": [
       "tools/local_wheelhouse.py"
+    ],
+    "tests/test_o1789_bm_fix_bench_misc.py": [
+      "bulk_downloader/capture_synth.py",
+      "bulk_downloader/capture_workbench.py",
+      "bulk_downloader/multi_site_benchmark.py",
+      "bulk_downloader/viewport_clipping_filter.py",
+      "tools/multi_site_benchmark.py"
+    ],
+    "tests/test_o1789_dax_cdn_extractors.py": [
+      "bulk_downloader/extractors_aylo.py",
+      "bulk_downloader/extractors_dl8.py",
+      "bulk_downloader/extractors_vixen.py"
+    ],
+    "tests/test_o1789_dax_pages.py": [
+      "bulk_downloader/gallerydl_updater.py",
+      "bulk_downloader/hydration_extractor.py",
+      "bulk_downloader/playlist_extractor.py",
+      "bulk_downloader/search_extractor.py"
     ],
     "tests/test_o1807_r1_template_promote_failclosed.py": [
       "bulk_downloader/app_template_manager.py",
@@ -6923,6 +7001,12 @@
       "bulk_downloader/satellite_video.py",
       "tools/fixture_site.py"
     ],
+    "tests/test_scs_fix_alerts_tg.py": [
+      "bulk_downloader/alerts_engine.py",
+      "bulk_downloader/app.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/tg_bot.py"
+    ],
     "tests/test_secret_display_never.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/app_settings_center.py",
@@ -7049,6 +7133,11 @@
       "bulk_downloader/runner_integrity.py",
       "bulk_downloader/stream_verifier.py"
     ],
+    "tests/test_stbfix_f6_budget_history_site_id_route.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/daily_budget.py",
+      "bulk_downloader/db.py"
+    ],
     "tests/test_storage_capture.py": [
       "bulk_downloader/capture_redact.py",
       "bulk_downloader/dom_capture.py",
@@ -7066,6 +7155,12 @@
     "tests/test_supplemental_recognizers_197.py": [
       "bulk_downloader/extraction_core.py",
       "tools/build_template_from_wacz.py"
+    ],
+    "tests/test_svam_fix_vpn_admin_misc.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/backup.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/user_accounts.py"
     ],
     "tests/test_sweep_n4_csv_injection.py": [
       "bulk_downloader/exports.py"
