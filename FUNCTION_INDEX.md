@@ -583,25 +583,25 @@ Schema version: 2
   - L0079 `QueueMixin._job_status_writer` `[private]`
   - L0082 `QueueMixin._restore_queue` `[private]` — Load persisted queue rows and rebuild self.urls / self.jobs.
   - L0138 `QueueMixin.load_urls` — Phase 7.4: when folder_scan=True, walk the configured download_dir
-  - L0436 `QueueMixin.reorder_urls`
-  - L0448 `QueueMixin.set_priority`
-  - L0458 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
-  - L0476 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
-  - L0514 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
-  - L0542 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
-  - L0567 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
-  - L0588 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
-  - L0596 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
-  - L0618 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
-  - L0642 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
-  - L0689 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
-  - L0704 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
-  - L0720 `QueueMixin.retry`
-  - L0722 `QueueMixin.clear`
-  - L0724 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
-  - L0730 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
-  - L0747 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
-  - L0752 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
+  - L0456 `QueueMixin.reorder_urls`
+  - L0468 `QueueMixin.set_priority`
+  - L0478 `QueueMixin.bulk_priority` — Apply priority to many URLs at once. High-priority URLs are
+  - L0496 `QueueMixin.bulk_delete` — Remove URLs from the queue and the job map. Does NOT touch
+  - L0534 `QueueMixin.bulk_approve` — Approve needs_review URLs to bypass the min_resolution threshold.
+  - L0562 `QueueMixin.bulk_pause` — v3.49 (#55): pause pending jobs without removing them. Pauses
+  - L0587 `QueueMixin.bulk_resume` — v3.49 (#55): un-pause stopped jobs. The inverse of bulk_pause.
+  - L0608 `QueueMixin.retryable_urls` — The given URLs whose existing job bulk_retry would re-queue (in
+  - L0616 `QueueMixin.bulk_retry` — v3.49: retry failed jobs in bulk. Resets retries counter so the
+  - L0638 `QueueMixin.bulk_reorder` — v3.49 (#56): rewrite the queue's order to match the supplied
+  - L0662 `QueueMixin.bulk_url_transform` — Phase 18.25: rewrite URLs in-place from a list of (old, new) pairs.
+  - L0709 `QueueMixin.clear_completed` — Drop URLs in `done` or `stopped` status from both the in-memory
+  - L0724 `QueueMixin.retry_failed` — Reset every failed job back to pending so the scheduler picks
+  - L0740 `QueueMixin.retry`
+  - L0742 `QueueMixin.clear`
+  - L0744 `QueueMixin.export_urls` — Return newline-joined URLs from the job map. Pass `status_filter`
+  - L0750 `QueueMixin._drain_url_queue` `[private]` — Drain leftover items from a previous run, repaying
+  - L0767 `QueueMixin.filter_jobs_by_paused_lanes` — Row 935: Filter jobs whose lane is currently paused due to challenge detection.
+  - L0772 `QueueMixin.is_lane_paused` — Row 935: Query if site lane is paused.
 ```
 
 

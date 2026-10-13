@@ -4,6 +4,14 @@ Versioning is loose — pre-3.43 was unstructured, 3.43+ is grouped by
 phase number. Notes here cover recent releases. The former pre-v3.46
 archive is not present in this repository; consult source-control history.
 
+## v3.66.1843 - train280: row
+
+T280 on main b0ea77a6 (4 members; operator O3026 via AGY, ORDER-operator-O3026-O3027-O3028.md + ORDER-pm-A3-A-T280-sequencing.md + GO-pm-A3-A-T280-add-BD-SEC-4.md + GO-pm-A3-A-T280-add-BD-SEC-5.md):
+SECURITY: BD-SEC-4 bk-high (backup restore allow-list F1 F2 F3 F5; BOARD x2 D152-D + D153-D); BD-SEC-5 (user-template config_defaults can no longer reach hooks._dispatch shell=True; ImportsCenter shows the refusal; BOARD x2 D156-D + D157-D).
+FIXES: ssqh-fix F4 (encoded site ids in SiteActions/SiteDetail/SitePayloadActions links; cx154 BOARD), q-import-export M2 M3 L1 L3 L6 L8 (export/import/queue/site-editor fixes, path-escape imports refused; D150-D BOARD).
+Deferred: dl-runner -> T281 (co-stages runner_queue.py with q-import-export, disjoint hunks). Other approved BD items stay for a later window.
+
+
 ## v3.66.1842 - train279: row
 
 T279 on main fe1b4dc9 (9 members; GO-train-harness-and-product.md, GO-pm-A3-A-trains-0745Z.md, GO-pm-A3-A-bd-window-add-0805Z.md; operator via AGY, O2814):

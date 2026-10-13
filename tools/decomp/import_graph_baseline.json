@@ -1,6 +1,6 @@
 {
   "baseline_version": "1",
-  "edge_count": 5920,
+  "edge_count": 5928,
   "edges": {
     "bulk_downloader/__init__.py": [
       "bulk_downloader/_envfile.py"
@@ -2658,6 +2658,17 @@
     "tests/test_bd_sec_1_config_secrets_never_echoed.py": [
       "bulk_downloader/app.py",
       "bulk_downloader/db.py"
+    ],
+    "tests/test_bd_sec_4_restore_allowlist.py": [
+      "bulk_downloader/backup.py",
+      "bulk_downloader/constants.py"
+    ],
+    "tests/test_bd_sec_5_template_config_allowlist.py": [
+      "bulk_downloader/app.py",
+      "bulk_downloader/app_sites_teach.py",
+      "bulk_downloader/app_state.py",
+      "bulk_downloader/db.py",
+      "bulk_downloader/user_templates.py"
     ],
     "tests/test_bd_watch_archive_default.py": [
       "bulk_downloader/app.py",
@@ -5376,6 +5387,9 @@
     ],
     "tests/test_pytest_module_graph.py": [
       "bulk_downloader/provenance.py"
+    ],
+    "tests/test_q_import_export_fixes.py": [
+      "bulk_downloader/app.py"
     ],
     "tests/test_qb_jd_completions_record_the_largest_media_file.py": [
       "bulk_downloader/db.py",
