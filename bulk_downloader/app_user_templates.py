@@ -47,9 +47,21 @@ def api_user_templates_create():
       - if url_attribute is a list, length must match row_selectors
 
     On validation failure returns 400 with {ok: false, error: "..."}.
+
+    dtr-fix F4: an ``id`` equal to a hand-written built-in's is refused (400).
+    Stored, it hid that built-in from /api/templates while get() still
+    returned the built-in. Only the seeded O1517 built-ins (user_ ids) may be
+    overridden by a user entry of the same id.
     """
     from . import user_templates as _ut
     data = request.json or {}
+    tid = data.get("id") or None
+    if tid is not None:
+        from .site_templates import SEEDED_BUILTIN_IDS, TEMPLATES
+        if str(tid) in {t["id"] for t in TEMPLATES} - SEEDED_BUILTIN_IDS:
+            return jsonify({"ok": False, "error":
+                            f"id {tid!r} is a built-in template id; user "
+                            "template ids are namespaced user_..."}), 400
     ok, result = _ut.save_user_template(
         name=str(data.get("name", "")),
         description=str(data.get("description", "")),
@@ -57,7 +69,7 @@ def api_user_templates_create():
         learned=data.get("learned") or {},
         config_defaults=data.get("config_defaults") or None,
         source=str(data.get("source", "user_teach")),
-        tid=data.get("id") or None,
+        tid=tid,
     )
     if not ok:
         return jsonify({"ok": False, "error": result}), 400
