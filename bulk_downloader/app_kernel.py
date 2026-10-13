@@ -926,6 +926,11 @@ _app_cfg = {
     "ai_model_text": "qwen2.5:7b",
     "ai_api_key": "",
     "ai_enabled": False,
+    # BD-WATCH-ARCHIVE: the folder watcher's default (move processed files to
+    # <watch_folder>/processed/). Seeded here so GET /api/global_config and
+    # /defaults expose it and Settings shows ON when app_config.json omits it;
+    # the watcher falls back to _APP_CFG_DEFAULTS, so there is one source.
+    "watch_archive": True,
 }
 # P6-8: frozen snapshot of the SHIPPED global-config defaults, captured BEFORE
 # _load_app_config() mutates _app_cfg in place. Served read-only at

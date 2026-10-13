@@ -2993,7 +2993,7 @@ def _watcher_loop(stop_event=None):
             if not folder:
                 stop_event.wait(5); continue
             interval = max(5, int((_app_cfg or {}).get("watch_interval_sec", 30) or 30))
-            archive = bool((_app_cfg or {}).get("watch_archive", True))
+            archive = bool((_app_cfg or {}).get("watch_archive", _APP_CFG_DEFAULTS["watch_archive"]))
             watch_dir = Path(folder)
             if not watch_dir.exists() or not watch_dir.is_dir():
                 stop_event.wait(interval); continue
