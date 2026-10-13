@@ -703,6 +703,88 @@ def _token_eq(sent: str, expected: str) -> bool:
         return False
 
 
+# BD-SEC-6 (F4): Host allow-list -- the DNS-rebinding defence. A rebinding page
+# is served from a domain the attacker owns whose DNS answer is then switched
+# to this server's address: to the browser every request it makes is
+# SAME-origin (Origin and Host both name the attacker's domain), so no Origin
+# check can see it. The one thing the attacker cannot choose is which names
+# are OURS. A request is served only when its Host header names this server:
+#   * an IP address literal (a name is what rebinding needs; an address is not one),
+#   * localhost, or a single-label name (no public DNS zone can serve one),
+#   * a name under a suffix that is never delegated on the public internet,
+#   * this machine's own hostname / FQDN,
+#   * a name the operator listed in app_config "allowed_hosts" (reverse proxy
+#     or public DNS name; a leading "." allows every name under that suffix).
+# Anything else is refused before any other check or handler runs.
+_PRIVATE_NAME_SUFFIXES = (".localhost", ".local", ".lan", ".home.arpa", ".internal")
+_own_host_names_cache = None
+
+
+def _own_host_names():
+    global _own_host_names_cache
+    if _own_host_names_cache is None:
+        names = set()
+        try:
+            import socket as _socket
+            for _n in (_socket.gethostname(), _socket.getfqdn()):
+                _n = (_n or "").strip().lower().rstrip(".")
+                if _n: names.add(_n)
+        except Exception:
+            pass
+        _own_host_names_cache = frozenset(names)
+    return _own_host_names_cache
+
+
+def _configured_allowed_hosts():
+    raw = _app_cfg.get("allowed_hosts") or []
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    return [str(h).strip().lower().rstrip(".") for h in raw if str(h).strip()]
+
+
+def _host_header_name(host_header: str) -> str:
+    """The hostname part of a Host header, lower-cased, without port, IPv6
+    brackets or a trailing dot. "" when there is none to judge."""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        end = h.find("]")
+        return h[1:end] if end > 0 else ""
+    if h.count(":") == 1:
+        h = h.split(":", 1)[0]
+    return h.rstrip(".")
+
+
+def _host_allowed(host_header: str) -> bool:
+    if not (host_header or "").strip():
+        return True   # no Host header at all: not a browser, nothing to rebind
+    name = _host_header_name(host_header)
+    if not name:
+        return False
+    try:
+        import ipaddress as _ipaddress
+        _ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    if name == "localhost" or "." not in name:
+        return True
+    if name.endswith(_PRIVATE_NAME_SUFFIXES) or name in _own_host_names():
+        return True
+    for allowed in _configured_allowed_hosts():
+        if name == allowed or (allowed.startswith(".") and name.endswith(allowed)):
+            return True
+    return False
+
+
+@app.before_request
+def _check_host():
+    if _host_allowed(request.headers.get("Host", "")):
+        return None
+    return jsonify({"error": "host not allowed",
+                    "hint": "open the app by its IP address, or list this "
+                            "name under \"allowed_hosts\" in app_config.json"}), 403
+
+
 @app.before_request
 def _check_token():
     _toks = _accepted_tokens()        # v3.66.317: primary + optional secondary
@@ -735,45 +817,31 @@ def _check_token():
     # uptime, queue depth) so the unauth surface is intentional.
     if path == "/api/health":
         return None
+    # BD-SEC-6: the QR pairing redeem is the login itself -- the one-shot
+    # pairing token in its body IS the credential (minted by an already
+    # authenticated /api/pair call), so a client with no session yet must be
+    # able to reach it. The handler refuses an unknown / spent / expired token.
+    if path == "/api/pair/redeem":
+        return None
     # Phase 40: a redeemed session cookie counts as authenticated. The
     # cookie is set by /api/pair/redeem in exchange for a one-shot QR
     # pairing token. Lets a phone authenticate by scanning, without
     # ever seeing the bearer token.
+    #
+    # BD-SEC-6 (F1): ONLY a session created by a real login counts. The
+    # anonymous session that GET / and /api/csrf mint for anyone
+    # (source="csrf_bootstrap") exists to carry the CSRF double-submit and
+    # proves nothing about the caller; accepting it let any client that
+    # fetched "/" read and write the whole API on a token-protected install.
     sess_cookie = request.cookies.get("bd_session", "")
-    if sess_cookie and _session_valid(sess_cookie):
+    if sess_cookie and _session_authenticated(sess_cookie):
         _session_touch(sess_cookie)
         return None
-    # Same-origin browser requests carry the Referer; we accept those too
-    # so the user doesn't have to wire a token through the JS. Operator
-    # who wants strict can disable this in Phase 26.
-    #
-    # v3.43.16: the previous `host in ref` substring check could be bypassed
-    # by an attacker page whose URL *contained* the victim's host as a path
-    # component — e.g. https://evil.com/10.0.70.181:5555/x. Browser sets the
-    # Referer to that URL, and "10.0.70.181:5555" appears as a substring →
-    # check passes despite request not actually coming from our origin.
-    # Now we parse the Referer and compare hostnames + ports.
-    ref = request.headers.get("Referer", "")
-    host = request.headers.get("Host", "")
-    if ref and host:
-        try:
-            from urllib.parse import urlparse
-            r = urlparse(ref)
-            # Build the referer's host:port (netloc minus userinfo/path).
-            ref_netloc = (r.hostname or "").lower()
-            if r.port:
-                ref_netloc = f"{ref_netloc}:{r.port}"
-            host_lc = host.lower()
-            # Accept either bare host or host:port match. Strip default ports
-            # so "example.com:80" matches "example.com" for http.
-            if r.scheme == "http" and r.port == 80:
-                ref_netloc = r.hostname.lower()
-            elif r.scheme == "https" and r.port == 443:
-                ref_netloc = r.hostname.lower()
-            if ref_netloc == host_lc:
-                return None
-        except Exception:
-            pass  # malformed Referer — fall through, require Bearer
+    # BD-SEC-6 (F2): there is NO Referer-based authentication. Referer and
+    # Host are both request headers the client writes, so "Referer host ==
+    # Host" was true for any caller that chose to send it. A browser on a
+    # token-protected install authenticates with a login session (above);
+    # everything else presents a token (below).
     # Check Authorization header
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and any(_token_eq(auth[7:].strip(), t) for t in _toks):
@@ -908,6 +976,24 @@ def _session_valid(token: str) -> bool:
         return True
 
 
+# BD-SEC-6: the session sources that are a LOGIN -- the caller proved a
+# credential to get one. Everything else (the anonymous "csrf_bootstrap"
+# session, the "manual" default, any source added later and not listed here)
+# is a CSRF carrier only and never authenticates a request. Fail-closed: a new
+# source authenticates nothing until it is added here on purpose.
+_LOGIN_SESSION_SOURCES = frozenset({"pair_redeem"})
+
+
+def _session_authenticated(token: str) -> bool:
+    """True iff the session is live AND was created by a real login
+    (_LOGIN_SESSION_SOURCES). _session_valid alone says only that the cookie
+    names a live session -- which anyone gets from GET /."""
+    if not _session_valid(token): return False
+    with _session_lock:
+        rec = _sessions.get(token)
+        return bool(rec) and rec.get("source") in _LOGIN_SESSION_SOURCES
+
+
 def _session_touch(token: str) -> None:
     """Slide the idle TTL by updating last_used."""
     with _session_lock:
@@ -1018,26 +1104,36 @@ def _check_csrf():
     # and (unlike Referer) is not suppressed by referrer-policy. A same-origin or
     # absent Origin falls through to the existing checks, so same-origin browser
     # use and non-browser clients are unaffected.
+    #
+    # BD-SEC-6 (F3): an Origin header that is PRESENT must name this request's
+    # own Host, or the request is refused. `Origin: null` (a sandboxed frame, a
+    # file:// or data: page, a redirected cross-site form) and an Origin that
+    # does not parse used to produce an empty netloc and fall through as if no
+    # Origin had been sent; both are cross-origin by definition. The app's own
+    # pages send their real Origin (Referrer-Policy strict-origin-when-cross-origin).
     origin = request.headers.get("Origin", "")
     if origin:
         host = request.headers.get("Host", "")
+        same_origin = False
         try:
             from urllib.parse import urlparse
             o = urlparse(origin)
             o_netloc = (o.hostname or "").lower()
             # Keep an explicit non-default port; strip the default (80/443) so
-            # "host:80"/"host:443" match a bare "host" — mirrors _check_token.
+            # "host:80"/"host:443" match a bare "host".
             if o.port and not ((o.scheme == "http" and o.port == 80)
                                or (o.scheme == "https" and o.port == 443)):
                 o_netloc = f"{o_netloc}:{o.port}"
-            if host and o_netloc and o_netloc != host.lower():
-                return jsonify({"error": "cross-origin request refused",
-                                "hint": "state-changing /api/ requests must be "
-                                        "same-origin"}), 403
+            same_origin = bool(host and o_netloc and o_netloc == host.lower())
         except Exception:
-            pass  # malformed Origin — fall through to the existing checks
-    # No session? CSRF doesn't apply (the existing same-origin Referer
-    # check in _check_token is the defense)
+            same_origin = False   # malformed Origin: not provably ours
+        if not same_origin:
+            return jsonify({"error": "cross-origin request refused",
+                            "hint": "state-changing /api/ requests must be "
+                                    "same-origin"}), 403
+    # No session? The double-submit doesn't apply: a cookie-less caller is
+    # not cookie-authenticated (BD-SEC-6: _check_token accepts a token or a
+    # login session only), and the Origin check above already ran.
     sess = request.cookies.get("bd_session", "")
     if not sess: return None
     # The bootstrap exemption is CSRF_EXEMPT_PATHS, above — the same object the
@@ -1246,6 +1342,8 @@ def _bootstrap_session(response):
     hook becomes a no-op (the request is marked).
     """
     if request.method != "GET": return response
+    # BD-SEC-6 (F4): a request refused by the Host allow-list gets nothing.
+    if not _host_allowed(request.headers.get("Host", "")): return response
     # Phase 1 root flip (v3.66.203): the hook covers both HTML shells —
     # "/" (the SPA: cookie warmth so the first /api/csrf finds a valid
     # session and the first POST never races a Set-Cookie). The legacy
