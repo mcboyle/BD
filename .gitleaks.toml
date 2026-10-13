@@ -19,6 +19,10 @@ regexes = ['''sk-EVALSECRET[0-9]+''']
 
 [allowlist]
 description = "Recorded capture corpora"
+# 2. BD-SEC-1 synthetic canaries (train279): tests/test_bd_sec_1_config_secrets_never_echoed.py plants
+#    fake secret values to prove /api/global_config + notify never echo them. Narrow: only the
+#    literal bdsec1-canary-<name>-<4 capitals> shape; any real secret still fires.
+regexes = ['''bdsec1-canary-[a-z-]+-[A-Z]{4}''']
 paths = [
   # Real captures from authenticated member sites, recorded 2026-05-14.
   # All embedded JWTs EXPIRED 2026-05-14..16 and cannot be replayed.
