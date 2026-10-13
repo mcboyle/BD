@@ -67,7 +67,14 @@ _BASELINE = Path(__file__).resolve().parent / "route_map_baseline.txt"
 # POST /api/discovery/scenes/stop (app_discovery.api_discovery_scenes_stop), the
 # stop for a scene discovery run that the start/status pair never had. Baseline
 # 1018 -> 1019 lines with exactly that addition.
-_BASELINE_SHA = "e16967cf982ba5ccb94e29264ccad9ab480d761a2e1fbc799ac9f7342f5a6e27"
+# stb-fix F6: re-frozen. ONE route RE-PATHED, none added or removed: GET
+# /api/daily_budget/history/<sid> -> <path:sid> (app_daily_budget.api_daily_budget_history), so a
+# percent-encoded site id holding "/" routes instead of 404ing. Baseline stays 1019 lines; exactly
+# that one line changed (verified by diffing the regenerated snapshot). INTENTIONAL, stated here.
+# stb-fix F6 r3: re-frozen. ONE route ADDED, none removed or re-pathed: GET /api/daily_budget/history
+# (same view, api_daily_budget_history) taking ?site=<id>, because a path segment cannot carry ".." or
+# "/../x". Baseline 1019 -> 1020 lines with exactly that addition. INTENTIONAL, stated here.
+_BASELINE_SHA = "e96c6dda39d49f354b3b688b2051b65a7a217d65ea87af84a6a282ea723df464"
 
 
 def _live_snapshot() -> str:

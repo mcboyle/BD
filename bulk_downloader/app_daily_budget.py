@@ -48,9 +48,19 @@ def api_daily_budget_reset(sid):
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
-@daily_budget_bp.route("/api/daily_budget/history/<sid>")
-def api_daily_budget_history(sid):
-    """Daily usage history for charting. Query: ?days=30 (max 365)."""
+@daily_budget_bp.route("/api/daily_budget/history")
+@daily_budget_bp.route("/api/daily_budget/history/<path:sid>")
+def api_daily_budget_history(sid=None):
+    """Daily usage history for charting. Query: ?days=30 (max 365); ?site=<id> on the bare route.
+
+    stb-fix F6: ids are opaque keys (any loaded sites_config key must be readable), and a
+    path segment cannot carry every id -- the server decodes %2F before routing, and
+    browsers normalize "..", "/../x". The SPA therefore sends ?site=<id>; the path form
+    (<path:sid>) stays for plain ids and existing callers."""
+    if sid is None:
+        sid = request.args.get("site", "")
+        if not sid:
+            return jsonify({"error": "site query parameter required"}), 400
     try:
         from . import daily_budget as _db_budget
         days = min(365, max(1, int(request.args.get("days", 30))))
