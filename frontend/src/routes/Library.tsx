@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Play, RotateCcw, Square, Trash2 } from "lucide-react";
+import { LayoutGrid, Link2, List, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -78,9 +78,37 @@ type Pending =
   | { kind: "tagRename"; from: string; to: string; token: "" }
   | { kind: "regenNfos"; overwrite: boolean; token: "" };
 
+// F019 — the Items card renders as a list (default) or a card grid. The choice
+// is page-local and survives a reload via localStorage; anything other than
+// the literal "grid" reads back as "list".
+type ItemView = "list" | "grid";
+const ITEM_VIEW_KEY = "bd-library-view";
+const ITEM_VIEW_OPTS: ReadonlyArray<{ value: ItemView; label: string; Icon: typeof List }> = [
+  { value: "list", label: "List", Icon: List },
+  { value: "grid", label: "Grid", Icon: LayoutGrid },
+];
+
+function readItemView(): ItemView {
+  try {
+    return window.localStorage.getItem(ITEM_VIEW_KEY) === "grid" ? "grid" : "list";
+  } catch {
+    return "list";
+  }
+}
+
 export function Library() {
   const qc = useQueryClient();
   const { isCompact } = useDensity();
+  const [itemView, setItemViewState] = useState<ItemView>(readItemView);
+  const setItemView = (v: ItemView) => {
+    setItemViewState(v);
+    try {
+      window.localStorage.setItem(ITEM_VIEW_KEY, v);
+    } catch {
+      /* localStorage blocked — the view still switches for this visit */
+    }
+  };
+  const isGrid = itemView === "grid";
 
   const items = useQuery<LibraryBrowse, Error>({
     queryKey: ["library", "browse"],
@@ -357,6 +385,30 @@ export function Library() {
       <Card className="mt-4 p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="section-head mb-0">Items</h2>
+          <div
+            role="group"
+            aria-label="Item view"
+            className="ml-auto inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-2 p-0.5"
+          >
+            {ITEM_VIEW_OPTS.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={itemView === value}
+                aria-label={label}
+                title={`${label} view`}
+                onClick={() => setItemView(value)}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                  itemView === value
+                    ? "bg-surface text-ink shadow-xs"
+                    : "text-ink-3 hover:text-ink"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
           {!!items.data?.rows?.length && (
             <SortSelect
               options={ITEM_SORT_OPTS}
@@ -384,11 +436,18 @@ export function Library() {
         ) : !visibleItems.length ? (
           <p className="text-sm text-ink-3">No items match</p>
         ) : (
-          <ul className="divide-y divide-border">
+          <ul
+            data-view={itemView}
+            className={isGrid ? "grid grid-cols-1 gap-2 sm:grid-cols-2" : "divide-y divide-border"}
+          >
             {visibleItems.map((it) => (
               <li
                 key={it.id}
-                className={`flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`}
+                className={
+                  isGrid
+                    ? `hairline flex flex-col gap-2 rounded-md ${isCompact ? "p-1.5" : "p-3"}`
+                    : `flex items-center justify-between ${isCompact ? "py-0.5" : "py-2"}`
+                }
               >
                 <span className="text-sm">
                   <span className="text-muted-foreground">#{it.id}</span>{" "}
@@ -401,7 +460,7 @@ export function Library() {
                     {itemLabel(it)}
                   </button>
                 </span>
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 ${isGrid ? "flex-wrap" : ""}`}>
                   <select
                     value={typeof it.rating === "number" ? String(it.rating) : ""}
                     onChange={(e) =>
