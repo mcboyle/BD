@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -104,6 +104,13 @@ interface TemplatesResponse {
   ok: boolean;
   templates: SiteTemplate[];
 }
+// PUT /api/sites/<id> {password}: 200 with one of these flags means the
+// password was NOT stored (app.py _vault_guard_for_password).
+interface CredentialPutResponse {
+  ok?: boolean;
+  secrets_locked?: boolean;
+  secrets_plaintext?: boolean;
+}
 interface CreateResult {
   id?: string;
   cred_stored?: boolean;
@@ -131,6 +138,10 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
   const [draft, setDraft] = useState<SiteConfigDraft>(EMPTY_DRAFT);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [validating, setValidating] = useState(false);
+  // The draft object the current `validation` answer is ABOUT. Until the
+  // debounce fires and the validator answers for the draft on screen, the
+  // answer in hand belongs to an older draft and must not enable Add.
+  const [validatedDraft, setValidatedDraft] = useState<SiteConfigDraft | null>(null);
   // Template picker sub-view + the chosen template (applied after create).
   const [pickerOpen, setPickerOpen] = useState(false);
   const [template, setTemplate] = useState<{ id: string; name: string } | null>(null);
@@ -168,12 +179,16 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
     );
     if (!hasAnyValue) {
       setValidation(null);
+      setValidatedDraft(debounced);
       return;
     }
     const ac = new AbortController();
     setValidating(true);
     apiPost<ValidationResult>("/api/sites/validate", debounced, ac.signal)
-      .then((res) => setValidation(res))
+      .then((res) => {
+        setValidation(res);
+        setValidatedDraft(debounced);
+      })
       .catch((err) => {
         if (err.name !== "AbortError") {
           setValidation({
@@ -181,6 +196,7 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
             errors: [],
             warnings: [`Inline validator unavailable: ${err.message}`],
           });
+          setValidatedDraft(debounced);
         }
       })
       .finally(() => setValidating(false));
@@ -256,6 +272,7 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
   const warnings = validation?.warnings ?? [];
   const canSave =
     !validating &&
+    validatedDraft === draft &&
     !createMut.isPending &&
     errors.length === 0 &&
     draft.name.trim() !== "";
@@ -627,10 +644,24 @@ export function AddSiteWizard({ open, onOpenChange }: AddSiteWizardProps) {
           // re-POST (a re-POST would create a duplicate site).
           if (createdId && draft.password) {
             try {
-              await apiPut(`/api/sites/${encodeURIComponent(createdId)}`, {
-                password: draft.password,
-              });
-              toast.success("Credential stored.");
+              // A 2xx is not "stored": the vault can re-lock, or the backend
+              // flip to plaintext, between the unlock and this PUT, and the
+              // server then answers ok with a flag and stores nothing.
+              const res = await apiPut<CredentialPutResponse>(
+                `/api/sites/${encodeURIComponent(createdId)}`,
+                { password: draft.password },
+              );
+              if (res?.secrets_locked) {
+                toast.error(
+                  "Credential not stored: the vault is locked again. Unlock it, then re-enter the password in the site's settings.",
+                );
+              } else if (res?.secrets_plaintext) {
+                toast.error(
+                  "Credential not stored: the secrets backend is plaintext. Switch to an encrypted backend in Settings → Secrets, then re-enter the password.",
+                );
+              } else {
+                toast.success("Credential stored.");
+              }
             } catch (e) {
               toast.error(`Couldn't store credential: ${(e as Error).message}`);
             }
@@ -759,11 +790,23 @@ function VaultUnlockDialog({
     }
   }, [open]);
 
+  // One unlock at a time. `isPending` only flips on the next render, so a
+  // second Enter in the same tick needs a ref; each extra POST with a wrong
+  // password would also count against the auth throttle.
+  const unlocking = useRef(false);
   const unlockMut = useMutation<{ ok: boolean }, Error, string>({
     mutationFn: (pw) => apiPost<{ ok: boolean }>("/api/secrets/unlock", { password: pw }),
     onSuccess: () => onUnlocked(),
     onError: (e) => setErr(e.message),
+    onSettled: () => {
+      unlocking.current = false;
+    },
   });
+  const submitUnlock = () => {
+    if (!password || unlocking.current) return;
+    unlocking.current = true;
+    unlockMut.mutate(password);
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -788,7 +831,7 @@ function VaultUnlockDialog({
               setErr(null);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && password) unlockMut.mutate(password);
+              if (e.key === "Enter") submitUnlock();
             }}
             placeholder="Vault master password"
             ariaLabel="Vault master password"
@@ -805,7 +848,7 @@ function VaultUnlockDialog({
             <Button
               size="sm"
               disabled={!password || unlockMut.isPending}
-              onClick={() => unlockMut.mutate(password)}
+              onClick={submitUnlock}
             >
               {unlockMut.isPending ? "Unlocking…" : "Unlock & save"}
             </Button>
