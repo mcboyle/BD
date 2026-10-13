@@ -31,7 +31,16 @@ def api_stream_token(hid):
     _check_csrf()
     body = request.json or {}
     try:
+        from . import db as _db
         from . import stream_relay as _sr
+        # dsw-fix F2: a token is a read grant for one row's file; never mint
+        # one for a row that does not exist.
+        with _db.db_conn() as cx:
+            row = cx.execute("SELECT 1 FROM history WHERE id = ?",
+                             (hid,)).fetchone()
+        if row is None:
+            return jsonify({"ok": False,
+                            "error": f"history row {hid} not found"}), 404
         token = _sr.generate_token(hid,
             ttl_seconds=int(body.get("ttl_seconds", 3600)))
         return jsonify({"ok": True, "token": token, "history_id": hid})
